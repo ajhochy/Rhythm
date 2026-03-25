@@ -1,0 +1,23 @@
+name: Desktop CI
+
+on:
+  pull_request:
+    paths:
+      - 'apps/desktop_flutter/**'
+      - '.github/workflows/desktop_ci.yml'
+
+jobs:
+  desktop-checks:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/desktop_flutter
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 'stable'
+      - run: flutter pub get
+      - run: dart format --output=none --set-exit-if-changed .
+      - run: flutter analyze
+      - run: flutter test

@@ -1,0 +1,30 @@
+# macOS
+.DS_Store
+
+# Flutter / Dart
+**/.dart_tool/
+**/.flutter-plugins
+**/.flutter-plugins-dependencies
+**/.packages
+**/build/
+**/ios/Flutter/.last_build_id
+**/pubspec.lock
+
+# Node / TypeScript
+**/node_modules/
+**/dist/
+**/*.tsbuildinfo
+npm-debug.log*
+
+# IDEs
+.vscode/
+.idea/
+*.iml
+
+# Env
+.env
+.env.*
+
+# Logs
+*.log
+coverage/
