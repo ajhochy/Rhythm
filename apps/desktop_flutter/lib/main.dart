@@ -5,6 +5,8 @@ import 'package:window_manager/window_manager.dart';
 import 'app/core/constants/app_constants.dart';
 import 'app/core/layout/app_shell.dart';
 import 'app/theme/app_theme.dart';
+import 'app/core/updates/update_controller.dart';
+import 'app/core/updates/update_service.dart';
 import 'features/projects/controllers/project_template_controller.dart';
 import 'features/projects/data/projects_local_data_source.dart';
 import 'features/projects/repositories/projects_repository.dart';
@@ -78,6 +80,9 @@ class RhythmApp extends StatelessWidget {
           create: (_) => IntegrationsController(
             IntegrationsRepository(IntegrationsDataSource()),
           ),
+        ),
+        ChangeNotifierProvider(
+          create: (_) => UpdateController(UpdateService())..initialize(),
         ),
       ],
       child: MaterialApp(
