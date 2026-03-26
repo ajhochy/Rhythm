@@ -14,8 +14,11 @@ import 'features/integrations/repositories/integrations_repository.dart';
 import 'features/rhythms/controllers/rhythms_controller.dart';
 import 'features/rhythms/data/rhythms_data_source.dart';
 import 'features/rhythms/repositories/rhythms_repository.dart';
+import 'features/tasks/controllers/automation_rules_controller.dart';
 import 'features/tasks/controllers/tasks_controller.dart';
+import 'features/tasks/data/automation_rules_data_source.dart';
 import 'features/tasks/data/tasks_local_data_source.dart';
+import 'features/tasks/repositories/automation_rules_repository.dart';
 import 'features/tasks/repositories/tasks_repository.dart';
 import 'features/weekly_planner/controllers/weekly_planner_controller.dart';
 import 'features/weekly_planner/data/weekly_plan_data_source.dart';
@@ -49,6 +52,11 @@ class RhythmApp extends StatelessWidget {
         ChangeNotifierProvider(
           create: (_) => TasksController(
             TasksRepository(TasksLocalDataSource()),
+          ),
+        ),
+        ChangeNotifierProvider(
+          create: (_) => AutomationRulesController(
+            AutomationRulesRepository(AutomationRulesDataSource()),
           ),
         ),
         ChangeNotifierProvider(

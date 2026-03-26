@@ -1,6 +1,7 @@
 // ignore_for_file: use_build_context_synchronously
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../../../app/core/widgets/error_banner.dart';
 import '../../tasks/models/task.dart';
 import '../controllers/weekly_planner_controller.dart';
 import '../models/weekly_plan.dart';
@@ -37,7 +38,7 @@ class _WeeklyPlannerViewState extends State<WeeklyPlannerView> {
             ),
             if (controller.status == WeeklyPlannerStatus.error &&
                 controller.errorMessage != null)
-              _ErrorBanner(
+              ErrorBanner(
                   message: controller.errorMessage!, onRetry: controller.load),
             Expanded(
               child: _PlannerBody(
@@ -172,43 +173,6 @@ class _WeekHeader extends StatelessWidget {
       'Dec',
     ];
     return 'Week of ${months[monday.month - 1]} ${monday.day}, ${monday.year}';
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Error banner
-// ---------------------------------------------------------------------------
-
-class _ErrorBanner extends StatelessWidget {
-  const _ErrorBanner({required this.message, required this.onRetry});
-  final String message;
-  final VoidCallback onRetry;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
-      color: Theme.of(context).colorScheme.errorContainer,
-      child: Row(
-        children: [
-          Icon(Icons.error_outline,
-              color: Theme.of(context).colorScheme.onErrorContainer, size: 18),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              message,
-              style: TextStyle(
-                  color: Theme.of(context).colorScheme.onErrorContainer,
-                  fontSize: 13),
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
-          TextButton(onPressed: onRetry, child: const Text('Retry')),
-        ],
-      ),
-    );
   }
 }
 

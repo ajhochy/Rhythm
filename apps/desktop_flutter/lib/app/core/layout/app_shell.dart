@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../../features/integrations/views/integrations_view.dart';
 import '../../../features/projects/views/projects_view.dart';
 import '../../../features/rhythms/views/rhythms_view.dart';
+import '../../../features/tasks/views/automation_rules_view.dart';
 import '../../../features/tasks/views/tasks_view.dart';
 import '../../../features/weekly_planner/views/weekly_planner_view.dart';
 import 'navigation_sidebar.dart';
@@ -21,6 +22,7 @@ class _AppShellState extends State<AppShell> {
     TasksView(),
     RhythmsView(),
     ProjectsView(),
+    AutomationRulesView(),
     IntegrationsView(),
   ];
 

@@ -17,3 +17,8 @@ export function initDb(): void {
   _db.pragma('foreign_keys = ON');
   runMigrations(_db);
 }
+
+/** For tests only — inject a pre-configured in-memory database instance. */
+export function setDb(db: Database.Database): void {
+  _db = db;
+}

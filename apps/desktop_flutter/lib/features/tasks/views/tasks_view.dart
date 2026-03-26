@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../../../app/core/widgets/error_banner.dart';
 import '../controllers/tasks_controller.dart';
 import '../models/task.dart';
 // ignore_for_file: use_build_context_synchronously
@@ -68,8 +69,10 @@ class _TasksViewState extends State<TasksView> {
           children: [
             _buildHeader(context),
             if (controller.status == TasksStatus.error)
-              _buildErrorBanner(
-                  controller.errorMessage ?? 'Unknown error', controller),
+              ErrorBanner(
+                message: controller.errorMessage ?? 'Unknown error',
+                onRetry: controller.load,
+              ),
             Expanded(child: _buildTaskList(controller)),
             _buildCreateBar(context),
           ],
@@ -95,15 +98,6 @@ class _TasksViewState extends State<TasksView> {
           ),
         ],
       ),
-    );
-  }
-
-  Widget _buildErrorBanner(String message, TasksController controller) {
-    return MaterialBanner(
-      content: Text(message),
-      actions: [
-        TextButton(onPressed: controller.load, child: const Text('Retry')),
-      ],
     );
   }
 
