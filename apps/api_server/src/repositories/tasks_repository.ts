@@ -44,10 +44,10 @@ export class TasksRepository {
     const now = new Date().toISOString();
     getDb()
       .prepare(
-        `INSERT INTO tasks (id, title, due_date, status, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO tasks (id, title, due_date, status, source_type, source_id, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       )
-      .run(id, data.title, data.dueDate ?? null, data.status ?? 'open', now, now);
+      .run(id, data.title, data.dueDate ?? null, data.status ?? 'open', data.sourceType ?? null, data.sourceId ?? null, now, now);
     return this.findById(id);
   }
 

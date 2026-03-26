@@ -8,6 +8,9 @@ import 'app/theme/app_theme.dart';
 import 'features/projects/controllers/project_template_controller.dart';
 import 'features/projects/data/projects_local_data_source.dart';
 import 'features/projects/repositories/projects_repository.dart';
+import 'features/rhythms/controllers/rhythms_controller.dart';
+import 'features/rhythms/data/rhythms_data_source.dart';
+import 'features/rhythms/repositories/rhythms_repository.dart';
 import 'features/tasks/controllers/tasks_controller.dart';
 import 'features/tasks/data/tasks_local_data_source.dart';
 import 'features/tasks/repositories/tasks_repository.dart';
@@ -45,6 +48,11 @@ class RhythmApp extends StatelessWidget {
         ChangeNotifierProvider(
           create: (_) => ProjectTemplateController(
             ProjectsRepository(ProjectsLocalDataSource()),
+          ),
+        ),
+        ChangeNotifierProvider(
+          create: (_) => RhythmsController(
+            RhythmsRepository(RhythmsDataSource()),
           ),
         ),
       ],

@@ -48,6 +48,15 @@ export function runMigrations(db: Database.Database): void {
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
+    CREATE TABLE IF NOT EXISTS project_instance_steps (
+      id TEXT PRIMARY KEY,
+      instance_id TEXT NOT NULL REFERENCES project_instances(id) ON DELETE CASCADE,
+      step_id TEXT NOT NULL REFERENCES project_template_steps(id),
+      title TEXT NOT NULL,
+      due_date TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'open'
+    );
+
     CREATE TABLE IF NOT EXISTS weekly_plans (
       id TEXT PRIMARY KEY,
       week_label TEXT NOT NULL UNIQUE,
