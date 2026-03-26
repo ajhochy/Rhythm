@@ -95,8 +95,7 @@ class WeeklyPlannerController extends ChangeNotifier {
   Future<void> toggleTaskDone(Task task, bool currentlyDone) async {
     try {
       await _repository.updateTask(task.id,
-          status: currentlyDone ? 'open' : 'done',
-          sourceType: task.sourceType);
+          status: currentlyDone ? 'open' : 'done', sourceType: task.sourceType);
       await load();
     } catch (e) {
       _errorMessage = e.toString();
@@ -124,7 +123,8 @@ class WeeklyPlannerController extends ChangeNotifier {
   Future<void> bulkToggleSelectedTasks(
       List<Task> tasks, String targetStatus) async {
     try {
-      final selected = tasks.where((task) => _selectedTaskIds.contains(task.id));
+      final selected =
+          tasks.where((task) => _selectedTaskIds.contains(task.id));
       for (final task in selected) {
         await _repository.updateTask(task.id,
             status: targetStatus, sourceType: task.sourceType);

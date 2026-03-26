@@ -8,14 +8,16 @@ import '../models/planning_center_task_options.dart';
 import '../models/planning_center_task_preferences.dart';
 
 class IntegrationsDataSource {
-  final _accountsBase = Uri.parse('${AppConstants.apiBaseUrl}/integrations/accounts');
+  final _accountsBase =
+      Uri.parse('${AppConstants.apiBaseUrl}/integrations/accounts');
 
   Future<List<IntegrationAccount>> fetchAccounts() async {
     final response = await http.get(_accountsBase);
     _assertOk(response);
     final list = jsonDecode(response.body) as List<dynamic>;
     return list
-        .map((item) => IntegrationAccount.fromJson(item as Map<String, dynamic>))
+        .map(
+            (item) => IntegrationAccount.fromJson(item as Map<String, dynamic>))
         .toList();
   }
 
@@ -57,7 +59,8 @@ class IntegrationsDataSource {
     _assertOk(response);
   }
 
-  Future<PlanningCenterTaskPreferences> fetchPlanningCenterTaskPreferences() async {
+  Future<PlanningCenterTaskPreferences>
+      fetchPlanningCenterTaskPreferences() async {
     final response = await http.get(
       Uri.parse(
         '${AppConstants.apiBaseUrl}/integrations/planning-center/task-preferences',
