@@ -80,11 +80,31 @@ codesign --force --deep --options runtime \
 
 codesign --force --sign "${IDENTITY_SHA}" "${DMG_PATH}"
 
+NOTARY_OUTPUT="$(mktemp -t rhythm-notary-output)"
+NOTARY_LOG="$(mktemp -t rhythm-notary-log)"
+
 xcrun notarytool submit "${DMG_PATH}" \
   --apple-id "${APPLE_ID}" \
   --password "${APPLE_APP_SPECIFIC_PASSWORD}" \
   --team-id "${APPLE_TEAM_ID}" \
-  --wait
+  --wait \
+  > "${NOTARY_OUTPUT}"
+
+SUBMISSION_ID="$(awk '/id:/ { print $2; exit }' "${NOTARY_OUTPUT}")"
+NOTARY_STATUS="$(awk '/status:/ { print $2; exit }' "${NOTARY_OUTPUT}")"
+
+cat "${NOTARY_OUTPUT}"
+
+if [[ "${NOTARY_STATUS}" == "Invalid" && -n "${SUBMISSION_ID}" ]]; then
+  echo "Fetching Apple notarization log for submission ${SUBMISSION_ID}..."
+  xcrun notarytool log "${SUBMISSION_ID}" \
+    --apple-id "${APPLE_ID}" \
+    --password "${APPLE_APP_SPECIFIC_PASSWORD}" \
+    --team-id "${APPLE_TEAM_ID}" \
+    > "${NOTARY_LOG}" || true
+  cat "${NOTARY_LOG}" || true
+  exit 1
+fi
 
 xcrun stapler staple "${APP_PATH}"
 xcrun stapler staple "${DMG_PATH}"
