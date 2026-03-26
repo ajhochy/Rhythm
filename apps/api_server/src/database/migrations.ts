@@ -65,4 +65,13 @@ export function runMigrations(db: Database.Database): void {
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
   `);
+
+  // Additive column migrations — safe to run on existing DBs
+  const taskCols = (db.pragma('table_info(tasks)') as { name: string }[]).map((c) => c.name);
+  if (!taskCols.includes('scheduled_date')) {
+    db.exec(`ALTER TABLE tasks ADD COLUMN scheduled_date TEXT`);
+  }
+  if (!taskCols.includes('locked')) {
+    db.exec(`ALTER TABLE tasks ADD COLUMN locked INTEGER NOT NULL DEFAULT 0`);
+  }
 }

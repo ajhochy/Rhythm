@@ -7,6 +7,8 @@ interface TaskRow {
   id: string;
   title: string;
   due_date: string | null;
+  scheduled_date: string | null;
+  locked: number;
   status: string;
   source_type: string | null;
   source_id: string | null;
@@ -19,6 +21,8 @@ function rowToTask(row: TaskRow): Task {
     id: row.id,
     title: row.title,
     dueDate: row.due_date,
+    scheduledDate: row.scheduled_date ?? null,
+    locked: row.locked === 1,
     status: row.status as Task['status'],
     sourceType: row.source_type,
     sourceId: row.source_id,
@@ -39,6 +43,17 @@ export class TasksRepository {
     return rowToTask(row);
   }
 
+  findByWeek(weekStart: string, weekEnd: string): Task[] {
+    const rows = getDb()
+      .prepare(
+        `SELECT * FROM tasks
+         WHERE (due_date BETWEEN ? AND ? OR scheduled_date BETWEEN ? AND ?)
+         ORDER BY due_date ASC, created_at ASC`,
+      )
+      .all(weekStart, weekEnd, weekStart, weekEnd) as TaskRow[];
+    return rows.map(rowToTask);
+  }
+
   create(data: CreateTaskDto): Task {
     const id = uuidv4();
     const now = new Date().toISOString();
@@ -56,12 +71,14 @@ export class TasksRepository {
     const now = new Date().toISOString();
     getDb()
       .prepare(
-        `UPDATE tasks SET title = ?, due_date = ?, status = ?, updated_at = ? WHERE id = ?`,
+        `UPDATE tasks SET title = ?, due_date = ?, status = ?, scheduled_date = ?, locked = ?, updated_at = ? WHERE id = ?`,
       )
       .run(
         data.title ?? existing.title,
         data.dueDate !== undefined ? data.dueDate : existing.dueDate,
         data.status ?? existing.status,
+        data.scheduledDate !== undefined ? data.scheduledDate : existing.scheduledDate,
+        data.locked !== undefined ? (data.locked ? 1 : 0) : (existing.locked ? 1 : 0),
         now,
         id,
       );
