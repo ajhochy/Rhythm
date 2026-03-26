@@ -3,6 +3,7 @@ import express from 'express';
 
 import { errorHandler } from './middleware/error_handler';
 import { authRouter } from './routes/auth_routes';
+import { automationRulesRouter } from './routes/automation_rules_routes';
 import { healthRouter } from './routes/health_routes';
 import { integrationsRouter } from './routes/integrations_routes';
 import { projectInstancesRouter } from './routes/project_instances_routes';
@@ -19,6 +20,7 @@ export function createApp() {
 
   app.use('/health', healthRouter);
   app.use('/auth', authRouter);
+  app.use('/automation-rules', automationRulesRouter);
   app.use('/integrations', integrationsRouter);
   app.use('/tasks', tasksRouter);
   app.use('/project-templates', projectTemplatesRouter);

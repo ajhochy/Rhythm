@@ -3,7 +3,9 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../../app/core/widgets/error_banner.dart';
 import '../controllers/integrations_controller.dart';
+import '../../imports/views/import_dialog.dart';
 import '../models/gmail_signal.dart';
 import '../models/integration_account.dart';
 import '../models/planning_center_task_options.dart';
@@ -49,10 +51,9 @@ class _IntegrationsViewState extends State<IntegrationsView> {
             ),
             if (controller.status == IntegrationsStatus.error &&
                 controller.errorMessage != null)
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 24),
-                child: Text(controller.errorMessage!,
-                    style: const TextStyle(color: Colors.red)),
+              ErrorBanner(
+                message: controller.errorMessage!,
+                onRetry: controller.load,
               ),
             Expanded(
               child: controller.status == IntegrationsStatus.loading &&
@@ -104,6 +105,15 @@ class _IntegrationsViewState extends State<IntegrationsView> {
                             saving: controller.savingPlanningCenterTaskFilters,
                             onEdit: () =>
                                 _editPlanningCenterFilters(controller),
+                          ),
+                        ),
+                        const SizedBox(height: 24),
+                        const Divider(),
+                        const SizedBox(height: 16),
+                        _AiImportCard(
+                          onImport: () => showDialog<void>(
+                            context: context,
+                            builder: (_) => const ImportDialog(),
                           ),
                         ),
                       ],
@@ -569,6 +579,68 @@ class _PlanningCenterTaskFiltersDialogState
               .toList(),
         ),
       ],
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// AI Import card
+// ---------------------------------------------------------------------------
+
+class _AiImportCard extends StatelessWidget {
+  const _AiImportCard({required this.onImport});
+  final VoidCallback onImport;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      elevation: 0,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(8),
+        side: const BorderSide(color: Color(0xFFE5E7EB)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(20),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF5F3FF),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: const Icon(Icons.smart_toy_outlined,
+                  color: Color(0xFF7C3AED), size: 22),
+            ),
+            const SizedBox(width: 16),
+            const Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('AI Import',
+                      style:
+                          TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                  SizedBox(height: 4),
+                  Text(
+                    'Use an AI assistant to bulk-create tasks, rhythms, and project templates. '
+                    'Copy the schema prompt, paste the AI output, and import.',
+                    style: TextStyle(color: Colors.black54, fontSize: 13),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 16),
+            FilledButton.icon(
+              onPressed: onImport,
+              icon: const Icon(Icons.open_in_new, size: 16),
+              label: const Text('Open Import'),
+              style: FilledButton.styleFrom(
+                backgroundColor: const Color(0xFF7C3AED),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

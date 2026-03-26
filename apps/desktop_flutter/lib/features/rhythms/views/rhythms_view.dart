@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../controllers/rhythms_controller.dart';
+import '../../../app/core/widgets/error_banner.dart';
 import '../../../features/tasks/models/recurring_task_rule.dart';
 import '../../../features/tasks/services/recurrence_service.dart';
 
@@ -31,7 +32,7 @@ class _RhythmsViewState extends State<RhythmsView> {
             _Header(onAdd: () => _showCreateDialog(context, controller)),
             if (controller.status == RhythmsStatus.error &&
                 controller.errorMessage != null)
-              _ErrorBanner(
+              ErrorBanner(
                 message: controller.errorMessage!,
                 onRetry: controller.load,
               ),
@@ -68,37 +69,6 @@ class _Header extends StatelessWidget {
             icon: const Icon(Icons.add, size: 18),
             label: const Text('New Rule'),
           ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ErrorBanner extends StatelessWidget {
-  const _ErrorBanner({required this.message, required this.onRetry});
-  final String message;
-  final VoidCallback onRetry;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.fromLTRB(24, 12, 24, 0),
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.errorContainer,
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Row(
-        children: [
-          Icon(Icons.error_outline,
-              color: Theme.of(context).colorScheme.onErrorContainer),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(message,
-                style: TextStyle(
-                    color: Theme.of(context).colorScheme.onErrorContainer)),
-          ),
-          TextButton(onPressed: onRetry, child: const Text('Retry')),
         ],
       ),
     );

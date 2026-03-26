@@ -120,6 +120,18 @@ export function runMigrations(db: Database.Database): void {
       json_value TEXT NOT NULL,
       PRIMARY KEY (provider, key)
     );
+
+    CREATE TABLE IF NOT EXISTS automation_rules (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      trigger_type TEXT NOT NULL,
+      trigger_config TEXT,
+      action_type TEXT NOT NULL,
+      action_config TEXT,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
   `);
 
   // Additive column migrations — safe to run on existing DBs
