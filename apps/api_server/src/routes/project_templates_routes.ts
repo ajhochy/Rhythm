@@ -1,7 +1,9 @@
 import { Router } from 'express';
+import { ProjectGenerationController } from '../controllers/project_generation_controller';
 import { ProjectTemplatesController } from '../controllers/project_templates_controller';
 
 const controller = new ProjectTemplatesController();
+const genController = new ProjectGenerationController();
 export const projectTemplatesRouter = Router();
 
 projectTemplatesRouter.get('/', controller.getAll.bind(controller));
@@ -10,3 +12,4 @@ projectTemplatesRouter.post('/', controller.create.bind(controller));
 projectTemplatesRouter.patch('/:id', controller.update.bind(controller));
 projectTemplatesRouter.delete('/:id', controller.remove.bind(controller));
 projectTemplatesRouter.post('/:id/steps', controller.addStep.bind(controller));
+projectTemplatesRouter.post('/:id/generate', genController.generate.bind(genController));

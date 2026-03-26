@@ -55,4 +55,28 @@ class ProjectTemplateController extends ChangeNotifier {
       notifyListeners();
     }
   }
+
+  Future<void> addStep(
+    String templateId, {
+    required String title,
+    required int offsetDays,
+    String? offsetDescription,
+    int? sortOrder,
+  }) async {
+    try {
+      await _repository.addStep(
+        templateId,
+        title: title,
+        offsetDays: offsetDays,
+        offsetDescription: offsetDescription,
+        sortOrder: sortOrder,
+      );
+      // Reload to get updated template with new step
+      await load();
+    } catch (e) {
+      _errorMessage = e.toString();
+      _status = ProjectsStatus.error;
+      notifyListeners();
+    }
+  }
 }

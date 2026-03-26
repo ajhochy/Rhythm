@@ -1,6 +1,60 @@
+class ProjectInstanceStep {
+  ProjectInstanceStep({
+    required this.id,
+    required this.instanceId,
+    required this.stepId,
+    required this.title,
+    required this.dueDate,
+    required this.status,
+  });
+
+  factory ProjectInstanceStep.fromJson(Map<String, dynamic> json) {
+    return ProjectInstanceStep(
+      id: json['id'] as String,
+      instanceId: json['instanceId'] as String,
+      stepId: json['stepId'] as String,
+      title: json['title'] as String,
+      dueDate: json['dueDate'] as String,
+      status: json['status'] as String? ?? 'open',
+    );
+  }
+
+  final String id;
+  final String instanceId;
+  final String stepId;
+  final String title;
+  final String dueDate;
+  final String status;
+}
+
 class ProjectInstance {
-  ProjectInstance({required this.id, required this.templateId});
+  ProjectInstance({
+    required this.id,
+    required this.templateId,
+    required this.anchorDate,
+    required this.status,
+    required this.createdAt,
+    required this.steps,
+  });
+
+  factory ProjectInstance.fromJson(Map<String, dynamic> json) {
+    final stepList = (json['steps'] as List<dynamic>? ?? [])
+        .map((s) => ProjectInstanceStep.fromJson(s as Map<String, dynamic>))
+        .toList();
+    return ProjectInstance(
+      id: json['id'] as String,
+      templateId: json['templateId'] as String,
+      anchorDate: json['anchorDate'] as String,
+      status: json['status'] as String? ?? 'active',
+      createdAt: json['createdAt'] as String,
+      steps: stepList,
+    );
+  }
 
   final String id;
   final String templateId;
+  final String anchorDate;
+  final String status;
+  final String createdAt;
+  final List<ProjectInstanceStep> steps;
 }

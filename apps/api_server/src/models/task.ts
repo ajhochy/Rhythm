@@ -13,6 +13,8 @@ export interface CreateTaskDto {
   title: string;
   dueDate?: string | null;
   status?: 'open' | 'done';
+  sourceType?: string | null;
+  sourceId?: string | null;
 }
 
 export interface UpdateTaskDto {

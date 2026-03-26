@@ -1,3 +1,70 @@
-class RhythmsController {
-  // TODO: Coordinate rhythm-related UI events.
+import 'package:flutter/foundation.dart';
+import '../../../features/tasks/models/recurring_task_rule.dart';
+import '../repositories/rhythms_repository.dart';
+
+enum RhythmsStatus { idle, loading, error }
+
+class RhythmsController extends ChangeNotifier {
+  RhythmsController(this._repository);
+
+  final RhythmsRepository _repository;
+
+  List<RecurringTaskRule> _rules = [];
+  RhythmsStatus _status = RhythmsStatus.idle;
+  String? _errorMessage;
+
+  List<RecurringTaskRule> get rules => _rules;
+  RhythmsStatus get status => _status;
+  String? get errorMessage => _errorMessage;
+
+  Future<void> load() async {
+    _status = RhythmsStatus.loading;
+    _errorMessage = null;
+    notifyListeners();
+
+    try {
+      _rules = await _repository.getAll();
+      _status = RhythmsStatus.idle;
+    } catch (e) {
+      _errorMessage = e.toString();
+      _status = RhythmsStatus.error;
+    }
+    notifyListeners();
+  }
+
+  Future<void> createRule({
+    required String title,
+    required String frequency,
+    int? dayOfWeek,
+    int? dayOfMonth,
+    int? month,
+  }) async {
+    try {
+      final rule = await _repository.create(
+        title: title,
+        frequency: frequency,
+        dayOfWeek: dayOfWeek,
+        dayOfMonth: dayOfMonth,
+        month: month,
+      );
+      _rules = [..._rules, rule];
+      notifyListeners();
+    } catch (e) {
+      _errorMessage = e.toString();
+      _status = RhythmsStatus.error;
+      notifyListeners();
+    }
+  }
+
+  Future<void> deleteRule(String id) async {
+    try {
+      await _repository.delete(id);
+      _rules = _rules.where((r) => r.id != id).toList();
+      notifyListeners();
+    } catch (e) {
+      _errorMessage = e.toString();
+      _status = RhythmsStatus.error;
+      notifyListeners();
+    }
+  }
 }

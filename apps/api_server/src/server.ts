@@ -1,11 +1,14 @@
 import { createApp } from './app';
 import { initDb } from './database/db';
+import { startRecurrenceGenerationJob } from './jobs/recurrence_generation_job';
 import { logger } from './utils/logger';
 
 const port = Number(process.env.PORT ?? 4000);
 
 initDb();
 logger.info('Database initialized');
+
+startRecurrenceGenerationJob();
 
 const app = createApp();
 

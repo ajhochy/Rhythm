@@ -13,6 +13,7 @@ class NavigationSidebar extends StatelessWidget {
   static const _items = [
     _NavItem(icon: Icons.calendar_view_week, label: 'Weekly Planner'),
     _NavItem(icon: Icons.check_circle_outline, label: 'Tasks'),
+    _NavItem(icon: Icons.repeat, label: 'Rhythms'),
     _NavItem(icon: Icons.folder_open, label: 'Projects'),
     _NavItem(icon: Icons.link, label: 'Integrations'),
   ];
