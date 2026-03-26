@@ -58,20 +58,18 @@ security set-key-partition-list \
   -k "${KEYCHAIN_PASSWORD}" \
   "${KEYCHAIN_NAME}"
 
-IDENTITY_SHA="$(
-  security find-identity -v -p codesigning "${KEYCHAIN_NAME}" |
-    awk -v expected="${APPLE_SIGNING_IDENTITY}" '
-      index($0, expected) { print $2; found=1; exit }
-      $2 ~ /^[0-9A-F]+$/ && fallback == "" { fallback=$2 }
-      END {
-        if (!found && fallback != "") print fallback
-      }
-    '
-)"
+EXPECTED_IDENTITY="$(printf '%s' "${APPLE_SIGNING_IDENTITY}" | tr -d '\r\n')"
+IDENTITIES_OUTPUT="$(security find-identity -v -p codesigning "${KEYCHAIN_NAME}")"
+
+IDENTITY_SHA="$(printf '%s\n' "${IDENTITIES_OUTPUT}" | grep -F "${EXPECTED_IDENTITY}" | awk 'NR==1 { print $2 }')"
+
+if [[ -z "${IDENTITY_SHA}" ]]; then
+  IDENTITY_SHA="$(printf '%s\n' "${IDENTITIES_OUTPUT}" | awk '$2 ~ /^[0-9A-F]+$/ { print $2; exit }')"
+fi
 
 if [[ -z "${IDENTITY_SHA}" ]]; then
   echo "Unable to resolve a signing identity from the imported certificate." >&2
-  security find-identity -v -p codesigning "${KEYCHAIN_NAME}" || true
+  printf '%s\n' "${IDENTITIES_OUTPUT}" || true
   exit 1
 fi
 
