@@ -526,8 +526,8 @@ class _InstancesListState extends State<_InstancesList> {
                   _showCompleted ? Icons.visibility_off : Icons.visibility,
                   size: 16,
                 ),
-                label: Text(
-                    _showCompleted ? 'Hide completed' : 'Show completed'),
+                label:
+                    Text(_showCompleted ? 'Hide completed' : 'Show completed'),
               ),
             ],
           ),
@@ -585,8 +585,7 @@ class _InstanceCard extends StatelessWidget {
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
       child: ExpansionTile(
-        title:
-            Text(title, style: Theme.of(context).textTheme.titleSmall),
+        title: Text(title, style: Theme.of(context).textTheme.titleSmall),
         subtitle: Text(
             'Anchor ${instance.anchorDate} · ${visibleSteps.length} visible · ${instance.steps.length} total · ${instance.status}',
             style: const TextStyle(fontSize: 12, color: Colors.grey)),

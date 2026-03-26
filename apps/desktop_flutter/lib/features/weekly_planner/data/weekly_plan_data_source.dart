@@ -43,7 +43,8 @@ class WeeklyPlanDataSource {
         if (notes != null) 'notes': notes,
         if (status != null) 'status': status,
         if (dueDate != null) 'dueDate': dueDate,
-        if (!isProjectStep && scheduledDate != null) 'scheduledDate': scheduledDate,
+        if (!isProjectStep && scheduledDate != null)
+          'scheduledDate': scheduledDate,
       }),
     );
     _assertOk(response);

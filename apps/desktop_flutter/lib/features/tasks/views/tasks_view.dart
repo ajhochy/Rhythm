@@ -127,8 +127,7 @@ class _TasksViewState extends State<TasksView> {
       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
       itemCount: visibleTasks.length,
       separatorBuilder: (_, __) => const Divider(height: 1),
-      itemBuilder: (context, i) =>
-          _buildTaskTile(visibleTasks[i], controller),
+      itemBuilder: (context, i) => _buildTaskTile(visibleTasks[i], controller),
     );
   }
 

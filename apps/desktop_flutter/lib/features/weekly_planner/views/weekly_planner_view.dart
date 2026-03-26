@@ -128,7 +128,8 @@ class _WeekHeader extends StatelessWidget {
               ),
               const SizedBox(width: 8),
               OutlinedButton(
-                onPressed: controller.isCurrentWeek ? null : controller.goToToday,
+                onPressed:
+                    controller.isCurrentWeek ? null : controller.goToToday,
                 child: const Text('Today'),
               ),
               const SizedBox(width: 16),
@@ -138,7 +139,8 @@ class _WeekHeader extends StatelessWidget {
                   showCompleted ? Icons.visibility_off : Icons.visibility,
                   size: 16,
                 ),
-                label: Text(showCompleted ? 'Hide completed' : 'Show completed'),
+                label:
+                    Text(showCompleted ? 'Hide completed' : 'Show completed'),
               ),
             ],
           ),
@@ -659,8 +661,8 @@ class _TaskTile extends StatelessWidget {
         margin: compact
             ? const EdgeInsets.only(bottom: 4)
             : const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-        padding:
-            EdgeInsets.symmetric(horizontal: compact ? 6 : 8, vertical: compact ? 3 : 8),
+        padding: EdgeInsets.symmetric(
+            horizontal: compact ? 6 : 8, vertical: compact ? 3 : 8),
         decoration: BoxDecoration(
           color: isSelected || isMultiSelected
               ? Theme.of(context).colorScheme.primaryContainer
@@ -686,11 +688,13 @@ class _TaskTile extends StatelessWidget {
               height: compact ? 14 : 16,
               child: Checkbox(
                 value: isShadowEvent ? false : isDone,
-                onChanged:
-                    isShadowEvent ? null : (_) => controller.toggleTaskDone(task, isDone),
+                onChanged: isShadowEvent
+                    ? null
+                    : (_) => controller.toggleTaskDone(task, isDone),
                 materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                visualDensity:
-                    compact ? const VisualDensity(horizontal: -4, vertical: -4) : VisualDensity.compact,
+                visualDensity: compact
+                    ? const VisualDensity(horizontal: -4, vertical: -4)
+                    : VisualDensity.compact,
               ),
             ),
             SizedBox(width: compact ? 4 : 6),
@@ -710,10 +714,10 @@ class _TaskTile extends StatelessWidget {
                                 ? Theme.of(context).textTheme.labelSmall
                                 : Theme.of(context).textTheme.bodySmall)
                             ?.copyWith(
-                              fontSize: compact ? 9 : 10,
-                              fontWeight: FontWeight.w700,
-                              color: Theme.of(context).colorScheme.primary,
-                            ),
+                          fontSize: compact ? 9 : 10,
+                          fontWeight: FontWeight.w700,
+                          color: Theme.of(context).colorScheme.primary,
+                        ),
                       ),
                     ),
                   Text(
@@ -724,11 +728,11 @@ class _TaskTile extends StatelessWidget {
                             ? Theme.of(context).textTheme.labelSmall
                             : Theme.of(context).textTheme.bodySmall)
                         ?.copyWith(
-                          decoration: isDone ? TextDecoration.lineThrough : null,
-                          color: isDone ? Colors.grey : null,
-                          fontSize: compact ? 10.5 : null,
-                          height: compact ? 1.1 : null,
-                        ),
+                      decoration: isDone ? TextDecoration.lineThrough : null,
+                      color: isDone ? Colors.grey : null,
+                      fontSize: compact ? 10.5 : null,
+                      height: compact ? 1.1 : null,
+                    ),
                   ),
                 ],
               ),
@@ -840,7 +844,8 @@ class _DetailPaneState extends State<_DetailPane> {
     setState(() {
       if (widget.task.sourceType == 'project_step') {
         _dueDate = value;
-      } else if (widget.task.scheduledDate != null || widget.task.dueDate == null) {
+      } else if (widget.task.scheduledDate != null ||
+          widget.task.dueDate == null) {
         _scheduledDate = value;
       } else {
         _dueDate = value;
@@ -854,7 +859,8 @@ class _DetailPaneState extends State<_DetailPane> {
     setState(() {
       if (widget.task.sourceType == 'project_step') {
         _dueDate = null;
-      } else if (widget.task.scheduledDate != null || widget.task.dueDate == null) {
+      } else if (widget.task.scheduledDate != null ||
+          widget.task.dueDate == null) {
         _scheduledDate = null;
       } else {
         _dueDate = null;
@@ -942,9 +948,7 @@ class _DetailPaneState extends State<_DetailPane> {
                 if (task.sourceType != null)
                   _row(context, 'Source', _sourceLabel(task.sourceType!)),
                 if (task.sourceName != null && task.sourceName!.isNotEmpty)
-                  _row(
-                      context,
-                      isShadowEvent ? 'Calendar' : 'Project',
+                  _row(context, isShadowEvent ? 'Calendar' : 'Project',
                       task.sourceName!),
                 const SizedBox(height: 16),
                 Text(

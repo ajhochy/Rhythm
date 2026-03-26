@@ -47,8 +47,7 @@ class IntegrationsController extends ChangeNotifier {
       _accounts = await _repository.getAccounts();
       _gmailSignals = await _repository.getGmailSignals();
       final pcoConnected = _accounts.any(
-        (account) =>
-            account.provider == 'planning_center' && account.connected,
+        (account) => account.provider == 'planning_center' && account.connected,
       );
       if (pcoConnected) {
         _planningCenterTaskPreferences =

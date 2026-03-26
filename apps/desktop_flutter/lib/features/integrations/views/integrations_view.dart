@@ -62,11 +62,13 @@ class _IntegrationsViewState extends State<IntegrationsView> {
                       padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
                       children: [
                         _IntegrationCard(
-                          account: _accountFor(controller.accounts, 'google_calendar'),
+                          account: _accountFor(
+                              controller.accounts, 'google_calendar'),
                           title: 'Google Calendar',
                           description:
                               'Read-only calendar timing for shadow events in the planner.',
-                          onConnect: () => _openExternal(controller.googleBeginUri()),
+                          onConnect: () =>
+                              _openExternal(controller.googleBeginUri()),
                           onSync: controller.syncGoogleCalendar,
                           syncing: controller.syncingGoogleCalendar,
                         ),
@@ -76,14 +78,17 @@ class _IntegrationsViewState extends State<IntegrationsView> {
                           title: 'Gmail',
                           description:
                               'Read-only Gmail metadata for inbox-aware planning.',
-                          onConnect: () => _openExternal(controller.googleBeginUri()),
+                          onConnect: () =>
+                              _openExternal(controller.googleBeginUri()),
                           onSync: controller.syncGmail,
                           syncing: controller.syncingGmail,
-                          child: _GmailSignalsList(signals: controller.gmailSignals),
+                          child: _GmailSignalsList(
+                              signals: controller.gmailSignals),
                         ),
                         const SizedBox(height: 12),
                         _IntegrationCard(
-                          account: _accountFor(controller.accounts, 'planning_center'),
+                          account: _accountFor(
+                              controller.accounts, 'planning_center'),
                           title: 'Planning Center',
                           description:
                               'Declines and staffing gaps become tasks. Non-Sunday plans can start a named project.',
@@ -93,10 +98,12 @@ class _IntegrationsViewState extends State<IntegrationsView> {
                           onSync: controller.syncPlanningCenter,
                           syncing: controller.syncingPlanningCenter,
                           child: _PlanningCenterFiltersSection(
-                            preferences: controller.planningCenterTaskPreferences,
+                            preferences:
+                                controller.planningCenterTaskPreferences,
                             options: controller.planningCenterTaskOptions,
                             saving: controller.savingPlanningCenterTaskFilters,
-                            onEdit: () => _editPlanningCenterFilters(controller),
+                            onEdit: () =>
+                                _editPlanningCenterFilters(controller),
                           ),
                         ),
                       ],
@@ -173,7 +180,8 @@ class _IntegrationCard extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(title, style: Theme.of(context).textTheme.titleLarge),
+                      Text(title,
+                          style: Theme.of(context).textTheme.titleLarge),
                       const SizedBox(height: 6),
                       Text(description,
                           style: Theme.of(context).textTheme.bodyMedium),
@@ -189,8 +197,7 @@ class _IntegrationCard extends StatelessWidget {
                   ),
                   child: Text(
                     statusLabel,
-                    style: TextStyle(
-                        color: color, fontWeight: FontWeight.w600),
+                    style: TextStyle(color: color, fontWeight: FontWeight.w600),
                   ),
                 ),
               ],
@@ -228,12 +235,11 @@ class _IntegrationCard extends StatelessWidget {
                             child: CircularProgressIndicator(strokeWidth: 2),
                           )
                         : const Icon(Icons.download, size: 16),
-                    label:
-                        Text(title == 'Gmail'
-                            ? 'Sync Gmail'
-                            : title == 'Planning Center'
-                                ? 'Sync Planning Center'
-                                : 'Sync Calendar'),
+                    label: Text(title == 'Gmail'
+                        ? 'Sync Gmail'
+                        : title == 'Planning Center'
+                            ? 'Sync Planning Center'
+                            : 'Sync Calendar'),
                   ),
                 ],
                 if (!connected && onConnect == null) ...[
@@ -275,54 +281,57 @@ class _GmailSignalsList extends StatelessWidget {
             style: Theme.of(context).textTheme.titleMedium),
         const SizedBox(height: 8),
         ...signals.take(5).map(
-          (signal) => Padding(
-            padding: const EdgeInsets.only(bottom: 10),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Container(
-                  width: 8,
-                  height: 8,
-                  margin: const EdgeInsets.only(top: 6, right: 10),
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: signal.isUnread ? Colors.blue : Colors.grey,
-                  ),
-                ),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        signal.subject,
-                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                              fontWeight: signal.isUnread
-                                  ? FontWeight.w700
-                                  : FontWeight.w500,
+              (signal) => Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      width: 8,
+                      height: 8,
+                      margin: const EdgeInsets.only(top: 6, right: 10),
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: signal.isUnread ? Colors.blue : Colors.grey,
+                      ),
+                    ),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            signal.subject,
+                            style: Theme.of(context)
+                                .textTheme
+                                .bodyMedium
+                                ?.copyWith(
+                                  fontWeight: signal.isUnread
+                                      ? FontWeight.w700
+                                      : FontWeight.w500,
+                                ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            signal.fromLabel,
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                          if (signal.snippet != null &&
+                              signal.snippet!.trim().isNotEmpty) ...[
+                            const SizedBox(height: 2),
+                            Text(
+                              signal.snippet!,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: Theme.of(context).textTheme.bodySmall,
                             ),
+                          ],
+                        ],
                       ),
-                      const SizedBox(height: 2),
-                      Text(
-                        signal.fromLabel,
-                        style: Theme.of(context).textTheme.bodySmall,
-                      ),
-                      if (signal.snippet != null &&
-                          signal.snippet!.trim().isNotEmpty) ...[
-                        const SizedBox(height: 2),
-                        Text(
-                          signal.snippet!,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: Theme.of(context).textTheme.bodySmall,
-                        ),
-                      ],
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
-              ],
+              ),
             ),
-          ),
-        ),
       ],
     );
   }
@@ -514,7 +523,8 @@ class _PlanningCenterTaskFiltersDialogState
 
     final values = _teamIds
         .expand<String>(
-          (teamId) => widget.options.positionsByTeamId[teamId] ?? const <String>[],
+          (teamId) =>
+              widget.options.positionsByTeamId[teamId] ?? const <String>[],
         )
         .toSet()
         .toList()
@@ -537,7 +547,9 @@ class _PlanningCenterTaskFiltersDialogState
             Text(title, style: Theme.of(context).textTheme.titleMedium),
             const Spacer(),
             Text(
-              selectedLabels.isEmpty ? 'All' : '${selectedLabels.length} selected',
+              selectedLabels.isEmpty
+                  ? 'All'
+                  : '${selectedLabels.length} selected',
               style: Theme.of(context).textTheme.bodySmall,
             ),
           ],

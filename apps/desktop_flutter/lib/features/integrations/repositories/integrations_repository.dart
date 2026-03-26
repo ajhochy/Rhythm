@@ -10,7 +10,8 @@ class IntegrationsRepository {
   final IntegrationsDataSource _dataSource;
 
   Future<List<IntegrationAccount>> getAccounts() => _dataSource.fetchAccounts();
-  Future<List<GmailSignal>> getGmailSignals() => _dataSource.fetchGmailSignals();
+  Future<List<GmailSignal>> getGmailSignals() =>
+      _dataSource.fetchGmailSignals();
   Future<PlanningCenterTaskPreferences> getPlanningCenterTaskPreferences() =>
       _dataSource.fetchPlanningCenterTaskPreferences();
   Future<PlanningCenterTaskOptions> getPlanningCenterTaskOptions() =>
