@@ -9,7 +9,7 @@ const instanceRepo = new ProjectInstancesRepository();
 export class ProjectGenerationController {
   generate(req: Request, res: Response, next: NextFunction) {
     try {
-      const { anchorDate } = req.body as Record<string, unknown>;
+      const { anchorDate, name } = req.body as Record<string, unknown>;
       if (!anchorDate || typeof anchorDate !== 'string') {
         throw AppError.badRequest('anchorDate (YYYY-MM-DD) is required');
       }
@@ -17,7 +17,11 @@ export class ProjectGenerationController {
         throw AppError.badRequest('anchorDate must be in YYYY-MM-DD format');
       }
 
-      const instance = service.generate(req.params.id, anchorDate);
+      const instance = service.generate(
+        req.params.id,
+        anchorDate,
+        typeof name === 'string' ? name : null,
+      );
       res.status(201).json(instance);
     } catch (err) {
       next(err);
@@ -26,7 +30,41 @@ export class ProjectGenerationController {
 
   getAllInstances(_req: Request, res: Response, next: NextFunction) {
     try {
-      res.json(instanceRepo.findAll());
+      const { templateId } = _req.query as Record<string, string>;
+      if (templateId) {
+        res.json(instanceRepo.findByTemplateId(templateId));
+      } else {
+        res.json(instanceRepo.findAll());
+      }
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  updateInstanceStep(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { stepId } = req.params;
+      const { title, dueDate, status, notes } = req.body as Record<string, unknown>;
+      const step = instanceRepo.updateStep(stepId, {
+        title: typeof title === 'string' ? title : undefined,
+        dueDate: typeof dueDate === 'string' ? dueDate : undefined,
+        status: typeof status === 'string' ? status : undefined,
+        notes: notes === null
+            ? null
+            : typeof notes === 'string'
+                ? (notes.length === 0 ? null : notes)
+                : undefined,
+      });
+      res.json(step);
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  deleteInstance(req: Request, res: Response, next: NextFunction) {
+    try {
+      instanceRepo.delete(req.params.id);
+      res.status(204).send();
     } catch (err) {
       next(err);
     }

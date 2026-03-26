@@ -28,6 +28,7 @@ function rowToTask(row: TaskRow): Task {
     status: row.status as Task['status'],
     sourceType: row.source_type,
     sourceId: row.source_id,
+    sourceName: null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -85,6 +86,10 @@ export class TasksRepository {
   update(id: string, data: UpdateTaskDto): Task {
     const existing = this.findById(id);
     const now = new Date().toISOString();
+    const nextNotes = data.notes === '' ? null : data.notes;
+    const nextDueDate = data.dueDate === '' ? null : data.dueDate;
+    const nextScheduledDate =
+      data.scheduledDate === '' ? null : data.scheduledDate;
     getDb()
       .prepare(
         `UPDATE tasks
@@ -94,10 +99,12 @@ export class TasksRepository {
       )
       .run(
         data.title ?? existing.title,
-        data.notes !== undefined ? data.notes : existing.notes,
-        data.dueDate !== undefined ? data.dueDate : existing.dueDate,
+        nextNotes !== undefined ? nextNotes : existing.notes,
+        nextDueDate !== undefined ? nextDueDate : existing.dueDate,
         data.status ?? existing.status,
-        data.scheduledDate !== undefined ? data.scheduledDate : existing.scheduledDate,
+        nextScheduledDate !== undefined
+            ? nextScheduledDate
+            : existing.scheduledDate,
         data.locked !== undefined ? (data.locked ? 1 : 0) : (existing.locked ? 1 : 0),
         now,
         id,

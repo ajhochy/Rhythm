@@ -43,6 +43,7 @@ export function runMigrations(db: Database.Database): void {
     CREATE TABLE IF NOT EXISTS project_instances (
       id TEXT PRIMARY KEY,
       template_id TEXT NOT NULL REFERENCES project_templates(id),
+      name TEXT,
       anchor_date TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'active',
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -76,5 +77,15 @@ export function runMigrations(db: Database.Database): void {
   }
   if (!taskCols.includes('notes')) {
     db.exec(`ALTER TABLE tasks ADD COLUMN notes TEXT`);
+  }
+
+  const stepCols = (db.pragma('table_info(project_instance_steps)') as { name: string }[]).map((c) => c.name);
+  if (!stepCols.includes('notes')) {
+    db.exec(`ALTER TABLE project_instance_steps ADD COLUMN notes TEXT`);
+  }
+
+  const instanceCols = (db.pragma('table_info(project_instances)') as { name: string }[]).map((c) => c.name);
+  if (!instanceCols.includes('name')) {
+    db.exec(`ALTER TABLE project_instances ADD COLUMN name TEXT`);
   }
 }

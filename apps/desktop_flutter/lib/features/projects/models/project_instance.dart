@@ -34,6 +34,7 @@ class ProjectInstance {
   ProjectInstance({
     required this.id,
     required this.templateId,
+    required this.name,
     required this.anchorDate,
     required this.status,
     required this.createdAt,
@@ -47,6 +48,7 @@ class ProjectInstance {
     return ProjectInstance(
       id: json['id'] as String,
       templateId: json['templateId'] as String,
+      name: json['name'] as String?,
       anchorDate: json['anchorDate'] as String,
       status: json['status'] as String? ?? 'active',
       createdAt: json['createdAt'] as String,
@@ -56,6 +58,7 @@ class ProjectInstance {
 
   final String id;
   final String templateId;
+  final String? name;
   final String anchorDate;
   final String status;
   final String createdAt;

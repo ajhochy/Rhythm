@@ -11,6 +11,7 @@ class Task {
     this.locked = false,
     this.sourceType,
     this.sourceId,
+    this.sourceName,
   });
 
   factory Task.fromJson(Map<String, dynamic> json) {
@@ -24,6 +25,7 @@ class Task {
       status: json['status'] as String? ?? 'open',
       sourceType: json['sourceType'] as String?,
       sourceId: json['sourceId'] as String?,
+      sourceName: json['sourceName'] as String?,
       createdAt: json['createdAt'] as String? ?? '',
       updatedAt: json['updatedAt'] as String? ?? '',
     );
@@ -38,6 +40,7 @@ class Task {
   final String status;
   final String? sourceType;
   final String? sourceId;
+  final String? sourceName;
   final String createdAt;
   final String updatedAt;
 
@@ -51,6 +54,7 @@ class Task {
         'status': status,
         'sourceType': sourceType,
         'sourceId': sourceId,
+        'sourceName': sourceName,
         'createdAt': createdAt,
         'updatedAt': updatedAt,
       };
@@ -73,6 +77,7 @@ class Task {
       status: status ?? this.status,
       sourceType: sourceType,
       sourceId: sourceId,
+      sourceName: sourceName,
       createdAt: createdAt,
       updatedAt: updatedAt,
     );

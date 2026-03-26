@@ -8,6 +8,7 @@ export interface Task {
   status: 'open' | 'done';
   sourceType: string | null;
   sourceId: string | null;
+  sourceName: string | null;
   createdAt: string;
   updatedAt: string;
 }

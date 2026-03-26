@@ -85,8 +85,12 @@ export class ProjectTemplatesRepository {
   }
 
   delete(id: string): void {
-    const result = getDb().prepare('DELETE FROM project_templates WHERE id = ?').run(id);
-    if (result.changes === 0) throw AppError.notFound('ProjectTemplate');
+    const db = getDb();
+    db.transaction(() => {
+      db.prepare('DELETE FROM project_instances WHERE template_id = ?').run(id);
+      const result = db.prepare('DELETE FROM project_templates WHERE id = ?').run(id);
+      if (result.changes === 0) throw AppError.notFound('ProjectTemplate');
+    })();
   }
 
   addStep(templateId: string, data: CreateStepDto): ProjectTemplateStep {

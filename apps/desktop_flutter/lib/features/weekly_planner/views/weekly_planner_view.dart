@@ -69,6 +69,7 @@ class _WeekHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final label = _formatWeekLabel(controller.currentWeekLabel);
+    final hasSelection = controller.selectedTaskIds.isNotEmpty;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
       decoration: BoxDecoration(
@@ -76,38 +77,70 @@ class _WeekHeader extends StatelessWidget {
         border:
             Border(bottom: BorderSide(color: Theme.of(context).dividerColor)),
       ),
-      child: Row(
+      child: Wrap(
+        alignment: WrapAlignment.spaceBetween,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        runSpacing: 8,
         children: [
-          Text('Weekly Planner',
-              style: Theme.of(context).textTheme.headlineSmall),
-          const Spacer(),
-          IconButton(
-            icon: const Icon(Icons.chevron_left),
-            tooltip: 'Previous week',
-            onPressed: controller.goToPrevWeek,
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text('Weekly Planner',
+                  style: Theme.of(context).textTheme.headlineSmall),
+              if (hasSelection) ...[
+                const SizedBox(width: 16),
+                FilledButton.tonalIcon(
+                  onPressed: () => controller.bulkToggleSelectedTasks(
+                    [
+                      ...?controller.plan?.days.expand((d) => d.tasks),
+                      ...?controller.plan?.backlog,
+                    ],
+                    'done',
+                  ),
+                  icon: const Icon(Icons.checklist, size: 16),
+                  label: Text('Complete ${controller.selectedTaskIds.length}'),
+                ),
+                const SizedBox(width: 8),
+                TextButton(
+                  onPressed: controller.clearTaskSelection,
+                  child: const Text('Clear selection'),
+                ),
+              ],
+            ],
           ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8),
-            child: Text(label, style: Theme.of(context).textTheme.titleMedium),
-          ),
-          IconButton(
-            icon: const Icon(Icons.chevron_right),
-            tooltip: 'Next week',
-            onPressed: controller.goToNextWeek,
-          ),
-          const SizedBox(width: 8),
-          OutlinedButton(
-            onPressed: controller.isCurrentWeek ? null : controller.goToToday,
-            child: const Text('Today'),
-          ),
-          const SizedBox(width: 16),
-          TextButton.icon(
-            onPressed: onToggleCompleted,
-            icon: Icon(
-              showCompleted ? Icons.visibility_off : Icons.visibility,
-              size: 16,
-            ),
-            label: Text(showCompleted ? 'Hide completed' : 'Show completed'),
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              IconButton(
+                icon: const Icon(Icons.chevron_left),
+                tooltip: 'Previous week',
+                onPressed: controller.goToPrevWeek,
+              ),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                child:
+                    Text(label, style: Theme.of(context).textTheme.titleMedium),
+              ),
+              IconButton(
+                icon: const Icon(Icons.chevron_right),
+                tooltip: 'Next week',
+                onPressed: controller.goToNextWeek,
+              ),
+              const SizedBox(width: 8),
+              OutlinedButton(
+                onPressed: controller.isCurrentWeek ? null : controller.goToToday,
+                child: const Text('Today'),
+              ),
+              const SizedBox(width: 16),
+              TextButton.icon(
+                onPressed: onToggleCompleted,
+                icon: Icon(
+                  showCompleted ? Icons.visibility_off : Icons.visibility,
+                  size: 16,
+                ),
+                label: Text(showCompleted ? 'Hide completed' : 'Show completed'),
+              ),
+            ],
           ),
         ],
       ),
@@ -312,7 +345,7 @@ class _BacklogPane extends StatelessWidget {
                     children: [
                       Icon(Icons.add, size: 13, color: Colors.grey[500]),
                       const SizedBox(width: 4),
-                      Text('Add task',
+                      Text('Add new task',
                           style:
                               TextStyle(fontSize: 12, color: Colors.grey[500])),
                     ],
@@ -439,7 +472,7 @@ class _DayColumnState extends State<_DayColumn> {
       onLeave: (_) => setState(() => _hovering = false),
       onAcceptWithDetails: (details) {
         setState(() => _hovering = false);
-        widget.controller.scheduleTask(details.data.id, widget.date);
+        widget.controller.scheduleTask(details.data, widget.date);
       },
       builder: (context, _, __) {
         return AnimatedContainer(
@@ -517,10 +550,13 @@ class _DayColumnState extends State<_DayColumn> {
                         child: Row(
                           children: [
                             Icon(Icons.add, size: 12, color: Colors.grey[500]),
-                            const SizedBox(width: 4),
-                            Text('Add task',
-                                style: TextStyle(
-                                    fontSize: 11, color: Colors.grey[500])),
+                            const SizedBox(width: 2),
+                            Expanded(
+                              child: Text('Add new task',
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(
+                                      fontSize: 10, color: Colors.grey[500])),
+                            ),
                           ],
                         ),
                       ),
@@ -612,56 +648,95 @@ class _TaskTile extends StatelessWidget {
 
   Widget _card(BuildContext context) {
     final isSelected = controller.selectedTaskId == task.id;
+    final isMultiSelected = controller.selectedTaskIds.contains(task.id);
     final isDone = task.status == 'done';
     return GestureDetector(
       onTap: () => controller.selectTask(task.id),
+      onLongPress: () => controller.toggleTaskSelection(task.id),
       child: Container(
         margin: compact
             ? const EdgeInsets.only(bottom: 4)
             : const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-        padding: EdgeInsets.symmetric(horizontal: 8, vertical: compact ? 4 : 8),
+        padding:
+            EdgeInsets.symmetric(horizontal: compact ? 6 : 8, vertical: compact ? 3 : 8),
         decoration: BoxDecoration(
-          color: isSelected
+          color: isSelected || isMultiSelected
               ? Theme.of(context).colorScheme.primaryContainer
               : Theme.of(context).colorScheme.surfaceContainerHighest,
           borderRadius: BorderRadius.circular(6),
           border: Border.all(
-            color: isSelected
+            color: isSelected || isMultiSelected
                 ? Theme.of(context).colorScheme.primary
                 : Colors.transparent,
           ),
         ),
         child: Row(
           children: [
+            if (isMultiSelected && !compact) ...[
+              Icon(Icons.done_all,
+                  size: compact ? 12 : 14,
+                  color: Theme.of(context).colorScheme.primary),
+              const SizedBox(width: 4),
+            ],
             // Completion checkbox
             SizedBox(
-              width: 16,
-              height: 16,
+              width: compact ? 14 : 16,
+              height: compact ? 14 : 16,
               child: Checkbox(
                 value: isDone,
-                onChanged: (_) => controller.toggleTaskDone(task.id, isDone),
+                onChanged: (_) => controller.toggleTaskDone(task, isDone),
                 materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                visualDensity: VisualDensity.compact,
+                visualDensity:
+                    compact ? const VisualDensity(horizontal: -4, vertical: -4) : VisualDensity.compact,
               ),
             ),
-            const SizedBox(width: 6),
+            SizedBox(width: compact ? 4 : 6),
             Expanded(
-              child: Text(
-                task.title,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      decoration: isDone ? TextDecoration.lineThrough : null,
-                      color: isDone ? Colors.grey : null,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (task.sourceName != null && task.sourceName!.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 1),
+                      child: Text(
+                        task.sourceName!,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: (compact
+                                ? Theme.of(context).textTheme.labelSmall
+                                : Theme.of(context).textTheme.bodySmall)
+                            ?.copyWith(
+                              fontSize: compact ? 9 : 10,
+                              fontWeight: FontWeight.w700,
+                              color: Theme.of(context).colorScheme.primary,
+                            ),
+                      ),
                     ),
+                  Text(
+                    task.title,
+                    maxLines: compact ? 3 : 2,
+                    overflow: TextOverflow.fade,
+                    style: (compact
+                            ? Theme.of(context).textTheme.labelSmall
+                            : Theme.of(context).textTheme.bodySmall)
+                        ?.copyWith(
+                          decoration: isDone ? TextDecoration.lineThrough : null,
+                          color: isDone ? Colors.grey : null,
+                          fontSize: compact ? 10.5 : null,
+                          height: compact ? 1.1 : null,
+                        ),
+                  ),
+                ],
               ),
             ),
-            if (task.locked) ...[
+            if (task.locked && !compact) ...[
               const SizedBox(width: 4),
               Icon(Icons.lock,
-                  size: 11, color: Theme.of(context).colorScheme.primary),
+                  size: compact ? 10 : 11,
+                  color: Theme.of(context).colorScheme.primary),
             ],
-            if (task.sourceType != null) ...[
+            if (task.sourceType != null && !compact) ...[
               const SizedBox(width: 4),
               _SourceChip(sourceType: task.sourceType!),
             ],
@@ -689,13 +764,29 @@ class _DetailPaneState extends State<_DetailPane> {
   late TextEditingController _notesCtrl;
   bool _notesDirty = false;
   bool _saving = false;
+  String? _dueDate;
+  String? _scheduledDate;
+  bool _datesDirty = false;
 
   @override
   void initState() {
     super.initState();
-    _notesCtrl = TextEditingController(text: widget.task.notes ?? '');
+    _notesCtrl = TextEditingController();
     _notesCtrl.addListener(() => setState(
         () => _notesDirty = _notesCtrl.text != (widget.task.notes ?? '')));
+    _syncFromTask();
+  }
+
+  @override
+  void didUpdateWidget(covariant _DetailPane oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.task.id != widget.task.id ||
+        oldWidget.task.notes != widget.task.notes ||
+        oldWidget.task.dueDate != widget.task.dueDate ||
+        oldWidget.task.scheduledDate != widget.task.scheduledDate ||
+        oldWidget.task.status != widget.task.status) {
+      _syncFromTask();
+    }
   }
 
   @override
@@ -704,12 +795,69 @@ class _DetailPaneState extends State<_DetailPane> {
     super.dispose();
   }
 
-  Future<void> _saveNotes() async {
+  void _syncFromTask() {
+    _notesCtrl.text = widget.task.notes ?? '';
+    _dueDate = widget.task.dueDate;
+    _scheduledDate = widget.task.scheduledDate;
+    _notesDirty = false;
+    _datesDirty = false;
+  }
+
+  Future<void> _saveDetailChanges() async {
     setState(() => _saving = true);
-    await widget.controller.updateTaskNotes(widget.task.id, _notesCtrl.text);
+    await widget.controller.updateTask(
+      widget.task,
+      notes: _notesCtrl.text,
+      dueDate: _datesDirty ? (_dueDate ?? '') : null,
+      scheduledDate: widget.task.sourceType == 'project_step'
+          ? null
+          : _datesDirty
+              ? (_scheduledDate ?? '')
+              : null,
+    );
     setState(() {
       _saving = false;
       _notesDirty = false;
+      _datesDirty = false;
+    });
+  }
+
+  String? get _plannerDate => _scheduledDate ?? _dueDate;
+
+  Future<void> _pickPlannerDate() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate:
+          _plannerDate != null ? DateTime.parse(_plannerDate!) : DateTime.now(),
+      firstDate: DateTime(2020),
+      lastDate: DateTime(2035),
+    );
+    if (picked == null) return;
+    final value = picked.toIso8601String().substring(0, 10);
+    setState(() {
+      if (widget.task.sourceType == 'project_step') {
+        _dueDate = value;
+      } else if (widget.task.scheduledDate != null || widget.task.dueDate == null) {
+        _scheduledDate = value;
+      } else {
+        _dueDate = value;
+      }
+      _datesDirty = _dueDate != widget.task.dueDate ||
+          _scheduledDate != widget.task.scheduledDate;
+    });
+  }
+
+  void _clearPlannerDate() {
+    setState(() {
+      if (widget.task.sourceType == 'project_step') {
+        _dueDate = null;
+      } else if (widget.task.scheduledDate != null || widget.task.dueDate == null) {
+        _scheduledDate = null;
+      } else {
+        _dueDate = null;
+      }
+      _datesDirty = _dueDate != widget.task.dueDate ||
+          _scheduledDate != widget.task.scheduledDate;
     });
   }
 
@@ -773,14 +921,20 @@ class _DetailPaneState extends State<_DetailPane> {
                     tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                   ),
                   onPressed: () =>
-                      widget.controller.toggleTaskDone(task.id, isDone),
+                      widget.controller.toggleTaskDone(task, isDone),
                 ),
                 const SizedBox(height: 12),
-                if (task.dueDate != null) _row(context, 'Due', task.dueDate!),
-                if (task.scheduledDate != null)
-                  _row(context, 'Scheduled', task.scheduledDate!),
+                _editableDateRow(
+                  context,
+                  label: 'Date',
+                  value: _plannerDate,
+                  onPick: _pickPlannerDate,
+                  onClear: () => _clearPlannerDate(),
+                ),
                 if (task.sourceType != null)
                   _row(context, 'Source', _sourceLabel(task.sourceType!)),
+                if (task.sourceName != null && task.sourceName!.isNotEmpty)
+                  _row(context, 'Project', task.sourceName!),
                 const SizedBox(height: 16),
                 Text('Notes',
                     style: Theme.of(context)
@@ -799,11 +953,11 @@ class _DetailPaneState extends State<_DetailPane> {
                   maxLines: 8,
                 ),
                 const SizedBox(height: 8),
-                if (_notesDirty)
+                if (_notesDirty || _datesDirty)
                   Row(
                     children: [
                       FilledButton.tonal(
-                        onPressed: _saving ? null : _saveNotes,
+                        onPressed: _saving ? null : _saveDetailChanges,
                         child: _saving
                             ? const SizedBox(
                                 width: 14,
@@ -818,7 +972,10 @@ class _DetailPaneState extends State<_DetailPane> {
                             ? null
                             : () => setState(() {
                                   _notesCtrl.text = widget.task.notes ?? '';
+                                  _dueDate = widget.task.dueDate;
+                                  _scheduledDate = widget.task.scheduledDate;
                                   _notesDirty = false;
+                                  _datesDirty = false;
                                 }),
                         child: const Text('Discard'),
                       ),
@@ -847,6 +1004,47 @@ class _DetailPaneState extends State<_DetailPane> {
           ),
           Expanded(
               child: Text(value, style: Theme.of(context).textTheme.bodySmall)),
+        ],
+      ),
+    );
+  }
+
+  Widget _editableDateRow(BuildContext context,
+      {required String label,
+      required String? value,
+      required VoidCallback onPick,
+      required VoidCallback? onClear}) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 76,
+            child: Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Text(label,
+                  style: Theme.of(context)
+                      .textTheme
+                      .labelSmall
+                      ?.copyWith(color: Colors.grey)),
+            ),
+          ),
+          Expanded(
+            child: Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                OutlinedButton.icon(
+                  onPressed: onPick,
+                  icon: const Icon(Icons.calendar_today, size: 14),
+                  label: Text(value ?? 'Set date'),
+                ),
+                if (value != null && onClear != null)
+                  TextButton(onPressed: onClear, child: const Text('Clear')),
+              ],
+            ),
+          ),
         ],
       ),
     );
@@ -882,7 +1080,7 @@ class _SourceChip extends StatelessWidget {
       ),
       child: Text(label,
           style: TextStyle(
-              fontSize: 10, fontWeight: FontWeight.bold, color: color)),
+              fontSize: 9.5, fontWeight: FontWeight.bold, color: color)),
     );
   }
 }

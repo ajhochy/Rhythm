@@ -95,7 +95,8 @@ class _TemplateList extends StatelessWidget {
           padding: const EdgeInsets.fromLTRB(16, 24, 16, 0),
           child: Row(
             children: [
-              Text('Templates', style: Theme.of(context).textTheme.titleMedium),
+              Text('Project Templates',
+                  style: Theme.of(context).textTheme.titleMedium),
               const Spacer(),
               IconButton(
                 icon: const Icon(Icons.add),
@@ -257,13 +258,24 @@ class _TemplateDetailState extends State<_TemplateDetail>
         if (title != null) 'title': title,
         if (dueDate != null) 'dueDate': dueDate,
         if (status != null) 'status': status,
-        if (notes != null) 'notes': notes,
+        if (notes != null) 'notes': notes.isEmpty ? null : notes,
       };
       final response = await http.patch(
         Uri.parse(
             '${AppConstants.apiBaseUrl}/project-instances/steps/${step.id}'),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode(body),
+      );
+      if (response.statusCode < 400) {
+        await _loadInstances();
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _deleteInstance(String instanceId) async {
+    try {
+      final response = await http.delete(
+        Uri.parse('${AppConstants.apiBaseUrl}/project-instances/$instanceId'),
       );
       if (response.statusCode < 400) {
         await _loadInstances();
@@ -316,7 +328,7 @@ class _TemplateDetailState extends State<_TemplateDetail>
                   FilledButton.icon(
                     onPressed: () => _showGenerateDialog(context),
                     icon: const Icon(Icons.play_arrow, size: 18),
-                    label: const Text('Generate Instance'),
+                    label: const Text('Start Project'),
                   ),
                 ],
               ),
@@ -328,7 +340,7 @@ class _TemplateDetailState extends State<_TemplateDetail>
           controller: _tabController,
           tabs: const [
             Tab(text: 'Template Steps'),
-            Tab(text: 'Instances'),
+            Tab(text: 'Active Projects'),
           ],
           labelPadding: const EdgeInsets.symmetric(horizontal: 24),
         ),
@@ -380,6 +392,7 @@ class _TemplateDetailState extends State<_TemplateDetail>
                 error: _instancesError,
                 onRefresh: _loadInstances,
                 onUpdateStep: _updateStep,
+                onDeleteInstance: _deleteInstance,
               ),
             ],
           ),
@@ -421,6 +434,7 @@ class _InstancesPanel extends StatelessWidget {
     required this.error,
     required this.onRefresh,
     required this.onUpdateStep,
+    required this.onDeleteInstance,
   });
   final List<ProjectInstance> instances;
   final bool loaded;
@@ -431,6 +445,7 @@ class _InstancesPanel extends StatelessWidget {
       String? dueDate,
       String? status,
       String? notes}) onUpdateStep;
+  final Future<void> Function(String instanceId) onDeleteInstance;
 
   @override
   Widget build(BuildContext context) {
@@ -443,7 +458,7 @@ class _InstancesPanel extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Text('Click to load instances',
+            const Text('Click to load active projects',
                 style: TextStyle(color: Colors.grey)),
             const SizedBox(height: 8),
             OutlinedButton(onPressed: onRefresh, child: const Text('Load')),
@@ -453,40 +468,134 @@ class _InstancesPanel extends StatelessWidget {
     }
     if (instances.isEmpty) {
       return const Center(
-          child: Text('No instances generated yet.',
+          child: Text('No active projects yet.',
               style: TextStyle(color: Colors.grey)));
     }
-    return ListView.builder(
-      padding: const EdgeInsets.all(16),
-      itemCount: instances.length,
-      itemBuilder: (ctx, i) => _InstanceCard(
-        instance: instances[i],
-        onUpdateStep: onUpdateStep,
-      ),
+    return _InstancesList(
+      instances: instances,
+      onUpdateStep: onUpdateStep,
+      onDeleteInstance: onDeleteInstance,
+    );
+  }
+}
+
+class _InstancesList extends StatefulWidget {
+  const _InstancesList({
+    required this.instances,
+    required this.onUpdateStep,
+    required this.onDeleteInstance,
+  });
+  final List<ProjectInstance> instances;
+  final Future<void> Function(ProjectInstanceStep step,
+      {String? title,
+      String? dueDate,
+      String? status,
+      String? notes}) onUpdateStep;
+  final Future<void> Function(String instanceId) onDeleteInstance;
+
+  @override
+  State<_InstancesList> createState() => _InstancesListState();
+}
+
+class _InstancesListState extends State<_InstancesList> {
+  bool _showCompleted = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final visibleInstances = _showCompleted
+        ? widget.instances
+        : widget.instances
+            .where((instance) =>
+                instance.status != 'done' &&
+                instance.steps.any((step) => step.status != 'done'))
+            .toList();
+
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+          child: Row(
+            children: [
+              Text('Active Projects',
+                  style: Theme.of(context).textTheme.titleMedium),
+              const Spacer(),
+              TextButton.icon(
+                onPressed: () =>
+                    setState(() => _showCompleted = !_showCompleted),
+                icon: Icon(
+                  _showCompleted ? Icons.visibility_off : Icons.visibility,
+                  size: 16,
+                ),
+                label: Text(
+                    _showCompleted ? 'Hide completed' : 'Show completed'),
+              ),
+            ],
+          ),
+        ),
+        Expanded(
+          child: visibleInstances.isEmpty
+              ? Center(
+                  child: Text(
+                    _showCompleted
+                        ? 'No active projects yet.'
+                        : 'No incomplete active projects.',
+                    style: const TextStyle(color: Colors.grey),
+                  ),
+                )
+              : ListView.builder(
+                  padding: const EdgeInsets.all(16),
+                  itemCount: visibleInstances.length,
+                  itemBuilder: (ctx, i) => _InstanceCard(
+                    instance: visibleInstances[i],
+                    onUpdateStep: widget.onUpdateStep,
+                    onDeleteInstance: widget.onDeleteInstance,
+                    showCompleted: _showCompleted,
+                  ),
+                ),
+        ),
+      ],
     );
   }
 }
 
 class _InstanceCard extends StatelessWidget {
-  const _InstanceCard({required this.instance, required this.onUpdateStep});
+  const _InstanceCard({
+    required this.instance,
+    required this.onUpdateStep,
+    required this.onDeleteInstance,
+    required this.showCompleted,
+  });
   final ProjectInstance instance;
   final Future<void> Function(ProjectInstanceStep step,
       {String? title,
       String? dueDate,
       String? status,
       String? notes}) onUpdateStep;
+  final Future<void> Function(String instanceId) onDeleteInstance;
+  final bool showCompleted;
 
   @override
   Widget build(BuildContext context) {
+    final visibleSteps = showCompleted
+        ? instance.steps
+        : instance.steps.where((step) => step.status != 'done').toList();
+    final title = instance.name?.trim().isNotEmpty == true
+        ? instance.name!
+        : 'Anchor: ${instance.anchorDate}';
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
       child: ExpansionTile(
-        title: Text('Anchor: ${instance.anchorDate}',
-            style: Theme.of(context).textTheme.titleSmall),
+        title:
+            Text(title, style: Theme.of(context).textTheme.titleSmall),
         subtitle: Text(
-            '${instance.steps.length} step${instance.steps.length == 1 ? '' : 's'} · ${instance.status}',
+            'Anchor ${instance.anchorDate} · ${visibleSteps.length} visible · ${instance.steps.length} total · ${instance.status}',
             style: const TextStyle(fontSize: 12, color: Colors.grey)),
-        children: instance.steps
+        trailing: IconButton(
+          icon: const Icon(Icons.delete_outline, size: 18),
+          tooltip: 'Delete active project',
+          onPressed: () => onDeleteInstance(instance.id),
+        ),
+        children: visibleSteps
             .map((step) => _InstanceStepTile(
                   step: step,
                   onUpdateStep: onUpdateStep,
@@ -637,7 +746,7 @@ class _EditInstanceStepDialogState extends State<_EditInstanceStepDialog> {
       title: title,
       dueDate:
           _dueDateCtrl.text.trim().isEmpty ? null : _dueDateCtrl.text.trim(),
-      notes: _notesCtrl.text.trim().isEmpty ? null : _notesCtrl.text.trim(),
+      notes: _notesCtrl.text.trim(),
     );
     if (mounted) Navigator.pop(context);
   }
@@ -1110,6 +1219,19 @@ class _GenerateInstanceDialogState extends State<_GenerateInstanceDialog> {
   bool _generating = false;
   ProjectInstance? _result;
   String? _error;
+  late final TextEditingController _nameController;
+
+  @override
+  void initState() {
+    super.initState();
+    _nameController = TextEditingController();
+  }
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    super.dispose();
+  }
 
   List<ResolvedStep> get _preview {
     if (_anchorDate == null) return [];
@@ -1120,12 +1242,13 @@ class _GenerateInstanceDialogState extends State<_GenerateInstanceDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: Text('Generate: ${widget.template.name}'),
+      title: Text('Start Project: ${widget.template.name}'),
       content: SizedBox(
         width: 480,
         child: _result != null
             ? _SuccessView(instance: _result!)
             : _FormView(
+                nameController: _nameController,
                 anchorDate: _anchorDate,
                 preview: _preview,
                 error: _error,
@@ -1150,7 +1273,7 @@ class _GenerateInstanceDialogState extends State<_GenerateInstanceDialog> {
                         width: 16,
                         height: 16,
                         child: CircularProgressIndicator(strokeWidth: 2))
-                    : const Text('Generate'),
+                    : const Text('Start Project'),
               ),
             ],
     );
@@ -1181,7 +1304,11 @@ class _GenerateInstanceDialogState extends State<_GenerateInstanceDialog> {
         Uri.parse(
             '${AppConstants.apiBaseUrl}/project-templates/${widget.template.id}/generate'),
         headers: {'Content-Type': 'application/json'},
-        body: jsonEncode({'anchorDate': dateStr}),
+        body: jsonEncode({
+          'anchorDate': dateStr,
+          if (_nameController.text.trim().isNotEmpty)
+            'name': _nameController.text.trim(),
+        }),
       );
       if (response.statusCode >= 400) {
         final body = jsonDecode(response.body) as Map<String, dynamic>?;
@@ -1211,10 +1338,12 @@ class _GenerateInstanceDialogState extends State<_GenerateInstanceDialog> {
 
 class _FormView extends StatelessWidget {
   const _FormView(
-      {required this.anchorDate,
+      {required this.nameController,
+      required this.anchorDate,
       required this.preview,
       required this.error,
       required this.onPickDate});
+  final TextEditingController nameController;
   final DateTime? anchorDate;
   final List<ResolvedStep> preview;
   final String? error;
@@ -1230,6 +1359,16 @@ class _FormView extends StatelessWidget {
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        TextField(
+          controller: nameController,
+          decoration: const InputDecoration(
+            labelText: 'Project instance name (optional)',
+            hintText: 'Easter',
+            border: OutlineInputBorder(),
+          ),
+          autofocus: true,
+        ),
+        const SizedBox(height: 12),
         OutlinedButton.icon(
           onPressed: onPickDate,
           icon: const Icon(Icons.calendar_today, size: 16),
@@ -1282,10 +1421,14 @@ class _SuccessView extends StatelessWidget {
             Icon(Icons.check_circle,
                 color: Theme.of(context).colorScheme.primary),
             const SizedBox(width: 8),
-            const Text('Instance generated successfully!'),
+            const Text('Project started successfully!'),
           ],
         ),
         const SizedBox(height: 12),
+        if (instance.name != null && instance.name!.isNotEmpty) ...[
+          Text(instance.name!, style: Theme.of(context).textTheme.titleMedium),
+          const SizedBox(height: 8),
+        ],
         Text('Anchor: ${instance.anchorDate}',
             style: Theme.of(context).textTheme.bodySmall),
         const SizedBox(height: 8),

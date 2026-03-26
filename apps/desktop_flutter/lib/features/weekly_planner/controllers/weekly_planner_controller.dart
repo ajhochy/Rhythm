@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import '../../tasks/models/task.dart';
 import '../models/weekly_plan.dart';
 import '../repositories/weekly_plan_repository.dart';
 
@@ -15,12 +16,14 @@ class WeeklyPlannerController extends ChangeNotifier {
   String? _errorMessage;
   String _currentWeekLabel;
   String? _selectedTaskId;
+  final Set<String> _selectedTaskIds = {};
 
   WeeklyPlan? get plan => _plan;
   WeeklyPlannerStatus get status => _status;
   String? get errorMessage => _errorMessage;
   String get currentWeekLabel => _currentWeekLabel;
   String? get selectedTaskId => _selectedTaskId;
+  Set<String> get selectedTaskIds => Set.unmodifiable(_selectedTaskIds);
 
   bool get isCurrentWeek => _currentWeekLabel == _todayWeekLabel();
 
@@ -58,9 +61,29 @@ class WeeklyPlannerController extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> scheduleTask(String taskId, String date) async {
+  void toggleTaskSelection(String taskId) {
+    if (_selectedTaskIds.contains(taskId)) {
+      _selectedTaskIds.remove(taskId);
+    } else {
+      _selectedTaskIds.add(taskId);
+    }
+    notifyListeners();
+  }
+
+  void clearTaskSelection() {
+    if (_selectedTaskIds.isEmpty) return;
+    _selectedTaskIds.clear();
+    notifyListeners();
+  }
+
+  Future<void> scheduleTask(Task task, String date) async {
     try {
-      await _repository.scheduleTask(taskId, date);
+      if (task.sourceType == 'project_step') {
+        await _repository.updateTask(task.id,
+            dueDate: date, sourceType: task.sourceType);
+      } else {
+        await _repository.scheduleTask(task.id, date);
+      }
       await load();
     } catch (e) {
       _errorMessage = e.toString();
@@ -69,10 +92,11 @@ class WeeklyPlannerController extends ChangeNotifier {
     }
   }
 
-  Future<void> toggleTaskDone(String taskId, bool currentlyDone) async {
+  Future<void> toggleTaskDone(Task task, bool currentlyDone) async {
     try {
-      await _repository.updateTask(taskId,
-          status: currentlyDone ? 'open' : 'done');
+      await _repository.updateTask(task.id,
+          status: currentlyDone ? 'open' : 'done',
+          sourceType: task.sourceType);
       await load();
     } catch (e) {
       _errorMessage = e.toString();
@@ -81,9 +105,31 @@ class WeeklyPlannerController extends ChangeNotifier {
     }
   }
 
-  Future<void> updateTaskNotes(String taskId, String notes) async {
+  Future<void> updateTask(Task task,
+      {String? notes, String? dueDate, String? scheduledDate}) async {
     try {
-      await _repository.updateTask(taskId, notes: notes.isEmpty ? null : notes);
+      await _repository.updateTask(task.id,
+          notes: notes,
+          dueDate: dueDate,
+          scheduledDate: scheduledDate,
+          sourceType: task.sourceType);
+      await load();
+    } catch (e) {
+      _errorMessage = e.toString();
+      _status = WeeklyPlannerStatus.error;
+      notifyListeners();
+    }
+  }
+
+  Future<void> bulkToggleSelectedTasks(
+      List<Task> tasks, String targetStatus) async {
+    try {
+      final selected = tasks.where((task) => _selectedTaskIds.contains(task.id));
+      for (final task in selected) {
+        await _repository.updateTask(task.id,
+            status: targetStatus, sourceType: task.sourceType);
+      }
+      _selectedTaskIds.clear();
       await load();
     } catch (e) {
       _errorMessage = e.toString();

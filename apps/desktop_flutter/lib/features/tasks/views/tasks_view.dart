@@ -15,6 +15,7 @@ class _TasksViewState extends State<TasksView> {
   final _titleController = TextEditingController();
   final _notesController = TextEditingController();
   String? _selectedDueDate;
+  bool _showCompleted = false;
 
   @override
   void initState() {
@@ -80,7 +81,20 @@ class _TasksViewState extends State<TasksView> {
   Widget _buildHeader(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(24, 24, 24, 8),
-      child: Text('Tasks', style: Theme.of(context).textTheme.headlineSmall),
+      child: Row(
+        children: [
+          Text('Tasks', style: Theme.of(context).textTheme.headlineSmall),
+          const Spacer(),
+          TextButton.icon(
+            onPressed: () => setState(() => _showCompleted = !_showCompleted),
+            icon: Icon(
+              _showCompleted ? Icons.visibility_off : Icons.visibility,
+              size: 16,
+            ),
+            label: Text(_showCompleted ? 'Hide completed' : 'Show completed'),
+          ),
+        ],
+      ),
     );
   }
 
@@ -94,18 +108,27 @@ class _TasksViewState extends State<TasksView> {
   }
 
   Widget _buildTaskList(TasksController controller) {
+    final visibleTasks = _showCompleted
+        ? controller.tasks
+        : controller.tasks.where((task) => task.status != 'done').toList();
     if (controller.status == TasksStatus.loading && controller.tasks.isEmpty) {
       return const Center(child: CircularProgressIndicator());
     }
-    if (controller.tasks.isEmpty) {
-      return const Center(child: Text('No tasks yet. Add one below.'));
+    if (visibleTasks.isEmpty) {
+      return Center(
+        child: Text(
+          controller.tasks.isEmpty
+              ? 'No tasks yet. Add one below.'
+              : 'No incomplete tasks.',
+        ),
+      );
     }
     return ListView.separated(
       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
-      itemCount: controller.tasks.length,
+      itemCount: visibleTasks.length,
       separatorBuilder: (_, __) => const Divider(height: 1),
       itemBuilder: (context, i) =>
-          _buildTaskTile(controller.tasks[i], controller),
+          _buildTaskTile(visibleTasks[i], controller),
     );
   }
 

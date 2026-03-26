@@ -14,8 +14,18 @@ class WeeklyPlanRepository {
           {bool locked = false}) =>
       _dataSource.scheduleTask(taskId, date, locked: locked);
 
-  Future<Task> updateTask(String taskId, {String? notes, String? status}) =>
-      _dataSource.updateTask(taskId, notes: notes, status: status);
+  Future<Task> updateTask(String taskId,
+          {String? notes,
+          String? status,
+          String? dueDate,
+          String? scheduledDate,
+          String? sourceType}) =>
+      _dataSource.updateTask(taskId,
+          notes: notes,
+          status: status,
+          dueDate: dueDate,
+          scheduledDate: scheduledDate,
+          sourceType: sourceType);
 
   Future<void> createTask(String title, {String? dueDate}) {
     return _dataSource.createTask(title, dueDate: dueDate);

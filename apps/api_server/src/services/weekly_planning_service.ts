@@ -16,10 +16,12 @@ export interface WeeklyPlan {
 interface ProjectStepRow {
   id: string;
   title: string;
-  due_date: string;
+  due_date: string | null;
   status: string;
+  notes: string | null;
   instance_id: string;
   template_id: string;
+  instance_name: string | null;
 }
 
 /** Parse a YYYY-WNN label into the Monday UTC date for that ISO week. */
@@ -110,6 +112,7 @@ export class WeeklyPlanningService {
         status: row.status as Task['status'],
         sourceType: row.source_type,
         sourceId: row.source_id,
+        sourceName: null,
         createdAt: row.created_at,
         updatedAt: row.updated_at,
       });
@@ -118,28 +121,30 @@ export class WeeklyPlanningService {
     // 3: project instance steps due in the week
     const stepRows = db
       .prepare(
-        `SELECT pis.id, pis.title, pis.due_date, pis.status, pis.instance_id,
-                pi.template_id
+        `SELECT pis.id, pis.title, pis.due_date, pis.status, pis.notes, pis.instance_id,
+                pi.template_id, pi.name as instance_name
          FROM project_instance_steps pis
          JOIN project_instances pi ON pi.id = pis.instance_id
-         WHERE pis.due_date BETWEEN ? AND ?
+         WHERE pis.due_date BETWEEN ? AND ? AND pis.due_date IS NOT NULL AND pis.due_date != ''
          ORDER BY pis.due_date ASC`,
       )
       .all(startStr, endStr) as ProjectStepRow[];
 
     for (const row of stepRows) {
+      if (!row.due_date) continue;
       const day = dayMap.get(row.due_date);
       if (!day) continue;
       day.tasks.push({
         id: row.id,
         title: row.title,
-        notes: null,
+        notes: row.notes ?? null,
         dueDate: row.due_date,
         scheduledDate: null,
         locked: false,
         status: row.status as Task['status'],
         sourceType: 'project_step',
-        sourceId: row.template_id,
+        sourceId: row.instance_id,
+        sourceName: row.instance_name ?? null,
         createdAt: '',
         updatedAt: '',
       });
@@ -166,9 +171,38 @@ export class WeeklyPlanningService {
       status: 'open' as Task['status'],
       sourceType: row.source_type,
       sourceId: row.source_id,
+      sourceName: null,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     }));
+
+    const unscheduledProjectSteps = db
+      .prepare(
+        `SELECT pis.id, pis.title, pis.due_date, pis.status, pis.notes, pis.instance_id,
+                pi.template_id, pi.name as instance_name
+         FROM project_instance_steps pis
+         JOIN project_instances pi ON pi.id = pis.instance_id
+         WHERE pis.status = 'open' AND (pis.due_date IS NULL OR pis.due_date = '')
+         ORDER BY pi.created_at ASC, pis.title ASC`,
+      )
+      .all() as ProjectStepRow[];
+
+    backlog.push(
+      ...unscheduledProjectSteps.map((row) => ({
+        id: row.id,
+        title: row.title,
+        notes: row.notes ?? null,
+        dueDate: null,
+        scheduledDate: null,
+        locked: false,
+        status: row.status as Task['status'],
+        sourceType: 'project_step',
+        sourceId: row.instance_id,
+        sourceName: row.instance_name ?? null,
+        createdAt: '',
+        updatedAt: '',
+      })),
+    );
 
     return { weekLabel, weekStart: startStr, days, backlog };
   }

@@ -11,8 +11,17 @@ export class ProjectGenerationService {
    * Each step's due date = anchorDate + offsetDays.
    * Idempotent: returns the existing instance if one already exists for this template + anchorDate.
    */
-  generate(templateId: string, anchorDate: string): ProjectInstance {
-    const existing = this.instanceRepo.findByTemplateAndAnchor(templateId, anchorDate);
+  generate(
+    templateId: string,
+    anchorDate: string,
+    name?: string | null,
+  ): ProjectInstance {
+    const normalizedName = name?.trim() || null;
+    const existing = this.instanceRepo.findByTemplateAndAnchor(
+      templateId,
+      anchorDate,
+      normalizedName,
+    );
     if (existing) return existing;
 
     const template = this.templateRepo.findById(templateId);
@@ -28,6 +37,11 @@ export class ProjectGenerationService {
       };
     });
 
-    return this.instanceRepo.createWithSteps(templateId, anchorDate, steps);
+    return this.instanceRepo.createWithSteps(
+      templateId,
+      anchorDate,
+      normalizedName,
+      steps,
+    );
   }
 }
