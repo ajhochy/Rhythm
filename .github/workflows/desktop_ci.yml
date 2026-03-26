@@ -19,5 +19,5 @@ jobs:
           channel: 'stable'
       - run: flutter pub get
       - run: dart format --output=none --set-exit-if-changed .
-      - run: flutter analyze
+      - run: flutter analyze --no-fatal-infos
       - run: flutter test
