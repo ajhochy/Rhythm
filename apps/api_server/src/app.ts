@@ -4,6 +4,7 @@ import express from 'express';
 import { errorHandler } from './middleware/error_handler';
 import { authRouter } from './routes/auth_routes';
 import { healthRouter } from './routes/health_routes';
+import { integrationsRouter } from './routes/integrations_routes';
 import { projectInstancesRouter } from './routes/project_instances_routes';
 import { projectTemplatesRouter } from './routes/project_templates_routes';
 import { recurringRulesRouter } from './routes/recurring_rules_routes';
@@ -18,6 +19,7 @@ export function createApp() {
 
   app.use('/health', healthRouter);
   app.use('/auth', authRouter);
+  app.use('/integrations', integrationsRouter);
   app.use('/tasks', tasksRouter);
   app.use('/project-templates', projectTemplatesRouter);
   app.use('/recurring-rules', recurringRulesRouter);

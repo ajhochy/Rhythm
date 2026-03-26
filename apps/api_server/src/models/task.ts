@@ -18,6 +18,8 @@ export interface CreateTaskDto {
   notes?: string | null;
   dueDate?: string | null;
   status?: 'open' | 'done';
+  scheduledDate?: string | null;
+  locked?: boolean;
   sourceType?: string | null;
   sourceId?: string | null;
 }

@@ -65,6 +65,61 @@ export function runMigrations(db: Database.Database): void {
       locked INTEGER NOT NULL DEFAULT 0,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
+
+    CREATE TABLE IF NOT EXISTS integration_accounts (
+      id TEXT PRIMARY KEY,
+      provider TEXT NOT NULL UNIQUE,
+      external_account_id TEXT NOT NULL,
+      email TEXT,
+      display_name TEXT,
+      status TEXT NOT NULL DEFAULT 'connected',
+      access_token TEXT,
+      refresh_token TEXT,
+      scope TEXT,
+      token_type TEXT,
+      expires_at TEXT,
+      last_synced_at TEXT,
+      error_message TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS calendar_shadow_events (
+      id TEXT PRIMARY KEY,
+      provider TEXT NOT NULL,
+      external_id TEXT NOT NULL UNIQUE,
+      calendar_id TEXT NOT NULL,
+      source_name TEXT,
+      title TEXT NOT NULL,
+      description TEXT,
+      location TEXT,
+      start_at TEXT NOT NULL,
+      end_at TEXT,
+      is_all_day INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS gmail_signals (
+      id TEXT PRIMARY KEY,
+      external_id TEXT NOT NULL UNIQUE,
+      thread_id TEXT NOT NULL,
+      from_name TEXT,
+      from_email TEXT,
+      subject TEXT,
+      snippet TEXT,
+      received_at TEXT,
+      is_unread INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS integration_preferences (
+      provider TEXT NOT NULL,
+      key TEXT NOT NULL,
+      json_value TEXT NOT NULL,
+      PRIMARY KEY (provider, key)
+    );
   `);
 
   // Additive column migrations — safe to run on existing DBs

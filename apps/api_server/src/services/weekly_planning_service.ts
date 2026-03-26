@@ -1,4 +1,5 @@
 import { getDb } from '../database/db';
+import { CalendarShadowEventsRepository } from '../repositories/calendar_shadow_events_repository';
 import type { Task } from '../models/task';
 
 export interface WeeklyPlanDay {
@@ -58,6 +59,8 @@ function isoDate(date: Date): string {
 }
 
 export class WeeklyPlanningService {
+  private readonly shadowEventsRepo = new CalendarShadowEventsRepository();
+
   assemblePlan(weekLabel: string): WeeklyPlan {
     const weekStart = parseWeekLabel(weekLabel);
     const weekEnd = new Date(weekStart);
@@ -150,7 +153,46 @@ export class WeeklyPlanningService {
       });
     }
 
-    // 4: calendar shadow events — stubbed empty for Phase 4
+    // 4: calendar shadow events
+    const shadowEvents = this.shadowEventsRepo.findByRange(
+      `${startStr}T00:00:00.000Z`,
+      `${endStr}T23:59:59.999Z`,
+    );
+
+    for (const event of shadowEvents) {
+      const dayKey = event.startAt.substring(0, 10);
+      const day = dayMap.get(dayKey);
+      if (!day) continue;
+
+      const timeLabel = event.isAllDay
+          ? 'All day'
+          : new Date(event.startAt).toLocaleTimeString('en-US', {
+              hour: 'numeric',
+              minute: '2-digit',
+            });
+      const detailBits = [timeLabel];
+      if (event.location != null && event.location.length > 0) {
+        detailBits.push(event.location);
+      }
+      if (event.description != null && event.description.length > 0) {
+        detailBits.push(event.description);
+      }
+
+      day.tasks.push({
+        id: event.id,
+        title: event.title,
+        notes: detailBits.join(' • '),
+        dueDate: dayKey,
+        scheduledDate: dayKey,
+        locked: true,
+        status: 'open',
+        sourceType: 'calendar_shadow_event',
+        sourceId: event.externalId,
+        sourceName: event.sourceName,
+        createdAt: event.createdAt,
+        updatedAt: event.updatedAt,
+      });
+    }
 
     // 5: backlog — open tasks with no due_date and no scheduled_date
     type BacklogRow = TaskRow;

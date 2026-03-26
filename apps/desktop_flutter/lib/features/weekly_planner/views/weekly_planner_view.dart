@@ -622,7 +622,7 @@ class _TaskTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final card = _card(context);
-    if (!draggable) return card;
+    if (!draggable || task.sourceType == 'calendar_shadow_event') return card;
     return Draggable<Task>(
       data: task,
       feedback: Material(
@@ -650,9 +650,11 @@ class _TaskTile extends StatelessWidget {
     final isSelected = controller.selectedTaskId == task.id;
     final isMultiSelected = controller.selectedTaskIds.contains(task.id);
     final isDone = task.status == 'done';
+    final isShadowEvent = task.sourceType == 'calendar_shadow_event';
     return GestureDetector(
       onTap: () => controller.selectTask(task.id),
-      onLongPress: () => controller.toggleTaskSelection(task.id),
+      onLongPress:
+          isShadowEvent ? null : () => controller.toggleTaskSelection(task.id),
       child: Container(
         margin: compact
             ? const EdgeInsets.only(bottom: 4)
@@ -683,8 +685,9 @@ class _TaskTile extends StatelessWidget {
               width: compact ? 14 : 16,
               height: compact ? 14 : 16,
               child: Checkbox(
-                value: isDone,
-                onChanged: (_) => controller.toggleTaskDone(task, isDone),
+                value: isShadowEvent ? false : isDone,
+                onChanged:
+                    isShadowEvent ? null : (_) => controller.toggleTaskDone(task, isDone),
                 materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                 visualDensity:
                     compact ? const VisualDensity(horizontal: -4, vertical: -4) : VisualDensity.compact,
@@ -865,6 +868,7 @@ class _DetailPaneState extends State<_DetailPane> {
   Widget build(BuildContext context) {
     final task = widget.task;
     final isDone = task.status == 'done';
+    final isShadowEvent = task.sourceType == 'calendar_shadow_event';
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -908,52 +912,77 @@ class _DetailPaneState extends State<_DetailPane> {
                         )),
                 const SizedBox(height: 4),
                 // Quick complete toggle
-                TextButton.icon(
-                  icon: Icon(
-                      isDone
-                          ? Icons.check_circle
-                          : Icons.radio_button_unchecked,
-                      size: 16),
-                  label: Text(isDone ? 'Mark open' : 'Mark done'),
-                  style: TextButton.styleFrom(
-                    padding: EdgeInsets.zero,
-                    minimumSize: Size.zero,
-                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                if (!isShadowEvent)
+                  TextButton.icon(
+                    icon: Icon(
+                        isDone
+                            ? Icons.check_circle
+                            : Icons.radio_button_unchecked,
+                        size: 16),
+                    label: Text(isDone ? 'Mark open' : 'Mark done'),
+                    style: TextButton.styleFrom(
+                      padding: EdgeInsets.zero,
+                      minimumSize: Size.zero,
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
+                    onPressed: () =>
+                        widget.controller.toggleTaskDone(task, isDone),
                   ),
-                  onPressed: () =>
-                      widget.controller.toggleTaskDone(task, isDone),
-                ),
                 const SizedBox(height: 12),
-                _editableDateRow(
-                  context,
-                  label: 'Date',
-                  value: _plannerDate,
-                  onPick: _pickPlannerDate,
-                  onClear: () => _clearPlannerDate(),
-                ),
+                if (!isShadowEvent)
+                  _editableDateRow(
+                    context,
+                    label: 'Date',
+                    value: _plannerDate,
+                    onPick: _pickPlannerDate,
+                    onClear: () => _clearPlannerDate(),
+                  ),
+                if (isShadowEvent && _plannerDate != null)
+                  _row(context, 'Date', _plannerDate!),
                 if (task.sourceType != null)
                   _row(context, 'Source', _sourceLabel(task.sourceType!)),
                 if (task.sourceName != null && task.sourceName!.isNotEmpty)
-                  _row(context, 'Project', task.sourceName!),
+                  _row(
+                      context,
+                      isShadowEvent ? 'Calendar' : 'Project',
+                      task.sourceName!),
                 const SizedBox(height: 16),
-                Text('Notes',
-                    style: Theme.of(context)
-                        .textTheme
-                        .labelSmall
-                        ?.copyWith(fontWeight: FontWeight.bold)),
-                const SizedBox(height: 6),
-                TextField(
-                  controller: _notesCtrl,
-                  decoration: const InputDecoration(
-                    hintText: 'Add a note...',
-                    border: OutlineInputBorder(),
-                    isDense: true,
-                  ),
-                  minLines: 3,
-                  maxLines: 8,
+                Text(
+                  isShadowEvent ? 'Details' : 'Notes',
+                  style: Theme.of(context)
+                      .textTheme
+                      .labelSmall
+                      ?.copyWith(fontWeight: FontWeight.bold),
                 ),
+                const SizedBox(height: 6),
+                if (isShadowEvent)
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      border: Border.all(color: Theme.of(context).dividerColor),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Text(
+                      task.notes?.isNotEmpty == true
+                          ? task.notes!
+                          : 'No additional details.',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  )
+                else
+                  TextField(
+                    controller: _notesCtrl,
+                    decoration: const InputDecoration(
+                      hintText: 'Add a note...',
+                      border: OutlineInputBorder(),
+                      isDense: true,
+                    ),
+                    minLines: 3,
+                    maxLines: 8,
+                  ),
                 const SizedBox(height: 8),
-                if (_notesDirty || _datesDirty)
+                if (!isShadowEvent && (_notesDirty || _datesDirty))
                   Row(
                     children: [
                       FilledButton.tonal(
@@ -1053,6 +1082,8 @@ class _DetailPaneState extends State<_DetailPane> {
   String _sourceLabel(String t) => switch (t) {
         'recurring_rule' => 'Rhythm',
         'project_step' => 'Project',
+        'calendar_shadow_event' => 'Calendar',
+        'planning_center_signal' => 'Planning Center',
         _ => t,
       };
 }
@@ -1070,6 +1101,8 @@ class _SourceChip extends StatelessWidget {
     final (label, color) = switch (sourceType) {
       'recurring_rule' => ('R', Colors.blue),
       'project_step' => ('P', Colors.green),
+      'calendar_shadow_event' => ('C', Colors.orange),
+      'planning_center_signal' => ('PC', Colors.red),
       _ => ('T', Colors.grey),
     };
     return Container(

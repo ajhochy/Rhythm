@@ -50,6 +50,13 @@ export class TasksRepository {
     return rowToTask(row);
   }
 
+  findBySource(sourceType: string, sourceId: string): Task | null {
+    const row = getDb()
+      .prepare('SELECT * FROM tasks WHERE source_type = ? AND source_id = ? LIMIT 1')
+      .get(sourceType, sourceId) as TaskRow | undefined;
+    return row ? rowToTask(row) : null;
+  }
+
   findByWeek(weekStart: string, weekEnd: string): Task[] {
     const rows = getDb()
       .prepare(
@@ -66,14 +73,19 @@ export class TasksRepository {
     const now = new Date().toISOString();
     getDb()
       .prepare(
-        `INSERT INTO tasks (id, title, notes, due_date, status, source_type, source_id, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO tasks (
+          id, title, notes, due_date, scheduled_date, locked, status,
+          source_type, source_id, created_at, updated_at
+        )
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         id,
         data.title,
         data.notes ?? null,
         data.dueDate ?? null,
+        data.scheduledDate ?? null,
+        data.locked ? 1 : 0,
         data.status ?? 'open',
         data.sourceType ?? null,
         data.sourceId ?? null,
@@ -81,6 +93,70 @@ export class TasksRepository {
         now,
       );
     return this.findById(id);
+  }
+
+  upsertExternalTask(data: CreateTaskDto): Task {
+    const existing =
+      data.sourceType && data.sourceId
+        ? this.findBySource(data.sourceType, data.sourceId)
+        : null;
+
+    if (!existing) {
+      return this.create({
+        ...data,
+        status: data.status ?? 'open',
+      });
+    }
+
+    return this.update(existing.id, {
+      title: data.title,
+      notes: data.notes ?? null,
+      dueDate: data.dueDate ?? null,
+      scheduledDate: data.scheduledDate ?? null,
+      status: data.status ?? 'open',
+      locked: data.locked ?? existing.locked,
+    });
+  }
+
+  markOpenTasksDoneIfMissing(sourceType: string, activeSourceIds: string[]): number {
+    const rows = getDb()
+      .prepare(
+        `SELECT id, source_id FROM tasks
+         WHERE source_type = ? AND status = 'open'`,
+      )
+      .all(sourceType) as Array<{ id: string; source_id: string | null }>;
+
+    let changed = 0;
+    for (const row of rows) {
+      if (!row.source_id || activeSourceIds.includes(row.source_id)) continue;
+      this.update(row.id, { status: 'done' });
+      changed += 1;
+    }
+    return changed;
+  }
+
+  deleteTasksMissingFromSource(sourceType: string, activeSourceIds: string[]): number {
+    const rows = getDb()
+      .prepare(
+        `SELECT id, source_id FROM tasks
+         WHERE source_type = ?`,
+      )
+      .all(sourceType) as Array<{ id: string; source_id: string | null }>;
+
+    let changed = 0;
+    for (const row of rows) {
+      if (!row.source_id || activeSourceIds.includes(row.source_id)) continue;
+      getDb().prepare('DELETE FROM tasks WHERE id = ?').run(row.id);
+      changed += 1;
+    }
+    return changed;
+  }
+
+  deleteAllBySourceType(sourceType: string): number {
+    const result = getDb()
+      .prepare('DELETE FROM tasks WHERE source_type = ?')
+      .run(sourceType);
+    return result.changes;
   }
 
   update(id: string, data: UpdateTaskDto): Task {
