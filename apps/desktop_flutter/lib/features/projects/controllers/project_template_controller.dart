@@ -56,9 +56,11 @@ class ProjectTemplateController extends ChangeNotifier {
     }
   }
 
-  Future<void> updateTemplate(String id, {String? name, String? description}) async {
+  Future<void> updateTemplate(String id,
+      {String? name, String? description}) async {
     try {
-      final updated = await _repository.update(id, name: name, description: description);
+      final updated =
+          await _repository.update(id, name: name, description: description);
       _templates = _templates.map((t) => t.id == id ? updated : t).toList();
       notifyListeners();
     } catch (e) {
@@ -72,7 +74,9 @@ class ProjectTemplateController extends ChangeNotifier {
       {String? title, int? offsetDays, String? offsetDescription}) async {
     try {
       await _repository.updateStep(templateId, stepId,
-          title: title, offsetDays: offsetDays, offsetDescription: offsetDescription);
+          title: title,
+          offsetDays: offsetDays,
+          offsetDescription: offsetDescription);
       await load();
     } catch (e) {
       _errorMessage = e.toString();

@@ -18,13 +18,15 @@ class TasksLocalDataSource {
     final response = await http.post(
       _base,
       headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({'title': title, if (dueDate != null) 'dueDate': dueDate}),
+      body:
+          jsonEncode({'title': title, if (dueDate != null) 'dueDate': dueDate}),
     );
     _assertOk(response);
     return Task.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
   }
 
-  Future<Task> update(String id, {String? title, String? dueDate, String? status}) async {
+  Future<Task> update(String id,
+      {String? title, String? dueDate, String? status}) async {
     final response = await http.patch(
       Uri.parse('${AppConstants.apiBaseUrl}/tasks/$id'),
       headers: {'Content-Type': 'application/json'},
@@ -39,14 +41,17 @@ class TasksLocalDataSource {
   }
 
   Future<void> delete(String id) async {
-    final response = await http.delete(Uri.parse('${AppConstants.apiBaseUrl}/tasks/$id'));
+    final response =
+        await http.delete(Uri.parse('${AppConstants.apiBaseUrl}/tasks/$id'));
     _assertOk(response);
   }
 
   void _assertOk(http.Response response) {
     if (response.statusCode >= 400) {
       final body = jsonDecode(response.body) as Map<String, dynamic>?;
-      final message = (body?['error'] as Map<String, dynamic>?)?['message'] as String? ?? 'Request failed';
+      final message =
+          (body?['error'] as Map<String, dynamic>?)?['message'] as String? ??
+              'Request failed';
       throw AppError(message);
     }
   }

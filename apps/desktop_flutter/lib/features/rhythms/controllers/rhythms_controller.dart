@@ -41,7 +41,12 @@ class RhythmsController extends ChangeNotifier {
     int? month,
   }) async {
     try {
-      final updated = await _repository.update(id, title: title, frequency: frequency, dayOfWeek: dayOfWeek, dayOfMonth: dayOfMonth, month: month);
+      final updated = await _repository.update(id,
+          title: title,
+          frequency: frequency,
+          dayOfWeek: dayOfWeek,
+          dayOfMonth: dayOfMonth,
+          month: month);
       _rules = _rules.map((r) => r.id == id ? updated : r).toList();
       notifyListeners();
     } catch (e) {

@@ -7,6 +7,7 @@ class PlaceholderCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Card(child: Padding(padding: const EdgeInsets.all(12), child: Text(label)));
+    return Card(
+        child: Padding(padding: const EdgeInsets.all(12), child: Text(label)));
   }
 }

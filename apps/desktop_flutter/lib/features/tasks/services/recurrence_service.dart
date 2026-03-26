@@ -4,7 +4,8 @@ import '../models/recurring_task_rule.dart';
 /// Used exclusively for UI previews — no persistence side effects.
 class RecurrenceService {
   /// Returns the next [count] occurrence dates for [rule] starting from [from].
-  List<DateTime> previewNextDates(RecurringTaskRule rule, DateTime from, {int count = 5}) {
+  List<DateTime> previewNextDates(RecurringTaskRule rule, DateTime from,
+      {int count = 5}) {
     final results = <DateTime>[];
     DateTime cursor = DateTime.utc(from.year, from.month, from.day);
 
@@ -22,7 +23,8 @@ class RecurrenceService {
   }
 
   /// Returns all dates for [rule] within [from]..[to] (inclusive).
-  List<DateTime> generateDates(RecurringTaskRule rule, DateTime from, DateTime to) {
+  List<DateTime> generateDates(
+      RecurringTaskRule rule, DateTime from, DateTime to) {
     final results = <DateTime>[];
     for (int year = from.year; year <= to.year; year++) {
       for (final date in _computeYear(rule, year)) {

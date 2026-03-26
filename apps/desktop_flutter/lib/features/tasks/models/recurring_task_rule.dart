@@ -24,23 +24,44 @@ class RecurringTaskRule {
   final String id;
   final String title;
   final String frequency; // 'weekly' | 'monthly' | 'annual'
-  final int? dayOfWeek;   // 0=Sun..6=Sat (weekly)
-  final int? dayOfMonth;  // 1-31 (monthly / annual)
-  final int? month;       // 1-12 (annual)
+  final int? dayOfWeek; // 0=Sun..6=Sat (weekly)
+  final int? dayOfMonth; // 1-31 (monthly / annual)
+  final int? month; // 1-12 (annual)
   final String createdAt;
 
   String get patternDescription {
     switch (frequency) {
       case 'weekly':
-        final days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+        final days = [
+          'Sunday',
+          'Monday',
+          'Tuesday',
+          'Wednesday',
+          'Thursday',
+          'Friday',
+          'Saturday'
+        ];
         final dow = dayOfWeek ?? 1;
         return 'Every ${days[dow.clamp(0, 6)]}';
       case 'monthly':
         final d = dayOfMonth ?? 1;
         return 'Monthly on the ${_ordinal(d)}';
       case 'annual':
-        final months = ['', 'January', 'February', 'March', 'April', 'May', 'June',
-            'July', 'August', 'September', 'October', 'November', 'December'];
+        final months = [
+          '',
+          'January',
+          'February',
+          'March',
+          'April',
+          'May',
+          'June',
+          'July',
+          'August',
+          'September',
+          'October',
+          'November',
+          'December'
+        ];
         final m = month ?? 1;
         final d = dayOfMonth ?? 1;
         return 'Every ${months[m.clamp(1, 12)]} ${_ordinal(d)}';
@@ -52,10 +73,14 @@ class RecurringTaskRule {
   static String _ordinal(int n) {
     if (n >= 11 && n <= 13) return '${n}th';
     switch (n % 10) {
-      case 1: return '${n}st';
-      case 2: return '${n}nd';
-      case 3: return '${n}rd';
-      default: return '${n}th';
+      case 1:
+        return '${n}st';
+      case 2:
+        return '${n}nd';
+      case 3:
+        return '${n}rd';
+      default:
+        return '${n}th';
     }
   }
 }

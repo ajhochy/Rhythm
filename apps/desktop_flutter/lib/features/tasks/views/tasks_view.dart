@@ -37,14 +37,17 @@ class _TasksViewState extends State<TasksView> {
       lastDate: DateTime(2030),
     );
     if (picked != null) {
-      setState(() => _selectedDueDate = picked.toIso8601String().substring(0, 10));
+      setState(
+          () => _selectedDueDate = picked.toIso8601String().substring(0, 10));
     }
   }
 
   Future<void> _submitCreate() async {
     final title = _titleController.text.trim();
     if (title.isEmpty) return;
-    await context.read<TasksController>().createTask(title, dueDate: _selectedDueDate);
+    await context
+        .read<TasksController>()
+        .createTask(title, dueDate: _selectedDueDate);
     _titleController.clear();
     setState(() => _selectedDueDate = null);
   }
@@ -58,7 +61,8 @@ class _TasksViewState extends State<TasksView> {
           children: [
             _buildHeader(context),
             if (controller.status == TasksStatus.error)
-              _buildErrorBanner(controller.errorMessage ?? 'Unknown error', controller),
+              _buildErrorBanner(
+                  controller.errorMessage ?? 'Unknown error', controller),
             Expanded(child: _buildTaskList(controller)),
             _buildCreateBar(context),
           ],
@@ -94,7 +98,8 @@ class _TasksViewState extends State<TasksView> {
       padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
       itemCount: controller.tasks.length,
       separatorBuilder: (_, __) => const Divider(height: 1),
-      itemBuilder: (context, i) => _buildTaskTile(controller.tasks[i], controller),
+      itemBuilder: (context, i) =>
+          _buildTaskTile(controller.tasks[i], controller),
     );
   }
 
@@ -201,7 +206,9 @@ class _EditTaskDialogState extends State<_EditTaskDialog> {
   }
 
   Future<void> _pickDate() async {
-    final initial = _dueDate != null ? DateTime.tryParse(_dueDate!) ?? DateTime.now() : DateTime.now();
+    final initial = _dueDate != null
+        ? DateTime.tryParse(_dueDate!) ?? DateTime.now()
+        : DateTime.now();
     final picked = await showDatePicker(
       context: context,
       initialDate: initial,
@@ -224,7 +231,8 @@ class _EditTaskDialogState extends State<_EditTaskDialog> {
           children: [
             TextField(
               controller: _titleController,
-              decoration: const InputDecoration(labelText: 'Title', border: OutlineInputBorder()),
+              decoration: const InputDecoration(
+                  labelText: 'Title', border: OutlineInputBorder()),
               autofocus: true,
             ),
             const SizedBox(height: 12),
@@ -248,11 +256,16 @@ class _EditTaskDialogState extends State<_EditTaskDialog> {
         ),
       ),
       actions: [
-        TextButton(onPressed: _saving ? null : () => Navigator.pop(context), child: const Text('Cancel')),
+        TextButton(
+            onPressed: _saving ? null : () => Navigator.pop(context),
+            child: const Text('Cancel')),
         FilledButton(
           onPressed: _saving ? null : _save,
           child: _saving
-              ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+              ? const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2))
               : const Text('Save'),
         ),
       ],
@@ -263,7 +276,8 @@ class _EditTaskDialogState extends State<_EditTaskDialog> {
     final title = _titleController.text.trim();
     if (title.isEmpty) return;
     setState(() => _saving = true);
-    await widget.controller.updateTask(widget.task.id, title: title, dueDate: _dueDate);
+    await widget.controller
+        .updateTask(widget.task.id, title: title, dueDate: _dueDate);
     if (mounted) Navigator.pop(context);
   }
 }

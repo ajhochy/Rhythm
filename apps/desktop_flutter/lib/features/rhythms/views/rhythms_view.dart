@@ -29,7 +29,8 @@ class _RhythmsViewState extends State<RhythmsView> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             _Header(onAdd: () => _showCreateDialog(context, controller)),
-            if (controller.status == RhythmsStatus.error && controller.errorMessage != null)
+            if (controller.status == RhythmsStatus.error &&
+                controller.errorMessage != null)
               _ErrorBanner(
                 message: controller.errorMessage!,
                 onRetry: controller.load,
@@ -41,7 +42,8 @@ class _RhythmsViewState extends State<RhythmsView> {
     );
   }
 
-  Future<void> _showCreateDialog(BuildContext context, RhythmsController controller) async {
+  Future<void> _showCreateDialog(
+      BuildContext context, RhythmsController controller) async {
     await showDialog<void>(
       context: context,
       builder: (_) => _CreateRuleDialog(controller: controller),
@@ -88,10 +90,13 @@ class _ErrorBanner extends StatelessWidget {
       ),
       child: Row(
         children: [
-          Icon(Icons.error_outline, color: Theme.of(context).colorScheme.onErrorContainer),
+          Icon(Icons.error_outline,
+              color: Theme.of(context).colorScheme.onErrorContainer),
           const SizedBox(width: 8),
           Expanded(
-            child: Text(message, style: TextStyle(color: Theme.of(context).colorScheme.onErrorContainer)),
+            child: Text(message,
+                style: TextStyle(
+                    color: Theme.of(context).colorScheme.onErrorContainer)),
           ),
           TextButton(onPressed: onRetry, child: const Text('Retry')),
         ],
@@ -106,7 +111,8 @@ class _RulesList extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (controller.status == RhythmsStatus.loading && controller.rules.isEmpty) {
+    if (controller.status == RhythmsStatus.loading &&
+        controller.rules.isEmpty) {
       return const Center(child: CircularProgressIndicator());
     }
     if (controller.rules.isEmpty) {
@@ -129,7 +135,8 @@ class _RulesList extends StatelessWidget {
 }
 
 class _RuleTile extends StatefulWidget {
-  const _RuleTile({required this.rule, required this.onDelete, required this.controller});
+  const _RuleTile(
+      {required this.rule, required this.onDelete, required this.controller});
   final RecurringTaskRule rule;
   final VoidCallback onDelete;
   final RhythmsController controller;
@@ -145,7 +152,8 @@ class _RuleTileState extends State<_RuleTile> {
   Widget build(BuildContext context) {
     final preview = RecurrenceService()
         .previewNextDates(widget.rule, DateTime.now(), count: 3)
-        .map((d) => '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}')
+        .map((d) =>
+            '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}')
         .join('  ·  ');
 
     return Card(
@@ -186,9 +194,11 @@ class _RuleTileState extends State<_RuleTile> {
               padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
               child: Row(
                 children: [
-                  const Icon(Icons.calendar_today, size: 14, color: Colors.grey),
+                  const Icon(Icons.calendar_today,
+                      size: 14, color: Colors.grey),
                   const SizedBox(width: 6),
-                  Text('Next: $preview', style: Theme.of(context).textTheme.bodySmall),
+                  Text('Next: $preview',
+                      style: Theme.of(context).textTheme.bodySmall),
                 ],
               ),
             ),
@@ -200,7 +210,8 @@ class _RuleTileState extends State<_RuleTile> {
   Future<void> _showEditDialog(BuildContext context) async {
     await showDialog<void>(
       context: context,
-      builder: (_) => _EditRuleDialog(rule: widget.rule, controller: widget.controller),
+      builder: (_) =>
+          _EditRuleDialog(rule: widget.rule, controller: widget.controller),
     );
   }
 
@@ -209,12 +220,16 @@ class _RuleTileState extends State<_RuleTile> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Delete Rule'),
-        content: Text('Delete "${widget.rule.title}"? This will not remove already-generated tasks.'),
+        content: Text(
+            'Delete "${widget.rule.title}"? This will not remove already-generated tasks.'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancel')),
           FilledButton(
             onPressed: () => Navigator.pop(ctx, true),
-            style: FilledButton.styleFrom(backgroundColor: Theme.of(context).colorScheme.error),
+            style: FilledButton.styleFrom(
+                backgroundColor: Theme.of(context).colorScheme.error),
             child: const Text('Delete'),
           ),
         ],
@@ -244,9 +259,29 @@ class _CreateRuleDialogState extends State<_CreateRuleDialog> {
   int _month = 1;
   bool _saving = false;
 
-  static const _weekdays = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-  static const _months = ['January', 'February', 'March', 'April', 'May', 'June',
-      'July', 'August', 'September', 'October', 'November', 'December'];
+  static const _weekdays = [
+    'Sunday',
+    'Monday',
+    'Tuesday',
+    'Wednesday',
+    'Thursday',
+    'Friday',
+    'Saturday'
+  ];
+  static const _months = [
+    'January',
+    'February',
+    'March',
+    'April',
+    'May',
+    'June',
+    'July',
+    'August',
+    'September',
+    'October',
+    'November',
+    'December'
+  ];
 
   @override
   void dispose() {
@@ -266,13 +301,15 @@ class _CreateRuleDialogState extends State<_CreateRuleDialog> {
           children: [
             TextField(
               controller: _titleController,
-              decoration: const InputDecoration(labelText: 'Title', border: OutlineInputBorder()),
+              decoration: const InputDecoration(
+                  labelText: 'Title', border: OutlineInputBorder()),
               autofocus: true,
             ),
             const SizedBox(height: 16),
             DropdownButtonFormField<String>(
               value: _frequency,
-              decoration: const InputDecoration(labelText: 'Frequency', border: OutlineInputBorder()),
+              decoration: const InputDecoration(
+                  labelText: 'Frequency', border: OutlineInputBorder()),
               items: const [
                 DropdownMenuItem(value: 'weekly', child: Text('Weekly')),
                 DropdownMenuItem(value: 'monthly', child: Text('Monthly')),
@@ -284,8 +321,12 @@ class _CreateRuleDialogState extends State<_CreateRuleDialog> {
             if (_frequency == 'weekly') ...[
               DropdownButtonFormField<int>(
                 value: _dayOfWeek,
-                decoration: const InputDecoration(labelText: 'Day of Week', border: OutlineInputBorder()),
-                items: List.generate(7, (i) => DropdownMenuItem(value: i, child: Text(_weekdays[i]))),
+                decoration: const InputDecoration(
+                    labelText: 'Day of Week', border: OutlineInputBorder()),
+                items: List.generate(
+                    7,
+                    (i) =>
+                        DropdownMenuItem(value: i, child: Text(_weekdays[i]))),
                 onChanged: (v) => setState(() => _dayOfWeek = v!),
               ),
             ],
@@ -298,8 +339,12 @@ class _CreateRuleDialogState extends State<_CreateRuleDialog> {
             if (_frequency == 'annual') ...[
               DropdownButtonFormField<int>(
                 value: _month,
-                decoration: const InputDecoration(labelText: 'Month', border: OutlineInputBorder()),
-                items: List.generate(12, (i) => DropdownMenuItem(value: i + 1, child: Text(_months[i]))),
+                decoration: const InputDecoration(
+                    labelText: 'Month', border: OutlineInputBorder()),
+                items: List.generate(
+                    12,
+                    (i) => DropdownMenuItem(
+                        value: i + 1, child: Text(_months[i]))),
                 onChanged: (v) => setState(() => _month = v!),
               ),
               const SizedBox(height: 12),
@@ -318,7 +363,12 @@ class _CreateRuleDialogState extends State<_CreateRuleDialog> {
         ),
         FilledButton(
           onPressed: _saving ? null : _save,
-          child: _saving ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) : const Text('Create'),
+          child: _saving
+              ? const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2))
+              : const Text('Create'),
         ),
       ],
     );
@@ -333,7 +383,9 @@ class _CreateRuleDialogState extends State<_CreateRuleDialog> {
       title: title,
       frequency: _frequency,
       dayOfWeek: _frequency == 'weekly' ? _dayOfWeek : null,
-      dayOfMonth: (_frequency == 'monthly' || _frequency == 'annual') ? _dayOfMonth : null,
+      dayOfMonth: (_frequency == 'monthly' || _frequency == 'annual')
+          ? _dayOfMonth
+          : null,
       month: _frequency == 'annual' ? _month : null,
     );
     if (mounted) Navigator.pop(context);
@@ -357,9 +409,29 @@ class _EditRuleDialogState extends State<_EditRuleDialog> {
   late int _month;
   bool _saving = false;
 
-  static const _weekdays = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-  static const _months = ['January', 'February', 'March', 'April', 'May', 'June',
-      'July', 'August', 'September', 'October', 'November', 'December'];
+  static const _weekdays = [
+    'Sunday',
+    'Monday',
+    'Tuesday',
+    'Wednesday',
+    'Thursday',
+    'Friday',
+    'Saturday'
+  ];
+  static const _months = [
+    'January',
+    'February',
+    'March',
+    'April',
+    'May',
+    'June',
+    'July',
+    'August',
+    'September',
+    'October',
+    'November',
+    'December'
+  ];
 
   @override
   void initState() {
@@ -389,13 +461,15 @@ class _EditRuleDialogState extends State<_EditRuleDialog> {
           children: [
             TextField(
               controller: _titleController,
-              decoration: const InputDecoration(labelText: 'Title', border: OutlineInputBorder()),
+              decoration: const InputDecoration(
+                  labelText: 'Title', border: OutlineInputBorder()),
               autofocus: true,
             ),
             const SizedBox(height: 16),
             DropdownButtonFormField<String>(
               value: _frequency,
-              decoration: const InputDecoration(labelText: 'Frequency', border: OutlineInputBorder()),
+              decoration: const InputDecoration(
+                  labelText: 'Frequency', border: OutlineInputBorder()),
               items: const [
                 DropdownMenuItem(value: 'weekly', child: Text('Weekly')),
                 DropdownMenuItem(value: 'monthly', child: Text('Monthly')),
@@ -407,31 +481,48 @@ class _EditRuleDialogState extends State<_EditRuleDialog> {
             if (_frequency == 'weekly')
               DropdownButtonFormField<int>(
                 value: _dayOfWeek,
-                decoration: const InputDecoration(labelText: 'Day of Week', border: OutlineInputBorder()),
-                items: List.generate(7, (i) => DropdownMenuItem(value: i, child: Text(_weekdays[i]))),
+                decoration: const InputDecoration(
+                    labelText: 'Day of Week', border: OutlineInputBorder()),
+                items: List.generate(
+                    7,
+                    (i) =>
+                        DropdownMenuItem(value: i, child: Text(_weekdays[i]))),
                 onChanged: (v) => setState(() => _dayOfWeek = v!),
               ),
             if (_frequency == 'monthly')
-              _DayOfMonthField(value: _dayOfMonth, onChanged: (v) => setState(() => _dayOfMonth = v)),
+              _DayOfMonthField(
+                  value: _dayOfMonth,
+                  onChanged: (v) => setState(() => _dayOfMonth = v)),
             if (_frequency == 'annual') ...[
               DropdownButtonFormField<int>(
                 value: _month,
-                decoration: const InputDecoration(labelText: 'Month', border: OutlineInputBorder()),
-                items: List.generate(12, (i) => DropdownMenuItem(value: i + 1, child: Text(_months[i]))),
+                decoration: const InputDecoration(
+                    labelText: 'Month', border: OutlineInputBorder()),
+                items: List.generate(
+                    12,
+                    (i) => DropdownMenuItem(
+                        value: i + 1, child: Text(_months[i]))),
                 onChanged: (v) => setState(() => _month = v!),
               ),
               const SizedBox(height: 12),
-              _DayOfMonthField(value: _dayOfMonth, onChanged: (v) => setState(() => _dayOfMonth = v)),
+              _DayOfMonthField(
+                  value: _dayOfMonth,
+                  onChanged: (v) => setState(() => _dayOfMonth = v)),
             ],
           ],
         ),
       ),
       actions: [
-        TextButton(onPressed: _saving ? null : () => Navigator.pop(context), child: const Text('Cancel')),
+        TextButton(
+            onPressed: _saving ? null : () => Navigator.pop(context),
+            child: const Text('Cancel')),
         FilledButton(
           onPressed: _saving ? null : _save,
           child: _saving
-              ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+              ? const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2))
               : const Text('Save'),
         ),
       ],
@@ -447,7 +538,9 @@ class _EditRuleDialogState extends State<_EditRuleDialog> {
       title: title,
       frequency: _frequency,
       dayOfWeek: _frequency == 'weekly' ? _dayOfWeek : null,
-      dayOfMonth: (_frequency == 'monthly' || _frequency == 'annual') ? _dayOfMonth : null,
+      dayOfMonth: (_frequency == 'monthly' || _frequency == 'annual')
+          ? _dayOfMonth
+          : null,
       month: _frequency == 'annual' ? _month : null,
     );
     if (mounted) Navigator.pop(context);
@@ -463,7 +556,8 @@ class _DayOfMonthField extends StatelessWidget {
   Widget build(BuildContext context) {
     return TextFormField(
       initialValue: value.toString(),
-      decoration: const InputDecoration(labelText: 'Day of Month (1–31)', border: OutlineInputBorder()),
+      decoration: const InputDecoration(
+          labelText: 'Day of Month (1–31)', border: OutlineInputBorder()),
       keyboardType: TextInputType.number,
       inputFormatters: [FilteringTextInputFormatter.digitsOnly],
       onChanged: (v) {

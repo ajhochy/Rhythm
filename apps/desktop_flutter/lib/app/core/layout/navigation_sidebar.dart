@@ -29,7 +29,11 @@ class NavigationSidebar extends StatelessWidget {
         children: [
           const Padding(
             padding: EdgeInsets.only(bottom: 24),
-            child: Text('Rhythm', style: TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
+            child: Text('Rhythm',
+                style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold)),
           ),
           for (int i = 0; i < _items.length; i++) ...[
             _NavItemTile(
@@ -52,7 +56,8 @@ class _NavItem {
 }
 
 class _NavItemTile extends StatelessWidget {
-  const _NavItemTile({required this.item, required this.isSelected, required this.onTap});
+  const _NavItemTile(
+      {required this.item, required this.isSelected, required this.onTap});
 
   final _NavItem item;
   final bool isSelected;
@@ -66,12 +71,15 @@ class _NavItemTile extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         decoration: BoxDecoration(
-          color: isSelected ? Colors.white.withValues(alpha: 0.12) : Colors.transparent,
+          color: isSelected
+              ? Colors.white.withValues(alpha: 0.12)
+              : Colors.transparent,
           borderRadius: BorderRadius.circular(8),
         ),
         child: Row(
           children: [
-            Icon(item.icon, color: isSelected ? Colors.white : Colors.white60, size: 18),
+            Icon(item.icon,
+                color: isSelected ? Colors.white : Colors.white60, size: 18),
             const SizedBox(width: 10),
             Text(
               item.label,
