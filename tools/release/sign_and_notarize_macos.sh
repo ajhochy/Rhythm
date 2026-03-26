@@ -58,12 +58,29 @@ security set-key-partition-list \
   -k "${KEYCHAIN_PASSWORD}" \
   "${KEYCHAIN_NAME}"
 
+IDENTITY_SHA="$(
+  security find-identity -v -p codesigning "${KEYCHAIN_NAME}" |
+    awk -v expected="${APPLE_SIGNING_IDENTITY}" '
+      index($0, expected) { print $2; found=1; exit }
+      $2 ~ /^[0-9A-F]+$/ && fallback == "" { fallback=$2 }
+      END {
+        if (!found && fallback != "") print fallback
+      }
+    '
+)"
+
+if [[ -z "${IDENTITY_SHA}" ]]; then
+  echo "Unable to resolve a signing identity from the imported certificate." >&2
+  security find-identity -v -p codesigning "${KEYCHAIN_NAME}" || true
+  exit 1
+fi
+
 codesign --force --deep --options runtime \
   --entitlements "${ENTITLEMENTS_PATH}" \
-  --sign "${APPLE_SIGNING_IDENTITY}" \
+  --sign "${IDENTITY_SHA}" \
   "${APP_PATH}"
 
-codesign --force --sign "${APPLE_SIGNING_IDENTITY}" "${DMG_PATH}"
+codesign --force --sign "${IDENTITY_SHA}" "${DMG_PATH}"
 
 xcrun notarytool submit "${DMG_PATH}" \
   --apple-id "${APPLE_ID}" \
