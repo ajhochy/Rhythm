@@ -14,24 +14,28 @@ class TasksLocalDataSource {
     return list.map((j) => Task.fromJson(j as Map<String, dynamic>)).toList();
   }
 
-  Future<Task> create(String title, {String? dueDate}) async {
+  Future<Task> create(String title, {String? notes, String? dueDate}) async {
     final response = await http.post(
       _base,
       headers: {'Content-Type': 'application/json'},
-      body:
-          jsonEncode({'title': title, if (dueDate != null) 'dueDate': dueDate}),
+      body: jsonEncode({
+        'title': title,
+        if (notes != null && notes.isNotEmpty) 'notes': notes,
+        if (dueDate != null) 'dueDate': dueDate,
+      }),
     );
     _assertOk(response);
     return Task.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
   }
 
   Future<Task> update(String id,
-      {String? title, String? dueDate, String? status}) async {
+      {String? title, String? notes, String? dueDate, String? status}) async {
     final response = await http.patch(
       Uri.parse('${AppConstants.apiBaseUrl}/tasks/$id'),
       headers: {'Content-Type': 'application/json'},
       body: jsonEncode({
         if (title != null) 'title': title,
+        if (notes != null) 'notes': notes,
         if (dueDate != null) 'dueDate': dueDate,
         if (status != null) 'status': status,
       }),

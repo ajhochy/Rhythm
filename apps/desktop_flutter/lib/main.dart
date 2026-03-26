@@ -8,12 +8,18 @@ import 'app/theme/app_theme.dart';
 import 'features/projects/controllers/project_template_controller.dart';
 import 'features/projects/data/projects_local_data_source.dart';
 import 'features/projects/repositories/projects_repository.dart';
+import 'features/integrations/controllers/integrations_controller.dart';
+import 'features/integrations/data/integrations_data_source.dart';
+import 'features/integrations/repositories/integrations_repository.dart';
 import 'features/rhythms/controllers/rhythms_controller.dart';
 import 'features/rhythms/data/rhythms_data_source.dart';
 import 'features/rhythms/repositories/rhythms_repository.dart';
 import 'features/tasks/controllers/tasks_controller.dart';
 import 'features/tasks/data/tasks_local_data_source.dart';
 import 'features/tasks/repositories/tasks_repository.dart';
+import 'features/weekly_planner/controllers/weekly_planner_controller.dart';
+import 'features/weekly_planner/data/weekly_plan_data_source.dart';
+import 'features/weekly_planner/repositories/weekly_plan_repository.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -53,6 +59,16 @@ class RhythmApp extends StatelessWidget {
         ChangeNotifierProvider(
           create: (_) => RhythmsController(
             RhythmsRepository(RhythmsDataSource()),
+          ),
+        ),
+        ChangeNotifierProvider(
+          create: (_) => WeeklyPlannerController(
+            WeeklyPlanRepository(WeeklyPlanDataSource()),
+          ),
+        ),
+        ChangeNotifierProvider(
+          create: (_) => IntegrationsController(
+            IntegrationsRepository(IntegrationsDataSource()),
           ),
         ),
       ],

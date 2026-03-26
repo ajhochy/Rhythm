@@ -67,6 +67,17 @@ export class ProjectTemplatesRepository {
     return rowToTemplate(row, this.getSteps(id));
   }
 
+  findByNameInsensitive(name: string): ProjectTemplate | null {
+    const normalized = name.trim().toLowerCase();
+    const rows = getDb()
+      .prepare('SELECT * FROM project_templates ORDER BY created_at ASC')
+      .all() as TemplateRow[];
+    const match = rows.find(
+      (row) => row.name.trim().toLowerCase() === normalized,
+    );
+    return match ? rowToTemplate(match, this.getSteps(match.id)) : null;
+  }
+
   create(data: CreateProjectTemplateDto): ProjectTemplate {
     const id = uuidv4();
     const now = new Date().toISOString();
@@ -85,8 +96,12 @@ export class ProjectTemplatesRepository {
   }
 
   delete(id: string): void {
-    const result = getDb().prepare('DELETE FROM project_templates WHERE id = ?').run(id);
-    if (result.changes === 0) throw AppError.notFound('ProjectTemplate');
+    const db = getDb();
+    db.transaction(() => {
+      db.prepare('DELETE FROM project_instances WHERE template_id = ?').run(id);
+      const result = db.prepare('DELETE FROM project_templates WHERE id = ?').run(id);
+      if (result.changes === 0) throw AppError.notFound('ProjectTemplate');
+    })();
   }
 
   addStep(templateId: string, data: CreateStepDto): ProjectTemplateStep {

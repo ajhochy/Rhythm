@@ -5,11 +5,13 @@ export interface ProjectInstanceStep {
   title: string;
   dueDate: string;
   status: 'open' | 'done';
+  notes: string | null;
 }
 
 export interface ProjectInstance {
   id: string;
   templateId: string;
+  name: string | null;
   anchorDate: string;
   status: string;
   createdAt: string;
