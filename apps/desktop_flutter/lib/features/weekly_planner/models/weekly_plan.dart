@@ -21,6 +21,7 @@ class WeeklyPlan {
     required this.weekLabel,
     required this.weekStart,
     required this.days,
+    required this.backlog,
   });
 
   factory WeeklyPlan.fromJson(Map<String, dynamic> json) {
@@ -30,6 +31,9 @@ class WeeklyPlan {
       days: (json['days'] as List<dynamic>)
           .map((d) => WeeklyPlanDay.fromJson(d as Map<String, dynamic>))
           .toList(),
+      backlog: ((json['backlog'] as List<dynamic>?) ?? [])
+          .map((t) => Task.fromJson(t as Map<String, dynamic>))
+          .toList(),
     );
   }
 
@@ -37,15 +41,11 @@ class WeeklyPlan {
   final String weekStart;
   final List<WeeklyPlanDay> days;
 
-  /// Tasks with no date at all — truly unscheduled (no due date, no scheduled date).
-  List<Task> get backlog => days
-      .expand((d) => d.tasks)
-      .where((t) => t.scheduledDate == null && t.dueDate == null)
-      .toList();
+  /// Tasks with no due date and no scheduled date — from API backlog field.
+  final List<Task> backlog;
 
   /// Tasks to display in a day column.
-  /// scheduledDate takes priority; falls back to dueDate so tasks auto-populate
-  /// into their due date column before the user explicitly schedules them.
+  /// scheduledDate takes priority; falls back to dueDate.
   List<Task> tasksForDate(String date) => days
       .expand((d) => d.tasks)
       .where((t) => (t.scheduledDate ?? t.dueDate) == date)

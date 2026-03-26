@@ -13,4 +13,7 @@ class WeeklyPlanRepository {
   Future<Task> scheduleTask(String taskId, String date,
           {bool locked = false}) =>
       _dataSource.scheduleTask(taskId, date, locked: locked);
+
+  Future<Task> updateTask(String taskId, {String? notes, String? status}) =>
+      _dataSource.updateTask(taskId, notes: notes, status: status);
 }

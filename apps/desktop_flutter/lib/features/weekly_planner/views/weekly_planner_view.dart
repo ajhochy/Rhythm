@@ -93,8 +93,7 @@ class _WeekHeader extends StatelessWidget {
     final year = int.parse(m.group(1)!);
     final week = int.parse(m.group(2)!);
     final jan4 = DateTime.utc(year, 1, 4);
-    final mondayWeek1 =
-        jan4.subtract(Duration(days: (jan4.weekday - 1 + 7) % 7));
+    final mondayWeek1 = jan4.subtract(Duration(days: jan4.weekday - 1));
     final monday = mondayWeek1.add(Duration(days: (week - 1) * 7));
     const months = [
       'Jan',
@@ -115,7 +114,7 @@ class _WeekHeader extends StatelessWidget {
 }
 
 // ---------------------------------------------------------------------------
-// Error banner (inline, no MaterialBanner quirks)
+// Error banner
 // ---------------------------------------------------------------------------
 
 class _ErrorBanner extends StatelessWidget {
@@ -144,10 +143,7 @@ class _ErrorBanner extends StatelessWidget {
               overflow: TextOverflow.ellipsis,
             ),
           ),
-          TextButton(
-            onPressed: onRetry,
-            child: const Text('Retry'),
-          ),
+          TextButton(onPressed: onRetry, child: const Text('Retry')),
         ],
       ),
     );
@@ -173,7 +169,10 @@ class _PlannerBody extends StatelessWidget {
       return const Center(child: Text('No plan loaded.'));
     }
 
-    final allTasks = plan.days.expand((d) => d.tasks);
+    final allTasks = [
+      ...plan.days.expand((d) => d.tasks),
+      ...plan.backlog,
+    ];
     final selectedTask = controller.selectedTaskId != null
         ? allTasks.cast<Task?>().firstWhere(
             (t) => t?.id == controller.selectedTaskId,
@@ -183,22 +182,22 @@ class _PlannerBody extends StatelessWidget {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Left: Backlog (only shows if truly unscheduled tasks exist)
         SizedBox(
           width: 220,
           child: _BacklogPane(plan: plan, controller: controller),
         ),
         VerticalDivider(width: 1, color: Theme.of(context).dividerColor),
-        // Center: Day columns
         Expanded(
           child: _DayColumnsPane(plan: plan, controller: controller),
         ),
-        // Right: Detail panel
         if (selectedTask != null) ...[
           VerticalDivider(width: 1, color: Theme.of(context).dividerColor),
           SizedBox(
             width: 280,
-            child: _DetailPane(task: selectedTask, controller: controller),
+            child: _DetailPane(
+                key: ValueKey(selectedTask.id),
+                task: selectedTask,
+                controller: controller),
           ),
         ],
       ],
@@ -225,13 +224,11 @@ class _BacklogPane extends StatelessWidget {
           padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
           child: Row(
             children: [
-              Text(
-                'Unscheduled',
-                style: Theme.of(context)
-                    .textTheme
-                    .titleSmall
-                    ?.copyWith(fontWeight: FontWeight.bold),
-              ),
+              Text('Unscheduled',
+                  style: Theme.of(context)
+                      .textTheme
+                      .titleSmall
+                      ?.copyWith(fontWeight: FontWeight.bold)),
               const SizedBox(width: 6),
               if (backlog.isNotEmpty)
                 Container(
@@ -253,86 +250,21 @@ class _BacklogPane extends StatelessWidget {
               ? const Center(
                   child: Padding(
                   padding: EdgeInsets.all(16),
-                  child: Text(
-                    'All tasks have a due date',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(color: Colors.grey, fontSize: 12),
-                  ),
+                  child: Text('No undated tasks',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: Colors.grey, fontSize: 12)),
                 ))
               : ListView.builder(
                   padding: const EdgeInsets.symmetric(vertical: 8),
                   itemCount: backlog.length,
-                  itemBuilder: (context, i) => _BacklogTaskTile(
-                      task: backlog[i], controller: controller),
+                  itemBuilder: (context, i) => _TaskTile(
+                    task: backlog[i],
+                    controller: controller,
+                    draggable: true,
+                  ),
                 ),
         ),
       ],
-    );
-  }
-}
-
-class _BacklogTaskTile extends StatelessWidget {
-  const _BacklogTaskTile({required this.task, required this.controller});
-  final Task task;
-  final WeeklyPlannerController controller;
-
-  @override
-  Widget build(BuildContext context) {
-    return Draggable<Task>(
-      data: task,
-      feedback: Material(
-        elevation: 4,
-        borderRadius: BorderRadius.circular(6),
-        child: Container(
-          width: 180,
-          padding: const EdgeInsets.all(10),
-          decoration: BoxDecoration(
-            color: Theme.of(context).colorScheme.primaryContainer,
-            borderRadius: BorderRadius.circular(6),
-          ),
-          child: Text(task.title,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: Theme.of(context).textTheme.bodySmall),
-        ),
-      ),
-      childWhenDragging: Opacity(opacity: 0.4, child: _taskCard(context)),
-      child: GestureDetector(
-        onTap: () => controller.selectTask(task.id),
-        child: _taskCard(context),
-      ),
-    );
-  }
-
-  Widget _taskCard(BuildContext context) {
-    final isSelected = controller.selectedTaskId == task.id;
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(
-        color: isSelected
-            ? Theme.of(context).colorScheme.primaryContainer
-            : Theme.of(context).colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(6),
-        border: Border.all(
-          color: isSelected
-              ? Theme.of(context).colorScheme.primary
-              : Colors.transparent,
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(task.title,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: Theme.of(context).textTheme.bodySmall),
-          if (task.sourceType != null) ...[
-            const SizedBox(height: 3),
-            _SourceChip(sourceType: task.sourceType!),
-          ],
-        ],
-      ),
     );
   }
 }
@@ -414,16 +346,15 @@ class _DayColumnState extends State<_DayColumn> {
         setState(() => _hovering = false);
         widget.controller.scheduleTask(details.data.id, widget.date);
       },
-      builder: (context, candidateData, _) {
-        return Container(
+      builder: (context, _, __) {
+        return AnimatedContainer(
+          duration: const Duration(milliseconds: 120),
           decoration: BoxDecoration(
-            // Drag-hover: subtle teal tint on the column body only
             color: _hovering
                 ? Theme.of(context).colorScheme.tertiary.withValues(alpha: 0.08)
                 : null,
             border: Border(
               right: BorderSide(color: Theme.of(context).dividerColor),
-              // Today: a 2px primary-coloured top border on the whole column
               top: today
                   ? BorderSide(color: primaryColor, width: 2)
                   : BorderSide.none,
@@ -438,19 +369,15 @@ class _DayColumnState extends State<_DayColumn> {
                 color: Theme.of(context).colorScheme.surfaceContainerLow,
                 child: Column(
                   children: [
-                    Text(
-                      widget.dayName,
-                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                            fontWeight: FontWeight.bold,
-                            color: today ? primaryColor : null,
-                          ),
-                    ),
-                    Text(
-                      _shortDate(),
-                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                            color: today ? primaryColor : Colors.grey,
-                          ),
-                    ),
+                    Text(widget.dayName,
+                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                              fontWeight: FontWeight.bold,
+                              color: today ? primaryColor : null,
+                            )),
+                    Text(_shortDate(),
+                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                              color: today ? primaryColor : Colors.grey,
+                            )),
                   ],
                 ),
               ),
@@ -459,7 +386,7 @@ class _DayColumnState extends State<_DayColumn> {
                   color: today
                       ? primaryColor.withValues(alpha: 0.4)
                       : Theme.of(context).dividerColor),
-              // Task list
+              // Tasks
               Expanded(
                 child: widget.tasks.isEmpty
                     ? Center(
@@ -468,9 +395,11 @@ class _DayColumnState extends State<_DayColumn> {
                     : ListView.builder(
                         padding: const EdgeInsets.all(6),
                         itemCount: widget.tasks.length,
-                        itemBuilder: (context, i) => _ScheduledTaskTile(
+                        itemBuilder: (context, i) => _TaskTile(
                           task: widget.tasks[i],
                           controller: widget.controller,
+                          draggable: true,
+                          compact: true,
                         ),
                       ),
               ),
@@ -482,24 +411,64 @@ class _DayColumnState extends State<_DayColumn> {
   }
 }
 
-class _ScheduledTaskTile extends StatelessWidget {
-  const _ScheduledTaskTile({required this.task, required this.controller});
+// ---------------------------------------------------------------------------
+// Unified task tile — used in both backlog and day columns
+// ---------------------------------------------------------------------------
+
+class _TaskTile extends StatelessWidget {
+  const _TaskTile({
+    required this.task,
+    required this.controller,
+    this.draggable = false,
+    this.compact = false,
+  });
   final Task task;
   final WeeklyPlannerController controller;
+  final bool draggable;
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
+    final card = _card(context);
+    if (!draggable) return card;
+    return Draggable<Task>(
+      data: task,
+      feedback: Material(
+        elevation: 4,
+        borderRadius: BorderRadius.circular(6),
+        child: Container(
+          width: 160,
+          padding: const EdgeInsets.all(8),
+          decoration: BoxDecoration(
+            color: Theme.of(context).colorScheme.primaryContainer,
+            borderRadius: BorderRadius.circular(6),
+          ),
+          child: Text(task.title,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.bodySmall),
+        ),
+      ),
+      childWhenDragging: Opacity(opacity: 0.35, child: card),
+      child: card,
+    );
+  }
+
+  Widget _card(BuildContext context) {
     final isSelected = controller.selectedTaskId == task.id;
+    final isDone = task.status == 'done';
     return GestureDetector(
       onTap: () => controller.selectTask(task.id),
       child: Container(
-        margin: const EdgeInsets.only(bottom: 4),
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+        margin: compact
+            ? const EdgeInsets.only(bottom: 4)
+            : const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+        padding: EdgeInsets.symmetric(horizontal: 8, vertical: compact ? 4 : 8),
         decoration: BoxDecoration(
           color: isSelected
               ? Theme.of(context).colorScheme.primaryContainer
               : Theme.of(context).colorScheme.surfaceContainerHighest,
-          borderRadius: BorderRadius.circular(4),
+          borderRadius: BorderRadius.circular(6),
           border: Border.all(
             color: isSelected
                 ? Theme.of(context).colorScheme.primary
@@ -508,20 +477,34 @@ class _ScheduledTaskTile extends StatelessWidget {
         ),
         child: Row(
           children: [
-            if (task.locked)
-              Padding(
-                padding: const EdgeInsets.only(right: 4),
-                child: Icon(Icons.lock,
-                    size: 11, color: Theme.of(context).colorScheme.primary),
+            // Completion checkbox
+            SizedBox(
+              width: 20,
+              height: 20,
+              child: Checkbox(
+                value: isDone,
+                onChanged: (_) => controller.toggleTaskDone(task.id, isDone),
+                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                visualDensity: VisualDensity.compact,
               ),
+            ),
+            const SizedBox(width: 6),
             Expanded(
               child: Text(
                 task.title,
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.bodySmall,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      decoration: isDone ? TextDecoration.lineThrough : null,
+                      color: isDone ? Colors.grey : null,
+                    ),
               ),
             ),
+            if (task.locked) ...[
+              const SizedBox(width: 4),
+              Icon(Icons.lock,
+                  size: 11, color: Theme.of(context).colorScheme.primary),
+            ],
             if (task.sourceType != null) ...[
               const SizedBox(width: 4),
               _SourceChip(sourceType: task.sourceType!),
@@ -534,19 +517,54 @@ class _ScheduledTaskTile extends StatelessWidget {
 }
 
 // ---------------------------------------------------------------------------
-// Detail pane
+// Detail pane — editable notes
 // ---------------------------------------------------------------------------
 
-class _DetailPane extends StatelessWidget {
-  const _DetailPane({required this.task, required this.controller});
+class _DetailPane extends StatefulWidget {
+  const _DetailPane({super.key, required this.task, required this.controller});
   final Task task;
   final WeeklyPlannerController controller;
 
   @override
+  State<_DetailPane> createState() => _DetailPaneState();
+}
+
+class _DetailPaneState extends State<_DetailPane> {
+  late TextEditingController _notesCtrl;
+  bool _notesDirty = false;
+  bool _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _notesCtrl = TextEditingController(text: widget.task.notes ?? '');
+    _notesCtrl.addListener(() => setState(
+        () => _notesDirty = _notesCtrl.text != (widget.task.notes ?? '')));
+  }
+
+  @override
+  void dispose() {
+    _notesCtrl.dispose();
+    super.dispose();
+  }
+
+  Future<void> _saveNotes() async {
+    setState(() => _saving = true);
+    await widget.controller.updateTaskNotes(widget.task.id, _notesCtrl.text);
+    setState(() {
+      _saving = false;
+      _notesDirty = false;
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final task = widget.task;
+    final isDone = task.status == 'done';
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        // Header
         Container(
           padding: const EdgeInsets.fromLTRB(16, 12, 8, 12),
           decoration: BoxDecoration(
@@ -565,7 +583,7 @@ class _DetailPane extends StatelessWidget {
               ),
               IconButton(
                 icon: const Icon(Icons.close, size: 18),
-                onPressed: () => controller.selectTask(null),
+                onPressed: () => widget.controller.selectTask(null),
                 padding: EdgeInsets.zero,
                 constraints: const BoxConstraints(),
               ),
@@ -579,27 +597,77 @@ class _DetailPane extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(task.title,
-                    style: Theme.of(context).textTheme.titleMedium),
-                const SizedBox(height: 16),
-                _detailRow(context, 'Status', task.status.toUpperCase()),
-                if (task.dueDate != null)
-                  _detailRow(context, 'Due', task.dueDate!),
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                          decoration:
+                              isDone ? TextDecoration.lineThrough : null,
+                          color: isDone ? Colors.grey : null,
+                        )),
+                const SizedBox(height: 4),
+                // Quick complete toggle
+                TextButton.icon(
+                  icon: Icon(
+                      isDone
+                          ? Icons.check_circle
+                          : Icons.radio_button_unchecked,
+                      size: 16),
+                  label: Text(isDone ? 'Mark open' : 'Mark done'),
+                  style: TextButton.styleFrom(
+                    padding: EdgeInsets.zero,
+                    minimumSize: Size.zero,
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                  onPressed: () =>
+                      widget.controller.toggleTaskDone(task.id, isDone),
+                ),
+                const SizedBox(height: 12),
+                if (task.dueDate != null) _row(context, 'Due', task.dueDate!),
                 if (task.scheduledDate != null)
-                  _detailRow(context, 'Scheduled', task.scheduledDate!),
-                _detailRow(context, 'Locked', task.locked ? 'Yes' : 'No'),
+                  _row(context, 'Scheduled', task.scheduledDate!),
                 if (task.sourceType != null)
-                  _detailRow(context, 'Source', _sourceLabel(task.sourceType!)),
-                if (task.notes != null && task.notes!.isNotEmpty) ...[
-                  const SizedBox(height: 12),
-                  Text('Notes',
-                      style: Theme.of(context)
-                          .textTheme
-                          .labelSmall
-                          ?.copyWith(color: Colors.grey)),
-                  const SizedBox(height: 4),
-                  Text(task.notes!,
-                      style: Theme.of(context).textTheme.bodySmall),
-                ],
+                  _row(context, 'Source', _sourceLabel(task.sourceType!)),
+                const SizedBox(height: 16),
+                Text('Notes',
+                    style: Theme.of(context)
+                        .textTheme
+                        .labelSmall
+                        ?.copyWith(fontWeight: FontWeight.bold)),
+                const SizedBox(height: 6),
+                TextField(
+                  controller: _notesCtrl,
+                  decoration: const InputDecoration(
+                    hintText: 'Add a note...',
+                    border: OutlineInputBorder(),
+                    isDense: true,
+                  ),
+                  minLines: 3,
+                  maxLines: 8,
+                ),
+                const SizedBox(height: 8),
+                if (_notesDirty)
+                  Row(
+                    children: [
+                      FilledButton.tonal(
+                        onPressed: _saving ? null : _saveNotes,
+                        child: _saving
+                            ? const SizedBox(
+                                width: 14,
+                                height: 14,
+                                child:
+                                    CircularProgressIndicator(strokeWidth: 2))
+                            : const Text('Save'),
+                      ),
+                      const SizedBox(width: 8),
+                      TextButton(
+                        onPressed: _saving
+                            ? null
+                            : () => setState(() {
+                                  _notesCtrl.text = widget.task.notes ?? '';
+                                  _notesDirty = false;
+                                }),
+                        child: const Text('Discard'),
+                      ),
+                    ],
+                  ),
               ],
             ),
           ),
@@ -608,11 +676,10 @@ class _DetailPane extends StatelessWidget {
     );
   }
 
-  Widget _detailRow(BuildContext context, String label, String value) {
+  Widget _row(BuildContext context, String label, String value) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.only(bottom: 6),
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           SizedBox(
             width: 76,
@@ -623,22 +690,21 @@ class _DetailPane extends StatelessWidget {
                     ?.copyWith(color: Colors.grey)),
           ),
           Expanded(
-            child: Text(value, style: Theme.of(context).textTheme.bodySmall),
-          ),
+              child: Text(value, style: Theme.of(context).textTheme.bodySmall)),
         ],
       ),
     );
   }
 
-  String _sourceLabel(String sourceType) => switch (sourceType) {
+  String _sourceLabel(String t) => switch (t) {
         'recurring_rule' => 'Rhythm',
         'project_step' => 'Project',
-        _ => sourceType,
+        _ => t,
       };
 }
 
 // ---------------------------------------------------------------------------
-// Shared widgets
+// Shared
 // ---------------------------------------------------------------------------
 
 class _SourceChip extends StatelessWidget {

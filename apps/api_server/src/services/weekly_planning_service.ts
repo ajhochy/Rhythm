@@ -10,6 +10,7 @@ export interface WeeklyPlan {
   weekLabel: string;
   weekStart: string;
   days: WeeklyPlanDay[];
+  backlog: Task[];
 }
 
 interface ProjectStepRow {
@@ -146,6 +147,29 @@ export class WeeklyPlanningService {
 
     // 4: calendar shadow events — stubbed empty for Phase 4
 
-    return { weekLabel, weekStart: startStr, days };
+    // 5: backlog — open tasks with no due_date and no scheduled_date
+    type BacklogRow = TaskRow;
+    const backlogRows = db
+      .prepare(
+        `SELECT * FROM tasks
+         WHERE status = 'open' AND due_date IS NULL AND scheduled_date IS NULL
+         ORDER BY created_at ASC`,
+      )
+      .all() as BacklogRow[];
+    const backlog: Task[] = backlogRows.map((row) => ({
+      id: row.id,
+      title: row.title,
+      notes: row.notes ?? null,
+      dueDate: null,
+      scheduledDate: null,
+      locked: false,
+      status: 'open' as Task['status'],
+      sourceType: row.source_type,
+      sourceId: row.source_id,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    }));
+
+    return { weekLabel, weekStart: startStr, days, backlog };
   }
 }

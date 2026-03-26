@@ -69,16 +69,50 @@ class WeeklyPlannerController extends ChangeNotifier {
     }
   }
 
+  Future<void> toggleTaskDone(String taskId, bool currentlyDone) async {
+    try {
+      await _repository.updateTask(taskId,
+          status: currentlyDone ? 'open' : 'done');
+      await load();
+    } catch (e) {
+      _errorMessage = e.toString();
+      _status = WeeklyPlannerStatus.error;
+      notifyListeners();
+    }
+  }
+
+  Future<void> updateTaskNotes(String taskId, String notes) async {
+    try {
+      await _repository.updateTask(taskId, notes: notes.isEmpty ? null : notes);
+      await load();
+    } catch (e) {
+      _errorMessage = e.toString();
+      _status = WeeklyPlannerStatus.error;
+      notifyListeners();
+    }
+  }
+
+  // ── ISO week helpers ──────────────────────────────────────────────────────
+
+  /// Find Thursday of the ISO week containing [date].
+  /// In Dart weekday: 1=Mon … 7=Sun. ISO Thursday = weekday 4.
+  /// Go to Monday of the week (subtract weekday-1 days), then add 3.
+  static DateTime _isoThursday(DateTime date) {
+    final monday = date.subtract(Duration(days: date.weekday - 1));
+    return monday.add(const Duration(days: 3));
+  }
+
+  static String _isoWeekLabelFromThursday(DateTime thursday) {
+    final jan4 = DateTime.utc(thursday.year, 1, 4);
+    final mondayJan4 = jan4.subtract(Duration(days: jan4.weekday - 1));
+    final weekNum = ((thursday.difference(mondayJan4).inDays) ~/ 7) + 1;
+    return '${thursday.year}-W${weekNum.toString().padLeft(2, '0')}';
+  }
+
   static String _todayWeekLabel() {
     final now = DateTime.now().toUtc();
     final d = DateTime.utc(now.year, now.month, now.day);
-    // Find Thursday of the same ISO week to determine year + week number
-    final thursday = d.subtract(Duration(days: (d.weekday - 4 + 7) % 7));
-    final jan4 = DateTime.utc(thursday.year, 1, 4);
-    final mondayJan4 =
-        jan4.subtract(Duration(days: (jan4.weekday - 1 + 7) % 7));
-    final weekNum = ((thursday.difference(mondayJan4).inDays) ~/ 7) + 1;
-    return '${thursday.year}-W${weekNum.toString().padLeft(2, '0')}';
+    return _isoWeekLabelFromThursday(_isoThursday(d));
   }
 
   static String _offsetWeek(String label, int delta) {
@@ -86,20 +120,11 @@ class WeeklyPlannerController extends ChangeNotifier {
     if (m == null) return label;
     final year = int.parse(m.group(1)!);
     final week = int.parse(m.group(2)!);
+    // Reconstruct Monday of the parsed week, shift by delta weeks
     final jan4 = DateTime.utc(year, 1, 4);
-    final mondayWeek1 =
-        jan4.subtract(Duration(days: (jan4.weekday - 1 + 7) % 7));
-    final current = mondayWeek1.add(Duration(days: (week - 1) * 7));
-    final next = current.add(Duration(days: delta * 7));
-    return _dateToWeekLabel(next);
-  }
-
-  static String _dateToWeekLabel(DateTime date) {
-    final thursday = date.subtract(Duration(days: (date.weekday - 4 + 7) % 7));
-    final jan4 = DateTime.utc(thursday.year, 1, 4);
-    final mondayJan4 =
-        jan4.subtract(Duration(days: (jan4.weekday - 1 + 7) % 7));
-    final weekNum = ((thursday.difference(mondayJan4).inDays) ~/ 7) + 1;
-    return '${thursday.year}-W${weekNum.toString().padLeft(2, '0')}';
+    final mondayWeek1 = jan4.subtract(Duration(days: jan4.weekday - 1));
+    final monday = mondayWeek1.add(Duration(days: (week - 1) * 7));
+    final shifted = monday.add(Duration(days: delta * 7));
+    return _isoWeekLabelFromThursday(_isoThursday(shifted));
   }
 }

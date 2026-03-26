@@ -27,6 +27,20 @@ class WeeklyPlanDataSource {
     return Task.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
   }
 
+  Future<Task> updateTask(String taskId,
+      {String? notes, String? status}) async {
+    final response = await http.patch(
+      Uri.parse('${AppConstants.apiBaseUrl}/tasks/$taskId'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({
+        if (notes != null) 'notes': notes,
+        if (status != null) 'status': status,
+      }),
+    );
+    _assertOk(response);
+    return Task.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
+  }
+
   void _assertOk(http.Response response) {
     if (response.statusCode >= 400) {
       final body = jsonDecode(response.body) as Map<String, dynamic>?;
