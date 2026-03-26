@@ -6,6 +6,7 @@ class ProjectInstanceStep {
     required this.title,
     required this.dueDate,
     required this.status,
+    this.notes,
   });
 
   factory ProjectInstanceStep.fromJson(Map<String, dynamic> json) {
@@ -16,6 +17,7 @@ class ProjectInstanceStep {
       title: json['title'] as String,
       dueDate: json['dueDate'] as String,
       status: json['status'] as String? ?? 'open',
+      notes: json['notes'] as String?,
     );
   }
 
@@ -25,6 +27,7 @@ class ProjectInstanceStep {
   final String title;
   final String dueDate;
   final String status;
+  final String? notes;
 }
 
 class ProjectInstance {

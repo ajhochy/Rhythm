@@ -13,6 +13,8 @@ class WeeklyPlannerView extends StatefulWidget {
 }
 
 class _WeeklyPlannerViewState extends State<WeeklyPlannerView> {
+  bool _showCompleted = false;
+
   @override
   void initState() {
     super.initState();
@@ -27,12 +29,22 @@ class _WeeklyPlannerViewState extends State<WeeklyPlannerView> {
       builder: (context, controller, _) {
         return Column(
           children: [
-            _WeekHeader(controller: controller),
+            _WeekHeader(
+              controller: controller,
+              showCompleted: _showCompleted,
+              onToggleCompleted: () =>
+                  setState(() => _showCompleted = !_showCompleted),
+            ),
             if (controller.status == WeeklyPlannerStatus.error &&
                 controller.errorMessage != null)
               _ErrorBanner(
                   message: controller.errorMessage!, onRetry: controller.load),
-            Expanded(child: _PlannerBody(controller: controller)),
+            Expanded(
+              child: _PlannerBody(
+                controller: controller,
+                showCompleted: _showCompleted,
+              ),
+            ),
           ],
         );
       },
@@ -45,8 +57,14 @@ class _WeeklyPlannerViewState extends State<WeeklyPlannerView> {
 // ---------------------------------------------------------------------------
 
 class _WeekHeader extends StatelessWidget {
-  const _WeekHeader({required this.controller});
+  const _WeekHeader({
+    required this.controller,
+    required this.showCompleted,
+    required this.onToggleCompleted,
+  });
   final WeeklyPlannerController controller;
+  final bool showCompleted;
+  final VoidCallback onToggleCompleted;
 
   @override
   Widget build(BuildContext context) {
@@ -81,6 +99,15 @@ class _WeekHeader extends StatelessWidget {
           OutlinedButton(
             onPressed: controller.isCurrentWeek ? null : controller.goToToday,
             child: const Text('Today'),
+          ),
+          const SizedBox(width: 16),
+          TextButton.icon(
+            onPressed: onToggleCompleted,
+            icon: Icon(
+              showCompleted ? Icons.visibility_off : Icons.visibility,
+              size: 16,
+            ),
+            label: Text(showCompleted ? 'Hide completed' : 'Show completed'),
           ),
         ],
       ),
@@ -155,8 +182,9 @@ class _ErrorBanner extends StatelessWidget {
 // ---------------------------------------------------------------------------
 
 class _PlannerBody extends StatelessWidget {
-  const _PlannerBody({required this.controller});
+  const _PlannerBody({required this.controller, required this.showCompleted});
   final WeeklyPlannerController controller;
+  final bool showCompleted;
 
   @override
   Widget build(BuildContext context) {
@@ -184,11 +212,13 @@ class _PlannerBody extends StatelessWidget {
       children: [
         SizedBox(
           width: 220,
-          child: _BacklogPane(plan: plan, controller: controller),
+          child: _BacklogPane(
+              plan: plan, controller: controller, showCompleted: showCompleted),
         ),
         VerticalDivider(width: 1, color: Theme.of(context).dividerColor),
         Expanded(
-          child: _DayColumnsPane(plan: plan, controller: controller),
+          child: _DayColumnsPane(
+              plan: plan, controller: controller, showCompleted: showCompleted),
         ),
         if (selectedTask != null) ...[
           VerticalDivider(width: 1, color: Theme.of(context).dividerColor),
@@ -210,13 +240,19 @@ class _PlannerBody extends StatelessWidget {
 // ---------------------------------------------------------------------------
 
 class _BacklogPane extends StatelessWidget {
-  const _BacklogPane({required this.plan, required this.controller});
+  const _BacklogPane(
+      {required this.plan,
+      required this.controller,
+      required this.showCompleted});
   final WeeklyPlan plan;
   final WeeklyPlannerController controller;
+  final bool showCompleted;
 
   @override
   Widget build(BuildContext context) {
-    final backlog = plan.backlog;
+    final backlog = showCompleted
+        ? plan.backlog
+        : plan.backlog.where((t) => t.status != 'done').toList();
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -246,26 +282,78 @@ class _BacklogPane extends StatelessWidget {
         ),
         const Divider(height: 1),
         Expanded(
-          child: backlog.isEmpty
-              ? const Center(
-                  child: Padding(
-                  padding: EdgeInsets.all(16),
-                  child: Text('No undated tasks',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(color: Colors.grey, fontSize: 12)),
-                ))
-              : ListView.builder(
-                  padding: const EdgeInsets.symmetric(vertical: 8),
-                  itemCount: backlog.length,
-                  itemBuilder: (context, i) => _TaskTile(
-                    task: backlog[i],
-                    controller: controller,
-                    draggable: true,
+          child: Column(
+            children: [
+              Expanded(
+                child: backlog.isEmpty
+                    ? const Center(
+                        child: Padding(
+                        padding: EdgeInsets.all(16),
+                        child: Text('No undated tasks',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(color: Colors.grey, fontSize: 12)),
+                      ))
+                    : ListView.builder(
+                        padding: const EdgeInsets.symmetric(vertical: 8),
+                        itemCount: backlog.length,
+                        itemBuilder: (context, i) => _TaskTile(
+                          task: backlog[i],
+                          controller: controller,
+                          draggable: true,
+                        ),
+                      ),
+              ),
+              InkWell(
+                onTap: () => _showAddBacklogTaskDialog(context),
+                child: Padding(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  child: Row(
+                    children: [
+                      Icon(Icons.add, size: 13, color: Colors.grey[500]),
+                      const SizedBox(width: 4),
+                      Text('Add task',
+                          style:
+                              TextStyle(fontSize: 12, color: Colors.grey[500])),
+                    ],
                   ),
                 ),
+              ),
+            ],
+          ),
         ),
       ],
     );
+  }
+
+  Future<void> _showAddBacklogTaskDialog(BuildContext context) async {
+    final ctrl = TextEditingController();
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Add unscheduled task'),
+        content: TextField(
+          controller: ctrl,
+          autofocus: true,
+          decoration: const InputDecoration(
+            hintText: 'Task title',
+            border: OutlineInputBorder(),
+          ),
+          onSubmitted: (_) => Navigator.pop(ctx, true),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancel')),
+          FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Add')),
+        ],
+      ),
+    );
+    if (confirmed == true && ctrl.text.trim().isNotEmpty) {
+      await controller.createTask(ctrl.text.trim());
+    }
   }
 }
 
@@ -274,9 +362,13 @@ class _BacklogPane extends StatelessWidget {
 // ---------------------------------------------------------------------------
 
 class _DayColumnsPane extends StatelessWidget {
-  const _DayColumnsPane({required this.plan, required this.controller});
+  const _DayColumnsPane(
+      {required this.plan,
+      required this.controller,
+      required this.showCompleted});
   final WeeklyPlan plan;
   final WeeklyPlannerController controller;
+  final bool showCompleted;
 
   static const _dayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
@@ -292,6 +384,7 @@ class _DayColumnsPane extends StatelessWidget {
             date: day.date,
             tasks: plan.tasksForDate(day.date),
             controller: controller,
+            showCompleted: showCompleted,
           ),
         );
       }),
@@ -305,11 +398,13 @@ class _DayColumn extends StatefulWidget {
     required this.date,
     required this.tasks,
     required this.controller,
+    required this.showCompleted,
   });
   final String dayName;
   final String date;
   final List<Task> tasks;
   final WeeklyPlannerController controller;
+  final bool showCompleted;
 
   @override
   State<_DayColumn> createState() => _DayColumnState();
@@ -388,26 +483,87 @@ class _DayColumnState extends State<_DayColumn> {
                       : Theme.of(context).dividerColor),
               // Tasks
               Expanded(
-                child: widget.tasks.isEmpty
-                    ? Center(
-                        child: Text('—',
-                            style: TextStyle(color: Colors.grey[400])))
-                    : ListView.builder(
-                        padding: const EdgeInsets.all(6),
-                        itemCount: widget.tasks.length,
-                        itemBuilder: (context, i) => _TaskTile(
-                          task: widget.tasks[i],
-                          controller: widget.controller,
-                          draggable: true,
-                          compact: true,
+                child: Column(
+                  children: [
+                    Expanded(
+                      child: () {
+                        final displayTasks = widget.showCompleted
+                            ? widget.tasks
+                            : widget.tasks
+                                .where((t) => t.status != 'done')
+                                .toList();
+                        return displayTasks.isEmpty
+                            ? Center(
+                                child: Text('—',
+                                    style: TextStyle(color: Colors.grey[400])))
+                            : ListView.builder(
+                                padding: const EdgeInsets.all(6),
+                                itemCount: displayTasks.length,
+                                itemBuilder: (context, i) => _TaskTile(
+                                  task: displayTasks[i],
+                                  controller: widget.controller,
+                                  draggable: true,
+                                  compact: true,
+                                ),
+                              );
+                      }(),
+                    ),
+                    // Inline add task
+                    InkWell(
+                      onTap: () => _showAddTaskDialog(context),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 6, vertical: 4),
+                        child: Row(
+                          children: [
+                            Icon(Icons.add, size: 12, color: Colors.grey[500]),
+                            const SizedBox(width: 4),
+                            Text('Add task',
+                                style: TextStyle(
+                                    fontSize: 11, color: Colors.grey[500])),
+                          ],
                         ),
                       ),
+                    ),
+                  ],
+                ),
               ),
             ],
           ),
         );
       },
     );
+  }
+
+  Future<void> _showAddTaskDialog(BuildContext context) async {
+    final ctrl = TextEditingController();
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Add task for ${widget.dayName}'),
+        content: TextField(
+          controller: ctrl,
+          autofocus: true,
+          decoration: const InputDecoration(
+            hintText: 'Task title',
+            border: OutlineInputBorder(),
+          ),
+          onSubmitted: (_) => Navigator.pop(ctx, true),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancel')),
+          FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Add')),
+        ],
+      ),
+    );
+    if (confirmed == true && ctrl.text.trim().isNotEmpty) {
+      await widget.controller
+          .createTask(ctrl.text.trim(), dueDate: widget.date);
+    }
   }
 }
 
@@ -479,8 +635,8 @@ class _TaskTile extends StatelessWidget {
           children: [
             // Completion checkbox
             SizedBox(
-              width: 20,
-              height: 20,
+              width: 16,
+              height: 16,
               child: Checkbox(
                 value: isDone,
                 onChanged: (_) => controller.toggleTaskDone(task.id, isDone),

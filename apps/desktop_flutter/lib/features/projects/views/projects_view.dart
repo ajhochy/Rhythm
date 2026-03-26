@@ -181,19 +181,105 @@ class _TemplateList extends StatelessWidget {
 // Template Detail (right panel)
 // ---------------------------------------------------------------------------
 
-class _TemplateDetail extends StatelessWidget {
+class _TemplateDetail extends StatefulWidget {
   const _TemplateDetail({required this.template, required this.controller});
   final ProjectTemplate template;
   final ProjectTemplateController controller;
 
   @override
+  State<_TemplateDetail> createState() => _TemplateDetailState();
+}
+
+class _TemplateDetailState extends State<_TemplateDetail>
+    with SingleTickerProviderStateMixin {
+  late final TabController _tabController;
+  List<ProjectInstance> _instances = [];
+  bool _instancesLoaded = false;
+  String? _instancesError;
+
+  @override
+  void initState() {
+    super.initState();
+    _tabController = TabController(length: 2, vsync: this);
+    _tabController.addListener(() {
+      if (_tabController.index == 1 && !_instancesLoaded) {
+        _loadInstances();
+      }
+    });
+  }
+
+  @override
+  void didUpdateWidget(_TemplateDetail old) {
+    super.didUpdateWidget(old);
+    if (old.template.id != widget.template.id) {
+      setState(() {
+        _instances = [];
+        _instancesLoaded = false;
+        _instancesError = null;
+      });
+      if (_tabController.index == 1) _loadInstances();
+    }
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadInstances() async {
+    try {
+      final response = await http.get(
+        Uri.parse(
+            '${AppConstants.apiBaseUrl}/project-instances?templateId=${widget.template.id}'),
+      );
+      if (response.statusCode >= 400) {
+        setState(() => _instancesError = 'Failed to load instances');
+        return;
+      }
+      final list = (jsonDecode(response.body) as List<dynamic>)
+          .map((e) => ProjectInstance.fromJson(e as Map<String, dynamic>))
+          .toList();
+      setState(() {
+        _instances = list;
+        _instancesLoaded = true;
+        _instancesError = null;
+      });
+    } catch (e) {
+      setState(() => _instancesError = e.toString());
+    }
+  }
+
+  Future<void> _updateStep(ProjectInstanceStep step,
+      {String? title, String? dueDate, String? status, String? notes}) async {
+    try {
+      final body = <String, dynamic>{
+        if (title != null) 'title': title,
+        if (dueDate != null) 'dueDate': dueDate,
+        if (status != null) 'status': status,
+        if (notes != null) 'notes': notes,
+      };
+      final response = await http.patch(
+        Uri.parse(
+            '${AppConstants.apiBaseUrl}/project-instances/steps/${step.id}'),
+        headers: {'Content-Type': 'application/json'},
+        body: jsonEncode(body),
+      );
+      if (response.statusCode < 400) {
+        await _loadInstances();
+      }
+    } catch (_) {}
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final sortedSteps = [...template.steps]
+    final sortedSteps = [...widget.template.steps]
       ..sort((a, b) => a.offsetDays.compareTo(b.offsetDays));
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        // Header
         Padding(
           padding: const EdgeInsets.fromLTRB(24, 24, 24, 0),
           child: Row(
@@ -203,17 +289,17 @@ class _TemplateDetail extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(template.name,
+                    Text(widget.template.name,
                         style: Theme.of(context).textTheme.headlineSmall),
-                    if (template.description != null &&
-                        template.description!.isNotEmpty)
+                    if (widget.template.description != null &&
+                        widget.template.description!.isNotEmpty)
                       Padding(
                         padding: const EdgeInsets.only(top: 4),
-                        child: Text(template.description!,
+                        child: Text(widget.template.description!,
                             style: const TextStyle(color: Colors.grey)),
                       ),
                     const SizedBox(height: 4),
-                    Text('Anchor type: ${template.anchorType}',
+                    Text('Anchor type: ${widget.template.anchorType}',
                         style: Theme.of(context).textTheme.bodySmall),
                   ],
                 ),
@@ -237,35 +323,66 @@ class _TemplateDetail extends StatelessWidget {
             ],
           ),
         ),
-        const SizedBox(height: 16),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 24),
-          child: Row(
+        const SizedBox(height: 8),
+        TabBar(
+          controller: _tabController,
+          tabs: const [
+            Tab(text: 'Template Steps'),
+            Tab(text: 'Instances'),
+          ],
+          labelPadding: const EdgeInsets.symmetric(horizontal: 24),
+        ),
+        Expanded(
+          child: TabBarView(
+            controller: _tabController,
             children: [
-              Text('Steps', style: Theme.of(context).textTheme.titleMedium),
-              const Spacer(),
-              TextButton.icon(
-                onPressed: () => _showAddStepDialog(context),
-                icon: const Icon(Icons.add, size: 16),
-                label: const Text('Add Step'),
+              // Tab 1: Template steps
+              Column(
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(24, 12, 24, 0),
+                    child: Row(
+                      children: [
+                        Text('Steps',
+                            style: Theme.of(context).textTheme.titleMedium),
+                        const Spacer(),
+                        TextButton.icon(
+                          onPressed: () => _showAddStepDialog(context),
+                          icon: const Icon(Icons.add, size: 16),
+                          label: const Text('Add Step'),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Expanded(
+                    child: sortedSteps.isEmpty
+                        ? const Center(
+                            child: Text(
+                                'No steps yet. Add a step to get started.'))
+                        : ListView.separated(
+                            padding: const EdgeInsets.all(24),
+                            itemCount: sortedSteps.length,
+                            separatorBuilder: (_, __) =>
+                                const SizedBox(height: 8),
+                            itemBuilder: (ctx, i) => _StepTile(
+                              step: sortedSteps[i],
+                              template: widget.template,
+                              controller: widget.controller,
+                            ),
+                          ),
+                  ),
+                ],
+              ),
+              // Tab 2: Instances
+              _InstancesPanel(
+                instances: _instances,
+                loaded: _instancesLoaded,
+                error: _instancesError,
+                onRefresh: _loadInstances,
+                onUpdateStep: _updateStep,
               ),
             ],
           ),
-        ),
-        Expanded(
-          child: sortedSteps.isEmpty
-              ? const Center(
-                  child: Text('No steps yet. Add a step to get started.'))
-              : ListView.separated(
-                  padding: const EdgeInsets.all(24),
-                  itemCount: sortedSteps.length,
-                  separatorBuilder: (_, __) => const SizedBox(height: 8),
-                  itemBuilder: (ctx, i) => _StepTile(
-                    step: sortedSteps[i],
-                    template: template,
-                    controller: controller,
-                  ),
-                ),
         ),
       ],
     );
@@ -274,24 +391,255 @@ class _TemplateDetail extends StatelessWidget {
   Future<void> _showAddStepDialog(BuildContext context) async {
     await showDialog<void>(
       context: context,
-      builder: (_) =>
-          _AddStepDialog(template: template, controller: controller),
+      builder: (_) => _AddStepDialog(
+          template: widget.template, controller: widget.controller),
     );
   }
 
   Future<void> _showEditTemplateDialog(BuildContext context) async {
     await showDialog<void>(
       context: context,
-      builder: (_) =>
-          _EditTemplateDialog(template: template, controller: controller),
+      builder: (_) => _EditTemplateDialog(
+          template: widget.template, controller: widget.controller),
     );
   }
 
   Future<void> _showGenerateDialog(BuildContext context) async {
     await showDialog<void>(
       context: context,
-      builder: (_) => _GenerateInstanceDialog(template: template),
+      builder: (_) => _GenerateInstanceDialog(template: widget.template),
+    ).then((_) {
+      if (_tabController.index == 1) _loadInstances();
+    });
+  }
+}
+
+class _InstancesPanel extends StatelessWidget {
+  const _InstancesPanel({
+    required this.instances,
+    required this.loaded,
+    required this.error,
+    required this.onRefresh,
+    required this.onUpdateStep,
+  });
+  final List<ProjectInstance> instances;
+  final bool loaded;
+  final String? error;
+  final VoidCallback onRefresh;
+  final Future<void> Function(ProjectInstanceStep step,
+      {String? title,
+      String? dueDate,
+      String? status,
+      String? notes}) onUpdateStep;
+
+  @override
+  Widget build(BuildContext context) {
+    if (error != null) {
+      return Center(
+          child: Text(error!, style: const TextStyle(color: Colors.red)));
+    }
+    if (!loaded) {
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text('Click to load instances',
+                style: TextStyle(color: Colors.grey)),
+            const SizedBox(height: 8),
+            OutlinedButton(onPressed: onRefresh, child: const Text('Load')),
+          ],
+        ),
+      );
+    }
+    if (instances.isEmpty) {
+      return const Center(
+          child: Text('No instances generated yet.',
+              style: TextStyle(color: Colors.grey)));
+    }
+    return ListView.builder(
+      padding: const EdgeInsets.all(16),
+      itemCount: instances.length,
+      itemBuilder: (ctx, i) => _InstanceCard(
+        instance: instances[i],
+        onUpdateStep: onUpdateStep,
+      ),
     );
+  }
+}
+
+class _InstanceCard extends StatelessWidget {
+  const _InstanceCard({required this.instance, required this.onUpdateStep});
+  final ProjectInstance instance;
+  final Future<void> Function(ProjectInstanceStep step,
+      {String? title,
+      String? dueDate,
+      String? status,
+      String? notes}) onUpdateStep;
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      child: ExpansionTile(
+        title: Text('Anchor: ${instance.anchorDate}',
+            style: Theme.of(context).textTheme.titleSmall),
+        subtitle: Text(
+            '${instance.steps.length} step${instance.steps.length == 1 ? '' : 's'} · ${instance.status}',
+            style: const TextStyle(fontSize: 12, color: Colors.grey)),
+        children: instance.steps
+            .map((step) => _InstanceStepTile(
+                  step: step,
+                  onUpdateStep: onUpdateStep,
+                ))
+            .toList(),
+      ),
+    );
+  }
+}
+
+class _InstanceStepTile extends StatelessWidget {
+  const _InstanceStepTile({required this.step, required this.onUpdateStep});
+  final ProjectInstanceStep step;
+  final Future<void> Function(ProjectInstanceStep step,
+      {String? title,
+      String? dueDate,
+      String? status,
+      String? notes}) onUpdateStep;
+
+  @override
+  Widget build(BuildContext context) {
+    final isDone = step.status == 'done';
+    return ListTile(
+      leading: Checkbox(
+        value: isDone,
+        onChanged: (_) => onUpdateStep(step, status: isDone ? 'open' : 'done'),
+        visualDensity: VisualDensity.compact,
+        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      ),
+      title: Text(
+        step.title,
+        style: TextStyle(
+          decoration: isDone ? TextDecoration.lineThrough : null,
+          color: isDone ? Colors.grey : null,
+        ),
+      ),
+      subtitle: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Due: ${step.dueDate}',
+              style: const TextStyle(fontSize: 12, color: Colors.grey)),
+          if (step.notes != null && step.notes!.isNotEmpty)
+            Text(step.notes!,
+                style: const TextStyle(fontSize: 12, color: Colors.blueGrey)),
+        ],
+      ),
+      trailing: IconButton(
+        icon: const Icon(Icons.edit_outlined, size: 16),
+        onPressed: () => showDialog<void>(
+          context: context,
+          builder: (_) =>
+              _EditInstanceStepDialog(step: step, onSave: onUpdateStep),
+        ),
+      ),
+    );
+  }
+}
+
+class _EditInstanceStepDialog extends StatefulWidget {
+  const _EditInstanceStepDialog({required this.step, required this.onSave});
+  final ProjectInstanceStep step;
+  final Future<void> Function(ProjectInstanceStep step,
+      {String? title, String? dueDate, String? status, String? notes}) onSave;
+
+  @override
+  State<_EditInstanceStepDialog> createState() =>
+      _EditInstanceStepDialogState();
+}
+
+class _EditInstanceStepDialogState extends State<_EditInstanceStepDialog> {
+  late final TextEditingController _titleCtrl;
+  late final TextEditingController _dueDateCtrl;
+  late final TextEditingController _notesCtrl;
+  bool _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _titleCtrl = TextEditingController(text: widget.step.title);
+    _dueDateCtrl = TextEditingController(text: widget.step.dueDate);
+    _notesCtrl = TextEditingController(text: widget.step.notes ?? '');
+  }
+
+  @override
+  void dispose() {
+    _titleCtrl.dispose();
+    _dueDateCtrl.dispose();
+    _notesCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Edit Step'),
+      content: SizedBox(
+        width: 360,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: _titleCtrl,
+              decoration: const InputDecoration(
+                  labelText: 'Title', border: OutlineInputBorder()),
+              autofocus: true,
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _dueDateCtrl,
+              decoration: const InputDecoration(
+                  labelText: 'Due date (YYYY-MM-DD)',
+                  border: OutlineInputBorder()),
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _notesCtrl,
+              decoration: const InputDecoration(
+                  labelText: 'Notes (optional)', border: OutlineInputBorder()),
+              minLines: 2,
+              maxLines: 4,
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+            onPressed: _saving ? null : () => Navigator.pop(context),
+            child: const Text('Cancel')),
+        FilledButton(
+          onPressed: _saving ? null : _save,
+          child: _saving
+              ? const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2))
+              : const Text('Save'),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _save() async {
+    final title = _titleCtrl.text.trim();
+    if (title.isEmpty) return;
+    setState(() => _saving = true);
+    await widget.onSave(
+      widget.step,
+      title: title,
+      dueDate:
+          _dueDateCtrl.text.trim().isEmpty ? null : _dueDateCtrl.text.trim(),
+      notes: _notesCtrl.text.trim().isEmpty ? null : _notesCtrl.text.trim(),
+    );
+    if (mounted) Navigator.pop(context);
   }
 }
 
@@ -528,7 +876,7 @@ class _EditStepDialogState extends State<_EditStepDialog> {
               ),
               keyboardType: const TextInputType.numberWithOptions(signed: true),
               inputFormatters: [
-                FilteringTextInputFormatter.allow(RegExp(r'^-?\d*'))
+                FilteringTextInputFormatter.allow(RegExp(r'[-\d]'))
               ],
             ),
             const SizedBox(height: 12),
@@ -699,7 +1047,7 @@ class _AddStepDialogState extends State<_AddStepDialog> {
               ),
               keyboardType: const TextInputType.numberWithOptions(signed: true),
               inputFormatters: [
-                FilteringTextInputFormatter.allow(RegExp(r'^-?\d*'))
+                FilteringTextInputFormatter.allow(RegExp(r'[-\d]'))
               ],
             ),
             const SizedBox(height: 12),

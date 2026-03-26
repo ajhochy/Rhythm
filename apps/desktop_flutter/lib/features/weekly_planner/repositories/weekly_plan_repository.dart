@@ -16,4 +16,8 @@ class WeeklyPlanRepository {
 
   Future<Task> updateTask(String taskId, {String? notes, String? status}) =>
       _dataSource.updateTask(taskId, notes: notes, status: status);
+
+  Future<void> createTask(String title, {String? dueDate}) {
+    return _dataSource.createTask(title, dueDate: dueDate);
+  }
 }

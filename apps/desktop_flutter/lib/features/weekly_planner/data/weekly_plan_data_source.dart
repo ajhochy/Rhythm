@@ -41,6 +41,18 @@ class WeeklyPlanDataSource {
     return Task.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
   }
 
+  Future<void> createTask(String title, {String? dueDate}) async {
+    final response = await http.post(
+      Uri.parse('${AppConstants.apiBaseUrl}/tasks'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({
+        'title': title,
+        if (dueDate != null) 'dueDate': dueDate,
+      }),
+    );
+    _assertOk(response);
+  }
+
   void _assertOk(http.Response response) {
     if (response.statusCode >= 400) {
       final body = jsonDecode(response.body) as Map<String, dynamic>?;

@@ -92,6 +92,17 @@ class WeeklyPlannerController extends ChangeNotifier {
     }
   }
 
+  Future<void> createTask(String title, {String? dueDate}) async {
+    try {
+      await _repository.createTask(title, dueDate: dueDate);
+      await load();
+    } catch (e) {
+      _errorMessage = e.toString();
+      _status = WeeklyPlannerStatus.error;
+      notifyListeners();
+    }
+  }
+
   // ── ISO week helpers ──────────────────────────────────────────────────────
 
   /// Find Thursday of the ISO week containing [date].
