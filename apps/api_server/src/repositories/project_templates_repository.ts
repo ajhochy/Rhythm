@@ -101,4 +101,27 @@ export class ProjectTemplatesRepository {
     const row = getDb().prepare('SELECT * FROM project_template_steps WHERE id = ?').get(id) as StepRow;
     return rowToStep(row);
   }
+
+  updateStep(stepId: string, data: Partial<CreateStepDto>): ProjectTemplateStep {
+    const row = getDb().prepare('SELECT * FROM project_template_steps WHERE id = ?').get(stepId) as StepRow | undefined;
+    if (!row) throw AppError.notFound('ProjectTemplateStep');
+    getDb()
+      .prepare(
+        `UPDATE project_template_steps SET title = ?, offset_days = ?, offset_description = ?, sort_order = ? WHERE id = ?`,
+      )
+      .run(
+        data.title ?? row.title,
+        data.offsetDays ?? row.offset_days,
+        data.offsetDescription !== undefined ? data.offsetDescription : row.offset_description,
+        data.sortOrder ?? row.sort_order,
+        stepId,
+      );
+    const updated = getDb().prepare('SELECT * FROM project_template_steps WHERE id = ?').get(stepId) as StepRow;
+    return rowToStep(updated);
+  }
+
+  deleteStep(stepId: string): void {
+    const result = getDb().prepare('DELETE FROM project_template_steps WHERE id = ?').run(stepId);
+    if (result.changes === 0) throw AppError.notFound('ProjectTemplateStep');
+  }
 }

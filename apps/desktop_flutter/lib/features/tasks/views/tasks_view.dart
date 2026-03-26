@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../controllers/tasks_controller.dart';
 import '../models/task.dart';
+// ignore_for_file: use_build_context_synchronously
 
 class TasksView extends StatefulWidget {
   const TasksView({super.key});
@@ -113,11 +114,28 @@ class _TasksViewState extends State<TasksView> {
         ),
       ),
       subtitle: task.dueDate != null ? Text('Due: ${task.dueDate}') : null,
-      trailing: IconButton(
-        icon: const Icon(Icons.delete_outline, size: 18),
-        tooltip: 'Delete',
-        onPressed: () => controller.deleteTask(task.id),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          IconButton(
+            icon: const Icon(Icons.edit_outlined, size: 18),
+            tooltip: 'Edit',
+            onPressed: () => _showEditDialog(task, controller),
+          ),
+          IconButton(
+            icon: const Icon(Icons.delete_outline, size: 18),
+            tooltip: 'Delete',
+            onPressed: () => controller.deleteTask(task.id),
+          ),
+        ],
       ),
+    );
+  }
+
+  Future<void> _showEditDialog(Task task, TasksController controller) async {
+    await showDialog<void>(
+      context: context,
+      builder: (_) => _EditTaskDialog(task: task, controller: controller),
     );
   }
 
@@ -152,5 +170,100 @@ class _TasksViewState extends State<TasksView> {
         ],
       ),
     );
+  }
+}
+
+class _EditTaskDialog extends StatefulWidget {
+  const _EditTaskDialog({required this.task, required this.controller});
+  final Task task;
+  final TasksController controller;
+
+  @override
+  State<_EditTaskDialog> createState() => _EditTaskDialogState();
+}
+
+class _EditTaskDialogState extends State<_EditTaskDialog> {
+  late final TextEditingController _titleController;
+  String? _dueDate;
+  bool _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _titleController = TextEditingController(text: widget.task.title);
+    _dueDate = widget.task.dueDate;
+  }
+
+  @override
+  void dispose() {
+    _titleController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _pickDate() async {
+    final initial = _dueDate != null ? DateTime.tryParse(_dueDate!) ?? DateTime.now() : DateTime.now();
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: initial,
+      firstDate: DateTime(2020),
+      lastDate: DateTime(2030),
+    );
+    if (picked != null) {
+      setState(() => _dueDate = picked.toIso8601String().substring(0, 10));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Edit Task'),
+      content: SizedBox(
+        width: 360,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: _titleController,
+              decoration: const InputDecoration(labelText: 'Title', border: OutlineInputBorder()),
+              autofocus: true,
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                OutlinedButton.icon(
+                  onPressed: _pickDate,
+                  icon: const Icon(Icons.calendar_today, size: 16),
+                  label: Text(_dueDate ?? 'Set due date'),
+                ),
+                if (_dueDate != null) ...[
+                  const SizedBox(width: 8),
+                  TextButton(
+                    onPressed: () => setState(() => _dueDate = null),
+                    child: const Text('Clear'),
+                  ),
+                ],
+              ],
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(onPressed: _saving ? null : () => Navigator.pop(context), child: const Text('Cancel')),
+        FilledButton(
+          onPressed: _saving ? null : _save,
+          child: _saving
+              ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+              : const Text('Save'),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _save() async {
+    final title = _titleController.text.trim();
+    if (title.isEmpty) return;
+    setState(() => _saving = true);
+    await widget.controller.updateTask(widget.task.id, title: title, dueDate: _dueDate);
+    if (mounted) Navigator.pop(context);
   }
 }

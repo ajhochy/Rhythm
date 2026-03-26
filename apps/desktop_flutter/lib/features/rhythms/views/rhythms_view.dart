@@ -121,6 +121,7 @@ class _RulesList extends StatelessWidget {
       separatorBuilder: (_, __) => const SizedBox(height: 8),
       itemBuilder: (context, i) => _RuleTile(
         rule: controller.rules[i],
+        controller: controller,
         onDelete: () => controller.deleteRule(controller.rules[i].id),
       ),
     );
@@ -128,9 +129,10 @@ class _RulesList extends StatelessWidget {
 }
 
 class _RuleTile extends StatefulWidget {
-  const _RuleTile({required this.rule, required this.onDelete});
+  const _RuleTile({required this.rule, required this.onDelete, required this.controller});
   final RecurringTaskRule rule;
   final VoidCallback onDelete;
+  final RhythmsController controller;
 
   @override
   State<_RuleTile> createState() => _RuleTileState();
@@ -167,6 +169,11 @@ class _RuleTileState extends State<_RuleTile> {
                   tooltip: 'Preview dates',
                 ),
                 IconButton(
+                  icon: const Icon(Icons.edit_outlined),
+                  onPressed: () => _showEditDialog(context),
+                  tooltip: 'Edit rule',
+                ),
+                IconButton(
                   icon: const Icon(Icons.delete_outline),
                   onPressed: () => _confirmDelete(context),
                   tooltip: 'Delete rule',
@@ -187,6 +194,13 @@ class _RuleTileState extends State<_RuleTile> {
             ),
         ],
       ),
+    );
+  }
+
+  Future<void> _showEditDialog(BuildContext context) async {
+    await showDialog<void>(
+      context: context,
+      builder: (_) => _EditRuleDialog(rule: widget.rule, controller: widget.controller),
     );
   }
 
@@ -316,6 +330,120 @@ class _CreateRuleDialogState extends State<_CreateRuleDialog> {
 
     setState(() => _saving = true);
     await widget.controller.createRule(
+      title: title,
+      frequency: _frequency,
+      dayOfWeek: _frequency == 'weekly' ? _dayOfWeek : null,
+      dayOfMonth: (_frequency == 'monthly' || _frequency == 'annual') ? _dayOfMonth : null,
+      month: _frequency == 'annual' ? _month : null,
+    );
+    if (mounted) Navigator.pop(context);
+  }
+}
+
+class _EditRuleDialog extends StatefulWidget {
+  const _EditRuleDialog({required this.rule, required this.controller});
+  final RecurringTaskRule rule;
+  final RhythmsController controller;
+
+  @override
+  State<_EditRuleDialog> createState() => _EditRuleDialogState();
+}
+
+class _EditRuleDialogState extends State<_EditRuleDialog> {
+  late final TextEditingController _titleController;
+  late String _frequency;
+  late int _dayOfWeek;
+  late int _dayOfMonth;
+  late int _month;
+  bool _saving = false;
+
+  static const _weekdays = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  static const _months = ['January', 'February', 'March', 'April', 'May', 'June',
+      'July', 'August', 'September', 'October', 'November', 'December'];
+
+  @override
+  void initState() {
+    super.initState();
+    _titleController = TextEditingController(text: widget.rule.title);
+    _frequency = widget.rule.frequency;
+    _dayOfWeek = widget.rule.dayOfWeek ?? 1;
+    _dayOfMonth = widget.rule.dayOfMonth ?? 1;
+    _month = widget.rule.month ?? 1;
+  }
+
+  @override
+  void dispose() {
+    _titleController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Edit Rule'),
+      content: SizedBox(
+        width: 400,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            TextField(
+              controller: _titleController,
+              decoration: const InputDecoration(labelText: 'Title', border: OutlineInputBorder()),
+              autofocus: true,
+            ),
+            const SizedBox(height: 16),
+            DropdownButtonFormField<String>(
+              value: _frequency,
+              decoration: const InputDecoration(labelText: 'Frequency', border: OutlineInputBorder()),
+              items: const [
+                DropdownMenuItem(value: 'weekly', child: Text('Weekly')),
+                DropdownMenuItem(value: 'monthly', child: Text('Monthly')),
+                DropdownMenuItem(value: 'annual', child: Text('Annual')),
+              ],
+              onChanged: (v) => setState(() => _frequency = v!),
+            ),
+            const SizedBox(height: 16),
+            if (_frequency == 'weekly')
+              DropdownButtonFormField<int>(
+                value: _dayOfWeek,
+                decoration: const InputDecoration(labelText: 'Day of Week', border: OutlineInputBorder()),
+                items: List.generate(7, (i) => DropdownMenuItem(value: i, child: Text(_weekdays[i]))),
+                onChanged: (v) => setState(() => _dayOfWeek = v!),
+              ),
+            if (_frequency == 'monthly')
+              _DayOfMonthField(value: _dayOfMonth, onChanged: (v) => setState(() => _dayOfMonth = v)),
+            if (_frequency == 'annual') ...[
+              DropdownButtonFormField<int>(
+                value: _month,
+                decoration: const InputDecoration(labelText: 'Month', border: OutlineInputBorder()),
+                items: List.generate(12, (i) => DropdownMenuItem(value: i + 1, child: Text(_months[i]))),
+                onChanged: (v) => setState(() => _month = v!),
+              ),
+              const SizedBox(height: 12),
+              _DayOfMonthField(value: _dayOfMonth, onChanged: (v) => setState(() => _dayOfMonth = v)),
+            ],
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(onPressed: _saving ? null : () => Navigator.pop(context), child: const Text('Cancel')),
+        FilledButton(
+          onPressed: _saving ? null : _save,
+          child: _saving
+              ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+              : const Text('Save'),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _save() async {
+    final title = _titleController.text.trim();
+    if (title.isEmpty) return;
+    setState(() => _saving = true);
+    await widget.controller.updateRule(
+      widget.rule.id,
       title: title,
       frequency: _frequency,
       dayOfWeek: _frequency == 'weekly' ? _dayOfWeek : null,

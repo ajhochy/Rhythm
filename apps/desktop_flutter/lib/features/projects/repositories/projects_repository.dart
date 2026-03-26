@@ -27,5 +27,16 @@ class ProjectsRepository {
         sortOrder: sortOrder,
       );
 
+  Future<ProjectTemplate> update(String id, {String? name, String? description}) =>
+      _dataSource.update(id, name: name, description: description);
+
+  Future<ProjectTemplateStep> updateStep(String templateId, String stepId,
+          {String? title, int? offsetDays, String? offsetDescription}) =>
+      _dataSource.updateStep(templateId, stepId,
+          title: title, offsetDays: offsetDays, offsetDescription: offsetDescription);
+
+  Future<void> deleteStep(String templateId, String stepId) =>
+      _dataSource.deleteStep(templateId, stepId);
+
   Future<void> delete(String id) => _dataSource.delete(id);
 }

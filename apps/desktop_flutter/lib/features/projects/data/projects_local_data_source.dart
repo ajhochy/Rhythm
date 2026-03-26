@@ -50,6 +50,46 @@ class ProjectsLocalDataSource {
     return ProjectTemplateStep.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
   }
 
+  Future<ProjectTemplate> update(String id, {String? name, String? description}) async {
+    final response = await http.patch(
+      Uri.parse('${AppConstants.apiBaseUrl}/project-templates/$id'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({
+        if (name != null) 'name': name,
+        if (description != null) 'description': description,
+      }),
+    );
+    _assertOk(response);
+    return ProjectTemplate.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
+  }
+
+  Future<ProjectTemplateStep> updateStep(
+    String templateId,
+    String stepId, {
+    String? title,
+    int? offsetDays,
+    String? offsetDescription,
+  }) async {
+    final response = await http.patch(
+      Uri.parse('${AppConstants.apiBaseUrl}/project-templates/$templateId/steps/$stepId'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({
+        if (title != null) 'title': title,
+        if (offsetDays != null) 'offsetDays': offsetDays,
+        if (offsetDescription != null) 'offsetDescription': offsetDescription,
+      }),
+    );
+    _assertOk(response);
+    return ProjectTemplateStep.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
+  }
+
+  Future<void> deleteStep(String templateId, String stepId) async {
+    final response = await http.delete(
+      Uri.parse('${AppConstants.apiBaseUrl}/project-templates/$templateId/steps/$stepId'),
+    );
+    _assertOk(response);
+  }
+
   Future<void> delete(String id) async {
     final response = await http.delete(Uri.parse('${AppConstants.apiBaseUrl}/project-templates/$id'));
     _assertOk(response);

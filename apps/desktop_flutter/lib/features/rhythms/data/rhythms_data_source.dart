@@ -36,6 +36,29 @@ class RhythmsDataSource {
     return RecurringTaskRule.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
   }
 
+  Future<RecurringTaskRule> update(
+    String id, {
+    String? title,
+    String? frequency,
+    int? dayOfWeek,
+    int? dayOfMonth,
+    int? month,
+  }) async {
+    final response = await http.patch(
+      Uri.parse('${AppConstants.apiBaseUrl}/recurring-rules/$id'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({
+        if (title != null) 'title': title,
+        if (frequency != null) 'frequency': frequency,
+        if (dayOfWeek != null) 'dayOfWeek': dayOfWeek,
+        if (dayOfMonth != null) 'dayOfMonth': dayOfMonth,
+        if (month != null) 'month': month,
+      }),
+    );
+    _assertOk(response);
+    return RecurringTaskRule.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
+  }
+
   Future<void> delete(String id) async {
     final response = await http.delete(Uri.parse('${AppConstants.apiBaseUrl}/recurring-rules/$id'));
     _assertOk(response);

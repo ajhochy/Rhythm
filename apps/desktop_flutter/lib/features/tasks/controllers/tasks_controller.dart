@@ -44,6 +44,18 @@ class TasksController extends ChangeNotifier {
     }
   }
 
+  Future<void> updateTask(String id, {String? title, String? dueDate}) async {
+    try {
+      final updated = await _repository.update(id, title: title, dueDate: dueDate);
+      _tasks = _tasks.map((t) => t.id == id ? updated : t).toList();
+      notifyListeners();
+    } catch (e) {
+      _errorMessage = e.toString();
+      _status = TasksStatus.error;
+      notifyListeners();
+    }
+  }
+
   Future<void> toggleDone(String id) async {
     final task = _tasks.firstWhere((t) => t.id == id);
     final newStatus = task.status == 'done' ? 'open' : 'done';

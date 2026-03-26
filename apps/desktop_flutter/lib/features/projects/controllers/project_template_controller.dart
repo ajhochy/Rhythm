@@ -56,6 +56,42 @@ class ProjectTemplateController extends ChangeNotifier {
     }
   }
 
+  Future<void> updateTemplate(String id, {String? name, String? description}) async {
+    try {
+      final updated = await _repository.update(id, name: name, description: description);
+      _templates = _templates.map((t) => t.id == id ? updated : t).toList();
+      notifyListeners();
+    } catch (e) {
+      _errorMessage = e.toString();
+      _status = ProjectsStatus.error;
+      notifyListeners();
+    }
+  }
+
+  Future<void> updateStep(String templateId, String stepId,
+      {String? title, int? offsetDays, String? offsetDescription}) async {
+    try {
+      await _repository.updateStep(templateId, stepId,
+          title: title, offsetDays: offsetDays, offsetDescription: offsetDescription);
+      await load();
+    } catch (e) {
+      _errorMessage = e.toString();
+      _status = ProjectsStatus.error;
+      notifyListeners();
+    }
+  }
+
+  Future<void> deleteStep(String templateId, String stepId) async {
+    try {
+      await _repository.deleteStep(templateId, stepId);
+      await load();
+    } catch (e) {
+      _errorMessage = e.toString();
+      _status = ProjectsStatus.error;
+      notifyListeners();
+    }
+  }
+
   Future<void> addStep(
     String templateId, {
     required String title,

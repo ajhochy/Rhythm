@@ -195,10 +195,21 @@ class _TemplateDetail extends StatelessWidget {
                   ],
                 ),
               ),
-              FilledButton.icon(
-                onPressed: () => _showGenerateDialog(context),
-                icon: const Icon(Icons.play_arrow, size: 18),
-                label: const Text('Generate Instance'),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  OutlinedButton.icon(
+                    onPressed: () => _showEditTemplateDialog(context),
+                    icon: const Icon(Icons.edit_outlined, size: 18),
+                    label: const Text('Edit'),
+                  ),
+                  const SizedBox(width: 8),
+                  FilledButton.icon(
+                    onPressed: () => _showGenerateDialog(context),
+                    icon: const Icon(Icons.play_arrow, size: 18),
+                    label: const Text('Generate Instance'),
+                  ),
+                ],
               ),
             ],
           ),
@@ -225,7 +236,11 @@ class _TemplateDetail extends StatelessWidget {
                   padding: const EdgeInsets.all(24),
                   itemCount: sortedSteps.length,
                   separatorBuilder: (_, __) => const SizedBox(height: 8),
-                  itemBuilder: (ctx, i) => _StepTile(step: sortedSteps[i]),
+                  itemBuilder: (ctx, i) => _StepTile(
+                    step: sortedSteps[i],
+                    template: template,
+                    controller: controller,
+                  ),
                 ),
         ),
       ],
@@ -239,6 +254,13 @@ class _TemplateDetail extends StatelessWidget {
     );
   }
 
+  Future<void> _showEditTemplateDialog(BuildContext context) async {
+    await showDialog<void>(
+      context: context,
+      builder: (_) => _EditTemplateDialog(template: template, controller: controller),
+    );
+  }
+
   Future<void> _showGenerateDialog(BuildContext context) async {
     await showDialog<void>(
       context: context,
@@ -248,8 +270,10 @@ class _TemplateDetail extends StatelessWidget {
 }
 
 class _StepTile extends StatelessWidget {
-  const _StepTile({required this.step});
+  const _StepTile({required this.step, required this.template, required this.controller});
   final ProjectTemplateStep step;
+  final ProjectTemplate template;
+  final ProjectTemplateController controller;
 
   @override
   Widget build(BuildContext context) {
@@ -277,18 +301,219 @@ class _StepTile extends StatelessWidget {
         ),
         title: Text(step.title),
         subtitle: Text(offsetLabel),
-        trailing: Text(
-          'Offset: ${step.offsetDays}d',
-          style: Theme.of(context).textTheme.bodySmall,
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text('Offset: ${step.offsetDays}d', style: Theme.of(context).textTheme.bodySmall),
+            const SizedBox(width: 4),
+            IconButton(
+              icon: const Icon(Icons.edit_outlined, size: 16),
+              tooltip: 'Edit step',
+              onPressed: () => showDialog<void>(
+                context: context,
+                builder: (_) => _EditStepDialog(step: step, template: template, controller: controller),
+              ),
+            ),
+            IconButton(
+              icon: const Icon(Icons.delete_outline, size: 16),
+              tooltip: 'Delete step',
+              onPressed: () => _confirmDeleteStep(context),
+            ),
+          ],
         ),
       ),
     );
+  }
+
+  Future<void> _confirmDeleteStep(BuildContext context) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete Step'),
+        content: Text('Delete step "${step.title}"?'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: FilledButton.styleFrom(backgroundColor: Theme.of(context).colorScheme.error),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) await controller.deleteStep(template.id, step.id);
   }
 }
 
 // ---------------------------------------------------------------------------
 // Dialogs
 // ---------------------------------------------------------------------------
+
+class _EditTemplateDialog extends StatefulWidget {
+  const _EditTemplateDialog({required this.template, required this.controller});
+  final ProjectTemplate template;
+  final ProjectTemplateController controller;
+
+  @override
+  State<_EditTemplateDialog> createState() => _EditTemplateDialogState();
+}
+
+class _EditTemplateDialogState extends State<_EditTemplateDialog> {
+  late final TextEditingController _nameController;
+  late final TextEditingController _descController;
+  bool _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _nameController = TextEditingController(text: widget.template.name);
+    _descController = TextEditingController(text: widget.template.description ?? '');
+  }
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _descController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Edit Template'),
+      content: SizedBox(
+        width: 360,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: _nameController,
+              decoration: const InputDecoration(labelText: 'Name', border: OutlineInputBorder()),
+              autofocus: true,
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _descController,
+              decoration: const InputDecoration(labelText: 'Description (optional)', border: OutlineInputBorder()),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(onPressed: _saving ? null : () => Navigator.pop(context), child: const Text('Cancel')),
+        FilledButton(
+          onPressed: _saving ? null : _save,
+          child: _saving ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) : const Text('Save'),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _save() async {
+    final name = _nameController.text.trim();
+    if (name.isEmpty) return;
+    setState(() => _saving = true);
+    await widget.controller.updateTemplate(
+      widget.template.id,
+      name: name,
+      description: _descController.text.trim().isEmpty ? null : _descController.text.trim(),
+    );
+    if (mounted) Navigator.pop(context);
+  }
+}
+
+class _EditStepDialog extends StatefulWidget {
+  const _EditStepDialog({required this.step, required this.template, required this.controller});
+  final ProjectTemplateStep step;
+  final ProjectTemplate template;
+  final ProjectTemplateController controller;
+
+  @override
+  State<_EditStepDialog> createState() => _EditStepDialogState();
+}
+
+class _EditStepDialogState extends State<_EditStepDialog> {
+  late final TextEditingController _titleController;
+  late final TextEditingController _offsetController;
+  late final TextEditingController _descController;
+  bool _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _titleController = TextEditingController(text: widget.step.title);
+    _offsetController = TextEditingController(text: widget.step.offsetDays.toString());
+    _descController = TextEditingController(text: widget.step.offsetDescription ?? '');
+  }
+
+  @override
+  void dispose() {
+    _titleController.dispose();
+    _offsetController.dispose();
+    _descController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Edit Step'),
+      content: SizedBox(
+        width: 360,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: _titleController,
+              decoration: const InputDecoration(labelText: 'Step title', border: OutlineInputBorder()),
+              autofocus: true,
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _offsetController,
+              decoration: const InputDecoration(
+                labelText: 'Offset days (negative = before anchor)',
+                border: OutlineInputBorder(),
+              ),
+              keyboardType: const TextInputType.numberWithOptions(signed: true),
+              inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'^-?\d*'))],
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _descController,
+              decoration: const InputDecoration(
+                labelText: 'Description (e.g. "8 weeks before")',
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(onPressed: _saving ? null : () => Navigator.pop(context), child: const Text('Cancel')),
+        FilledButton(
+          onPressed: _saving ? null : _save,
+          child: _saving ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) : const Text('Save'),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _save() async {
+    final title = _titleController.text.trim();
+    if (title.isEmpty) return;
+    final offsetDays = int.tryParse(_offsetController.text) ?? widget.step.offsetDays;
+    setState(() => _saving = true);
+    await widget.controller.updateStep(
+      widget.template.id,
+      widget.step.id,
+      title: title,
+      offsetDays: offsetDays,
+      offsetDescription: _descController.text.trim().isEmpty ? null : _descController.text.trim(),
+    );
+    if (mounted) Navigator.pop(context);
+  }
+}
 
 class _CreateTemplateDialog extends StatefulWidget {
   const _CreateTemplateDialog({required this.controller});

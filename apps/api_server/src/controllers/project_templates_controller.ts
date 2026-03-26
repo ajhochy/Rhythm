@@ -63,4 +63,22 @@ export class ProjectTemplatesController {
       next(err);
     }
   }
+
+  updateStep(req: Request, res: Response, next: NextFunction) {
+    try {
+      const step = repo.updateStep(req.params.stepId, req.body as Record<string, unknown>);
+      res.json(step);
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  removeStep(req: Request, res: Response, next: NextFunction) {
+    try {
+      repo.deleteStep(req.params.stepId);
+      res.status(204).send();
+    } catch (err) {
+      next(err);
+    }
+  }
 }
