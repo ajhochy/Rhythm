@@ -74,4 +74,7 @@ export function runMigrations(db: Database.Database): void {
   if (!taskCols.includes('locked')) {
     db.exec(`ALTER TABLE tasks ADD COLUMN locked INTEGER NOT NULL DEFAULT 0`);
   }
+  if (!taskCols.includes('notes')) {
+    db.exec(`ALTER TABLE tasks ADD COLUMN notes TEXT`);
+  }
 }

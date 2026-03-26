@@ -21,7 +21,6 @@ class TasksController extends ChangeNotifier {
     _status = TasksStatus.loading;
     _errorMessage = null;
     notifyListeners();
-
     try {
       _tasks = await _repository.getAll();
       _status = TasksStatus.idle;
@@ -32,9 +31,11 @@ class TasksController extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> createTask(String title, {String? dueDate}) async {
+  Future<void> createTask(String title,
+      {String? notes, String? dueDate}) async {
     try {
-      final task = await _repository.create(title, dueDate: dueDate);
+      final task =
+          await _repository.create(title, notes: notes, dueDate: dueDate);
       _tasks = [..._tasks, task];
       notifyListeners();
     } catch (e) {
@@ -44,10 +45,11 @@ class TasksController extends ChangeNotifier {
     }
   }
 
-  Future<void> updateTask(String id, {String? title, String? dueDate}) async {
+  Future<void> updateTask(String id,
+      {String? title, String? notes, String? dueDate}) async {
     try {
-      final updated =
-          await _repository.update(id, title: title, dueDate: dueDate);
+      final updated = await _repository.update(id,
+          title: title, notes: notes, dueDate: dueDate);
       _tasks = _tasks.map((t) => t.id == id ? updated : t).toList();
       notifyListeners();
     } catch (e) {

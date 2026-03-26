@@ -41,7 +41,7 @@ class _WeeklyPlannerViewState extends State<WeeklyPlannerView> {
 }
 
 // ---------------------------------------------------------------------------
-// Header with week navigation
+// Header
 // ---------------------------------------------------------------------------
 
 class _WeekHeader extends StatelessWidget {
@@ -88,7 +88,6 @@ class _WeekHeader extends StatelessWidget {
   }
 
   String _formatWeekLabel(String label) {
-    // Parse YYYY-WNN → "Week of Mon DD, YYYY"
     final m = RegExp(r'^(\d{4})-W(\d{1,2})$').firstMatch(label);
     if (m == null) return label;
     final year = int.parse(m.group(1)!);
@@ -109,14 +108,14 @@ class _WeekHeader extends StatelessWidget {
       'Sep',
       'Oct',
       'Nov',
-      'Dec'
+      'Dec',
     ];
     return 'Week of ${months[monday.month - 1]} ${monday.day}, ${monday.year}';
   }
 }
 
 // ---------------------------------------------------------------------------
-// Error banner
+// Error banner (inline, no MaterialBanner quirks)
 // ---------------------------------------------------------------------------
 
 class _ErrorBanner extends StatelessWidget {
@@ -126,11 +125,31 @@ class _ErrorBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialBanner(
-      content: Text(message),
-      actions: [
-        TextButton(onPressed: onRetry, child: const Text('Retry')),
-      ],
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 10),
+      color: Theme.of(context).colorScheme.errorContainer,
+      child: Row(
+        children: [
+          Icon(Icons.error_outline,
+              color: Theme.of(context).colorScheme.onErrorContainer, size: 18),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              message,
+              style: TextStyle(
+                  color: Theme.of(context).colorScheme.onErrorContainer,
+                  fontSize: 13),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          TextButton(
+            onPressed: onRetry,
+            child: const Text('Retry'),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -154,8 +173,9 @@ class _PlannerBody extends StatelessWidget {
       return const Center(child: Text('No plan loaded.'));
     }
 
+    final allTasks = plan.days.expand((d) => d.tasks);
     final selectedTask = controller.selectedTaskId != null
-        ? plan.days.expand((d) => d.tasks).cast<Task?>().firstWhere(
+        ? allTasks.cast<Task?>().firstWhere(
             (t) => t?.id == controller.selectedTaskId,
             orElse: () => null)
         : null;
@@ -163,9 +183,9 @@ class _PlannerBody extends StatelessWidget {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Left: Backlog
+        // Left: Backlog (only shows if truly unscheduled tasks exist)
         SizedBox(
-          width: 240,
+          width: 220,
           child: _BacklogPane(plan: plan, controller: controller),
         ),
         VerticalDivider(width: 1, color: Theme.of(context).dividerColor),
@@ -173,7 +193,7 @@ class _PlannerBody extends StatelessWidget {
         Expanded(
           child: _DayColumnsPane(plan: plan, controller: controller),
         ),
-        // Right: Detail panel (only when a task is selected)
+        // Right: Detail panel
         if (selectedTask != null) ...[
           VerticalDivider(width: 1, color: Theme.of(context).dividerColor),
           SizedBox(
@@ -205,11 +225,13 @@ class _BacklogPane extends StatelessWidget {
           padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
           child: Row(
             children: [
-              Text('Backlog',
-                  style: Theme.of(context)
-                      .textTheme
-                      .titleSmall
-                      ?.copyWith(fontWeight: FontWeight.bold)),
+              Text(
+                'Unscheduled',
+                style: Theme.of(context)
+                    .textTheme
+                    .titleSmall
+                    ?.copyWith(fontWeight: FontWeight.bold),
+              ),
               const SizedBox(width: 6),
               if (backlog.isNotEmpty)
                 Container(
@@ -231,9 +253,11 @@ class _BacklogPane extends StatelessWidget {
               ? const Center(
                   child: Padding(
                   padding: EdgeInsets.all(16),
-                  child: Text('All tasks scheduled',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(color: Colors.grey)),
+                  child: Text(
+                    'All tasks have a due date',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(color: Colors.grey, fontSize: 12),
+                  ),
                 ))
               : ListView.builder(
                   padding: const EdgeInsets.symmetric(vertical: 8),
@@ -260,7 +284,7 @@ class _BacklogTaskTile extends StatelessWidget {
         elevation: 4,
         borderRadius: BorderRadius.circular(6),
         child: Container(
-          width: 200,
+          width: 180,
           padding: const EdgeInsets.all(10),
           decoration: BoxDecoration(
             color: Theme.of(context).colorScheme.primaryContainer,
@@ -272,10 +296,7 @@ class _BacklogTaskTile extends StatelessWidget {
               style: Theme.of(context).textTheme.bodySmall),
         ),
       ),
-      childWhenDragging: Opacity(
-        opacity: 0.4,
-        child: _taskCard(context),
-      ),
+      childWhenDragging: Opacity(opacity: 0.4, child: _taskCard(context)),
       child: GestureDetector(
         onTap: () => controller.selectTask(task.id),
         child: _taskCard(context),
@@ -306,16 +327,8 @@ class _BacklogTaskTile extends StatelessWidget {
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
               style: Theme.of(context).textTheme.bodySmall),
-          if (task.dueDate != null) ...[
-            const SizedBox(height: 4),
-            Text('Due ${task.dueDate}',
-                style: Theme.of(context)
-                    .textTheme
-                    .labelSmall
-                    ?.copyWith(color: Colors.grey)),
-          ],
           if (task.sourceType != null) ...[
-            const SizedBox(height: 2),
+            const SizedBox(height: 3),
             _SourceChip(sourceType: task.sourceType!),
           ],
         ],
@@ -341,12 +354,11 @@ class _DayColumnsPane extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: List.generate(plan.days.length, (i) {
         final day = plan.days[i];
-        final scheduled = plan.tasksForDate(day.date);
         return Expanded(
           child: _DayColumn(
             dayName: _dayNames[i],
             date: day.date,
-            tasks: scheduled,
+            tasks: plan.tasksForDate(day.date),
             controller: controller,
           ),
         );
@@ -374,9 +386,24 @@ class _DayColumn extends StatefulWidget {
 class _DayColumnState extends State<_DayColumn> {
   bool _hovering = false;
 
+  bool _isToday() {
+    final now = DateTime.now();
+    final today =
+        '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
+    return widget.date == today;
+  }
+
+  String _shortDate() {
+    final parts = widget.date.split('-');
+    if (parts.length != 3) return widget.date;
+    return '${int.parse(parts[1])}/${int.parse(parts[2])}';
+  }
+
   @override
   Widget build(BuildContext context) {
-    final today = _isToday(widget.date);
+    final today = _isToday();
+    final primaryColor = Theme.of(context).colorScheme.primary;
+
     return DragTarget<Task>(
       onWillAcceptWithDetails: (_) {
         setState(() => _hovering = true);
@@ -388,45 +415,51 @@ class _DayColumnState extends State<_DayColumn> {
         widget.controller.scheduleTask(details.data.id, widget.date);
       },
       builder: (context, candidateData, _) {
-        return AnimatedContainer(
-          duration: const Duration(milliseconds: 150),
+        return Container(
           decoration: BoxDecoration(
+            // Drag-hover: subtle teal tint on the column body only
             color: _hovering
-                ? Theme.of(context)
-                    .colorScheme
-                    .primaryContainer
-                    .withValues(alpha: 0.3)
+                ? Theme.of(context).colorScheme.tertiary.withValues(alpha: 0.08)
                 : null,
             border: Border(
               right: BorderSide(color: Theme.of(context).dividerColor),
+              // Today: a 2px primary-coloured top border on the whole column
+              top: today
+                  ? BorderSide(color: primaryColor, width: 2)
+                  : BorderSide.none,
             ),
           ),
           child: Column(
             children: [
               // Day header
               Container(
-                padding: const EdgeInsets.symmetric(vertical: 10),
-                decoration: BoxDecoration(
-                  color: today
-                      ? Theme.of(context).colorScheme.primaryContainer
-                      : Theme.of(context).colorScheme.surfaceContainerLow,
-                  border: Border(
-                      bottom:
-                          BorderSide(color: Theme.of(context).dividerColor)),
-                ),
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                color: Theme.of(context).colorScheme.surfaceContainerLow,
                 child: Column(
                   children: [
-                    Text(widget.dayName,
-                        style: Theme.of(context)
-                            .textTheme
-                            .labelSmall
-                            ?.copyWith(fontWeight: FontWeight.bold)),
-                    Text(_shortDate(widget.date),
-                        style: Theme.of(context).textTheme.labelSmall),
+                    Text(
+                      widget.dayName,
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                            fontWeight: FontWeight.bold,
+                            color: today ? primaryColor : null,
+                          ),
+                    ),
+                    Text(
+                      _shortDate(),
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                            color: today ? primaryColor : Colors.grey,
+                          ),
+                    ),
                   ],
                 ),
               ),
-              // Tasks
+              Divider(
+                  height: 1,
+                  color: today
+                      ? primaryColor.withValues(alpha: 0.4)
+                      : Theme.of(context).dividerColor),
+              // Task list
               Expanded(
                 child: widget.tasks.isEmpty
                     ? Center(
@@ -446,20 +479,6 @@ class _DayColumnState extends State<_DayColumn> {
         );
       },
     );
-  }
-
-  bool _isToday(String date) {
-    final now = DateTime.now();
-    final today =
-        '${now.year}-${now.month.toString().padLeft(2, '0')}-${now.day.toString().padLeft(2, '0')}';
-    return date == today;
-  }
-
-  String _shortDate(String date) {
-    // YYYY-MM-DD → M/D
-    final parts = date.split('-');
-    if (parts.length != 3) return date;
-    return '${int.parse(parts[1])}/${int.parse(parts[2])}';
   }
 }
 
@@ -493,7 +512,7 @@ class _ScheduledTaskTile extends StatelessWidget {
               Padding(
                 padding: const EdgeInsets.only(right: 4),
                 child: Icon(Icons.lock,
-                    size: 12, color: Theme.of(context).colorScheme.primary),
+                    size: 11, color: Theme.of(context).colorScheme.primary),
               ),
             Expanded(
               child: Text(
@@ -503,8 +522,10 @@ class _ScheduledTaskTile extends StatelessWidget {
                 style: Theme.of(context).textTheme.bodySmall,
               ),
             ),
-            if (task.sourceType != null)
+            if (task.sourceType != null) ...[
+              const SizedBox(width: 4),
               _SourceChip(sourceType: task.sourceType!),
+            ],
           ],
         ),
       ),
@@ -526,8 +547,13 @@ class _DetailPane extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 16, 8, 8),
+        Container(
+          padding: const EdgeInsets.fromLTRB(16, 12, 8, 12),
+          decoration: BoxDecoration(
+            color: Theme.of(context).colorScheme.surfaceContainerLow,
+            border: Border(
+                bottom: BorderSide(color: Theme.of(context).dividerColor)),
+          ),
           child: Row(
             children: [
               Expanded(
@@ -540,11 +566,12 @@ class _DetailPane extends StatelessWidget {
               IconButton(
                 icon: const Icon(Icons.close, size: 18),
                 onPressed: () => controller.selectTask(null),
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(),
               ),
             ],
           ),
         ),
-        const Divider(height: 1),
         Expanded(
           child: SingleChildScrollView(
             padding: const EdgeInsets.all(16),
@@ -553,7 +580,7 @@ class _DetailPane extends StatelessWidget {
               children: [
                 Text(task.title,
                     style: Theme.of(context).textTheme.titleMedium),
-                const SizedBox(height: 12),
+                const SizedBox(height: 16),
                 _detailRow(context, 'Status', task.status.toUpperCase()),
                 if (task.dueDate != null)
                   _detailRow(context, 'Due', task.dueDate!),
@@ -561,7 +588,18 @@ class _DetailPane extends StatelessWidget {
                   _detailRow(context, 'Scheduled', task.scheduledDate!),
                 _detailRow(context, 'Locked', task.locked ? 'Yes' : 'No'),
                 if (task.sourceType != null)
-                  _detailRow(context, 'Source', task.sourceType!),
+                  _detailRow(context, 'Source', _sourceLabel(task.sourceType!)),
+                if (task.notes != null && task.notes!.isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  Text('Notes',
+                      style: Theme.of(context)
+                          .textTheme
+                          .labelSmall
+                          ?.copyWith(color: Colors.grey)),
+                  const SizedBox(height: 4),
+                  Text(task.notes!,
+                      style: Theme.of(context).textTheme.bodySmall),
+                ],
               ],
             ),
           ),
@@ -577,7 +615,7 @@ class _DetailPane extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           SizedBox(
-            width: 80,
+            width: 76,
             child: Text(label,
                 style: Theme.of(context)
                     .textTheme
@@ -591,6 +629,12 @@ class _DetailPane extends StatelessWidget {
       ),
     );
   }
+
+  String _sourceLabel(String sourceType) => switch (sourceType) {
+        'recurring_rule' => 'Rhythm',
+        'project_step' => 'Project',
+        _ => sourceType,
+      };
 }
 
 // ---------------------------------------------------------------------------
@@ -609,7 +653,7 @@ class _SourceChip extends StatelessWidget {
       _ => ('T', Colors.grey),
     };
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.15),
         borderRadius: BorderRadius.circular(3),

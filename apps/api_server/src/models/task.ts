@@ -1,6 +1,7 @@
 export interface Task {
   id: string;
   title: string;
+  notes: string | null;
   dueDate: string | null;
   scheduledDate: string | null;
   locked: boolean;
@@ -13,6 +14,7 @@ export interface Task {
 
 export interface CreateTaskDto {
   title: string;
+  notes?: string | null;
   dueDate?: string | null;
   status?: 'open' | 'done';
   sourceType?: string | null;
@@ -21,6 +23,7 @@ export interface CreateTaskDto {
 
 export interface UpdateTaskDto {
   title?: string;
+  notes?: string | null;
   dueDate?: string | null;
   status?: 'open' | 'done';
   scheduledDate?: string | null;

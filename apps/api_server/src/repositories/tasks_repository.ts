@@ -6,6 +6,7 @@ import type { CreateTaskDto, Task, UpdateTaskDto } from '../models/task';
 interface TaskRow {
   id: string;
   title: string;
+  notes: string | null;
   due_date: string | null;
   scheduled_date: string | null;
   locked: number;
@@ -20,6 +21,7 @@ function rowToTask(row: TaskRow): Task {
   return {
     id: row.id,
     title: row.title,
+    notes: row.notes ?? null,
     dueDate: row.due_date,
     scheduledDate: row.scheduled_date ?? null,
     locked: row.locked === 1,
@@ -33,12 +35,16 @@ function rowToTask(row: TaskRow): Task {
 
 export class TasksRepository {
   findAll(): Task[] {
-    const rows = getDb().prepare('SELECT * FROM tasks ORDER BY due_date ASC, created_at ASC').all() as TaskRow[];
+    const rows = getDb()
+      .prepare('SELECT * FROM tasks ORDER BY due_date ASC, created_at ASC')
+      .all() as TaskRow[];
     return rows.map(rowToTask);
   }
 
   findById(id: string): Task {
-    const row = getDb().prepare('SELECT * FROM tasks WHERE id = ?').get(id) as TaskRow | undefined;
+    const row = getDb()
+      .prepare('SELECT * FROM tasks WHERE id = ?')
+      .get(id) as TaskRow | undefined;
     if (!row) throw AppError.notFound('Task');
     return rowToTask(row);
   }
@@ -59,10 +65,20 @@ export class TasksRepository {
     const now = new Date().toISOString();
     getDb()
       .prepare(
-        `INSERT INTO tasks (id, title, due_date, status, source_type, source_id, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO tasks (id, title, notes, due_date, status, source_type, source_id, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
-      .run(id, data.title, data.dueDate ?? null, data.status ?? 'open', data.sourceType ?? null, data.sourceId ?? null, now, now);
+      .run(
+        id,
+        data.title,
+        data.notes ?? null,
+        data.dueDate ?? null,
+        data.status ?? 'open',
+        data.sourceType ?? null,
+        data.sourceId ?? null,
+        now,
+        now,
+      );
     return this.findById(id);
   }
 
@@ -71,10 +87,14 @@ export class TasksRepository {
     const now = new Date().toISOString();
     getDb()
       .prepare(
-        `UPDATE tasks SET title = ?, due_date = ?, status = ?, scheduled_date = ?, locked = ?, updated_at = ? WHERE id = ?`,
+        `UPDATE tasks
+         SET title = ?, notes = ?, due_date = ?, status = ?,
+             scheduled_date = ?, locked = ?, updated_at = ?
+         WHERE id = ?`,
       )
       .run(
         data.title ?? existing.title,
+        data.notes !== undefined ? data.notes : existing.notes,
         data.dueDate !== undefined ? data.dueDate : existing.dueDate,
         data.status ?? existing.status,
         data.scheduledDate !== undefined ? data.scheduledDate : existing.scheduledDate,

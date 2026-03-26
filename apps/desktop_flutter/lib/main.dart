@@ -59,7 +59,7 @@ class RhythmApp extends StatelessWidget {
           ),
         ),
         ChangeNotifierProvider(
-          create: (_) => WeeklyPlannerController.create(
+          create: (_) => WeeklyPlannerController(
             WeeklyPlanRepository(WeeklyPlanDataSource()),
           ),
         ),

@@ -5,14 +5,15 @@ import '../repositories/weekly_plan_repository.dart';
 enum WeeklyPlannerStatus { idle, loading, error }
 
 class WeeklyPlannerController extends ChangeNotifier {
-  WeeklyPlannerController(this._repository);
+  WeeklyPlannerController(this._repository)
+      : _currentWeekLabel = _todayWeekLabel();
 
   final WeeklyPlanRepository _repository;
 
   WeeklyPlan? _plan;
   WeeklyPlannerStatus _status = WeeklyPlannerStatus.idle;
   String? _errorMessage;
-  late String _currentWeekLabel;
+  String _currentWeekLabel;
   String? _selectedTaskId;
 
   WeeklyPlan? get plan => _plan;
@@ -21,42 +22,9 @@ class WeeklyPlannerController extends ChangeNotifier {
   String get currentWeekLabel => _currentWeekLabel;
   String? get selectedTaskId => _selectedTaskId;
 
-  @override
-  void addListener(VoidCallback listener) {
-    _currentWeekLabel = _todayWeekLabel();
-    super.addListener(listener);
-  }
-
-  void _init() {
-    _currentWeekLabel = _todayWeekLabel();
-  }
-
-  WeeklyPlannerController._internal(this._repository) {
-    _currentWeekLabel = _todayWeekLabel();
-  }
-
-  factory WeeklyPlannerController.create(WeeklyPlanRepository repository) {
-    return WeeklyPlannerController._internal(repository);
-  }
-
-  static String _todayWeekLabel() {
-    final now = DateTime.now().toUtc();
-    final d = DateTime.utc(now.year, now.month, now.day);
-    // Find Thursday of the same ISO week (weekday 4 = Thursday)
-    final thursday = d.subtract(Duration(days: (d.weekday - 4 + 7) % 7));
-    final jan4 = DateTime.utc(thursday.year, 1, 4);
-    final mondayJan4 =
-        jan4.subtract(Duration(days: (jan4.weekday - 1 + 7) % 7));
-    final weekNum = ((thursday.difference(mondayJan4).inDays) ~/ 7) + 1;
-    return '${thursday.year}-W${weekNum.toString().padLeft(2, '0')}';
-  }
-
   bool get isCurrentWeek => _currentWeekLabel == _todayWeekLabel();
 
   Future<void> load() async {
-    if (_status == WeeklyPlannerStatus.idle || _currentWeekLabel.isNotEmpty) {
-      _init();
-    }
     _status = WeeklyPlannerStatus.loading;
     _errorMessage = null;
     notifyListeners();
@@ -101,14 +69,16 @@ class WeeklyPlannerController extends ChangeNotifier {
     }
   }
 
-  Future<void> unscheduleTask(String taskId) async {
-    // scheduleTask with empty date effectively removes scheduling — we use
-    // a dedicated unschedule by patching scheduledDate to null via the API.
-    // For now re-fetch to sync state.
-    try {
-      await _repository.scheduleTask(taskId, '');
-    } catch (_) {}
-    await load();
+  static String _todayWeekLabel() {
+    final now = DateTime.now().toUtc();
+    final d = DateTime.utc(now.year, now.month, now.day);
+    // Find Thursday of the same ISO week to determine year + week number
+    final thursday = d.subtract(Duration(days: (d.weekday - 4 + 7) % 7));
+    final jan4 = DateTime.utc(thursday.year, 1, 4);
+    final mondayJan4 =
+        jan4.subtract(Duration(days: (jan4.weekday - 1 + 7) % 7));
+    final weekNum = ((thursday.difference(mondayJan4).inDays) ~/ 7) + 1;
+    return '${thursday.year}-W${weekNum.toString().padLeft(2, '0')}';
   }
 
   static String _offsetWeek(String label, int delta) {
@@ -116,7 +86,6 @@ class WeeklyPlannerController extends ChangeNotifier {
     if (m == null) return label;
     final year = int.parse(m.group(1)!);
     final week = int.parse(m.group(2)!);
-    // Convert to absolute week number, add delta, convert back
     final jan4 = DateTime.utc(year, 1, 4);
     final mondayWeek1 =
         jan4.subtract(Duration(days: (jan4.weekday - 1 + 7) % 7));

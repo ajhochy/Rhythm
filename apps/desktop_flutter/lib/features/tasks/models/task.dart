@@ -5,6 +5,7 @@ class Task {
     required this.status,
     required this.createdAt,
     required this.updatedAt,
+    this.notes,
     this.dueDate,
     this.scheduledDate,
     this.locked = false,
@@ -16,6 +17,7 @@ class Task {
     return Task(
       id: json['id'] as String,
       title: json['title'] as String,
+      notes: json['notes'] as String?,
       dueDate: json['dueDate'] as String?,
       scheduledDate: json['scheduledDate'] as String?,
       locked: (json['locked'] as bool?) ?? false,
@@ -29,6 +31,7 @@ class Task {
 
   final String id;
   final String title;
+  final String? notes;
   final String? dueDate;
   final String? scheduledDate;
   final bool locked;
@@ -41,6 +44,7 @@ class Task {
   Map<String, dynamic> toJson() => {
         'id': id,
         'title': title,
+        'notes': notes,
         'dueDate': dueDate,
         'scheduledDate': scheduledDate,
         'locked': locked,
@@ -53,6 +57,7 @@ class Task {
 
   Task copyWith({
     String? title,
+    String? notes,
     String? dueDate,
     String? scheduledDate,
     bool? locked,
@@ -61,6 +66,7 @@ class Task {
     return Task(
       id: id,
       title: title ?? this.title,
+      notes: notes ?? this.notes,
       dueDate: dueDate ?? this.dueDate,
       scheduledDate: scheduledDate ?? this.scheduledDate,
       locked: locked ?? this.locked,

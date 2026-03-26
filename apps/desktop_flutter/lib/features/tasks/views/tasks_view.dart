@@ -13,6 +13,7 @@ class TasksView extends StatefulWidget {
 
 class _TasksViewState extends State<TasksView> {
   final _titleController = TextEditingController();
+  final _notesController = TextEditingController();
   String? _selectedDueDate;
 
   @override
@@ -26,6 +27,7 @@ class _TasksViewState extends State<TasksView> {
   @override
   void dispose() {
     _titleController.dispose();
+    _notesController.dispose();
     super.dispose();
   }
 
@@ -45,10 +47,14 @@ class _TasksViewState extends State<TasksView> {
   Future<void> _submitCreate() async {
     final title = _titleController.text.trim();
     if (title.isEmpty) return;
-    await context
-        .read<TasksController>()
-        .createTask(title, dueDate: _selectedDueDate);
+    final notes = _notesController.text.trim();
+    await context.read<TasksController>().createTask(
+          title,
+          notes: notes.isEmpty ? null : notes,
+          dueDate: _selectedDueDate,
+        );
     _titleController.clear();
+    _notesController.clear();
     setState(() => _selectedDueDate = null);
   }
 
@@ -118,7 +124,19 @@ class _TasksViewState extends State<TasksView> {
           color: isDone ? Colors.grey : null,
         ),
       ),
-      subtitle: task.dueDate != null ? Text('Due: ${task.dueDate}') : null,
+      subtitle: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (task.dueDate != null) Text('Due: ${task.dueDate}'),
+          if (task.notes != null && task.notes!.isNotEmpty)
+            Text(
+              task.notes!,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(color: Colors.grey, fontSize: 12),
+            ),
+        ],
+      ),
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -151,27 +169,43 @@ class _TasksViewState extends State<TasksView> {
         color: Theme.of(context).colorScheme.surfaceContainerLow,
         border: Border(top: BorderSide(color: Theme.of(context).dividerColor)),
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Expanded(
-            child: TextField(
-              controller: _titleController,
-              decoration: const InputDecoration(
-                hintText: 'New task title...',
-                isDense: true,
-                border: OutlineInputBorder(),
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _titleController,
+                  decoration: const InputDecoration(
+                    hintText: 'New task title...',
+                    isDense: true,
+                    border: OutlineInputBorder(),
+                  ),
+                  onSubmitted: (_) => _submitCreate(),
+                ),
               ),
-              onSubmitted: (_) => _submitCreate(),
+              const SizedBox(width: 8),
+              OutlinedButton.icon(
+                onPressed: _pickDate,
+                icon: const Icon(Icons.calendar_today, size: 16),
+                label: Text(_selectedDueDate ?? 'Due date'),
+              ),
+              const SizedBox(width: 8),
+              FilledButton(onPressed: _submitCreate, child: const Text('Add')),
+            ],
+          ),
+          const SizedBox(height: 8),
+          TextField(
+            controller: _notesController,
+            decoration: const InputDecoration(
+              hintText: 'Add a note... (optional)',
+              isDense: true,
+              border: OutlineInputBorder(),
             ),
+            minLines: 1,
+            maxLines: 3,
           ),
-          const SizedBox(width: 8),
-          OutlinedButton.icon(
-            onPressed: _pickDate,
-            icon: const Icon(Icons.calendar_today, size: 16),
-            label: Text(_selectedDueDate ?? 'Due date'),
-          ),
-          const SizedBox(width: 8),
-          FilledButton(onPressed: _submitCreate, child: const Text('Add')),
         ],
       ),
     );
@@ -189,6 +223,7 @@ class _EditTaskDialog extends StatefulWidget {
 
 class _EditTaskDialogState extends State<_EditTaskDialog> {
   late final TextEditingController _titleController;
+  late final TextEditingController _notesController;
   String? _dueDate;
   bool _saving = false;
 
@@ -196,12 +231,14 @@ class _EditTaskDialogState extends State<_EditTaskDialog> {
   void initState() {
     super.initState();
     _titleController = TextEditingController(text: widget.task.title);
+    _notesController = TextEditingController(text: widget.task.notes ?? '');
     _dueDate = widget.task.dueDate;
   }
 
   @override
   void dispose() {
     _titleController.dispose();
+    _notesController.dispose();
     super.dispose();
   }
 
@@ -225,7 +262,7 @@ class _EditTaskDialogState extends State<_EditTaskDialog> {
     return AlertDialog(
       title: const Text('Edit Task'),
       content: SizedBox(
-        width: 360,
+        width: 400,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -234,6 +271,14 @@ class _EditTaskDialogState extends State<_EditTaskDialog> {
               decoration: const InputDecoration(
                   labelText: 'Title', border: OutlineInputBorder()),
               autofocus: true,
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _notesController,
+              decoration: const InputDecoration(
+                  labelText: 'Notes (optional)', border: OutlineInputBorder()),
+              minLines: 2,
+              maxLines: 5,
             ),
             const SizedBox(height: 12),
             Row(
@@ -276,8 +321,13 @@ class _EditTaskDialogState extends State<_EditTaskDialog> {
     final title = _titleController.text.trim();
     if (title.isEmpty) return;
     setState(() => _saving = true);
-    await widget.controller
-        .updateTask(widget.task.id, title: title, dueDate: _dueDate);
+    final notes = _notesController.text.trim();
+    await widget.controller.updateTask(
+      widget.task.id,
+      title: title,
+      notes: notes.isEmpty ? null : notes,
+      dueDate: _dueDate,
+    );
     if (mounted) Navigator.pop(context);
   }
 }

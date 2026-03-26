@@ -23,11 +23,11 @@ export class TasksController {
 
   create(req: Request, res: Response, next: NextFunction) {
     try {
-      const { title, dueDate, status } = req.body as Record<string, unknown>;
+      const { title, notes, dueDate, status } = req.body as Record<string, unknown>;
       if (!title || typeof title !== 'string') {
         throw AppError.badRequest('title is required');
       }
-      const task = repo.create({ title, dueDate: dueDate as string ?? null, status: status as 'open' | 'done' });
+      const task = repo.create({ title, notes: notes as string ?? null, dueDate: dueDate as string ?? null, status: status as 'open' | 'done' });
       res.status(201).json(task);
     } catch (err) {
       next(err);

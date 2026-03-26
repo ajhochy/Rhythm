@@ -76,6 +76,7 @@ export class WeeklyPlanningService {
     type TaskRow = {
       id: string;
       title: string;
+      notes: string | null;
       due_date: string | null;
       scheduled_date: string | null;
       locked: number;
@@ -103,6 +104,7 @@ export class WeeklyPlanningService {
         title: row.title,
         dueDate: row.due_date,
         scheduledDate: row.scheduled_date ?? null,
+        notes: row.notes ?? null,
         locked: row.locked === 1,
         status: row.status as Task['status'],
         sourceType: row.source_type,
@@ -130,6 +132,7 @@ export class WeeklyPlanningService {
       day.tasks.push({
         id: row.id,
         title: row.title,
+        notes: null,
         dueDate: row.due_date,
         scheduledDate: null,
         locked: false,

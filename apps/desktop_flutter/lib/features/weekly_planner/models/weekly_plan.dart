@@ -37,15 +37,17 @@ class WeeklyPlan {
   final String weekStart;
   final List<WeeklyPlanDay> days;
 
-  /// Tasks that have not yet been scheduled to a specific day.
+  /// Tasks with no date at all — truly unscheduled (no due date, no scheduled date).
   List<Task> get backlog => days
       .expand((d) => d.tasks)
-      .where((t) => t.scheduledDate == null)
+      .where((t) => t.scheduledDate == null && t.dueDate == null)
       .toList();
 
-  /// Tasks scheduled for a given date.
+  /// Tasks to display in a day column.
+  /// scheduledDate takes priority; falls back to dueDate so tasks auto-populate
+  /// into their due date column before the user explicitly schedules them.
   List<Task> tasksForDate(String date) => days
       .expand((d) => d.tasks)
-      .where((t) => t.scheduledDate == date)
+      .where((t) => (t.scheduledDate ?? t.dueDate) == date)
       .toList();
 }
