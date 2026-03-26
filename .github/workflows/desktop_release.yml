@@ -1,0 +1,81 @@
+name: Desktop Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version without the v prefix'
+        required: true
+        type: string
+      prerelease:
+        description: 'Mark the GitHub release as a prerelease'
+        required: true
+        default: true
+        type: boolean
+      release_notes:
+        description: 'Optional release notes override'
+        required: false
+        type: string
+
+jobs:
+  build-macos-release:
+    runs-on: macos-latest
+    permissions:
+      contents: write
+    defaults:
+      run:
+        working-directory: apps/desktop_flutter
+    env:
+      RELEASE_VERSION: ${{ inputs.version }}
+      RELEASE_TAG: v${{ inputs.version }}
+      APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+      APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+      APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Install Flutter dependencies
+        run: flutter pub get
+
+      - name: Verify desktop app
+        run: |
+          dart format --output=none --set-exit-if-changed .
+          flutter analyze --no-fatal-infos
+          flutter test
+
+      - name: Build macOS release
+        run: >
+          flutter build macos --release
+          --build-name="$RELEASE_VERSION"
+          --build-number="${{ github.run_number }}"
+
+      - name: Package macOS artifacts
+        run: ../../tools/release/package_macos.sh
+
+      - name: Sign and notarize when Apple secrets are present
+        run: ../../tools/release/sign_and_notarize_macos.sh
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: rhythm-macos-${{ inputs.version }}
+          path: dist/*
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          name: Rhythm ${{ env.RELEASE_TAG }}
+          prerelease: ${{ inputs.prerelease }}
+          generate_release_notes: ${{ inputs.release_notes == '' }}
+          body: ${{ inputs.release_notes }}
+          files: |
+            apps/desktop_flutter/dist/*.zip
+            apps/desktop_flutter/dist/*.dmg

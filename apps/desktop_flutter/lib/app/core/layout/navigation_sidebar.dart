@@ -1,14 +1,18 @@
 import 'package:flutter/material.dart';
 
+import '../updates/update_controller.dart';
+
 class NavigationSidebar extends StatelessWidget {
   const NavigationSidebar({
     super.key,
     required this.selectedIndex,
     required this.onItemSelected,
+    required this.updateController,
   });
 
   final int selectedIndex;
   final ValueChanged<int> onItemSelected;
+  final UpdateController updateController;
 
   static const _items = [
     _NavItem(icon: Icons.calendar_view_week, label: 'Weekly Planner'),
@@ -44,6 +48,8 @@ class NavigationSidebar extends StatelessWidget {
             ),
             const SizedBox(height: 4),
           ],
+          const Spacer(),
+          _UpdatePanel(controller: updateController),
         ],
       ),
     );
@@ -90,6 +96,134 @@ class _NavItemTile extends StatelessWidget {
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class _UpdatePanel extends StatelessWidget {
+  const _UpdatePanel({required this.controller});
+
+  final UpdateController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final update = controller.availableUpdate;
+    final versionLabel = controller.currentVersion == null
+        ? 'Version unknown'
+        : 'v${controller.currentVersion}';
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.06),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.white12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'App updates',
+            style: TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            versionLabel,
+            style: const TextStyle(color: Colors.white70, fontSize: 12),
+          ),
+          const SizedBox(height: 10),
+          if (controller.isChecking)
+            const Text(
+              'Checking GitHub releases...',
+              style: TextStyle(color: Colors.white70, fontSize: 12),
+            )
+          else if (update != null) ...[
+            Text(
+              'Update ready: ${update.version}${update.prerelease ? ' beta' : ''}',
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                _SidebarButton(
+                  label: 'Download',
+                  onTap: controller.openDownload,
+                ),
+                _SidebarButton(
+                  label: 'Notes',
+                  onTap: controller.openReleaseNotes,
+                  outlined: true,
+                ),
+              ],
+            ),
+          ] else ...[
+            const Text(
+              'You are on the latest release.',
+              style: TextStyle(color: Colors.white70, fontSize: 12),
+            ),
+            if (controller.errorMessage != null) ...[
+              const SizedBox(height: 8),
+              Text(
+                controller.errorMessage!,
+                style:
+                    const TextStyle(color: Colors.orangeAccent, fontSize: 11),
+              ),
+            ],
+          ],
+          const SizedBox(height: 8),
+          _SidebarButton(
+            label: 'Check now',
+            onTap: controller.checkForUpdates,
+            outlined: true,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SidebarButton extends StatelessWidget {
+  const _SidebarButton({
+    required this.label,
+    required this.onTap,
+    this.outlined = false,
+  });
+
+  final String label;
+  final Future<void> Function() onTap;
+  final bool outlined;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+        decoration: BoxDecoration(
+          color: outlined ? Colors.transparent : Colors.white,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: Colors.white24),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            color: outlined ? Colors.white : const Color(0xFF1F1F1F),
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+          ),
         ),
       ),
     );
