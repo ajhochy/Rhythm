@@ -32,6 +32,30 @@ class RhythmsController extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> updateRule(
+    String id, {
+    String? title,
+    String? frequency,
+    int? dayOfWeek,
+    int? dayOfMonth,
+    int? month,
+  }) async {
+    try {
+      final updated = await _repository.update(id,
+          title: title,
+          frequency: frequency,
+          dayOfWeek: dayOfWeek,
+          dayOfMonth: dayOfMonth,
+          month: month);
+      _rules = _rules.map((r) => r.id == id ? updated : r).toList();
+      notifyListeners();
+    } catch (e) {
+      _errorMessage = e.toString();
+      _status = RhythmsStatus.error;
+      notifyListeners();
+    }
+  }
+
   Future<void> createRule({
     required String title,
     required String frequency,

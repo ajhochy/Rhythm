@@ -33,12 +33,15 @@ class _ProjectsViewState extends State<ProjectsView> {
     return Consumer<ProjectTemplateController>(
       builder: (context, controller, _) {
         // If the selected template was deleted, deselect it.
-        if (_selected != null && !controller.templates.any((t) => t.id == _selected!.id)) {
+        if (_selected != null &&
+            !controller.templates.any((t) => t.id == _selected!.id)) {
           _selected = null;
         }
         // Refresh selected template reference to reflect updates
         if (_selected != null) {
-          _selected = controller.templates.firstWhere((t) => t.id == _selected!.id, orElse: () => _selected!);
+          _selected = controller.templates.firstWhere(
+              (t) => t.id == _selected!.id,
+              orElse: () => _selected!);
         }
 
         return Row(
@@ -56,7 +59,8 @@ class _ProjectsViewState extends State<ProjectsView> {
             // Right panel: detail
             Expanded(
               child: _selected == null
-                  ? const Center(child: Text('Select a template to view details'))
+                  ? const Center(
+                      child: Text('Select a template to view details'))
                   : _TemplateDetail(
                       template: _selected!,
                       controller: controller,
@@ -74,7 +78,10 @@ class _ProjectsViewState extends State<ProjectsView> {
 // ---------------------------------------------------------------------------
 
 class _TemplateList extends StatelessWidget {
-  const _TemplateList({required this.controller, required this.selected, required this.onSelect});
+  const _TemplateList(
+      {required this.controller,
+      required this.selected,
+      required this.onSelect});
   final ProjectTemplateController controller;
   final ProjectTemplate? selected;
   final ValueChanged<ProjectTemplate> onSelect;
@@ -98,16 +105,22 @@ class _TemplateList extends StatelessWidget {
             ],
           ),
         ),
-        if (controller.status == ProjectsStatus.error && controller.errorMessage != null)
+        if (controller.status == ProjectsStatus.error &&
+            controller.errorMessage != null)
           Padding(
             padding: const EdgeInsets.all(8),
-            child: Text(controller.errorMessage!, style: const TextStyle(color: Colors.red, fontSize: 12)),
+            child: Text(controller.errorMessage!,
+                style: const TextStyle(color: Colors.red, fontSize: 12)),
           ),
-        if (controller.status == ProjectsStatus.loading && controller.templates.isEmpty)
-          const Padding(padding: EdgeInsets.all(16), child: LinearProgressIndicator()),
+        if (controller.status == ProjectsStatus.loading &&
+            controller.templates.isEmpty)
+          const Padding(
+              padding: EdgeInsets.all(16), child: LinearProgressIndicator()),
         Expanded(
           child: controller.templates.isEmpty
-              ? const Center(child: Text('No templates yet', style: TextStyle(color: Colors.grey)))
+              ? const Center(
+                  child: Text('No templates yet',
+                      style: TextStyle(color: Colors.grey)))
               : ListView.builder(
                   itemCount: controller.templates.length,
                   itemBuilder: (ctx, i) {
@@ -116,7 +129,8 @@ class _TemplateList extends StatelessWidget {
                     return ListTile(
                       selected: isSelected,
                       title: Text(t.name),
-                      subtitle: Text('${t.steps.length} step${t.steps.length == 1 ? '' : 's'}'),
+                      subtitle: Text(
+                          '${t.steps.length} step${t.steps.length == 1 ? '' : 's'}'),
                       onTap: () => onSelect(t),
                       trailing: IconButton(
                         icon: const Icon(Icons.delete_outline, size: 18),
@@ -131,24 +145,29 @@ class _TemplateList extends StatelessWidget {
     );
   }
 
-  Future<void> _showCreateDialog(BuildContext context, ProjectTemplateController controller) async {
+  Future<void> _showCreateDialog(
+      BuildContext context, ProjectTemplateController controller) async {
     await showDialog<void>(
       context: context,
       builder: (_) => _CreateTemplateDialog(controller: controller),
     );
   }
 
-  Future<void> _confirmDelete(BuildContext context, ProjectTemplateController controller, ProjectTemplate t) async {
+  Future<void> _confirmDelete(BuildContext context,
+      ProjectTemplateController controller, ProjectTemplate t) async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Delete Template'),
         content: Text('Delete "${t.name}"?'),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Cancel')),
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancel')),
           FilledButton(
             onPressed: () => Navigator.pop(ctx, true),
-            style: FilledButton.styleFrom(backgroundColor: Theme.of(context).colorScheme.error),
+            style: FilledButton.styleFrom(
+                backgroundColor: Theme.of(context).colorScheme.error),
             child: const Text('Delete'),
           ),
         ],
@@ -169,7 +188,8 @@ class _TemplateDetail extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final sortedSteps = [...template.steps]..sort((a, b) => a.offsetDays.compareTo(b.offsetDays));
+    final sortedSteps = [...template.steps]
+      ..sort((a, b) => a.offsetDays.compareTo(b.offsetDays));
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -183,11 +203,14 @@ class _TemplateDetail extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(template.name, style: Theme.of(context).textTheme.headlineSmall),
-                    if (template.description != null && template.description!.isNotEmpty)
+                    Text(template.name,
+                        style: Theme.of(context).textTheme.headlineSmall),
+                    if (template.description != null &&
+                        template.description!.isNotEmpty)
                       Padding(
                         padding: const EdgeInsets.only(top: 4),
-                        child: Text(template.description!, style: const TextStyle(color: Colors.grey)),
+                        child: Text(template.description!,
+                            style: const TextStyle(color: Colors.grey)),
                       ),
                     const SizedBox(height: 4),
                     Text('Anchor type: ${template.anchorType}',
@@ -195,10 +218,21 @@ class _TemplateDetail extends StatelessWidget {
                   ],
                 ),
               ),
-              FilledButton.icon(
-                onPressed: () => _showGenerateDialog(context),
-                icon: const Icon(Icons.play_arrow, size: 18),
-                label: const Text('Generate Instance'),
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  OutlinedButton.icon(
+                    onPressed: () => _showEditTemplateDialog(context),
+                    icon: const Icon(Icons.edit_outlined, size: 18),
+                    label: const Text('Edit'),
+                  ),
+                  const SizedBox(width: 8),
+                  FilledButton.icon(
+                    onPressed: () => _showGenerateDialog(context),
+                    icon: const Icon(Icons.play_arrow, size: 18),
+                    label: const Text('Generate Instance'),
+                  ),
+                ],
               ),
             ],
           ),
@@ -220,12 +254,17 @@ class _TemplateDetail extends StatelessWidget {
         ),
         Expanded(
           child: sortedSteps.isEmpty
-              ? const Center(child: Text('No steps yet. Add a step to get started.'))
+              ? const Center(
+                  child: Text('No steps yet. Add a step to get started.'))
               : ListView.separated(
                   padding: const EdgeInsets.all(24),
                   itemCount: sortedSteps.length,
                   separatorBuilder: (_, __) => const SizedBox(height: 8),
-                  itemBuilder: (ctx, i) => _StepTile(step: sortedSteps[i]),
+                  itemBuilder: (ctx, i) => _StepTile(
+                    step: sortedSteps[i],
+                    template: template,
+                    controller: controller,
+                  ),
                 ),
         ),
       ],
@@ -235,7 +274,16 @@ class _TemplateDetail extends StatelessWidget {
   Future<void> _showAddStepDialog(BuildContext context) async {
     await showDialog<void>(
       context: context,
-      builder: (_) => _AddStepDialog(template: template, controller: controller),
+      builder: (_) =>
+          _AddStepDialog(template: template, controller: controller),
+    );
+  }
+
+  Future<void> _showEditTemplateDialog(BuildContext context) async {
+    await showDialog<void>(
+      context: context,
+      builder: (_) =>
+          _EditTemplateDialog(template: template, controller: controller),
     );
   }
 
@@ -248,8 +296,11 @@ class _TemplateDetail extends StatelessWidget {
 }
 
 class _StepTile extends StatelessWidget {
-  const _StepTile({required this.step});
+  const _StepTile(
+      {required this.step, required this.template, required this.controller});
   final ProjectTemplateStep step;
+  final ProjectTemplate template;
+  final ProjectTemplateController controller;
 
   @override
   Widget build(BuildContext context) {
@@ -272,23 +323,260 @@ class _StepTile extends StatelessWidget {
           backgroundColor: Theme.of(context).colorScheme.primaryContainer,
           child: Text(
             step.sortOrder.toString(),
-            style: TextStyle(fontSize: 12, color: Theme.of(context).colorScheme.onPrimaryContainer),
+            style: TextStyle(
+                fontSize: 12,
+                color: Theme.of(context).colorScheme.onPrimaryContainer),
           ),
         ),
         title: Text(step.title),
         subtitle: Text(offsetLabel),
-        trailing: Text(
-          'Offset: ${step.offsetDays}d',
-          style: Theme.of(context).textTheme.bodySmall,
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text('Offset: ${step.offsetDays}d',
+                style: Theme.of(context).textTheme.bodySmall),
+            const SizedBox(width: 4),
+            IconButton(
+              icon: const Icon(Icons.edit_outlined, size: 16),
+              tooltip: 'Edit step',
+              onPressed: () => showDialog<void>(
+                context: context,
+                builder: (_) => _EditStepDialog(
+                    step: step, template: template, controller: controller),
+              ),
+            ),
+            IconButton(
+              icon: const Icon(Icons.delete_outline, size: 16),
+              tooltip: 'Delete step',
+              onPressed: () => _confirmDeleteStep(context),
+            ),
+          ],
         ),
       ),
     );
+  }
+
+  Future<void> _confirmDeleteStep(BuildContext context) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete Step'),
+        content: Text('Delete step "${step.title}"?'),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancel')),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: FilledButton.styleFrom(
+                backgroundColor: Theme.of(context).colorScheme.error),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) await controller.deleteStep(template.id, step.id);
   }
 }
 
 // ---------------------------------------------------------------------------
 // Dialogs
 // ---------------------------------------------------------------------------
+
+class _EditTemplateDialog extends StatefulWidget {
+  const _EditTemplateDialog({required this.template, required this.controller});
+  final ProjectTemplate template;
+  final ProjectTemplateController controller;
+
+  @override
+  State<_EditTemplateDialog> createState() => _EditTemplateDialogState();
+}
+
+class _EditTemplateDialogState extends State<_EditTemplateDialog> {
+  late final TextEditingController _nameController;
+  late final TextEditingController _descController;
+  bool _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _nameController = TextEditingController(text: widget.template.name);
+    _descController =
+        TextEditingController(text: widget.template.description ?? '');
+  }
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _descController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Edit Template'),
+      content: SizedBox(
+        width: 360,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: _nameController,
+              decoration: const InputDecoration(
+                  labelText: 'Name', border: OutlineInputBorder()),
+              autofocus: true,
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _descController,
+              decoration: const InputDecoration(
+                  labelText: 'Description (optional)',
+                  border: OutlineInputBorder()),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+            onPressed: _saving ? null : () => Navigator.pop(context),
+            child: const Text('Cancel')),
+        FilledButton(
+          onPressed: _saving ? null : _save,
+          child: _saving
+              ? const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2))
+              : const Text('Save'),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _save() async {
+    final name = _nameController.text.trim();
+    if (name.isEmpty) return;
+    setState(() => _saving = true);
+    await widget.controller.updateTemplate(
+      widget.template.id,
+      name: name,
+      description: _descController.text.trim().isEmpty
+          ? null
+          : _descController.text.trim(),
+    );
+    if (mounted) Navigator.pop(context);
+  }
+}
+
+class _EditStepDialog extends StatefulWidget {
+  const _EditStepDialog(
+      {required this.step, required this.template, required this.controller});
+  final ProjectTemplateStep step;
+  final ProjectTemplate template;
+  final ProjectTemplateController controller;
+
+  @override
+  State<_EditStepDialog> createState() => _EditStepDialogState();
+}
+
+class _EditStepDialogState extends State<_EditStepDialog> {
+  late final TextEditingController _titleController;
+  late final TextEditingController _offsetController;
+  late final TextEditingController _descController;
+  bool _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _titleController = TextEditingController(text: widget.step.title);
+    _offsetController =
+        TextEditingController(text: widget.step.offsetDays.toString());
+    _descController =
+        TextEditingController(text: widget.step.offsetDescription ?? '');
+  }
+
+  @override
+  void dispose() {
+    _titleController.dispose();
+    _offsetController.dispose();
+    _descController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Edit Step'),
+      content: SizedBox(
+        width: 360,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: _titleController,
+              decoration: const InputDecoration(
+                  labelText: 'Step title', border: OutlineInputBorder()),
+              autofocus: true,
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _offsetController,
+              decoration: const InputDecoration(
+                labelText: 'Offset days (negative = before anchor)',
+                border: OutlineInputBorder(),
+              ),
+              keyboardType: const TextInputType.numberWithOptions(signed: true),
+              inputFormatters: [
+                FilteringTextInputFormatter.allow(RegExp(r'^-?\d*'))
+              ],
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _descController,
+              decoration: const InputDecoration(
+                labelText: 'Description (e.g. "8 weeks before")',
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+            onPressed: _saving ? null : () => Navigator.pop(context),
+            child: const Text('Cancel')),
+        FilledButton(
+          onPressed: _saving ? null : _save,
+          child: _saving
+              ? const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2))
+              : const Text('Save'),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _save() async {
+    final title = _titleController.text.trim();
+    if (title.isEmpty) return;
+    final offsetDays =
+        int.tryParse(_offsetController.text) ?? widget.step.offsetDays;
+    setState(() => _saving = true);
+    await widget.controller.updateStep(
+      widget.template.id,
+      widget.step.id,
+      title: title,
+      offsetDays: offsetDays,
+      offsetDescription: _descController.text.trim().isEmpty
+          ? null
+          : _descController.text.trim(),
+    );
+    if (mounted) Navigator.pop(context);
+  }
+}
 
 class _CreateTemplateDialog extends StatefulWidget {
   const _CreateTemplateDialog({required this.controller});
@@ -321,22 +609,32 @@ class _CreateTemplateDialogState extends State<_CreateTemplateDialog> {
           children: [
             TextField(
               controller: _nameController,
-              decoration: const InputDecoration(labelText: 'Name', border: OutlineInputBorder()),
+              decoration: const InputDecoration(
+                  labelText: 'Name', border: OutlineInputBorder()),
               autofocus: true,
             ),
             const SizedBox(height: 12),
             TextField(
               controller: _descController,
-              decoration: const InputDecoration(labelText: 'Description (optional)', border: OutlineInputBorder()),
+              decoration: const InputDecoration(
+                  labelText: 'Description (optional)',
+                  border: OutlineInputBorder()),
             ),
           ],
         ),
       ),
       actions: [
-        TextButton(onPressed: _saving ? null : () => Navigator.pop(context), child: const Text('Cancel')),
+        TextButton(
+            onPressed: _saving ? null : () => Navigator.pop(context),
+            child: const Text('Cancel')),
         FilledButton(
           onPressed: _saving ? null : _save,
-          child: _saving ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) : const Text('Create'),
+          child: _saving
+              ? const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2))
+              : const Text('Create'),
         ),
       ],
     );
@@ -346,7 +644,10 @@ class _CreateTemplateDialogState extends State<_CreateTemplateDialog> {
     final name = _nameController.text.trim();
     if (name.isEmpty) return;
     setState(() => _saving = true);
-    await widget.controller.createTemplate(name, description: _descController.text.trim().isEmpty ? null : _descController.text.trim());
+    await widget.controller.createTemplate(name,
+        description: _descController.text.trim().isEmpty
+            ? null
+            : _descController.text.trim());
     if (mounted) Navigator.pop(context);
   }
 }
@@ -385,7 +686,8 @@ class _AddStepDialogState extends State<_AddStepDialog> {
           children: [
             TextField(
               controller: _titleController,
-              decoration: const InputDecoration(labelText: 'Step title', border: OutlineInputBorder()),
+              decoration: const InputDecoration(
+                  labelText: 'Step title', border: OutlineInputBorder()),
               autofocus: true,
             ),
             const SizedBox(height: 12),
@@ -396,7 +698,9 @@ class _AddStepDialogState extends State<_AddStepDialog> {
                 border: OutlineInputBorder(),
               ),
               keyboardType: const TextInputType.numberWithOptions(signed: true),
-              inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'^-?\d*'))],
+              inputFormatters: [
+                FilteringTextInputFormatter.allow(RegExp(r'^-?\d*'))
+              ],
             ),
             const SizedBox(height: 12),
             TextField(
@@ -410,10 +714,17 @@ class _AddStepDialogState extends State<_AddStepDialog> {
         ),
       ),
       actions: [
-        TextButton(onPressed: _saving ? null : () => Navigator.pop(context), child: const Text('Cancel')),
+        TextButton(
+            onPressed: _saving ? null : () => Navigator.pop(context),
+            child: const Text('Cancel')),
         FilledButton(
           onPressed: _saving ? null : _save,
-          child: _saving ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)) : const Text('Add'),
+          child: _saving
+              ? const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2))
+              : const Text('Add'),
         ),
       ],
     );
@@ -428,7 +739,9 @@ class _AddStepDialogState extends State<_AddStepDialog> {
       widget.template.id,
       title: title,
       offsetDays: offsetDays,
-      offsetDescription: _descController.text.trim().isEmpty ? null : _descController.text.trim(),
+      offsetDescription: _descController.text.trim().isEmpty
+          ? null
+          : _descController.text.trim(),
       sortOrder: widget.template.steps.length,
     );
     if (mounted) Navigator.pop(context);
@@ -440,7 +753,8 @@ class _GenerateInstanceDialog extends StatefulWidget {
   final ProjectTemplate template;
 
   @override
-  State<_GenerateInstanceDialog> createState() => _GenerateInstanceDialogState();
+  State<_GenerateInstanceDialog> createState() =>
+      _GenerateInstanceDialogState();
 }
 
 class _GenerateInstanceDialogState extends State<_GenerateInstanceDialog> {
@@ -451,7 +765,8 @@ class _GenerateInstanceDialogState extends State<_GenerateInstanceDialog> {
 
   List<ResolvedStep> get _preview {
     if (_anchorDate == null) return [];
-    return ProjectGenerationService().previewSteps(widget.template, _anchorDate!);
+    return ProjectGenerationService()
+        .previewSteps(widget.template, _anchorDate!);
   }
 
   @override
@@ -460,21 +775,33 @@ class _GenerateInstanceDialogState extends State<_GenerateInstanceDialog> {
       title: Text('Generate: ${widget.template.name}'),
       content: SizedBox(
         width: 480,
-        child: _result != null ? _SuccessView(instance: _result!) : _FormView(
-          anchorDate: _anchorDate,
-          preview: _preview,
-          error: _error,
-          onPickDate: _pickDate,
-        ),
+        child: _result != null
+            ? _SuccessView(instance: _result!)
+            : _FormView(
+                anchorDate: _anchorDate,
+                preview: _preview,
+                error: _error,
+                onPickDate: _pickDate,
+              ),
       ),
       actions: _result != null
-          ? [FilledButton(onPressed: () => Navigator.pop(context), child: const Text('Close'))]
-          : [
-              TextButton(onPressed: _generating ? null : () => Navigator.pop(context), child: const Text('Cancel')),
+          ? [
               FilledButton(
-                onPressed: _anchorDate == null || _generating ? null : _generate,
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('Close'))
+            ]
+          : [
+              TextButton(
+                  onPressed: _generating ? null : () => Navigator.pop(context),
+                  child: const Text('Cancel')),
+              FilledButton(
+                onPressed:
+                    _anchorDate == null || _generating ? null : _generate,
                 child: _generating
-                    ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2))
                     : const Text('Generate'),
               ),
             ],
@@ -493,33 +820,53 @@ class _GenerateInstanceDialogState extends State<_GenerateInstanceDialog> {
 
   Future<void> _generate() async {
     if (_anchorDate == null) return;
-    setState(() { _generating = true; _error = null; });
+    setState(() {
+      _generating = true;
+      _error = null;
+    });
 
     final dateStr =
         '${_anchorDate!.year}-${_anchorDate!.month.toString().padLeft(2, '0')}-${_anchorDate!.day.toString().padLeft(2, '0')}';
 
     try {
       final response = await http.post(
-        Uri.parse('${AppConstants.apiBaseUrl}/project-templates/${widget.template.id}/generate'),
+        Uri.parse(
+            '${AppConstants.apiBaseUrl}/project-templates/${widget.template.id}/generate'),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({'anchorDate': dateStr}),
       );
       if (response.statusCode >= 400) {
         final body = jsonDecode(response.body) as Map<String, dynamic>?;
-        final msg = (body?['error'] as Map<String, dynamic>?)?['message'] as String? ?? 'Generation failed';
-        setState(() { _error = msg; _generating = false; });
+        final msg =
+            (body?['error'] as Map<String, dynamic>?)?['message'] as String? ??
+                'Generation failed';
+        setState(() {
+          _error = msg;
+          _generating = false;
+        });
       } else {
-        final instance = ProjectInstance.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
-        setState(() { _result = instance; _generating = false; });
+        final instance = ProjectInstance.fromJson(
+            jsonDecode(response.body) as Map<String, dynamic>);
+        setState(() {
+          _result = instance;
+          _generating = false;
+        });
       }
     } catch (e) {
-      setState(() { _error = e.toString(); _generating = false; });
+      setState(() {
+        _error = e.toString();
+        _generating = false;
+      });
     }
   }
 }
 
 class _FormView extends StatelessWidget {
-  const _FormView({required this.anchorDate, required this.preview, required this.error, required this.onPickDate});
+  const _FormView(
+      {required this.anchorDate,
+      required this.preview,
+      required this.error,
+      required this.onPickDate});
   final DateTime? anchorDate;
   final List<ResolvedStep> preview;
   final String? error;
@@ -546,11 +893,13 @@ class _FormView extends StatelessWidget {
         ],
         if (preview.isNotEmpty) ...[
           const SizedBox(height: 16),
-          Text('Preview of resolved dates:', style: Theme.of(context).textTheme.labelLarge),
+          Text('Preview of resolved dates:',
+              style: Theme.of(context).textTheme.labelLarge),
           const SizedBox(height: 8),
           ...preview.map((rs) {
             final d = rs.dueDate;
-            final ds = '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+            final ds =
+                '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
             return Padding(
               padding: const EdgeInsets.symmetric(vertical: 2),
               child: Row(
@@ -558,7 +907,8 @@ class _FormView extends StatelessWidget {
                   const Icon(Icons.arrow_right, size: 16, color: Colors.grey),
                   const SizedBox(width: 4),
                   Expanded(child: Text(rs.step.title)),
-                  Text(ds, style: const TextStyle(color: Colors.grey, fontSize: 12)),
+                  Text(ds,
+                      style: const TextStyle(color: Colors.grey, fontSize: 12)),
                 ],
               ),
             );
@@ -581,13 +931,15 @@ class _SuccessView extends StatelessWidget {
       children: [
         Row(
           children: [
-            Icon(Icons.check_circle, color: Theme.of(context).colorScheme.primary),
+            Icon(Icons.check_circle,
+                color: Theme.of(context).colorScheme.primary),
             const SizedBox(width: 8),
             const Text('Instance generated successfully!'),
           ],
         ),
         const SizedBox(height: 12),
-        Text('Anchor: ${instance.anchorDate}', style: Theme.of(context).textTheme.bodySmall),
+        Text('Anchor: ${instance.anchorDate}',
+            style: Theme.of(context).textTheme.bodySmall),
         const SizedBox(height: 8),
         ...instance.steps.map((s) => Padding(
               padding: const EdgeInsets.symmetric(vertical: 2),
@@ -595,8 +947,11 @@ class _SuccessView extends StatelessWidget {
                 children: [
                   const Icon(Icons.task_alt, size: 14, color: Colors.grey),
                   const SizedBox(width: 6),
-                  Expanded(child: Text(s.title, style: Theme.of(context).textTheme.bodySmall)),
-                  Text(s.dueDate, style: const TextStyle(color: Colors.grey, fontSize: 11)),
+                  Expanded(
+                      child: Text(s.title,
+                          style: Theme.of(context).textTheme.bodySmall)),
+                  Text(s.dueDate,
+                      style: const TextStyle(color: Colors.grey, fontSize: 11)),
                 ],
               ),
             )),

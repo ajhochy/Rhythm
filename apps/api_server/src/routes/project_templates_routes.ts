@@ -12,4 +12,6 @@ projectTemplatesRouter.post('/', controller.create.bind(controller));
 projectTemplatesRouter.patch('/:id', controller.update.bind(controller));
 projectTemplatesRouter.delete('/:id', controller.remove.bind(controller));
 projectTemplatesRouter.post('/:id/steps', controller.addStep.bind(controller));
+projectTemplatesRouter.patch('/:id/steps/:stepId', controller.updateStep.bind(controller));
+projectTemplatesRouter.delete('/:id/steps/:stepId', controller.removeStep.bind(controller));
 projectTemplatesRouter.post('/:id/generate', genController.generate.bind(genController));

@@ -23,5 +23,20 @@ class RhythmsRepository {
         month: month,
       );
 
+  Future<RecurringTaskRule> update(
+    String id, {
+    String? title,
+    String? frequency,
+    int? dayOfWeek,
+    int? dayOfMonth,
+    int? month,
+  }) =>
+      _dataSource.update(id,
+          title: title,
+          frequency: frequency,
+          dayOfWeek: dayOfWeek,
+          dayOfMonth: dayOfMonth,
+          month: month);
+
   Future<void> delete(String id) => _dataSource.delete(id);
 }

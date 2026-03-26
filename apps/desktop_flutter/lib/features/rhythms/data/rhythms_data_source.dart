@@ -11,7 +11,9 @@ class RhythmsDataSource {
     final response = await http.get(_base);
     _assertOk(response);
     final list = jsonDecode(response.body) as List<dynamic>;
-    return list.map((j) => RecurringTaskRule.fromJson(j as Map<String, dynamic>)).toList();
+    return list
+        .map((j) => RecurringTaskRule.fromJson(j as Map<String, dynamic>))
+        .toList();
   }
 
   Future<RecurringTaskRule> create({
@@ -33,18 +35,46 @@ class RhythmsDataSource {
       }),
     );
     _assertOk(response);
-    return RecurringTaskRule.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
+    return RecurringTaskRule.fromJson(
+        jsonDecode(response.body) as Map<String, dynamic>);
+  }
+
+  Future<RecurringTaskRule> update(
+    String id, {
+    String? title,
+    String? frequency,
+    int? dayOfWeek,
+    int? dayOfMonth,
+    int? month,
+  }) async {
+    final response = await http.patch(
+      Uri.parse('${AppConstants.apiBaseUrl}/recurring-rules/$id'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({
+        if (title != null) 'title': title,
+        if (frequency != null) 'frequency': frequency,
+        if (dayOfWeek != null) 'dayOfWeek': dayOfWeek,
+        if (dayOfMonth != null) 'dayOfMonth': dayOfMonth,
+        if (month != null) 'month': month,
+      }),
+    );
+    _assertOk(response);
+    return RecurringTaskRule.fromJson(
+        jsonDecode(response.body) as Map<String, dynamic>);
   }
 
   Future<void> delete(String id) async {
-    final response = await http.delete(Uri.parse('${AppConstants.apiBaseUrl}/recurring-rules/$id'));
+    final response = await http
+        .delete(Uri.parse('${AppConstants.apiBaseUrl}/recurring-rules/$id'));
     _assertOk(response);
   }
 
   void _assertOk(http.Response response) {
     if (response.statusCode >= 400) {
       final body = jsonDecode(response.body) as Map<String, dynamic>?;
-      final message = (body?['error'] as Map<String, dynamic>?)?['message'] as String? ?? 'Request failed';
+      final message =
+          (body?['error'] as Map<String, dynamic>?)?['message'] as String? ??
+              'Request failed';
       throw AppError(message);
     }
   }

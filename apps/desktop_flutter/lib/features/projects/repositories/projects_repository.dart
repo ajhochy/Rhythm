@@ -9,8 +9,10 @@ class ProjectsRepository {
 
   Future<List<ProjectTemplate>> getAll() => _dataSource.fetchAll();
 
-  Future<ProjectTemplate> create(String name, {String? description, String? anchorType}) =>
-      _dataSource.create(name, description: description, anchorType: anchorType);
+  Future<ProjectTemplate> create(String name,
+          {String? description, String? anchorType}) =>
+      _dataSource.create(name,
+          description: description, anchorType: anchorType);
 
   Future<ProjectTemplateStep> addStep(
     String templateId, {
@@ -26,6 +28,20 @@ class ProjectsRepository {
         offsetDescription: offsetDescription,
         sortOrder: sortOrder,
       );
+
+  Future<ProjectTemplate> update(String id,
+          {String? name, String? description}) =>
+      _dataSource.update(id, name: name, description: description);
+
+  Future<ProjectTemplateStep> updateStep(String templateId, String stepId,
+          {String? title, int? offsetDays, String? offsetDescription}) =>
+      _dataSource.updateStep(templateId, stepId,
+          title: title,
+          offsetDays: offsetDays,
+          offsetDescription: offsetDescription);
+
+  Future<void> deleteStep(String templateId, String stepId) =>
+      _dataSource.deleteStep(templateId, stepId);
 
   Future<void> delete(String id) => _dataSource.delete(id);
 }

@@ -1,3 +1,8 @@
+import 'package:flutter_test/flutter_test.dart';
+
 void main() {
-  // TODO: Add widget tests for app shell and planner panes.
+  test('placeholder', () {
+    // TODO: Add widget tests for app shell and planner panes.
+    expect(true, isTrue);
+  });
 }
