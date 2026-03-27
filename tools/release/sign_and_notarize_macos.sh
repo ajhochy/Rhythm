@@ -90,8 +90,8 @@ xcrun notarytool submit "${DMG_PATH}" \
   --wait \
   > "${NOTARY_OUTPUT}"
 
-SUBMISSION_ID="$(awk '/id:/ { print $2; exit }' "${NOTARY_OUTPUT}")"
-NOTARY_STATUS="$(awk '/status:/ { print $2; exit }' "${NOTARY_OUTPUT}")"
+SUBMISSION_ID="$(awk '/^[[:space:]]+id:/ { print $2; exit }' "${NOTARY_OUTPUT}")"
+NOTARY_STATUS="$(awk '/^[[:space:]]+status:/ { print $2; exit }' "${NOTARY_OUTPUT}")"
 
 cat "${NOTARY_OUTPUT}"
 
