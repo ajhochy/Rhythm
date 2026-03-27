@@ -20,6 +20,8 @@ class AutomationRulesDataSource {
     required String name,
     required String triggerType,
     required String actionType,
+    Map<String, dynamic>? triggerConfig,
+    Map<String, dynamic>? actionConfig,
     bool enabled = true,
   }) async {
     final response = await http.post(
@@ -29,6 +31,8 @@ class AutomationRulesDataSource {
         'name': name,
         'triggerType': triggerType,
         'actionType': actionType,
+        if (triggerConfig != null) 'triggerConfig': triggerConfig,
+        if (actionConfig != null) 'actionConfig': actionConfig,
         'enabled': enabled,
       }),
     );
@@ -42,6 +46,8 @@ class AutomationRulesDataSource {
     String? name,
     String? triggerType,
     String? actionType,
+    Map<String, dynamic>? triggerConfig,
+    Map<String, dynamic>? actionConfig,
     bool? enabled,
   }) async {
     final response = await http.patch(
@@ -51,6 +57,8 @@ class AutomationRulesDataSource {
         if (name != null) 'name': name,
         if (triggerType != null) 'triggerType': triggerType,
         if (actionType != null) 'actionType': actionType,
+        if (triggerConfig != null) 'triggerConfig': triggerConfig,
+        if (actionConfig != null) 'actionConfig': actionConfig,
         if (enabled != null) 'enabled': enabled,
       }),
     );

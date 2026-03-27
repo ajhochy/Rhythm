@@ -35,14 +35,44 @@ class AutomationRulesController extends ChangeNotifier {
     required String name,
     required String triggerType,
     required String actionType,
+    Map<String, dynamic>? triggerConfig,
+    Map<String, dynamic>? actionConfig,
   }) async {
     try {
       final rule = await _repository.create(
         name: name,
         triggerType: triggerType,
         actionType: actionType,
+        triggerConfig: triggerConfig,
+        actionConfig: actionConfig,
       );
       _rules = [..._rules, rule];
+      notifyListeners();
+    } catch (e) {
+      _errorMessage = e.toString();
+      _status = AutomationRulesStatus.error;
+      notifyListeners();
+    }
+  }
+
+  Future<void> updateRule(
+    String id, {
+    String? name,
+    String? triggerType,
+    String? actionType,
+    Map<String, dynamic>? triggerConfig,
+    Map<String, dynamic>? actionConfig,
+  }) async {
+    try {
+      final updated = await _repository.update(
+        id,
+        name: name,
+        triggerType: triggerType,
+        actionType: actionType,
+        triggerConfig: triggerConfig,
+        actionConfig: actionConfig,
+      );
+      _rules = _rules.map((r) => r.id == id ? updated : r).toList();
       notifyListeners();
     } catch (e) {
       _errorMessage = e.toString();
