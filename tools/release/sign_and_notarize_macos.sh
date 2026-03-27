@@ -76,12 +76,14 @@ fi
 # Sign nested frameworks and binaries from the inside out with Hardened Runtime.
 # codesign --deep does NOT propagate --options runtime to nested items, so we
 # must sign each one explicitly before signing the top-level bundle.
+# This includes .node native addons (e.g. better_sqlite3.node) bundled in
+# Contents/Resources — Apple requires all native binaries to be signed.
 while IFS= read -r -d '' item; do
   codesign --force --options runtime --timestamp \
     --sign "${IDENTITY_SHA}" \
     "${item}"
-done < <(find "${APP_PATH}/Contents/Frameworks" \
-  \( -name "*.framework" -o -name "*.dylib" -o -name "*.so" \) \
+done < <(find "${APP_PATH}/Contents" \
+  \( -name "*.framework" -o -name "*.dylib" -o -name "*.so" -o -name "*.node" \) \
   -print0 | sort -rz)
 
 codesign --force --options runtime --timestamp \
@@ -112,6 +114,7 @@ xcrun notarytool submit "${DMG_PATH}" \
   --password "${APPLE_APP_SPECIFIC_PASSWORD}" \
   --team-id "${APPLE_TEAM_ID}" \
   --wait \
+  --timeout 30m \
   > "${NOTARY_OUTPUT}"
 
 SUBMISSION_ID="$(awk '/^[[:space:]]+id:/ { print $2; exit }' "${NOTARY_OUTPUT}")"
