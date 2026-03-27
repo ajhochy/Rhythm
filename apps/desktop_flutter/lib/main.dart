@@ -4,15 +4,17 @@ import 'package:window_manager/window_manager.dart';
 
 import 'app/core/constants/app_constants.dart';
 import 'app/core/layout/app_shell.dart';
-import 'app/theme/app_theme.dart';
+import 'app/core/server/api_server_controller.dart';
+import 'app/core/server/api_server_service.dart';
 import 'app/core/updates/update_controller.dart';
 import 'app/core/updates/update_service.dart';
-import 'features/projects/controllers/project_template_controller.dart';
-import 'features/projects/data/projects_local_data_source.dart';
-import 'features/projects/repositories/projects_repository.dart';
+import 'app/theme/app_theme.dart';
 import 'features/integrations/controllers/integrations_controller.dart';
 import 'features/integrations/data/integrations_data_source.dart';
 import 'features/integrations/repositories/integrations_repository.dart';
+import 'features/projects/controllers/project_template_controller.dart';
+import 'features/projects/data/projects_local_data_source.dart';
+import 'features/projects/repositories/projects_repository.dart';
 import 'features/rhythms/controllers/rhythms_controller.dart';
 import 'features/rhythms/data/rhythms_data_source.dart';
 import 'features/rhythms/repositories/rhythms_repository.dart';
@@ -41,16 +43,25 @@ void main() async {
     await windowManager.focus();
   });
 
-  runApp(const RhythmApp());
+  // Create the server controller and kick off startup before runApp so the
+  // service object is available immediately. The UI shows a loading screen
+  // while the server boots.
+  final serverController = ApiServerController(ApiServerService())
+    ..initialize();
+
+  runApp(RhythmApp(serverController: serverController));
 }
 
 class RhythmApp extends StatelessWidget {
-  const RhythmApp({super.key});
+  const RhythmApp({super.key, required this.serverController});
+
+  final ApiServerController serverController;
 
   @override
   Widget build(BuildContext context) {
     return MultiProvider(
       providers: [
+        ChangeNotifierProvider.value(value: serverController),
         ChangeNotifierProvider(
           create: (_) => TasksController(
             TasksRepository(TasksLocalDataSource()),
