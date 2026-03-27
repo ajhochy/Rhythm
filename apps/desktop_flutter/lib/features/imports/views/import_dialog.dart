@@ -1,5 +1,12 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:provider/provider.dart';
+
+import '../../projects/controllers/project_template_controller.dart';
+import '../../rhythms/controllers/rhythms_controller.dart';
+import '../../tasks/controllers/tasks_controller.dart';
 
 class ImportDialog extends StatefulWidget {
   const ImportDialog({super.key});
@@ -13,6 +20,8 @@ class _ImportDialogState extends State<ImportDialog>
   late final TabController _tabs;
   final _jsonController = TextEditingController();
   bool _copied = false;
+  bool _isImporting = false;
+  String? _importError;
 
   @override
   void initState() {
@@ -90,6 +99,99 @@ Example:
     if (mounted) setState(() => _copied = false);
   }
 
+  Future<void> _runImport() async {
+    final raw = _jsonController.text.trim();
+    if (raw.isEmpty) {
+      setState(() => _importError = 'Paste the JSON array first.');
+      return;
+    }
+
+    setState(() {
+      _isImporting = true;
+      _importError = null;
+    });
+
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is! List) {
+        throw const FormatException('Expected a JSON array.');
+      }
+
+      final tasksCtrl = context.read<TasksController>();
+      final rhythmsCtrl = context.read<RhythmsController>();
+      final projectsCtrl = context.read<ProjectTemplateController>();
+
+      int tasks = 0, rules = 0, templates = 0;
+
+      for (final entry in decoded) {
+        final item = entry as Map<String, dynamic>;
+        switch (item['type'] as String?) {
+          case 'task':
+            await tasksCtrl.createTask(
+              item['title'] as String,
+              notes: item['notes'] as String?,
+              dueDate: item['dueDate'] as String?,
+            );
+            tasks++;
+
+          case 'recurring_rule':
+            await rhythmsCtrl.createRule(
+              title: item['title'] as String,
+              frequency: item['frequency'] as String,
+              dayOfWeek: item['dayOfWeek'] as int?,
+              dayOfMonth: item['dayOfMonth'] as int?,
+              month: item['month'] as int?,
+            );
+            rules++;
+
+          case 'project_template':
+            await projectsCtrl.createTemplate(
+              item['name'] as String,
+              description: item['description'] as String?,
+            );
+            final templateId = projectsCtrl.templates.last.id;
+            final steps = (item['steps'] as List?) ?? [];
+            for (var i = 0; i < steps.length; i++) {
+              final step = steps[i] as Map<String, dynamic>;
+              await projectsCtrl.addStep(
+                templateId,
+                title: step['title'] as String,
+                offsetDays: step['offsetDays'] as int,
+                offsetDescription: step['offsetDescription'] as String?,
+                sortOrder: i,
+              );
+            }
+            templates++;
+
+          default:
+            break; // Unknown type — skip silently.
+        }
+      }
+
+      if (!mounted) return;
+
+      final parts = [
+        if (tasks > 0) '$tasks task${tasks == 1 ? '' : 's'}',
+        if (rules > 0) '$rules rhythm${rules == 1 ? '' : 's'}',
+        if (templates > 0) '$templates template${templates == 1 ? '' : 's'}',
+      ];
+      final summary = parts.isEmpty ? 'Nothing to import.' : parts.join(', ');
+      Navigator.pop(context);
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('Imported: $summary')));
+    } on FormatException catch (e) {
+      setState(() {
+        _isImporting = false;
+        _importError = 'Invalid JSON: ${e.message}';
+      });
+    } catch (e) {
+      setState(() {
+        _isImporting = false;
+        _importError = e.toString();
+      });
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Dialog(
@@ -109,14 +211,18 @@ Example:
                     copied: _copied,
                     onCopy: _copyPrompt,
                   ),
-                  _ImportTab(controller: _jsonController),
+                  _ImportTab(
+                    controller: _jsonController,
+                    errorMessage: _importError,
+                  ),
                 ],
               ),
             ),
             _DialogFooter(
               tabs: _tabs,
-              jsonController: _jsonController,
+              isImporting: _isImporting,
               onClose: () => Navigator.pop(context),
+              onImport: _runImport,
             ),
           ],
         ),
@@ -124,6 +230,10 @@ Example:
     );
   }
 }
+
+// ---------------------------------------------------------------------------
+// Header
+// ---------------------------------------------------------------------------
 
 class _DialogHeader extends StatelessWidget {
   const _DialogHeader({required this.tabs});
@@ -140,10 +250,12 @@ class _DialogHeader extends StatelessWidget {
             children: [
               const Icon(Icons.smart_toy_outlined, size: 20),
               const SizedBox(width: 8),
-              Text('AI Import',
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.bold,
-                      )),
+              Text(
+                'AI Import',
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+              ),
               const Spacer(),
               IconButton(
                 icon: const Icon(Icons.close, size: 18),
@@ -166,6 +278,10 @@ class _DialogHeader extends StatelessWidget {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Tab 1: prompt
+// ---------------------------------------------------------------------------
+
 class _PromptTab extends StatelessWidget {
   const _PromptTab({
     required this.prompt,
@@ -186,7 +302,7 @@ class _PromptTab extends StatelessWidget {
         children: [
           Text(
             'Copy this prompt into ChatGPT, Claude, or any AI. '
-            'Then paste the AI\'s JSON output in the next tab.',
+            "Then paste the AI's JSON output in the next tab.",
             style: TextStyle(color: Colors.grey[700], fontSize: 13),
           ),
           const SizedBox(height: 12),
@@ -231,9 +347,15 @@ class _PromptTab extends StatelessWidget {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Tab 2: paste & import
+// ---------------------------------------------------------------------------
+
 class _ImportTab extends StatelessWidget {
-  const _ImportTab({required this.controller});
+  const _ImportTab({required this.controller, this.errorMessage});
+
   final TextEditingController controller;
+  final String? errorMessage;
 
   @override
   Widget build(BuildContext context) {
@@ -253,10 +375,11 @@ class _ImportTab extends StatelessWidget {
               maxLines: null,
               expands: true,
               textAlignVertical: TextAlignVertical.top,
-              decoration: const InputDecoration(
+              decoration: InputDecoration(
                 hintText: '[\n  { "type": "task", "title": "..." }\n]',
-                border: OutlineInputBorder(),
-                contentPadding: EdgeInsets.all(12),
+                border: const OutlineInputBorder(),
+                contentPadding: const EdgeInsets.all(12),
+                errorText: errorMessage,
               ),
               style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
             ),
@@ -267,19 +390,93 @@ class _ImportTab extends StatelessWidget {
   }
 }
 
-class _DialogFooter extends StatelessWidget {
+// ---------------------------------------------------------------------------
+// Footer with tab-aware action buttons
+// ---------------------------------------------------------------------------
+
+class _DialogFooter extends StatefulWidget {
   const _DialogFooter({
     required this.tabs,
-    required this.jsonController,
+    required this.isImporting,
     required this.onClose,
+    required this.onImport,
   });
 
   final TabController tabs;
-  final TextEditingController jsonController;
+  final bool isImporting;
   final VoidCallback onClose;
+  final VoidCallback onImport;
+
+  @override
+  State<_DialogFooter> createState() => _DialogFooterState();
+}
+
+class _DialogFooterState extends State<_DialogFooter> {
+  @override
+  void initState() {
+    super.initState();
+    widget.tabs.addListener(_onTabChange);
+  }
+
+  @override
+  void didUpdateWidget(_DialogFooter old) {
+    super.didUpdateWidget(old);
+    if (old.tabs != widget.tabs) {
+      old.tabs.removeListener(_onTabChange);
+      widget.tabs.addListener(_onTabChange);
+    }
+  }
+
+  @override
+  void dispose() {
+    widget.tabs.removeListener(_onTabChange);
+    super.dispose();
+  }
+
+  void _onTabChange() => setState(() {});
 
   @override
   Widget build(BuildContext context) {
-    return const Divider(height: 1);
+    final onPasteTab = widget.tabs.index == 1;
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const Divider(height: 1),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              TextButton(
+                onPressed: widget.onClose,
+                child: const Text('Cancel'),
+              ),
+              const SizedBox(width: 8),
+              if (!onPasteTab)
+                FilledButton(
+                  onPressed: () => widget.tabs.animateTo(1),
+                  child: const Text('Next →'),
+                )
+              else
+                FilledButton.icon(
+                  onPressed: widget.isImporting ? null : widget.onImport,
+                  icon: widget.isImporting
+                      ? const SizedBox(
+                          width: 14,
+                          height: 14,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
+                        )
+                      : const Icon(Icons.download_rounded, size: 16),
+                  label: Text(widget.isImporting ? 'Importing…' : 'Import'),
+                ),
+            ],
+          ),
+        ),
+      ],
+    );
   }
 }
