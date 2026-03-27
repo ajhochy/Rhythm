@@ -72,7 +72,8 @@ class ApiServerService {
     for (var i = 0; i < maxAttempts; i++) {
       await Future<void>.delayed(delay);
       try {
-        final response = await http.get(uri).timeout(const Duration(seconds: 1));
+        final response =
+            await http.get(uri).timeout(const Duration(seconds: 1));
         if (response.statusCode == 200) {
           stdout.writeln('[ApiServerService] Server is ready.');
           return true;
