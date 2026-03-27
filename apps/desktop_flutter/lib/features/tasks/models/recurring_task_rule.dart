@@ -7,6 +7,7 @@ class RecurringTaskRule {
     this.dayOfWeek,
     this.dayOfMonth,
     this.month,
+    this.enabled = true,
   });
 
   factory RecurringTaskRule.fromJson(Map<String, dynamic> json) {
@@ -18,6 +19,7 @@ class RecurringTaskRule {
       dayOfMonth: json['dayOfMonth'] as int?,
       month: json['month'] as int?,
       createdAt: json['createdAt'] as String,
+      enabled: (json['enabled'] as bool?) ?? true,
     );
   }
 
@@ -27,6 +29,7 @@ class RecurringTaskRule {
   final int? dayOfWeek; // 0=Sun..6=Sat (weekly)
   final int? dayOfMonth; // 1-31 (monthly / annual)
   final int? month; // 1-12 (annual)
+  final bool enabled;
   final String createdAt;
 
   String get patternDescription {

@@ -155,4 +155,9 @@ export function runMigrations(db: Database.Database): void {
   if (!instanceCols.includes('name')) {
     db.exec(`ALTER TABLE project_instances ADD COLUMN name TEXT`);
   }
+
+  const recurringRuleCols = (db.pragma('table_info(recurring_task_rules)') as { name: string }[]).map((c) => c.name);
+  if (!recurringRuleCols.includes('enabled')) {
+    db.exec(`ALTER TABLE recurring_task_rules ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1`);
+  }
 }

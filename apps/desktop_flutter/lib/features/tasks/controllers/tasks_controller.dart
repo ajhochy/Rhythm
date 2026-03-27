@@ -37,6 +37,8 @@ class TasksController extends ChangeNotifier {
       final task =
           await _repository.create(title, notes: notes, dueDate: dueDate);
       _tasks = [..._tasks, task];
+      _status = TasksStatus.idle;
+      _errorMessage = null;
       notifyListeners();
     } catch (e) {
       _errorMessage = e.toString();
@@ -51,6 +53,8 @@ class TasksController extends ChangeNotifier {
       final updated = await _repository.update(id,
           title: title, notes: notes, dueDate: dueDate);
       _tasks = _tasks.map((t) => t.id == id ? updated : t).toList();
+      _status = TasksStatus.idle;
+      _errorMessage = null;
       notifyListeners();
     } catch (e) {
       _errorMessage = e.toString();
@@ -65,6 +69,8 @@ class TasksController extends ChangeNotifier {
     try {
       final updated = await _repository.update(id, status: newStatus);
       _tasks = _tasks.map((t) => t.id == id ? updated : t).toList();
+      _status = TasksStatus.idle;
+      _errorMessage = null;
       notifyListeners();
     } catch (e) {
       _errorMessage = e.toString();
@@ -77,6 +83,8 @@ class TasksController extends ChangeNotifier {
     try {
       await _repository.delete(id);
       _tasks = _tasks.where((t) => t.id != id).toList();
+      _status = TasksStatus.idle;
+      _errorMessage = null;
       notifyListeners();
     } catch (e) {
       _errorMessage = e.toString();

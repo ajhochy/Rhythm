@@ -5,6 +5,7 @@ export interface RecurringTaskRule {
   dayOfWeek: number | null;
   dayOfMonth: number | null;
   month: number | null;
+  enabled: boolean;
   createdAt: string;
 }
 
@@ -14,6 +15,7 @@ export interface CreateRecurringTaskRuleDto {
   dayOfWeek?: number | null;
   dayOfMonth?: number | null;
   month?: number | null;
+  enabled?: boolean;
 }
 
 export interface UpdateRecurringTaskRuleDto {
@@ -22,4 +24,5 @@ export interface UpdateRecurringTaskRuleDto {
   dayOfWeek?: number | null;
   dayOfMonth?: number | null;
   month?: number | null;
+  enabled?: boolean;
 }

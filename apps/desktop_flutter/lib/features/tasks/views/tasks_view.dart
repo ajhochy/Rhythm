@@ -17,6 +17,7 @@ class _TasksViewState extends State<TasksView> {
   final _notesController = TextEditingController();
   String? _selectedDueDate;
   bool _showCompleted = false;
+  bool _sortByDueDate = false;
 
   @override
   void initState() {
@@ -82,12 +83,22 @@ class _TasksViewState extends State<TasksView> {
   }
 
   Widget _buildHeader(BuildContext context) {
+    final primaryColor = Theme.of(context).colorScheme.primary;
     return Padding(
       padding: const EdgeInsets.fromLTRB(24, 24, 24, 8),
       child: Row(
         children: [
           Text('Tasks', style: Theme.of(context).textTheme.headlineSmall),
           const Spacer(),
+          IconButton(
+            icon: Icon(
+              Icons.calendar_today,
+              size: 18,
+              color: _sortByDueDate ? primaryColor : null,
+            ),
+            tooltip: _sortByDueDate ? 'Sorted by due date' : 'Sort by due date',
+            onPressed: () => setState(() => _sortByDueDate = !_sortByDueDate),
+          ),
           TextButton.icon(
             onPressed: () => setState(() => _showCompleted = !_showCompleted),
             icon: Icon(
@@ -102,9 +113,17 @@ class _TasksViewState extends State<TasksView> {
   }
 
   Widget _buildTaskList(TasksController controller) {
-    final visibleTasks = _showCompleted
-        ? controller.tasks
+    var visibleTasks = _showCompleted
+        ? controller.tasks.toList()
         : controller.tasks.where((task) => task.status != 'done').toList();
+    if (_sortByDueDate) {
+      visibleTasks.sort((a, b) {
+        if (a.dueDate == null && b.dueDate == null) return 0;
+        if (a.dueDate == null) return 1;
+        if (b.dueDate == null) return -1;
+        return a.dueDate!.compareTo(b.dueDate!);
+      });
+    }
     if (controller.status == TasksStatus.loading && controller.tasks.isEmpty) {
       return const Center(child: CircularProgressIndicator());
     }
@@ -164,11 +183,34 @@ class _TasksViewState extends State<TasksView> {
           IconButton(
             icon: const Icon(Icons.delete_outline, size: 18),
             tooltip: 'Delete',
-            onPressed: () => controller.deleteTask(task.id),
+            onPressed: () => _confirmDelete(task, controller),
           ),
         ],
       ),
     );
+  }
+
+  Future<void> _confirmDelete(Task task, TasksController controller) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete task?'),
+        content: Text('Delete "${task.title}"?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            style: FilledButton.styleFrom(
+                backgroundColor: Theme.of(context).colorScheme.error),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) controller.deleteTask(task.id);
   }
 
   Future<void> _showEditDialog(Task task, TasksController controller) async {

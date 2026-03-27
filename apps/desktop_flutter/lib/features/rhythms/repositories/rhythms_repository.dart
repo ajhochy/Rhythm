@@ -30,13 +30,15 @@ class RhythmsRepository {
     int? dayOfWeek,
     int? dayOfMonth,
     int? month,
+    bool? enabled,
   }) =>
       _dataSource.update(id,
           title: title,
           frequency: frequency,
           dayOfWeek: dayOfWeek,
           dayOfMonth: dayOfMonth,
-          month: month);
+          month: month,
+          enabled: enabled);
 
   Future<void> delete(String id) => _dataSource.delete(id);
 }
