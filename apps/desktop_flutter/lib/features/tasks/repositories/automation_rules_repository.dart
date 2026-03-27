@@ -12,12 +12,16 @@ class AutomationRulesRepository {
     required String name,
     required String triggerType,
     required String actionType,
+    Map<String, dynamic>? triggerConfig,
+    Map<String, dynamic>? actionConfig,
     bool enabled = true,
   }) =>
       _dataSource.create(
         name: name,
         triggerType: triggerType,
         actionType: actionType,
+        triggerConfig: triggerConfig,
+        actionConfig: actionConfig,
         enabled: enabled,
       );
 
@@ -26,6 +30,8 @@ class AutomationRulesRepository {
     String? name,
     String? triggerType,
     String? actionType,
+    Map<String, dynamic>? triggerConfig,
+    Map<String, dynamic>? actionConfig,
     bool? enabled,
   }) =>
       _dataSource.update(
@@ -33,6 +39,8 @@ class AutomationRulesRepository {
         name: name,
         triggerType: triggerType,
         actionType: actionType,
+        triggerConfig: triggerConfig,
+        actionConfig: actionConfig,
         enabled: enabled,
       );
 

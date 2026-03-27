@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../controllers/automation_rules_controller.dart';
 import '../models/automation_rule.dart';
@@ -52,6 +53,8 @@ class _AutomationRulesViewState extends State<AutomationRulesView> {
                                   .toggleEnabled(controller.rules[i].id),
                               onDelete: () =>
                                   controller.deleteRule(controller.rules[i].id),
+                              onEdit: () => _showEditDialog(
+                                  context, controller, controller.rules[i]),
                             ),
                           ),
               ),
@@ -67,6 +70,10 @@ class _AutomationRulesViewState extends State<AutomationRulesView> {
     final nameCtrl = TextEditingController();
     String selectedTrigger = AutomationRule.triggerTypes.first;
     String selectedAction = AutomationRule.actionTypes.first;
+    final triggerConfigCtrls = <String, TextEditingController>{};
+    final actionConfigCtrls = <String, TextEditingController>{};
+    int? daysBeforeDue;
+    int? targetDay;
 
     await showDialog<void>(
       context: context,
@@ -74,54 +81,78 @@ class _AutomationRulesViewState extends State<AutomationRulesView> {
         builder: (ctx, setDialogState) => AlertDialog(
           title: const Text('New Automation Rule'),
           content: SizedBox(
-            width: 400,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                TextField(
-                  controller: nameCtrl,
-                  decoration: const InputDecoration(
-                    labelText: 'Rule name',
-                    border: OutlineInputBorder(),
+            width: 420,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  TextField(
+                    controller: nameCtrl,
+                    decoration: const InputDecoration(
+                      labelText: 'Rule name',
+                      border: OutlineInputBorder(),
+                    ),
+                    autofocus: true,
                   ),
-                  autofocus: true,
-                ),
-                const SizedBox(height: 16),
-                const Text('When…',
-                    style: TextStyle(fontWeight: FontWeight.w600)),
-                const SizedBox(height: 8),
-                DropdownButtonFormField<String>(
-                  value: selectedTrigger,
-                  decoration:
-                      const InputDecoration(border: OutlineInputBorder()),
-                  items: AutomationRule.triggerTypes
-                      .map((t) => DropdownMenuItem(
-                            value: t,
-                            child: Text(AutomationRule.triggerLabel(t)),
-                          ))
-                      .toList(),
-                  onChanged: (v) => setDialogState(
-                      () => selectedTrigger = v ?? selectedTrigger),
-                ),
-                const SizedBox(height: 16),
-                const Text('Then…',
-                    style: TextStyle(fontWeight: FontWeight.w600)),
-                const SizedBox(height: 8),
-                DropdownButtonFormField<String>(
-                  value: selectedAction,
-                  decoration:
-                      const InputDecoration(border: OutlineInputBorder()),
-                  items: AutomationRule.actionTypes
-                      .map((a) => DropdownMenuItem(
-                            value: a,
-                            child: Text(AutomationRule.actionLabel(a)),
-                          ))
-                      .toList(),
-                  onChanged: (v) => setDialogState(
-                      () => selectedAction = v ?? selectedAction),
-                ),
-              ],
+                  const SizedBox(height: 16),
+                  const Text('When\u2026',
+                      style: TextStyle(fontWeight: FontWeight.w600)),
+                  const SizedBox(height: 8),
+                  DropdownButtonFormField<String>(
+                    value: selectedTrigger,
+                    decoration:
+                        const InputDecoration(border: OutlineInputBorder()),
+                    items: AutomationRule.triggerTypes
+                        .map((t) => DropdownMenuItem(
+                              value: t,
+                              child: Text(AutomationRule.triggerLabel(t)),
+                            ))
+                        .toList(),
+                    onChanged: (v) => setDialogState(() {
+                      selectedTrigger = v ?? selectedTrigger;
+                      daysBeforeDue = null;
+                      triggerConfigCtrls.forEach((_, c) => c.dispose());
+                      triggerConfigCtrls.clear();
+                    }),
+                  ),
+                  ..._buildTriggerConfigFields(
+                    selectedTrigger,
+                    triggerConfigCtrls,
+                    daysBeforeDue,
+                    (v) => setDialogState(() => daysBeforeDue = v),
+                    setDialogState,
+                  ),
+                  const SizedBox(height: 16),
+                  const Text('Then\u2026',
+                      style: TextStyle(fontWeight: FontWeight.w600)),
+                  const SizedBox(height: 8),
+                  DropdownButtonFormField<String>(
+                    value: selectedAction,
+                    decoration:
+                        const InputDecoration(border: OutlineInputBorder()),
+                    items: AutomationRule.actionTypes
+                        .map((a) => DropdownMenuItem(
+                              value: a,
+                              child: Text(AutomationRule.actionLabel(a)),
+                            ))
+                        .toList(),
+                    onChanged: (v) => setDialogState(() {
+                      selectedAction = v ?? selectedAction;
+                      targetDay = null;
+                      actionConfigCtrls.forEach((_, c) => c.dispose());
+                      actionConfigCtrls.clear();
+                    }),
+                  ),
+                  ..._buildActionConfigFields(
+                    selectedAction,
+                    actionConfigCtrls,
+                    targetDay,
+                    (v) => setDialogState(() => targetDay = v),
+                    setDialogState,
+                  ),
+                ],
+              ),
             ),
           ),
           actions: [
@@ -133,11 +164,17 @@ class _AutomationRulesViewState extends State<AutomationRulesView> {
               onPressed: () async {
                 final name = nameCtrl.text.trim();
                 if (name.isEmpty) return;
+                final triggerConfig = _buildTriggerConfig(
+                    selectedTrigger, triggerConfigCtrls, daysBeforeDue);
+                final actionConfig = _buildActionConfig(
+                    selectedAction, actionConfigCtrls, targetDay);
                 Navigator.pop(dialogContext);
                 await controller.createRule(
                   name: name,
                   triggerType: selectedTrigger,
                   actionType: selectedAction,
+                  triggerConfig: triggerConfig.isEmpty ? null : triggerConfig,
+                  actionConfig: actionConfig.isEmpty ? null : actionConfig,
                 );
               },
               child: const Text('Create'),
@@ -148,6 +185,265 @@ class _AutomationRulesViewState extends State<AutomationRulesView> {
     );
 
     nameCtrl.dispose();
+    triggerConfigCtrls.forEach((_, c) => c.dispose());
+    actionConfigCtrls.forEach((_, c) => c.dispose());
+  }
+
+  Future<void> _showEditDialog(BuildContext context,
+      AutomationRulesController controller, AutomationRule rule) async {
+    final nameCtrl = TextEditingController(text: rule.name);
+    String selectedTrigger = rule.triggerType;
+    String selectedAction = rule.actionType;
+    final triggerConfigCtrls = <String, TextEditingController>{};
+    final actionConfigCtrls = <String, TextEditingController>{};
+
+    // Pre-populate config values from the existing rule
+    int? daysBeforeDue =
+        (rule.triggerConfig?['daysBeforeDue'] as num?)?.toInt();
+    int? targetDay = (rule.actionConfig?['targetDay'] as num?)?.toInt();
+
+    // Pre-populate text controllers for action config
+    if (rule.actionConfig?['message'] != null) {
+      actionConfigCtrls['message'] =
+          TextEditingController(text: rule.actionConfig!['message'] as String);
+    }
+    if (rule.actionConfig?['tag'] != null) {
+      actionConfigCtrls['tag'] =
+          TextEditingController(text: rule.actionConfig!['tag'] as String);
+    }
+
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (ctx, setDialogState) => AlertDialog(
+          title: const Text('Edit Automation Rule'),
+          content: SizedBox(
+            width: 420,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  TextField(
+                    controller: nameCtrl,
+                    decoration: const InputDecoration(
+                      labelText: 'Rule name',
+                      border: OutlineInputBorder(),
+                    ),
+                    autofocus: true,
+                  ),
+                  const SizedBox(height: 16),
+                  const Text('When\u2026',
+                      style: TextStyle(fontWeight: FontWeight.w600)),
+                  const SizedBox(height: 8),
+                  DropdownButtonFormField<String>(
+                    value: selectedTrigger,
+                    decoration:
+                        const InputDecoration(border: OutlineInputBorder()),
+                    items: AutomationRule.triggerTypes
+                        .map((t) => DropdownMenuItem(
+                              value: t,
+                              child: Text(AutomationRule.triggerLabel(t)),
+                            ))
+                        .toList(),
+                    onChanged: (v) => setDialogState(() {
+                      selectedTrigger = v ?? selectedTrigger;
+                      daysBeforeDue = null;
+                      triggerConfigCtrls.forEach((_, c) => c.dispose());
+                      triggerConfigCtrls.clear();
+                    }),
+                  ),
+                  ..._buildTriggerConfigFields(
+                    selectedTrigger,
+                    triggerConfigCtrls,
+                    daysBeforeDue,
+                    (v) => setDialogState(() => daysBeforeDue = v),
+                    setDialogState,
+                  ),
+                  const SizedBox(height: 16),
+                  const Text('Then\u2026',
+                      style: TextStyle(fontWeight: FontWeight.w600)),
+                  const SizedBox(height: 8),
+                  DropdownButtonFormField<String>(
+                    value: selectedAction,
+                    decoration:
+                        const InputDecoration(border: OutlineInputBorder()),
+                    items: AutomationRule.actionTypes
+                        .map((a) => DropdownMenuItem(
+                              value: a,
+                              child: Text(AutomationRule.actionLabel(a)),
+                            ))
+                        .toList(),
+                    onChanged: (v) => setDialogState(() {
+                      selectedAction = v ?? selectedAction;
+                      targetDay = null;
+                      actionConfigCtrls.forEach((_, c) => c.dispose());
+                      actionConfigCtrls.clear();
+                    }),
+                  ),
+                  ..._buildActionConfigFields(
+                    selectedAction,
+                    actionConfigCtrls,
+                    targetDay,
+                    (v) => setDialogState(() => targetDay = v),
+                    setDialogState,
+                  ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () async {
+                final name = nameCtrl.text.trim();
+                if (name.isEmpty) return;
+                final triggerConfig = _buildTriggerConfig(
+                    selectedTrigger, triggerConfigCtrls, daysBeforeDue);
+                final actionConfig = _buildActionConfig(
+                    selectedAction, actionConfigCtrls, targetDay);
+                Navigator.pop(dialogContext);
+                await controller.updateRule(
+                  rule.id,
+                  name: name,
+                  triggerType: selectedTrigger,
+                  actionType: selectedAction,
+                  triggerConfig: triggerConfig.isEmpty ? null : triggerConfig,
+                  actionConfig: actionConfig.isEmpty ? null : actionConfig,
+                );
+              },
+              child: const Text('Save'),
+            ),
+          ],
+        ),
+      ),
+    );
+
+    nameCtrl.dispose();
+    triggerConfigCtrls.forEach((_, c) => c.dispose());
+    actionConfigCtrls.forEach((_, c) => c.dispose());
+  }
+
+  /// Returns config fields widgets for the chosen trigger type.
+  List<Widget> _buildTriggerConfigFields(
+    String triggerType,
+    Map<String, TextEditingController> ctrls,
+    int? daysBeforeDue,
+    ValueChanged<int?> onDaysChanged,
+    StateSetter setDialogState,
+  ) {
+    switch (triggerType) {
+      case 'task_due':
+      case 'project_step_due':
+        return [
+          const SizedBox(height: 12),
+          _IntegerField(
+            label: 'Days before due date',
+            value: daysBeforeDue,
+            onChanged: onDaysChanged,
+          ),
+        ];
+      default:
+        return [];
+    }
+  }
+
+  /// Returns config fields widgets for the chosen action type.
+  List<Widget> _buildActionConfigFields(
+    String actionType,
+    Map<String, TextEditingController> ctrls,
+    int? targetDay,
+    ValueChanged<int?> onDayChanged,
+    StateSetter setDialogState,
+  ) {
+    switch (actionType) {
+      case 'auto_schedule':
+        return [
+          const SizedBox(height: 12),
+          DropdownButtonFormField<int>(
+            value: targetDay,
+            decoration: const InputDecoration(
+              labelText: 'Schedule to day',
+              border: OutlineInputBorder(),
+            ),
+            items: const [
+              DropdownMenuItem(value: 0, child: Text('Sunday')),
+              DropdownMenuItem(value: 1, child: Text('Monday')),
+              DropdownMenuItem(value: 2, child: Text('Tuesday')),
+              DropdownMenuItem(value: 3, child: Text('Wednesday')),
+              DropdownMenuItem(value: 4, child: Text('Thursday')),
+              DropdownMenuItem(value: 5, child: Text('Friday')),
+              DropdownMenuItem(value: 6, child: Text('Saturday')),
+            ],
+            onChanged: (v) => setDialogState(() => onDayChanged(v)),
+          ),
+        ];
+      case 'send_notification':
+        ctrls.putIfAbsent('message', () => TextEditingController());
+        return [
+          const SizedBox(height: 12),
+          TextField(
+            controller: ctrls['message'],
+            decoration: const InputDecoration(
+              labelText: 'Notification message (optional)',
+              border: OutlineInputBorder(),
+            ),
+          ),
+        ];
+      case 'tag_task':
+        ctrls.putIfAbsent('tag', () => TextEditingController());
+        return [
+          const SizedBox(height: 12),
+          TextField(
+            controller: ctrls['tag'],
+            decoration: const InputDecoration(
+              labelText: 'Tag name',
+              border: OutlineInputBorder(),
+            ),
+          ),
+        ];
+      default:
+        return [];
+    }
+  }
+
+  Map<String, dynamic> _buildTriggerConfig(
+    String triggerType,
+    Map<String, TextEditingController> ctrls,
+    int? daysBeforeDue,
+  ) {
+    switch (triggerType) {
+      case 'task_due':
+      case 'project_step_due':
+        return {'daysBeforeDue': daysBeforeDue ?? 0};
+      default:
+        return {};
+    }
+  }
+
+  Map<String, dynamic> _buildActionConfig(
+    String actionType,
+    Map<String, TextEditingController> ctrls,
+    int? targetDay,
+  ) {
+    switch (actionType) {
+      case 'auto_schedule':
+        if (targetDay != null) return {'targetDay': targetDay};
+        return {};
+      case 'send_notification':
+        final msg = ctrls['message']?.text.trim() ?? '';
+        if (msg.isNotEmpty) return {'message': msg};
+        return {};
+      case 'tag_task':
+        final tag = ctrls['tag']?.text.trim() ?? '';
+        if (tag.isNotEmpty) return {'tag': tag};
+        return {};
+      default:
+        return {};
+    }
   }
 }
 
@@ -223,14 +519,17 @@ class _RuleCard extends StatelessWidget {
     required this.rule,
     required this.onToggle,
     required this.onDelete,
+    required this.onEdit,
   });
 
   final AutomationRule rule;
   final VoidCallback onToggle;
   final VoidCallback onDelete;
+  final VoidCallback onEdit;
 
   @override
   Widget build(BuildContext context) {
+    final dimmed = !rule.enabled;
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
       elevation: 0,
@@ -239,8 +538,9 @@ class _RuleCard extends StatelessWidget {
         side: const BorderSide(color: Color(0xFFE5E7EB)),
       ),
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
         child: Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
             Switch(value: rule.enabled, onChanged: (_) => onToggle()),
             const SizedBox(width: 12),
@@ -248,33 +548,25 @@ class _RuleCard extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(rule.name,
-                      style: TextStyle(
-                        fontWeight: FontWeight.w600,
-                        color: rule.enabled ? null : Colors.grey,
-                      )),
-                  const SizedBox(height: 4),
-                  Row(
-                    children: [
-                      _Chip(
-                        label: AutomationRule.triggerLabel(rule.triggerType),
-                        color: const Color(0xFFEFF6FF),
-                        textColor: const Color(0xFF1D4ED8),
-                      ),
-                      const Padding(
-                        padding: EdgeInsets.symmetric(horizontal: 6),
-                        child: Icon(Icons.arrow_forward,
-                            size: 14, color: Colors.grey),
-                      ),
-                      _Chip(
-                        label: AutomationRule.actionLabel(rule.actionType),
-                        color: const Color(0xFFF0FDF4),
-                        textColor: const Color(0xFF15803D),
-                      ),
-                    ],
+                  Text(
+                    rule.name,
+                    style: TextStyle(
+                      fontWeight: FontWeight.w600,
+                      fontSize: 14,
+                      color: dimmed ? Colors.grey : null,
+                    ),
                   ),
+                  const SizedBox(height: 6),
+                  _IfThenRow(rule: rule, dimmed: dimmed),
                 ],
               ),
+            ),
+            const SizedBox(width: 8),
+            IconButton(
+              icon: const Icon(Icons.edit_outlined, size: 18),
+              color: Colors.grey[600],
+              onPressed: onEdit,
+              tooltip: 'Edit rule',
             ),
             IconButton(
               icon: const Icon(Icons.delete_outline, size: 18),
@@ -289,22 +581,93 @@ class _RuleCard extends StatelessWidget {
   }
 }
 
-class _Chip extends StatelessWidget {
-  const _Chip(
-      {required this.label, required this.color, required this.textColor});
-  final String label;
-  final Color color;
-  final Color textColor;
+class _IfThenRow extends StatelessWidget {
+  const _IfThenRow({required this.rule, required this.dimmed});
+
+  final AutomationRule rule;
+  final bool dimmed;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-      decoration: BoxDecoration(
-        color: color,
-        borderRadius: BorderRadius.circular(4),
+    final baseTextStyle = TextStyle(
+      fontSize: 13,
+      color: dimmed ? Colors.grey[400] : Colors.black87,
+    );
+    final keywordStyle = baseTextStyle.copyWith(
+      fontWeight: FontWeight.w600,
+      color: dimmed ? Colors.grey[400] : Colors.black87,
+    );
+    final triggerStyle = baseTextStyle.copyWith(
+      color: dimmed ? Colors.grey[400] : const Color(0xFF1D4ED8),
+    );
+    final actionStyle = baseTextStyle.copyWith(
+      color: dimmed ? Colors.grey[400] : const Color(0xFF15803D),
+    );
+
+    return Wrap(
+      crossAxisAlignment: WrapCrossAlignment.center,
+      spacing: 4,
+      children: [
+        Text('When', style: keywordStyle),
+        Text(AutomationRule.triggerLabel(rule.triggerType),
+            style: triggerStyle),
+        Icon(
+          Icons.arrow_forward,
+          size: 13,
+          color: dimmed ? Colors.grey[400] : Colors.grey[600],
+        ),
+        Text(AutomationRule.actionLabel(rule.actionType), style: actionStyle),
+      ],
+    );
+  }
+}
+
+/// A simple integer input field.
+class _IntegerField extends StatefulWidget {
+  const _IntegerField({
+    required this.label,
+    required this.value,
+    required this.onChanged,
+  });
+
+  final String label;
+  final int? value;
+  final ValueChanged<int?> onChanged;
+
+  @override
+  State<_IntegerField> createState() => _IntegerFieldState();
+}
+
+class _IntegerFieldState extends State<_IntegerField> {
+  late final TextEditingController _ctrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = TextEditingController(
+        text: widget.value != null ? widget.value.toString() : '');
+  }
+
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return TextField(
+      controller: _ctrl,
+      keyboardType: TextInputType.number,
+      inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+      decoration: InputDecoration(
+        labelText: widget.label,
+        border: const OutlineInputBorder(),
       ),
-      child: Text(label, style: TextStyle(fontSize: 12, color: textColor)),
+      onChanged: (v) {
+        final parsed = int.tryParse(v);
+        widget.onChanged(parsed);
+      },
     );
   }
 }
