@@ -88,16 +88,21 @@ class ApiServerService {
   }
 
   Future<String?> _findNode() async {
-    // First, ask the shell.
-    try {
-      final result = await Process.run('/bin/sh', ['-c', 'which node']);
-      if (result.exitCode == 0) {
-        final path = (result.stdout as String).trim();
-        if (path.isNotEmpty && File(path).existsSync()) return path;
-      }
-    } catch (_) {}
+    // GUI apps on macOS launch with a minimal PATH (/usr/bin:/bin:...) so
+    // plain `which node` misses Homebrew and nvm. Use a login shell so that
+    // ~/.zprofile / ~/.bash_profile are sourced and the full PATH is available.
+    for (final shell in ['/bin/zsh', '/bin/bash']) {
+      if (!File(shell).existsSync()) continue;
+      try {
+        final result = await Process.run(shell, ['-l', '-c', 'which node']);
+        if (result.exitCode == 0) {
+          final path = (result.stdout as String).trim();
+          if (path.isNotEmpty && File(path).existsSync()) return path;
+        }
+      } catch (_) {}
+    }
 
-    // Fall back to common macOS install locations.
+    // Hard-coded fallbacks for common macOS install locations.
     const candidates = [
       '/opt/homebrew/bin/node', // Apple Silicon Homebrew
       '/usr/local/bin/node', // Intel Homebrew / nvm

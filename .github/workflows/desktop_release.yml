@@ -50,11 +50,25 @@ jobs:
           flutter analyze --no-fatal-infos
           flutter test
 
+      - name: Build API server
+        working-directory: apps/api_server
+        run: |
+          npm ci --omit=dev
+          npm run build
+
       - name: Build macOS release
         run: >
           flutter build macos --release
           --build-name="$RELEASE_VERSION"
           --build-number="${{ github.run_number }}"
+
+      - name: Bundle API server into app
+        run: |
+          APP="build/macos/Build/Products/Release/Rhythm.app"
+          DEST="$APP/Contents/Resources/api_server"
+          mkdir -p "$DEST"
+          cp -r ../api_server/dist "$DEST/"
+          cp -r ../api_server/node_modules "$DEST/"
 
       - name: Package macOS artifacts
         run: ../../tools/release/package_macos.sh
