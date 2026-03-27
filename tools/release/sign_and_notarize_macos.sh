@@ -89,6 +89,19 @@ codesign --force --options runtime --timestamp \
   --sign "${IDENTITY_SHA}" \
   "${APP_PATH}"
 
+# Recreate ZIP and DMG from the now-signed app. package_macos.sh built these
+# from the unsigned Xcode output; we must rebuild them so the archives contain
+# the properly signed and hardened bundle before notarization.
+APP_DISPLAY_NAME="$(basename "${APP_PATH}" .app)"
+ZIP_PATH="${DMG_PATH%.dmg}.zip"
+ditto -c -k --sequesterRsrc --keepParent "${APP_PATH}" "${ZIP_PATH}"
+hdiutil create \
+  -volname "${APP_DISPLAY_NAME}" \
+  -srcfolder "${APP_PATH}" \
+  -ov \
+  -format UDZO \
+  "${DMG_PATH}"
+
 codesign --force --sign "${IDENTITY_SHA}" "${DMG_PATH}"
 
 NOTARY_OUTPUT="$(mktemp -t rhythm-notary-output)"
