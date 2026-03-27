@@ -73,7 +73,18 @@ if [[ -z "${IDENTITY_SHA}" ]]; then
   exit 1
 fi
 
-codesign --force --deep --options runtime \
+# Sign nested frameworks and binaries from the inside out with Hardened Runtime.
+# codesign --deep does NOT propagate --options runtime to nested items, so we
+# must sign each one explicitly before signing the top-level bundle.
+while IFS= read -r -d '' item; do
+  codesign --force --options runtime --timestamp \
+    --sign "${IDENTITY_SHA}" \
+    "${item}"
+done < <(find "${APP_PATH}/Contents/Frameworks" \
+  \( -name "*.framework" -o -name "*.dylib" -o -name "*.so" \) \
+  -print0 | sort -rz)
+
+codesign --force --options runtime --timestamp \
   --entitlements "${ENTITLEMENTS_PATH}" \
   --sign "${IDENTITY_SHA}" \
   "${APP_PATH}"
