@@ -32,6 +32,19 @@ class RecurringTaskRule {
   final bool enabled;
   final String createdAt;
 
+  RecurringTaskRule copyWith({bool? enabled}) {
+    return RecurringTaskRule(
+      id: id,
+      title: title,
+      frequency: frequency,
+      dayOfWeek: dayOfWeek,
+      dayOfMonth: dayOfMonth,
+      month: month,
+      createdAt: createdAt,
+      enabled: enabled ?? this.enabled,
+    );
+  }
+
   String get patternDescription {
     switch (frequency) {
       case 'weekly':
