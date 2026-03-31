@@ -28,6 +28,11 @@ import 'features/tasks/data/automation_rules_data_source.dart';
 import 'features/tasks/data/tasks_local_data_source.dart';
 import 'features/tasks/repositories/automation_rules_repository.dart';
 import 'features/tasks/repositories/tasks_repository.dart';
+import 'features/dashboard/controllers/dashboard_controller.dart';
+import 'features/dashboard/data/dashboard_data_source.dart';
+import 'features/messages/controllers/messages_controller.dart';
+import 'features/messages/data/messages_data_source.dart';
+import 'features/messages/repositories/messages_repository.dart';
 import 'features/weekly_planner/controllers/weekly_planner_controller.dart';
 import 'features/weekly_planner/data/weekly_plan_data_source.dart';
 import 'features/weekly_planner/repositories/weekly_plan_repository.dart';
@@ -107,8 +112,13 @@ class RhythmApp extends StatelessWidget {
           ),
         ),
         ChangeNotifierProvider(
+<<<<<<< HEAD
           create: (_) => FacilitiesController(
             FacilitiesRepository(FacilitiesDataSource(baseUrl: baseUrl)),
+=======
+          create: (_) => MessagesController(
+            MessagesRepository(MessagesDataSource(baseUrl: baseUrl)),
+>>>>>>> 7318682 (feat: Dashboard screen with summary cards and recent tasks)
           ),
         ),
         ChangeNotifierProvider(
