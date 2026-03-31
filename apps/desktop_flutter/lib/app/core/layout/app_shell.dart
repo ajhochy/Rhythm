@@ -68,16 +68,19 @@ class _ServerLoadingView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Scaffold(
+    final cs = Theme.of(context).colorScheme;
+    return Scaffold(
+      backgroundColor: const Color(0xFFFFFFFF),
       body: Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            CircularProgressIndicator(),
-            SizedBox(height: 20),
+            CircularProgressIndicator(color: cs.primary),
+            const SizedBox(height: 20),
             Text(
-              'Starting Rhythm…',
-              style: TextStyle(fontSize: 16, color: Colors.black54),
+              'Starting Rhythm\u2026',
+              style: TextStyle(
+                  fontSize: 16, color: cs.onSurface.withValues(alpha: 0.6)),
             ),
           ],
         ),
@@ -97,21 +100,23 @@ class _ServerFailedView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final cs = Theme.of(context).colorScheme;
     return Scaffold(
+      backgroundColor: const Color(0xFFFFFFFF),
       body: Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.error_outline, size: 48, color: Colors.red),
+            Icon(Icons.error_outline, size: 48, color: cs.error),
             const SizedBox(height: 16),
-            const Text(
+            Text(
               'Could not start the Rhythm server.',
-              style: TextStyle(fontSize: 16),
+              style: TextStyle(fontSize: 16, color: cs.onSurface),
             ),
             const SizedBox(height: 8),
-            const Text(
+            Text(
               'Make sure Node.js is installed and try again.',
-              style: TextStyle(color: Colors.black54),
+              style: TextStyle(color: cs.onSurface.withValues(alpha: 0.6)),
             ),
             const SizedBox(height: 24),
             FilledButton(
@@ -129,6 +134,9 @@ class _ServerFailedView extends StatelessWidget {
 // Normal app content (shown once server is ready)
 // ---------------------------------------------------------------------------
 
+// New order: Dashboard(0), Tasks(1), Rhythms(2), Projects(3),
+//            Weekly Planner(4), Messages(5), Facilities(6),
+//            Automations(7), Integrations(8)
 class _AppContent extends StatelessWidget {
   const _AppContent({
     required this.selectedIndex,
@@ -138,13 +146,16 @@ class _AppContent extends StatelessWidget {
   final int selectedIndex;
   final ValueChanged<int> onItemSelected;
 
-  static const _views = [
-    WeeklyPlannerView(),
-    TasksView(),
-    RhythmsView(),
-    ProjectsView(),
-    AutomationRulesView(),
-    IntegrationsView(),
+  static const _views = <Widget>[
+    _ComingSoonView(label: 'Dashboard'), // 0
+    TasksView(), // 1
+    RhythmsView(), // 2
+    ProjectsView(), // 3
+    WeeklyPlannerView(), // 4
+    _ComingSoonView(label: 'Messages'), // 5
+    _ComingSoonView(label: 'Facilities'), // 6
+    AutomationRulesView(), // 7
+    IntegrationsView(), // 8
   ];
 
   @override
@@ -160,6 +171,26 @@ class _AppContent extends StatelessWidget {
           ),
           Expanded(child: _views[selectedIndex]),
         ],
+      ),
+    );
+  }
+}
+
+class _ComingSoonView extends StatelessWidget {
+  const _ComingSoonView({required this.label});
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: Center(
+        child: Text(
+          '$label \u2014 Coming soon',
+          style: Theme.of(context)
+              .textTheme
+              .titleMedium
+              ?.copyWith(color: const Color(0xFF6B7280)),
+        ),
       ),
     );
   }

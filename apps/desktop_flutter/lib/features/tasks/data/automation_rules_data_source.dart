@@ -5,10 +5,13 @@ import '../../../app/core/errors/app_error.dart';
 import '../models/automation_rule.dart';
 
 class AutomationRulesDataSource {
-  final _base = Uri.parse('${AppConstants.apiBaseUrl}/automation-rules');
+  AutomationRulesDataSource({String? baseUrl})
+      : _baseUrl = baseUrl ?? AppConstants.apiBaseUrl;
+
+  final String _baseUrl;
 
   Future<List<AutomationRule>> fetchAll() async {
-    final response = await http.get(_base);
+    final response = await http.get(Uri.parse('$_baseUrl/automation-rules'));
     _assertOk(response);
     final list = jsonDecode(response.body) as List<dynamic>;
     return list
@@ -25,7 +28,7 @@ class AutomationRulesDataSource {
     bool enabled = true,
   }) async {
     final response = await http.post(
-      _base,
+      Uri.parse('$_baseUrl/automation-rules'),
       headers: {'Content-Type': 'application/json'},
       body: jsonEncode({
         'name': name,
@@ -51,7 +54,7 @@ class AutomationRulesDataSource {
     bool? enabled,
   }) async {
     final response = await http.patch(
-      Uri.parse('${AppConstants.apiBaseUrl}/automation-rules/$id'),
+      Uri.parse('$_baseUrl/automation-rules/$id'),
       headers: {'Content-Type': 'application/json'},
       body: jsonEncode({
         if (name != null) 'name': name,
@@ -68,8 +71,8 @@ class AutomationRulesDataSource {
   }
 
   Future<void> delete(String id) async {
-    final response = await http
-        .delete(Uri.parse('${AppConstants.apiBaseUrl}/automation-rules/$id'));
+    final response =
+        await http.delete(Uri.parse('$_baseUrl/automation-rules/$id'));
     _assertOk(response);
   }
 

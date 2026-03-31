@@ -8,11 +8,14 @@ import '../models/planning_center_task_options.dart';
 import '../models/planning_center_task_preferences.dart';
 
 class IntegrationsDataSource {
-  final _accountsBase =
-      Uri.parse('${AppConstants.apiBaseUrl}/integrations/accounts');
+  IntegrationsDataSource({String? baseUrl})
+      : _baseUrl = baseUrl ?? AppConstants.apiBaseUrl;
+
+  final String _baseUrl;
 
   Future<List<IntegrationAccount>> fetchAccounts() async {
-    final response = await http.get(_accountsBase);
+    final response =
+        await http.get(Uri.parse('$_baseUrl/integrations/accounts'));
     _assertOk(response);
     final list = jsonDecode(response.body) as List<dynamic>;
     return list
@@ -21,22 +24,21 @@ class IntegrationsDataSource {
         .toList();
   }
 
-  Uri googleBeginUri() =>
-      Uri.parse('${AppConstants.apiBaseUrl}/auth/google/begin');
+  Uri googleBeginUri() => Uri.parse('$_baseUrl/auth/google/begin');
 
   Uri planningCenterBeginUri() =>
-      Uri.parse('${AppConstants.apiBaseUrl}/auth/planning-center/begin');
+      Uri.parse('$_baseUrl/auth/planning-center/begin');
 
   Future<void> syncGoogleCalendar() async {
     final response = await http.post(
-      Uri.parse('${AppConstants.apiBaseUrl}/integrations/google-calendar/sync'),
+      Uri.parse('$_baseUrl/integrations/google-calendar/sync'),
     );
     _assertOk(response);
   }
 
   Future<List<GmailSignal>> fetchGmailSignals() async {
     final response = await http.get(
-      Uri.parse('${AppConstants.apiBaseUrl}/integrations/gmail/signals'),
+      Uri.parse('$_baseUrl/integrations/gmail/signals'),
     );
     _assertOk(response);
     final list = jsonDecode(response.body) as List<dynamic>;
@@ -47,14 +49,14 @@ class IntegrationsDataSource {
 
   Future<void> syncGmail() async {
     final response = await http.post(
-      Uri.parse('${AppConstants.apiBaseUrl}/integrations/gmail/sync'),
+      Uri.parse('$_baseUrl/integrations/gmail/sync'),
     );
     _assertOk(response);
   }
 
   Future<void> syncPlanningCenter() async {
     final response = await http.post(
-      Uri.parse('${AppConstants.apiBaseUrl}/integrations/planning-center/sync'),
+      Uri.parse('$_baseUrl/integrations/planning-center/sync'),
     );
     _assertOk(response);
   }
@@ -63,7 +65,7 @@ class IntegrationsDataSource {
       fetchPlanningCenterTaskPreferences() async {
     final response = await http.get(
       Uri.parse(
-        '${AppConstants.apiBaseUrl}/integrations/planning-center/task-preferences',
+        '$_baseUrl/integrations/planning-center/task-preferences',
       ),
     );
     _assertOk(response);
@@ -75,7 +77,7 @@ class IntegrationsDataSource {
   Future<PlanningCenterTaskOptions> fetchPlanningCenterTaskOptions() async {
     final response = await http.get(
       Uri.parse(
-        '${AppConstants.apiBaseUrl}/integrations/planning-center/task-options',
+        '$_baseUrl/integrations/planning-center/task-options',
       ),
     );
     _assertOk(response);
@@ -89,7 +91,7 @@ class IntegrationsDataSource {
   ) async {
     final response = await http.put(
       Uri.parse(
-        '${AppConstants.apiBaseUrl}/integrations/planning-center/task-preferences',
+        '$_baseUrl/integrations/planning-center/task-preferences',
       ),
       headers: const {'Content-Type': 'application/json'},
       body: jsonEncode(preferences.toJson()),

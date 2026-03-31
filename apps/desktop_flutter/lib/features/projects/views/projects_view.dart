@@ -8,7 +8,7 @@ import '../models/project_instance.dart';
 import '../models/project_template.dart';
 import '../models/project_template_step.dart';
 import '../services/project_generation_service.dart';
-import '../../../app/core/constants/app_constants.dart';
+import '../../../app/core/services/server_config_service.dart';
 
 class ProjectsView extends StatefulWidget {
   const ProjectsView({super.key});
@@ -232,7 +232,7 @@ class _TemplateDetailState extends State<_TemplateDetail>
     try {
       final response = await http.get(
         Uri.parse(
-            '${AppConstants.apiBaseUrl}/project-instances?templateId=${widget.template.id}'),
+            '${context.read<ServerConfigService>().url}/project-instances?templateId=${widget.template.id}'),
       );
       if (response.statusCode >= 400) {
         setState(() => _instancesError = 'Failed to load instances');
@@ -262,7 +262,7 @@ class _TemplateDetailState extends State<_TemplateDetail>
       };
       final response = await http.patch(
         Uri.parse(
-            '${AppConstants.apiBaseUrl}/project-instances/steps/${step.id}'),
+            '${context.read<ServerConfigService>().url}/project-instances/steps/${step.id}'),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode(body),
       );
@@ -275,7 +275,8 @@ class _TemplateDetailState extends State<_TemplateDetail>
   Future<void> _deleteInstance(String instanceId) async {
     try {
       final response = await http.delete(
-        Uri.parse('${AppConstants.apiBaseUrl}/project-instances/$instanceId'),
+        Uri.parse(
+            '${context.read<ServerConfigService>().url}/project-instances/$instanceId'),
       );
       if (response.statusCode < 400) {
         await _loadInstances();
@@ -1301,7 +1302,7 @@ class _GenerateInstanceDialogState extends State<_GenerateInstanceDialog> {
     try {
       final response = await http.post(
         Uri.parse(
-            '${AppConstants.apiBaseUrl}/project-templates/${widget.template.id}/generate'),
+            '${context.read<ServerConfigService>().url}/project-templates/${widget.template.id}/generate'),
         headers: {'Content-Type': 'application/json'},
         body: jsonEncode({
           'anchorDate': dateStr,

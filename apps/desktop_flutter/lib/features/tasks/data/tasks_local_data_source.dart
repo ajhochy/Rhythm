@@ -5,10 +5,13 @@ import '../../../app/core/errors/app_error.dart';
 import '../models/task.dart';
 
 class TasksLocalDataSource {
-  final _base = Uri.parse('${AppConstants.apiBaseUrl}/tasks');
+  TasksLocalDataSource({String? baseUrl})
+      : _baseUrl = baseUrl ?? AppConstants.apiBaseUrl;
+
+  final String _baseUrl;
 
   Future<List<Task>> fetchAll() async {
-    final response = await http.get(_base);
+    final response = await http.get(Uri.parse('$_baseUrl/tasks'));
     _assertOk(response);
     final list = jsonDecode(response.body) as List<dynamic>;
     return list.map((j) => Task.fromJson(j as Map<String, dynamic>)).toList();
@@ -16,7 +19,7 @@ class TasksLocalDataSource {
 
   Future<Task> create(String title, {String? notes, String? dueDate}) async {
     final response = await http.post(
-      _base,
+      Uri.parse('$_baseUrl/tasks'),
       headers: {'Content-Type': 'application/json'},
       body: jsonEncode({
         'title': title,
@@ -31,7 +34,7 @@ class TasksLocalDataSource {
   Future<Task> update(String id,
       {String? title, String? notes, String? dueDate, String? status}) async {
     final response = await http.patch(
-      Uri.parse('${AppConstants.apiBaseUrl}/tasks/$id'),
+      Uri.parse('$_baseUrl/tasks/$id'),
       headers: {'Content-Type': 'application/json'},
       body: jsonEncode({
         if (title != null) 'title': title,
@@ -45,8 +48,7 @@ class TasksLocalDataSource {
   }
 
   Future<void> delete(String id) async {
-    final response =
-        await http.delete(Uri.parse('${AppConstants.apiBaseUrl}/tasks/$id'));
+    final response = await http.delete(Uri.parse('$_baseUrl/tasks/$id'));
     _assertOk(response);
   }
 

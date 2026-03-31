@@ -26,7 +26,7 @@ class _AutomationRulesViewState extends State<AutomationRulesView> {
     return Consumer<AutomationRulesController>(
       builder: (context, controller, _) {
         return Scaffold(
-          backgroundColor: const Color(0xFFF8F9FA),
+          backgroundColor: Theme.of(context).scaffoldBackgroundColor,
           body: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
