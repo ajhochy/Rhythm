@@ -6,10 +6,14 @@ import '../../tasks/models/task.dart';
 import '../models/weekly_plan.dart';
 
 class WeeklyPlanDataSource {
-  final _base = Uri.parse('${AppConstants.apiBaseUrl}/weekly-plan');
+  WeeklyPlanDataSource({String? baseUrl})
+      : _baseUrl = baseUrl ?? AppConstants.apiBaseUrl;
+
+  final String _baseUrl;
 
   Future<WeeklyPlan> fetchPlan(String weekLabel) async {
-    final uri = _base.replace(queryParameters: {'week': weekLabel});
+    final uri = Uri.parse('$_baseUrl/weekly-plan')
+        .replace(queryParameters: {'week': weekLabel});
     final response = await http.get(uri);
     _assertOk(response);
     return WeeklyPlan.fromJson(
@@ -19,7 +23,7 @@ class WeeklyPlanDataSource {
   Future<Task> scheduleTask(String taskId, String date,
       {bool locked = false}) async {
     final response = await http.patch(
-      Uri.parse('${AppConstants.apiBaseUrl}/weekly-plan/tasks/$taskId'),
+      Uri.parse('$_baseUrl/weekly-plan/tasks/$taskId'),
       headers: {'Content-Type': 'application/json'},
       body: jsonEncode({'scheduledDate': date, 'locked': locked}),
     );
@@ -36,8 +40,8 @@ class WeeklyPlanDataSource {
     final isProjectStep = sourceType == 'project_step';
     final response = await http.patch(
       Uri.parse(isProjectStep
-          ? '${AppConstants.apiBaseUrl}/project-instances/steps/$taskId'
-          : '${AppConstants.apiBaseUrl}/tasks/$taskId'),
+          ? '$_baseUrl/project-instances/steps/$taskId'
+          : '$_baseUrl/tasks/$taskId'),
       headers: {'Content-Type': 'application/json'},
       body: jsonEncode({
         if (notes != null) 'notes': notes,
@@ -66,7 +70,7 @@ class WeeklyPlanDataSource {
 
   Future<void> createTask(String title, {String? dueDate}) async {
     final response = await http.post(
-      Uri.parse('${AppConstants.apiBaseUrl}/tasks'),
+      Uri.parse('$_baseUrl/tasks'),
       headers: {'Content-Type': 'application/json'},
       body: jsonEncode({
         'title': title,

@@ -6,6 +6,7 @@ import 'app/core/constants/app_constants.dart';
 import 'app/core/layout/app_shell.dart';
 import 'app/core/server/api_server_controller.dart';
 import 'app/core/server/api_server_service.dart';
+import 'app/core/services/server_config_service.dart';
 import 'app/core/updates/update_controller.dart';
 import 'app/core/updates/update_service.dart';
 import 'app/theme/app_theme.dart';
@@ -43,53 +44,68 @@ void main() async {
     await windowManager.focus();
   });
 
+  // Load persisted server URL before runApp.
+  final serverConfigService = ServerConfigService();
+  await serverConfigService.load();
+
   // Create the server controller and kick off startup before runApp so the
   // service object is available immediately. The UI shows a loading screen
   // while the server boots.
   final serverController = ApiServerController(ApiServerService())
     ..initialize();
 
-  runApp(RhythmApp(serverController: serverController));
+  runApp(RhythmApp(
+    serverController: serverController,
+    serverConfigService: serverConfigService,
+  ));
 }
 
 class RhythmApp extends StatelessWidget {
-  const RhythmApp({super.key, required this.serverController});
+  const RhythmApp({
+    super.key,
+    required this.serverController,
+    required this.serverConfigService,
+  });
 
   final ApiServerController serverController;
+  final ServerConfigService serverConfigService;
 
   @override
   Widget build(BuildContext context) {
+    final baseUrl = serverConfigService.url;
     return MultiProvider(
       providers: [
         ChangeNotifierProvider.value(value: serverController),
+        ChangeNotifierProvider.value(value: serverConfigService),
         ChangeNotifierProvider(
           create: (_) => TasksController(
-            TasksRepository(TasksLocalDataSource()),
+            TasksRepository(TasksLocalDataSource(baseUrl: baseUrl)),
           ),
         ),
         ChangeNotifierProvider(
           create: (_) => AutomationRulesController(
-            AutomationRulesRepository(AutomationRulesDataSource()),
+            AutomationRulesRepository(
+                AutomationRulesDataSource(baseUrl: baseUrl)),
           ),
         ),
         ChangeNotifierProvider(
           create: (_) => ProjectTemplateController(
-            ProjectsRepository(ProjectsLocalDataSource()),
+            ProjectsRepository(ProjectsLocalDataSource(baseUrl: baseUrl)),
           ),
         ),
         ChangeNotifierProvider(
           create: (_) => RhythmsController(
-            RhythmsRepository(RhythmsDataSource()),
+            RhythmsRepository(RhythmsDataSource(baseUrl: baseUrl)),
           ),
         ),
         ChangeNotifierProvider(
           create: (_) => WeeklyPlannerController(
-            WeeklyPlanRepository(WeeklyPlanDataSource()),
+            WeeklyPlanRepository(WeeklyPlanDataSource(baseUrl: baseUrl)),
           ),
         ),
         ChangeNotifierProvider(
           create: (_) => IntegrationsController(
-            IntegrationsRepository(IntegrationsDataSource()),
+            IntegrationsRepository(IntegrationsDataSource(baseUrl: baseUrl)),
           ),
         ),
         ChangeNotifierProvider(

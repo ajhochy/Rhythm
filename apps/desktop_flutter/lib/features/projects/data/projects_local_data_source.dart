@@ -6,10 +6,13 @@ import '../models/project_template.dart';
 import '../models/project_template_step.dart';
 
 class ProjectsLocalDataSource {
-  final _base = Uri.parse('${AppConstants.apiBaseUrl}/project-templates');
+  ProjectsLocalDataSource({String? baseUrl})
+      : _baseUrl = baseUrl ?? AppConstants.apiBaseUrl;
+
+  final String _baseUrl;
 
   Future<List<ProjectTemplate>> fetchAll() async {
-    final response = await http.get(_base);
+    final response = await http.get(Uri.parse('$_baseUrl/project-templates'));
     _assertOk(response);
     final list = jsonDecode(response.body) as List<dynamic>;
     return list
@@ -20,7 +23,7 @@ class ProjectsLocalDataSource {
   Future<ProjectTemplate> create(String name,
       {String? description, String? anchorType}) async {
     final response = await http.post(
-      _base,
+      Uri.parse('$_baseUrl/project-templates'),
       headers: {'Content-Type': 'application/json'},
       body: jsonEncode({
         'name': name,
@@ -41,8 +44,7 @@ class ProjectsLocalDataSource {
     int? sortOrder,
   }) async {
     final response = await http.post(
-      Uri.parse(
-          '${AppConstants.apiBaseUrl}/project-templates/$templateId/steps'),
+      Uri.parse('$_baseUrl/project-templates/$templateId/steps'),
       headers: {'Content-Type': 'application/json'},
       body: jsonEncode({
         'title': title,
@@ -59,7 +61,7 @@ class ProjectsLocalDataSource {
   Future<ProjectTemplate> update(String id,
       {String? name, String? description}) async {
     final response = await http.patch(
-      Uri.parse('${AppConstants.apiBaseUrl}/project-templates/$id'),
+      Uri.parse('$_baseUrl/project-templates/$id'),
       headers: {'Content-Type': 'application/json'},
       body: jsonEncode({
         if (name != null) 'name': name,
@@ -79,8 +81,7 @@ class ProjectsLocalDataSource {
     String? offsetDescription,
   }) async {
     final response = await http.patch(
-      Uri.parse(
-          '${AppConstants.apiBaseUrl}/project-templates/$templateId/steps/$stepId'),
+      Uri.parse('$_baseUrl/project-templates/$templateId/steps/$stepId'),
       headers: {'Content-Type': 'application/json'},
       body: jsonEncode({
         if (title != null) 'title': title,
@@ -95,15 +96,14 @@ class ProjectsLocalDataSource {
 
   Future<void> deleteStep(String templateId, String stepId) async {
     final response = await http.delete(
-      Uri.parse(
-          '${AppConstants.apiBaseUrl}/project-templates/$templateId/steps/$stepId'),
+      Uri.parse('$_baseUrl/project-templates/$templateId/steps/$stepId'),
     );
     _assertOk(response);
   }
 
   Future<void> delete(String id) async {
-    final response = await http
-        .delete(Uri.parse('${AppConstants.apiBaseUrl}/project-templates/$id'));
+    final response =
+        await http.delete(Uri.parse('$_baseUrl/project-templates/$id'));
     _assertOk(response);
   }
 

@@ -5,10 +5,13 @@ import '../../../app/core/errors/app_error.dart';
 import '../../../features/tasks/models/recurring_task_rule.dart';
 
 class RhythmsDataSource {
-  final _base = Uri.parse('${AppConstants.apiBaseUrl}/recurring-rules');
+  RhythmsDataSource({String? baseUrl})
+      : _baseUrl = baseUrl ?? AppConstants.apiBaseUrl;
+
+  final String _baseUrl;
 
   Future<List<RecurringTaskRule>> fetchAll() async {
-    final response = await http.get(_base);
+    final response = await http.get(Uri.parse('$_baseUrl/recurring-rules'));
     _assertOk(response);
     final list = jsonDecode(response.body) as List<dynamic>;
     return list
@@ -24,7 +27,7 @@ class RhythmsDataSource {
     int? month,
   }) async {
     final response = await http.post(
-      _base,
+      Uri.parse('$_baseUrl/recurring-rules'),
       headers: {'Content-Type': 'application/json'},
       body: jsonEncode({
         'title': title,
@@ -49,7 +52,7 @@ class RhythmsDataSource {
     bool? enabled,
   }) async {
     final response = await http.patch(
-      Uri.parse('${AppConstants.apiBaseUrl}/recurring-rules/$id'),
+      Uri.parse('$_baseUrl/recurring-rules/$id'),
       headers: {'Content-Type': 'application/json'},
       body: jsonEncode({
         if (title != null) 'title': title,
@@ -66,8 +69,8 @@ class RhythmsDataSource {
   }
 
   Future<void> delete(String id) async {
-    final response = await http
-        .delete(Uri.parse('${AppConstants.apiBaseUrl}/recurring-rules/$id'));
+    final response =
+        await http.delete(Uri.parse('$_baseUrl/recurring-rules/$id'));
     _assertOk(response);
   }
 
