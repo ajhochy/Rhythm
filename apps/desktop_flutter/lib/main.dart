@@ -10,6 +10,9 @@ import 'app/core/services/server_config_service.dart';
 import 'app/core/updates/update_controller.dart';
 import 'app/core/updates/update_service.dart';
 import 'app/theme/app_theme.dart';
+import 'features/facilities/controllers/facilities_controller.dart';
+import 'features/facilities/data/facilities_data_source.dart';
+import 'features/facilities/repositories/facilities_repository.dart';
 import 'features/integrations/controllers/integrations_controller.dart';
 import 'features/integrations/data/integrations_data_source.dart';
 import 'features/integrations/repositories/integrations_repository.dart';
@@ -101,6 +104,11 @@ class RhythmApp extends StatelessWidget {
         ChangeNotifierProvider(
           create: (_) => WeeklyPlannerController(
             WeeklyPlanRepository(WeeklyPlanDataSource(baseUrl: baseUrl)),
+          ),
+        ),
+        ChangeNotifierProvider(
+          create: (_) => FacilitiesController(
+            FacilitiesRepository(FacilitiesDataSource(baseUrl: baseUrl)),
           ),
         ),
         ChangeNotifierProvider(

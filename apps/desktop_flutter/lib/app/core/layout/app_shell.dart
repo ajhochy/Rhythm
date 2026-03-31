@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:window_manager/window_manager.dart';
 
+import '../../../features/facilities/views/facilities_view.dart';
 import '../../../features/integrations/views/integrations_view.dart';
 import '../../../features/projects/views/projects_view.dart';
 import '../../../features/rhythms/views/rhythms_view.dart';
@@ -153,7 +154,7 @@ class _AppContent extends StatelessWidget {
     ProjectsView(), // 3
     WeeklyPlannerView(), // 4
     _ComingSoonView(label: 'Messages'), // 5
-    _ComingSoonView(label: 'Facilities'), // 6
+    FacilitiesView(), // 6
     AutomationRulesView(), // 7
     IntegrationsView(), // 8
   ];
