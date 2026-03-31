@@ -1,0 +1,25 @@
+appId: com.rhythm.app
+productName: Rhythm
+directories:
+  output: dist
+  buildResources: build
+files:
+  - src/**/*
+  - node_modules/**/*
+  - "!node_modules/*/{CHANGELOG.md,README.md,README,readme.md,readme}"
+extraResources:
+  - from: ../api_server/dist
+    to: api_server/dist
+  - from: ../api_server/node_modules
+    to: api_server/node_modules
+  - from: ../web/dist
+    to: web/dist
+mac:
+  category: public.app-category.productivity
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  icon: build/icon.icns
+dmg:
+  sign: false

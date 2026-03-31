@@ -1,0 +1,17 @@
+{
+  "name": "rhythm-electron",
+  "version": "2.0.0",
+  "description": "Rhythm 2.0 — Electron shell",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron .",
+    "build:web": "cd ../web && npm run build",
+    "build:api": "cd ../api_server && npm run build && npm prune --omit=dev",
+    "pack": "electron-builder --dir",
+    "dist": "electron-builder"
+  },
+  "devDependencies": {
+    "electron": "^31.0.0",
+    "electron-builder": "^25.0.0"
+  }
+}

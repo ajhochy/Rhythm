@@ -1,0 +1,5 @@
+# electron-builder output
+dist/
+
+# Allow build/ (contains app icons and entitlements — not compilation output)
+!build/

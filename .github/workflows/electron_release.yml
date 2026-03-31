@@ -1,0 +1,222 @@
+name: Electron Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version without the v prefix'
+        required: true
+        type: string
+      prerelease:
+        description: 'Mark the GitHub release as a prerelease'
+        required: true
+        default: true
+        type: boolean
+      release_notes:
+        description: 'Optional release notes override'
+        required: false
+        type: string
+
+jobs:
+  build-electron-release:
+    runs-on: macos-latest
+    permissions:
+      contents: write
+    env:
+      RELEASE_VERSION: ${{ inputs.version }}
+      RELEASE_TAG: v${{ inputs.version }}
+      APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+      APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+      APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
+      GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
+      GOOGLE_REDIRECT_URI: ${{ secrets.GOOGLE_REDIRECT_URI }}
+      PCO_APPLICATION_ID: ${{ secrets.PCO_APPLICATION_ID }}
+      PCO_SECRET: ${{ secrets.PCO_SECRET }}
+      PCO_REDIRECT_URI: ${{ secrets.PCO_REDIRECT_URI }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Build API server
+        working-directory: apps/api_server
+        run: |
+          npm ci
+          npm run build
+          npm prune --omit=dev
+
+      - name: Write API server .env file
+        working-directory: apps/api_server
+        run: |
+          printf 'GOOGLE_CLIENT_ID=%s\nGOOGLE_CLIENT_SECRET=%s\nGOOGLE_REDIRECT_URI=%s\nPCO_APPLICATION_ID=%s\nPCO_SECRET=%s\nPCO_REDIRECT_URI=%s\n' \
+            "$GOOGLE_CLIENT_ID" "$GOOGLE_CLIENT_SECRET" "$GOOGLE_REDIRECT_URI" \
+            "$PCO_APPLICATION_ID" "$PCO_SECRET" "$PCO_REDIRECT_URI" \
+            > dist/.env
+
+      - name: Build web app
+        working-directory: apps/web
+        run: |
+          npm ci
+          npm run build
+
+      - name: Install Electron dependencies
+        working-directory: apps/electron
+        run: npm ci
+
+      - name: Build Electron app with electron-builder
+        working-directory: apps/electron
+        run: |
+          npx electron-builder --mac --publish never
+
+      - name: Sign and notarize macOS app
+        working-directory: apps/electron
+        run: |
+          set -euo pipefail
+
+          required_vars=(
+            APPLE_CERTIFICATE_BASE64
+            APPLE_CERTIFICATE_PASSWORD
+            APPLE_SIGNING_IDENTITY
+            APPLE_ID
+            APPLE_APP_SPECIFIC_PASSWORD
+            APPLE_TEAM_ID
+          )
+          for name in "${required_vars[@]}"; do
+            if [[ -z "${!name:-}" ]]; then
+              echo "Skipping codesign/notarization because ${name} is not set."
+              exit 0
+            fi
+          done
+
+          APP_PATH="$(find dist/mac* -maxdepth 1 -name '*.app' -print -quit)"
+          DMG_PATH="$(find dist -maxdepth 1 -name '*.dmg' -print -quit)"
+
+          if [[ -z "${APP_PATH}" || -z "${DMG_PATH}" ]]; then
+            echo "Missing app bundle or DMG for signing." >&2
+            exit 1
+          fi
+
+          KEYCHAIN_NAME="build-signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(uuidgen)"
+          CERT_PATH="$(mktemp -t rhythm-cert).p12"
+          ENTITLEMENTS_PATH="build/entitlements.mac.plist"
+
+          cleanup() {
+            rm -f "${CERT_PATH}"
+            security delete-keychain "${KEYCHAIN_NAME}" >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+
+          echo "${APPLE_CERTIFICATE_BASE64}" | base64 --decode > "${CERT_PATH}"
+
+          security create-keychain -p "${KEYCHAIN_PASSWORD}" "${KEYCHAIN_NAME}"
+          security set-keychain-settings -lut 21600 "${KEYCHAIN_NAME}"
+          security unlock-keychain -p "${KEYCHAIN_PASSWORD}" "${KEYCHAIN_NAME}"
+          security import "${CERT_PATH}" \
+            -k "${KEYCHAIN_NAME}" \
+            -P "${APPLE_CERTIFICATE_PASSWORD}" \
+            -T /usr/bin/codesign \
+            -T /usr/bin/security \
+            -T /usr/bin/productbuild
+          security list-keychain -d user -s "${KEYCHAIN_NAME}" login.keychain-db
+          security set-key-partition-list \
+            -S apple-tool:,apple:,codesign: \
+            -s \
+            -k "${KEYCHAIN_PASSWORD}" \
+            "${KEYCHAIN_NAME}"
+
+          EXPECTED_IDENTITY="$(printf '%s' "${APPLE_SIGNING_IDENTITY}" | tr -d '\r\n')"
+          IDENTITIES_OUTPUT="$(security find-identity -v -p codesigning "${KEYCHAIN_NAME}")"
+
+          IDENTITY_SHA="$(printf '%s\n' "${IDENTITIES_OUTPUT}" | grep -F "${EXPECTED_IDENTITY}" | awk 'NR==1 { print $2 }')"
+
+          if [[ -z "${IDENTITY_SHA}" ]]; then
+            IDENTITY_SHA="$(printf '%s\n' "${IDENTITIES_OUTPUT}" | awk '$2 ~ /^[0-9A-F]+$/ { print $2; exit }')"
+          fi
+
+          if [[ -z "${IDENTITY_SHA}" ]]; then
+            echo "Unable to resolve a signing identity from the imported certificate." >&2
+            printf '%s\n' "${IDENTITIES_OUTPUT}" || true
+            exit 1
+          fi
+
+          # Sign nested frameworks, dylibs, .so, and .node files from the inside out.
+          # codesign --deep does NOT propagate --options runtime to nested items.
+          while IFS= read -r -d '' item; do
+            codesign --force --options runtime --timestamp \
+              --sign "${IDENTITY_SHA}" \
+              "${item}"
+          done < <(find "${APP_PATH}/Contents" \
+            \( -name "*.framework" -o -name "*.dylib" -o -name "*.so" -o -name "*.node" \) \
+            -print0 | sort -rz)
+
+          codesign --force --options runtime --timestamp \
+            --entitlements "${ENTITLEMENTS_PATH}" \
+            --sign "${IDENTITY_SHA}" \
+            "${APP_PATH}"
+
+          # Rebuild DMG from the now-signed app bundle.
+          APP_DISPLAY_NAME="$(basename "${APP_PATH}" .app)"
+          hdiutil create \
+            -volname "${APP_DISPLAY_NAME}" \
+            -srcfolder "${APP_PATH}" \
+            -ov \
+            -format UDZO \
+            "${DMG_PATH}"
+
+          codesign --force --sign "${IDENTITY_SHA}" "${DMG_PATH}"
+
+          NOTARY_OUTPUT="$(mktemp -t rhythm-notary-output)"
+          NOTARY_LOG="$(mktemp -t rhythm-notary-log)"
+
+          xcrun notarytool submit "${DMG_PATH}" \
+            --apple-id "${APPLE_ID}" \
+            --password "${APPLE_APP_SPECIFIC_PASSWORD}" \
+            --team-id "${APPLE_TEAM_ID}" \
+            --wait \
+            --timeout 30m \
+            > "${NOTARY_OUTPUT}"
+
+          SUBMISSION_ID="$(awk '/^[[:space:]]+id:/ { print $2; exit }' "${NOTARY_OUTPUT}")"
+          NOTARY_STATUS="$(awk '/^[[:space:]]+status:/ { print $2; exit }' "${NOTARY_OUTPUT}")"
+
+          cat "${NOTARY_OUTPUT}"
+
+          if [[ "${NOTARY_STATUS}" == "Invalid" && -n "${SUBMISSION_ID}" ]]; then
+            echo "Fetching Apple notarization log for submission ${SUBMISSION_ID}..."
+            xcrun notarytool log "${SUBMISSION_ID}" \
+              --apple-id "${APPLE_ID}" \
+              --password "${APPLE_APP_SPECIFIC_PASSWORD}" \
+              --team-id "${APPLE_TEAM_ID}" \
+              > "${NOTARY_LOG}" || true
+            cat "${NOTARY_LOG}" || true
+            exit 1
+          fi
+
+          xcrun stapler staple "${APP_PATH}"
+          xcrun stapler staple "${DMG_PATH}"
+
+          echo "Signed and notarized ${APP_PATH} and ${DMG_PATH}"
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: rhythm-electron-${{ inputs.version }}
+          path: apps/electron/dist/*.dmg
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.RELEASE_TAG }}
+          name: Rhythm ${{ env.RELEASE_TAG }}
+          prerelease: ${{ inputs.prerelease }}
+          generate_release_notes: ${{ inputs.release_notes == '' }}
+          body: ${{ inputs.release_notes }}
+          files: apps/electron/dist/*.dmg
