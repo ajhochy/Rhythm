@@ -8,6 +8,7 @@ import '../../../features/integrations/views/integrations_view.dart';
 import '../../../features/projects/views/projects_view.dart';
 import '../../../features/rhythms/views/rhythms_view.dart';
 import '../../../features/tasks/views/automation_rules_view.dart';
+import '../../../features/messages/views/messages_view.dart';
 import '../../../features/tasks/views/tasks_view.dart';
 import '../../../features/weekly_planner/views/weekly_planner_view.dart';
 import '../server/api_server_controller.dart';
@@ -154,7 +155,7 @@ class _AppContent extends StatelessWidget {
     RhythmsView(), // 2
     ProjectsView(), // 3
     WeeklyPlannerView(), // 4
-    _ComingSoonView(label: 'Messages'), // 5
+    MessagesView(), // 5
     FacilitiesView(), // 6
     AutomationRulesView(), // 7
     IntegrationsView(), // 8
@@ -173,26 +174,6 @@ class _AppContent extends StatelessWidget {
           ),
           Expanded(child: _views[selectedIndex]),
         ],
-      ),
-    );
-  }
-}
-
-class _ComingSoonView extends StatelessWidget {
-  const _ComingSoonView({required this.label});
-  final String label;
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      body: Center(
-        child: Text(
-          '$label \u2014 Coming soon',
-          style: Theme.of(context)
-              .textTheme
-              .titleMedium
-              ?.copyWith(color: const Color(0xFF6B7280)),
-        ),
       ),
     );
   }

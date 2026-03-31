@@ -112,13 +112,18 @@ class RhythmApp extends StatelessWidget {
           ),
         ),
         ChangeNotifierProvider(
-<<<<<<< HEAD
+          create: (_) => DashboardController(
+            DashboardDataSource(baseUrl: baseUrl),
+          ),
+        ),
+        ChangeNotifierProvider(
           create: (_) => FacilitiesController(
             FacilitiesRepository(FacilitiesDataSource(baseUrl: baseUrl)),
-=======
+          ),
+        ),
+        ChangeNotifierProvider(
           create: (_) => MessagesController(
             MessagesRepository(MessagesDataSource(baseUrl: baseUrl)),
->>>>>>> 7318682 (feat: Dashboard screen with summary cards and recent tasks)
           ),
         ),
         ChangeNotifierProvider(
