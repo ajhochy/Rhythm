@@ -152,6 +152,16 @@ export class TasksRepository {
     return changed;
   }
 
+  deleteFutureOpenBySourceId(sourceType: string, sourceId: string): number {
+    const today = new Date().toISOString().substring(0, 10);
+    const result = getDb()
+      .prepare(
+        `DELETE FROM tasks WHERE source_type = ? AND source_id = ? AND status = 'open' AND (due_date IS NULL OR due_date >= ?)`,
+      )
+      .run(sourceType, sourceId, today);
+    return result.changes;
+  }
+
   deleteAllBySourceType(sourceType: string): number {
     const result = getDb()
       .prepare('DELETE FROM tasks WHERE source_type = ?')

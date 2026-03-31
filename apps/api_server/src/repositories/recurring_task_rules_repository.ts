@@ -14,6 +14,7 @@ interface RuleRow {
   day_of_week: number | null;
   day_of_month: number | null;
   month: number | null;
+  enabled: number;
   created_at: string;
 }
 
@@ -25,6 +26,7 @@ function rowToRule(row: RuleRow): RecurringTaskRule {
     dayOfWeek: row.day_of_week,
     dayOfMonth: row.day_of_month,
     month: row.month,
+    enabled: row.enabled === 1,
     createdAt: row.created_at,
   };
 }
@@ -48,10 +50,11 @@ export class RecurringTaskRulesRepository {
   create(data: CreateRecurringTaskRuleDto): RecurringTaskRule {
     const id = uuidv4();
     const now = new Date().toISOString();
+    const enabled = data.enabled !== false ? 1 : 0;
     getDb()
       .prepare(
-        `INSERT INTO recurring_task_rules (id, title, frequency, day_of_week, day_of_month, month, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO recurring_task_rules (id, title, frequency, day_of_week, day_of_month, month, enabled, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         id,
@@ -60,6 +63,7 @@ export class RecurringTaskRulesRepository {
         data.dayOfWeek ?? null,
         data.dayOfMonth ?? null,
         data.month ?? null,
+        enabled,
         now,
       );
     return this.findById(id);
@@ -67,10 +71,11 @@ export class RecurringTaskRulesRepository {
 
   update(id: string, data: UpdateRecurringTaskRuleDto): RecurringTaskRule {
     const existing = this.findById(id);
+    const enabled = data.enabled !== undefined ? (data.enabled ? 1 : 0) : (existing.enabled ? 1 : 0);
     getDb()
       .prepare(
         `UPDATE recurring_task_rules
-         SET title = ?, frequency = ?, day_of_week = ?, day_of_month = ?, month = ?
+         SET title = ?, frequency = ?, day_of_week = ?, day_of_month = ?, month = ?, enabled = ?
          WHERE id = ?`,
       )
       .run(
@@ -79,6 +84,7 @@ export class RecurringTaskRulesRepository {
         data.dayOfWeek !== undefined ? data.dayOfWeek : existing.dayOfWeek,
         data.dayOfMonth !== undefined ? data.dayOfMonth : existing.dayOfMonth,
         data.month !== undefined ? data.month : existing.month,
+        enabled,
         id,
       );
     return this.findById(id);

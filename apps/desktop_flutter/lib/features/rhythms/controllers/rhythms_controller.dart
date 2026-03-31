@@ -39,6 +39,7 @@ class RhythmsController extends ChangeNotifier {
     int? dayOfWeek,
     int? dayOfMonth,
     int? month,
+    bool? enabled,
   }) async {
     try {
       final updated = await _repository.update(id,
@@ -46,7 +47,8 @@ class RhythmsController extends ChangeNotifier {
           frequency: frequency,
           dayOfWeek: dayOfWeek,
           dayOfMonth: dayOfMonth,
-          month: month);
+          month: month,
+          enabled: enabled);
       _rules = _rules.map((r) => r.id == id ? updated : r).toList();
       notifyListeners();
     } catch (e) {
@@ -74,6 +76,23 @@ class RhythmsController extends ChangeNotifier {
       _rules = [..._rules, rule];
       notifyListeners();
     } catch (e) {
+      _errorMessage = e.toString();
+      _status = RhythmsStatus.error;
+      notifyListeners();
+    }
+  }
+
+  Future<void> toggleEnabled(String id, {required bool enabled}) async {
+    // Optimistic update so the Switch doesn't snap back during the API call.
+    _rules = _rules.map((r) => r.id == id ? r.copyWith(enabled: enabled) : r).toList();
+    notifyListeners();
+    try {
+      final updated = await _repository.update(id, enabled: enabled);
+      _rules = _rules.map((r) => r.id == id ? updated : r).toList();
+      notifyListeners();
+    } catch (e) {
+      // Revert on failure.
+      _rules = _rules.map((r) => r.id == id ? r.copyWith(enabled: !enabled) : r).toList();
       _errorMessage = e.toString();
       _status = RhythmsStatus.error;
       notifyListeners();

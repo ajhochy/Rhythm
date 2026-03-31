@@ -120,6 +120,7 @@ class _RuleTileState extends State<_RuleTile> {
 
   @override
   Widget build(BuildContext context) {
+    final dimmed = !widget.rule.enabled;
     final preview = RecurrenceService()
         .previewNextDates(widget.rule, DateTime.now(), count: 3)
         .map((d) =>
@@ -136,11 +137,21 @@ class _RuleTileState extends State<_RuleTile> {
         children: [
           ListTile(
             leading: const Icon(Icons.repeat),
-            title: Text(widget.rule.title),
+            title: Text(
+              widget.rule.title,
+              style: TextStyle(color: dimmed ? Colors.grey : null),
+            ),
             subtitle: Text(widget.rule.patternDescription),
             trailing: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
+                Switch(
+                  value: widget.rule.enabled,
+                  onChanged: (_) => widget.controller.toggleEnabled(
+                    widget.rule.id,
+                    enabled: !widget.rule.enabled,
+                  ),
+                ),
                 IconButton(
                   icon: Icon(_expanded ? Icons.expand_less : Icons.expand_more),
                   onPressed: () => setState(() => _expanded = !_expanded),

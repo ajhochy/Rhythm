@@ -46,6 +46,7 @@ class RhythmsDataSource {
     int? dayOfWeek,
     int? dayOfMonth,
     int? month,
+    bool? enabled,
   }) async {
     final response = await http.patch(
       Uri.parse('${AppConstants.apiBaseUrl}/recurring-rules/$id'),
@@ -56,6 +57,7 @@ class RhythmsDataSource {
         if (dayOfWeek != null) 'dayOfWeek': dayOfWeek,
         if (dayOfMonth != null) 'dayOfMonth': dayOfMonth,
         if (month != null) 'month': month,
+        if (enabled != null) 'enabled': enabled,
       }),
     );
     _assertOk(response);
