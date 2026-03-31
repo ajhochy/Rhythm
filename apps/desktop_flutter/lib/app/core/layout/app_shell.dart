@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:window_manager/window_manager.dart';
 
+import '../../../features/dashboard/views/dashboard_view.dart';
 import '../../../features/facilities/views/facilities_view.dart';
 import '../../../features/integrations/views/integrations_view.dart';
 import '../../../features/projects/views/projects_view.dart';
@@ -148,7 +149,7 @@ class _AppContent extends StatelessWidget {
   final ValueChanged<int> onItemSelected;
 
   static const _views = <Widget>[
-    _ComingSoonView(label: 'Dashboard'), // 0
+    DashboardView(), // 0
     TasksView(), // 1
     RhythmsView(), // 2
     ProjectsView(), // 3
