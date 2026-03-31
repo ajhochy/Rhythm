@@ -53,10 +53,10 @@ class _TasksViewState extends State<TasksView> {
     if (title.isEmpty) return;
     final notes = _notesController.text.trim();
     await context.read<TasksController>().createTask(
-      title,
-      notes: notes.isEmpty ? null : notes,
-      dueDate: _selectedDueDate,
-    );
+          title,
+          notes: notes.isEmpty ? null : notes,
+          dueDate: _selectedDueDate,
+        );
     _titleController.clear();
     _notesController.clear();
     setState(() => _selectedDueDate = null);
