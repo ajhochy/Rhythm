@@ -65,6 +65,13 @@ export class RecurringRulesController {
       const rule = repo.update(req.params.id, body);
       if (body.enabled === false) {
         new TasksRepository().deleteFutureOpenBySourceId('recurring_rule', rule.id);
+      } else if (body.enabled === true) {
+        const weeks = parseInt(process.env.RECURRENCE_LOOKAHEAD_WEEKS ?? '', 10);
+        const lookahead = isNaN(weeks) ? DEFAULT_LOOKAHEAD_WEEKS : weeks;
+        const from = new Date();
+        const to = new Date();
+        to.setUTCDate(to.getUTCDate() + lookahead * 7);
+        recurrenceService.generateInstances(rule, from, to);
       }
       res.json(rule);
     } catch (err) {
