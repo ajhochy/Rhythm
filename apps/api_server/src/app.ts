@@ -4,12 +4,15 @@ import express from 'express';
 import { errorHandler } from './middleware/error_handler';
 import { authRouter } from './routes/auth_routes';
 import { automationRulesRouter } from './routes/automation_rules_routes';
+import { facilitiesRouter } from './routes/facilities_routes';
 import { healthRouter } from './routes/health_routes';
 import { integrationsRouter } from './routes/integrations_routes';
+import { messagesRouter } from './routes/messages_routes';
 import { projectInstancesRouter } from './routes/project_instances_routes';
 import { projectTemplatesRouter } from './routes/project_templates_routes';
 import { recurringRulesRouter } from './routes/recurring_rules_routes';
 import { tasksRouter } from './routes/tasks_routes';
+import { usersRouter } from './routes/users_routes';
 import { weeklyPlanRouter } from './routes/weekly_plan_routes';
 
 export function createApp() {
@@ -27,6 +30,9 @@ export function createApp() {
   app.use('/recurring-rules', recurringRulesRouter);
   app.use('/project-instances', projectInstancesRouter);
   app.use('/weekly-plan', weeklyPlanRouter);
+  app.use('/users', usersRouter);
+  app.use('/message-threads', messagesRouter);
+  app.use('/facilities', facilitiesRouter);
 
   app.use(errorHandler);
 
