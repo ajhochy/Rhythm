@@ -17,7 +17,7 @@ function getCronSchedule(): string {
 
 function runGeneration(): void {
   try {
-    const rules = new RecurringTaskRulesRepository().findAll();
+    const rules = new RecurringTaskRulesRepository().findAll().filter((r) => r.enabled);
     if (rules.length === 0) return;
 
     const service = new RecurrenceService();
