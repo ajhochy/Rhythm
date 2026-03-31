@@ -2,6 +2,7 @@ import type { NextFunction, Request, Response } from 'express';
 import { AppError } from '../errors/app_error';
 import { RecurringTaskRulesRepository } from '../repositories/recurring_task_rules_repository';
 import { RecurrenceService } from '../services/recurrence_service';
+import { TasksRepository } from '../repositories/tasks_repository';
 
 const repo = new RecurringTaskRulesRepository();
 const recurrenceService = new RecurrenceService();
@@ -60,7 +61,11 @@ export class RecurringRulesController {
 
   update(req: Request, res: Response, next: NextFunction) {
     try {
-      const rule = repo.update(req.params.id, req.body as Record<string, unknown>);
+      const body = req.body as Record<string, unknown>;
+      const rule = repo.update(req.params.id, body);
+      if (body.enabled === false) {
+        new TasksRepository().deleteFutureOpenBySourceId('recurring_rule', rule.id);
+      }
       res.json(rule);
     } catch (err) {
       next(err);
