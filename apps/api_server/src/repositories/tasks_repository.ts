@@ -229,7 +229,8 @@ export class TasksRepository {
     return this.findById(id, userId);
   }
 
-  delete(id: string): void {
+  delete(id: string, userId?: number): void {
+    this.findById(id, userId);
     const result = getDb().prepare('DELETE FROM tasks WHERE id = ?').run(id);
     if (result.changes === 0) throw AppError.notFound('Task');
   }

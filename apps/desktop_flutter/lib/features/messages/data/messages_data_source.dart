@@ -39,13 +39,11 @@ class MessagesDataSource {
         .toList();
   }
 
-  Future<MessageThread> createThread(List<int> participantIds,
-      {String? title}) async {
+  Future<MessageThread> createThread(List<int> participantIds) async {
     final response = await http.post(
       Uri.parse('$_baseUrl/message-threads'),
       headers: AuthSessionStore.headers(json: true),
       body: jsonEncode({
-        if (title != null && title.isNotEmpty) 'title': title,
         'participantIds': participantIds,
       }),
     );

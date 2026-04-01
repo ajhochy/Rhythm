@@ -1,8 +1,12 @@
 import type { NextFunction, Request, Response } from 'express';
 import { AppError } from '../errors/app_error';
 import { FacilitiesRepository } from '../repositories/facilities_repository';
+import { MessagesRepository } from '../repositories/messages_repository';
+import { UsersRepository } from '../repositories/users_repository';
 
 const repo = new FacilitiesRepository();
+const messagesRepo = new MessagesRepository();
+const usersRepo = new UsersRepository();
 
 export class FacilitiesController {
   getAll(_req: Request, res: Response, next: NextFunction) {
@@ -78,6 +82,53 @@ export class FacilitiesController {
         notes: notes as string | null | undefined,
       });
       res.status(201).json(reservation);
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  updateReservation(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { title, start_time, end_time, notes } =
+        req.body as Record<string, unknown>;
+      const reservation = repo.updateReservation(
+        Number(req.params.id),
+        Number(req.params.reservationId),
+        {
+          ...(typeof title === 'string' ? { title } : {}),
+          ...(typeof start_time === 'string' ? { start_time } : {}),
+          ...(typeof end_time === 'string' ? { end_time } : {}),
+          ...(notes !== undefined ? { notes: (notes as string | null) ?? null } : {}),
+          reserved_by: req.auth?.user.name ?? 'Unknown user',
+          reserved_by_user_id: req.auth?.user.id ?? null,
+        },
+      );
+      res.json(reservation);
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  deleteReservation(req: Request, res: Response, next: NextFunction) {
+    try {
+      const deletedReservation = repo.deleteReservation(
+        Number(req.params.id),
+        Number(req.params.reservationId),
+      );
+      const actor = req.auth?.user;
+      if (
+        actor != null &&
+        deletedReservation.reservedByUserId != null &&
+        deletedReservation.reservedByUserId !== actor.id
+      ) {
+        const bot = usersRepo.findOrCreateSystemBot();
+        messagesRepo.sendDirectMessage(
+          bot.id,
+          deletedReservation.reservedByUserId,
+          `Your facility reservation was deleted by ${actor.name}. Go to Facilities to resubmit a reservation.`,
+        );
+      }
+      res.status(204).send();
     } catch (err) {
       next(err);
     }

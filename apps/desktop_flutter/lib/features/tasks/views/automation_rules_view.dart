@@ -1,9 +1,13 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
-import '../controllers/automation_rules_controller.dart';
-import '../models/automation_rule.dart';
+
 import '../../../app/core/widgets/error_banner.dart';
+import '../../integrations/models/integration_account.dart';
+import '../../integrations/models/planning_center_task_options.dart';
+import '../controllers/automation_rules_controller.dart';
+import '../data/automation_rules_data_source.dart';
+import '../models/automation_catalog.dart';
+import '../models/automation_rule.dart';
 
 class AutomationRulesView extends StatefulWidget {
   const AutomationRulesView({super.key});
@@ -13,6 +17,13 @@ class AutomationRulesView extends StatefulWidget {
 }
 
 class _AutomationRulesViewState extends State<AutomationRulesView> {
+  static const List<String> _sourceOrder = [
+    'rhythm',
+    'planning_center',
+    'google_calendar',
+    'gmail',
+  ];
+
   @override
   void initState() {
     super.initState();
@@ -25,12 +36,34 @@ class _AutomationRulesViewState extends State<AutomationRulesView> {
   Widget build(BuildContext context) {
     return Consumer<AutomationRulesController>(
       builder: (context, controller, _) {
+        final grouped = <String, List<AutomationRule>>{};
+        for (final rule in controller.rules) {
+          grouped.putIfAbsent(rule.source, () => []).add(rule);
+        }
+        final orderedEntries = grouped.entries.toList()
+          ..sort((a, b) {
+            final left = _sourceOrder.indexOf(a.key);
+            final right = _sourceOrder.indexOf(b.key);
+            final leftIndex = left == -1 ? _sourceOrder.length : left;
+            final rightIndex = right == -1 ? _sourceOrder.length : right;
+            return leftIndex.compareTo(rightIndex);
+          });
+
         return Scaffold(
-          backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+          backgroundColor: const Color(0xFFF6F8FB),
           body: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _Header(onAdd: () => _showCreateDialog(context, controller)),
+              _OverviewHeader(
+                ruleCount: controller.rules.length,
+                providerCount: controller.accounts
+                    .where((account) => account.connected)
+                    .length,
+                enabledCount:
+                    controller.rules.where((rule) => rule.enabled).length,
+                latestSync: _latestSync(controller.accounts),
+                onCreate: () => _openBuilder(context, controller),
+              ),
               if (controller.status == AutomationRulesStatus.error &&
                   controller.errorMessage != null)
                 ErrorBanner(
@@ -43,19 +76,19 @@ class _AutomationRulesViewState extends State<AutomationRulesView> {
                     ? const Center(child: CircularProgressIndicator())
                     : controller.rules.isEmpty
                         ? _EmptyState(
-                            onAdd: () => _showCreateDialog(context, controller))
-                        : ListView.builder(
-                            padding: const EdgeInsets.all(24),
-                            itemCount: controller.rules.length,
-                            itemBuilder: (context, i) => _RuleCard(
-                              rule: controller.rules[i],
-                              onToggle: () => controller
-                                  .toggleEnabled(controller.rules[i].id),
-                              onDelete: () =>
-                                  controller.deleteRule(controller.rules[i].id),
-                              onEdit: () => _showEditDialog(
-                                  context, controller, controller.rules[i]),
-                            ),
+                            onCreate: () => _openBuilder(context, controller),
+                          )
+                        : ListView(
+                            padding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
+                            children: orderedEntries
+                                .map(
+                                  (entry) => _RuleGroup(
+                                    source: entry.key,
+                                    rules: entry.value,
+                                    controller: controller,
+                                  ),
+                                )
+                                .toList(),
                           ),
               ),
             ],
@@ -65,419 +98,136 @@ class _AutomationRulesViewState extends State<AutomationRulesView> {
     );
   }
 
-  Future<void> _showCreateDialog(
-      BuildContext context, AutomationRulesController controller) async {
-    final nameCtrl = TextEditingController();
-    String selectedTrigger = AutomationRule.triggerTypes.first;
-    String selectedAction = AutomationRule.actionTypes.first;
-    final triggerConfigCtrls = <String, TextEditingController>{};
-    final actionConfigCtrls = <String, TextEditingController>{};
-    int? daysBeforeDue;
-    int? targetDay;
+  String? _latestSync(List<IntegrationAccount> accounts) {
+    final values = accounts
+        .map((account) => account.lastSyncedAt)
+        .whereType<String>()
+        .toList()
+      ..sort();
+    return values.isEmpty ? null : values.last;
+  }
 
-    await showDialog<void>(
+  Future<void> _openBuilder(
+    BuildContext context,
+    AutomationRulesController controller, {
+    AutomationRule? existing,
+  }) async {
+    final result = await showDialog<_AutomationDraft>(
       context: context,
-      builder: (dialogContext) => StatefulBuilder(
-        builder: (ctx, setDialogState) => AlertDialog(
-          title: const Text('New Automation Rule'),
-          content: SizedBox(
-            width: 420,
-            child: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  TextField(
-                    controller: nameCtrl,
-                    decoration: const InputDecoration(
-                      labelText: 'Rule name',
-                      border: OutlineInputBorder(),
-                    ),
-                    autofocus: true,
-                  ),
-                  const SizedBox(height: 16),
-                  const Text('When\u2026',
-                      style: TextStyle(fontWeight: FontWeight.w600)),
-                  const SizedBox(height: 8),
-                  DropdownButtonFormField<String>(
-                    value: selectedTrigger,
-                    decoration:
-                        const InputDecoration(border: OutlineInputBorder()),
-                    items: AutomationRule.triggerTypes
-                        .map((t) => DropdownMenuItem(
-                              value: t,
-                              child: Text(AutomationRule.triggerLabel(t)),
-                            ))
-                        .toList(),
-                    onChanged: (v) => setDialogState(() {
-                      selectedTrigger = v ?? selectedTrigger;
-                      daysBeforeDue = null;
-                      triggerConfigCtrls.forEach((_, c) => c.dispose());
-                      triggerConfigCtrls.clear();
-                    }),
-                  ),
-                  ..._buildTriggerConfigFields(
-                    selectedTrigger,
-                    triggerConfigCtrls,
-                    daysBeforeDue,
-                    (v) => setDialogState(() => daysBeforeDue = v),
-                    setDialogState,
-                  ),
-                  const SizedBox(height: 16),
-                  const Text('Then\u2026',
-                      style: TextStyle(fontWeight: FontWeight.w600)),
-                  const SizedBox(height: 8),
-                  DropdownButtonFormField<String>(
-                    value: selectedAction,
-                    decoration:
-                        const InputDecoration(border: OutlineInputBorder()),
-                    items: AutomationRule.actionTypes
-                        .map((a) => DropdownMenuItem(
-                              value: a,
-                              child: Text(AutomationRule.actionLabel(a)),
-                            ))
-                        .toList(),
-                    onChanged: (v) => setDialogState(() {
-                      selectedAction = v ?? selectedAction;
-                      targetDay = null;
-                      actionConfigCtrls.forEach((_, c) => c.dispose());
-                      actionConfigCtrls.clear();
-                    }),
-                  ),
-                  ..._buildActionConfigFields(
-                    selectedAction,
-                    actionConfigCtrls,
-                    targetDay,
-                    (v) => setDialogState(() => targetDay = v),
-                    setDialogState,
-                  ),
-                ],
-              ),
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: () async {
-                final name = nameCtrl.text.trim();
-                if (name.isEmpty) return;
-                final triggerConfig = _buildTriggerConfig(
-                    selectedTrigger, triggerConfigCtrls, daysBeforeDue);
-                final actionConfig = _buildActionConfig(
-                    selectedAction, actionConfigCtrls, targetDay);
-                Navigator.pop(dialogContext);
-                await controller.createRule(
-                  name: name,
-                  triggerType: selectedTrigger,
-                  actionType: selectedAction,
-                  triggerConfig: triggerConfig.isEmpty ? null : triggerConfig,
-                  actionConfig: actionConfig.isEmpty ? null : actionConfig,
-                );
-              },
-              child: const Text('Create'),
-            ),
-          ],
-        ),
+      builder: (context) => _AutomationBuilderDialog(
+        controller: controller,
+        existing: existing,
       ),
     );
-
-    nameCtrl.dispose();
-    triggerConfigCtrls.forEach((_, c) => c.dispose());
-    actionConfigCtrls.forEach((_, c) => c.dispose());
+    if (result == null) return;
+    if (existing == null) {
+      await controller.createRule(
+        name: result.name,
+        source: result.source,
+        triggerKey: result.triggerKey,
+        actionType: result.actionType,
+        triggerConfig: result.triggerConfig,
+        actionConfig: result.actionConfig,
+        sourceAccountId: result.sourceAccountId,
+      );
+      return;
+    }
+    await controller.updateRule(
+      existing.id,
+      name: result.name,
+      source: result.source,
+      triggerKey: result.triggerKey,
+      actionType: result.actionType,
+      triggerConfig: result.triggerConfig,
+      actionConfig: result.actionConfig,
+      sourceAccountId: result.sourceAccountId,
+    );
   }
 
-  Future<void> _showEditDialog(BuildContext context,
-      AutomationRulesController controller, AutomationRule rule) async {
-    final nameCtrl = TextEditingController(text: rule.name);
-    String selectedTrigger = rule.triggerType;
-    String selectedAction = rule.actionType;
-    final triggerConfigCtrls = <String, TextEditingController>{};
-    final actionConfigCtrls = <String, TextEditingController>{};
-
-    // Pre-populate config values from the existing rule
-    int? daysBeforeDue =
-        (rule.triggerConfig?['daysBeforeDue'] as num?)?.toInt();
-    int? targetDay = (rule.actionConfig?['targetDay'] as num?)?.toInt();
-
-    // Pre-populate text controllers for action config
-    if (rule.actionConfig?['message'] != null) {
-      actionConfigCtrls['message'] =
-          TextEditingController(text: rule.actionConfig!['message'] as String);
-    }
-    if (rule.actionConfig?['tag'] != null) {
-      actionConfigCtrls['tag'] =
-          TextEditingController(text: rule.actionConfig!['tag'] as String);
-    }
-
+  Future<void> _openPreview(
+    BuildContext context,
+    AutomationRulesController controller,
+    AutomationRule rule,
+  ) async {
+    await controller.loadPreview(rule.id);
+    if (!context.mounted) return;
     await showDialog<void>(
       context: context,
-      builder: (dialogContext) => StatefulBuilder(
-        builder: (ctx, setDialogState) => AlertDialog(
-          title: const Text('Edit Automation Rule'),
-          content: SizedBox(
-            width: 420,
-            child: SingleChildScrollView(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  TextField(
-                    controller: nameCtrl,
-                    decoration: const InputDecoration(
-                      labelText: 'Rule name',
-                      border: OutlineInputBorder(),
-                    ),
-                    autofocus: true,
-                  ),
-                  const SizedBox(height: 16),
-                  const Text('When\u2026',
-                      style: TextStyle(fontWeight: FontWeight.w600)),
-                  const SizedBox(height: 8),
-                  DropdownButtonFormField<String>(
-                    value: selectedTrigger,
-                    decoration:
-                        const InputDecoration(border: OutlineInputBorder()),
-                    items: AutomationRule.triggerTypes
-                        .map((t) => DropdownMenuItem(
-                              value: t,
-                              child: Text(AutomationRule.triggerLabel(t)),
-                            ))
-                        .toList(),
-                    onChanged: (v) => setDialogState(() {
-                      selectedTrigger = v ?? selectedTrigger;
-                      daysBeforeDue = null;
-                      triggerConfigCtrls.forEach((_, c) => c.dispose());
-                      triggerConfigCtrls.clear();
-                    }),
-                  ),
-                  ..._buildTriggerConfigFields(
-                    selectedTrigger,
-                    triggerConfigCtrls,
-                    daysBeforeDue,
-                    (v) => setDialogState(() => daysBeforeDue = v),
-                    setDialogState,
-                  ),
-                  const SizedBox(height: 16),
-                  const Text('Then\u2026',
-                      style: TextStyle(fontWeight: FontWeight.w600)),
-                  const SizedBox(height: 8),
-                  DropdownButtonFormField<String>(
-                    value: selectedAction,
-                    decoration:
-                        const InputDecoration(border: OutlineInputBorder()),
-                    items: AutomationRule.actionTypes
-                        .map((a) => DropdownMenuItem(
-                              value: a,
-                              child: Text(AutomationRule.actionLabel(a)),
-                            ))
-                        .toList(),
-                    onChanged: (v) => setDialogState(() {
-                      selectedAction = v ?? selectedAction;
-                      targetDay = null;
-                      actionConfigCtrls.forEach((_, c) => c.dispose());
-                      actionConfigCtrls.clear();
-                    }),
-                  ),
-                  ..._buildActionConfigFields(
-                    selectedAction,
-                    actionConfigCtrls,
-                    targetDay,
-                    (v) => setDialogState(() => targetDay = v),
-                    setDialogState,
-                  ),
-                ],
-              ),
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(dialogContext),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: () async {
-                final name = nameCtrl.text.trim();
-                if (name.isEmpty) return;
-                final triggerConfig = _buildTriggerConfig(
-                    selectedTrigger, triggerConfigCtrls, daysBeforeDue);
-                final actionConfig = _buildActionConfig(
-                    selectedAction, actionConfigCtrls, targetDay);
-                Navigator.pop(dialogContext);
-                await controller.updateRule(
-                  rule.id,
-                  name: name,
-                  triggerType: selectedTrigger,
-                  actionType: selectedAction,
-                  triggerConfig: triggerConfig.isEmpty ? null : triggerConfig,
-                  actionConfig: actionConfig.isEmpty ? null : actionConfig,
-                );
-              },
-              child: const Text('Save'),
-            ),
-          ],
-        ),
+      builder: (context) => _AutomationPreviewDialog(
+        rule: rule,
+        preview: controller.selectedPreview,
       ),
     );
-
-    nameCtrl.dispose();
-    triggerConfigCtrls.forEach((_, c) => c.dispose());
-    actionConfigCtrls.forEach((_, c) => c.dispose());
-  }
-
-  /// Returns config fields widgets for the chosen trigger type.
-  List<Widget> _buildTriggerConfigFields(
-    String triggerType,
-    Map<String, TextEditingController> ctrls,
-    int? daysBeforeDue,
-    ValueChanged<int?> onDaysChanged,
-    StateSetter setDialogState,
-  ) {
-    switch (triggerType) {
-      case 'task_due':
-      case 'project_step_due':
-        return [
-          const SizedBox(height: 12),
-          _IntegerField(
-            label: 'Days before due date',
-            value: daysBeforeDue,
-            onChanged: onDaysChanged,
-          ),
-        ];
-      default:
-        return [];
-    }
-  }
-
-  /// Returns config fields widgets for the chosen action type.
-  List<Widget> _buildActionConfigFields(
-    String actionType,
-    Map<String, TextEditingController> ctrls,
-    int? targetDay,
-    ValueChanged<int?> onDayChanged,
-    StateSetter setDialogState,
-  ) {
-    switch (actionType) {
-      case 'auto_schedule':
-        return [
-          const SizedBox(height: 12),
-          DropdownButtonFormField<int>(
-            value: targetDay,
-            decoration: const InputDecoration(
-              labelText: 'Schedule to day',
-              border: OutlineInputBorder(),
-            ),
-            items: const [
-              DropdownMenuItem(value: 0, child: Text('Sunday')),
-              DropdownMenuItem(value: 1, child: Text('Monday')),
-              DropdownMenuItem(value: 2, child: Text('Tuesday')),
-              DropdownMenuItem(value: 3, child: Text('Wednesday')),
-              DropdownMenuItem(value: 4, child: Text('Thursday')),
-              DropdownMenuItem(value: 5, child: Text('Friday')),
-              DropdownMenuItem(value: 6, child: Text('Saturday')),
-            ],
-            onChanged: (v) => setDialogState(() => onDayChanged(v)),
-          ),
-        ];
-      case 'send_notification':
-        ctrls.putIfAbsent('message', () => TextEditingController());
-        return [
-          const SizedBox(height: 12),
-          TextField(
-            controller: ctrls['message'],
-            decoration: const InputDecoration(
-              labelText: 'Notification message (optional)',
-              border: OutlineInputBorder(),
-            ),
-          ),
-        ];
-      case 'tag_task':
-        ctrls.putIfAbsent('tag', () => TextEditingController());
-        return [
-          const SizedBox(height: 12),
-          TextField(
-            controller: ctrls['tag'],
-            decoration: const InputDecoration(
-              labelText: 'Tag name',
-              border: OutlineInputBorder(),
-            ),
-          ),
-        ];
-      default:
-        return [];
-    }
-  }
-
-  Map<String, dynamic> _buildTriggerConfig(
-    String triggerType,
-    Map<String, TextEditingController> ctrls,
-    int? daysBeforeDue,
-  ) {
-    switch (triggerType) {
-      case 'task_due':
-      case 'project_step_due':
-        return {'daysBeforeDue': daysBeforeDue ?? 0};
-      default:
-        return {};
-    }
-  }
-
-  Map<String, dynamic> _buildActionConfig(
-    String actionType,
-    Map<String, TextEditingController> ctrls,
-    int? targetDay,
-  ) {
-    switch (actionType) {
-      case 'auto_schedule':
-        if (targetDay != null) return {'targetDay': targetDay};
-        return {};
-      case 'send_notification':
-        final msg = ctrls['message']?.text.trim() ?? '';
-        if (msg.isNotEmpty) return {'message': msg};
-        return {};
-      case 'tag_task':
-        final tag = ctrls['tag']?.text.trim() ?? '';
-        if (tag.isNotEmpty) return {'tag': tag};
-        return {};
-      default:
-        return {};
-    }
   }
 }
 
-class _Header extends StatelessWidget {
-  const _Header({required this.onAdd});
-  final VoidCallback onAdd;
+class _OverviewHeader extends StatelessWidget {
+  const _OverviewHeader({
+    required this.ruleCount,
+    required this.providerCount,
+    required this.enabledCount,
+    required this.latestSync,
+    required this.onCreate,
+  });
+
+  final int ruleCount;
+  final int providerCount;
+  final int enabledCount;
+  final String? latestSync;
+  final VoidCallback onCreate;
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+      padding: const EdgeInsets.fromLTRB(24, 24, 24, 16),
       decoration: const BoxDecoration(
         color: Colors.white,
         border: Border(bottom: BorderSide(color: Color(0xFFE5E7EB))),
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('Automations',
-                    style:
-                        TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-                SizedBox(height: 2),
-                Text('Rules that apply during weekly plan assembly',
-                    style: TextStyle(color: Colors.black54, fontSize: 13)),
-              ],
-            ),
+          Row(
+            children: [
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Automations',
+                      style:
+                          TextStyle(fontSize: 24, fontWeight: FontWeight.w700),
+                    ),
+                    SizedBox(height: 4),
+                    Text(
+                      'Create sync-driven automations from Planning Center, Calendar, Gmail, and Rhythm.',
+                      style: TextStyle(color: Colors.black54),
+                    ),
+                  ],
+                ),
+              ),
+              FilledButton.icon(
+                onPressed: onCreate,
+                icon: const Icon(Icons.add, size: 18),
+                label: const Text('New automation'),
+              ),
+            ],
           ),
-          FilledButton.icon(
-            onPressed: onAdd,
-            icon: const Icon(Icons.add, size: 18),
-            label: const Text('New Rule'),
+          const SizedBox(height: 16),
+          Wrap(
+            spacing: 12,
+            runSpacing: 12,
+            children: [
+              _StatCard(label: 'Rules', value: '$ruleCount'),
+              _StatCard(label: 'Enabled', value: '$enabledCount'),
+              _StatCard(label: 'Connected providers', value: '$providerCount'),
+              _StatCard(
+                label: 'Latest sync',
+                value: latestSync == null
+                    ? 'Never'
+                    : latestSync!.replaceFirst('T', ' '),
+              ),
+            ],
           ),
         ],
       ),
@@ -485,9 +235,40 @@ class _Header extends StatelessWidget {
   }
 }
 
+class _StatCard extends StatelessWidget {
+  const _StatCard({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 180,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FAFC),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label, style: const TextStyle(color: Colors.black54)),
+          const SizedBox(height: 6),
+          Text(value,
+              style:
+                  const TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+        ],
+      ),
+    );
+  }
+}
+
 class _EmptyState extends StatelessWidget {
-  const _EmptyState({required this.onAdd});
-  final VoidCallback onAdd;
+  const _EmptyState({required this.onCreate});
+
+  final VoidCallback onCreate;
 
   @override
   Widget build(BuildContext context) {
@@ -495,18 +276,85 @@ class _EmptyState extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.auto_awesome, size: 48, color: Colors.grey[400]),
+          Icon(Icons.bolt_outlined, size: 52, color: Colors.grey[400]),
           const SizedBox(height: 16),
-          const Text('No automation rules yet',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w500)),
+          const Text(
+            'No automations yet',
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+          ),
           const SizedBox(height: 8),
-          Text('Rules run automatically during plan assembly',
-              style: TextStyle(color: Colors.grey[600])),
-          const SizedBox(height: 24),
+          Text(
+            'Connect providers, sync data, and create rules from external metadata.',
+            style: TextStyle(color: Colors.grey[600]),
+          ),
+          const SizedBox(height: 20),
           FilledButton.icon(
-            onPressed: onAdd,
-            icon: const Icon(Icons.add, size: 18),
-            label: const Text('Create your first rule'),
+            onPressed: onCreate,
+            icon: const Icon(Icons.add),
+            label: const Text('Create automation'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _RuleGroup extends StatelessWidget {
+  const _RuleGroup({
+    required this.source,
+    required this.rules,
+    required this.controller,
+  });
+
+  final String source;
+  final List<AutomationRule> rules;
+  final AutomationRulesController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final account = controller.accounts
+        .where((item) => item.provider == source)
+        .cast<IntegrationAccount?>()
+        .firstOrNull;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            _labelForSource(source),
+            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            account == null
+                ? 'Internal Rhythm rules'
+                : '${account.accountLabel ?? account.providerDisplayName ?? account.provider} · ${account.syncSupportMode ?? 'manual'} sync',
+            style: const TextStyle(color: Colors.black54),
+          ),
+          const SizedBox(height: 12),
+          ...rules.map(
+            (rule) => Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: _RuleCard(
+                rule: rule,
+                account: account,
+                trigger: controller.triggers
+                    .where((item) => item.key == rule.triggerKey)
+                    .firstOrNull,
+                action: controller.actions
+                    .where((item) => item.key == rule.actionType)
+                    .firstOrNull,
+                onEdit: () => context
+                    .findAncestorStateOfType<_AutomationRulesViewState>()
+                    ?._openBuilder(context, controller, existing: rule),
+                onInspect: () => context
+                    .findAncestorStateOfType<_AutomationRulesViewState>()
+                    ?._openPreview(context, controller, rule),
+                onDelete: () => controller.deleteRule(rule.id),
+                onToggle: () => controller.toggleEnabled(rule.id),
+              ),
+            ),
           ),
         ],
       ),
@@ -517,157 +365,962 @@ class _EmptyState extends StatelessWidget {
 class _RuleCard extends StatelessWidget {
   const _RuleCard({
     required this.rule,
-    required this.onToggle,
-    required this.onDelete,
+    required this.account,
+    required this.trigger,
+    required this.action,
     required this.onEdit,
+    required this.onInspect,
+    required this.onDelete,
+    required this.onToggle,
   });
 
   final AutomationRule rule;
-  final VoidCallback onToggle;
-  final VoidCallback onDelete;
+  final IntegrationAccount? account;
+  final AutomationTriggerCatalogItem? trigger;
+  final AutomationActionCatalogItem? action;
   final VoidCallback onEdit;
+  final VoidCallback onInspect;
+  final VoidCallback onDelete;
+  final VoidCallback onToggle;
 
   @override
   Widget build(BuildContext context) {
-    final dimmed = !rule.enabled;
+    final accountLabel = account?.accountLabel ??
+        account?.providerDisplayName ??
+        _labelForSource(rule.source);
     return Card(
-      margin: const EdgeInsets.only(bottom: 12),
       elevation: 0,
+      color: Colors.white,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(12),
         side: const BorderSide(color: Color(0xFFE5E7EB)),
       ),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            Switch(value: rule.enabled, onChanged: (_) => onToggle()),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    rule.name,
-                    style: TextStyle(
-                      fontWeight: FontWeight.w600,
-                      fontSize: 14,
-                      color: dimmed ? Colors.grey : null,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: onInspect,
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Switch(value: rule.enabled, onChanged: (_) => onToggle()),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(rule.name,
+                        style: const TextStyle(
+                            fontSize: 15, fontWeight: FontWeight.w700)),
+                    const SizedBox(height: 6),
+                    Text(
+                      '${trigger?.label ?? rule.triggerKey} -> ${action?.label ?? rule.actionType}',
+                      style: const TextStyle(color: Color(0xFF2563EB)),
                     ),
-                  ),
-                  const SizedBox(height: 6),
-                  _IfThenRow(rule: rule, dimmed: dimmed),
-                ],
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 10,
+                      runSpacing: 8,
+                      children: [
+                        _MetaChip(
+                          icon: Icons.account_circle_outlined,
+                          label: accountLabel,
+                        ),
+                        _MetaChip(
+                          icon: Icons.sync,
+                          label: account?.connected == true
+                              ? 'Connected'
+                              : rule.source == 'rhythm'
+                                  ? 'Internal'
+                                  : 'Disconnected',
+                        ),
+                        _MetaChip(
+                          icon: Icons.bolt_outlined,
+                          label: rule.lastMatchedAt == null
+                              ? 'No recent matches'
+                              : '${rule.matchCountLastRun} match(es)',
+                        ),
+                        _MetaChip(
+                          icon: Icons.schedule_outlined,
+                          label: rule.lastEvaluatedAt == null
+                              ? 'Not evaluated yet'
+                              : 'Evaluated ${_formatStamp(rule.lastEvaluatedAt!)}',
+                        ),
+                      ],
+                    ),
+                    if (rule.previewSample != null) ...[
+                      const SizedBox(height: 10),
+                      Text(
+                        _previewLabel(rule.previewSample!),
+                        style: const TextStyle(color: Colors.black54),
+                      ),
+                    ],
+                  ],
+                ),
               ),
-            ),
-            const SizedBox(width: 8),
-            IconButton(
-              icon: const Icon(Icons.edit_outlined, size: 18),
-              color: Colors.grey[600],
-              onPressed: onEdit,
-              tooltip: 'Edit rule',
-            ),
-            IconButton(
-              icon: const Icon(Icons.delete_outline, size: 18),
-              color: Colors.grey,
-              onPressed: onDelete,
-              tooltip: 'Delete rule',
-            ),
-          ],
+              IconButton(
+                onPressed: onInspect,
+                icon: const Icon(Icons.visibility_outlined),
+              ),
+              IconButton(
+                onPressed: onEdit,
+                icon: const Icon(Icons.edit_outlined),
+              ),
+              IconButton(
+                onPressed: onDelete,
+                icon: const Icon(Icons.delete_outline),
+              ),
+            ],
+          ),
         ),
       ),
     );
   }
+
+  String _previewLabel(Map<String, dynamic> preview) {
+    return [
+      preview['title'],
+      preview['subject'],
+      preview['serviceTypeName'],
+      preview['positionName'],
+    ].whereType<Object>().join(' · ');
+  }
 }
 
-class _IfThenRow extends StatelessWidget {
-  const _IfThenRow({required this.rule, required this.dimmed});
+class _AutomationPreviewDialog extends StatelessWidget {
+  const _AutomationPreviewDialog({
+    required this.rule,
+    required this.preview,
+  });
 
   final AutomationRule rule;
-  final bool dimmed;
+  final AutomationRulePreview? preview;
 
   @override
   Widget build(BuildContext context) {
-    final baseTextStyle = TextStyle(
-      fontSize: 13,
-      color: dimmed ? Colors.grey[400] : Colors.black87,
-    );
-    final keywordStyle = baseTextStyle.copyWith(
-      fontWeight: FontWeight.w600,
-      color: dimmed ? Colors.grey[400] : Colors.black87,
-    );
-    final triggerStyle = baseTextStyle.copyWith(
-      color: dimmed ? Colors.grey[400] : const Color(0xFF1D4ED8),
-    );
-    final actionStyle = baseTextStyle.copyWith(
-      color: dimmed ? Colors.grey[400] : const Color(0xFF15803D),
-    );
-
-    return Wrap(
-      crossAxisAlignment: WrapCrossAlignment.center,
-      spacing: 4,
-      children: [
-        Text('When', style: keywordStyle),
-        Text(AutomationRule.triggerLabel(rule.triggerType),
-            style: triggerStyle),
-        Icon(
-          Icons.arrow_forward,
-          size: 13,
-          color: dimmed ? Colors.grey[400] : Colors.grey[600],
+    final summary = preview?.summary ??
+        'No preview summary is available yet for this automation.';
+    final sample = preview?.previewSample ?? rule.previewSample;
+    return AlertDialog(
+      title: Text(rule.name),
+      content: SizedBox(
+        width: 520,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(summary),
+            const SizedBox(height: 16),
+            Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children: [
+                _MetaChip(
+                  icon: Icons.bolt_outlined,
+                  label: preview?.matchCountLastRun == null
+                      ? 'No recent run'
+                      : '${preview!.matchCountLastRun} match(es) last run',
+                ),
+                _MetaChip(
+                  icon: Icons.schedule_outlined,
+                  label: preview?.lastEvaluatedAt == null
+                      ? 'Never evaluated'
+                      : 'Evaluated ${_formatStamp(preview!.lastEvaluatedAt!)}',
+                ),
+                _MetaChip(
+                  icon: Icons.history_toggle_off,
+                  label: preview?.lastMatchedAt == null
+                      ? 'No recent match'
+                      : 'Matched ${_formatStamp(preview!.lastMatchedAt!)}',
+                ),
+              ],
+            ),
+            if (sample != null) ...[
+              const SizedBox(height: 16),
+              const Text(
+                'Latest sample',
+                style: TextStyle(fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(height: 8),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF8FAFC),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  sample.entries
+                      .where((entry) => entry.value != null)
+                      .map((entry) => '${entry.key}: ${entry.value}')
+                      .join('\n'),
+                ),
+              ),
+            ],
+          ],
         ),
-        Text(AutomationRule.actionLabel(rule.actionType), style: actionStyle),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Close'),
+        ),
       ],
     );
   }
 }
 
-/// A simple integer input field.
-class _IntegerField extends StatefulWidget {
-  const _IntegerField({
-    required this.label,
-    required this.value,
-    required this.onChanged,
-  });
+class _MetaChip extends StatelessWidget {
+  const _MetaChip({required this.icon, required this.label});
 
+  final IconData icon;
   final String label;
-  final int? value;
-  final ValueChanged<int?> onChanged;
 
   @override
-  State<_IntegerField> createState() => _IntegerFieldState();
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FAFC),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 14, color: Colors.black54),
+          const SizedBox(width: 6),
+          Text(label, style: const TextStyle(fontSize: 12)),
+        ],
+      ),
+    );
+  }
 }
 
-class _IntegerFieldState extends State<_IntegerField> {
-  late final TextEditingController _ctrl;
+class _AutomationDraft {
+  const _AutomationDraft({
+    required this.name,
+    required this.source,
+    required this.triggerKey,
+    required this.actionType,
+    required this.triggerConfig,
+    required this.actionConfig,
+    this.sourceAccountId,
+  });
+
+  final String name;
+  final String source;
+  final String triggerKey;
+  final String actionType;
+  final Map<String, dynamic>? triggerConfig;
+  final Map<String, dynamic>? actionConfig;
+  final String? sourceAccountId;
+}
+
+class _AutomationBuilderDialog extends StatefulWidget {
+  const _AutomationBuilderDialog({
+    required this.controller,
+    this.existing,
+  });
+
+  final AutomationRulesController controller;
+  final AutomationRule? existing;
+
+  @override
+  State<_AutomationBuilderDialog> createState() =>
+      _AutomationBuilderDialogState();
+}
+
+class _AutomationBuilderDialogState extends State<_AutomationBuilderDialog> {
+  late final TextEditingController _nameController;
+  late final TextEditingController _textQueryController;
+  late final TextEditingController _senderController;
+  late final TextEditingController _subjectController;
+  late final TextEditingController _titleTemplateController;
+  late final TextEditingController _notesTemplateController;
+  late final TextEditingController _messageTemplateController;
+  late final TextEditingController _templateNameController;
+  late final TextEditingController _tagController;
+  String? _selectedSource;
+  String? _selectedTriggerKey;
+  String? _selectedActionType;
+  String? _selectedAccountId;
+  String? _selectedTeamId;
+  String? _selectedPositionName;
+  String? _selectedEventType;
+  String? _selectedLabel;
+  int? _leadDays;
+  int? _dateWindowDays;
+  int? _hoursSinceReceived;
+  int? _targetDay;
+  bool _allDayOnly = false;
+  String? _validationError;
 
   @override
   void initState() {
     super.initState();
-    _ctrl = TextEditingController(
-        text: widget.value != null ? widget.value.toString() : '');
+    final existing = widget.existing;
+    _nameController = TextEditingController(text: existing?.name ?? '');
+    _textQueryController = TextEditingController(
+      text: existing?.triggerConfig?['textQuery']?.toString() ?? '',
+    );
+    _senderController = TextEditingController(
+      text: existing?.triggerConfig?['sender']?.toString() ?? '',
+    );
+    _subjectController = TextEditingController(
+      text: existing?.triggerConfig?['subjectContains']?.toString() ?? '',
+    );
+    _titleTemplateController = TextEditingController(
+      text: existing?.actionConfig?['titleTemplate']?.toString() ?? '',
+    );
+    _notesTemplateController = TextEditingController(
+      text: existing?.actionConfig?['notesTemplate']?.toString() ?? '',
+    );
+    _messageTemplateController = TextEditingController(
+      text: existing?.actionConfig?['messageTemplate']?.toString() ?? '',
+    );
+    _templateNameController = TextEditingController(
+      text: existing?.actionConfig?['templateName']?.toString() ?? '',
+    );
+    _tagController = TextEditingController(
+      text: existing?.actionConfig?['tag']?.toString() ?? '',
+    );
+    _selectedSource =
+        existing?.source ?? widget.controller.providers.firstOrNull?.source;
+    _selectedTriggerKey = existing?.triggerKey;
+    _selectedActionType =
+        existing?.actionType ?? widget.controller.actions.firstOrNull?.key;
+    _selectedAccountId = existing?.sourceAccountId;
+    _selectedTeamId = existing?.triggerConfig?['teamId']?.toString();
+    _selectedPositionName =
+        existing?.triggerConfig?['positionName']?.toString();
+    _selectedEventType = existing?.triggerConfig?['eventType']?.toString();
+    _selectedLabel = existing?.triggerConfig?['label']?.toString();
+    _leadDays = (existing?.triggerConfig?['leadDays'] as num?)?.toInt();
+    _dateWindowDays =
+        (existing?.triggerConfig?['dateWindowDays'] as num?)?.toInt();
+    _hoursSinceReceived =
+        (existing?.triggerConfig?['hoursSinceReceived'] as num?)?.toInt();
+    _targetDay = (existing?.actionConfig?['targetDay'] as num?)?.toInt();
+    _allDayOnly = existing?.triggerConfig?['allDayOnly'] == true;
+    _syncAccountSelectionWithSource();
+    if (existing == null && _nameController.text.trim().isEmpty) {
+      _nameController.text = _suggestedName();
+    }
   }
 
   @override
   void dispose() {
-    _ctrl.dispose();
+    _nameController.dispose();
+    _textQueryController.dispose();
+    _senderController.dispose();
+    _subjectController.dispose();
+    _titleTemplateController.dispose();
+    _notesTemplateController.dispose();
+    _messageTemplateController.dispose();
+    _templateNameController.dispose();
+    _tagController.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    return TextField(
-      controller: _ctrl,
-      keyboardType: TextInputType.number,
-      inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-      decoration: InputDecoration(
-        labelText: widget.label,
-        border: const OutlineInputBorder(),
+    final triggers = widget.controller.triggers
+        .where((item) => item.source == _selectedSource)
+        .toList();
+    _selectedTriggerKey ??= triggers.firstOrNull?.key;
+    _selectedActionType ??= widget.controller.actions.firstOrNull?.key;
+    final trigger =
+        triggers.where((item) => item.key == _selectedTriggerKey).firstOrNull;
+
+    return AlertDialog(
+      title:
+          Text(widget.existing == null ? 'New automation' : 'Edit automation'),
+      content: SizedBox(
+        width: 620,
+        child: SingleChildScrollView(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _stepTitle('1. Source'),
+              TextField(
+                controller: _nameController,
+                decoration: const InputDecoration(
+                  labelText: 'Automation name',
+                  border: OutlineInputBorder(),
+                ),
+              ),
+              const SizedBox(height: 12),
+              DropdownButtonFormField<String>(
+                value: _selectedSource,
+                decoration: const InputDecoration(
+                    labelText: 'Source', border: OutlineInputBorder()),
+                items: _availableProviders()
+                    .map((item) => DropdownMenuItem(
+                          value: item.source,
+                          child: Text(item.label),
+                        ))
+                    .toList(),
+                onChanged: (value) => setState(() {
+                  _selectedSource = value;
+                  _selectedTriggerKey = widget.controller.triggers
+                      .where((item) => item.source == value)
+                      .firstOrNull
+                      ?.key;
+                  _syncAccountSelectionWithSource();
+                  _populateSuggestedNameIfEmpty();
+                }),
+              ),
+              const SizedBox(height: 12),
+              DropdownButtonFormField<String?>(
+                value: _selectedAccountId,
+                decoration: const InputDecoration(
+                  labelText: 'Connected account',
+                  border: OutlineInputBorder(),
+                ),
+                items: [
+                  const DropdownMenuItem<String?>(
+                    value: null,
+                    child: Text('Use default/internal source'),
+                  ),
+                  ...widget.controller.accounts
+                      .where((item) => item.provider == _selectedSource)
+                      .map((item) => DropdownMenuItem<String?>(
+                            value: item.id,
+                            child: Text(item.accountLabel ??
+                                item.providerDisplayName ??
+                                item.provider),
+                          )),
+                ],
+                onChanged: (value) =>
+                    setState(() => _selectedAccountId = value),
+              ),
+              if (_selectedSource != null && _validationError != null) ...[
+                const SizedBox(height: 10),
+                Text(
+                  _validationError!,
+                  style: const TextStyle(color: Colors.redAccent),
+                ),
+              ],
+              const SizedBox(height: 18),
+              _stepTitle('2. Trigger'),
+              DropdownButtonFormField<String>(
+                value: _selectedTriggerKey,
+                decoration: const InputDecoration(
+                  labelText: 'Trigger',
+                  border: OutlineInputBorder(),
+                ),
+                items: triggers
+                    .map((item) => DropdownMenuItem(
+                          value: item.key,
+                          child: Text(item.label),
+                        ))
+                    .toList(),
+                onChanged: (value) => setState(() {
+                  _selectedTriggerKey = value;
+                  _populateSuggestedNameIfEmpty();
+                }),
+              ),
+              if (trigger != null) ...[
+                const SizedBox(height: 8),
+                Text(trigger.description,
+                    style: const TextStyle(color: Colors.black54)),
+                const SizedBox(height: 12),
+                ..._buildTriggerFields(trigger),
+              ],
+              const SizedBox(height: 18),
+              _stepTitle('3. Action'),
+              DropdownButtonFormField<String>(
+                value: _selectedActionType,
+                decoration: const InputDecoration(
+                  labelText: 'Action',
+                  border: OutlineInputBorder(),
+                ),
+                items: widget.controller.actions
+                    .map((item) => DropdownMenuItem(
+                          value: item.key,
+                          child: Text(item.label),
+                        ))
+                    .toList(),
+                onChanged: (value) => setState(() {
+                  _selectedActionType = value;
+                  _populateSuggestedNameIfEmpty();
+                }),
+              ),
+              const SizedBox(height: 12),
+              ..._buildActionFields(),
+              const SizedBox(height: 18),
+              _stepTitle('4. Review'),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF8FAFC),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(_reviewSummary(trigger)),
+              ),
+            ],
+          ),
+        ),
       ),
-      onChanged: (v) {
-        final parsed = int.tryParse(v);
-        widget.onChanged(parsed);
-      },
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () {
+            final name = _nameController.text.trim().isEmpty
+                ? _suggestedName()
+                : _nameController.text.trim();
+            final validationError = _validateDraft();
+            setState(() => _validationError = validationError);
+            if (_selectedSource == null ||
+                _selectedTriggerKey == null ||
+                _selectedActionType == null ||
+                validationError != null) {
+              return;
+            }
+            Navigator.pop(
+              context,
+              _AutomationDraft(
+                name: name,
+                source: _selectedSource!,
+                triggerKey: _selectedTriggerKey!,
+                actionType: _selectedActionType!,
+                triggerConfig: _buildTriggerConfig(),
+                actionConfig: _buildActionConfig(),
+                sourceAccountId: _selectedAccountId,
+              ),
+            );
+          },
+          child: Text(widget.existing == null ? 'Create' : 'Save'),
+        ),
+      ],
     );
   }
+
+  Widget _stepTitle(String text) => Padding(
+        padding: const EdgeInsets.only(bottom: 8),
+        child: Text(text,
+            style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15)),
+      );
+
+  List<Widget> _buildTriggerFields(AutomationTriggerCatalogItem trigger) {
+    if (trigger.source == 'planning_center') {
+      final options = widget.controller.planningCenterTaskOptions;
+      return [
+        if (options != null) ...[
+          DropdownButtonFormField<String>(
+            value: _selectedTeamId,
+            decoration: const InputDecoration(
+              labelText: 'Team',
+              border: OutlineInputBorder(),
+            ),
+            items: [
+              const DropdownMenuItem<String>(
+                value: null,
+                child: Text('Any team'),
+              ),
+              ...options.teams.map((team) => DropdownMenuItem(
+                    value: team.id,
+                    child: Text('${team.serviceTypeName} · ${team.name}'),
+                  )),
+            ],
+            onChanged: (value) => setState(() => _selectedTeamId = value),
+          ),
+          const SizedBox(height: 12),
+          DropdownButtonFormField<String>(
+            value: _selectedPositionName,
+            decoration: const InputDecoration(
+              labelText: 'Position',
+              border: OutlineInputBorder(),
+            ),
+            items: [
+              const DropdownMenuItem<String>(
+                value: null,
+                child: Text('Any position'),
+              ),
+              ..._positionsForTeam(options, _selectedTeamId).map(
+                (position) => DropdownMenuItem(
+                  value: position,
+                  child: Text(position),
+                ),
+              ),
+            ],
+            onChanged: (value) => setState(() => _selectedPositionName = value),
+          ),
+          const SizedBox(height: 12),
+        ],
+        _IntegerDropdown(
+          label: 'Lead-time window',
+          value: _leadDays,
+          options: const [3, 7, 14, 21, 30],
+          onChanged: (value) => setState(() => _leadDays = value),
+        ),
+      ];
+    }
+    if (trigger.source == 'google_calendar') {
+      return [
+        TextField(
+          controller: _textQueryController,
+          decoration: const InputDecoration(
+            labelText: 'Title / location / description contains',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        const SizedBox(height: 12),
+        DropdownButtonFormField<String>(
+          value: _selectedEventType,
+          decoration: const InputDecoration(
+            labelText: 'Event type',
+            border: OutlineInputBorder(),
+          ),
+          items: const [
+            DropdownMenuItem<String>(
+                value: null, child: Text('Any event type')),
+            DropdownMenuItem<String>(value: 'default', child: Text('Default')),
+            DropdownMenuItem<String>(
+                value: 'focusTime', child: Text('Focus time')),
+            DropdownMenuItem<String>(
+                value: 'outOfOffice', child: Text('Out of office')),
+          ],
+          onChanged: (value) => setState(() => _selectedEventType = value),
+        ),
+        const SizedBox(height: 12),
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          title: const Text('All-day only'),
+          value: _allDayOnly,
+          onChanged: (value) => setState(() => _allDayOnly = value),
+        ),
+        _IntegerDropdown(
+          label: 'Date window',
+          value: _dateWindowDays,
+          options: const [0, 1, 3, 7, 14, 30],
+          onChanged: (value) => setState(() => _dateWindowDays = value),
+        ),
+      ];
+    }
+    if (trigger.source == 'gmail') {
+      return [
+        TextField(
+          controller: _senderController,
+          decoration: const InputDecoration(
+            labelText: 'Sender contains',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          controller: _subjectController,
+          decoration: const InputDecoration(
+            labelText: 'Subject contains',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        const SizedBox(height: 12),
+        DropdownButtonFormField<String>(
+          value: _selectedLabel,
+          decoration: const InputDecoration(
+            labelText: 'Label',
+            border: OutlineInputBorder(),
+          ),
+          items: const [
+            DropdownMenuItem<String>(value: null, child: Text('Any label')),
+            DropdownMenuItem<String>(value: 'UNREAD', child: Text('Unread')),
+            DropdownMenuItem<String>(value: 'INBOX', child: Text('Inbox')),
+          ],
+          onChanged: (value) => setState(() => _selectedLabel = value),
+        ),
+        const SizedBox(height: 12),
+        _IntegerDropdown(
+          label: 'Received within last hours',
+          value: _hoursSinceReceived,
+          options: const [1, 6, 12, 24, 48, 72],
+          onChanged: (value) => setState(() => _hoursSinceReceived = value),
+        ),
+      ];
+    }
+    return const [];
+  }
+
+  void _populateSuggestedNameIfEmpty() {
+    if (widget.existing != null) return;
+    if (_nameController.text.trim().isNotEmpty) return;
+    _nameController.text = _suggestedName();
+  }
+
+  String _suggestedName() {
+    return widget.controller.triggers
+            .where((item) => item.key == _selectedTriggerKey)
+            .firstOrNull
+            ?.label ??
+        _labelForSource(_selectedSource);
+  }
+
+  List<Widget> _buildActionFields() {
+    switch (_selectedActionType) {
+      case 'create_project_from_template':
+        return [
+          TextField(
+            controller: _templateNameController,
+            decoration: const InputDecoration(
+              labelText: 'Project template name',
+              border: OutlineInputBorder(),
+            ),
+          ),
+        ];
+      case 'send_notification':
+        return [
+          TextField(
+            controller: _messageTemplateController,
+            decoration: const InputDecoration(
+              labelText: 'Message template',
+              border: OutlineInputBorder(),
+            ),
+            maxLines: 3,
+          ),
+        ];
+      default:
+        return [
+          TextField(
+            controller: _titleTemplateController,
+            decoration: const InputDecoration(
+              labelText: 'Task title template',
+              border: OutlineInputBorder(),
+            ),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _notesTemplateController,
+            decoration: const InputDecoration(
+              labelText: 'Task notes template',
+              border: OutlineInputBorder(),
+            ),
+            maxLines: 3,
+          ),
+          if (_selectedActionType == 'tag_task') ...[
+            const SizedBox(height: 12),
+            TextField(
+              controller: _tagController,
+              decoration: const InputDecoration(
+                labelText: 'Tag',
+                border: OutlineInputBorder(),
+              ),
+            ),
+          ],
+          if (_selectedActionType == 'auto_schedule') ...[
+            const SizedBox(height: 12),
+            _IntegerDropdown(
+              label: 'Target day',
+              value: _targetDay,
+              options: const [1, 2, 3, 4, 5],
+              labels: const {
+                1: 'Monday',
+                2: 'Tuesday',
+                3: 'Wednesday',
+                4: 'Thursday',
+                5: 'Friday',
+              },
+              onChanged: (value) => setState(() => _targetDay = value),
+            ),
+          ],
+        ];
+    }
+  }
+
+  Map<String, dynamic>? _buildTriggerConfig() {
+    final config = <String, dynamic>{};
+    if (_leadDays != null) config['leadDays'] = _leadDays;
+    if (_selectedTeamId != null) config['teamId'] = _selectedTeamId;
+    if (_selectedPositionName != null) {
+      config['positionName'] = _selectedPositionName;
+    }
+    if (_textQueryController.text.trim().isNotEmpty) {
+      config['textQuery'] = _textQueryController.text.trim();
+    }
+    if (_selectedEventType != null) config['eventType'] = _selectedEventType;
+    if (_allDayOnly) config['allDayOnly'] = true;
+    if (_dateWindowDays != null) config['dateWindowDays'] = _dateWindowDays;
+    if (_senderController.text.trim().isNotEmpty) {
+      config['sender'] = _senderController.text.trim();
+    }
+    if (_subjectController.text.trim().isNotEmpty) {
+      config['subjectContains'] = _subjectController.text.trim();
+    }
+    if (_selectedLabel != null) config['label'] = _selectedLabel;
+    if (_hoursSinceReceived != null) {
+      config['hoursSinceReceived'] = _hoursSinceReceived;
+    }
+    return config.isEmpty ? null : config;
+  }
+
+  Map<String, dynamic>? _buildActionConfig() {
+    final config = <String, dynamic>{};
+    if (_titleTemplateController.text.trim().isNotEmpty) {
+      config['titleTemplate'] = _titleTemplateController.text.trim();
+    }
+    if (_notesTemplateController.text.trim().isNotEmpty) {
+      config['notesTemplate'] = _notesTemplateController.text.trim();
+    }
+    if (_messageTemplateController.text.trim().isNotEmpty) {
+      config['messageTemplate'] = _messageTemplateController.text.trim();
+    }
+    if (_templateNameController.text.trim().isNotEmpty) {
+      config['templateName'] = _templateNameController.text.trim();
+    }
+    if (_tagController.text.trim().isNotEmpty) {
+      config['tag'] = _tagController.text.trim();
+    }
+    if (_targetDay != null) config['targetDay'] = _targetDay;
+    return config.isEmpty ? null : config;
+  }
+
+  String _reviewSummary(AutomationTriggerCatalogItem? trigger) {
+    final triggerLabel = trigger?.label ?? _selectedTriggerKey ?? 'Trigger';
+    final actionLabel = widget.controller.actions
+            .where((item) => item.key == _selectedActionType)
+            .firstOrNull
+            ?.label ??
+        (_selectedActionType ?? 'Action');
+    final accountLabel = _selectedAccountId == null
+        ? (_selectedSource == 'rhythm' ? 'Rhythm' : 'default connected account')
+        : widget.controller.accounts
+                .where((item) => item.id == _selectedAccountId)
+                .firstOrNull
+                ?.accountLabel ??
+            'selected account';
+    final filters = _buildTriggerConfig();
+    final filterSummary = filters == null || filters.isEmpty
+        ? 'with no extra filters'
+        : 'with ${filters.entries.map((entry) => '${entry.key}: ${entry.value}').join(', ')}';
+    return 'When $triggerLabel from ${_labelForSource(_selectedSource)} on $accountLabel, $filterSummary, then $actionLabel.';
+  }
+
+  List<AutomationProviderCatalogItem> _availableProviders() {
+    final connectedSources = widget.controller.accounts
+        .where((account) => account.connected)
+        .map((account) => account.provider)
+        .toSet();
+    final providers = widget.controller.providers.where((provider) {
+      if (provider.source == 'rhythm') return true;
+      if (provider.source == widget.existing?.source) return true;
+      return connectedSources.contains(provider.source);
+    }).toList();
+    final existingSource = widget.existing?.source;
+    if (existingSource != null &&
+        providers.every((provider) => provider.source != existingSource)) {
+      providers.add(
+        AutomationProviderCatalogItem(
+          source: existingSource,
+          label: _labelForSource(existingSource),
+          description: 'Previously configured provider',
+          syncSupport: 'manual',
+          triggerKeys: const [],
+        ),
+      );
+    }
+    return providers;
+  }
+
+  void _syncAccountSelectionWithSource() {
+    if (_selectedSource == null || _selectedSource == 'rhythm') {
+      _selectedAccountId = null;
+      return;
+    }
+    final accounts = widget.controller.accounts
+        .where((account) =>
+            account.provider == _selectedSource && account.connected)
+        .toList();
+    if (accounts.any((account) => account.id == _selectedAccountId)) return;
+    _selectedAccountId = accounts.firstOrNull?.id;
+  }
+
+  String? _validateDraft() {
+    if (_selectedSource != null && _selectedSource != 'rhythm') {
+      final hasConnectedAccount = widget.controller.accounts.any(
+        (account) =>
+            account.provider == _selectedSource &&
+            account.connected &&
+            account.id == _selectedAccountId,
+      );
+      if (!hasConnectedAccount) {
+        return 'Connect ${_labelForSource(_selectedSource)} before creating this automation.';
+      }
+    }
+    if (_selectedActionType == 'create_project_from_template' &&
+        _templateNameController.text.trim().isEmpty) {
+      return 'Project automations need a template name.';
+    }
+    if (_selectedActionType == 'send_notification' &&
+        _messageTemplateController.text.trim().isEmpty) {
+      return 'Notification automations need a message template.';
+    }
+    return null;
+  }
+
+  List<String> _positionsForTeam(
+    PlanningCenterTaskOptions options,
+    String? teamId,
+  ) {
+    if (teamId == null) {
+      return options.positionsByTeamId.values
+          .expand((item) => item)
+          .toSet()
+          .toList()
+        ..sort();
+    }
+    return options.positionsByTeamId[teamId] ?? const [];
+  }
+}
+
+class _IntegerDropdown extends StatelessWidget {
+  const _IntegerDropdown({
+    required this.label,
+    required this.value,
+    required this.options,
+    required this.onChanged,
+    this.labels = const {},
+  });
+
+  final String label;
+  final int? value;
+  final List<int> options;
+  final Map<int, String> labels;
+  final ValueChanged<int?> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return DropdownButtonFormField<int>(
+      value: value,
+      decoration:
+          InputDecoration(labelText: label, border: const OutlineInputBorder()),
+      items: options
+          .map((item) => DropdownMenuItem(
+                value: item,
+                child: Text(labels[item] ?? item.toString()),
+              ))
+          .toList(),
+      onChanged: onChanged,
+    );
+  }
+}
+
+String _labelForSource(String? source) => switch (source) {
+      'planning_center' => 'Planning Center',
+      'google_calendar' => 'Google Calendar',
+      'gmail' => 'Gmail',
+      _ => 'Rhythm',
+    };
+
+String _formatStamp(String value) {
+  final parsed = DateTime.tryParse(value);
+  if (parsed == null) return value;
+  final local = parsed.toLocal();
+  final month = local.month.toString().padLeft(2, '0');
+  final day = local.day.toString().padLeft(2, '0');
+  final hour = local.hour.toString().padLeft(2, '0');
+  final minute = local.minute.toString().padLeft(2, '0');
+  return '$month/$day ${local.year} $hour:$minute';
 }

@@ -4,37 +4,50 @@ import type {
   IntegrationProvider,
 } from '../models/integration_account';
 import { IntegrationAccountsRepository } from '../repositories/integration_accounts_repository';
+import { AutomationCatalogService } from '../services/automation_catalog_service';
 import { IntegrationsService } from '../services/integrations_service';
 
 const repo = new IntegrationAccountsRepository();
 const service = new IntegrationsService();
+const catalog = new AutomationCatalogService();
 
 function toAccountDto(
   provider: IntegrationProvider,
   account: IntegrationAccount | null,
 ) {
+  const providerMeta = catalog
+    .getProviders()
+    .find((item) => item.source === provider);
   if (!account) {
     return {
       id: provider,
       provider,
+      providerDisplayName: providerMeta?.label ?? provider,
+      accountLabel: null,
       email: null,
       displayName: null,
-      status: 'error',
+      status: 'disconnected',
       expiresAt: null,
       lastSyncedAt: null,
       errorMessage: null,
+      availableTriggerFamilies: providerMeta?.triggerKeys ?? [],
+      syncSupportMode: providerMeta?.syncSupport ?? 'manual',
     };
   }
 
   return {
     id: account.id,
     provider: account.provider,
+    providerDisplayName: providerMeta?.label ?? account.provider,
+    accountLabel: account.displayName ?? account.email,
     email: account.email,
     displayName: account.displayName,
     status: account.status,
     expiresAt: account.expiresAt,
     lastSyncedAt: account.lastSyncedAt,
     errorMessage: account.errorMessage,
+    availableTriggerFamilies: providerMeta?.triggerKeys ?? [],
+    syncSupportMode: providerMeta?.syncSupport ?? 'manual',
   };
 }
 

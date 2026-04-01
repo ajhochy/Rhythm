@@ -22,6 +22,27 @@ class FacilitiesController extends ChangeNotifier {
   FacilitiesStatus get status => _status;
   String? get errorMessage => _errorMessage;
 
+  Future<Facility> createFacility({
+    required String name,
+    String? description,
+    String? location,
+  }) async {
+    final facility = await _repository.createFacility({
+      'name': name,
+      if (description != null && description.isNotEmpty)
+        'description': description,
+      if (location != null && location.isNotEmpty) 'location': location,
+    });
+    _facilities = [..._facilities, facility]
+      ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+    _reservationsByFacility = {
+      ..._reservationsByFacility,
+      facility.id: _reservationsByFacility[facility.id] ?? const [],
+    };
+    notifyListeners();
+    return facility;
+  }
+
   Future<void> loadFacilities() async {
     _status = FacilitiesStatus.loading;
     _errorMessage = null;
@@ -57,9 +78,9 @@ class FacilitiesController extends ChangeNotifier {
   }) async {
     final body = <String, dynamic>{
       'title': title,
-      'reservedBy': reservedBy,
-      if (startTime != null && startTime.isNotEmpty) 'startTime': startTime,
-      if (endTime != null && endTime.isNotEmpty) 'endTime': endTime,
+      'reserved_by': reservedBy,
+      if (startTime != null && startTime.isNotEmpty) 'start_time': startTime,
+      if (endTime != null && endTime.isNotEmpty) 'end_time': endTime,
       if (notes != null && notes.isNotEmpty) 'notes': notes,
     };
 
@@ -69,6 +90,60 @@ class FacilitiesController extends ChangeNotifier {
     final updated =
         List<Reservation>.from(_reservationsByFacility[facilityId] ?? [])
           ..add(reservation);
+    _reservationsByFacility = {
+      ..._reservationsByFacility,
+      facilityId: updated
+        ..sort((a, b) => (a.startTime ?? '').compareTo(b.startTime ?? '')),
+    };
+    notifyListeners();
+  }
+
+  Future<void> updateReservation(
+    int facilityId,
+    int reservationId, {
+    required String title,
+    required String reservedBy,
+    String? startTime,
+    String? endTime,
+    String? notes,
+  }) async {
+    final body = <String, dynamic>{
+      'title': title,
+      'reserved_by': reservedBy,
+      if (startTime != null && startTime.isNotEmpty) 'start_time': startTime,
+      if (endTime != null && endTime.isNotEmpty) 'end_time': endTime,
+      'notes': (notes != null && notes.isNotEmpty) ? notes : null,
+    };
+
+    final reservation = await _repository.updateReservation(
+      facilityId,
+      reservationId,
+      body,
+    );
+
+    final updated = List<Reservation>.from(
+      _reservationsByFacility[facilityId] ?? [],
+    );
+    final index = updated.indexWhere((item) => item.id == reservationId);
+    if (index >= 0) {
+      updated[index] = reservation;
+    } else {
+      updated.add(reservation);
+    }
+    updated.sort((a, b) => (a.startTime ?? '').compareTo(b.startTime ?? ''));
+    _reservationsByFacility = {
+      ..._reservationsByFacility,
+      facilityId: updated,
+    };
+    notifyListeners();
+  }
+
+  Future<void> deleteReservation(int facilityId, int reservationId) async {
+    await _repository.deleteReservation(facilityId, reservationId);
+
+    final updated = List<Reservation>.from(
+      _reservationsByFacility[facilityId] ?? [],
+    )..removeWhere((item) => item.id == reservationId);
     _reservationsByFacility = {
       ..._reservationsByFacility,
       facilityId: updated,
