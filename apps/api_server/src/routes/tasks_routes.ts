@@ -1,9 +1,11 @@
 import { Router } from 'express';
 import { TasksController } from '../controllers/tasks_controller';
+import { requireAuth } from '../middleware/auth_middleware';
 
 const controller = new TasksController();
 export const tasksRouter = Router();
 
+tasksRouter.use(requireAuth);
 tasksRouter.get('/', controller.getAll.bind(controller));
 tasksRouter.get('/:id', controller.getById.bind(controller));
 tasksRouter.post('/', controller.create.bind(controller));

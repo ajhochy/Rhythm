@@ -5,6 +5,8 @@ export const env = {
   port: Number(process.env.PORT ?? 4000),
   dbPath: process.env.DB_PATH ?? path.join(process.cwd(), 'rhythm.db'),
   googleClientId: process.env.GOOGLE_CLIENT_ID ?? '',
+  googleAuthClientId:
+    process.env.GOOGLE_AUTH_CLIENT_ID ?? process.env.GOOGLE_CLIENT_ID ?? '',
   googleClientSecret: process.env.GOOGLE_CLIENT_SECRET ?? '',
   googleRedirectUri:
     process.env.GOOGLE_REDIRECT_URI ??

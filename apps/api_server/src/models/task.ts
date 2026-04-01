@@ -9,6 +9,7 @@ export interface Task {
   sourceType: string | null;
   sourceId: string | null;
   sourceName: string | null;
+  ownerId: number | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -22,6 +23,7 @@ export interface CreateTaskDto {
   locked?: boolean;
   sourceType?: string | null;
   sourceId?: string | null;
+  ownerId?: number | null;
 }
 
 export interface UpdateTaskDto {
@@ -31,4 +33,5 @@ export interface UpdateTaskDto {
   status?: 'open' | 'done';
   scheduledDate?: string | null;
   locked?: boolean;
+  ownerId?: number | null;
 }

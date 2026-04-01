@@ -27,6 +27,7 @@ export interface Reservation {
   facilityId: number;
   title: string;
   reservedBy: string;
+  reservedByUserId: number | null;
   startTime: string;
   endTime: string;
   notes: string | null;
@@ -36,6 +37,7 @@ export interface Reservation {
 export interface CreateReservationDto {
   title: string;
   reserved_by: string;
+  reserved_by_user_id?: number | null;
   start_time: string;
   end_time: string;
   notes?: string | null;

@@ -15,6 +15,7 @@ interface RuleRow {
   day_of_month: number | null;
   month: number | null;
   enabled: number;
+  owner_id: number | null;
   created_at: string;
 }
 
@@ -27,22 +28,40 @@ function rowToRule(row: RuleRow): RecurringTaskRule {
     dayOfMonth: row.day_of_month,
     month: row.month,
     enabled: row.enabled === 1,
+    ownerId: row.owner_id,
     createdAt: row.created_at,
   };
 }
 
 export class RecurringTaskRulesRepository {
-  findAll(): RecurringTaskRule[] {
+  findAll(userId?: number): RecurringTaskRule[] {
+    if (userId != null) {
+      const rows = getDb()
+        .prepare(
+          `SELECT * FROM recurring_task_rules
+           WHERE owner_id = ? OR owner_id IS NULL
+           ORDER BY created_at ASC`,
+        )
+        .all(userId) as RuleRow[];
+      return rows.map(rowToRule);
+    }
     const rows = getDb()
       .prepare('SELECT * FROM recurring_task_rules ORDER BY created_at ASC')
       .all() as RuleRow[];
     return rows.map(rowToRule);
   }
 
-  findById(id: string): RecurringTaskRule {
-    const row = getDb()
-      .prepare('SELECT * FROM recurring_task_rules WHERE id = ?')
-      .get(id) as RuleRow | undefined;
+  findById(id: string, userId?: number): RecurringTaskRule {
+    const row = (userId != null
+      ? getDb()
+          .prepare(
+            `SELECT * FROM recurring_task_rules
+             WHERE id = ? AND (owner_id = ? OR owner_id IS NULL)`,
+          )
+          .get(id, userId)
+      : getDb()
+          .prepare('SELECT * FROM recurring_task_rules WHERE id = ?')
+          .get(id)) as RuleRow | undefined;
     if (!row) throw AppError.notFound('RecurringTaskRule');
     return rowToRule(row);
   }
@@ -53,8 +72,8 @@ export class RecurringTaskRulesRepository {
     const enabled = data.enabled !== false ? 1 : 0;
     getDb()
       .prepare(
-        `INSERT INTO recurring_task_rules (id, title, frequency, day_of_week, day_of_month, month, enabled, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO recurring_task_rules (id, title, frequency, day_of_week, day_of_month, month, enabled, owner_id, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         id,
@@ -64,18 +83,23 @@ export class RecurringTaskRulesRepository {
         data.dayOfMonth ?? null,
         data.month ?? null,
         enabled,
+        data.ownerId ?? null,
         now,
       );
     return this.findById(id);
   }
 
-  update(id: string, data: UpdateRecurringTaskRuleDto): RecurringTaskRule {
-    const existing = this.findById(id);
+  update(
+    id: string,
+    data: UpdateRecurringTaskRuleDto,
+    userId?: number,
+  ): RecurringTaskRule {
+    const existing = this.findById(id, userId);
     const enabled = data.enabled !== undefined ? (data.enabled ? 1 : 0) : (existing.enabled ? 1 : 0);
     getDb()
       .prepare(
         `UPDATE recurring_task_rules
-         SET title = ?, frequency = ?, day_of_week = ?, day_of_month = ?, month = ?, enabled = ?
+         SET title = ?, frequency = ?, day_of_week = ?, day_of_month = ?, month = ?, enabled = ?, owner_id = ?
          WHERE id = ?`,
       )
       .run(
@@ -85,9 +109,10 @@ export class RecurringTaskRulesRepository {
         data.dayOfMonth !== undefined ? data.dayOfMonth : existing.dayOfMonth,
         data.month !== undefined ? data.month : existing.month,
         enabled,
+        data.ownerId !== undefined ? data.ownerId : existing.ownerId,
         id,
       );
-    return this.findById(id);
+    return this.findById(id, userId);
   }
 
   delete(id: string): void {

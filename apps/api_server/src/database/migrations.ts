@@ -137,10 +137,18 @@ export function runMigrations(db: Database.Database): void {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL,
       email TEXT NOT NULL UNIQUE,
+      google_sub TEXT UNIQUE,
       role TEXT NOT NULL DEFAULT 'member',
       password_hash TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS sessions (
+      token TEXT PRIMARY KEY,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      expires_at TEXT
     );
 
     CREATE TABLE IF NOT EXISTS message_threads (
@@ -175,10 +183,24 @@ export function runMigrations(db: Database.Database): void {
       facility_id INTEGER NOT NULL REFERENCES facilities(id) ON DELETE CASCADE,
       title TEXT NOT NULL,
       reserved_by TEXT NOT NULL,
+      reserved_by_user_id INTEGER REFERENCES users(id),
       start_time TEXT NOT NULL,
       end_time TEXT NOT NULL,
       notes TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS thread_participants (
+      thread_id INTEGER NOT NULL REFERENCES message_threads(id) ON DELETE CASCADE,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      PRIMARY KEY (thread_id, user_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS thread_reads (
+      thread_id INTEGER NOT NULL REFERENCES message_threads(id) ON DELETE CASCADE,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      last_read_at TEXT,
+      PRIMARY KEY (thread_id, user_id)
     );
   `);
 
@@ -192,6 +214,9 @@ export function runMigrations(db: Database.Database): void {
   }
   if (!taskCols.includes('notes')) {
     db.exec(`ALTER TABLE tasks ADD COLUMN notes TEXT`);
+  }
+  if (!taskCols.includes('owner_id')) {
+    db.exec(`ALTER TABLE tasks ADD COLUMN owner_id INTEGER REFERENCES users(id)`);
   }
 
   const stepCols = (db.pragma('table_info(project_instance_steps)') as { name: string }[]).map((c) => c.name);
@@ -207,5 +232,19 @@ export function runMigrations(db: Database.Database): void {
   const recurringRuleCols = (db.pragma('table_info(recurring_task_rules)') as { name: string }[]).map((c) => c.name);
   if (!recurringRuleCols.includes('enabled')) {
     db.exec(`ALTER TABLE recurring_task_rules ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1`);
+  }
+  if (!recurringRuleCols.includes('owner_id')) {
+    db.exec(`ALTER TABLE recurring_task_rules ADD COLUMN owner_id INTEGER REFERENCES users(id)`);
+  }
+
+  const userCols = (db.pragma('table_info(users)') as { name: string }[]).map((c) => c.name);
+  if (!userCols.includes('google_sub')) {
+    db.exec(`ALTER TABLE users ADD COLUMN google_sub TEXT`);
+    db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_users_google_sub ON users(google_sub) WHERE google_sub IS NOT NULL`);
+  }
+
+  const reservationCols = (db.pragma('table_info(reservations)') as { name: string }[]).map((c) => c.name);
+  if (!reservationCols.includes('reserved_by_user_id')) {
+    db.exec(`ALTER TABLE reservations ADD COLUMN reserved_by_user_id INTEGER REFERENCES users(id)`);
   }
 }

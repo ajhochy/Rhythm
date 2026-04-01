@@ -2,6 +2,8 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
+import '../../../app/core/auth/auth_session_store.dart';
+import '../../../app/core/auth/auth_user.dart';
 import '../../../app/core/constants/app_constants.dart';
 import '../../../app/core/errors/app_error.dart';
 import '../models/message.dart';
@@ -14,7 +16,10 @@ class MessagesDataSource {
   final String _baseUrl;
 
   Future<List<MessageThread>> getThreads() async {
-    final response = await http.get(Uri.parse('$_baseUrl/message-threads'));
+    final response = await http.get(
+      Uri.parse('$_baseUrl/message-threads'),
+      headers: AuthSessionStore.headers(),
+    );
     _assertOk(response);
     final list = jsonDecode(response.body) as List<dynamic>;
     return list
@@ -22,11 +27,27 @@ class MessagesDataSource {
         .toList();
   }
 
-  Future<MessageThread> createThread(String title) async {
+  Future<List<AuthUser>> getUsers() async {
+    final response = await http.get(
+      Uri.parse('$_baseUrl/users'),
+      headers: AuthSessionStore.headers(),
+    );
+    _assertOk(response);
+    final list = jsonDecode(response.body) as List<dynamic>;
+    return list
+        .map((j) => AuthUser.fromJson(j as Map<String, dynamic>))
+        .toList();
+  }
+
+  Future<MessageThread> createThread(List<int> participantIds,
+      {String? title}) async {
     final response = await http.post(
       Uri.parse('$_baseUrl/message-threads'),
-      headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({'title': title}),
+      headers: AuthSessionStore.headers(json: true),
+      body: jsonEncode({
+        if (title != null && title.isNotEmpty) 'title': title,
+        'participantIds': participantIds,
+      }),
     );
     _assertOk(response);
     return MessageThread.fromJson(
@@ -35,7 +56,10 @@ class MessagesDataSource {
 
   Future<List<Message>> getMessages(int threadId) async {
     final response = await http
-        .get(Uri.parse('$_baseUrl/message-threads/$threadId/messages'));
+        .get(
+          Uri.parse('$_baseUrl/message-threads/$threadId/messages'),
+          headers: AuthSessionStore.headers(),
+        );
     _assertOk(response);
     final list = jsonDecode(response.body) as List<dynamic>;
     return list
@@ -43,21 +67,26 @@ class MessagesDataSource {
         .toList();
   }
 
-  Future<Message> sendMessage(
-    int threadId,
-    String senderName,
-    String content,
-  ) async {
+  Future<Message> sendMessage(int threadId, String content) async {
     final response = await http.post(
       Uri.parse('$_baseUrl/message-threads/$threadId/messages'),
-      headers: {'Content-Type': 'application/json'},
+      headers: AuthSessionStore.headers(json: true),
       body: jsonEncode({
-        'sender_name': senderName,
         'body': content,
       }),
     );
     _assertOk(response);
     return Message.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
+  }
+
+  Future<void> markRead(int threadId) async {
+    final response = await http.post(
+      Uri.parse('$_baseUrl/message-threads/$threadId/read'),
+      headers: AuthSessionStore.headers(),
+    );
+    if (response.statusCode != 204) {
+      _assertOk(response);
+    }
   }
 
   void _assertOk(http.Response response) {

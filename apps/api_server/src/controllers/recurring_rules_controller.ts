@@ -12,9 +12,9 @@ const DEFAULT_LOOKAHEAD_WEEKS = 8;
 const VALID_FREQUENCIES = ['weekly', 'monthly', 'annual'] as const;
 
 export class RecurringRulesController {
-  getAll(_req: Request, res: Response, next: NextFunction) {
+  getAll(req: Request, res: Response, next: NextFunction) {
     try {
-      res.json(repo.findAll());
+      res.json(repo.findAll(req.auth?.user.id));
     } catch (err) {
       next(err);
     }
@@ -22,7 +22,7 @@ export class RecurringRulesController {
 
   getById(req: Request, res: Response, next: NextFunction) {
     try {
-      res.json(repo.findById(req.params.id));
+      res.json(repo.findById(req.params.id, req.auth?.user.id));
     } catch (err) {
       next(err);
     }
@@ -43,6 +43,7 @@ export class RecurringRulesController {
         dayOfWeek: dayOfWeek as number ?? null,
         dayOfMonth: dayOfMonth as number ?? null,
         month: month as number ?? null,
+        ownerId: req.auth?.user.id ?? null,
       });
 
       // Immediately generate task instances so they appear in the weekly planner
@@ -62,7 +63,7 @@ export class RecurringRulesController {
   update(req: Request, res: Response, next: NextFunction) {
     try {
       const body = req.body as Record<string, unknown>;
-      const rule = repo.update(req.params.id, body);
+      const rule = repo.update(req.params.id, body, req.auth?.user.id);
       if (body.enabled === false) {
         new TasksRepository().deleteFutureOpenBySourceId('recurring_rule', rule.id);
       } else if (body.enabled === true) {

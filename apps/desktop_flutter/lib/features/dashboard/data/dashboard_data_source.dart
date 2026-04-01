@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import '../../../app/core/auth/auth_session_store.dart';
 import '../../../app/core/constants/app_constants.dart';
 import '../../../app/core/errors/app_error.dart';
 import '../../tasks/models/task.dart';
@@ -12,14 +13,20 @@ class DashboardDataSource {
   final String _baseUrl;
 
   Future<List<Task>> fetchTasks() async {
-    final response = await http.get(Uri.parse('$_baseUrl/tasks'));
+    final response = await http.get(
+      Uri.parse('$_baseUrl/tasks'),
+      headers: AuthSessionStore.headers(),
+    );
     _assertOk(response);
     final list = jsonDecode(response.body) as List<dynamic>;
     return list.map((j) => Task.fromJson(j as Map<String, dynamic>)).toList();
   }
 
   Future<List<RecurringTaskRule>> fetchRecurringRules() async {
-    final response = await http.get(Uri.parse('$_baseUrl/recurring-rules'));
+    final response = await http.get(
+      Uri.parse('$_baseUrl/recurring-rules'),
+      headers: AuthSessionStore.headers(),
+    );
     _assertOk(response);
     final list = jsonDecode(response.body) as List<dynamic>;
     return list
@@ -35,7 +42,10 @@ class DashboardDataSource {
   }
 
   Future<int> fetchMessageThreadCount() async {
-    final response = await http.get(Uri.parse('$_baseUrl/message-threads'));
+    final response = await http.get(
+      Uri.parse('$_baseUrl/message-threads'),
+      headers: AuthSessionStore.headers(),
+    );
     _assertOk(response);
     final list = jsonDecode(response.body) as List<dynamic>;
     return list.length;
@@ -44,7 +54,7 @@ class DashboardDataSource {
   Future<Task> createTask(String title, {String? dueDate}) async {
     final response = await http.post(
       Uri.parse('$_baseUrl/tasks'),
-      headers: {'Content-Type': 'application/json'},
+      headers: AuthSessionStore.headers(json: true),
       body: jsonEncode({
         'title': title,
         if (dueDate != null) 'dueDate': dueDate,
@@ -58,7 +68,7 @@ class DashboardDataSource {
     final newStatus = currentStatus == 'done' ? 'open' : 'done';
     final response = await http.patch(
       Uri.parse('$_baseUrl/tasks/$id'),
-      headers: {'Content-Type': 'application/json'},
+      headers: AuthSessionStore.headers(json: true),
       body: jsonEncode({'status': newStatus}),
     );
     _assertOk(response);

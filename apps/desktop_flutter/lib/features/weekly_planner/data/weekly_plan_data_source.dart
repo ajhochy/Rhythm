@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import '../../../app/core/auth/auth_session_store.dart';
 import '../../../app/core/constants/app_constants.dart';
 import '../../../app/core/errors/app_error.dart';
 import '../../tasks/models/task.dart';
@@ -14,7 +15,7 @@ class WeeklyPlanDataSource {
   Future<WeeklyPlan> fetchPlan(String weekLabel) async {
     final uri = Uri.parse('$_baseUrl/weekly-plan')
         .replace(queryParameters: {'week': weekLabel});
-    final response = await http.get(uri);
+    final response = await http.get(uri, headers: AuthSessionStore.headers());
     _assertOk(response);
     return WeeklyPlan.fromJson(
         jsonDecode(response.body) as Map<String, dynamic>);
@@ -24,7 +25,7 @@ class WeeklyPlanDataSource {
       {bool locked = false}) async {
     final response = await http.patch(
       Uri.parse('$_baseUrl/weekly-plan/tasks/$taskId'),
-      headers: {'Content-Type': 'application/json'},
+      headers: AuthSessionStore.headers(json: true),
       body: jsonEncode({'scheduledDate': date, 'locked': locked}),
     );
     _assertOk(response);
@@ -42,7 +43,7 @@ class WeeklyPlanDataSource {
       Uri.parse(isProjectStep
           ? '$_baseUrl/project-instances/steps/$taskId'
           : '$_baseUrl/tasks/$taskId'),
-      headers: {'Content-Type': 'application/json'},
+      headers: AuthSessionStore.headers(json: true),
       body: jsonEncode({
         if (notes != null) 'notes': notes,
         if (status != null) 'status': status,
@@ -71,7 +72,7 @@ class WeeklyPlanDataSource {
   Future<void> createTask(String title, {String? dueDate}) async {
     final response = await http.post(
       Uri.parse('$_baseUrl/tasks'),
-      headers: {'Content-Type': 'application/json'},
+      headers: AuthSessionStore.headers(json: true),
       body: jsonEncode({
         'title': title,
         if (dueDate != null) 'dueDate': dueDate,

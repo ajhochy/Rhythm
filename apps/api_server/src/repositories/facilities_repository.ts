@@ -23,6 +23,7 @@ interface ReservationRow {
   facility_id: number;
   title: string;
   reserved_by: string;
+  reserved_by_user_id: number | null;
   start_time: string;
   end_time: string;
   notes: string | null;
@@ -47,6 +48,7 @@ function rowToReservation(row: ReservationRow): Reservation {
     facilityId: row.facility_id,
     title: row.title,
     reservedBy: row.reserved_by,
+    reservedByUserId: row.reserved_by_user_id,
     startTime: row.start_time,
     endTime: row.end_time,
     notes: row.notes,
@@ -123,13 +125,16 @@ export class FacilitiesRepository {
     this.findById(facilityId);
     const result = getDb()
       .prepare(
-        `INSERT INTO reservations (facility_id, title, reserved_by, start_time, end_time, notes)
-         VALUES (?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO reservations (
+           facility_id, title, reserved_by, reserved_by_user_id, start_time, end_time, notes
+         )
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         facilityId,
         data.title,
         data.reserved_by,
+        data.reserved_by_user_id ?? null,
         data.start_time,
         data.end_time,
         data.notes ?? null,

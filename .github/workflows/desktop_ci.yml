@@ -9,6 +9,8 @@ on:
 jobs:
   desktop-checks:
     runs-on: macos-latest
+    env:
+      GOOGLE_DESKTOP_CLIENT_ID: ${{ secrets.GOOGLE_DESKTOP_CLIENT_ID }}
     defaults:
       run:
         working-directory: apps/desktop_flutter
@@ -21,3 +23,7 @@ jobs:
       - run: dart format --output=none --set-exit-if-changed .
       - run: flutter analyze --no-fatal-infos
       - run: flutter test
+      - name: Build macOS debug app
+        run: >
+          flutter build macos --debug
+          --dart-define=GOOGLE_DESKTOP_CLIENT_ID="$GOOGLE_DESKTOP_CLIENT_ID"

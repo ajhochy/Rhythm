@@ -61,8 +61,11 @@ class DashboardController extends ChangeNotifier {
       _activeProjectsCount = projectCount;
       _messageThreadCount = messageCount;
 
-      // Recent tasks: sort by id desc (higher id = newer), take 5
-      final sorted = tasks.toList()..sort((a, b) => b.id.compareTo(a.id));
+      // Recent tasks: only open tasks, sort by id desc (higher id = newer), take 5
+      final sorted = tasks
+          .where((task) => task.status != 'done')
+          .toList()
+        ..sort((a, b) => b.id.compareTo(a.id));
       _recentTasks = sorted.take(5).toList();
 
       _status = DashboardStatus.ready;
@@ -94,15 +97,8 @@ class DashboardController extends ChangeNotifier {
     if (idx == -1) return;
     final task = _recentTasks[idx];
     try {
-      final updated = await _dataSource.toggleTaskDone(id, task.status);
-      _recentTasks = List.from(_recentTasks)..[idx] = updated;
-      // Adjust open task count
-      if (updated.status == 'done') {
-        _openTaskCount = (_openTaskCount - 1).clamp(0, _openTaskCount);
-      } else {
-        _openTaskCount += 1;
-      }
-      notifyListeners();
+      await _dataSource.toggleTaskDone(id, task.status);
+      await refresh();
     } catch (e) {
       _errorMessage = e.toString();
       notifyListeners();

@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
+import '../../../app/core/auth/auth_session_store.dart';
 import '../../../app/core/constants/app_constants.dart';
 import '../../../app/core/errors/app_error.dart';
 import '../models/facility.dart';
@@ -14,7 +15,10 @@ class FacilitiesDataSource {
   final String _baseUrl;
 
   Future<List<Facility>> getFacilities() async {
-    final response = await http.get(Uri.parse('$_baseUrl/facilities'));
+    final response = await http.get(
+      Uri.parse('$_baseUrl/facilities'),
+      headers: AuthSessionStore.headers(),
+    );
     _assertOk(response);
     final list = jsonDecode(response.body) as List<dynamic>;
     return list
@@ -24,7 +28,10 @@ class FacilitiesDataSource {
 
   Future<List<Reservation>> getReservations(int facilityId) async {
     final response = await http
-        .get(Uri.parse('$_baseUrl/facilities/$facilityId/reservations'));
+        .get(
+          Uri.parse('$_baseUrl/facilities/$facilityId/reservations'),
+          headers: AuthSessionStore.headers(),
+        );
     _assertOk(response);
     final list = jsonDecode(response.body) as List<dynamic>;
     return list
@@ -36,7 +43,7 @@ class FacilitiesDataSource {
       int facilityId, Map<String, dynamic> body) async {
     final response = await http.post(
       Uri.parse('$_baseUrl/facilities/$facilityId/reservations'),
-      headers: {'Content-Type': 'application/json'},
+      headers: AuthSessionStore.headers(json: true),
       body: jsonEncode(body),
     );
     _assertOk(response);

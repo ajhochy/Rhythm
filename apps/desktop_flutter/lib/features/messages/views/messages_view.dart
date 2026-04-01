@@ -32,7 +32,9 @@ class _MessagesViewState extends State<MessagesView> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<MessagesController>().loadThreads();
+      final controller = context.read<MessagesController>();
+      controller.loadThreads();
+      controller.startPolling();
     });
     _searchController.addListener(() {
       setState(() => _searchQuery = _searchController.text.toLowerCase());
@@ -41,6 +43,7 @@ class _MessagesViewState extends State<MessagesView> {
 
   @override
   void dispose() {
+    context.read<MessagesController>().stopPolling();
     _searchController.dispose();
     super.dispose();
   }
@@ -131,8 +134,9 @@ class _ThreadListPanel extends StatelessWidget {
     showDialog<void>(
       context: context,
       builder: (_) => _NewThreadDialog(
-        onCreated: (title) =>
-            context.read<MessagesController>().createThread(title),
+        onCreated: (participantIds, title) => context
+            .read<MessagesController>()
+            .createThread(participantIds, title: title),
       ),
     );
   }
@@ -243,7 +247,7 @@ class _ThreadRow extends StatelessWidget {
                           thread.title,
                           style: TextStyle(
                             fontSize: 13,
-                            fontWeight: thread.hasRecentActivity
+                            fontWeight: thread.isUnread
                                 ? FontWeight.w600
                                 : FontWeight.w400,
                             color: _kTextPrimary,
@@ -276,15 +280,22 @@ class _ThreadRow extends StatelessWidget {
                 ],
               ),
             ),
-            if (thread.hasRecentActivity) ...[
+            if (thread.isUnread) ...[
               const SizedBox(width: 8),
               Container(
-                width: 8,
-                height: 8,
-                margin: const EdgeInsets.only(top: 3),
-                decoration: const BoxDecoration(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                decoration: BoxDecoration(
                   color: _kPrimary,
-                  shape: BoxShape.circle,
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Text(
+                  '${thread.unreadCount}',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ),
             ],
@@ -325,13 +336,11 @@ class _MessagePanel extends StatefulWidget {
 }
 
 class _MessagePanelState extends State<_MessagePanel> {
-  final _senderController = TextEditingController();
   final _messageController = TextEditingController();
   final _scrollController = ScrollController();
 
   @override
   void dispose() {
-    _senderController.dispose();
     _messageController.dispose();
     _scrollController.dispose();
     super.dispose();
@@ -341,14 +350,10 @@ class _MessagePanelState extends State<_MessagePanel> {
     final threadId = context.read<MessagesController>().selectedThreadId;
     if (threadId == null) return;
 
-    final sender = _senderController.text.trim();
     final content = _messageController.text.trim();
-    if (sender.isEmpty || content.isEmpty) return;
+    if (content.isEmpty) return;
 
-    context
-        .read<MessagesController>()
-        .sendMessage(threadId, sender, content)
-        .then((_) {
+    context.read<MessagesController>().sendMessage(threadId, content).then((_) {
       _messageController.clear();
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (_scrollController.hasClients) {
@@ -417,7 +422,6 @@ class _MessagePanelState extends State<_MessagePanel> {
         ),
         // Reply area
         _ReplyArea(
-          senderController: _senderController,
           messageController: _messageController,
           onSend: () => _sendMessage(context),
         ),
@@ -492,12 +496,10 @@ class _MessageBubble extends StatelessWidget {
 
 class _ReplyArea extends StatelessWidget {
   const _ReplyArea({
-    required this.senderController,
     required this.messageController,
     required this.onSend,
   });
 
-  final TextEditingController senderController;
   final TextEditingController messageController;
   final VoidCallback onSend;
 
@@ -512,30 +514,6 @@ class _ReplyArea extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          TextField(
-            controller: senderController,
-            style: const TextStyle(fontSize: 13, color: _kTextPrimary),
-            decoration: InputDecoration(
-              hintText: 'Your name',
-              hintStyle: const TextStyle(color: _kTextMuted, fontSize: 13),
-              isDense: true,
-              contentPadding:
-                  const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(6),
-                borderSide: const BorderSide(color: _kDivider),
-              ),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(6),
-                borderSide: const BorderSide(color: _kDivider),
-              ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(6),
-                borderSide: const BorderSide(color: _kPrimary),
-              ),
-            ),
-          ),
-          const SizedBox(height: 8),
           KeyboardListener(
             focusNode: FocusNode(),
             onKeyEvent: (event) {
@@ -601,7 +579,7 @@ class _ReplyArea extends StatelessWidget {
 class _NewThreadDialog extends StatefulWidget {
   const _NewThreadDialog({required this.onCreated});
 
-  final ValueChanged<String> onCreated;
+  final Future<void> Function(List<int> participantIds, String? title) onCreated;
 
   @override
   State<_NewThreadDialog> createState() => _NewThreadDialogState();
@@ -609,6 +587,7 @@ class _NewThreadDialog extends StatefulWidget {
 
 class _NewThreadDialogState extends State<_NewThreadDialog> {
   final _titleController = TextEditingController();
+  final Set<int> _selectedUserIds = <int>{};
 
   @override
   void dispose() {
@@ -616,38 +595,85 @@ class _NewThreadDialogState extends State<_NewThreadDialog> {
     super.dispose();
   }
 
-  void _submit() {
+  Future<void> _submit() async {
+    if (_selectedUserIds.isEmpty) return;
     final title = _titleController.text.trim();
-    if (title.isEmpty) return;
-    widget.onCreated(title);
+    await widget.onCreated(
+      _selectedUserIds.toList()..sort(),
+      title.isEmpty ? null : title,
+    );
+    if (!mounted) return;
     Navigator.of(context).pop();
   }
 
   @override
   Widget build(BuildContext context) {
+    final controller = context.watch<MessagesController>();
+    final users = controller.users;
     return AlertDialog(
       title: const Text(
-        'New Conversation',
+        'New Direct Message',
         style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
       ),
       content: SizedBox(
-        width: 360,
-        child: TextField(
-          controller: _titleController,
-          autofocus: true,
-          style: const TextStyle(fontSize: 14),
-          decoration: InputDecoration(
-            labelText: 'Thread title',
-            hintText: 'e.g. Sunday setup crew',
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(8),
+        width: 420,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: _titleController,
+              autofocus: true,
+              style: const TextStyle(fontSize: 14),
+              decoration: InputDecoration(
+                labelText: 'Optional title',
+                hintText: 'Defaults to participant names',
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide: const BorderSide(color: _kPrimary),
+                ),
+              ),
+              onSubmitted: (_) => _submit(),
             ),
-            focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(8),
-              borderSide: const BorderSide(color: _kPrimary),
-            ),
-          ),
-          onSubmitted: (_) => _submit(),
+            const SizedBox(height: 12),
+            if (users.isEmpty)
+              const Padding(
+                padding: EdgeInsets.symmetric(vertical: 16),
+                child: Text(
+                  'No users available.',
+                  style: TextStyle(color: _kTextMuted),
+                ),
+              )
+            else
+              SizedBox(
+                height: 220,
+                child: ListView.builder(
+                  itemCount: users.length,
+                  itemBuilder: (context, index) {
+                    final user = users[index];
+                    final isSelected = _selectedUserIds.contains(user.id);
+                    return CheckboxListTile(
+                      value: isSelected,
+                      activeColor: _kPrimary,
+                      title: Text(user.name),
+                      subtitle: Text(user.email),
+                      controlAffinity: ListTileControlAffinity.leading,
+                      onChanged: (value) {
+                        setState(() {
+                          if (value == true) {
+                            _selectedUserIds.add(user.id);
+                          } else {
+                            _selectedUserIds.remove(user.id);
+                          }
+                        });
+                      },
+                    );
+                  },
+                ),
+              ),
+          ],
         ),
       ),
       actions: [
@@ -656,11 +682,19 @@ class _NewThreadDialogState extends State<_NewThreadDialog> {
           child: const Text('Cancel', style: TextStyle(color: _kTextSecondary)),
         ),
         FilledButton(
-          onPressed: _submit,
+          onPressed: _selectedUserIds.isEmpty ? null : _submit,
           style: FilledButton.styleFrom(backgroundColor: _kPrimary),
           child: const Text('Create', style: TextStyle(color: Colors.white)),
         ),
       ],
     );
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      context.read<MessagesController>().loadUsers();
+    });
   }
 }

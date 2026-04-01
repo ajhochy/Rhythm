@@ -61,7 +61,7 @@ function isoDate(date: Date): string {
 export class WeeklyPlanningService {
   private readonly shadowEventsRepo = new CalendarShadowEventsRepository();
 
-  assemblePlan(weekLabel: string): WeeklyPlan {
+  assemblePlan(weekLabel: string, userId?: number): WeeklyPlan {
     const weekStart = parseWeekLabel(weekLabel);
     const weekEnd = new Date(weekStart);
     weekEnd.setUTCDate(weekStart.getUTCDate() + 6);
@@ -89,16 +89,27 @@ export class WeeklyPlanningService {
       status: string;
       source_type: string | null;
       source_id: string | null;
+      owner_id: number | null;
       created_at: string;
       updated_at: string;
     };
-    const taskRows = db
-      .prepare(
-        `SELECT * FROM tasks
-         WHERE (due_date BETWEEN ? AND ? OR scheduled_date BETWEEN ? AND ?)
-         ORDER BY due_date ASC, created_at ASC`,
-      )
-      .all(startStr, endStr, startStr, endStr) as TaskRow[];
+    const taskRows =
+      userId != null
+        ? (db
+            .prepare(
+              `SELECT * FROM tasks
+               WHERE (owner_id = ? OR owner_id IS NULL)
+                 AND (due_date BETWEEN ? AND ? OR scheduled_date BETWEEN ? AND ?)
+               ORDER BY due_date ASC, created_at ASC`,
+            )
+            .all(userId, startStr, endStr, startStr, endStr) as TaskRow[])
+        : (db
+            .prepare(
+              `SELECT * FROM tasks
+               WHERE (due_date BETWEEN ? AND ? OR scheduled_date BETWEEN ? AND ?)
+               ORDER BY due_date ASC, created_at ASC`,
+            )
+            .all(startStr, endStr, startStr, endStr) as TaskRow[]);
 
     for (const row of taskRows) {
       const dateKey = row.scheduled_date ?? row.due_date;
@@ -116,6 +127,7 @@ export class WeeklyPlanningService {
         sourceType: row.source_type,
         sourceId: row.source_id,
         sourceName: null,
+        ownerId: row.owner_id,
         createdAt: row.created_at,
         updatedAt: row.updated_at,
       });
@@ -148,6 +160,7 @@ export class WeeklyPlanningService {
         sourceType: 'project_step',
         sourceId: row.instance_id,
         sourceName: row.instance_name ?? null,
+        ownerId: null,
         createdAt: '',
         updatedAt: '',
       });
@@ -189,6 +202,7 @@ export class WeeklyPlanningService {
         sourceType: 'calendar_shadow_event',
         sourceId: event.externalId,
         sourceName: event.sourceName,
+        ownerId: null,
         createdAt: event.createdAt,
         updatedAt: event.updatedAt,
       });
@@ -196,13 +210,25 @@ export class WeeklyPlanningService {
 
     // 5: backlog — open tasks with no due_date and no scheduled_date
     type BacklogRow = TaskRow;
-    const backlogRows = db
-      .prepare(
-        `SELECT * FROM tasks
-         WHERE status = 'open' AND due_date IS NULL AND scheduled_date IS NULL
-         ORDER BY created_at ASC`,
-      )
-      .all() as BacklogRow[];
+    const backlogRows =
+      userId != null
+        ? (db
+            .prepare(
+              `SELECT * FROM tasks
+               WHERE status = 'open'
+                 AND due_date IS NULL
+                 AND scheduled_date IS NULL
+                 AND (owner_id = ? OR owner_id IS NULL)
+               ORDER BY created_at ASC`,
+            )
+            .all(userId) as BacklogRow[])
+        : (db
+            .prepare(
+              `SELECT * FROM tasks
+               WHERE status = 'open' AND due_date IS NULL AND scheduled_date IS NULL
+               ORDER BY created_at ASC`,
+            )
+            .all() as BacklogRow[]);
     const backlog: Task[] = backlogRows.map((row) => ({
       id: row.id,
       title: row.title,
@@ -214,6 +240,7 @@ export class WeeklyPlanningService {
       sourceType: row.source_type,
       sourceId: row.source_id,
       sourceName: null,
+      ownerId: row.owner_id,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     }));
@@ -241,6 +268,7 @@ export class WeeklyPlanningService {
         sourceType: 'project_step',
         sourceId: row.instance_id,
         sourceName: row.instance_name ?? null,
+        ownerId: null,
         createdAt: '',
         updatedAt: '',
       })),

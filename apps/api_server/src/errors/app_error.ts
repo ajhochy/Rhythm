@@ -16,6 +16,10 @@ export class AppError extends Error {
     return new AppError(400, 'BAD_REQUEST', message);
   }
 
+  static unauthorized(message = 'Unauthorized'): AppError {
+    return new AppError(401, 'UNAUTHORIZED', message);
+  }
+
   static internal(message = 'Internal server error'): AppError {
     return new AppError(500, 'INTERNAL_ERROR', message);
   }

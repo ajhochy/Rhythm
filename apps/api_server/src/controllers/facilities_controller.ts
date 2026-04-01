@@ -59,12 +59,9 @@ export class FacilitiesController {
 
   createReservation(req: Request, res: Response, next: NextFunction) {
     try {
-      const { title, reserved_by, start_time, end_time, notes } = req.body as Record<string, unknown>;
+      const { title, start_time, end_time, notes } = req.body as Record<string, unknown>;
       if (!title || typeof title !== 'string') {
         throw AppError.badRequest('title is required');
-      }
-      if (!reserved_by || typeof reserved_by !== 'string') {
-        throw AppError.badRequest('reserved_by is required');
       }
       if (!start_time || typeof start_time !== 'string') {
         throw AppError.badRequest('start_time is required');
@@ -74,7 +71,8 @@ export class FacilitiesController {
       }
       const reservation = repo.createReservation(Number(req.params.id), {
         title,
-        reserved_by,
+        reserved_by: req.auth?.user.name ?? 'Unknown user',
+        reserved_by_user_id: req.auth?.user.id ?? null,
         start_time,
         end_time,
         notes: notes as string | null | undefined,

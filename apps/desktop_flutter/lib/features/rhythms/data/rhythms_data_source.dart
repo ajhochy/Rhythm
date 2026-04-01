@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import '../../../app/core/auth/auth_session_store.dart';
 import '../../../app/core/constants/app_constants.dart';
 import '../../../app/core/errors/app_error.dart';
 import '../../../features/tasks/models/recurring_task_rule.dart';
@@ -11,7 +12,10 @@ class RhythmsDataSource {
   final String _baseUrl;
 
   Future<List<RecurringTaskRule>> fetchAll() async {
-    final response = await http.get(Uri.parse('$_baseUrl/recurring-rules'));
+    final response = await http.get(
+      Uri.parse('$_baseUrl/recurring-rules'),
+      headers: AuthSessionStore.headers(),
+    );
     _assertOk(response);
     final list = jsonDecode(response.body) as List<dynamic>;
     return list
@@ -28,7 +32,7 @@ class RhythmsDataSource {
   }) async {
     final response = await http.post(
       Uri.parse('$_baseUrl/recurring-rules'),
-      headers: {'Content-Type': 'application/json'},
+      headers: AuthSessionStore.headers(json: true),
       body: jsonEncode({
         'title': title,
         'frequency': frequency,
@@ -53,7 +57,7 @@ class RhythmsDataSource {
   }) async {
     final response = await http.patch(
       Uri.parse('$_baseUrl/recurring-rules/$id'),
-      headers: {'Content-Type': 'application/json'},
+      headers: AuthSessionStore.headers(json: true),
       body: jsonEncode({
         if (title != null) 'title': title,
         if (frequency != null) 'frequency': frequency,
@@ -69,8 +73,10 @@ class RhythmsDataSource {
   }
 
   Future<void> delete(String id) async {
-    final response =
-        await http.delete(Uri.parse('$_baseUrl/recurring-rules/$id'));
+    final response = await http.delete(
+      Uri.parse('$_baseUrl/recurring-rules/$id'),
+      headers: AuthSessionStore.headers(),
+    );
     _assertOk(response);
   }
 

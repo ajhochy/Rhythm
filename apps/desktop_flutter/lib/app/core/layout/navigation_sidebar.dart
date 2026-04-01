@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
+import '../auth/auth_session_service.dart';
+import '../../../features/messages/controllers/messages_controller.dart';
 import '../../../features/settings/views/settings_view.dart';
 import '../updates/update_controller.dart';
 
@@ -9,11 +12,13 @@ class NavigationSidebar extends StatelessWidget {
     required this.selectedIndex,
     required this.onItemSelected,
     required this.updateController,
+    required this.authSessionService,
   });
 
   final int selectedIndex;
   final ValueChanged<int> onItemSelected;
   final UpdateController updateController;
+  final AuthSessionService authSessionService;
 
   static const _items = [
     _NavItem(icon: Icons.dashboard_outlined, label: 'Dashboard'),
@@ -29,6 +34,7 @@ class NavigationSidebar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final unreadCount = context.watch<MessagesController>().unreadThreadCount;
     return Container(
       width: 240,
       decoration: const BoxDecoration(
@@ -57,10 +63,15 @@ class NavigationSidebar extends StatelessWidget {
               item: _items[i],
               isSelected: i == selectedIndex,
               onTap: () => onItemSelected(i),
+              badgeCount: i == 5 ? unreadCount : null,
             ),
             const SizedBox(height: 4),
           ],
           const Spacer(),
+          if (authSessionService.currentUser != null) ...[
+            _UserPanel(authSessionService: authSessionService),
+            const SizedBox(height: 8),
+          ],
           _UpdatePanel(controller: updateController),
           const SizedBox(height: 8),
           _SettingsButton(),
@@ -78,11 +89,12 @@ class _NavItem {
 
 class _NavItemTile extends StatelessWidget {
   const _NavItemTile(
-      {required this.item, required this.isSelected, required this.onTap});
+      {required this.item, required this.isSelected, required this.onTap, this.badgeCount});
 
   final _NavItem item;
   final bool isSelected;
   final VoidCallback onTap;
+  final int? badgeCount;
 
   @override
   Widget build(BuildContext context) {
@@ -114,6 +126,25 @@ class _NavItemTile extends StatelessWidget {
                 fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
               ),
             ),
+            if ((badgeCount ?? 0) > 0) ...[
+              const Spacer(),
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFEF4444),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Text(
+                  '${badgeCount!}',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
           ],
         ),
       ),
@@ -231,6 +262,49 @@ class _UpdatePanel extends StatelessWidget {
           _SidebarButton(
             label: 'Check now',
             onTap: controller.checkForUpdates,
+            outlined: true,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _UserPanel extends StatelessWidget {
+  const _UserPanel({required this.authSessionService});
+
+  final AuthSessionService authSessionService;
+
+  @override
+  Widget build(BuildContext context) {
+    final user = authSessionService.currentUser!;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFE5E7EB)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            user.name,
+            style: const TextStyle(
+              color: Color(0xFF111827),
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            user.email,
+            style: const TextStyle(color: Color(0xFF6B7280), fontSize: 12),
+          ),
+          const SizedBox(height: 10),
+          _SidebarButton(
+            label: 'Sign out',
+            onTap: authSessionService.logout,
             outlined: true,
           ),
         ],

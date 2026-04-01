@@ -6,6 +6,7 @@ import type {
   Message,
   MessageThread,
 } from '../models/message';
+import { UsersRepository } from './users_repository';
 
 interface ThreadRow {
   id: number;
@@ -13,6 +14,11 @@ interface ThreadRow {
   created_by: number | null;
   created_at: string;
   updated_at: string;
+}
+
+interface ThreadSummaryRow extends ThreadRow {
+  last_message?: string | null;
+  unread_count?: number | null;
 }
 
 interface MessageRow {
@@ -24,7 +30,8 @@ interface MessageRow {
   created_at: string;
 }
 
-function rowToThread(row: ThreadRow & { last_message?: string | null }): MessageThread {
+function rowToThread(row: ThreadSummaryRow): MessageThread {
+  const unreadCount = row.unread_count ?? 0;
   return {
     id: row.id,
     title: row.title,
@@ -32,6 +39,8 @@ function rowToThread(row: ThreadRow & { last_message?: string | null }): Message
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     lastMessage: row.last_message ?? null,
+    unreadCount,
+    isUnread: unreadCount > 0,
   };
 }
 
@@ -47,42 +56,109 @@ function rowToMessage(row: MessageRow): Message {
 }
 
 export class MessagesRepository {
-  findAllThreads(): MessageThread[] {
+  private readonly usersRepo = new UsersRepository();
+
+  findAllThreadsForUser(userId: number): MessageThread[] {
     const rows = getDb()
       .prepare(
-        `SELECT t.*, (
-          SELECT m.body FROM messages m
-          WHERE m.thread_id = t.id
-          ORDER BY m.created_at DESC
-          LIMIT 1
-        ) AS last_message
-        FROM message_threads t
-        ORDER BY t.updated_at DESC`,
+        `SELECT
+           t.*,
+           (
+             SELECT m.body FROM messages m
+             WHERE m.thread_id = t.id
+             ORDER BY m.created_at DESC
+             LIMIT 1
+           ) AS last_message,
+           (
+             SELECT COUNT(*) FROM messages m
+             LEFT JOIN thread_reads tr
+               ON tr.thread_id = m.thread_id AND tr.user_id = ?
+             WHERE m.thread_id = t.id
+               AND m.sender_id != ?
+               AND (tr.last_read_at IS NULL OR m.created_at > tr.last_read_at)
+           ) AS unread_count
+         FROM message_threads t
+         JOIN thread_participants tp
+           ON tp.thread_id = t.id
+         WHERE tp.user_id = ?
+         ORDER BY t.updated_at DESC`,
       )
-      .all() as Array<ThreadRow & { last_message?: string | null }>;
+      .all(userId, userId, userId) as ThreadSummaryRow[];
     return rows.map(rowToThread);
   }
 
-  findThreadById(id: number): MessageThread {
+  findThreadByIdForUser(id: number, userId: number): MessageThread {
     const row = getDb()
-      .prepare('SELECT * FROM message_threads WHERE id = ?')
-      .get(id) as ThreadRow | undefined;
+      .prepare(
+        `SELECT t.*,
+            (
+              SELECT m.body FROM messages m
+              WHERE m.thread_id = t.id
+              ORDER BY m.created_at DESC
+              LIMIT 1
+            ) AS last_message,
+            (
+              SELECT COUNT(*) FROM messages m
+              LEFT JOIN thread_reads tr
+                ON tr.thread_id = m.thread_id AND tr.user_id = ?
+              WHERE m.thread_id = t.id
+                AND m.sender_id != ?
+                AND (tr.last_read_at IS NULL OR m.created_at > tr.last_read_at)
+            ) AS unread_count
+         FROM message_threads t
+         JOIN thread_participants tp
+           ON tp.thread_id = t.id
+         WHERE t.id = ? AND tp.user_id = ?`,
+      )
+      .get(userId, userId, id, userId) as ThreadSummaryRow | undefined;
     if (!row) throw AppError.notFound('MessageThread');
     return rowToThread(row);
   }
 
   createThread(data: CreateThreadDto): MessageThread {
+    const participantIds = Array.from(
+      new Set([data.createdBy, ...data.participantIds]),
+    );
+    if (participantIds.length < 2) {
+      throw AppError.badRequest('A thread must include at least two participants');
+    }
+
+    const participantUsers = participantIds.map((id) => this.usersRepo.findById(id));
+    const title =
+      (data.title?.trim().length ?? 0) > 0
+        ? data.title!.trim()
+        : participantUsers.map((user) => user.name).join(', ');
+
+    const now = new Date().toISOString();
     const result = getDb()
       .prepare(
-        `INSERT INTO message_threads (title, created_by) VALUES (?, ?)`,
+        `INSERT INTO message_threads (title, created_by, created_at, updated_at)
+         VALUES (?, ?, ?, ?)`,
       )
-      .run(data.title, data.created_by ?? null);
-    return this.findThreadById(result.lastInsertRowid as number);
+      .run(title, data.createdBy, now, now);
+
+    const threadId = result.lastInsertRowid as number;
+    const insertParticipant = getDb().prepare(
+      `INSERT INTO thread_participants (thread_id, user_id) VALUES (?, ?)`,
+    );
+    const insertRead = getDb().prepare(
+      `INSERT INTO thread_reads (thread_id, user_id, last_read_at) VALUES (?, ?, ?)`,
+    );
+
+    for (const participantId of participantIds) {
+      insertParticipant.run(threadId, participantId);
+      insertRead.run(
+        threadId,
+        participantId,
+        participantId === data.createdBy ? now : null,
+      );
+    }
+
+    return this.findThreadByIdForUser(threadId, data.createdBy);
   }
 
-  findMessagesByThread(threadId: number): Message[] {
-    // Ensure thread exists
-    this.findThreadById(threadId);
+  findMessagesByThread(threadId: number, userId: number): Message[] {
+    this.findThreadByIdForUser(threadId, userId);
     const rows = getDb()
       .prepare(
         'SELECT * FROM messages WHERE thread_id = ? ORDER BY created_at ASC',
@@ -91,22 +167,44 @@ export class MessagesRepository {
     return rows.map(rowToMessage);
   }
 
-  createMessage(threadId: number, data: CreateMessageDto): Message {
-    // Ensure thread exists
-    this.findThreadById(threadId);
+  createMessage(threadId: number, userId: number, data: CreateMessageDto): Message {
+    this.findThreadByIdForUser(threadId, userId);
+    const user = this.usersRepo.findById(userId);
     const now = new Date().toISOString();
     const result = getDb()
       .prepare(
-        `INSERT INTO messages (thread_id, sender_id, sender_name, body) VALUES (?, ?, ?, ?)`,
+        `INSERT INTO messages (thread_id, sender_id, sender_name, body)
+         VALUES (?, ?, ?, ?)`,
       )
-      .run(threadId, data.sender_id ?? null, data.sender_name, data.body);
-    // Update thread updated_at
+      .run(threadId, user.id, user.name, data.body);
+
     getDb()
       .prepare(`UPDATE message_threads SET updated_at = ? WHERE id = ?`)
       .run(now, threadId);
+    getDb()
+      .prepare(
+        `INSERT INTO thread_reads (thread_id, user_id, last_read_at)
+         VALUES (?, ?, ?)
+         ON CONFLICT(thread_id, user_id)
+         DO UPDATE SET last_read_at = excluded.last_read_at`,
+      )
+      .run(threadId, userId, now);
+
     const row = getDb()
       .prepare('SELECT * FROM messages WHERE id = ?')
       .get(result.lastInsertRowid as number) as MessageRow;
     return rowToMessage(row);
+  }
+
+  markThreadRead(threadId: number, userId: number): void {
+    this.findThreadByIdForUser(threadId, userId);
+    getDb()
+      .prepare(
+        `INSERT INTO thread_reads (thread_id, user_id, last_read_at)
+         VALUES (?, ?, ?)
+         ON CONFLICT(thread_id, user_id)
+         DO UPDATE SET last_read_at = excluded.last_read_at`,
+      )
+      .run(threadId, userId, new Date().toISOString());
   }
 }

@@ -13,6 +13,7 @@ interface TaskRow {
   status: string;
   source_type: string | null;
   source_id: string | null;
+  owner_id: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -29,23 +30,40 @@ function rowToTask(row: TaskRow): Task {
     sourceType: row.source_type,
     sourceId: row.source_id,
     sourceName: null,
+    ownerId: row.owner_id,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
 }
 
 export class TasksRepository {
-  findAll(): Task[] {
+  findAll(userId?: number): Task[] {
+    if (userId != null) {
+      const rows = getDb()
+        .prepare(
+          `SELECT * FROM tasks
+           WHERE owner_id = ? OR owner_id IS NULL
+           ORDER BY due_date ASC, created_at ASC`,
+        )
+        .all(userId) as TaskRow[];
+      return rows.map(rowToTask);
+    }
     const rows = getDb()
       .prepare('SELECT * FROM tasks ORDER BY due_date ASC, created_at ASC')
       .all() as TaskRow[];
     return rows.map(rowToTask);
   }
 
-  findById(id: string): Task {
-    const row = getDb()
-      .prepare('SELECT * FROM tasks WHERE id = ?')
-      .get(id) as TaskRow | undefined;
+  findById(id: string, userId?: number): Task {
+    const row = (userId != null
+      ? getDb()
+          .prepare(
+            'SELECT * FROM tasks WHERE id = ? AND (owner_id = ? OR owner_id IS NULL)',
+          )
+          .get(id, userId)
+      : getDb().prepare('SELECT * FROM tasks WHERE id = ?').get(id)) as
+      | TaskRow
+      | undefined;
     if (!row) throw AppError.notFound('Task');
     return rowToTask(row);
   }
@@ -57,7 +75,18 @@ export class TasksRepository {
     return row ? rowToTask(row) : null;
   }
 
-  findByWeek(weekStart: string, weekEnd: string): Task[] {
+  findByWeek(weekStart: string, weekEnd: string, userId?: number): Task[] {
+    if (userId != null) {
+      const rows = getDb()
+        .prepare(
+          `SELECT * FROM tasks
+           WHERE (owner_id = ? OR owner_id IS NULL)
+             AND (due_date BETWEEN ? AND ? OR scheduled_date BETWEEN ? AND ?)
+           ORDER BY due_date ASC, created_at ASC`,
+        )
+        .all(userId, weekStart, weekEnd, weekStart, weekEnd) as TaskRow[];
+      return rows.map(rowToTask);
+    }
     const rows = getDb()
       .prepare(
         `SELECT * FROM tasks
@@ -75,9 +104,9 @@ export class TasksRepository {
       .prepare(
         `INSERT INTO tasks (
           id, title, notes, due_date, scheduled_date, locked, status,
-          source_type, source_id, created_at, updated_at
+          source_type, source_id, owner_id, created_at, updated_at
         )
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         id,
@@ -89,6 +118,7 @@ export class TasksRepository {
         data.status ?? 'open',
         data.sourceType ?? null,
         data.sourceId ?? null,
+        data.ownerId ?? null,
         now,
         now,
       );
@@ -169,8 +199,8 @@ export class TasksRepository {
     return result.changes;
   }
 
-  update(id: string, data: UpdateTaskDto): Task {
-    const existing = this.findById(id);
+  update(id: string, data: UpdateTaskDto, userId?: number): Task {
+    const existing = this.findById(id, userId);
     const now = new Date().toISOString();
     const nextNotes = data.notes === '' ? null : data.notes;
     const nextDueDate = data.dueDate === '' ? null : data.dueDate;
@@ -180,7 +210,7 @@ export class TasksRepository {
       .prepare(
         `UPDATE tasks
          SET title = ?, notes = ?, due_date = ?, status = ?,
-             scheduled_date = ?, locked = ?, updated_at = ?
+             scheduled_date = ?, locked = ?, owner_id = ?, updated_at = ?
          WHERE id = ?`,
       )
       .run(
@@ -192,10 +222,11 @@ export class TasksRepository {
             ? nextScheduledDate
             : existing.scheduledDate,
         data.locked !== undefined ? (data.locked ? 1 : 0) : (existing.locked ? 1 : 0),
+        data.ownerId !== undefined ? data.ownerId : existing.ownerId,
         now,
         id,
       );
-    return this.findById(id);
+    return this.findById(id, userId);
   }
 
   delete(id: string): void {

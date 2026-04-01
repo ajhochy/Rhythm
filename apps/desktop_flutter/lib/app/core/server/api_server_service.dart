@@ -88,6 +88,17 @@ class ApiServerService {
   }
 
   Future<String?> _findNode() async {
+    // Prefer architecture-matching Homebrew installs first so native modules
+    // line up with the user's primary local Node toolchain.
+    const preferredCandidates = [
+      '/opt/homebrew/bin/node', // Apple Silicon Homebrew
+      '/usr/local/bin/node', // Intel Homebrew / legacy install
+      '/usr/bin/node',
+    ];
+    for (final path in preferredCandidates) {
+      if (File(path).existsSync()) return path;
+    }
+
     // GUI apps on macOS launch with a minimal PATH (/usr/bin:/bin:...) so
     // plain `which node` misses Homebrew and nvm. Use a login shell so that
     // ~/.zprofile / ~/.bash_profile are sourced and the full PATH is available.
@@ -100,16 +111,6 @@ class ApiServerService {
           if (path.isNotEmpty && File(path).existsSync()) return path;
         }
       } catch (_) {}
-    }
-
-    // Hard-coded fallbacks for common macOS install locations.
-    const candidates = [
-      '/opt/homebrew/bin/node', // Apple Silicon Homebrew
-      '/usr/local/bin/node', // Intel Homebrew / nvm
-      '/usr/bin/node',
-    ];
-    for (final path in candidates) {
-      if (File(path).existsSync()) return path;
     }
 
     return null;

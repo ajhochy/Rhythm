@@ -5,6 +5,8 @@ export interface MessageThread {
   createdAt: string;
   updatedAt: string;
   lastMessage?: string | null;
+  unreadCount: number;
+  isUnread: boolean;
 }
 
 export interface Message {
@@ -17,12 +19,11 @@ export interface Message {
 }
 
 export interface CreateThreadDto {
-  title: string;
-  created_by?: number | null;
+  title?: string | null;
+  createdBy: number;
+  participantIds: number[];
 }
 
 export interface CreateMessageDto {
-  sender_name: string;
   body: string;
-  sender_id?: number | null;
 }

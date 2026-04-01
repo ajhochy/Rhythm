@@ -5,9 +5,9 @@ import { TasksRepository } from '../repositories/tasks_repository';
 const repo = new TasksRepository();
 
 export class TasksController {
-  getAll(_req: Request, res: Response, next: NextFunction) {
+  getAll(req: Request, res: Response, next: NextFunction) {
     try {
-      res.json(repo.findAll());
+      res.json(repo.findAll(req.auth?.user.id));
     } catch (err) {
       next(err);
     }
@@ -15,7 +15,7 @@ export class TasksController {
 
   getById(req: Request, res: Response, next: NextFunction) {
     try {
-      res.json(repo.findById(req.params.id));
+      res.json(repo.findById(req.params.id, req.auth?.user.id));
     } catch (err) {
       next(err);
     }
@@ -27,7 +27,13 @@ export class TasksController {
       if (!title || typeof title !== 'string') {
         throw AppError.badRequest('title is required');
       }
-      const task = repo.create({ title, notes: notes as string ?? null, dueDate: dueDate as string ?? null, status: status as 'open' | 'done' });
+      const task = repo.create({
+        title,
+        notes: (notes as string) ?? null,
+        dueDate: (dueDate as string) ?? null,
+        status: status as 'open' | 'done',
+        ownerId: req.auth?.user.id ?? null,
+      });
       res.status(201).json(task);
     } catch (err) {
       next(err);
@@ -36,7 +42,11 @@ export class TasksController {
 
   update(req: Request, res: Response, next: NextFunction) {
     try {
-      const task = repo.update(req.params.id, req.body as Record<string, unknown>);
+      const task = repo.update(
+        req.params.id,
+        req.body as Record<string, unknown>,
+        req.auth?.user.id,
+      );
       res.json(task);
     } catch (err) {
       next(err);

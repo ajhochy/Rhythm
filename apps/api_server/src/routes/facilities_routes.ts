@@ -1,9 +1,11 @@
 import { Router } from 'express';
 import { FacilitiesController } from '../controllers/facilities_controller';
+import { requireAuth } from '../middleware/auth_middleware';
 
 const controller = new FacilitiesController();
 export const facilitiesRouter = Router();
 
+facilitiesRouter.use(requireAuth);
 facilitiesRouter.get('/', controller.getAll.bind(controller));
 facilitiesRouter.post('/', controller.create.bind(controller));
 facilitiesRouter.patch('/:id', controller.update.bind(controller));

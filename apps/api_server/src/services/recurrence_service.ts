@@ -27,6 +27,7 @@ export class RecurrenceService {
           status: 'open',
           sourceType: 'recurring_rule',
           sourceId: rule.id,
+          ownerId: rule.ownerId,
         });
         created.push(task);
       }

@@ -11,8 +11,11 @@ Desktop-first Flutter client for Rhythm.
 ## Run
 ```bash
 flutter pub get
-flutter run -d macos
+flutter run -d macos \
+  --dart-define=GOOGLE_DESKTOP_CLIENT_ID=<desktop-google-client-id>
 ```
+
+For Google Sign-In, the desktop app now expects `GOOGLE_DESKTOP_CLIENT_ID` as a Dart define. The API separately trusts the web client ID for `POST /auth/google/login`.
 
 ## Beta Distribution
 - Use the `Desktop Release` GitHub Actions workflow to build downloadable tester artifacts.

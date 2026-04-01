@@ -1,12 +1,47 @@
 import type { NextFunction, Request, Response } from 'express';
 import { AppError } from '../errors/app_error';
+import { AuthService } from '../services/auth_service';
 import { GoogleOAuthService } from '../services/google_oauth_service';
 import { PlanningCenterOAuthService } from '../services/planning_center_oauth_service';
 
 const googleOAuth = new GoogleOAuthService();
 const planningCenterOAuth = new PlanningCenterOAuthService();
+const authService = new AuthService();
 
 export class AuthController {
+  async googleLogin(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { googleIdToken } = req.body as Record<string, unknown>;
+      if (!googleIdToken || typeof googleIdToken !== 'string') {
+        throw AppError.badRequest('googleIdToken is required');
+      }
+
+      const session = await authService.loginWithGoogleIdToken(googleIdToken);
+      res.status(200).json(session);
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  me(req: Request, res: Response, next: NextFunction) {
+    try {
+      if (!req.auth) throw AppError.badRequest('Missing auth context');
+      res.json(req.auth.user);
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  logout(req: Request, res: Response, next: NextFunction) {
+    try {
+      if (!req.auth) throw AppError.badRequest('Missing auth context');
+      authService.logout(req.auth.sessionToken);
+      res.status(204).send();
+    } catch (err) {
+      next(err);
+    }
+  }
+
   beginGoogleOAuth(_req: Request, res: Response, next: NextFunction) {
     try {
       res.redirect(googleOAuth.getAuthorizationUrl());

@@ -3,6 +3,8 @@ import 'package:provider/provider.dart';
 import 'package:window_manager/window_manager.dart';
 
 import 'app/core/constants/app_constants.dart';
+import 'app/core/auth/auth_data_source.dart';
+import 'app/core/auth/auth_session_service.dart';
 import 'app/core/layout/app_shell.dart';
 import 'app/core/server/api_server_controller.dart';
 import 'app/core/server/api_server_service.dart';
@@ -61,8 +63,11 @@ void main() async {
   // while the server boots.
   final serverController = ApiServerController(ApiServerService())
     ..initialize();
+  final authSessionService =
+      AuthSessionService(AuthDataSource(baseUrl: serverConfigService.url));
 
   runApp(RhythmApp(
+    authSessionService: authSessionService,
     serverController: serverController,
     serverConfigService: serverConfigService,
   ));
@@ -71,10 +76,12 @@ void main() async {
 class RhythmApp extends StatelessWidget {
   const RhythmApp({
     super.key,
+    required this.authSessionService,
     required this.serverController,
     required this.serverConfigService,
   });
 
+  final AuthSessionService authSessionService;
   final ApiServerController serverController;
   final ServerConfigService serverConfigService;
 
@@ -85,6 +92,7 @@ class RhythmApp extends StatelessWidget {
       providers: [
         ChangeNotifierProvider.value(value: serverController),
         ChangeNotifierProvider.value(value: serverConfigService),
+        ChangeNotifierProvider.value(value: authSessionService),
         ChangeNotifierProvider(
           create: (_) => TasksController(
             TasksRepository(TasksLocalDataSource(baseUrl: baseUrl)),

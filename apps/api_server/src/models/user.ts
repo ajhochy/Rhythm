@@ -2,6 +2,7 @@ export interface User {
   id: number;
   name: string;
   email: string;
+  googleSub: string | null;
   role: string;
   createdAt: string;
   updatedAt: string;
@@ -10,11 +11,13 @@ export interface User {
 export interface CreateUserDto {
   name: string;
   email: string;
+  googleSub?: string | null;
   role?: string;
 }
 
 export interface UpdateUserDto {
   name?: string;
   email?: string;
+  googleSub?: string | null;
   role?: string;
 }
