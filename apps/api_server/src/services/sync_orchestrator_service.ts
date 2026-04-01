@@ -38,7 +38,7 @@ export class SyncOrchestratorService {
       try {
         const result = await this.integrationsService.syncPlanningCenter();
         logger.info(
-          `SyncOrchestrator: Planning Center synced — ${result.taskSignalCount} task(s), ${result.startedProjectCount} project(s) started`,
+          `SyncOrchestrator: Planning Center synced — ${result.taskSignalCount} task signal(s), ${result.executedActionCount} action(s) executed`,
         );
       } catch (err) {
         logger.error(

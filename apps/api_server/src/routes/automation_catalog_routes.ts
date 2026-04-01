@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { AutomationCatalogController } from '../controllers/automation_catalog_controller';
-import { requireAuth } from '../middleware/require_auth';
+import { requireAuth } from '../middleware/auth_middleware';
 
 const controller = new AutomationCatalogController();
 export const automationCatalogRouter = Router();

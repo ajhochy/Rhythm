@@ -33,12 +33,20 @@ class AutomationRule {
   final String createdAt;
   final String updatedAt;
 
+  String get triggerType => switch (triggerKey) {
+        'rhythm.project_step_due' => 'project_step_due',
+        'rhythm.task_due' => 'task_due',
+        'rhythm.plan_assembly' => 'plan_assembly',
+        _ => triggerKey,
+      };
+
   factory AutomationRule.fromJson(Map<String, dynamic> json) {
     return AutomationRule(
       id: json['id'] as String,
       name: json['name'] as String,
       source: json['source'] as String? ?? 'rhythm',
-      triggerKey: json['triggerKey'] as String,
+      triggerKey: (json['triggerKey'] as String?) ??
+          _legacyTriggerKey(json['triggerType'] as String?),
       triggerConfig: json['triggerConfig'] as Map<String, dynamic>?,
       actionType: json['actionType'] as String,
       actionConfig: json['actionConfig'] as Map<String, dynamic>?,
@@ -69,5 +77,41 @@ class AutomationRule {
         if (previewSample != null) 'previewSample': previewSample,
         'createdAt': createdAt,
         'updatedAt': updatedAt,
+      };
+
+  static String _legacyTriggerKey(String? triggerType) => switch (triggerType) {
+        'project_step_due' => 'rhythm.project_step_due',
+        'task_due' => 'rhythm.task_due',
+        'plan_assembly' => 'rhythm.plan_assembly',
+        _ => triggerType ?? 'rhythm.task_due',
+      };
+
+  static String triggerLabel(String type) => switch (type) {
+        'project_step_due' => 'Project step is due',
+        'rhythm.project_step_due' => 'Project step is due',
+        'task_due' => 'Task is due',
+        'rhythm.task_due' => 'Task is due',
+        'plan_assembly' => 'Plan is assembled',
+        'rhythm.plan_assembly' => 'Plan is assembled',
+        'planning_center.plan_person_declined' => 'Volunteer declined',
+        'planning_center.plan_person_unconfirmed' => 'Volunteer unconfirmed',
+        'planning_center.needed_position_open' => 'Needed position open',
+        'planning_center.special_service_candidate' =>
+          'Special service candidate',
+        'google_calendar.event_matching_filter' => 'Calendar event matches filter',
+        'google_calendar.all_day_event' => 'All-day calendar event',
+        'gmail.message_matching_filter' => 'Gmail message matches filter',
+        'gmail.unread_message_matching_filter' =>
+          'Unread Gmail message matches filter',
+        _ => type,
+      };
+
+  static String actionLabel(String type) => switch (type) {
+        'create_task' => 'Create task',
+        'create_project_from_template' => 'Create project from template',
+        'auto_schedule' => 'Auto-schedule to day',
+        'send_notification' => 'Send notification',
+        'tag_task' => 'Tag task',
+        _ => type,
       };
 }

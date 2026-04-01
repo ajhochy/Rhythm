@@ -525,11 +525,12 @@ export class PlanningCenterService {
       `/services/v2/service_types/${plan.serviceTypeId}/plans/${plan.id}/team_members?per_page=100`,
     );
 
-    return (payload.data ?? [])
-      .map((resource) => {
+    const signals: Array<PlanningCenterTaskSignal & { positionName: string }> =
+      [];
+    for (const resource of payload.data ?? []) {
         const attrs = resource.attributes ?? {};
         const status = (asString(attrs.status) ?? '').toLowerCase();
-        if (status != 'unconfirmed' && status != 'u') return null;
+        if (status != 'unconfirmed' && status != 'u') continue;
 
         const personName =
           asString(attrs.person_name) ??
@@ -541,7 +542,7 @@ export class PlanningCenterService {
           asString(attrs.position_name) ??
           'position';
 
-        return {
+        signals.push({
           sourceId: `planning_center:unconfirmed:${plan.id}:${resource.id}`,
           title: `Confirm ${positionName} for ${plan.title}`,
           notes:
@@ -559,12 +560,10 @@ export class PlanningCenterService {
           planTitle: plan.title,
           planDate: plan.planDate,
           daysUntil: daysUntil(plan.planDate),
-        };
-      })
-      .filter(
-        (signal): signal is PlanningCenterTaskSignal & { positionName: string } =>
-          signal != null,
-      );
+        });
+    }
+
+    return signals;
   }
 
   private async getJson(
