@@ -79,7 +79,12 @@ jobs:
           DEST="$APP/Contents/Resources/api_server"
           mkdir -p "$DEST"
           cp -r ../api_server/dist "$DEST/"
-          cp -r ../api_server/node_modules "$DEST/"
+          cp ../api_server/package.json "$DEST/"
+          cp ../api_server/package-lock.json "$DEST/"
+          (
+            cd "$DEST"
+            npm install --omit=dev
+          )
           # Write OAuth secrets into a .env file loaded by the server at runtime
           printf 'GOOGLE_CLIENT_ID=%s\nGOOGLE_AUTH_CLIENT_ID=%s\nGOOGLE_CLIENT_SECRET=%s\nGOOGLE_REDIRECT_URI=%s\nPCO_APPLICATION_ID=%s\nPCO_SECRET=%s\nPCO_REDIRECT_URI=%s\n' \
             "$GOOGLE_CLIENT_ID" "$GOOGLE_AUTH_CLIENT_ID" "$GOOGLE_CLIENT_SECRET" "$GOOGLE_REDIRECT_URI" \
