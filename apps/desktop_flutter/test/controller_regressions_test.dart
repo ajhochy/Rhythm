@@ -11,7 +11,8 @@ import 'package:rhythm_desktop/features/tasks/models/recurring_task_rule.dart';
 import 'package:rhythm_desktop/features/tasks/models/task.dart';
 
 void main() {
-  test('DashboardController refreshes recent tasks after toggling done', () async {
+  test('DashboardController refreshes recent tasks after toggling done',
+      () async {
     final dataSource = _FakeDashboardDataSource();
     final controller = DashboardController(dataSource);
 

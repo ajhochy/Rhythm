@@ -12,7 +12,8 @@ class MessagesRepository {
 
   Future<List<AuthUser>> getUsers() => _dataSource.getUsers();
 
-  Future<MessageThread> createThread(List<int> participantIds, {String? title}) =>
+  Future<MessageThread> createThread(List<int> participantIds,
+          {String? title}) =>
       _dataSource.createThread(participantIds, title: title);
 
   Future<List<Message>> getMessages(int threadId) =>

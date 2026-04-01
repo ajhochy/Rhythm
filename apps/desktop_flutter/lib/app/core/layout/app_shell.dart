@@ -296,7 +296,8 @@ class _LoginView extends StatelessWidget {
                 child: FilledButton.icon(
                   onPressed: auth.status == AuthStatus.signingIn
                       ? null
-                      : () => context.read<AuthSessionService>().signInWithGoogle(),
+                      : () =>
+                          context.read<AuthSessionService>().signInWithGoogle(),
                   icon: const Icon(Icons.login),
                   label: const Text('Continue with Google'),
                 ),

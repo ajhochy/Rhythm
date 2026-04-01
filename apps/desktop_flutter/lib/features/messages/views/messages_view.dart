@@ -283,8 +283,7 @@ class _ThreadRow extends StatelessWidget {
             if (thread.isUnread) ...[
               const SizedBox(width: 8),
               Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
                 decoration: BoxDecoration(
                   color: _kPrimary,
                   borderRadius: BorderRadius.circular(999),
@@ -579,7 +578,8 @@ class _ReplyArea extends StatelessWidget {
 class _NewThreadDialog extends StatefulWidget {
   const _NewThreadDialog({required this.onCreated});
 
-  final Future<void> Function(List<int> participantIds, String? title) onCreated;
+  final Future<void> Function(List<int> participantIds, String? title)
+      onCreated;
 
   @override
   State<_NewThreadDialog> createState() => _NewThreadDialogState();

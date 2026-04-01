@@ -62,9 +62,7 @@ class DashboardController extends ChangeNotifier {
       _messageThreadCount = messageCount;
 
       // Recent tasks: only open tasks, sort by id desc (higher id = newer), take 5
-      final sorted = tasks
-          .where((task) => task.status != 'done')
-          .toList()
+      final sorted = tasks.where((task) => task.status != 'done').toList()
         ..sort((a, b) => b.id.compareTo(a.id));
       _recentTasks = sorted.take(5).toList();
 

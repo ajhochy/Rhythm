@@ -89,7 +89,10 @@ class _NavItem {
 
 class _NavItemTile extends StatelessWidget {
   const _NavItemTile(
-      {required this.item, required this.isSelected, required this.onTap, this.badgeCount});
+      {required this.item,
+      required this.isSelected,
+      required this.onTap,
+      this.badgeCount});
 
   final _NavItem item;
   final bool isSelected;
@@ -129,8 +132,7 @@ class _NavItemTile extends StatelessWidget {
             if ((badgeCount ?? 0) > 0) ...[
               const Spacer(),
               Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
                 decoration: BoxDecoration(
                   color: const Color(0xFFEF4444),
                   borderRadius: BorderRadius.circular(999),

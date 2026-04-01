@@ -55,11 +55,10 @@ class MessagesDataSource {
   }
 
   Future<List<Message>> getMessages(int threadId) async {
-    final response = await http
-        .get(
-          Uri.parse('$_baseUrl/message-threads/$threadId/messages'),
-          headers: AuthSessionStore.headers(),
-        );
+    final response = await http.get(
+      Uri.parse('$_baseUrl/message-threads/$threadId/messages'),
+      headers: AuthSessionStore.headers(),
+    );
     _assertOk(response);
     final list = jsonDecode(response.body) as List<dynamic>;
     return list

@@ -27,11 +27,10 @@ class FacilitiesDataSource {
   }
 
   Future<List<Reservation>> getReservations(int facilityId) async {
-    final response = await http
-        .get(
-          Uri.parse('$_baseUrl/facilities/$facilityId/reservations'),
-          headers: AuthSessionStore.headers(),
-        );
+    final response = await http.get(
+      Uri.parse('$_baseUrl/facilities/$facilityId/reservations'),
+      headers: AuthSessionStore.headers(),
+    );
     _assertOk(response);
     final list = jsonDecode(response.body) as List<dynamic>;
     return list
