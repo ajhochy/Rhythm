@@ -20,6 +20,10 @@ export class AppError extends Error {
     return new AppError(401, 'UNAUTHORIZED', message);
   }
 
+  static conflict(message: string): AppError {
+    return new AppError(409, 'CONFLICT', message);
+  }
+
   static internal(message = 'Internal server error'): AppError {
     return new AppError(500, 'INTERNAL_ERROR', message);
   }

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
+import '../../../app/core/auth/auth_session_service.dart';
 import '../controllers/messages_controller.dart';
 import '../models/message.dart';
 import '../models/message_thread.dart';
@@ -31,11 +32,6 @@ class _MessagesViewState extends State<MessagesView> {
   @override
   void initState() {
     super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      final controller = context.read<MessagesController>();
-      controller.loadThreads();
-      controller.startPolling();
-    });
     _searchController.addListener(() {
       setState(() => _searchQuery = _searchController.text.toLowerCase());
     });
@@ -43,7 +39,6 @@ class _MessagesViewState extends State<MessagesView> {
 
   @override
   void dispose() {
-    context.read<MessagesController>().stopPolling();
     _searchController.dispose();
     super.dispose();
   }
@@ -82,8 +77,12 @@ class _ThreadListPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final controller = context.watch<MessagesController>();
+    final currentUserId = context.watch<AuthSessionService>().currentUser?.id;
     final filtered = controller.threads
-        .where((t) => t.title.toLowerCase().contains(searchQuery))
+        .where((t) => t
+            .displayTitleFor(currentUserId)
+            .toLowerCase()
+            .contains(searchQuery))
         .toList();
 
     return Container(
@@ -134,9 +133,8 @@ class _ThreadListPanel extends StatelessWidget {
     showDialog<void>(
       context: context,
       builder: (_) => _NewThreadDialog(
-        onCreated: (participantIds, title) => context
-            .read<MessagesController>()
-            .createThread(participantIds, title: title),
+        onCreated: (participantIds) =>
+            context.read<MessagesController>().createThread(participantIds),
       ),
     );
   }
@@ -226,6 +224,7 @@ class _ThreadRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final currentUserId = context.watch<AuthSessionService>().currentUser?.id;
     return InkWell(
       onTap: onTap,
       child: Container(
@@ -244,7 +243,7 @@ class _ThreadRow extends StatelessWidget {
                     children: [
                       Expanded(
                         child: Text(
-                          thread.title,
+                          thread.displayTitleFor(currentUserId),
                           style: TextStyle(
                             fontSize: 13,
                             fontWeight: thread.isUnread
@@ -369,20 +368,38 @@ class _MessagePanelState extends State<_MessagePanel> {
   @override
   Widget build(BuildContext context) {
     final controller = context.watch<MessagesController>();
+    final currentUserId = context.watch<AuthSessionService>().currentUser?.id;
 
     if (controller.selectedThreadId == null) {
-      return const Center(
-        child: Text(
-          'Select a conversation',
-          style: TextStyle(color: _kTextMuted, fontSize: 14),
-        ),
+      return Column(
+        children: [
+          if (controller.incomingNotice != null)
+            _IncomingMessageBanner(notice: controller.incomingNotice!),
+          const Expanded(
+            child: Center(
+              child: Text(
+                'Select a conversation',
+                style: TextStyle(color: _kTextMuted, fontSize: 14),
+              ),
+            ),
+          ),
+        ],
       );
     }
 
-    final thread = controller.selectedThread;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_scrollController.hasClients) return;
+      _scrollController.animateTo(
+        _scrollController.position.maxScrollExtent,
+        duration: const Duration(milliseconds: 200),
+        curve: Curves.easeOut,
+      );
+    });
 
     return Column(
       children: [
+        if (controller.incomingNotice != null)
+          _IncomingMessageBanner(notice: controller.incomingNotice!),
         // Header
         Container(
           height: 56,
@@ -393,7 +410,7 @@ class _MessagePanelState extends State<_MessagePanel> {
           child: Align(
             alignment: Alignment.centerLeft,
             child: Text(
-              thread?.title ?? '',
+              controller.selectedThread?.displayTitleFor(currentUserId) ?? '',
               style: const TextStyle(
                 fontSize: 16,
                 fontWeight: FontWeight.w600,
@@ -425,6 +442,62 @@ class _MessagePanelState extends State<_MessagePanel> {
           onSend: () => _sendMessage(context),
         ),
       ],
+    );
+  }
+}
+
+class _IncomingMessageBanner extends StatelessWidget {
+  const _IncomingMessageBanner({required this.notice});
+
+  final IncomingMessageNotice notice;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: const Color(0xFFF8FAFF),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        decoration: const BoxDecoration(
+          border: Border(bottom: BorderSide(color: Color(0xFFD6E4FF))),
+        ),
+        child: Row(
+          children: [
+            const Icon(Icons.notifications_active_outlined,
+                size: 18, color: _kPrimary),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    notice.senderName,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      color: _kTextPrimary,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    notice.preview,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: _kTextSecondary,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            TextButton(
+              onPressed: () => context.read<MessagesController>().clearIncomingNotice(),
+              child: const Text('Dismiss'),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -578,30 +651,21 @@ class _ReplyArea extends StatelessWidget {
 class _NewThreadDialog extends StatefulWidget {
   const _NewThreadDialog({required this.onCreated});
 
-  final Future<void> Function(List<int> participantIds, String? title)
-      onCreated;
+  final Future<void> Function(List<int> participantIds) onCreated;
 
   @override
   State<_NewThreadDialog> createState() => _NewThreadDialogState();
 }
 
 class _NewThreadDialogState extends State<_NewThreadDialog> {
-  final _titleController = TextEditingController();
-  final Set<int> _selectedUserIds = <int>{};
+  int? _selectedUserId;
 
   @override
-  void dispose() {
-    _titleController.dispose();
-    super.dispose();
-  }
+  void dispose() => super.dispose();
 
   Future<void> _submit() async {
-    if (_selectedUserIds.isEmpty) return;
-    final title = _titleController.text.trim();
-    await widget.onCreated(
-      _selectedUserIds.toList()..sort(),
-      title.isEmpty ? null : title,
-    );
+    if (_selectedUserId == null) return;
+    await widget.onCreated([_selectedUserId!]);
     if (!mounted) return;
     Navigator.of(context).pop();
   }
@@ -616,26 +680,16 @@ class _NewThreadDialogState extends State<_NewThreadDialog> {
         style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
       ),
       content: SizedBox(
-        width: 420,
+        width: 360,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            TextField(
-              controller: _titleController,
-              autofocus: true,
-              style: const TextStyle(fontSize: 14),
-              decoration: InputDecoration(
-                labelText: 'Optional title',
-                hintText: 'Defaults to participant names',
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(8),
-                  borderSide: const BorderSide(color: _kPrimary),
-                ),
+            const Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                'Choose one teammate to start a direct conversation.',
+                style: TextStyle(fontSize: 13, color: _kTextSecondary),
               ),
-              onSubmitted: (_) => _submit(),
             ),
             const SizedBox(height: 12),
             if (users.isEmpty)
@@ -653,20 +707,15 @@ class _NewThreadDialogState extends State<_NewThreadDialog> {
                   itemCount: users.length,
                   itemBuilder: (context, index) {
                     final user = users[index];
-                    final isSelected = _selectedUserIds.contains(user.id);
-                    return CheckboxListTile(
-                      value: isSelected,
-                      activeColor: _kPrimary,
+                    return RadioListTile<int>(
+                      value: user.id,
                       title: Text(user.name),
                       subtitle: Text(user.email),
-                      controlAffinity: ListTileControlAffinity.leading,
+                      groupValue: _selectedUserId,
+                      activeColor: _kPrimary,
                       onChanged: (value) {
                         setState(() {
-                          if (value == true) {
-                            _selectedUserIds.add(user.id);
-                          } else {
-                            _selectedUserIds.remove(user.id);
-                          }
+                          _selectedUserId = value;
                         });
                       },
                     );
@@ -682,7 +731,7 @@ class _NewThreadDialogState extends State<_NewThreadDialog> {
           child: const Text('Cancel', style: TextStyle(color: _kTextSecondary)),
         ),
         FilledButton(
-          onPressed: _selectedUserIds.isEmpty ? null : _submit,
+          onPressed: _selectedUserId == null ? null : _submit,
           style: FilledButton.styleFrom(backgroundColor: _kPrimary),
           child: const Text('Create', style: TextStyle(color: Colors.white)),
         ),

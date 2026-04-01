@@ -1,3 +1,9 @@
+export interface MessageThreadParticipant {
+  id: number;
+  name: string;
+  email: string;
+}
+
 export interface MessageThread {
   id: number;
   title: string;
@@ -7,6 +13,7 @@ export interface MessageThread {
   lastMessage?: string | null;
   unreadCount: number;
   isUnread: boolean;
+  participants: MessageThreadParticipant[];
 }
 
 export interface Message {
@@ -19,7 +26,6 @@ export interface Message {
 }
 
 export interface CreateThreadDto {
-  title?: string | null;
   createdBy: number;
   participantIds: number[];
 }

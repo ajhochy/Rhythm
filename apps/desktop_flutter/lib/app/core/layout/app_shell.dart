@@ -27,6 +27,11 @@ class AppShell extends StatefulWidget {
 class _AppShellState extends State<AppShell> with WindowListener {
   int _selectedIndex = 0;
 
+  void _onItemSelected(int index) {
+    if (_selectedIndex == index) return;
+    setState(() => _selectedIndex = index);
+  }
+
   @override
   void initState() {
     super.initState();
@@ -50,6 +55,22 @@ class _AppShellState extends State<AppShell> with WindowListener {
   @override
   Widget build(BuildContext context) {
     final serverStatus = context.watch<ApiServerController>().status;
+    final authStatus = context.watch<AuthSessionService>().status;
+    final messagesController = context.read<MessagesController>();
+    final shouldPollMessages = serverStatus == ServerStatus.ready &&
+        authStatus == AuthStatus.authenticated &&
+        _selectedIndex == 5;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      messagesController.setScreenActive(shouldPollMessages);
+      if (authStatus == AuthStatus.unauthenticated) {
+        messagesController.reset();
+        if (_selectedIndex != 0) {
+          setState(() => _selectedIndex = 0);
+        }
+      }
+    });
 
     return switch (serverStatus) {
       ServerStatus.starting => const _ServerLoadingView(),
@@ -59,7 +80,7 @@ class _AppShellState extends State<AppShell> with WindowListener {
       ServerStatus.ready => _AuthGate(
           child: _AppContent(
             selectedIndex: _selectedIndex,
-            onItemSelected: (i) => setState(() => _selectedIndex = i),
+            onItemSelected: _onItemSelected,
           ),
         ),
     };

@@ -6,6 +6,7 @@ interface GoogleTokenInfoResponse {
   email?: string;
   email_verified?: string;
   name?: string;
+  picture?: string;
   sub?: string;
 }
 
@@ -13,6 +14,7 @@ export interface GoogleIdentity {
   sub: string;
   email: string;
   name: string;
+  picture?: string | null;
 }
 
 export class GoogleIdentityService {
@@ -45,6 +47,7 @@ export class GoogleIdentityService {
       sub: body.sub,
       email: body.email,
       name: body.name?.trim() || body.email,
+      picture: body.picture?.trim() || null,
     };
   }
 }

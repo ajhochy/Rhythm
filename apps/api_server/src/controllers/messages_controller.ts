@@ -15,12 +15,11 @@ export class MessagesController {
 
   createThread(req: Request, res: Response, next: NextFunction) {
     try {
-      const { title, participantIds } = req.body as Record<string, unknown>;
+      const { participantIds } = req.body as Record<string, unknown>;
       if (!Array.isArray(participantIds) || participantIds.length === 0) {
         throw AppError.badRequest('participantIds is required');
       }
       const thread = repo.createThread({
-        title: typeof title === 'string' ? title : null,
         createdBy: req.auth!.user.id,
         participantIds: participantIds.map((value) => Number(value)),
       });

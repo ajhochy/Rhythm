@@ -41,6 +41,7 @@ describe('Auth and ownership flows', () => {
           sub: 'google-sub-1',
           email: 'alice@example.com',
           name: 'Alice',
+          picture: 'https://example.com/alice.png',
         }),
       } as never,
     );
@@ -50,6 +51,7 @@ describe('Auth and ownership flows', () => {
     expect(session.sessionToken).toBeTruthy();
     expect(session.user.email).toBe('alice@example.com');
     expect(session.user.googleSub).toBe('google-sub-1');
+    expect(session.user.photoUrl).toBe('https://example.com/alice.png');
     expect(authService.getUserForSessionToken(session.sessionToken)?.id).toBe(
       session.user.id,
     );
@@ -67,6 +69,30 @@ describe('Auth and ownership flows', () => {
     expect(visibleToAlice).toContain('Shared task');
     expect(visibleToAlice).toContain('Alice private task');
     expect(visibleToAlice).not.toContain('Bob private task');
+  });
+
+  it('invalidates the server session on logout', async () => {
+    const authService = new AuthService(
+      usersRepo,
+      sessionsRepo,
+      {
+        verifyIdToken: async (): Promise<GoogleIdentity> => ({
+          sub: 'google-sub-logout',
+          email: 'alice@example.com',
+          name: 'Alice',
+          picture: null,
+        }),
+      } as never,
+    );
+
+    const session = await authService.loginWithGoogleIdToken('fake-id-token');
+    expect(authService.getUserForSessionToken(session.sessionToken)?.email).toBe(
+      'alice@example.com',
+    );
+
+    authService.logout(session.sessionToken);
+
+    expect(authService.getUserForSessionToken(session.sessionToken)).toBeNull();
   });
 
   it('tracks unread messages until the thread is marked read', () => {
@@ -92,5 +118,63 @@ describe('Auth and ownership flows', () => {
     const bobThreadsAfterRead = messagesRepo.findAllThreadsForUser(bob.id);
     expect(bobThreadsAfterRead[0].unreadCount).toBe(0);
     expect(bobThreadsAfterRead[0].isUnread).toBe(false);
+  });
+
+  it('reuses the existing direct thread for the same two participants', () => {
+    const alice = usersRepo.create({ name: 'Alice', email: 'alice@example.com' });
+    const bob = usersRepo.create({ name: 'Bob', email: 'bob@example.com' });
+
+    const first = messagesRepo.createThread({
+      createdBy: alice.id,
+      participantIds: [bob.id],
+    });
+    const second = messagesRepo.createThread({
+      createdBy: alice.id,
+      participantIds: [bob.id],
+    });
+
+    expect(second.id).toBe(first.id);
+    expect(messagesRepo.findAllThreadsForUser(alice.id)).toHaveLength(1);
+    expect(second.participants.map((participant) => participant.email)).toEqual([
+      'alice@example.com',
+      'bob@example.com',
+    ]);
+  });
+
+  it('sends a direct notification message without creating duplicate threads', () => {
+    const alice = usersRepo.create({ name: 'Alice', email: 'alice@example.com' });
+    const bob = usersRepo.create({ name: 'Bob', email: 'bob@example.com' });
+
+    const first = messagesRepo.sendDirectMessage(
+      alice.id,
+      bob.id,
+      'Your facility reservation was deleted by Alice.',
+    );
+    const second = messagesRepo.sendDirectMessage(
+      alice.id,
+      bob.id,
+      'Go to Facilities to resubmit a reservation.',
+    );
+
+    const bobThreads = messagesRepo.findAllThreadsForUser(bob.id);
+    expect(bobThreads).toHaveLength(1);
+    expect(bobThreads[0].unreadCount).toBe(2);
+
+    const messages = messagesRepo.findMessagesByThread(first.threadId, bob.id);
+    expect(messages.map((message) => message.body)).toEqual([
+      'Your facility reservation was deleted by Alice.',
+      'Go to Facilities to resubmit a reservation.',
+    ]);
+    expect(second.threadId).toBe(first.threadId);
+  });
+
+  it('creates or reuses a dedicated Rhythm Bot user', () => {
+    const first = usersRepo.findOrCreateSystemBot();
+    const second = usersRepo.findOrCreateSystemBot();
+
+    expect(first.name).toBe('Rhythm Bot');
+    expect(first.email).toBe('rhythm-bot@rhythm.local');
+    expect(first.role).toBe('system');
+    expect(second.id).toBe(first.id);
   });
 });

@@ -1,29 +1,15 @@
 import type { NextFunction, Request, Response } from 'express';
 import { AppError } from '../errors/app_error';
 import { AutomationRulesRepository } from '../repositories/automation_rules_repository';
-import type {
-  AutomationActionType,
-  AutomationTriggerType,
-} from '../models/automation_rule';
-
-const VALID_TRIGGER_TYPES: AutomationTriggerType[] = [
-  'project_step_due',
-  'task_due',
-  'plan_assembly',
-];
-
-const VALID_ACTION_TYPES: AutomationActionType[] = [
-  'auto_schedule',
-  'send_notification',
-  'tag_task',
-];
+import { AutomationCatalogService } from '../services/automation_catalog_service';
 
 const repo = new AutomationRulesRepository();
+const catalog = new AutomationCatalogService();
 
 export class AutomationRulesController {
-  getAll(_req: Request, res: Response, next: NextFunction) {
+  getAll(req: Request, res: Response, next: NextFunction) {
     try {
-      res.json(repo.findAll());
+      res.json(repo.findAll(req.auth?.user.id));
     } catch (err) {
       next(err);
     }
@@ -31,7 +17,23 @@ export class AutomationRulesController {
 
   getById(req: Request, res: Response, next: NextFunction) {
     try {
-      res.json(repo.findById(req.params.id));
+      res.json(repo.findById(req.params.id, req.auth?.user.id));
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  getPreview(req: Request, res: Response, next: NextFunction) {
+    try {
+      const rule = repo.findById(req.params.id, req.auth?.user.id);
+      res.json({
+        ruleId: rule.id,
+        previewSample: rule.previewSample,
+        lastMatchedAt: rule.lastMatchedAt,
+        lastEvaluatedAt: rule.lastEvaluatedAt,
+        matchCountLastRun: rule.matchCountLastRun,
+        summary: `${rule.name}: ${rule.triggerKey} -> ${rule.actionType}`,
+      });
     } catch (err) {
       next(err);
     }
@@ -39,36 +41,50 @@ export class AutomationRulesController {
 
   create(req: Request, res: Response, next: NextFunction) {
     try {
-      const { name, triggerType, triggerConfig, actionType, actionConfig, enabled } =
-        req.body as Record<string, unknown>;
+      const {
+        name,
+        source,
+        triggerKey,
+        triggerConfig,
+        actionType,
+        actionConfig,
+        enabled,
+        sourceAccountId,
+      } = req.body as Record<string, unknown>;
 
       if (!name || typeof name !== 'string') {
         throw AppError.badRequest('name is required');
       }
-      if (!triggerType || !VALID_TRIGGER_TYPES.includes(triggerType as AutomationTriggerType)) {
-        throw AppError.badRequest(
-          `triggerType must be one of: ${VALID_TRIGGER_TYPES.join(', ')}`,
-        );
+      if (!source || typeof source !== 'string') {
+        throw AppError.badRequest('source is required');
       }
-      if (!actionType || !VALID_ACTION_TYPES.includes(actionType as AutomationActionType)) {
-        throw AppError.badRequest(
-          `actionType must be one of: ${VALID_ACTION_TYPES.join(', ')}`,
-        );
+      if (!triggerKey || !catalog.isValidTriggerKey(String(triggerKey))) {
+        throw AppError.badRequest('triggerKey is invalid');
+      }
+      const trigger = catalog.findTrigger(String(triggerKey));
+      if (trigger == null || trigger.source !== source) {
+        throw AppError.badRequest('triggerKey does not belong to source');
+      }
+      if (!actionType || !catalog.isValidActionType(String(actionType))) {
+        throw AppError.badRequest('actionType is invalid');
       }
 
       const rule = repo.create({
         name,
-        triggerType: triggerType as AutomationTriggerType,
+        source: source as never,
+        triggerKey: triggerKey as never,
         triggerConfig:
           triggerConfig && typeof triggerConfig === 'object'
             ? (triggerConfig as Record<string, unknown>)
             : undefined,
-        actionType: actionType as AutomationActionType,
+        actionType: actionType as never,
         actionConfig:
           actionConfig && typeof actionConfig === 'object'
             ? (actionConfig as Record<string, unknown>)
             : undefined,
         enabled: typeof enabled === 'boolean' ? enabled : true,
+        ownerId: req.auth?.user.id ?? null,
+        sourceAccountId: typeof sourceAccountId === 'string' ? sourceAccountId : null,
       });
 
       res.status(201).json(rule);
@@ -79,9 +95,55 @@ export class AutomationRulesController {
 
   update(req: Request, res: Response, next: NextFunction) {
     try {
+      const body = req.body as Record<string, unknown>;
+      if (
+        body.triggerKey &&
+        (!catalog.isValidTriggerKey(String(body.triggerKey)) ||
+          (body.source &&
+            catalog.findTrigger(String(body.triggerKey))?.source !== body.source))
+      ) {
+        throw AppError.badRequest('triggerKey is invalid');
+      }
+      if (
+        body.actionType &&
+        !catalog.isValidActionType(String(body.actionType))
+      ) {
+        throw AppError.badRequest('actionType is invalid');
+      }
       const rule = repo.update(
         req.params.id,
-        req.body as Record<string, unknown>,
+        {
+          name: typeof body.name === 'string' ? body.name : undefined,
+          source: typeof body.source === 'string' ? (body.source as never) : undefined,
+          triggerKey:
+            typeof body.triggerKey === 'string'
+              ? (body.triggerKey as never)
+              : undefined,
+          triggerConfig:
+            body.triggerConfig && typeof body.triggerConfig === 'object'
+              ? (body.triggerConfig as Record<string, unknown>)
+              : body.triggerConfig === null
+                ? null
+                : undefined,
+          actionType:
+            typeof body.actionType === 'string'
+              ? (body.actionType as never)
+              : undefined,
+          actionConfig:
+            body.actionConfig && typeof body.actionConfig === 'object'
+              ? (body.actionConfig as Record<string, unknown>)
+              : body.actionConfig === null
+                ? null
+                : undefined,
+          enabled: typeof body.enabled === 'boolean' ? body.enabled : undefined,
+          sourceAccountId:
+            typeof body.sourceAccountId === 'string'
+              ? body.sourceAccountId
+              : body.sourceAccountId === null
+                ? null
+                : undefined,
+        },
+        req.auth?.user.id,
       );
       res.json(rule);
     } catch (err) {
@@ -91,7 +153,7 @@ export class AutomationRulesController {
 
   remove(req: Request, res: Response, next: NextFunction) {
     try {
-      repo.delete(req.params.id);
+      repo.delete(req.params.id, req.auth?.user.id);
       res.status(204).send();
     } catch (err) {
       next(err);

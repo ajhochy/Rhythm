@@ -55,7 +55,7 @@ export class TasksController {
 
   remove(req: Request, res: Response, next: NextFunction) {
     try {
-      repo.delete(req.params.id);
+      repo.delete(req.params.id, req.auth?.user.id);
       res.status(204).send();
     } catch (err) {
       next(err);

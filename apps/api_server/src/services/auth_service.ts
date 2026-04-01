@@ -23,6 +23,7 @@ export class AuthService {
       googleSub: identity.sub,
       email: identity.email,
       name: identity.name,
+      photoUrl: identity.picture ?? null,
     });
     const session = this.sessionsRepo.create(user.id);
     return {

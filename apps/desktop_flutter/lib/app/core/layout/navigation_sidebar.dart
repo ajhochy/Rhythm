@@ -34,7 +34,7 @@ class NavigationSidebar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final unreadCount = context.watch<MessagesController>().unreadThreadCount;
+    final unreadCount = context.watch<MessagesController>().totalUnreadCount;
     return Container(
       width: 240,
       decoration: const BoxDecoration(
@@ -291,12 +291,49 @@ class _UserPanel extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            user.name,
-            style: const TextStyle(
-              color: Color(0xFF111827),
-              fontWeight: FontWeight.w600,
-            ),
+          Row(
+            children: [
+              CircleAvatar(
+                radius: 18,
+                backgroundColor: const Color(0x144F6AF5),
+                backgroundImage:
+                    user.photoUrl != null ? NetworkImage(user.photoUrl!) : null,
+                child: user.photoUrl == null
+                    ? Text(
+                        _initialsFor(user.name),
+                        style: const TextStyle(
+                          color: Color(0xFF4F6AF5),
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      )
+                    : null,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Signed In',
+                      style: TextStyle(
+                        color: Color(0xFF6B7280),
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      user.name,
+                      style: const TextStyle(
+                        color: Color(0xFF111827),
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
           const SizedBox(height: 4),
           Text(
@@ -306,12 +343,52 @@ class _UserPanel extends StatelessWidget {
           const SizedBox(height: 10),
           _SidebarButton(
             label: 'Sign out',
-            onTap: authSessionService.logout,
+            onTap: () => _confirmSignOut(context, authSessionService),
             outlined: true,
           ),
         ],
       ),
     );
+  }
+}
+
+String _initialsFor(String name) {
+  final parts = name
+      .trim()
+      .split(RegExp(r'\s+'))
+      .where((part) => part.isNotEmpty)
+      .take(2)
+      .toList();
+  if (parts.isEmpty) return '?';
+  return parts.map((part) => part[0].toUpperCase()).join();
+}
+
+Future<void> _confirmSignOut(
+  BuildContext context,
+  AuthSessionService authSessionService,
+) async {
+  final confirmed = await showDialog<bool>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: const Text('Sign Out?'),
+      content: const Text(
+        'This will clear the current session and return to the login screen.',
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(false),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.of(context).pop(true),
+          child: const Text('Sign out'),
+        ),
+      ],
+    ),
+  );
+
+  if (confirmed == true) {
+    await authSessionService.logout();
   }
 }
 

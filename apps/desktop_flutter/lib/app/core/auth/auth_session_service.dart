@@ -58,6 +58,7 @@ class AuthSessionService extends ChangeNotifier {
       _sessionToken = storedToken;
       _currentUser = user;
       AuthSessionStore.setSessionToken(storedToken);
+      _errorMessage = null;
       _status = AuthStatus.authenticated;
     } catch (error) {
       await _clearLocalSession();
@@ -89,6 +90,7 @@ class AuthSessionService extends ChangeNotifier {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(_sessionTokenKey, login.sessionToken);
 
+      _errorMessage = null;
       _status = AuthStatus.authenticated;
     } catch (error) {
       await _clearLocalSession();
@@ -104,7 +106,15 @@ class AuthSessionService extends ChangeNotifier {
     } catch (_) {
       // Local logout should still succeed if the server session is already gone.
     }
+    if (_googleInitialized) {
+      try {
+        await GoogleSignIn.instance.signOut();
+      } catch (_) {
+        // Local session reset still takes precedence.
+      }
+    }
     await _clearLocalSession();
+    _errorMessage = null;
     _status = AuthStatus.unauthenticated;
     notifyListeners();
   }

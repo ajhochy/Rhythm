@@ -26,6 +26,14 @@ interface PlanningCenterTaskSignal {
   scheduledDate: string;
   dedupeKey: string;
   teamId: string | null;
+  teamName: string | null;
+  positionName: string;
+  signalType: 'needed_position_open' | 'team_member_declined' | 'team_member_unconfirmed';
+  serviceTypeName: string;
+  planId: string;
+  planTitle: string;
+  planDate: string;
+  daysUntil: number;
 }
 
 interface PlanningCenterProjectSignal {
@@ -33,11 +41,22 @@ interface PlanningCenterProjectSignal {
   name: string;
   serviceTypeName: string;
   planId: string;
+  title: string;
+  daysUntil: number;
+}
+
+interface PlanningCenterPlanSignal {
+  planId: string;
+  title: string;
+  serviceTypeName: string;
+  planDate: string;
+  daysUntil: number;
 }
 
 interface PlanningCenterAutomationSignals {
   tasks: PlanningCenterTaskSignal[];
   specialProjects: PlanningCenterProjectSignal[];
+  upcomingPlans: PlanningCenterPlanSignal[];
   planCount: number;
 }
 
@@ -167,6 +186,7 @@ export class PlanningCenterService {
     const serviceTypes = await this.fetchServiceTypes(account, preferences);
     const tasks: PlanningCenterTaskSignal[] = [];
     const specialProjects: PlanningCenterProjectSignal[] = [];
+    const upcomingPlans: PlanningCenterPlanSignal[] = [];
     let planCount = 0;
 
     for (const serviceType of serviceTypes) {
@@ -175,7 +195,14 @@ export class PlanningCenterService {
 
       for (const plan of plans) {
         const planLeadDays = daysUntil(plan.planDate);
-        const [neededSignals, declineSignals] = await Promise.all([
+        upcomingPlans.push({
+          planId: plan.id,
+          title: plan.title,
+          serviceTypeName: plan.serviceTypeName,
+          planDate: plan.planDate,
+          daysUntil: planLeadDays,
+        });
+        const [neededSignals, declineSignals, unconfirmedSignals] = await Promise.all([
           planLeadDays <= env.pcoNeededTaskWindowDays
               ? this.fetchNeededPositionSignals(account, plan)
               .then((signals) =>
@@ -194,12 +221,22 @@ export class PlanningCenterService {
                 ),
               )
               : Promise.resolve([]),
+          planLeadDays <= env.pcoDeclineTaskWindowDays
+              ? this.fetchUnconfirmedSignals(account, plan)
+              .then((signals) =>
+                signals.filter((signal) =>
+                  teamAllowed(signal.teamId, preferences) &&
+                  positionAllowed(signal.positionName, preferences),
+                ),
+              )
+              : Promise.resolve([]),
         ]);
         const declinedKeys = new Set(
           declineSignals.map((signal) => signal.dedupeKey),
         );
         tasks.push(
           ...declineSignals,
+          ...unconfirmedSignals.filter((signal) => !declinedKeys.has(signal.dedupeKey)),
           ...neededSignals.filter((signal) => !declinedKeys.has(signal.dedupeKey)),
         );
 
@@ -213,12 +250,14 @@ export class PlanningCenterService {
             name: plan.title,
             serviceTypeName: plan.serviceTypeName,
             planId: plan.id,
+            title: plan.title,
+            daysUntil: planLeadDays,
           });
         }
       }
     }
 
-    return { tasks, specialProjects, planCount };
+    return { tasks, specialProjects, upcomingPlans, planCount };
   }
 
   specialServiceTemplateName(): string {
@@ -397,7 +436,14 @@ export class PlanningCenterService {
         scheduledDate: mondayOfServiceWeek(plan.planDate),
         dedupeKey: roleKey(plan.id, positionName),
         teamId: resource.relationships?.team?.data?.id ?? null,
+        teamName: null,
         positionName,
+        signalType: 'needed_position_open',
+        serviceTypeName: plan.serviceTypeName,
+        planId: plan.id,
+        planTitle: plan.title,
+        planDate: plan.planDate,
+        daysUntil: daysUntil(plan.planDate),
       });
     }
 
@@ -458,9 +504,67 @@ export class PlanningCenterService {
         scheduledDate: mondayOfServiceWeek(plan.planDate),
         dedupeKey: key,
         teamId: entry.teamId,
+        teamName: null,
         positionName: entry.positionName,
+        signalType: 'team_member_declined',
+        serviceTypeName: plan.serviceTypeName,
+        planId: plan.id,
+        planTitle: plan.title,
+        planDate: plan.planDate,
+        daysUntil: daysUntil(plan.planDate),
       };
     });
+  }
+
+  private async fetchUnconfirmedSignals(
+    account: IntegrationAccount,
+    plan: PlanSummary,
+  ): Promise<Array<PlanningCenterTaskSignal & { positionName: string }>> {
+    const payload = await this.getJson(
+      account,
+      `/services/v2/service_types/${plan.serviceTypeId}/plans/${plan.id}/team_members?per_page=100`,
+    );
+
+    return (payload.data ?? [])
+      .map((resource) => {
+        const attrs = resource.attributes ?? {};
+        const status = (asString(attrs.status) ?? '').toLowerCase();
+        if (status != 'unconfirmed' && status != 'u') return null;
+
+        const personName =
+          asString(attrs.person_name) ??
+          asString(attrs.name) ??
+          asString(attrs.team_member_name) ??
+          'Someone';
+        const positionName =
+          asString(attrs.team_position_name) ??
+          asString(attrs.position_name) ??
+          'position';
+
+        return {
+          sourceId: `planning_center:unconfirmed:${plan.id}:${resource.id}`,
+          title: `Confirm ${positionName} for ${plan.title}`,
+          notes:
+            `${personName} is still unconfirmed for the ${positionName}` +
+            ` assignment in Planning Center for ${plan.serviceTypeName} on ${plan.planDate}.`,
+          dueDate: plan.planDate,
+          scheduledDate: mondayOfServiceWeek(plan.planDate),
+          dedupeKey: `${roleKey(plan.id, positionName)}:unconfirmed:${resource.id}`,
+          teamId: resource.relationships?.team?.data?.id ?? null,
+          teamName: null,
+          positionName,
+          signalType: 'team_member_unconfirmed' as const,
+          serviceTypeName: plan.serviceTypeName,
+          planId: plan.id,
+          planTitle: plan.title,
+          planDate: plan.planDate,
+          daysUntil: daysUntil(plan.planDate),
+        };
+      })
+      .filter(
+        (signal): signal is PlanningCenterTaskSignal & { positionName: string } =>
+          signal != null,
+      );
   }
 
   private async getJson(

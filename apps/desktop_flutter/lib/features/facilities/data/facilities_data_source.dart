@@ -26,6 +26,16 @@ class FacilitiesDataSource {
         .toList();
   }
 
+  Future<Facility> createFacility(Map<String, dynamic> body) async {
+    final response = await http.post(
+      Uri.parse('$_baseUrl/facilities'),
+      headers: AuthSessionStore.headers(json: true),
+      body: jsonEncode(body),
+    );
+    _assertOk(response);
+    return Facility.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
+  }
+
   Future<List<Reservation>> getReservations(int facilityId) async {
     final response = await http.get(
       Uri.parse('$_baseUrl/facilities/$facilityId/reservations'),
@@ -48,6 +58,29 @@ class FacilitiesDataSource {
     _assertOk(response);
     return Reservation.fromJson(
         jsonDecode(response.body) as Map<String, dynamic>);
+  }
+
+  Future<Reservation> updateReservation(
+    int facilityId,
+    int reservationId,
+    Map<String, dynamic> body,
+  ) async {
+    final response = await http.patch(
+      Uri.parse('$_baseUrl/facilities/$facilityId/reservations/$reservationId'),
+      headers: AuthSessionStore.headers(json: true),
+      body: jsonEncode(body),
+    );
+    _assertOk(response);
+    return Reservation.fromJson(
+        jsonDecode(response.body) as Map<String, dynamic>);
+  }
+
+  Future<void> deleteReservation(int facilityId, int reservationId) async {
+    final response = await http.delete(
+      Uri.parse('$_baseUrl/facilities/$facilityId/reservations/$reservationId'),
+      headers: AuthSessionStore.headers(),
+    );
+    _assertOk(response);
   }
 
   void _assertOk(http.Response response) {

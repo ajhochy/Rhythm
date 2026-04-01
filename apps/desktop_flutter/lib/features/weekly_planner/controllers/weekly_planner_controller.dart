@@ -81,6 +81,9 @@ class WeeklyPlannerController extends ChangeNotifier {
       if (task.sourceType == 'project_step') {
         await _repository.updateTask(task.id,
             dueDate: date, sourceType: task.sourceType);
+      } else if (task.dueDate == null && task.scheduledDate == null) {
+        await _repository.updateTask(task.id,
+            dueDate: date, scheduledDate: date, sourceType: task.sourceType);
       } else {
         await _repository.scheduleTask(task.id, date);
       }

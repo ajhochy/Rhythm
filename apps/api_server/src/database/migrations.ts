@@ -133,11 +133,27 @@ export function runMigrations(db: Database.Database): void {
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
+    CREATE TABLE IF NOT EXISTS automation_signals (
+      id TEXT PRIMARY KEY,
+      provider TEXT NOT NULL,
+      signal_type TEXT NOT NULL,
+      external_id TEXT NOT NULL,
+      dedupe_key TEXT NOT NULL UNIQUE,
+      occurred_at TEXT,
+      synced_at TEXT NOT NULL,
+      source_account_id TEXT,
+      source_label TEXT,
+      payload_json TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
     CREATE TABLE IF NOT EXISTS users (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL,
       email TEXT NOT NULL UNIQUE,
       google_sub TEXT UNIQUE,
+      photo_url TEXT,
       role TEXT NOT NULL DEFAULT 'member',
       password_hash TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -242,9 +258,58 @@ export function runMigrations(db: Database.Database): void {
     db.exec(`ALTER TABLE users ADD COLUMN google_sub TEXT`);
     db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_users_google_sub ON users(google_sub) WHERE google_sub IS NOT NULL`);
   }
+  if (!userCols.includes('photo_url')) {
+    db.exec(`ALTER TABLE users ADD COLUMN photo_url TEXT`);
+  }
 
   const reservationCols = (db.pragma('table_info(reservations)') as { name: string }[]).map((c) => c.name);
   if (!reservationCols.includes('reserved_by_user_id')) {
     db.exec(`ALTER TABLE reservations ADD COLUMN reserved_by_user_id INTEGER REFERENCES users(id)`);
   }
+
+  const automationRuleCols = (db.pragma('table_info(automation_rules)') as { name: string }[]).map((c) => c.name);
+  if (!automationRuleCols.includes('owner_id')) {
+    db.exec(`ALTER TABLE automation_rules ADD COLUMN owner_id INTEGER REFERENCES users(id)`);
+  }
+  if (!automationRuleCols.includes('source')) {
+    db.exec(`ALTER TABLE automation_rules ADD COLUMN source TEXT`);
+  }
+  if (!automationRuleCols.includes('trigger_key')) {
+    db.exec(`ALTER TABLE automation_rules ADD COLUMN trigger_key TEXT`);
+  }
+  if (!automationRuleCols.includes('source_account_id')) {
+    db.exec(`ALTER TABLE automation_rules ADD COLUMN source_account_id TEXT REFERENCES integration_accounts(id)`);
+  }
+  if (!automationRuleCols.includes('last_evaluated_at')) {
+    db.exec(`ALTER TABLE automation_rules ADD COLUMN last_evaluated_at TEXT`);
+  }
+  if (!automationRuleCols.includes('last_matched_at')) {
+    db.exec(`ALTER TABLE automation_rules ADD COLUMN last_matched_at TEXT`);
+  }
+  if (!automationRuleCols.includes('match_count_last_run')) {
+    db.exec(`ALTER TABLE automation_rules ADD COLUMN match_count_last_run INTEGER NOT NULL DEFAULT 0`);
+  }
+  if (!automationRuleCols.includes('preview_sample')) {
+    db.exec(`ALTER TABLE automation_rules ADD COLUMN preview_sample TEXT`);
+  }
+  db.exec(`
+    UPDATE automation_rules
+    SET source = CASE trigger_type
+      WHEN 'project_step_due' THEN 'rhythm'
+      WHEN 'task_due' THEN 'rhythm'
+      WHEN 'plan_assembly' THEN 'rhythm'
+      ELSE COALESCE(source, 'rhythm')
+    END
+    WHERE source IS NULL
+  `);
+  db.exec(`
+    UPDATE automation_rules
+    SET trigger_key = CASE trigger_type
+      WHEN 'project_step_due' THEN 'rhythm.project_step_due'
+      WHEN 'task_due' THEN 'rhythm.task_due'
+      WHEN 'plan_assembly' THEN 'rhythm.plan_assembly'
+      ELSE COALESCE(trigger_key, trigger_type)
+    END
+    WHERE trigger_key IS NULL
+  `);
 }
