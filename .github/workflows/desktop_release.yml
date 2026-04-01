@@ -22,9 +22,6 @@ jobs:
     runs-on: macos-latest
     permissions:
       contents: write
-    defaults:
-      run:
-        working-directory: apps/desktop_flutter
     env:
       RELEASE_VERSION: ${{ inputs.version }}
       RELEASE_TAG: v${{ inputs.version }}
@@ -50,22 +47,25 @@ jobs:
           channel: stable
 
       - name: Install Flutter dependencies
+        working-directory: apps/desktop_flutter
         run: flutter pub get
 
       - name: Verify desktop app
+        working-directory: apps/desktop_flutter
         run: |
           dart format --output=none --set-exit-if-changed .
           flutter analyze --no-fatal-infos
           flutter test
 
       - name: Build API server
-        working-directory: ../api_server
+        working-directory: apps/api_server
         run: |
           npm ci
           npm run build
           npm prune --omit=dev
 
       - name: Build macOS release
+        working-directory: apps/desktop_flutter
         run: >
           flutter build macos --release
           --build-name="$RELEASE_VERSION"
@@ -73,6 +73,7 @@ jobs:
           --dart-define=GOOGLE_DESKTOP_CLIENT_ID="$GOOGLE_DESKTOP_CLIENT_ID"
 
       - name: Bundle API server into app
+        working-directory: apps/desktop_flutter
         run: |
           APP="build/macos/Build/Products/Release/Rhythm.app"
           DEST="$APP/Contents/Resources/api_server"
@@ -86,9 +87,11 @@ jobs:
             > "$DEST/.env"
 
       - name: Package macOS artifacts
+        working-directory: apps/desktop_flutter
         run: ../../tools/release/package_macos.sh
 
       - name: Sign and notarize when Apple secrets are present
+        working-directory: apps/desktop_flutter
         run: ../../tools/release/sign_and_notarize_macos.sh
 
       - name: Upload build artifacts
