@@ -6,6 +6,61 @@ import { AutomationCatalogService } from '../services/automation_catalog_service
 const repo = new AutomationRulesRepository();
 const catalog = new AutomationCatalogService();
 
+function describeSource(source: string): string {
+  return (
+    catalog.getProviders().find((item) => item.source === source)?.label ?? source
+  );
+}
+
+function summarizeConfig(config: Record<string, unknown> | null): string[] {
+  if (config == null) return [];
+  const items: string[] = [];
+  const pushIfString = (label: string, value: unknown) => {
+    if (typeof value === 'string' && value.trim().length > 0) {
+      items.push(`${label} ${value.trim()}`);
+    }
+  };
+  const pushIfNumber = (label: string, value: unknown, suffix = '') => {
+    if (typeof value === 'number' && Number.isFinite(value)) {
+      items.push(`${label} ${value}${suffix}`);
+    }
+  };
+
+  pushIfString('team', config.teamId);
+  pushIfString('position', config.positionName);
+  pushIfString('service', config.serviceType);
+  pushIfString('match', config.textQuery);
+  pushIfString('sender', config.sender);
+  pushIfString('subject', config.subjectContains);
+  pushIfString('label', config.label);
+  pushIfString('template', config.templateName);
+  pushIfString('tag', config.tag);
+  pushIfNumber('within', config.leadDays, ' days');
+  pushIfNumber('window', config.dateWindowDays, ' days');
+  pushIfNumber('received within', config.hoursSinceReceived, ' hours');
+  if (config.allDayOnly == true) items.push('all-day only');
+  return items;
+}
+
+function buildPreviewSummary(rule: ReturnType<AutomationRulesRepository['findById']>): string {
+  const trigger = catalog.findTrigger(rule.triggerKey);
+  const action = catalog.getActions().find((item) => item.key === rule.actionType);
+  const parts = [
+    `When ${trigger?.label ?? rule.triggerKey}`,
+    `from ${describeSource(rule.source)}`,
+  ];
+  const triggerDetails = summarizeConfig(rule.triggerConfig);
+  if (triggerDetails.length > 0) {
+    parts.push(`with ${triggerDetails.join(', ')}`);
+  }
+  parts.push(`then ${action?.label.toLowerCase() ?? rule.actionType}`);
+  const actionDetails = summarizeConfig(rule.actionConfig);
+  if (actionDetails.length > 0) {
+    parts.push(`using ${actionDetails.join(', ')}`);
+  }
+  return `${parts.join(' ')}.`;
+}
+
 export class AutomationRulesController {
   getAll(req: Request, res: Response, next: NextFunction) {
     try {
@@ -32,7 +87,7 @@ export class AutomationRulesController {
         lastMatchedAt: rule.lastMatchedAt,
         lastEvaluatedAt: rule.lastEvaluatedAt,
         matchCountLastRun: rule.matchCountLastRun,
-        summary: `${rule.name}: ${rule.triggerKey} -> ${rule.actionType}`,
+        summary: buildPreviewSummary(rule),
       });
     } catch (err) {
       next(err);

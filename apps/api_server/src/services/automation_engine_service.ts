@@ -66,6 +66,16 @@ function scheduleToTargetDay(dateString: string | null, targetDay: number): stri
   return date.toISOString().slice(0, 10);
 }
 
+function taskSourceId(rule: AutomationRule, signal: AutomationSignal): string {
+  if (signal.provider === 'gmail') {
+    const threadId = asString(signal.payload.threadId);
+    if (threadId != null) {
+      return `${rule.id}:gmail-thread:${threadId}`;
+    }
+  }
+  return `${rule.id}:${signal.dedupeKey}`;
+}
+
 export class AutomationEngineService {
   private readonly rulesRepo = new AutomationRulesRepository();
   private readonly tasksRepo = new TasksRepository();
@@ -291,7 +301,7 @@ export class AutomationEngineService {
       dueDate,
       scheduledDate,
       sourceType: 'automation_rule',
-      sourceId: `${rule.id}:${signal.dedupeKey}`,
+      sourceId: taskSourceId(rule, signal),
       ownerId: rule.ownerId ?? null,
     });
   }

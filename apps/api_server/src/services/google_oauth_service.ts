@@ -1,5 +1,6 @@
 import { AppError } from '../errors/app_error';
 import { env } from '../config/env';
+import type { IntegrationAccount } from '../models/integration_account';
 import { IntegrationAccountsRepository } from '../repositories/integration_accounts_repository';
 
 const GOOGLE_AUTH_BASE = 'https://accounts.google.com/o/oauth2/v2/auth';
@@ -68,6 +69,33 @@ export class GoogleOAuthService {
     });
   }
 
+  async refreshAccessToken(account: IntegrationAccount): Promise<IntegrationAccount> {
+    this.assertConfigured();
+    if (!account.refreshToken) {
+      throw AppError.badRequest(
+        'Google reconnect required: no refresh token is stored.',
+      );
+    }
+
+    const tokens = await this.refreshTokens(account.refreshToken);
+    const expiresAt = tokens.expires_in
+      ? new Date(Date.now() + tokens.expires_in * 1000).toISOString()
+      : account.expiresAt;
+
+    this.accountsRepo.upsertGoogleAccount({
+      externalAccountId: account.externalAccountId,
+      email: account.email,
+      displayName: account.displayName,
+      accessToken: tokens.access_token,
+      refreshToken: tokens.refresh_token ?? account.refreshToken,
+      scope: tokens.scope ?? account.scope,
+      tokenType: tokens.token_type ?? account.tokenType,
+      expiresAt,
+    });
+
+    return this.accountsRepo.findByProvider(account.provider) ?? account;
+  }
+
   private assertConfigured(): void {
     if (!env.googleClientId || !env.googleClientSecret || !env.googleRedirectUri) {
       throw AppError.badRequest(
@@ -92,6 +120,26 @@ export class GoogleOAuthService {
     if (!response.ok) {
       const text = await response.text();
       throw AppError.badRequest(`Google token exchange failed: ${text}`);
+    }
+
+    return (await response.json()) as GoogleTokenResponse;
+  }
+
+  private async refreshTokens(refreshToken: string): Promise<GoogleTokenResponse> {
+    const response = await fetch(GOOGLE_TOKEN_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        client_id: env.googleClientId,
+        client_secret: env.googleClientSecret,
+        refresh_token: refreshToken,
+        grant_type: 'refresh_token',
+      }),
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      throw AppError.badRequest(`Google token refresh failed: ${text}`);
     }
 
     return (await response.json()) as GoogleTokenResponse;

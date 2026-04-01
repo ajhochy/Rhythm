@@ -3,6 +3,7 @@ import type {
   AutomationProviderCatalogItem,
   AutomationTriggerCatalogItem,
 } from '../models/automation_catalog';
+import type { IntegrationAccount } from '../models/integration_account';
 import type { AutomationActionType, AutomationTriggerKey } from '../models/automation_rule';
 
 const TRIGGERS: AutomationTriggerCatalogItem[] = [
@@ -167,12 +168,32 @@ export class AutomationCatalogService {
     return TRIGGERS;
   }
 
+  getTriggersForAccounts(accounts: IntegrationAccount[]): AutomationTriggerCatalogItem[] {
+    const enabledSources = new Set([
+      'rhythm',
+      ...accounts
+        .filter((account) => account.status === 'connected')
+        .map((account) => account.provider),
+    ]);
+    return TRIGGERS.filter((item) => enabledSources.has(item.source));
+  }
+
   getActions(): AutomationActionCatalogItem[] {
     return ACTIONS;
   }
 
   getProviders(): AutomationProviderCatalogItem[] {
     return PROVIDERS;
+  }
+
+  getProvidersForAccounts(accounts: IntegrationAccount[]): AutomationProviderCatalogItem[] {
+    const enabledSources = new Set([
+      'rhythm',
+      ...accounts
+        .filter((account) => account.status === 'connected')
+        .map((account) => account.provider),
+    ]);
+    return PROVIDERS.filter((item) => enabledSources.has(item.source));
   }
 
   findTrigger(key: string): AutomationTriggerCatalogItem | null {

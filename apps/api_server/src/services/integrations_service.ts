@@ -1,6 +1,7 @@
 import { GmailService } from '../integrations/gmail/gmail_service';
 import { GoogleCalendarService } from '../integrations/google_calendar/google_calendar_service';
 import { PlanningCenterService } from '../integrations/planning_center/planning_center_service';
+import type { IntegrationAccount } from '../models/integration_account';
 import type { CreateAutomationSignalDto } from '../models/automation_signal';
 import { AppError } from '../errors/app_error';
 import { AutomationRulesRepository } from '../repositories/automation_rules_repository';
@@ -11,6 +12,8 @@ import { IntegrationAccountsRepository } from '../repositories/integration_accou
 import { IntegrationPreferencesRepository } from '../repositories/integration_preferences_repository';
 import { ProjectTemplatesRepository } from '../repositories/project_templates_repository';
 import { AutomationEngineService } from './automation_engine_service';
+import { GoogleOAuthService } from './google_oauth_service';
+import { PlanningCenterOAuthService } from './planning_center_oauth_service';
 
 function daysUntil(dateString: string): number {
   const start = new Date();
@@ -35,9 +38,11 @@ export class IntegrationsService {
   private readonly gmail = new GmailService();
   private readonly planningCenter = new PlanningCenterService();
   private readonly automationEngine = new AutomationEngineService();
+  private readonly googleOAuth = new GoogleOAuthService();
+  private readonly planningCenterOAuth = new PlanningCenterOAuthService();
 
   async syncGoogleCalendar() {
-    const account = this.accountsRepo.findByProvider('google_calendar');
+    const account = await this.ensureFreshAccount('google_calendar');
     if (!account || !account.accessToken) {
       throw AppError.badRequest('Google Calendar is not connected');
     }
@@ -117,7 +122,7 @@ export class IntegrationsService {
   }
 
   async syncGmail() {
-    const account = this.accountsRepo.findByProvider('gmail');
+    const account = await this.ensureFreshAccount('gmail');
     if (!account || !account.accessToken) {
       throw AppError.badRequest('Gmail is not connected');
     }
@@ -210,7 +215,7 @@ export class IntegrationsService {
   }
 
   async syncPlanningCenter() {
-    const account = this.accountsRepo.findByProvider('planning_center');
+    const account = await this.ensureFreshAccount('planning_center');
     if (!account || !account.accessToken) {
       throw AppError.badRequest('Planning Center is not connected');
     }
@@ -313,6 +318,30 @@ export class IntegrationsService {
       );
       throw err;
     }
+  }
+
+  private async ensureFreshAccount(
+    provider: 'google_calendar' | 'gmail' | 'planning_center',
+  ): Promise<IntegrationAccount | null> {
+    const account = this.accountsRepo.findByProvider(provider);
+    if (!account) return null;
+    if (!this.shouldRefresh(account)) return account;
+
+    if (provider === 'planning_center') {
+      return this.planningCenterOAuth.refreshAccessToken(account);
+    }
+
+    const refreshed = await this.googleOAuth.refreshAccessToken(account);
+    if (provider === 'google_calendar') return refreshed;
+    return this.accountsRepo.findByProvider(provider) ?? refreshed;
+  }
+
+  private shouldRefresh(account: IntegrationAccount): boolean {
+    if (!account.refreshToken) return false;
+    if (!account.expiresAt) return true;
+    const expiresAtMs = Date.parse(account.expiresAt);
+    if (Number.isNaN(expiresAtMs)) return true;
+    return expiresAtMs <= Date.now() + 5 * 60 * 1000;
   }
 
   getPlanningCenterTaskPreferences() {

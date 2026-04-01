@@ -38,6 +38,7 @@ class AutomationRulesController extends ChangeNotifier {
   Future<void> load() async {
     _status = AutomationRulesStatus.loading;
     _errorMessage = null;
+    _selectedPreview = null;
     notifyListeners();
     try {
       final results = await Future.wait<dynamic>([
@@ -93,6 +94,7 @@ class AutomationRulesController extends ChangeNotifier {
         sourceAccountId: sourceAccountId,
       );
       _rules = [..._rules, rule];
+      _selectedPreview = null;
       notifyListeners();
     } catch (e) {
       _errorMessage = e.toString();
@@ -123,6 +125,10 @@ class AutomationRulesController extends ChangeNotifier {
         sourceAccountId: sourceAccountId,
       );
       _rules = _rules.map((r) => r.id == id ? updated : r).toList();
+      if (_selectedPreview?.ruleId == id) {
+        await loadPreview(id);
+        return;
+      }
       notifyListeners();
     } catch (e) {
       _errorMessage = e.toString();
@@ -136,6 +142,10 @@ class AutomationRulesController extends ChangeNotifier {
     try {
       final updated = await _repository.update(id, enabled: !rule.enabled);
       _rules = _rules.map((r) => r.id == id ? updated : r).toList();
+      if (_selectedPreview?.ruleId == id) {
+        await loadPreview(id);
+        return;
+      }
       notifyListeners();
     } catch (e) {
       _errorMessage = e.toString();
@@ -148,6 +158,9 @@ class AutomationRulesController extends ChangeNotifier {
     try {
       await _repository.delete(id);
       _rules = _rules.where((r) => r.id != id).toList();
+      if (_selectedPreview?.ruleId == id) {
+        _selectedPreview = null;
+      }
       notifyListeners();
     } catch (e) {
       _errorMessage = e.toString();

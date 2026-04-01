@@ -5,6 +5,7 @@ import '../../../app/core/widgets/error_banner.dart';
 import '../../integrations/models/integration_account.dart';
 import '../../integrations/models/planning_center_task_options.dart';
 import '../controllers/automation_rules_controller.dart';
+import '../data/automation_rules_data_source.dart';
 import '../models/automation_catalog.dart';
 import '../models/automation_rule.dart';
 
@@ -16,6 +17,13 @@ class AutomationRulesView extends StatefulWidget {
 }
 
 class _AutomationRulesViewState extends State<AutomationRulesView> {
+  static const List<String> _sourceOrder = [
+    'rhythm',
+    'planning_center',
+    'google_calendar',
+    'gmail',
+  ];
+
   @override
   void initState() {
     super.initState();
@@ -32,6 +40,14 @@ class _AutomationRulesViewState extends State<AutomationRulesView> {
         for (final rule in controller.rules) {
           grouped.putIfAbsent(rule.source, () => []).add(rule);
         }
+        final orderedEntries = grouped.entries.toList()
+          ..sort((a, b) {
+            final left = _sourceOrder.indexOf(a.key);
+            final right = _sourceOrder.indexOf(b.key);
+            final leftIndex = left == -1 ? _sourceOrder.length : left;
+            final rightIndex = right == -1 ? _sourceOrder.length : right;
+            return leftIndex.compareTo(rightIndex);
+          });
 
         return Scaffold(
           backgroundColor: const Color(0xFFF6F8FB),
@@ -40,8 +56,9 @@ class _AutomationRulesViewState extends State<AutomationRulesView> {
             children: [
               _OverviewHeader(
                 ruleCount: controller.rules.length,
-                providerCount:
-                    controller.accounts.where((account) => account.connected).length,
+                providerCount: controller.accounts
+                    .where((account) => account.connected)
+                    .length,
                 enabledCount:
                     controller.rules.where((rule) => rule.enabled).length,
                 latestSync: _latestSync(controller.accounts),
@@ -63,7 +80,7 @@ class _AutomationRulesViewState extends State<AutomationRulesView> {
                           )
                         : ListView(
                             padding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
-                            children: grouped.entries
+                            children: orderedEntries
                                 .map(
                                   (entry) => _RuleGroup(
                                     source: entry.key,
@@ -124,6 +141,22 @@ class _AutomationRulesViewState extends State<AutomationRulesView> {
       triggerConfig: result.triggerConfig,
       actionConfig: result.actionConfig,
       sourceAccountId: result.sourceAccountId,
+    );
+  }
+
+  Future<void> _openPreview(
+    BuildContext context,
+    AutomationRulesController controller,
+    AutomationRule rule,
+  ) async {
+    await controller.loadPreview(rule.id);
+    if (!context.mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (context) => _AutomationPreviewDialog(
+        rule: rule,
+        preview: controller.selectedPreview,
+      ),
     );
   }
 }
@@ -190,7 +223,9 @@ class _OverviewHeader extends StatelessWidget {
               _StatCard(label: 'Connected providers', value: '$providerCount'),
               _StatCard(
                 label: 'Latest sync',
-                value: latestSync == null ? 'Never' : latestSync!.replaceFirst('T', ' '),
+                value: latestSync == null
+                    ? 'Never'
+                    : latestSync!.replaceFirst('T', ' '),
               ),
             ],
           ),
@@ -313,6 +348,9 @@ class _RuleGroup extends StatelessWidget {
                 onEdit: () => context
                     .findAncestorStateOfType<_AutomationRulesViewState>()
                     ?._openBuilder(context, controller, existing: rule),
+                onInspect: () => context
+                    .findAncestorStateOfType<_AutomationRulesViewState>()
+                    ?._openPreview(context, controller, rule),
                 onDelete: () => controller.deleteRule(rule.id),
                 onToggle: () => controller.toggleEnabled(rule.id),
               ),
@@ -331,6 +369,7 @@ class _RuleCard extends StatelessWidget {
     required this.trigger,
     required this.action,
     required this.onEdit,
+    required this.onInspect,
     required this.onDelete,
     required this.onToggle,
   });
@@ -340,6 +379,7 @@ class _RuleCard extends StatelessWidget {
   final AutomationTriggerCatalogItem? trigger;
   final AutomationActionCatalogItem? action;
   final VoidCallback onEdit;
+  final VoidCallback onInspect;
   final VoidCallback onDelete;
   final VoidCallback onToggle;
 
@@ -355,69 +395,83 @@ class _RuleCard extends StatelessWidget {
         borderRadius: BorderRadius.circular(12),
         side: const BorderSide(color: Color(0xFFE5E7EB)),
       ),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Switch(value: rule.enabled, onChanged: (_) => onToggle()),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(rule.name,
-                      style: const TextStyle(
-                          fontSize: 15, fontWeight: FontWeight.w700)),
-                  const SizedBox(height: 6),
-                  Text(
-                    '${trigger?.label ?? rule.triggerKey} -> ${action?.label ?? rule.actionType}',
-                    style: const TextStyle(color: Color(0xFF2563EB)),
-                  ),
-                  const SizedBox(height: 8),
-                  Wrap(
-                    spacing: 10,
-                    runSpacing: 8,
-                    children: [
-                      _MetaChip(
-                        icon: Icons.account_circle_outlined,
-                        label: accountLabel,
-                      ),
-                      _MetaChip(
-                        icon: Icons.sync,
-                        label: account?.connected == true
-                            ? 'Connected'
-                            : rule.source == 'rhythm'
-                                ? 'Internal'
-                                : 'Disconnected',
-                      ),
-                      _MetaChip(
-                        icon: Icons.bolt_outlined,
-                        label: rule.lastMatchedAt == null
-                            ? 'No recent matches'
-                            : '${rule.matchCountLastRun} match(es)',
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: onInspect,
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Switch(value: rule.enabled, onChanged: (_) => onToggle()),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(rule.name,
+                        style: const TextStyle(
+                            fontSize: 15, fontWeight: FontWeight.w700)),
+                    const SizedBox(height: 6),
+                    Text(
+                      '${trigger?.label ?? rule.triggerKey} -> ${action?.label ?? rule.actionType}',
+                      style: const TextStyle(color: Color(0xFF2563EB)),
+                    ),
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 10,
+                      runSpacing: 8,
+                      children: [
+                        _MetaChip(
+                          icon: Icons.account_circle_outlined,
+                          label: accountLabel,
+                        ),
+                        _MetaChip(
+                          icon: Icons.sync,
+                          label: account?.connected == true
+                              ? 'Connected'
+                              : rule.source == 'rhythm'
+                                  ? 'Internal'
+                                  : 'Disconnected',
+                        ),
+                        _MetaChip(
+                          icon: Icons.bolt_outlined,
+                          label: rule.lastMatchedAt == null
+                              ? 'No recent matches'
+                              : '${rule.matchCountLastRun} match(es)',
+                        ),
+                        _MetaChip(
+                          icon: Icons.schedule_outlined,
+                          label: rule.lastEvaluatedAt == null
+                              ? 'Not evaluated yet'
+                              : 'Evaluated ${_formatStamp(rule.lastEvaluatedAt!)}',
+                        ),
+                      ],
+                    ),
+                    if (rule.previewSample != null) ...[
+                      const SizedBox(height: 10),
+                      Text(
+                        _previewLabel(rule.previewSample!),
+                        style: const TextStyle(color: Colors.black54),
                       ),
                     ],
-                  ),
-                  if (rule.previewSample != null) ...[
-                    const SizedBox(height: 10),
-                    Text(
-                      _previewLabel(rule.previewSample!),
-                      style: const TextStyle(color: Colors.black54),
-                    ),
                   ],
-                ],
+                ),
               ),
-            ),
-            IconButton(
-              onPressed: onEdit,
-              icon: const Icon(Icons.edit_outlined),
-            ),
-            IconButton(
-              onPressed: onDelete,
-              icon: const Icon(Icons.delete_outline),
-            ),
-          ],
+              IconButton(
+                onPressed: onInspect,
+                icon: const Icon(Icons.visibility_outlined),
+              ),
+              IconButton(
+                onPressed: onEdit,
+                icon: const Icon(Icons.edit_outlined),
+              ),
+              IconButton(
+                onPressed: onDelete,
+                icon: const Icon(Icons.delete_outline),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -430,6 +484,89 @@ class _RuleCard extends StatelessWidget {
       preview['serviceTypeName'],
       preview['positionName'],
     ].whereType<Object>().join(' · ');
+  }
+}
+
+class _AutomationPreviewDialog extends StatelessWidget {
+  const _AutomationPreviewDialog({
+    required this.rule,
+    required this.preview,
+  });
+
+  final AutomationRule rule;
+  final AutomationRulePreview? preview;
+
+  @override
+  Widget build(BuildContext context) {
+    final summary = preview?.summary ??
+        'No preview summary is available yet for this automation.';
+    final sample = preview?.previewSample ?? rule.previewSample;
+    return AlertDialog(
+      title: Text(rule.name),
+      content: SizedBox(
+        width: 520,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(summary),
+            const SizedBox(height: 16),
+            Wrap(
+              spacing: 10,
+              runSpacing: 10,
+              children: [
+                _MetaChip(
+                  icon: Icons.bolt_outlined,
+                  label: preview?.matchCountLastRun == null
+                      ? 'No recent run'
+                      : '${preview!.matchCountLastRun} match(es) last run',
+                ),
+                _MetaChip(
+                  icon: Icons.schedule_outlined,
+                  label: preview?.lastEvaluatedAt == null
+                      ? 'Never evaluated'
+                      : 'Evaluated ${_formatStamp(preview!.lastEvaluatedAt!)}',
+                ),
+                _MetaChip(
+                  icon: Icons.history_toggle_off,
+                  label: preview?.lastMatchedAt == null
+                      ? 'No recent match'
+                      : 'Matched ${_formatStamp(preview!.lastMatchedAt!)}',
+                ),
+              ],
+            ),
+            if (sample != null) ...[
+              const SizedBox(height: 16),
+              const Text(
+                'Latest sample',
+                style: TextStyle(fontWeight: FontWeight.w700),
+              ),
+              const SizedBox(height: 8),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF8FAFC),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Text(
+                  sample.entries
+                      .where((entry) => entry.value != null)
+                      .map((entry) => '${entry.key}: ${entry.value}')
+                      .join('\n'),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Close'),
+        ),
+      ],
+    );
   }
 }
 
@@ -516,6 +653,7 @@ class _AutomationBuilderDialogState extends State<_AutomationBuilderDialog> {
   int? _hoursSinceReceived;
   int? _targetDay;
   bool _allDayOnly = false;
+  String? _validationError;
 
   @override
   void initState() {
@@ -546,12 +684,15 @@ class _AutomationBuilderDialogState extends State<_AutomationBuilderDialog> {
     _tagController = TextEditingController(
       text: existing?.actionConfig?['tag']?.toString() ?? '',
     );
-    _selectedSource = existing?.source ?? widget.controller.providers.firstOrNull?.source;
+    _selectedSource =
+        existing?.source ?? widget.controller.providers.firstOrNull?.source;
     _selectedTriggerKey = existing?.triggerKey;
-    _selectedActionType = existing?.actionType ?? widget.controller.actions.firstOrNull?.key;
+    _selectedActionType =
+        existing?.actionType ?? widget.controller.actions.firstOrNull?.key;
     _selectedAccountId = existing?.sourceAccountId;
     _selectedTeamId = existing?.triggerConfig?['teamId']?.toString();
-    _selectedPositionName = existing?.triggerConfig?['positionName']?.toString();
+    _selectedPositionName =
+        existing?.triggerConfig?['positionName']?.toString();
     _selectedEventType = existing?.triggerConfig?['eventType']?.toString();
     _selectedLabel = existing?.triggerConfig?['label']?.toString();
     _leadDays = (existing?.triggerConfig?['leadDays'] as num?)?.toInt();
@@ -561,6 +702,10 @@ class _AutomationBuilderDialogState extends State<_AutomationBuilderDialog> {
         (existing?.triggerConfig?['hoursSinceReceived'] as num?)?.toInt();
     _targetDay = (existing?.actionConfig?['targetDay'] as num?)?.toInt();
     _allDayOnly = existing?.triggerConfig?['allDayOnly'] == true;
+    _syncAccountSelectionWithSource();
+    if (existing == null && _nameController.text.trim().isEmpty) {
+      _nameController.text = _suggestedName();
+    }
   }
 
   @override
@@ -584,10 +729,12 @@ class _AutomationBuilderDialogState extends State<_AutomationBuilderDialog> {
         .toList();
     _selectedTriggerKey ??= triggers.firstOrNull?.key;
     _selectedActionType ??= widget.controller.actions.firstOrNull?.key;
-    final trigger = triggers.where((item) => item.key == _selectedTriggerKey).firstOrNull;
+    final trigger =
+        triggers.where((item) => item.key == _selectedTriggerKey).firstOrNull;
 
     return AlertDialog(
-      title: Text(widget.existing == null ? 'New automation' : 'Edit automation'),
+      title:
+          Text(widget.existing == null ? 'New automation' : 'Edit automation'),
       content: SizedBox(
         width: 620,
         child: SingleChildScrollView(
@@ -605,9 +752,9 @@ class _AutomationBuilderDialogState extends State<_AutomationBuilderDialog> {
               const SizedBox(height: 12),
               DropdownButtonFormField<String>(
                 value: _selectedSource,
-                decoration:
-                    const InputDecoration(labelText: 'Source', border: OutlineInputBorder()),
-                items: widget.controller.providers
+                decoration: const InputDecoration(
+                    labelText: 'Source', border: OutlineInputBorder()),
+                items: _availableProviders()
                     .map((item) => DropdownMenuItem(
                           value: item.source,
                           child: Text(item.label),
@@ -619,6 +766,8 @@ class _AutomationBuilderDialogState extends State<_AutomationBuilderDialog> {
                       .where((item) => item.source == value)
                       .firstOrNull
                       ?.key;
+                  _syncAccountSelectionWithSource();
+                  _populateSuggestedNameIfEmpty();
                 }),
               ),
               const SizedBox(height: 12),
@@ -642,8 +791,16 @@ class _AutomationBuilderDialogState extends State<_AutomationBuilderDialog> {
                                 item.provider),
                           )),
                 ],
-                onChanged: (value) => setState(() => _selectedAccountId = value),
+                onChanged: (value) =>
+                    setState(() => _selectedAccountId = value),
               ),
+              if (_selectedSource != null && _validationError != null) ...[
+                const SizedBox(height: 10),
+                Text(
+                  _validationError!,
+                  style: const TextStyle(color: Colors.redAccent),
+                ),
+              ],
               const SizedBox(height: 18),
               _stepTitle('2. Trigger'),
               DropdownButtonFormField<String>(
@@ -658,7 +815,10 @@ class _AutomationBuilderDialogState extends State<_AutomationBuilderDialog> {
                           child: Text(item.label),
                         ))
                     .toList(),
-                onChanged: (value) => setState(() => _selectedTriggerKey = value),
+                onChanged: (value) => setState(() {
+                  _selectedTriggerKey = value;
+                  _populateSuggestedNameIfEmpty();
+                }),
               ),
               if (trigger != null) ...[
                 const SizedBox(height: 8),
@@ -681,7 +841,10 @@ class _AutomationBuilderDialogState extends State<_AutomationBuilderDialog> {
                           child: Text(item.label),
                         ))
                     .toList(),
-                onChanged: (value) => setState(() => _selectedActionType = value),
+                onChanged: (value) => setState(() {
+                  _selectedActionType = value;
+                  _populateSuggestedNameIfEmpty();
+                }),
               ),
               const SizedBox(height: 12),
               ..._buildActionFields(),
@@ -707,11 +870,15 @@ class _AutomationBuilderDialogState extends State<_AutomationBuilderDialog> {
         ),
         FilledButton(
           onPressed: () {
-            final name = _nameController.text.trim();
-            if (name.isEmpty ||
-                _selectedSource == null ||
+            final name = _nameController.text.trim().isEmpty
+                ? _suggestedName()
+                : _nameController.text.trim();
+            final validationError = _validateDraft();
+            setState(() => _validationError = validationError);
+            if (_selectedSource == null ||
                 _selectedTriggerKey == null ||
-                _selectedActionType == null) {
+                _selectedActionType == null ||
+                validationError != null) {
               return;
             }
             Navigator.pop(
@@ -810,7 +977,8 @@ class _AutomationBuilderDialogState extends State<_AutomationBuilderDialog> {
             border: OutlineInputBorder(),
           ),
           items: const [
-            DropdownMenuItem<String>(value: null, child: Text('Any event type')),
+            DropdownMenuItem<String>(
+                value: null, child: Text('Any event type')),
             DropdownMenuItem<String>(value: 'default', child: Text('Default')),
             DropdownMenuItem<String>(
                 value: 'focusTime', child: Text('Focus time')),
@@ -875,6 +1043,20 @@ class _AutomationBuilderDialogState extends State<_AutomationBuilderDialog> {
       ];
     }
     return const [];
+  }
+
+  void _populateSuggestedNameIfEmpty() {
+    if (widget.existing != null) return;
+    if (_nameController.text.trim().isNotEmpty) return;
+    _nameController.text = _suggestedName();
+  }
+
+  String _suggestedName() {
+    return widget.controller.triggers
+            .where((item) => item.key == _selectedTriggerKey)
+            .firstOrNull
+            ?.label ??
+        _labelForSource(_selectedSource);
   }
 
   List<Widget> _buildActionFields() {
@@ -952,7 +1134,9 @@ class _AutomationBuilderDialogState extends State<_AutomationBuilderDialog> {
     final config = <String, dynamic>{};
     if (_leadDays != null) config['leadDays'] = _leadDays;
     if (_selectedTeamId != null) config['teamId'] = _selectedTeamId;
-    if (_selectedPositionName != null) config['positionName'] = _selectedPositionName;
+    if (_selectedPositionName != null) {
+      config['positionName'] = _selectedPositionName;
+    }
     if (_textQueryController.text.trim().isNotEmpty) {
       config['textQuery'] = _textQueryController.text.trim();
     }
@@ -1000,7 +1184,80 @@ class _AutomationBuilderDialogState extends State<_AutomationBuilderDialog> {
             .firstOrNull
             ?.label ??
         (_selectedActionType ?? 'Action');
-    return 'When $triggerLabel from ${_labelForSource(_selectedSource)} then $actionLabel.';
+    final accountLabel = _selectedAccountId == null
+        ? (_selectedSource == 'rhythm' ? 'Rhythm' : 'default connected account')
+        : widget.controller.accounts
+                .where((item) => item.id == _selectedAccountId)
+                .firstOrNull
+                ?.accountLabel ??
+            'selected account';
+    final filters = _buildTriggerConfig();
+    final filterSummary = filters == null || filters.isEmpty
+        ? 'with no extra filters'
+        : 'with ${filters.entries.map((entry) => '${entry.key}: ${entry.value}').join(', ')}';
+    return 'When $triggerLabel from ${_labelForSource(_selectedSource)} on $accountLabel, $filterSummary, then $actionLabel.';
+  }
+
+  List<AutomationProviderCatalogItem> _availableProviders() {
+    final connectedSources = widget.controller.accounts
+        .where((account) => account.connected)
+        .map((account) => account.provider)
+        .toSet();
+    final providers = widget.controller.providers.where((provider) {
+      if (provider.source == 'rhythm') return true;
+      if (provider.source == widget.existing?.source) return true;
+      return connectedSources.contains(provider.source);
+    }).toList();
+    final existingSource = widget.existing?.source;
+    if (existingSource != null &&
+        providers.every((provider) => provider.source != existingSource)) {
+      providers.add(
+        AutomationProviderCatalogItem(
+          source: existingSource,
+          label: _labelForSource(existingSource),
+          description: 'Previously configured provider',
+          syncSupport: 'manual',
+          triggerKeys: const [],
+        ),
+      );
+    }
+    return providers;
+  }
+
+  void _syncAccountSelectionWithSource() {
+    if (_selectedSource == null || _selectedSource == 'rhythm') {
+      _selectedAccountId = null;
+      return;
+    }
+    final accounts = widget.controller.accounts
+        .where((account) =>
+            account.provider == _selectedSource && account.connected)
+        .toList();
+    if (accounts.any((account) => account.id == _selectedAccountId)) return;
+    _selectedAccountId = accounts.firstOrNull?.id;
+  }
+
+  String? _validateDraft() {
+    if (_selectedSource != null && _selectedSource != 'rhythm') {
+      final hasConnectedAccount = widget.controller.accounts.any(
+        (account) =>
+            account.provider == _selectedSource &&
+            account.connected &&
+            account.id == _selectedAccountId,
+      );
+      if (!hasConnectedAccount) {
+        return 'Connect ${_labelForSource(_selectedSource)} before creating this automation.';
+      }
+    }
+    if (_selectedActionType == 'create_project_from_template' &&
+        _templateNameController.text.trim().isEmpty) {
+      return 'Project automations need a template name.';
+    }
+    if (_selectedActionType == 'send_notification' &&
+        _messageTemplateController.text.trim().isEmpty) {
+      return 'Notification automations need a message template.';
+    }
+    return null;
   }
 
   List<String> _positionsForTeam(
@@ -1008,7 +1265,10 @@ class _AutomationBuilderDialogState extends State<_AutomationBuilderDialog> {
     String? teamId,
   ) {
     if (teamId == null) {
-      return options.positionsByTeamId.values.expand((item) => item).toSet().toList()
+      return options.positionsByTeamId.values
+          .expand((item) => item)
+          .toSet()
+          .toList()
         ..sort();
     }
     return options.positionsByTeamId[teamId] ?? const [];
@@ -1034,7 +1294,8 @@ class _IntegerDropdown extends StatelessWidget {
   Widget build(BuildContext context) {
     return DropdownButtonFormField<int>(
       value: value,
-      decoration: InputDecoration(labelText: label, border: const OutlineInputBorder()),
+      decoration:
+          InputDecoration(labelText: label, border: const OutlineInputBorder()),
       items: options
           .map((item) => DropdownMenuItem(
                 value: item,
@@ -1052,3 +1313,14 @@ String _labelForSource(String? source) => switch (source) {
       'gmail' => 'Gmail',
       _ => 'Rhythm',
     };
+
+String _formatStamp(String value) {
+  final parsed = DateTime.tryParse(value);
+  if (parsed == null) return value;
+  final local = parsed.toLocal();
+  final month = local.month.toString().padLeft(2, '0');
+  final day = local.day.toString().padLeft(2, '0');
+  final hour = local.hour.toString().padLeft(2, '0');
+  final minute = local.minute.toString().padLeft(2, '0');
+  return '$month/$day ${local.year} $hour:$minute';
+}

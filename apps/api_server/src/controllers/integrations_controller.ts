@@ -26,7 +26,7 @@ function toAccountDto(
       accountLabel: null,
       email: null,
       displayName: null,
-      status: 'error',
+      status: 'disconnected',
       expiresAt: null,
       lastSyncedAt: null,
       errorMessage: null,
