@@ -60,7 +60,7 @@ jobs:
       - name: Build API server
         working-directory: apps/api_server
         run: |
-          npm ci
+          npm install
           npm run build
           npm prune --omit=dev
 
