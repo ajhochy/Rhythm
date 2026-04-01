@@ -38,6 +38,56 @@ void main() {
     expect(controller.threads, hasLength(2));
     expect(controller.selectedThreadId, 22);
   });
+
+  test('MessagesController polls threads globally and current thread while visible',
+      () async {
+    final repository = _FakeMessagesRepository();
+    final controller = MessagesController(
+      repository,
+      pollInterval: const Duration(milliseconds: 10),
+    );
+
+    await controller.loadThreads();
+    await controller.selectThread(11);
+    repository.getThreadsCallCount = 0;
+    repository.getMessagesCallCount = 0;
+    repository.markReadCallCount = 0;
+
+    controller.setPollingEnabled(true);
+    await Future<void>.delayed(const Duration(milliseconds: 25));
+    final hiddenThreadCalls = repository.getThreadsCallCount;
+
+    expect(hiddenThreadCalls, greaterThanOrEqualTo(2));
+    expect(repository.getMessagesCallCount, 0);
+    expect(repository.markReadCallCount, 0);
+
+    controller.setScreenActive(true);
+    repository.messageFixtures = [
+      Message(
+        id: 1,
+        threadId: 11,
+        senderName: 'Alice',
+        content: 'Hello',
+        createdAt: DateTime.parse('2026-03-31T01:00:00.000Z'),
+      ),
+      Message(
+        id: 2,
+        threadId: 11,
+        senderName: 'Bob',
+        content: 'Reply',
+        createdAt: DateTime.parse('2026-03-31T01:01:00.000Z'),
+      ),
+    ];
+    await Future<void>.delayed(const Duration(milliseconds: 25));
+
+    expect(repository.getThreadsCallCount, greaterThan(hiddenThreadCalls));
+    expect(repository.getMessagesCallCount, greaterThanOrEqualTo(1));
+    expect(repository.markReadCallCount, greaterThanOrEqualTo(1));
+    expect(controller.incomingNotice, isNotNull);
+    expect(controller.incomingNotice?.senderName, 'Bob');
+
+    controller.setPollingEnabled(false);
+  });
 }
 
 class _FakeDashboardDataSource extends DashboardDataSource {
@@ -94,6 +144,8 @@ class _FakeMessagesRepository extends MessagesRepository {
       : super(MessagesDataSource(baseUrl: 'http://example.invalid'));
 
   int getThreadsCallCount = 0;
+  int getMessagesCallCount = 0;
+  int markReadCallCount = 0;
   final List<MessageThread> _threads = [
     MessageThread(
       id: 11,
@@ -127,17 +179,24 @@ class _FakeMessagesRepository extends MessagesRepository {
     return thread;
   }
 
-  @override
-  Future<List<Message>> getMessages(int threadId) async => [
-        Message(
-          id: 1,
-          threadId: threadId,
-          senderName: 'Alice',
-          content: 'Hello',
-          createdAt: DateTime.parse('2026-03-31T01:00:00.000Z'),
-        ),
-      ];
+  List<Message> messageFixtures = [
+    Message(
+      id: 1,
+      threadId: 11,
+      senderName: 'Alice',
+      content: 'Hello',
+      createdAt: DateTime.parse('2026-03-31T01:00:00.000Z'),
+    ),
+  ];
 
   @override
-  Future<void> markRead(int threadId) async {}
+  Future<List<Message>> getMessages(int threadId) async {
+    getMessagesCallCount += 1;
+    return messageFixtures;
+  }
+
+  @override
+  Future<void> markRead(int threadId) async {
+    markReadCallCount += 1;
+  }
 }

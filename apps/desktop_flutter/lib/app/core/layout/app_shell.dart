@@ -50,6 +50,17 @@ class _AppShellState extends State<AppShell> with WindowListener {
   @override
   Widget build(BuildContext context) {
     final serverStatus = context.watch<ApiServerController>().status;
+    final authStatus = context.watch<AuthSessionService>().status;
+    final messagesController = context.read<MessagesController>();
+    final enableMessagePolling = serverStatus == ServerStatus.ready &&
+        authStatus == AuthStatus.authenticated;
+    final isMessagesScreenActive = enableMessagePolling && _selectedIndex == 5;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      messagesController.setPollingEnabled(enableMessagePolling);
+      messagesController.setScreenActive(isMessagesScreenActive);
+    });
 
     return switch (serverStatus) {
       ServerStatus.starting => const _ServerLoadingView(),

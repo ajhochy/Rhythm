@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../../../app/core/widgets/error_banner.dart';
 import '../controllers/facilities_controller.dart';
 import '../models/facility.dart';
+import '../models/reservation.dart';
 
 class FacilitiesView extends StatefulWidget {
   const FacilitiesView({super.key});
@@ -54,6 +55,41 @@ class _FacilitiesViewState extends State<FacilitiesView> {
       ),
     );
   }
+}
+
+DateTime? _parseReservationDateTime(String? raw) {
+  if (raw == null || raw.isEmpty) return null;
+  final normalized = raw.contains('T') ? raw : raw.replaceFirst(' ', 'T');
+  return DateTime.tryParse(normalized);
+}
+
+String _formatDateShort(DateTime date) {
+  const months = [
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec',
+  ];
+  return '${months[date.month - 1]} ${date.day}';
+}
+
+String _formatTimeOnly(DateTime date) {
+  final hour = date.hour > 12
+      ? date.hour - 12
+      : date.hour == 0
+          ? 12
+          : date.hour;
+  final minute = date.minute.toString().padLeft(2, '0');
+  final period = date.hour >= 12 ? 'PM' : 'AM';
+  return '$hour:$minute $period';
 }
 
 // ---------------------------------------------------------------------------
@@ -122,7 +158,7 @@ class _FacilitiesGrid extends StatelessWidget {
               controller.reservationsByFacility[facility.id] ?? [];
           return _FacilityCard(
             facility: facility,
-            reservationCount: reservations.length,
+            reservations: reservations,
             controller: controller,
           );
         },
@@ -138,12 +174,12 @@ class _FacilitiesGrid extends StatelessWidget {
 class _FacilityCard extends StatelessWidget {
   const _FacilityCard({
     required this.facility,
-    required this.reservationCount,
+    required this.reservations,
     required this.controller,
   });
 
   final Facility facility;
-  final int reservationCount;
+  final List<Reservation> reservations;
   final FacilitiesController controller;
 
   @override
@@ -152,6 +188,7 @@ class _FacilityCard extends StatelessWidget {
     const cardBorder = Color(0xFFE5E7EB);
     const textPrimary = Color(0xFF111827);
     const textMuted = Color(0xFF9CA3AF);
+    final previewReservation = _currentOrUpcomingReservation();
 
     return Card(
       elevation: 0,
@@ -208,12 +245,30 @@ class _FacilityCard extends StatelessWidget {
               ),
             ],
 
+            const SizedBox(height: 14),
+            if (previewReservation == null)
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(vertical: 10),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF9FAFB),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Text(
+                  'No upcoming reservations',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 12, color: textMuted),
+                ),
+              )
+            else
+              _ReservationPreviewCard(reservation: previewReservation),
+
             const Spacer(),
 
             // Reservation count badge + Reserve button
             Row(
               children: [
-                _ReservationBadge(count: reservationCount),
+                _ReservationBadge(count: reservations.length),
                 const Spacer(),
                 OutlinedButton(
                   onPressed: () => _showReserveDialog(context),
@@ -234,6 +289,24 @@ class _FacilityCard extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  Reservation? _currentOrUpcomingReservation() {
+    final candidates = reservations.where((reservation) {
+      final end = _parseReservationDateTime(reservation.endTime);
+      if (end == null) return false;
+      return !end.isBefore(DateTime.now());
+    }).toList()
+      ..sort((a, b) {
+        final aStart = _parseReservationDateTime(a.startTime);
+        final bStart = _parseReservationDateTime(b.startTime);
+        if (aStart == null && bStart == null) return 0;
+        if (aStart == null) return 1;
+        if (bStart == null) return -1;
+        return aStart.compareTo(bStart);
+      });
+
+    return candidates.isEmpty ? null : candidates.first;
   }
 
   Future<void> _showReserveDialog(BuildContext context) async {
@@ -291,6 +364,58 @@ class _ReservationBadge extends StatelessWidget {
           fontWeight: FontWeight.w500,
           color: cs.primary,
         ),
+      ),
+    );
+  }
+}
+
+class _ReservationPreviewCard extends StatelessWidget {
+  const _ReservationPreviewCard({required this.reservation});
+
+  final Reservation reservation;
+
+  @override
+  Widget build(BuildContext context) {
+    final start = _parseReservationDateTime(reservation.startTime);
+    final end = _parseReservationDateTime(reservation.endTime);
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF9FAFB),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: const Color(0xFFE5E7EB)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            reservation.title,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: Color(0xFF111827),
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            reservation.reservedBy,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontSize: 11, color: Color(0xFF6B7280)),
+          ),
+          if (start != null) ...[
+            const SizedBox(height: 2),
+            Text(
+              '${_formatDateShort(start)} · ${_formatTimeOnly(start)}${end != null ? ' - ${_formatTimeOnly(end)}' : ''}',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 11, color: Color(0xFF6B7280)),
+            ),
+          ],
+        ],
       ),
     );
   }

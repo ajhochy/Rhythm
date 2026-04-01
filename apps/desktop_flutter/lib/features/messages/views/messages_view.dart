@@ -371,18 +371,35 @@ class _MessagePanelState extends State<_MessagePanel> {
     final controller = context.watch<MessagesController>();
 
     if (controller.selectedThreadId == null) {
-      return const Center(
-        child: Text(
-          'Select a conversation',
-          style: TextStyle(color: _kTextMuted, fontSize: 14),
-        ),
+      return Column(
+        children: [
+          if (controller.incomingNotice != null)
+            _IncomingMessageBanner(notice: controller.incomingNotice!),
+          const Expanded(
+            child: Center(
+              child: Text(
+                'Select a conversation',
+                style: TextStyle(color: _kTextMuted, fontSize: 14),
+              ),
+            ),
+          ),
+        ],
       );
     }
 
-    final thread = controller.selectedThread;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!_scrollController.hasClients) return;
+      _scrollController.animateTo(
+        _scrollController.position.maxScrollExtent,
+        duration: const Duration(milliseconds: 200),
+        curve: Curves.easeOut,
+      );
+    });
 
     return Column(
       children: [
+        if (controller.incomingNotice != null)
+          _IncomingMessageBanner(notice: controller.incomingNotice!),
         // Header
         Container(
           height: 56,
@@ -393,7 +410,7 @@ class _MessagePanelState extends State<_MessagePanel> {
           child: Align(
             alignment: Alignment.centerLeft,
             child: Text(
-              thread?.title ?? '',
+              controller.selectedThread?.title ?? '',
               style: const TextStyle(
                 fontSize: 16,
                 fontWeight: FontWeight.w600,
@@ -425,6 +442,62 @@ class _MessagePanelState extends State<_MessagePanel> {
           onSend: () => _sendMessage(context),
         ),
       ],
+    );
+  }
+}
+
+class _IncomingMessageBanner extends StatelessWidget {
+  const _IncomingMessageBanner({required this.notice});
+
+  final IncomingMessageNotice notice;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: const Color(0xFFF8FAFF),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        decoration: const BoxDecoration(
+          border: Border(bottom: BorderSide(color: Color(0xFFD6E4FF))),
+        ),
+        child: Row(
+          children: [
+            const Icon(Icons.notifications_active_outlined,
+                size: 18, color: _kPrimary),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    notice.senderName,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      color: _kTextPrimary,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    notice.preview,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: _kTextSecondary,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            TextButton(
+              onPressed: () => context.read<MessagesController>().clearIncomingNotice(),
+              child: const Text('Dismiss'),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
