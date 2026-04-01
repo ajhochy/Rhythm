@@ -59,7 +59,7 @@ jobs:
           flutter test
 
       - name: Build API server
-        working-directory: apps/api_server
+        working-directory: ../api_server
         run: |
           npm ci
           npm run build
