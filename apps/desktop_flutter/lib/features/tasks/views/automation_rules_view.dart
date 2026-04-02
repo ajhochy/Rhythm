@@ -684,6 +684,15 @@ class _AutomationBuilderDialogState extends State<_AutomationBuilderDialog> {
     _tagController = TextEditingController(
       text: existing?.actionConfig?['tag']?.toString() ?? '',
     );
+    for (final controller in [
+      _titleTemplateController,
+      _notesTemplateController,
+      _messageTemplateController,
+    ]) {
+      controller.addListener(() {
+        if (mounted) setState(() {});
+      });
+    }
     _selectedSource =
         existing?.source ?? widget.controller.providers.firstOrNull?.source;
     _selectedTriggerKey = existing?.triggerKey;
@@ -1062,6 +1071,217 @@ class _AutomationBuilderDialogState extends State<_AutomationBuilderDialog> {
         _labelForSource(_selectedSource);
   }
 
+  Map<String, dynamic>? get _previewSample => widget.existing?.previewSample;
+
+  String _renderTemplatePreview(String? template) {
+    final sample = _previewSample;
+    final fallback = (template ?? '').trim();
+    if (sample == null || fallback.isEmpty) {
+      return fallback;
+    }
+    final tokens = <String, String>{
+      'provider': _asString(sample['provider']) ?? '',
+      'signalType': _asString(sample['signalType']) ?? '',
+      'title': _asString(sample['title']) ?? '',
+      'subject': _asString(sample['subject']) ?? '',
+      'sender': _asString(sample['fromEmail']) ??
+          _asString(sample['fromName']) ??
+          '',
+      'serviceType': _asString(sample['serviceTypeName']) ?? '',
+      'position': _asString(sample['positionName']) ?? '',
+      'team': _asString(sample['teamName']) ?? '',
+      'date': _asString(sample['planDate']) ?? _asString(sample['startDate']) ?? '',
+      'snippet': _asString(sample['snippet']) ?? '',
+    };
+    return fallback.replaceAllMapped(
+      RegExp(r'\{\{(\w+)\}\}'),
+      (match) => tokens[match.group(1)] ?? '',
+    );
+  }
+
+  String? _asString(Object? value) {
+    if (value is String && value.trim().isNotEmpty) {
+      return value.trim();
+    }
+    return null;
+  }
+
+  Widget _templatePreviewCard({
+    required BuildContext context,
+    required String label,
+    required String template,
+  }) {
+    final sample = _previewSample;
+    final rendered = _renderTemplatePreview(template);
+    if (template.trim().isEmpty) {
+      return const SizedBox.shrink();
+    }
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF8FAFC),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: Theme.of(context).textTheme.labelMedium?.copyWith(
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            rendered.isEmpty ? template : rendered,
+            style: Theme.of(context).textTheme.bodyMedium,
+          ),
+          if (sample == null) ...[
+            const SizedBox(height: 6),
+            Text(
+              'Live preview appears after this automation matches once.',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  List<_TemplateTokenHelp> _availableTemplateTokens() {
+    switch (_selectedSource) {
+      case 'gmail':
+        return const [
+          _TemplateTokenHelp('subject', 'email subject'),
+          _TemplateTokenHelp('sender', 'from name or email'),
+          _TemplateTokenHelp('snippet', 'email preview text'),
+          _TemplateTokenHelp('date', 'received date'),
+        ];
+      case 'google_calendar':
+        return const [
+          _TemplateTokenHelp('title', 'event title'),
+          _TemplateTokenHelp('date', 'event date'),
+          _TemplateTokenHelp('snippet', 'event snippet if present'),
+        ];
+      case 'planning_center':
+        return const [
+          _TemplateTokenHelp('title', 'plan title'),
+          _TemplateTokenHelp('serviceType', 'service type'),
+          _TemplateTokenHelp('team', 'team name'),
+          _TemplateTokenHelp('position', 'position name'),
+          _TemplateTokenHelp('date', 'plan date'),
+        ];
+      default:
+        return const [
+          _TemplateTokenHelp('title', 'title'),
+          _TemplateTokenHelp('subject', 'subject'),
+          _TemplateTokenHelp('sender', 'sender'),
+          _TemplateTokenHelp('date', 'date'),
+        ];
+    }
+  }
+
+  List<_TemplateExample> _messageTemplateExamples() {
+    switch (_selectedSource) {
+      case 'gmail':
+        return const [
+          _TemplateExample(
+            'Subject + sender',
+            'New email from {{sender}}: {{subject}}',
+          ),
+          _TemplateExample(
+            'Follow-up prompt',
+            'Follow up with {{sender}} about "{{subject}}". {{snippet}}',
+          ),
+        ];
+      case 'google_calendar':
+        return const [
+          _TemplateExample(
+            'Calendar reminder',
+            '{{title}} is coming up on {{date}}.',
+          ),
+          _TemplateExample(
+            'Event summary',
+            'Calendar event matched: {{title}} on {{date}}.',
+          ),
+        ];
+      case 'planning_center':
+        return const [
+          _TemplateExample(
+            'Volunteer issue',
+            '{{serviceType}}: {{position}} needs attention for {{title}} on {{date}}.',
+          ),
+          _TemplateExample(
+            'Team reminder',
+            '{{team}} has a Planning Center update for {{title}} on {{date}}.',
+          ),
+        ];
+      default:
+        return const [
+          _TemplateExample(
+            'Basic notice',
+            'Automation matched {{title}} on {{date}}.',
+          ),
+        ];
+    }
+  }
+
+  List<_TemplateExample> _taskTitleTemplateExamples() {
+    switch (_selectedSource) {
+      case 'gmail':
+        return const [
+          _TemplateExample('Follow-up title', 'Reply to {{sender}} about {{subject}}'),
+          _TemplateExample('Simple email task', 'Email: {{subject}}'),
+        ];
+      case 'google_calendar':
+        return const [
+          _TemplateExample('Event prep', 'Prepare for {{title}}'),
+          _TemplateExample('Calendar follow-up', '{{title}} on {{date}}'),
+        ];
+      case 'planning_center':
+        return const [
+          _TemplateExample('Position follow-up', '{{position}} for {{title}}'),
+          _TemplateExample('Service prep', '{{serviceType}} prep for {{date}}'),
+        ];
+      default:
+        return const [
+          _TemplateExample('Basic title', '{{title}}'),
+        ];
+    }
+  }
+
+  List<_TemplateExample> _taskNotesTemplateExamples() {
+    switch (_selectedSource) {
+      case 'gmail':
+        return const [
+          _TemplateExample('Sender + snippet', 'From {{sender}}\n\n{{snippet}}'),
+          _TemplateExample('Subject summary', 'Subject: {{subject}}\nReceived: {{date}}'),
+        ];
+      case 'google_calendar':
+        return const [
+          _TemplateExample('Event summary', 'Event: {{title}}\nDate: {{date}}'),
+          _TemplateExample('Prep note', 'Prepare for {{title}} happening on {{date}}.'),
+        ];
+      case 'planning_center':
+        return const [
+          _TemplateExample(
+            'Service context',
+            'Service: {{serviceType}}\nTeam: {{team}}\nPosition: {{position}}\nDate: {{date}}',
+          ),
+          _TemplateExample(
+            'Short context',
+            '{{team}} · {{position}} · {{date}}',
+          ),
+        ];
+      default:
+        return const [
+          _TemplateExample('Basic notes', '{{title}} on {{date}}'),
+        ];
+    }
+  }
+
   List<Widget> _buildActionFields() {
     switch (_selectedActionType) {
       case 'create_project_from_template':
@@ -1078,21 +1298,74 @@ class _AutomationBuilderDialogState extends State<_AutomationBuilderDialog> {
         return [
           TextField(
             controller: _messageTemplateController,
-            decoration: const InputDecoration(
+            decoration: InputDecoration(
               labelText: 'Message template',
-              border: OutlineInputBorder(),
+              border: const OutlineInputBorder(),
+              helperText:
+                  'Use placeholders like ${_availableTemplateTokens().map((token) => '{{${token.token}}}').join(', ')}',
             ),
             maxLines: 3,
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final example in _messageTemplateExamples())
+                ActionChip(
+                  label: Text(example.label),
+                  onPressed: () {
+                    setState(() {
+                      _messageTemplateController.text = example.template;
+                    });
+                  },
+                ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Rhythm replaces placeholders with data from the matched source event or message before sending the notification.',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+          const SizedBox(height: 8),
+          _templatePreviewCard(
+            context: context,
+            label: 'Rendered message preview',
+            template: _messageTemplateController.text,
           ),
         ];
       default:
         return [
           TextField(
             controller: _titleTemplateController,
-            decoration: const InputDecoration(
+            decoration: InputDecoration(
               labelText: 'Task title template',
-              border: OutlineInputBorder(),
+              border: const OutlineInputBorder(),
+              helperText:
+                  'Use placeholders like ${_availableTemplateTokens().map((token) => '{{${token.token}}}').join(', ')}',
             ),
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final example in _taskTitleTemplateExamples())
+                ActionChip(
+                  label: Text(example.label),
+                  onPressed: () {
+                    setState(() {
+                      _titleTemplateController.text = example.template;
+                    });
+                  },
+                ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          _templatePreviewCard(
+            context: context,
+            label: 'Rendered title preview',
+            template: _titleTemplateController.text,
           ),
           const SizedBox(height: 12),
           TextField(
@@ -1100,8 +1373,32 @@ class _AutomationBuilderDialogState extends State<_AutomationBuilderDialog> {
             decoration: const InputDecoration(
               labelText: 'Task notes template',
               border: OutlineInputBorder(),
+              helperText:
+                  'Optional. Same placeholders work here too for richer context.',
             ),
             maxLines: 3,
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final example in _taskNotesTemplateExamples())
+                ActionChip(
+                  label: Text(example.label),
+                  onPressed: () {
+                    setState(() {
+                      _notesTemplateController.text = example.template;
+                    });
+                  },
+                ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          _templatePreviewCard(
+            context: context,
+            label: 'Rendered notes preview',
+            template: _notesTemplateController.text,
           ),
           if (_selectedActionType == 'tag_task') ...[
             const SizedBox(height: 12),
@@ -1308,6 +1605,20 @@ class _IntegerDropdown extends StatelessWidget {
       onChanged: onChanged,
     );
   }
+}
+
+class _TemplateTokenHelp {
+  const _TemplateTokenHelp(this.token, this.description);
+
+  final String token;
+  final String description;
+}
+
+class _TemplateExample {
+  const _TemplateExample(this.label, this.template);
+
+  final String label;
+  final String template;
 }
 
 String _labelForSource(String? source) => switch (source) {
