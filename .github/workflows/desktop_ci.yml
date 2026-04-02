@@ -23,7 +23,16 @@ jobs:
       - run: dart format --output=none --set-exit-if-changed .
       - run: flutter analyze --no-fatal-infos
       - run: flutter test
-      - name: Build macOS debug app
+      - name: Configure macOS debug build
         run: >
-          flutter build macos --debug
+          flutter build macos --debug --config-only
           --dart-define=GOOGLE_DESKTOP_CLIENT_ID="$GOOGLE_DESKTOP_CLIENT_ID"
+      - name: Build macOS debug app
+        working-directory: apps/desktop_flutter/macos
+        run: >
+          xcodebuild -workspace Runner.xcworkspace -scheme Runner
+          -configuration Debug
+          CODE_SIGNING_ALLOWED=NO
+          CODE_SIGNING_REQUIRED=NO
+          CODE_SIGN_IDENTITY=""
+          build

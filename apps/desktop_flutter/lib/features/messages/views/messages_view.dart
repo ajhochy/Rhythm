@@ -492,7 +492,8 @@ class _IncomingMessageBanner extends StatelessWidget {
               ),
             ),
             TextButton(
-              onPressed: () => context.read<MessagesController>().clearIncomingNotice(),
+              onPressed: () =>
+                  context.read<MessagesController>().clearIncomingNotice(),
               child: const Text('Dismiss'),
             ),
           ],

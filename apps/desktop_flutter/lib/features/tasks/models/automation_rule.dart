@@ -98,7 +98,8 @@ class AutomationRule {
         'planning_center.needed_position_open' => 'Needed position open',
         'planning_center.special_service_candidate' =>
           'Special service candidate',
-        'google_calendar.event_matching_filter' => 'Calendar event matches filter',
+        'google_calendar.event_matching_filter' =>
+          'Calendar event matches filter',
         'google_calendar.all_day_event' => 'All-day calendar event',
         'gmail.message_matching_filter' => 'Gmail message matches filter',
         'gmail.unread_message_matching_filter' =>

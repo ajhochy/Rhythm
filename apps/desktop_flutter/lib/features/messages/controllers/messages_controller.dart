@@ -47,6 +47,8 @@ class MessagesController extends ChangeNotifier {
   MessagesStatus get status => _status;
   String? get errorMessage => _errorMessage;
   int get unreadThreadCount => _threads.where((t) => t.isUnread).length;
+  int get totalUnreadCount =>
+      _threads.fold(0, (sum, thread) => sum + thread.unreadCount);
   IncomingMessageNotice? get incomingNotice => _incomingNotice;
 
   MessageThread? get selectedThread {
@@ -212,7 +214,8 @@ class MessagesController extends ChangeNotifier {
       try {
         final threadId = _selectedThreadId!;
         final nextMessages = await _repository.getMessages(threadId);
-        _maybeNotifyForIncomingMessages(previousMessages, nextMessages, threadId);
+        _maybeNotifyForIncomingMessages(
+            previousMessages, nextMessages, threadId);
         _messages = nextMessages;
         await _repository.markRead(threadId);
       } catch (_) {

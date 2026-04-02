@@ -39,7 +39,8 @@ void main() {
     expect(controller.selectedThreadId, 22);
   });
 
-  test('MessagesController polls threads globally and current thread while visible',
+  test(
+      'MessagesController polls threads globally and current thread while visible',
       () async {
     final repository = _FakeMessagesRepository();
     final controller = MessagesController(

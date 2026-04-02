@@ -773,6 +773,7 @@ class _AutomationBuilderDialogState extends State<_AutomationBuilderDialog> {
               const SizedBox(height: 12),
               DropdownButtonFormField<String?>(
                 value: _selectedAccountId,
+                isExpanded: true,
                 decoration: const InputDecoration(
                   labelText: 'Connected account',
                   border: OutlineInputBorder(),
@@ -805,6 +806,7 @@ class _AutomationBuilderDialogState extends State<_AutomationBuilderDialog> {
               _stepTitle('2. Trigger'),
               DropdownButtonFormField<String>(
                 value: _selectedTriggerKey,
+                isExpanded: true,
                 decoration: const InputDecoration(
                   labelText: 'Trigger',
                   border: OutlineInputBorder(),
@@ -831,6 +833,7 @@ class _AutomationBuilderDialogState extends State<_AutomationBuilderDialog> {
               _stepTitle('3. Action'),
               DropdownButtonFormField<String>(
                 value: _selectedActionType,
+                isExpanded: true,
                 decoration: const InputDecoration(
                   labelText: 'Action',
                   border: OutlineInputBorder(),
