@@ -52,9 +52,9 @@ function toAccountDto(
 }
 
 export class IntegrationsController {
-  getAccounts(_req: Request, res: Response, next: NextFunction) {
+  getAccounts(req: Request, res: Response, next: NextFunction) {
     try {
-      const existing = repo.findAll();
+      const existing = repo.findAll(req.auth!.user.id);
       const byProvider = new Map(existing.map((account) => [account.provider, account]));
 
       res.json([
@@ -67,17 +67,17 @@ export class IntegrationsController {
     }
   }
 
-  async syncGoogleCalendar(_req: Request, res: Response, next: NextFunction) {
+  async syncGoogleCalendar(req: Request, res: Response, next: NextFunction) {
     try {
-      res.json(await service.syncGoogleCalendar());
+      res.json(await service.syncGoogleCalendar(req.auth!.user.id));
     } catch (err) {
       next(err);
     }
   }
 
-  async syncGmail(_req: Request, res: Response, next: NextFunction) {
+  async syncGmail(req: Request, res: Response, next: NextFunction) {
     try {
-      res.json(await service.syncGmail());
+      res.json(await service.syncGmail(req.auth!.user.id));
     } catch (err) {
       next(err);
     }
@@ -91,9 +91,9 @@ export class IntegrationsController {
     }
   }
 
-  async syncPlanningCenter(_req: Request, res: Response, next: NextFunction) {
+  async syncPlanningCenter(req: Request, res: Response, next: NextFunction) {
     try {
-      res.json(await service.syncPlanningCenter());
+      res.json(await service.syncPlanningCenter(req.auth!.user.id));
     } catch (err) {
       next(err);
     }

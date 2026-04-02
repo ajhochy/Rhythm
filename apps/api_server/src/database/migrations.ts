@@ -68,7 +68,8 @@ export function runMigrations(db: Database.Database): void {
 
     CREATE TABLE IF NOT EXISTS integration_accounts (
       id TEXT PRIMARY KEY,
-      provider TEXT NOT NULL UNIQUE,
+      owner_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+      provider TEXT NOT NULL,
       external_account_id TEXT NOT NULL,
       email TEXT,
       display_name TEXT,
@@ -81,7 +82,8 @@ export function runMigrations(db: Database.Database): void {
       last_synced_at TEXT,
       error_message TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(owner_id, provider)
     );
 
     CREATE TABLE IF NOT EXISTS calendar_shadow_events (
@@ -265,6 +267,45 @@ export function runMigrations(db: Database.Database): void {
   const reservationCols = (db.pragma('table_info(reservations)') as { name: string }[]).map((c) => c.name);
   if (!reservationCols.includes('reserved_by_user_id')) {
     db.exec(`ALTER TABLE reservations ADD COLUMN reserved_by_user_id INTEGER REFERENCES users(id)`);
+  }
+
+  const integrationAccountCols = (db.pragma('table_info(integration_accounts)') as { name: string }[]).map((c) => c.name);
+  if (!integrationAccountCols.includes('owner_id')) {
+    db.exec(`ALTER TABLE integration_accounts RENAME TO integration_accounts_legacy`);
+    db.exec(`
+      CREATE TABLE integration_accounts (
+        id TEXT PRIMARY KEY,
+        owner_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+        provider TEXT NOT NULL,
+        external_account_id TEXT NOT NULL,
+        email TEXT,
+        display_name TEXT,
+        status TEXT NOT NULL DEFAULT 'connected',
+        access_token TEXT,
+        refresh_token TEXT,
+        scope TEXT,
+        token_type TEXT,
+        expires_at TEXT,
+        last_synced_at TEXT,
+        error_message TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+        UNIQUE(owner_id, provider)
+      );
+    `);
+    db.exec(`
+      INSERT INTO integration_accounts (
+        id, owner_id, provider, external_account_id, email, display_name, status,
+        access_token, refresh_token, scope, token_type, expires_at,
+        last_synced_at, error_message, created_at, updated_at
+      )
+      SELECT
+        id, NULL, provider, external_account_id, email, display_name, status,
+        access_token, refresh_token, scope, token_type, expires_at,
+        last_synced_at, error_message, created_at, updated_at
+      FROM integration_accounts_legacy;
+    `);
+    db.exec(`DROP TABLE integration_accounts_legacy`);
   }
 
   const automationRuleCols = (db.pragma('table_info(automation_rules)') as { name: string }[]).map((c) => c.name);

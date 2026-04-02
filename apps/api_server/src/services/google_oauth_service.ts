@@ -32,7 +32,7 @@ interface GoogleUserInfo {
 export class GoogleOAuthService {
   private readonly accountsRepo = new IntegrationAccountsRepository();
 
-  getAuthorizationUrl(): string {
+  getAuthorizationUrl(sessionToken: string): string {
     this.assertConfigured();
 
     const params = new URLSearchParams({
@@ -43,12 +43,13 @@ export class GoogleOAuthService {
       prompt: 'consent',
       include_granted_scopes: 'true',
       scope: GOOGLE_SCOPES.join(' '),
+      state: sessionToken,
     });
 
     return `${GOOGLE_AUTH_BASE}?${params.toString()}`;
   }
 
-  async handleCallback(code: string): Promise<void> {
+  async handleCallback(code: string, ownerId: number): Promise<void> {
     this.assertConfigured();
 
     const tokens = await this.exchangeCode(code);
@@ -58,6 +59,7 @@ export class GoogleOAuthService {
       : null;
 
     this.accountsRepo.upsertGoogleAccount({
+      ownerId,
       externalAccountId: profile.sub,
       email: profile.email ?? null,
       displayName: profile.name ?? null,
@@ -83,6 +85,7 @@ export class GoogleOAuthService {
       : account.expiresAt;
 
     this.accountsRepo.upsertGoogleAccount({
+      ownerId: account.ownerId!,
       externalAccountId: account.externalAccountId,
       email: account.email,
       displayName: account.displayName,
@@ -93,7 +96,10 @@ export class GoogleOAuthService {
       expiresAt,
     });
 
-    return this.accountsRepo.findByProvider(account.provider) ?? account;
+    return this.accountsRepo.findByProvider(
+      account.provider,
+      account.ownerId ?? undefined,
+    ) ?? account;
   }
 
   private assertConfigured(): void {

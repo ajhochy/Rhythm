@@ -41,8 +41,8 @@ export class IntegrationsService {
   private readonly googleOAuth = new GoogleOAuthService();
   private readonly planningCenterOAuth = new PlanningCenterOAuthService();
 
-  async syncGoogleCalendar() {
-    const account = await this.ensureFreshAccount('google_calendar');
+  async syncGoogleCalendar(userId: number) {
+    const account = await this.ensureFreshAccount('google_calendar', userId);
     if (!account || !account.accessToken) {
       throw AppError.badRequest('Google Calendar is not connected');
     }
@@ -105,7 +105,7 @@ export class IntegrationsService {
           (item) => item.provider === 'google_calendar' && item.syncedAt === syncedAt,
         ),
       );
-      this.accountsRepo.markSynced('google_calendar');
+      this.accountsRepo.markSynced('google_calendar', userId);
       return {
         syncedCount: synced.length,
         generatedSignalCount: automationSignals.length,
@@ -115,14 +115,15 @@ export class IntegrationsService {
     } catch (err) {
       this.accountsRepo.markError(
         'google_calendar',
+        userId,
         err instanceof Error ? err.message : String(err),
       );
       throw err;
     }
   }
 
-  async syncGmail() {
-    const account = await this.ensureFreshAccount('gmail');
+  async syncGmail(userId: number) {
+    const account = await this.ensureFreshAccount('gmail', userId);
     if (!account || !account.accessToken) {
       throw AppError.badRequest('Gmail is not connected');
     }
@@ -193,7 +194,7 @@ export class IntegrationsService {
           (item) => item.provider === 'gmail' && item.syncedAt === syncedAt,
         ),
       );
-      this.accountsRepo.markSynced('gmail');
+      this.accountsRepo.markSynced('gmail', userId);
       return {
         syncedCount: signals.length,
         generatedSignalCount: automationSignals.length,
@@ -204,6 +205,7 @@ export class IntegrationsService {
     } catch (err) {
       this.accountsRepo.markError(
         'gmail',
+        userId,
         err instanceof Error ? err.message : String(err),
       );
       throw err;
@@ -214,8 +216,8 @@ export class IntegrationsService {
     return this.gmailSignalsRepo.listRecent();
   }
 
-  async syncPlanningCenter() {
-    const account = await this.ensureFreshAccount('planning_center');
+  async syncPlanningCenter(userId: number) {
+    const account = await this.ensureFreshAccount('planning_center', userId);
     if (!account || !account.accessToken) {
       throw AppError.badRequest('Planning Center is not connected');
     }
@@ -298,7 +300,7 @@ export class IntegrationsService {
         ),
       );
 
-      this.accountsRepo.markSynced('planning_center');
+      this.accountsRepo.markSynced('planning_center', userId);
       return {
         planCount: collected.planCount,
         taskSignalCount: collected.tasks.length,
@@ -314,6 +316,7 @@ export class IntegrationsService {
     } catch (err) {
       this.accountsRepo.markError(
         'planning_center',
+        userId,
         err instanceof Error ? err.message : String(err),
       );
       throw err;
@@ -322,8 +325,9 @@ export class IntegrationsService {
 
   private async ensureFreshAccount(
     provider: 'google_calendar' | 'gmail' | 'planning_center',
+    userId: number,
   ): Promise<IntegrationAccount | null> {
-    const account = this.accountsRepo.findByProvider(provider);
+    const account = this.accountsRepo.findByProvider(provider, userId);
     if (!account) return null;
     if (!this.shouldRefresh(account)) return account;
 
@@ -333,7 +337,7 @@ export class IntegrationsService {
 
     const refreshed = await this.googleOAuth.refreshAccessToken(account);
     if (provider === 'google_calendar') return refreshed;
-    return this.accountsRepo.findByProvider(provider) ?? refreshed;
+    return this.accountsRepo.findByProvider(provider, userId) ?? refreshed;
   }
 
   private shouldRefresh(account: IntegrationAccount): boolean {
@@ -356,7 +360,9 @@ export class IntegrationsService {
   }
 
   async getPlanningCenterTaskOptions() {
-    const account = this.accountsRepo.findByProvider('planning_center');
+    const account = this.accountsRepo.findAll().find(
+      (item) => item.provider == 'planning_center',
+    );
     if (!account || !account.accessToken) {
       throw AppError.badRequest('Planning Center is not connected');
     }
