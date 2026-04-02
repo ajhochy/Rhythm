@@ -1,9 +1,11 @@
 import { Router } from 'express';
 import { IntegrationsController } from '../controllers/integrations_controller';
+import { requireAuth } from '../middleware/auth_middleware';
 
 const controller = new IntegrationsController();
 export const integrationsRouter = Router();
 
+integrationsRouter.use(requireAuth);
 integrationsRouter.get('/accounts', controller.getAccounts.bind(controller));
 integrationsRouter.post(
   '/google-calendar/sync',

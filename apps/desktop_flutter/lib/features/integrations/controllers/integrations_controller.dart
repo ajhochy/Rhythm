@@ -45,7 +45,11 @@ class IntegrationsController extends ChangeNotifier {
 
     try {
       _accounts = await _repository.getAccounts();
-      _gmailSignals = await _repository.getGmailSignals();
+      final gmailConnected = _accounts.any(
+        (account) => account.provider == 'gmail' && account.connected,
+      );
+      _gmailSignals =
+          gmailConnected ? await _repository.getGmailSignals() : [];
       final pcoConnected = _accounts.any(
         (account) => account.provider == 'planning_center' && account.connected,
       );

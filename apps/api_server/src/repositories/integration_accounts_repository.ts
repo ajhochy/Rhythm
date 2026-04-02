@@ -7,6 +7,7 @@ import type {
 
 interface IntegrationAccountRow {
   id: string;
+  owner_id: number | null;
   provider: string;
   external_account_id: string;
   email: string | null;
@@ -26,6 +27,7 @@ interface IntegrationAccountRow {
 function rowToAccount(row: IntegrationAccountRow): IntegrationAccount {
   return {
     id: row.id,
+    ownerId: row.owner_id,
     provider: row.provider as IntegrationProvider,
     externalAccountId: row.external_account_id,
     email: row.email,
@@ -44,43 +46,55 @@ function rowToAccount(row: IntegrationAccountRow): IntegrationAccount {
 }
 
 export class IntegrationAccountsRepository {
-  findAll(): IntegrationAccount[] {
+  findAll(ownerId?: number): IntegrationAccount[] {
     const rows = getDb()
       .prepare(
-        'SELECT * FROM integration_accounts ORDER BY provider ASC, created_at ASC',
+        ownerId == null
+            ? 'SELECT * FROM integration_accounts ORDER BY provider ASC, created_at ASC'
+            : 'SELECT * FROM integration_accounts WHERE owner_id = ? ORDER BY provider ASC, created_at ASC',
       )
-      .all() as IntegrationAccountRow[];
+      .all(...(ownerId == null ? [] : [ownerId])) as IntegrationAccountRow[];
     return rows.map(rowToAccount);
   }
 
-  findByProvider(provider: IntegrationProvider): IntegrationAccount | null {
+  findByProvider(
+    provider: IntegrationProvider,
+    ownerId?: number,
+  ): IntegrationAccount | null {
     const row = getDb()
-      .prepare('SELECT * FROM integration_accounts WHERE provider = ? LIMIT 1')
-      .get(provider) as IntegrationAccountRow | undefined;
+      .prepare(
+        ownerId == null
+            ? 'SELECT * FROM integration_accounts WHERE provider = ? LIMIT 1'
+            : 'SELECT * FROM integration_accounts WHERE provider = ? AND owner_id = ? LIMIT 1',
+      )
+      .get(...(ownerId == null ? [provider] : [provider, ownerId])) as
+      | IntegrationAccountRow
+      | undefined;
     return row ? rowToAccount(row) : null;
   }
 
-  markSynced(provider: IntegrationProvider): void {
+  markSynced(provider: IntegrationProvider, ownerId: number): void {
     getDb()
       .prepare(
         `UPDATE integration_accounts
          SET last_synced_at = ?, error_message = NULL, status = 'connected', updated_at = ?
-         WHERE provider = ?`,
+         WHERE provider = ? AND owner_id = ?`,
       )
-      .run(new Date().toISOString(), new Date().toISOString(), provider);
+      .run(new Date().toISOString(), new Date().toISOString(), provider, ownerId);
   }
 
-  markError(provider: IntegrationProvider, message: string): void {
+  markError(provider: IntegrationProvider, ownerId: number, message: string): void {
     getDb()
       .prepare(
         `UPDATE integration_accounts
          SET status = 'error', error_message = ?, updated_at = ?
-         WHERE provider = ?`,
+         WHERE provider = ? AND owner_id = ?`,
       )
-      .run(message, new Date().toISOString(), provider);
+      .run(message, new Date().toISOString(), provider, ownerId);
   }
 
   upsertGoogleAccount(data: {
+    ownerId: number;
     externalAccountId: string;
     email: string | null;
     displayName: string | null;
@@ -94,7 +108,7 @@ export class IntegrationAccountsRepository {
     const providers: IntegrationProvider[] = ['google_calendar', 'gmail'];
 
     for (const provider of providers) {
-      const existing = this.findByProvider(provider);
+      const existing = this.findByProvider(provider, data.ownerId);
       if (existing) {
         getDb()
           .prepare(
@@ -121,13 +135,14 @@ export class IntegrationAccountsRepository {
         getDb()
           .prepare(
             `INSERT INTO integration_accounts (
-              id, provider, external_account_id, email, display_name, status,
+              id, owner_id, provider, external_account_id, email, display_name, status,
               access_token, refresh_token, scope, token_type, expires_at,
               last_synced_at, error_message, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           )
           .run(
             uuidv4(),
+            data.ownerId,
             provider,
             data.externalAccountId,
             data.email,
@@ -146,13 +161,16 @@ export class IntegrationAccountsRepository {
       }
     }
 
-    const accounts = providers.map((provider) => this.findByProvider(provider));
+    const accounts = providers.map(
+      (provider) => this.findByProvider(provider, data.ownerId),
+    );
     return accounts.filter(
       (account): account is IntegrationAccount => account != null,
     );
   }
 
   upsertPlanningCenterAccount(data: {
+    ownerId: number;
     externalAccountId: string;
     email: string | null;
     displayName: string | null;
@@ -164,7 +182,7 @@ export class IntegrationAccountsRepository {
   }): IntegrationAccount {
     const now = new Date().toISOString();
     const provider: IntegrationProvider = 'planning_center';
-    const existing = this.findByProvider(provider);
+    const existing = this.findByProvider(provider, data.ownerId);
 
     if (existing) {
       getDb()
@@ -191,14 +209,15 @@ export class IntegrationAccountsRepository {
     } else {
       getDb()
         .prepare(
-          `INSERT INTO integration_accounts (
-            id, provider, external_account_id, email, display_name, status,
+        `INSERT INTO integration_accounts (
+            id, owner_id, provider, external_account_id, email, display_name, status,
             access_token, refresh_token, scope, token_type, expires_at,
             last_synced_at, error_message, created_at, updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           uuidv4(),
+          data.ownerId,
           provider,
           data.externalAccountId,
           data.email,
@@ -216,6 +235,6 @@ export class IntegrationAccountsRepository {
         );
     }
 
-    return this.findByProvider(provider)!;
+    return this.findByProvider(provider, data.ownerId)!;
   }
 }

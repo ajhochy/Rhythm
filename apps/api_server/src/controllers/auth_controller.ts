@@ -44,7 +44,14 @@ export class AuthController {
 
   beginGoogleOAuth(_req: Request, res: Response, next: NextFunction) {
     try {
-      res.redirect(googleOAuth.getAuthorizationUrl());
+      const { sessionToken } = _req.query as Record<string, string>;
+      const user = sessionToken
+        ? authService.getUserForSessionToken(sessionToken)
+        : null;
+      if (!sessionToken || !user) {
+        throw AppError.unauthorized('Valid sessionToken is required');
+      }
+      res.redirect(googleOAuth.getAuthorizationUrl(sessionToken));
     } catch (err) {
       next(err);
     }
@@ -52,11 +59,15 @@ export class AuthController {
 
   async googleCallback(req: Request, res: Response, next: NextFunction) {
     try {
-      const { code, error } = req.query as Record<string, string>;
+      const { code, error, state } = req.query as Record<string, string>;
       if (error) throw AppError.badRequest(`Google OAuth failed: ${error}`);
       if (!code) throw AppError.badRequest('Missing Google OAuth code');
+      const user = state ? authService.getUserForSessionToken(state) : null;
+      if (!state || !user) {
+        throw AppError.unauthorized('Missing integration auth session');
+      }
 
-      await googleOAuth.handleCallback(code);
+      await googleOAuth.handleCallback(code, user.id);
 
       res
         .status(200)
@@ -70,12 +81,19 @@ export class AuthController {
   }
 
   beginPlanningCenterOAuth(
-    _req: Request,
+    req: Request,
     res: Response,
     next: NextFunction,
   ) {
     try {
-      res.redirect(planningCenterOAuth.getAuthorizationUrl());
+      const { sessionToken } = req.query as Record<string, string>;
+      const user = sessionToken
+        ? authService.getUserForSessionToken(sessionToken)
+        : null;
+      if (!sessionToken || !user) {
+        throw AppError.unauthorized('Valid sessionToken is required');
+      }
+      res.redirect(planningCenterOAuth.getAuthorizationUrl(sessionToken));
     } catch (err) {
       next(err);
     }
@@ -87,15 +105,19 @@ export class AuthController {
     next: NextFunction,
   ) {
     try {
-      const { code, error } = req.query as Record<string, string>;
+      const { code, error, state } = req.query as Record<string, string>;
       if (error) {
         throw AppError.badRequest(`Planning Center OAuth failed: ${error}`);
       }
       if (!code) {
         throw AppError.badRequest('Missing Planning Center OAuth code');
       }
+      const user = state ? authService.getUserForSessionToken(state) : null;
+      if (!state || !user) {
+        throw AppError.unauthorized('Missing integration auth session');
+      }
 
-      await planningCenterOAuth.handleCallback(code);
+      await planningCenterOAuth.handleCallback(code, user.id);
 
       res
         .status(200)

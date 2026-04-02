@@ -24,7 +24,7 @@ interface PlanningCenterUserInfo {
 export class PlanningCenterOAuthService {
   private readonly accountsRepo = new IntegrationAccountsRepository();
 
-  getAuthorizationUrl(): string {
+  getAuthorizationUrl(sessionToken: string): string {
     this.assertConfigured();
 
     const params = new URLSearchParams({
@@ -32,12 +32,13 @@ export class PlanningCenterOAuthService {
       redirect_uri: env.pcoRedirectUri,
       response_type: 'code',
       scope: env.pcoScopes,
+      state: sessionToken,
     });
 
     return `${PCO_AUTH_BASE}?${params.toString()}`;
   }
 
-  async handleCallback(code: string): Promise<void> {
+  async handleCallback(code: string, ownerId: number): Promise<void> {
     this.assertConfigured();
 
     const tokens = await this.exchangeCode(code);
@@ -47,6 +48,7 @@ export class PlanningCenterOAuthService {
       : null;
 
     this.accountsRepo.upsertPlanningCenterAccount({
+      ownerId,
       externalAccountId: profile.sub,
       email: profile.email ?? null,
       displayName: profile.name ?? null,
@@ -72,6 +74,7 @@ export class PlanningCenterOAuthService {
       : account.expiresAt;
 
     this.accountsRepo.upsertPlanningCenterAccount({
+      ownerId: account.ownerId!,
       externalAccountId: account.externalAccountId,
       email: account.email,
       displayName: account.displayName,
@@ -82,7 +85,10 @@ export class PlanningCenterOAuthService {
       expiresAt,
     });
 
-    return this.accountsRepo.findByProvider(account.provider) ?? account;
+    return this.accountsRepo.findByProvider(
+      account.provider,
+      account.ownerId ?? undefined,
+    ) ?? account;
   }
 
   private assertConfigured(): void {
