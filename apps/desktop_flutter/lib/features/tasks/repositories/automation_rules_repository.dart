@@ -67,4 +67,5 @@ class AutomationRulesRepository {
       );
 
   Future<void> delete(String id) => _dataSource.delete(id);
+  Future<void> resync(String id) => _dataSource.resync(id);
 }

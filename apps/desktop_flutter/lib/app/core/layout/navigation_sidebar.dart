@@ -1,31 +1,28 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import '../auth/auth_session_service.dart';
 import '../../../features/messages/controllers/messages_controller.dart';
 import '../../../features/settings/views/settings_view.dart';
-import '../updates/update_controller.dart';
+import '../../theme/rhythm_tokens.dart';
 
 class NavigationSidebar extends StatelessWidget {
   const NavigationSidebar({
     super.key,
     required this.selectedIndex,
+    required this.collapsed,
     required this.onItemSelected,
-    required this.updateController,
-    required this.authSessionService,
   });
 
   final int selectedIndex;
+  final bool collapsed;
   final ValueChanged<int> onItemSelected;
-  final UpdateController updateController;
-  final AuthSessionService authSessionService;
 
   static const _items = [
     _NavItem(icon: Icons.dashboard_outlined, label: 'Dashboard'),
+    _NavItem(icon: Icons.calendar_view_week, label: 'Weekly Planner'),
     _NavItem(icon: Icons.check_circle_outline, label: 'Tasks'),
     _NavItem(icon: Icons.repeat, label: 'Rhythms'),
     _NavItem(icon: Icons.folder_open, label: 'Projects'),
-    _NavItem(icon: Icons.calendar_view_week, label: 'Weekly Planner'),
     _NavItem(icon: Icons.chat_bubble_outline, label: 'Messages'),
     _NavItem(icon: Icons.meeting_room_outlined, label: 'Facilities'),
     _NavItem(icon: Icons.auto_awesome, label: 'Automations'),
@@ -35,46 +32,94 @@ class NavigationSidebar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final unreadCount = context.watch<MessagesController>().totalUnreadCount;
-    return Container(
-      width: 240,
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 180),
+      width: collapsed ? 76 : 260,
       decoration: const BoxDecoration(
-        color: Color(0xFFF8F9FA),
+        color: RhythmTokens.surfaceMuted,
         border: Border(
-          right: BorderSide(color: Color(0xFFE5E7EB)),
+          right: BorderSide(color: RhythmTokens.borderSoft),
         ),
       ),
-      padding: const EdgeInsets.all(16),
+      padding: EdgeInsets.fromLTRB(collapsed ? 10 : 16, 14, collapsed ? 10 : 16, 14),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Padding(
-            padding: EdgeInsets.only(bottom: 24),
-            child: Text(
-              'Rhythm',
-              style: TextStyle(
-                color: Color(0xFF111827),
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
+          Container(
+            padding: EdgeInsets.symmetric(
+              horizontal: collapsed ? 8 : 14,
+              vertical: collapsed ? 10 : 14,
+            ),
+            decoration: BoxDecoration(
+              color: RhythmTokens.surfaceStrong,
+              borderRadius: BorderRadius.circular(RhythmTokens.radiusL),
+              border: Border.all(color: RhythmTokens.borderSoft),
+              boxShadow: RhythmTokens.shadow,
+            ),
+            child: Row(
+              mainAxisAlignment:
+                  collapsed ? MainAxisAlignment.center : MainAxisAlignment.start,
+              children: [
+                const CircleAvatar(
+                  radius: 15,
+                  backgroundColor: RhythmTokens.accentSoft,
+                  child: Icon(
+                    Icons.waves_outlined,
+                    size: 16,
+                    color: RhythmTokens.accent,
+                  ),
+                ),
+                if (!collapsed) ...[
+                  const SizedBox(width: 10),
+                  const Expanded(
+                    child: Text(
+                      'Rhythm',
+                      style: TextStyle(
+                        color: RhythmTokens.textPrimary,
+                        fontSize: 18,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: -0.2,
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          const SizedBox(height: 14),
+          Expanded(
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (!collapsed) ...[
+                    const Text(
+                      'Workspace',
+                      style: TextStyle(
+                        color: RhythmTokens.textMuted,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 1.2,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                  ],
+                  for (int i = 0; i < _items.length; i++) ...[
+                    _NavItemTile(
+                      item: _items[i],
+                      isSelected: i == selectedIndex,
+                      collapsed: collapsed,
+                      onTap: () => onItemSelected(i),
+                      badgeCount: i == 5 ? unreadCount : null,
+                    ),
+                    const SizedBox(height: 6),
+                  ],
+                  const SizedBox(height: 12),
+                  _SettingsButton(collapsed: collapsed),
+                ],
               ),
             ),
           ),
-          for (int i = 0; i < _items.length; i++) ...[
-            _NavItemTile(
-              item: _items[i],
-              isSelected: i == selectedIndex,
-              onTap: () => onItemSelected(i),
-              badgeCount: i == 5 ? unreadCount : null,
-            ),
-            const SizedBox(height: 4),
-          ],
-          const Spacer(),
-          if (authSessionService.currentUser != null) ...[
-            _UserPanel(authSessionService: authSessionService),
-            const SizedBox(height: 8),
-          ],
-          _UpdatePanel(controller: updateController),
-          const SizedBox(height: 8),
-          _SettingsButton(),
         ],
       ),
     );
@@ -88,339 +133,142 @@ class _NavItem {
 }
 
 class _NavItemTile extends StatelessWidget {
-  const _NavItemTile(
-      {required this.item,
-      required this.isSelected,
-      required this.onTap,
-      this.badgeCount});
+  const _NavItemTile({
+    required this.item,
+    required this.isSelected,
+    required this.collapsed,
+    required this.onTap,
+    this.badgeCount,
+  });
 
   final _NavItem item;
   final bool isSelected;
+  final bool collapsed;
   final VoidCallback onTap;
   final int? badgeCount;
 
   @override
   Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(6),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-        decoration: BoxDecoration(
-          color: isSelected ? const Color(0x144F6AF5) : Colors.transparent,
-          borderRadius: BorderRadius.circular(6),
+    final tile = AnimatedContainer(
+      duration: const Duration(milliseconds: 160),
+      padding: EdgeInsets.symmetric(
+        horizontal: collapsed ? 0 : 12,
+        vertical: collapsed ? 12 : 11,
+      ),
+      decoration: BoxDecoration(
+        color: RhythmTokens.surfaceStrong,
+        borderRadius: BorderRadius.circular(RhythmTokens.radiusM),
+        border: Border.all(
+          color: isSelected ? RhythmTokens.accentSoft : RhythmTokens.borderSoft,
         ),
-        child: Row(
-          children: [
-            Icon(
-              item.icon,
-              color: isSelected
-                  ? const Color(0xFF4F6AF5)
-                  : const Color(0xFF6B7280),
-              size: 18,
-            ),
-            const SizedBox(width: 10),
-            Text(
-              item.label,
-              style: TextStyle(
+        boxShadow: isSelected ? RhythmTokens.shadow : const [],
+      ),
+      child: Row(
+        mainAxisAlignment:
+            collapsed ? MainAxisAlignment.center : MainAxisAlignment.start,
+        children: [
+          Stack(
+            clipBehavior: Clip.none,
+            children: [
+              Icon(
+                item.icon,
                 color: isSelected
-                    ? const Color(0xFF4F6AF5)
-                    : const Color(0xFF6B7280),
-                fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+                    ? RhythmTokens.accent
+                    : RhythmTokens.textSecondary,
+                size: 18,
               ),
-            ),
-            if ((badgeCount ?? 0) > 0) ...[
-              const Spacer(),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFEF4444),
-                  borderRadius: BorderRadius.circular(999),
-                ),
-                child: Text(
-                  '${badgeCount!}',
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600,
+              if ((badgeCount ?? 0) > 0)
+                Positioned(
+                  right: -7,
+                  top: -7,
+                  child: Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                    decoration: BoxDecoration(
+                      color: RhythmTokens.danger,
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: Text(
+                      '${badgeCount!}',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 10,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
                   ),
                 ),
-              ),
             ],
+          ),
+          if (!collapsed) ...[
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                item.label,
+                style: TextStyle(
+                  color: isSelected
+                      ? RhythmTokens.textPrimary
+                      : RhythmTokens.textSecondary,
+                  fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                ),
+              ),
+            ),
           ],
-        ),
+        ],
+      ),
+    );
+
+    return Tooltip(
+      message: item.label,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(RhythmTokens.radiusM),
+        child: tile,
       ),
     );
   }
 }
 
 class _SettingsButton extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      onTap: () {
-        Navigator.of(context).push(
-          MaterialPageRoute<void>(builder: (_) => const SettingsView()),
-        );
-      },
-      borderRadius: BorderRadius.circular(6),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-        child: const Row(
-          children: [
-            Icon(Icons.settings_outlined, color: Color(0xFF6B7280), size: 18),
-            SizedBox(width: 10),
-            Text(
-              'Settings',
-              style: TextStyle(color: Color(0xFF6B7280)),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
+  const _SettingsButton({required this.collapsed});
 
-class _UpdatePanel extends StatelessWidget {
-  const _UpdatePanel({required this.controller});
-
-  final UpdateController controller;
+  final bool collapsed;
 
   @override
   Widget build(BuildContext context) {
-    final update = controller.availableUpdate;
-    final versionLabel = controller.currentVersion == null
-        ? 'Version unknown'
-        : 'v${controller.currentVersion}';
-
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: const Color(0xFFFFFFFF),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFFE5E7EB)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'App updates',
-            style: TextStyle(
-              color: Color(0xFF111827),
-              fontWeight: FontWeight.w600,
-            ),
+    return Tooltip(
+      message: 'Settings',
+      child: InkWell(
+        onTap: () {
+          Navigator.of(context).push(
+            MaterialPageRoute<void>(builder: (_) => const SettingsView()),
+          );
+        },
+        borderRadius: BorderRadius.circular(RhythmTokens.radiusM),
+        child: Container(
+          padding: EdgeInsets.symmetric(
+            horizontal: collapsed ? 0 : 12,
+            vertical: 12,
           ),
-          const SizedBox(height: 6),
-          Text(
-            versionLabel,
-            style: const TextStyle(color: Color(0xFF6B7280), fontSize: 12),
+          decoration: BoxDecoration(
+            color: RhythmTokens.surfaceStrong,
+            borderRadius: BorderRadius.circular(RhythmTokens.radiusM),
+            border: Border.all(color: RhythmTokens.borderSoft),
           ),
-          const SizedBox(height: 10),
-          if (controller.isChecking)
-            const Text(
-              'Checking GitHub releases...',
-              style: TextStyle(color: Color(0xFF6B7280), fontSize: 12),
-            )
-          else if (update != null) ...[
-            Text(
-              'Update ready: ${update.version}${update.prerelease ? ' beta' : ''}',
-              style: const TextStyle(
-                color: Color(0xFF111827),
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                _SidebarButton(
-                  label: 'Download',
-                  onTap: controller.openDownload,
-                ),
-                _SidebarButton(
-                  label: 'Notes',
-                  onTap: controller.openReleaseNotes,
-                  outlined: true,
+          child: Row(
+            mainAxisAlignment:
+                collapsed ? MainAxisAlignment.center : MainAxisAlignment.start,
+            children: [
+              const Icon(Icons.settings_outlined,
+                  color: RhythmTokens.textSecondary, size: 18),
+              if (!collapsed) ...[
+                const SizedBox(width: 10),
+                const Text(
+                  'Settings',
+                  style: TextStyle(color: RhythmTokens.textSecondary),
                 ),
               ],
-            ),
-          ] else ...[
-            const Text(
-              'You are on the latest release.',
-              style: TextStyle(color: Color(0xFF6B7280), fontSize: 12),
-            ),
-            if (controller.errorMessage != null) ...[
-              const SizedBox(height: 8),
-              Text(
-                controller.errorMessage!,
-                style: const TextStyle(color: Color(0xFFEF4444), fontSize: 11),
-              ),
             ],
-          ],
-          const SizedBox(height: 8),
-          _SidebarButton(
-            label: 'Check now',
-            onTap: controller.checkForUpdates,
-            outlined: true,
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _UserPanel extends StatelessWidget {
-  const _UserPanel({required this.authSessionService});
-
-  final AuthSessionService authSessionService;
-
-  @override
-  Widget build(BuildContext context) {
-    final user = authSessionService.currentUser!;
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFFE5E7EB)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              CircleAvatar(
-                radius: 18,
-                backgroundColor: const Color(0x144F6AF5),
-                backgroundImage:
-                    user.photoUrl != null ? NetworkImage(user.photoUrl!) : null,
-                child: user.photoUrl == null
-                    ? Text(
-                        _initialsFor(user.name),
-                        style: const TextStyle(
-                          color: Color(0xFF4F6AF5),
-                          fontSize: 12,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      )
-                    : null,
-              ),
-              const SizedBox(width: 10),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Signed In',
-                      style: TextStyle(
-                        color: Color(0xFF6B7280),
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      user.name,
-                      style: const TextStyle(
-                        color: Color(0xFF111827),
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 4),
-          Text(
-            user.email,
-            style: const TextStyle(color: Color(0xFF6B7280), fontSize: 12),
-          ),
-          const SizedBox(height: 10),
-          _SidebarButton(
-            label: 'Sign out',
-            onTap: () => _confirmSignOut(context, authSessionService),
-            outlined: true,
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-String _initialsFor(String name) {
-  final parts = name
-      .trim()
-      .split(RegExp(r'\s+'))
-      .where((part) => part.isNotEmpty)
-      .take(2)
-      .toList();
-  if (parts.isEmpty) return '?';
-  return parts.map((part) => part[0].toUpperCase()).join();
-}
-
-Future<void> _confirmSignOut(
-  BuildContext context,
-  AuthSessionService authSessionService,
-) async {
-  final confirmed = await showDialog<bool>(
-    context: context,
-    builder: (context) => AlertDialog(
-      title: const Text('Sign Out?'),
-      content: const Text(
-        'This will clear the current session and return to the login screen.',
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(false),
-          child: const Text('Cancel'),
-        ),
-        FilledButton(
-          onPressed: () => Navigator.of(context).pop(true),
-          child: const Text('Sign out'),
-        ),
-      ],
-    ),
-  );
-
-  if (confirmed == true) {
-    await authSessionService.logout();
-  }
-}
-
-class _SidebarButton extends StatelessWidget {
-  const _SidebarButton({
-    required this.label,
-    required this.onTap,
-    this.outlined = false,
-  });
-
-  final String label;
-  final Future<void> Function() onTap;
-  final bool outlined;
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(8),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-        decoration: BoxDecoration(
-          color: outlined ? Colors.transparent : const Color(0xFF4F6AF5),
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: const Color(0xFFE5E7EB)),
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            color: outlined ? const Color(0xFF6B7280) : Colors.white,
-            fontSize: 12,
-            fontWeight: FontWeight.w600,
           ),
         ),
       ),

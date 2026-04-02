@@ -33,6 +33,7 @@ describe('Automation overhaul backend', () => {
       email: 'alice@example.com',
     });
     const [gmailAccount] = accountsRepo.upsertGoogleAccount({
+      ownerId: owner.id,
       externalAccountId: 'google-user-1',
       email: 'alice@example.com',
       displayName: 'Alice',
@@ -122,6 +123,7 @@ describe('Automation overhaul backend', () => {
       email: 'alice@example.com',
     });
     const [gmailAccount] = accountsRepo.upsertGoogleAccount({
+      ownerId: owner.id,
       externalAccountId: 'google-user-1',
       email: 'alice@example.com',
       displayName: 'Alice',
@@ -206,7 +208,13 @@ describe('Automation overhaul backend', () => {
     const rulesRepo = new AutomationRulesRepository();
     const accountsRepo = new IntegrationAccountsRepository();
     const engine = new AutomationEngineService();
+    const usersRepo = new UsersRepository();
+    const owner = usersRepo.create({
+      name: 'Team',
+      email: 'team@church.test',
+    });
     const pcoAccount = accountsRepo.upsertPlanningCenterAccount({
+      ownerId: owner.id,
       externalAccountId: 'pco-user-1',
       email: 'team@church.test',
       displayName: 'Team',
@@ -333,6 +341,7 @@ describe('Automation overhaul backend', () => {
       email: 'alice@example.com',
     });
     const [calendarAccount] = accountsRepo.upsertGoogleAccount({
+      ownerId: owner.id,
       externalAccountId: 'google-user-1',
       email: 'alice@example.com',
       displayName: 'Alice',

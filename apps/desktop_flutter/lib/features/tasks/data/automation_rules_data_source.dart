@@ -198,6 +198,14 @@ class AutomationRulesDataSource {
     _assertOk(response);
   }
 
+  Future<void> resync(String id) async {
+    final response = await http.post(
+      Uri.parse('$_baseUrl/automation-rules/$id/resync'),
+      headers: AuthSessionStore.headers(),
+    );
+    _assertOk(response);
+  }
+
   void _assertOk(http.Response response) {
     if (response.statusCode >= 400) {
       final body = jsonDecode(response.body) as Map<String, dynamic>?;

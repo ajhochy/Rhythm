@@ -7,6 +7,9 @@ import 'package:rhythm_desktop/features/messages/data/messages_data_source.dart'
 import 'package:rhythm_desktop/features/messages/models/message.dart';
 import 'package:rhythm_desktop/features/messages/models/message_thread.dart';
 import 'package:rhythm_desktop/features/messages/repositories/messages_repository.dart';
+import 'package:rhythm_desktop/features/projects/models/project_instance.dart';
+import 'package:rhythm_desktop/features/projects/models/project_template.dart';
+import 'package:rhythm_desktop/features/dashboard/models/dashboard_overview_models.dart';
 import 'package:rhythm_desktop/features/tasks/models/recurring_task_rule.dart';
 import 'package:rhythm_desktop/features/tasks/models/task.dart';
 
@@ -17,12 +20,21 @@ void main() {
     final controller = DashboardController(dataSource);
 
     await controller.load();
-    expect(controller.recentTasks.map((task) => task.id), contains('2'));
+    expect(controller.openTaskCount, 3);
+    expect(controller.dueThisWeekCount, 1);
+    expect(controller.activeRhythms, hasLength(1));
+    expect(controller.activeRhythms.first.title, 'Weekly Rhythm');
+    expect(controller.activeRhythms.first.completedCount, 1);
+    expect(controller.activeRhythms.first.totalCount, 2);
+    expect(controller.activeProjects, hasLength(1));
+    expect(controller.activeProjects.first.title, 'Project Alpha');
+    expect(controller.activeProjects.first.completedCount, 1);
+    expect(controller.activeProjects.first.totalCount, 2);
 
     await controller.toggleTaskDone('2');
 
     expect(dataSource.loadCount, 2);
-    expect(controller.recentTasks.map((task) => task.id), isNot(contains('2')));
+    expect(controller.openTaskCount, 2);
   });
 
   test('MessagesController reloads threads after creating a thread', () async {
@@ -115,14 +127,98 @@ class _FakeDashboardDataSource extends DashboardDataSource {
         createdAt: '2026-03-31T00:00:00.000Z',
         updatedAt: '2026-03-31T00:00:00.000Z',
       ),
+      Task(
+        id: '3',
+        title: 'Rhythm step one',
+        status: 'done',
+        dueDate: '2026-04-01',
+        sourceType: 'recurring_rule',
+        sourceId: 'rule-1',
+        createdAt: '2026-03-31T00:00:00.000Z',
+        updatedAt: '2026-03-31T00:00:00.000Z',
+      ),
+      Task(
+        id: '4',
+        title: 'Rhythm step two',
+        status: 'open',
+        dueDate: '2026-04-04',
+        sourceType: 'recurring_rule',
+        sourceId: 'rule-1',
+        createdAt: '2026-03-31T00:00:00.000Z',
+        updatedAt: '2026-03-31T00:00:00.000Z',
+      ),
     ];
   }
 
   @override
-  Future<List<RecurringTaskRule>> fetchRecurringRules() async => [];
+  Future<List<RecurringTaskRule>> fetchRecurringRules() async => [
+        RecurringTaskRule(
+          id: 'rule-1',
+          title: 'Weekly Rhythm',
+          frequency: 'weekly',
+          dayOfWeek: 1,
+          dayOfMonth: null,
+          month: null,
+          enabled: true,
+          createdAt: '2026-03-29T00:00:00.000Z',
+        ),
+      ];
 
   @override
-  Future<int> fetchProjectInstanceCount() async => 0;
+  Future<List<ProjectTemplate>> fetchProjectTemplates() async => [
+        ProjectTemplate(
+          id: 'template-1',
+          name: 'Project Alpha',
+          anchorType: 'date',
+          createdAt: '2026-03-29T00:00:00.000Z',
+          steps: const [],
+        ),
+      ];
+
+  @override
+  Future<List<ProjectInstance>> fetchProjectInstances() async => [
+        ProjectInstance(
+          id: 'project-1',
+          templateId: 'template-1',
+          name: 'Project Alpha',
+          anchorDate: '2026-03-31',
+          status: 'active',
+          createdAt: '2026-03-31T00:00:00.000Z',
+          steps: [
+            ProjectInstanceStep(
+              id: 'step-1',
+              instanceId: 'project-1',
+              stepId: 'template-step-1',
+              title: 'Step one',
+              dueDate: '2026-04-01',
+              status: 'done',
+              notes: null,
+            ),
+            ProjectInstanceStep(
+              id: 'step-2',
+              instanceId: 'project-1',
+              stepId: 'template-step-2',
+              title: 'Step two',
+              dueDate: '2026-04-03',
+              status: 'open',
+              notes: null,
+            ),
+          ],
+        ),
+      ];
+
+  @override
+  Future<int> fetchProjectInstanceCount() async => 1;
+
+  @override
+  Future<List<MessageThread>> fetchMessageThreads() async => const [];
+
+  @override
+  Future<List<DashboardUnreadMessagePreview>> fetchUnreadMessagePreviews({
+    List<MessageThread>? threads,
+    int limit = 3,
+  }) async =>
+      const [];
 
   @override
   Future<int> fetchMessageThreadCount() async => 0;

@@ -11,7 +11,7 @@ const GOOGLE_SCOPES = [
   'openid',
   'email',
   'profile',
-  'https://www.googleapis.com/auth/calendar.events.readonly',
+  'https://www.googleapis.com/auth/calendar.readonly',
   'https://www.googleapis.com/auth/gmail.metadata',
 ];
 
@@ -32,7 +32,11 @@ interface GoogleUserInfo {
 export class GoogleOAuthService {
   private readonly accountsRepo = new IntegrationAccountsRepository();
 
-  getAuthorizationUrl(sessionToken: string): string {
+  getAuthorizationUrl(options: {
+    sessionToken: string;
+    loginHint?: string | null;
+    forceConsent?: boolean;
+  }): string {
     this.assertConfigured();
 
     const params = new URLSearchParams({
@@ -40,10 +44,11 @@ export class GoogleOAuthService {
       redirect_uri: env.googleRedirectUri,
       response_type: 'code',
       access_type: 'offline',
-      prompt: 'consent',
       include_granted_scopes: 'true',
       scope: GOOGLE_SCOPES.join(' '),
-      state: sessionToken,
+      state: options.sessionToken,
+      ...(options.loginHint ? { login_hint: options.loginHint } : {}),
+      ...(options.forceConsent ? { prompt: 'consent' } : {}),
     });
 
     return `${GOOGLE_AUTH_BASE}?${params.toString()}`;

@@ -4,6 +4,7 @@ import '../../../app/core/auth/auth_session_store.dart';
 import '../../../app/core/constants/app_constants.dart';
 import '../../../app/core/errors/app_error.dart';
 import '../models/gmail_signal.dart';
+import '../models/google_calendar_settings.dart';
 import '../models/integration_account.dart';
 import '../models/planning_center_task_options.dart';
 import '../models/planning_center_task_preferences.dart';
@@ -48,6 +49,39 @@ class IntegrationsDataSource {
       headers: AuthSessionStore.headers(),
     );
     _assertOk(response);
+  }
+
+  Future<void> syncAll() async {
+    final response = await http.post(
+      Uri.parse('$_baseUrl/integrations/sync-all'),
+      headers: AuthSessionStore.headers(),
+    );
+    _assertOk(response);
+  }
+
+  Future<GoogleCalendarSettings> fetchGoogleCalendarSettings() async {
+    final response = await http.get(
+      Uri.parse('$_baseUrl/integrations/google-calendar/settings'),
+      headers: AuthSessionStore.headers(),
+    );
+    _assertOk(response);
+    return GoogleCalendarSettings.fromJson(
+      jsonDecode(response.body) as Map<String, dynamic>,
+    );
+  }
+
+  Future<GoogleCalendarSettings> saveGoogleCalendarPreferences(
+    List<String> selectedCalendarIds,
+  ) async {
+    final response = await http.put(
+      Uri.parse('$_baseUrl/integrations/google-calendar/preferences'),
+      headers: AuthSessionStore.headers(json: true),
+      body: jsonEncode({
+        'selectedCalendarIds': selectedCalendarIds,
+      }),
+    );
+    _assertOk(response);
+    return fetchGoogleCalendarSettings();
   }
 
   Future<List<GmailSignal>> fetchGmailSignals() async {

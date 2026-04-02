@@ -25,6 +25,22 @@ interface ProjectStepRow {
   instance_name: string | null;
 }
 
+interface TaskRow {
+  id: string;
+  title: string;
+  notes: string | null;
+  due_date: string | null;
+  scheduled_date: string | null;
+  locked: number;
+  status: string;
+  source_type: string | null;
+  source_id: string | null;
+  source_name?: string | null;
+  owner_id: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
 /** Parse a YYYY-WNN label into the Monday UTC date for that ISO week. */
 export function parseWeekLabel(weekLabel: string): Date {
   const m = weekLabel.match(/^(\d{4})-W(\d{1,2})$/);
@@ -79,35 +95,39 @@ export class WeeklyPlanningService {
     const dayMap = new Map(days.map((d) => [d.date, d]));
 
     // 1+2: tasks (one-off and recurring instances) with due_date or scheduled_date in week
-    type TaskRow = {
-      id: string;
-      title: string;
-      notes: string | null;
-      due_date: string | null;
-      scheduled_date: string | null;
-      locked: number;
-      status: string;
-      source_type: string | null;
-      source_id: string | null;
-      owner_id: number | null;
-      created_at: string;
-      updated_at: string;
-    };
+    const taskSelect = `
+      SELECT
+        tasks.*,
+        CASE
+          WHEN tasks.source_type = 'project_step' THEN COALESCE(pi.name, pt.name)
+          WHEN tasks.source_type = 'recurring_rule' THEN rr.title
+          ELSE NULL
+        END AS source_name
+      FROM tasks
+      LEFT JOIN project_instances pi
+        ON tasks.source_type = 'project_step'
+       AND tasks.source_id = pi.id
+      LEFT JOIN project_templates pt
+        ON pi.template_id = pt.id
+      LEFT JOIN recurring_task_rules rr
+        ON tasks.source_type = 'recurring_rule'
+       AND tasks.source_id = rr.id
+    `;
     const taskRows =
       userId != null
         ? (db
             .prepare(
-              `SELECT * FROM tasks
-               WHERE (owner_id = ? OR owner_id IS NULL)
-                 AND (due_date BETWEEN ? AND ? OR scheduled_date BETWEEN ? AND ?)
-               ORDER BY due_date ASC, created_at ASC`,
+              `${taskSelect}
+               WHERE (tasks.owner_id = ? OR tasks.owner_id IS NULL)
+                 AND (tasks.due_date BETWEEN ? AND ? OR tasks.scheduled_date BETWEEN ? AND ?)
+               ORDER BY tasks.due_date ASC, tasks.created_at ASC`,
             )
             .all(userId, startStr, endStr, startStr, endStr) as TaskRow[])
         : (db
             .prepare(
-              `SELECT * FROM tasks
-               WHERE (due_date BETWEEN ? AND ? OR scheduled_date BETWEEN ? AND ?)
-               ORDER BY due_date ASC, created_at ASC`,
+              `${taskSelect}
+               WHERE (tasks.due_date BETWEEN ? AND ? OR tasks.scheduled_date BETWEEN ? AND ?)
+               ORDER BY tasks.due_date ASC, tasks.created_at ASC`,
             )
             .all(startStr, endStr, startStr, endStr) as TaskRow[]);
 
@@ -126,7 +146,7 @@ export class WeeklyPlanningService {
         status: row.status as Task['status'],
         sourceType: row.source_type,
         sourceId: row.source_id,
-        sourceName: null,
+        sourceName: row.source_name ?? null,
         ownerId: row.owner_id,
         createdAt: row.created_at,
         updatedAt: row.updated_at,
@@ -170,6 +190,7 @@ export class WeeklyPlanningService {
     const shadowEvents = this.shadowEventsRepo.findByRange(
       `${startStr}T00:00:00.000Z`,
       `${endStr}T23:59:59.999Z`,
+      userId,
     );
 
     for (const event of shadowEvents) {
@@ -202,44 +223,61 @@ export class WeeklyPlanningService {
         sourceType: 'calendar_shadow_event',
         sourceId: event.externalId,
         sourceName: event.sourceName,
-        ownerId: null,
+        ownerId: event.ownerId,
         createdAt: event.createdAt,
         updatedAt: event.updatedAt,
       });
     }
 
-    // 5: backlog — open tasks with no due_date and no scheduled_date
-    type BacklogRow = TaskRow;
+    // 5: backlog — open tasks with no due/scheduled date, plus carryover from before this week
     const backlogRows =
       userId != null
         ? (db
             .prepare(
-              `SELECT * FROM tasks
-               WHERE status = 'open'
-                 AND due_date IS NULL
-                 AND scheduled_date IS NULL
-                 AND (owner_id = ? OR owner_id IS NULL)
-               ORDER BY created_at ASC`,
+              `${taskSelect}
+               WHERE tasks.status = 'open'
+                 AND (
+                   (tasks.due_date IS NULL AND tasks.scheduled_date IS NULL)
+                   OR tasks.due_date < ?
+                   OR tasks.scheduled_date < ?
+                 )
+                 AND (tasks.owner_id = ? OR tasks.owner_id IS NULL)
+               ORDER BY
+                 CASE
+                   WHEN tasks.scheduled_date IS NOT NULL THEN tasks.scheduled_date
+                   ELSE tasks.due_date
+                 END ASC,
+                 tasks.created_at ASC`,
             )
-            .all(userId) as BacklogRow[])
+            .all(startStr, startStr, userId) as TaskRow[])
         : (db
             .prepare(
-              `SELECT * FROM tasks
-               WHERE status = 'open' AND due_date IS NULL AND scheduled_date IS NULL
-               ORDER BY created_at ASC`,
+              `${taskSelect}
+               WHERE tasks.status = 'open'
+                 AND (
+                   (tasks.due_date IS NULL AND tasks.scheduled_date IS NULL)
+                   OR tasks.due_date < ?
+                   OR tasks.scheduled_date < ?
+                 )
+               ORDER BY
+                 CASE
+                   WHEN tasks.scheduled_date IS NOT NULL THEN tasks.scheduled_date
+                   ELSE tasks.due_date
+                 END ASC,
+                 tasks.created_at ASC`,
             )
-            .all() as BacklogRow[]);
+            .all(startStr, startStr) as TaskRow[]);
     const backlog: Task[] = backlogRows.map((row) => ({
       id: row.id,
       title: row.title,
       notes: row.notes ?? null,
-      dueDate: null,
-      scheduledDate: null,
-      locked: false,
-      status: 'open' as Task['status'],
+      dueDate: row.due_date ?? null,
+      scheduledDate: row.scheduled_date ?? null,
+      locked: row.locked === 1,
+      status: row.status as Task['status'],
       sourceType: row.source_type,
       sourceId: row.source_id,
-      sourceName: null,
+      sourceName: row.source_name ?? null,
       ownerId: row.owner_id,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
@@ -262,6 +300,38 @@ export class WeeklyPlanningService {
         title: row.title,
         notes: row.notes ?? null,
         dueDate: null,
+        scheduledDate: null,
+        locked: false,
+        status: row.status as Task['status'],
+        sourceType: 'project_step',
+        sourceId: row.instance_id,
+        sourceName: row.instance_name ?? null,
+        ownerId: null,
+        createdAt: '',
+        updatedAt: '',
+      })),
+    );
+
+    const carryoverProjectSteps = db
+      .prepare(
+        `SELECT pis.id, pis.title, pis.due_date, pis.status, pis.notes, pis.instance_id,
+                pi.template_id, pi.name as instance_name
+         FROM project_instance_steps pis
+         JOIN project_instances pi ON pi.id = pis.instance_id
+         WHERE pis.status = 'open'
+           AND pis.due_date IS NOT NULL
+           AND pis.due_date != ''
+           AND pis.due_date < ?
+         ORDER BY pis.due_date ASC, pi.created_at ASC`,
+      )
+      .all(startStr) as ProjectStepRow[];
+
+    backlog.push(
+      ...carryoverProjectSteps.map((row) => ({
+        id: row.id,
+        title: row.title,
+        notes: row.notes ?? null,
+        dueDate: row.due_date ?? null,
         scheduledDate: null,
         locked: false,
         status: row.status as Task['status'],

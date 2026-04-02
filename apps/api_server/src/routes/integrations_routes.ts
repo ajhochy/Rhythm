@@ -11,6 +11,15 @@ integrationsRouter.post(
   '/google-calendar/sync',
   controller.syncGoogleCalendar.bind(controller),
 );
+integrationsRouter.post('/sync-all', controller.syncAll.bind(controller));
+integrationsRouter.get(
+  '/google-calendar/settings',
+  controller.getGoogleCalendarSettings.bind(controller),
+);
+integrationsRouter.put(
+  '/google-calendar/preferences',
+  controller.saveGoogleCalendarPreferences.bind(controller),
+);
 integrationsRouter.post('/gmail/sync', controller.syncGmail.bind(controller));
 integrationsRouter.get('/gmail/signals', controller.getGmailSignals.bind(controller));
 integrationsRouter.post(

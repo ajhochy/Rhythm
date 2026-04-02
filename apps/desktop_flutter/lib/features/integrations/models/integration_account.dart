@@ -10,6 +10,7 @@ class IntegrationAccount {
     this.accountLabel,
     this.lastSyncedAt,
     this.errorMessage,
+    this.scope,
     this.availableTriggerFamilies = const [],
     this.syncSupportMode,
   });
@@ -27,6 +28,7 @@ class IntegrationAccount {
       accountLabel: json['accountLabel'] as String?,
       lastSyncedAt: json['lastSyncedAt'] as String?,
       errorMessage: json['errorMessage'] as String?,
+      scope: json['scope'] as String?,
       availableTriggerFamilies:
           (json['availableTriggerFamilies'] as List<dynamic>? ?? const [])
               .map((item) => item.toString())
@@ -45,6 +47,7 @@ class IntegrationAccount {
   final String? accountLabel;
   final String? lastSyncedAt;
   final String? errorMessage;
+  final String? scope;
   final List<String> availableTriggerFamilies;
   final String? syncSupportMode;
 }

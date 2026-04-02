@@ -11,6 +11,12 @@ class ApiServerService {
   /// Finds the node binary, starts the server process, and waits for it to
   /// become healthy. Returns true if the server started successfully.
   Future<bool> start() async {
+    final existing = await _isServerReady();
+    if (existing) {
+      stdout.writeln('[ApiServerService] Reusing existing server on :4000.');
+      return true;
+    }
+
     final node = await _findNode();
     if (node == null) {
       stderr.writeln('[ApiServerService] Could not find node binary.');
@@ -67,24 +73,27 @@ class ApiServerService {
   Future<bool> _waitForReady() async {
     const maxAttempts = 40; // up to ~8 seconds
     const delay = Duration(milliseconds: 200);
-    final uri = Uri.parse('http://localhost:4000/health');
 
     for (var i = 0; i < maxAttempts; i++) {
       await Future<void>.delayed(delay);
-      try {
-        final response =
-            await http.get(uri).timeout(const Duration(seconds: 1));
-        if (response.statusCode == 200) {
-          stdout.writeln('[ApiServerService] Server is ready.');
-          return true;
-        }
-      } catch (_) {
-        // Not ready yet — keep polling.
+      if (await _isServerReady()) {
+        stdout.writeln('[ApiServerService] Server is ready.');
+        return true;
       }
     }
 
     stderr.writeln('[ApiServerService] Server did not become ready in time.');
     return false;
+  }
+
+  Future<bool> _isServerReady() async {
+    final uri = Uri.parse('http://localhost:4000/health');
+    try {
+      final response = await http.get(uri).timeout(const Duration(seconds: 1));
+      return response.statusCode == 200;
+    } catch (_) {
+      return false;
+    }
   }
 
   Future<String?> _findNode() async {

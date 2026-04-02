@@ -1,5 +1,6 @@
 import type { NextFunction, Request, Response } from 'express';
 import { AppError } from '../errors/app_error';
+import { IntegrationAccountsRepository } from '../repositories/integration_accounts_repository';
 import { AuthService } from '../services/auth_service';
 import { GoogleOAuthService } from '../services/google_oauth_service';
 import { PlanningCenterOAuthService } from '../services/planning_center_oauth_service';
@@ -7,6 +8,7 @@ import { PlanningCenterOAuthService } from '../services/planning_center_oauth_se
 const googleOAuth = new GoogleOAuthService();
 const planningCenterOAuth = new PlanningCenterOAuthService();
 const authService = new AuthService();
+const integrationAccountsRepo = new IntegrationAccountsRepository();
 
 export class AuthController {
   async googleLogin(req: Request, res: Response, next: NextFunction) {
@@ -51,7 +53,27 @@ export class AuthController {
       if (!sessionToken || !user) {
         throw AppError.unauthorized('Valid sessionToken is required');
       }
-      res.redirect(googleOAuth.getAuthorizationUrl(sessionToken));
+      const existingCalendar = integrationAccountsRepo.findByProvider(
+        'google_calendar',
+        user.id,
+      );
+      const existingGmail = integrationAccountsRepo.findByProvider(
+        'gmail',
+        user.id,
+      );
+      const needsCalendarScope =
+        existingCalendar?.scope?.includes(
+          'https://www.googleapis.com/auth/calendar.readonly',
+        ) != true;
+      res.redirect(
+        googleOAuth.getAuthorizationUrl({
+          sessionToken,
+          loginHint: user.email,
+          forceConsent:
+            needsCalendarScope ||
+            (!existingCalendar?.refreshToken && !existingGmail?.refreshToken),
+        }),
+      );
     } catch (err) {
       next(err);
     }

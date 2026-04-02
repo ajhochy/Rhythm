@@ -1,6 +1,10 @@
 import { GmailService } from '../integrations/gmail/gmail_service';
 import { GoogleCalendarService } from '../integrations/google_calendar/google_calendar_service';
 import { PlanningCenterService } from '../integrations/planning_center/planning_center_service';
+import type {
+  GoogleCalendarOption,
+  GoogleCalendarPreferences,
+} from '../models/google_calendar_preferences';
 import type { IntegrationAccount } from '../models/integration_account';
 import type { CreateAutomationSignalDto } from '../models/automation_signal';
 import { AppError } from '../errors/app_error';
@@ -48,8 +52,24 @@ export class IntegrationsService {
     }
 
     try {
-      const events = await this.googleCalendar.listUpcomingEvents(account);
-      const synced = this.shadowEventsRepo.upsertMany(
+      const calendarOptions =
+        await this.googleCalendar.listAccessibleCalendars(account);
+      const preferences =
+        this.preferencesRepo.getGoogleCalendarPreferences(userId);
+      const selectedCalendarIds =
+        this.resolveSelectedGoogleCalendarIds(preferences, calendarOptions);
+      const calendarNames = new Map(
+        calendarOptions.map((calendar) => [calendar.id, calendar.name]),
+      );
+      const events = (await this.googleCalendar.listUpcomingEvents(
+        account,
+        selectedCalendarIds,
+      )).map((event) => ({
+        ...event,
+        sourceName: calendarNames.get(event.calendarId) ?? event.sourceName,
+      }));
+      const synced = this.shadowEventsRepo.replaceForOwner(
+        userId,
         events.map((event) => ({
           provider: 'google_calendar' as const,
           ...event,
@@ -130,7 +150,13 @@ export class IntegrationsService {
 
     try {
       const signals = await this.gmail.listRecentInboxSignals(account);
-      this.gmailSignalsRepo.upsertMany(signals);
+      this.gmailSignalsRepo.replaceForOwner(
+        userId,
+        signals.map((signal) => ({
+          ownerId: userId,
+          ...signal,
+        })),
+      );
       const syncedAt = new Date().toISOString();
       const automationSignals: CreateAutomationSignalDto[] = signals.flatMap((signal) => {
         const payload = {
@@ -200,7 +226,7 @@ export class IntegrationsService {
         generatedSignalCount: automationSignals.length,
         matchedRuleCount: evaluation.matchedRules,
         executedActionCount: evaluation.executedActions,
-        signals: this.gmailSignalsRepo.listRecent(),
+        signals: this.gmailSignalsRepo.listRecent(userId),
       };
     } catch (err) {
       this.accountsRepo.markError(
@@ -212,8 +238,8 @@ export class IntegrationsService {
     }
   }
 
-  listRecentGmailSignals() {
-    return this.gmailSignalsRepo.listRecent();
+  listRecentGmailSignals(userId: number) {
+    return this.gmailSignalsRepo.listRecent(userId);
   }
 
   async syncPlanningCenter(userId: number) {
@@ -225,7 +251,7 @@ export class IntegrationsService {
     try {
       this.ensureDefaultRules();
       const preferences =
-        this.preferencesRepo.getPlanningCenterTaskPreferences();
+        this.preferencesRepo.getPlanningCenterTaskPreferences(userId);
       const collected = await this.planningCenter.collectAutomationSignals(
         account,
         preferences,
@@ -323,6 +349,91 @@ export class IntegrationsService {
     }
   }
 
+  async syncAll(userId: number) {
+    const results: Record<string, unknown> = {};
+    const errors: Array<{ provider: string; message: string }> = [];
+    const calendarAccount = this.accountsRepo.findByProvider('google_calendar', userId);
+    const gmailAccount = this.accountsRepo.findByProvider('gmail', userId);
+    const planningCenterAccount = this.accountsRepo.findByProvider('planning_center', userId);
+
+    if (calendarAccount?.accessToken) {
+      try {
+        results.googleCalendar = await this.syncGoogleCalendar(userId);
+      } catch (err) {
+        errors.push({
+          provider: 'google_calendar',
+          message: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+    if (gmailAccount?.accessToken) {
+      try {
+        results.gmail = await this.syncGmail(userId);
+      } catch (err) {
+        errors.push({
+          provider: 'gmail',
+          message: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+    if (planningCenterAccount?.accessToken) {
+      try {
+        results.planningCenter = await this.syncPlanningCenter(userId);
+      } catch (err) {
+        errors.push({
+          provider: 'planning_center',
+          message: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }
+
+    return {
+      ...results,
+      errors,
+    };
+  }
+
+  async resyncAutomationRule(ruleId: string, userId: number) {
+    const rule = this.rulesRepo.findById(ruleId, userId);
+    switch (rule.source) {
+      case 'google_calendar':
+        return {
+          source: rule.source,
+          result: await this.syncGoogleCalendar(userId),
+        };
+      case 'gmail':
+        return {
+          source: rule.source,
+          result: await this.syncGmail(userId),
+        };
+      case 'planning_center':
+        return {
+          source: rule.source,
+          result: await this.syncPlanningCenter(userId),
+        };
+      case 'rhythm': {
+        const recentSignals = this.signalsRepo.listRecent(100).filter(
+          (signal) => signal.provider === 'rhythm',
+        );
+        const evaluation = this.automationEngine.evaluateSignals(
+          'rhythm',
+          recentSignals,
+        );
+        return {
+          source: rule.source,
+          generatedSignalCount: recentSignals.length,
+          matchedRuleCount: evaluation.matchedRules,
+          executedActionCount: evaluation.executedActions,
+        };
+      }
+      default:
+        return {
+          source: rule.source,
+          result: null,
+        };
+    }
+  }
+
   private async ensureFreshAccount(
     provider: 'google_calendar' | 'gmail' | 'planning_center',
     userId: number,
@@ -348,25 +459,75 @@ export class IntegrationsService {
     return expiresAtMs <= Date.now() + 5 * 60 * 1000;
   }
 
-  getPlanningCenterTaskPreferences() {
-    return this.preferencesRepo.getPlanningCenterTaskPreferences();
+  getPlanningCenterTaskPreferences(userId: number) {
+    return this.preferencesRepo.getPlanningCenterTaskPreferences(userId);
   }
 
-  savePlanningCenterTaskPreferences(preferences: {
+  savePlanningCenterTaskPreferences(userId: number, preferences: {
     teamIds: string[];
     positionNames: string[];
   }) {
-    return this.preferencesRepo.savePlanningCenterTaskPreferences(preferences);
+    return this.preferencesRepo.savePlanningCenterTaskPreferences(
+      userId,
+      preferences,
+    );
   }
 
-  async getPlanningCenterTaskOptions() {
-    const account = this.accountsRepo.findAll().find(
-      (item) => item.provider == 'planning_center',
-    );
+  async getPlanningCenterTaskOptions(userId: number) {
+    const account = this.accountsRepo.findByProvider('planning_center', userId);
     if (!account || !account.accessToken) {
       throw AppError.badRequest('Planning Center is not connected');
     }
     return this.planningCenter.collectTaskOptions(account);
+  }
+
+  async getGoogleCalendarSettings(userId: number): Promise<{
+    calendars: GoogleCalendarOption[];
+    selectedCalendarIds: string[];
+  }> {
+    const account = await this.ensureFreshAccount('google_calendar', userId);
+    if (!account || !account.accessToken) {
+      throw AppError.badRequest('Google Calendar is not connected');
+    }
+
+    const calendars = await this.googleCalendar.listAccessibleCalendars(account);
+    const preferences = this.preferencesRepo.getGoogleCalendarPreferences(userId);
+    const selectedCalendarIds = this.resolveSelectedGoogleCalendarIds(
+      preferences,
+      calendars,
+    );
+
+    return {
+      calendars: calendars.map((calendar) => ({
+        ...calendar,
+        isSelected: selectedCalendarIds.includes(calendar.id),
+      })),
+      selectedCalendarIds,
+    };
+  }
+
+  saveGoogleCalendarPreferences(
+    userId: number,
+    preferences: GoogleCalendarPreferences,
+  ) {
+    return this.preferencesRepo.saveGoogleCalendarPreferences(userId, preferences);
+  }
+
+  private resolveSelectedGoogleCalendarIds(
+    preferences: GoogleCalendarPreferences | null,
+    calendars: Array<Omit<GoogleCalendarOption, 'isSelected'>>,
+  ): string[] {
+    if (preferences == null) {
+      return calendars.map((calendar) => calendar.id);
+    }
+    const availableIds = new Set(calendars.map((calendar) => calendar.id));
+    const selected = preferences.selectedCalendarIds.filter((id) =>
+      availableIds.has(id),
+    );
+    if (preferences.selectedCalendarIds.length == 0) {
+      return [];
+    }
+    return selected;
   }
 
   private ensureDefaultRules(): void {

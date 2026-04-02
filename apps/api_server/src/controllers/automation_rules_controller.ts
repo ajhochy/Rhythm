@@ -2,9 +2,11 @@ import type { NextFunction, Request, Response } from 'express';
 import { AppError } from '../errors/app_error';
 import { AutomationRulesRepository } from '../repositories/automation_rules_repository';
 import { AutomationCatalogService } from '../services/automation_catalog_service';
+import { IntegrationsService } from '../services/integrations_service';
 
 const repo = new AutomationRulesRepository();
 const catalog = new AutomationCatalogService();
+const integrations = new IntegrationsService();
 
 function describeSource(source: string): string {
   return (
@@ -210,6 +212,16 @@ export class AutomationRulesController {
     try {
       repo.delete(req.params.id, req.auth?.user.id);
       res.status(204).send();
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async resync(req: Request, res: Response, next: NextFunction) {
+    try {
+      res.json(
+        await integrations.resyncAutomationRule(req.params.id, req.auth!.user.id),
+      );
     } catch (err) {
       next(err);
     }

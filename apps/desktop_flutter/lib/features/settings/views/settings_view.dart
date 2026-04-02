@@ -3,6 +3,8 @@ import 'package:provider/provider.dart';
 
 import '../../../app/core/auth/auth_session_service.dart';
 import '../../../app/core/services/server_config_service.dart';
+import '../../../app/core/updates/update_controller.dart';
+import '../../../app/theme/rhythm_tokens.dart';
 
 class SettingsView extends StatefulWidget {
   const SettingsView({super.key});
@@ -44,18 +46,19 @@ class _SettingsViewState extends State<SettingsView> {
   @override
   Widget build(BuildContext context) {
     final auth = context.watch<AuthSessionService>();
+    final updateController = context.watch<UpdateController>();
     final user = auth.currentUser;
 
     return Scaffold(
-      backgroundColor: const Color(0xFFFFFFFF),
+      backgroundColor: RhythmTokens.background,
       appBar: AppBar(
         title: const Text('Settings'),
-        backgroundColor: const Color(0xFFFFFFFF),
-        foregroundColor: const Color(0xFF111827),
+        backgroundColor: RhythmTokens.surface,
+        foregroundColor: RhythmTokens.textPrimary,
         elevation: 0,
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(1),
-          child: Container(color: const Color(0xFFE5E7EB), height: 1),
+          child: Container(color: RhythmTokens.borderSoft, height: 1),
         ),
       ),
       body: ListView(
@@ -67,7 +70,7 @@ class _SettingsViewState extends State<SettingsView> {
               style: TextStyle(
                 fontSize: 12,
                 fontWeight: FontWeight.w600,
-                color: Color(0xFF6B7280),
+                color: RhythmTokens.textSecondary,
                 letterSpacing: 0.8,
               ),
             ),
@@ -75,9 +78,10 @@ class _SettingsViewState extends State<SettingsView> {
             Container(
               padding: const EdgeInsets.all(20),
               decoration: BoxDecoration(
-                color: const Color(0xFFFFFFFF),
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: const Color(0xFFE5E7EB)),
+                color: RhythmTokens.surfaceStrong,
+                borderRadius: BorderRadius.circular(RhythmTokens.radiusL),
+                border: Border.all(color: RhythmTokens.borderSoft),
+                boxShadow: RhythmTokens.shadow,
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -86,7 +90,7 @@ class _SettingsViewState extends State<SettingsView> {
                     'Signed in user',
                     style: TextStyle(
                       fontWeight: FontWeight.w600,
-                      color: Color(0xFF111827),
+                      color: RhythmTokens.textPrimary,
                     ),
                   ),
                   const SizedBox(height: 12),
@@ -94,7 +98,7 @@ class _SettingsViewState extends State<SettingsView> {
                     children: [
                       CircleAvatar(
                         radius: 22,
-                        backgroundColor: const Color(0x144F6AF5),
+                        backgroundColor: RhythmTokens.accentSoft,
                         backgroundImage: user.photoUrl != null
                             ? NetworkImage(user.photoUrl!)
                             : null,
@@ -102,7 +106,7 @@ class _SettingsViewState extends State<SettingsView> {
                             ? Text(
                                 _settingsInitialsFor(user.name),
                                 style: const TextStyle(
-                                  color: Color(0xFF4F6AF5),
+                                  color: RhythmTokens.accent,
                                   fontWeight: FontWeight.w700,
                                 ),
                               )
@@ -116,7 +120,7 @@ class _SettingsViewState extends State<SettingsView> {
                             Text(
                               user.name,
                               style: const TextStyle(
-                                color: Color(0xFF111827),
+                                color: RhythmTokens.textPrimary,
                                 fontWeight: FontWeight.w600,
                               ),
                             ),
@@ -125,7 +129,7 @@ class _SettingsViewState extends State<SettingsView> {
                               user.email,
                               style: const TextStyle(
                                 fontSize: 13,
-                                color: Color(0xFF6B7280),
+                                color: RhythmTokens.textSecondary,
                               ),
                             ),
                           ],
@@ -138,7 +142,7 @@ class _SettingsViewState extends State<SettingsView> {
                     'Role: ${user.role}',
                     style: const TextStyle(
                       fontSize: 13,
-                      color: Color(0xFF6B7280),
+                      color: RhythmTokens.textSecondary,
                     ),
                   ),
                   const SizedBox(height: 16),
@@ -158,11 +162,11 @@ class _SettingsViewState extends State<SettingsView> {
             const SizedBox(height: 24),
           ],
           const Text(
-            'SERVER',
+            'UPDATES',
             style: TextStyle(
               fontSize: 12,
               fontWeight: FontWeight.w600,
-              color: Color(0xFF6B7280),
+              color: RhythmTokens.textSecondary,
               letterSpacing: 0.8,
             ),
           ),
@@ -170,9 +174,109 @@ class _SettingsViewState extends State<SettingsView> {
           Container(
             padding: const EdgeInsets.all(20),
             decoration: BoxDecoration(
-              color: const Color(0xFFFFFFFF),
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: const Color(0xFFE5E7EB)),
+              color: RhythmTokens.surfaceStrong,
+              borderRadius: BorderRadius.circular(RhythmTokens.radiusL),
+              border: Border.all(color: RhythmTokens.borderSoft),
+              boxShadow: RhythmTokens.shadow,
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Desktop app updates',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    color: RhythmTokens.textPrimary,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  updateController.currentVersion == null
+                      ? 'Version unknown'
+                      : 'Current version: v${updateController.currentVersion}',
+                  style: const TextStyle(
+                    fontSize: 13,
+                    color: RhythmTokens.textSecondary,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                if (updateController.isChecking)
+                  const Text(
+                    'Checking for updates...',
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: RhythmTokens.textSecondary,
+                    ),
+                  )
+                else if (updateController.availableUpdate != null) ...[
+                  Text(
+                    'Update ready: ${updateController.availableUpdate!.version}${updateController.availableUpdate!.prerelease ? ' beta' : ''}',
+                    style: const TextStyle(
+                      fontSize: 13,
+                      color: RhythmTokens.textPrimary,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Wrap(
+                    spacing: 10,
+                    runSpacing: 10,
+                    children: [
+                      FilledButton(
+                        onPressed: updateController.openDownload,
+                        child: const Text('Download'),
+                      ),
+                      OutlinedButton(
+                        onPressed: updateController.openReleaseNotes,
+                        child: const Text('Release notes'),
+                      ),
+                    ],
+                  ),
+                ] else ...[
+                  const Text(
+                    'You are on the latest release.',
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: RhythmTokens.textSecondary,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  OutlinedButton(
+                    onPressed: updateController.checkForUpdates,
+                    child: const Text('Check now'),
+                  ),
+                ],
+                if (updateController.errorMessage != null) ...[
+                  const SizedBox(height: 10),
+                  Text(
+                    updateController.errorMessage!,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: RhythmTokens.danger,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          const SizedBox(height: 24),
+          const Text(
+            'SERVER',
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: RhythmTokens.textSecondary,
+              letterSpacing: 0.8,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Container(
+            padding: const EdgeInsets.all(20),
+            decoration: BoxDecoration(
+              color: RhythmTokens.surfaceStrong,
+              borderRadius: BorderRadius.circular(RhythmTokens.radiusL),
+              border: Border.all(color: RhythmTokens.borderSoft),
+              boxShadow: RhythmTokens.shadow,
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -181,7 +285,7 @@ class _SettingsViewState extends State<SettingsView> {
                   'API Server URL',
                   style: TextStyle(
                     fontWeight: FontWeight.w600,
-                    color: Color(0xFF111827),
+                    color: RhythmTokens.textPrimary,
                   ),
                 ),
                 const SizedBox(height: 4),
@@ -189,7 +293,7 @@ class _SettingsViewState extends State<SettingsView> {
                   'Use http://localhost:4000 for local, or your hosted server URL.',
                   style: TextStyle(
                     fontSize: 13,
-                    color: Color(0xFF6B7280),
+                    color: RhythmTokens.textSecondary,
                   ),
                 ),
                 const SizedBox(height: 16),

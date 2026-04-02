@@ -23,6 +23,7 @@ class AutomationRulesController extends ChangeNotifier {
   AutomationRulePreview? _selectedPreview;
   AutomationRulesStatus _status = AutomationRulesStatus.idle;
   String? _errorMessage;
+  final Set<String> _resyncingRuleIds = {};
 
   List<AutomationRule> get rules => _rules;
   List<AutomationTriggerCatalogItem> get triggers => _triggers;
@@ -34,6 +35,7 @@ class AutomationRulesController extends ChangeNotifier {
   AutomationRulePreview? get selectedPreview => _selectedPreview;
   AutomationRulesStatus get status => _status;
   String? get errorMessage => _errorMessage;
+  bool isResyncing(String id) => _resyncingRuleIds.contains(id);
 
   Future<void> load() async {
     _status = AutomationRulesStatus.loading;
@@ -165,6 +167,23 @@ class AutomationRulesController extends ChangeNotifier {
     } catch (e) {
       _errorMessage = e.toString();
       _status = AutomationRulesStatus.error;
+      notifyListeners();
+    }
+  }
+
+  Future<void> resyncRule(String id) async {
+    _resyncingRuleIds.add(id);
+    _errorMessage = null;
+    notifyListeners();
+    try {
+      await _repository.resync(id);
+      await load();
+    } catch (e) {
+      _errorMessage = e.toString();
+      _status = AutomationRulesStatus.error;
+      notifyListeners();
+    } finally {
+      _resyncingRuleIds.remove(id);
       notifyListeners();
     }
   }

@@ -30,6 +30,7 @@ function toAccountDto(
       expiresAt: null,
       lastSyncedAt: null,
       errorMessage: null,
+      scope: null,
       availableTriggerFamilies: providerMeta?.triggerKeys ?? [],
       syncSupportMode: providerMeta?.syncSupport ?? 'manual',
     };
@@ -46,6 +47,7 @@ function toAccountDto(
     expiresAt: account.expiresAt,
     lastSyncedAt: account.lastSyncedAt,
     errorMessage: account.errorMessage,
+    scope: account.scope,
     availableTriggerFamilies: providerMeta?.triggerKeys ?? [],
     syncSupportMode: providerMeta?.syncSupport ?? 'manual',
   };
@@ -83,9 +85,9 @@ export class IntegrationsController {
     }
   }
 
-  getGmailSignals(_req: Request, res: Response, next: NextFunction) {
+  getGmailSignals(req: Request, res: Response, next: NextFunction) {
     try {
-      res.json(service.listRecentGmailSignals());
+      res.json(service.listRecentGmailSignals(req.auth!.user.id));
     } catch (err) {
       next(err);
     }
@@ -99,13 +101,54 @@ export class IntegrationsController {
     }
   }
 
+  async syncAll(req: Request, res: Response, next: NextFunction) {
+    try {
+      res.json(await service.syncAll(req.auth!.user.id));
+    } catch (err) {
+      next(err);
+    }
+  }
+
   getPlanningCenterTaskPreferences(
-    _req: Request,
+    req: Request,
     res: Response,
     next: NextFunction,
   ) {
     try {
-      res.json(service.getPlanningCenterTaskPreferences());
+      res.json(service.getPlanningCenterTaskPreferences(req.auth!.user.id));
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async getGoogleCalendarSettings(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ) {
+    try {
+      res.json(await service.getGoogleCalendarSettings(req.auth!.user.id));
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  saveGoogleCalendarPreferences(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ) {
+    try {
+      const { selectedCalendarIds } = req.body as Record<string, unknown>;
+      res.json(
+        service.saveGoogleCalendarPreferences(req.auth!.user.id, {
+          selectedCalendarIds: Array.isArray(selectedCalendarIds)
+            ? selectedCalendarIds.filter(
+                (value): value is string => typeof value === 'string',
+              )
+            : [],
+        }),
+      );
     } catch (err) {
       next(err);
     }
@@ -122,7 +165,7 @@ export class IntegrationsController {
         unknown
       >;
       res.json(
-        service.savePlanningCenterTaskPreferences({
+        service.savePlanningCenterTaskPreferences(req.auth!.user.id, {
           teamIds: Array.isArray(teamIds)
             ? teamIds.filter(
                 (value): value is string => typeof value === 'string',
@@ -141,12 +184,12 @@ export class IntegrationsController {
   }
 
   async getPlanningCenterTaskOptions(
-    _req: Request,
+    req: Request,
     res: Response,
     next: NextFunction,
   ) {
     try {
-      res.json(await service.getPlanningCenterTaskOptions());
+      res.json(await service.getPlanningCenterTaskOptions(req.auth!.user.id));
     } catch (err) {
       next(err);
     }
