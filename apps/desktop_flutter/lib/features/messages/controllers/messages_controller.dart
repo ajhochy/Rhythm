@@ -212,7 +212,8 @@ class MessagesController extends ChangeNotifier {
       try {
         final threadId = _selectedThreadId!;
         final nextMessages = await _repository.getMessages(threadId);
-        _maybeNotifyForIncomingMessages(previousMessages, nextMessages, threadId);
+        _maybeNotifyForIncomingMessages(
+            previousMessages, nextMessages, threadId);
         _messages = nextMessages;
         await _repository.markRead(threadId);
       } catch (_) {

@@ -65,8 +65,8 @@ class AutomationRulesDataSource {
     _assertOk(response);
     final list = jsonDecode(response.body) as List<dynamic>;
     return list
-        .map((item) => AutomationTriggerCatalogItem.fromJson(
-            item as Map<String, dynamic>))
+        .map((item) =>
+            AutomationTriggerCatalogItem.fromJson(item as Map<String, dynamic>))
         .toList();
   }
 
@@ -78,8 +78,8 @@ class AutomationRulesDataSource {
     _assertOk(response);
     final list = jsonDecode(response.body) as List<dynamic>;
     return list
-        .map((item) => AutomationActionCatalogItem.fromJson(
-            item as Map<String, dynamic>))
+        .map((item) =>
+            AutomationActionCatalogItem.fromJson(item as Map<String, dynamic>))
         .toList();
   }
 
@@ -104,7 +104,8 @@ class AutomationRulesDataSource {
     _assertOk(response);
     final list = jsonDecode(response.body) as List<dynamic>;
     return list
-        .map((item) => IntegrationAccount.fromJson(item as Map<String, dynamic>))
+        .map(
+            (item) => IntegrationAccount.fromJson(item as Map<String, dynamic>))
         .toList();
   }
 
