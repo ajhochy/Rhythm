@@ -122,4 +122,36 @@ describe('GmailService', () => {
       'Gmail sync failed',
     );
   });
+
+  describe('listLabels', () => {
+    it('returns sorted user label names filtering out system labels', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => ({
+          ok: true,
+          json: async () => ({
+            labels: [
+              { id: 'INBOX', name: 'INBOX', type: 'system' },
+              { id: 'UNREAD', name: 'UNREAD', type: 'system' },
+              { id: 'Label_1', name: 'newsletters', type: 'user' },
+              { id: 'Label_2', name: 'finance', type: 'user' },
+            ],
+          }),
+          text: async () => '',
+        })),
+      );
+      const service = new GmailService();
+      const labels = await service.listLabels(mockAccount);
+      expect(labels).toEqual(['finance', 'newsletters']);
+    });
+
+    it('throws when labels request fails', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => ({ ok: false, text: async () => 'Forbidden' })),
+      );
+      const service = new GmailService();
+      await expect(service.listLabels(mockAccount)).rejects.toThrow('Gmail labels');
+    });
+  });
 });

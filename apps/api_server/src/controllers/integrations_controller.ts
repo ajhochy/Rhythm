@@ -93,6 +93,14 @@ export class IntegrationsController {
     }
   }
 
+  async getGmailLabels(req: Request, res: Response, next: NextFunction) {
+    try {
+      res.json(await service.listGmailLabels(req.auth!.user.id));
+    } catch (err) {
+      next(err);
+    }
+  }
+
   async syncPlanningCenter(req: Request, res: Response, next: NextFunction) {
     try {
       res.json(await service.syncPlanningCenter(req.auth!.user.id));

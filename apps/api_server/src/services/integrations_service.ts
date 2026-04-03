@@ -242,6 +242,14 @@ export class IntegrationsService {
     return this.gmailSignalsRepo.listRecent(userId);
   }
 
+  async listGmailLabels(userId: number): Promise<string[]> {
+    const account = await this.ensureFreshAccount('gmail', userId);
+    if (!account || !account.accessToken) {
+      return [];
+    }
+    return this.gmail.listLabels(account);
+  }
+
   async syncPlanningCenter(userId: number) {
     const account = await this.ensureFreshAccount('planning_center', userId);
     if (!account || !account.accessToken) {

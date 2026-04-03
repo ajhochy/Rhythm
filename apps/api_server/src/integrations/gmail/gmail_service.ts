@@ -26,6 +26,16 @@ interface GmailMessageResponse {
   };
 }
 
+interface GmailLabel {
+  id: string;
+  name: string;
+  type: 'system' | 'user';
+}
+
+interface GmailLabelsResponse {
+  labels?: GmailLabel[];
+}
+
 interface NormalizedGmailSignal {
   externalId: string;
   threadId: string;
@@ -126,5 +136,24 @@ export class GmailService {
     );
 
     return normalized;
+  }
+
+  async listLabels(account: IntegrationAccount): Promise<string[]> {
+    if (!account.accessToken) {
+      throw AppError.badRequest('Gmail is not connected');
+    }
+    const response = await fetch(
+      'https://gmail.googleapis.com/gmail/v1/users/me/labels',
+      { headers: { Authorization: `Bearer ${account.accessToken}` } },
+    );
+    if (!response.ok) {
+      const text = await response.text();
+      throw AppError.badRequest(`Gmail labels fetch failed: ${text}`);
+    }
+    const payload = (await response.json()) as GmailLabelsResponse;
+    return (payload.labels ?? [])
+      .filter((label) => label.type === 'user')
+      .map((label) => label.name)
+      .sort();
   }
 }

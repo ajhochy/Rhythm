@@ -22,6 +22,7 @@ integrationsRouter.put(
 );
 integrationsRouter.post('/gmail/sync', controller.syncGmail.bind(controller));
 integrationsRouter.get('/gmail/signals', controller.getGmailSignals.bind(controller));
+integrationsRouter.get('/gmail/labels', controller.getGmailLabels.bind(controller));
 integrationsRouter.post(
   '/planning-center/sync',
   controller.syncPlanningCenter.bind(controller),
