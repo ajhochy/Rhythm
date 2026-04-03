@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import '../../../app/core/auth/auth_session_store.dart';
 import '../../../app/core/constants/app_constants.dart';
 import '../../../app/core/errors/app_error.dart';
 import '../models/project_template.dart';
@@ -12,7 +13,10 @@ class ProjectsLocalDataSource {
   final String _baseUrl;
 
   Future<List<ProjectTemplate>> fetchAll() async {
-    final response = await http.get(Uri.parse('$_baseUrl/project-templates'));
+    final response = await http.get(
+      Uri.parse('$_baseUrl/project-templates'),
+      headers: AuthSessionStore.headers(),
+    );
     _assertOk(response);
     final list = jsonDecode(response.body) as List<dynamic>;
     return list
@@ -24,7 +28,7 @@ class ProjectsLocalDataSource {
       {String? description, String? anchorType}) async {
     final response = await http.post(
       Uri.parse('$_baseUrl/project-templates'),
-      headers: {'Content-Type': 'application/json'},
+      headers: AuthSessionStore.headers(json: true),
       body: jsonEncode({
         'name': name,
         if (description != null) 'description': description,
@@ -45,7 +49,7 @@ class ProjectsLocalDataSource {
   }) async {
     final response = await http.post(
       Uri.parse('$_baseUrl/project-templates/$templateId/steps'),
-      headers: {'Content-Type': 'application/json'},
+      headers: AuthSessionStore.headers(json: true),
       body: jsonEncode({
         'title': title,
         'offsetDays': offsetDays,
@@ -62,7 +66,7 @@ class ProjectsLocalDataSource {
       {String? name, String? description}) async {
     final response = await http.patch(
       Uri.parse('$_baseUrl/project-templates/$id'),
-      headers: {'Content-Type': 'application/json'},
+      headers: AuthSessionStore.headers(json: true),
       body: jsonEncode({
         if (name != null) 'name': name,
         if (description != null) 'description': description,
@@ -82,7 +86,7 @@ class ProjectsLocalDataSource {
   }) async {
     final response = await http.patch(
       Uri.parse('$_baseUrl/project-templates/$templateId/steps/$stepId'),
-      headers: {'Content-Type': 'application/json'},
+      headers: AuthSessionStore.headers(json: true),
       body: jsonEncode({
         if (title != null) 'title': title,
         if (offsetDays != null) 'offsetDays': offsetDays,
@@ -97,13 +101,16 @@ class ProjectsLocalDataSource {
   Future<void> deleteStep(String templateId, String stepId) async {
     final response = await http.delete(
       Uri.parse('$_baseUrl/project-templates/$templateId/steps/$stepId'),
+      headers: AuthSessionStore.headers(),
     );
     _assertOk(response);
   }
 
   Future<void> delete(String id) async {
-    final response =
-        await http.delete(Uri.parse('$_baseUrl/project-templates/$id'));
+    final response = await http.delete(
+      Uri.parse('$_baseUrl/project-templates/$id'),
+      headers: AuthSessionStore.headers(),
+    );
     _assertOk(response);
   }
 
