@@ -6,6 +6,7 @@ import 'app/core/constants/app_constants.dart';
 import 'app/core/auth/auth_data_source.dart';
 import 'app/core/auth/auth_session_service.dart';
 import 'app/core/layout/app_shell.dart';
+import 'app/core/notifications/local_notification_service.dart';
 import 'app/core/server/api_server_controller.dart';
 import 'app/core/server/api_server_service.dart';
 import 'app/core/services/server_config_service.dart';
@@ -65,9 +66,12 @@ void main() async {
     ..initialize();
   final authSessionService =
       AuthSessionService(AuthDataSource(baseUrl: serverConfigService.url));
+  final localNotificationService = LocalNotificationService();
+  await localNotificationService.initialize();
 
   runApp(RhythmApp(
     authSessionService: authSessionService,
+    localNotificationService: localNotificationService,
     serverController: serverController,
     serverConfigService: serverConfigService,
   ));
@@ -77,11 +81,13 @@ class RhythmApp extends StatelessWidget {
   const RhythmApp({
     super.key,
     required this.authSessionService,
+    required this.localNotificationService,
     required this.serverController,
     required this.serverConfigService,
   });
 
   final AuthSessionService authSessionService;
+  final LocalNotificationService localNotificationService;
   final ApiServerController serverController;
   final ServerConfigService serverConfigService;
 
@@ -132,6 +138,7 @@ class RhythmApp extends StatelessWidget {
         ChangeNotifierProvider(
           create: (_) => MessagesController(
             MessagesRepository(MessagesDataSource(baseUrl: baseUrl)),
+            notifications: localNotificationService,
           ),
         ),
         ChangeNotifierProvider(

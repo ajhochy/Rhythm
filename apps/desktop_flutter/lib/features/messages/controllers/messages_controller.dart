@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 
+import '../../../app/core/notifications/local_notification_service.dart';
 import '../../../app/core/auth/auth_user.dart';
 import '../models/message.dart';
 import '../models/message_thread.dart';
@@ -22,11 +23,15 @@ class IncomingMessageNotice {
 }
 
 class MessagesController extends ChangeNotifier {
-  MessagesController(this._repository,
-      {Duration pollInterval = const Duration(seconds: 30)})
-      : _pollInterval = pollInterval;
+  MessagesController(
+    this._repository, {
+    required LocalNotificationService notifications,
+    Duration pollInterval = const Duration(seconds: 30),
+  })  : _notifications = notifications,
+        _pollInterval = pollInterval;
 
   final MessagesRepository _repository;
+  final LocalNotificationService _notifications;
   final Duration _pollInterval;
 
   List<MessageThread> _threads = [];
@@ -165,6 +170,30 @@ class MessagesController extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> markThreadRead(int threadId) async {
+    _markThreadReadLocally(threadId);
+    notifyListeners();
+    try {
+      await _repository.markRead(threadId);
+      await loadThreads(silent: true);
+    } catch (e) {
+      _errorMessage = e.toString();
+      _status = MessagesStatus.error;
+      notifyListeners();
+    }
+  }
+
+  Future<void> markThreadUnread(int threadId) async {
+    try {
+      await _repository.markUnread(threadId);
+      await loadThreads(silent: true);
+    } catch (e) {
+      _errorMessage = e.toString();
+      _status = MessagesStatus.error;
+      notifyListeners();
+    }
+  }
+
   void startPolling() {
     _pollTimer ??= Timer.periodic(
       _pollInterval,
@@ -242,6 +271,11 @@ class MessagesController extends ChangeNotifier {
       senderName: latest.senderName,
       preview: latest.content,
     );
+    _showSystemNotification(
+      id: latest.id,
+      title: latest.senderName,
+      body: latest.content,
+    );
   }
 
   void _maybeNotifyForUnreadThreadActivity(
@@ -265,8 +299,27 @@ class MessagesController extends ChangeNotifier {
         senderName: thread.title,
         preview: thread.lastMessage ?? 'New message',
       );
+      _showSystemNotification(
+        id: (thread.id * 1000) + thread.unreadCount,
+        title: thread.title,
+        body: thread.lastMessage ?? 'New unread message',
+      );
       return;
     }
+  }
+
+  void _showSystemNotification({
+    required int id,
+    required String title,
+    required String body,
+  }) {
+    unawaited(
+      _notifications.showMessageNotification(
+        id: id,
+        title: title,
+        body: body,
+      ),
+    );
   }
 
   @override

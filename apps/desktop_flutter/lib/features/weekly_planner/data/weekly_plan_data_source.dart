@@ -22,11 +22,15 @@ class WeeklyPlanDataSource {
   }
 
   Future<Task> scheduleTask(String taskId, String date,
-      {bool locked = false}) async {
+      {bool locked = false, int? scheduledOrder}) async {
     final response = await http.patch(
       Uri.parse('$_baseUrl/weekly-plan/tasks/$taskId'),
       headers: AuthSessionStore.headers(json: true),
-      body: jsonEncode({'scheduledDate': date, 'locked': locked}),
+      body: jsonEncode({
+        'scheduledDate': date,
+        'locked': locked,
+        if (scheduledOrder != null) 'scheduledOrder': scheduledOrder,
+      }),
     );
     _assertOk(response);
     return Task.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
@@ -37,6 +41,7 @@ class WeeklyPlanDataSource {
       String? status,
       String? dueDate,
       String? scheduledDate,
+      int? scheduledOrder,
       String? sourceType}) async {
     final isProjectStep = sourceType == 'project_step';
     final response = await http.patch(
@@ -50,6 +55,8 @@ class WeeklyPlanDataSource {
         if (dueDate != null) 'dueDate': dueDate,
         if (!isProjectStep && scheduledDate != null)
           'scheduledDate': scheduledDate,
+        if (!isProjectStep && scheduledOrder != null)
+          'scheduledOrder': scheduledOrder,
       }),
     );
     _assertOk(response);
@@ -63,6 +70,7 @@ class WeeklyPlanDataSource {
             updatedAt: '',
             notes: body['notes'] as String?,
             dueDate: body['dueDate'] as String?,
+            scheduledOrder: body['scheduledOrder'] as int?,
             sourceType: 'project_step',
             sourceName: body['sourceName'] as String?,
           )

@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:rhythm_desktop/app/core/notifications/local_notification_service.dart';
 import 'package:rhythm_desktop/app/core/auth/auth_user.dart';
 import 'package:rhythm_desktop/features/dashboard/controllers/dashboard_controller.dart';
 import 'package:rhythm_desktop/features/dashboard/data/dashboard_data_source.dart';
@@ -10,6 +11,9 @@ import 'package:rhythm_desktop/features/messages/repositories/messages_repositor
 import 'package:rhythm_desktop/features/projects/models/project_instance.dart';
 import 'package:rhythm_desktop/features/projects/models/project_template.dart';
 import 'package:rhythm_desktop/features/dashboard/models/dashboard_overview_models.dart';
+import 'package:rhythm_desktop/features/rhythms/controllers/rhythms_controller.dart';
+import 'package:rhythm_desktop/features/rhythms/data/rhythms_data_source.dart';
+import 'package:rhythm_desktop/features/rhythms/repositories/rhythms_repository.dart';
 import 'package:rhythm_desktop/features/tasks/models/recurring_task_rule.dart';
 import 'package:rhythm_desktop/features/tasks/models/task.dart';
 
@@ -39,7 +43,10 @@ void main() {
 
   test('MessagesController reloads threads after creating a thread', () async {
     final repository = _FakeMessagesRepository();
-    final controller = MessagesController(repository);
+    final controller = MessagesController(
+      repository,
+      notifications: _FakeLocalNotificationService(),
+    );
 
     await controller.loadThreads();
     expect(controller.threads, hasLength(1));
@@ -57,6 +64,7 @@ void main() {
     final repository = _FakeMessagesRepository();
     final controller = MessagesController(
       repository,
+      notifications: _FakeLocalNotificationService(),
       pollInterval: const Duration(milliseconds: 10),
     );
 
@@ -101,6 +109,53 @@ void main() {
 
     controller.setPollingEnabled(false);
   });
+
+  test('RhythmsController loads users and forwards workflow steps', () async {
+    final repository = _FakeRhythmsRepository();
+    final controller = RhythmsController(repository);
+
+    await controller.load();
+    expect(controller.users, hasLength(2));
+    expect(controller.rules, hasLength(1));
+    expect(controller.rules.first.steps, hasLength(2));
+
+    await controller.createRule(
+      title: 'New rhythm',
+      frequency: 'weekly',
+      dayOfWeek: 1,
+      steps: [
+        RecurringTaskRuleStep(id: 'prep', title: 'Prep', assigneeId: 2),
+      ],
+    );
+
+    expect(repository.lastCreateSteps, hasLength(1));
+    expect(repository.lastCreateSteps.first.title, 'Prep');
+    expect(controller.rules, hasLength(2));
+
+    await controller.updateRule(
+      'rule-1',
+      title: 'Updated rhythm',
+      steps: [
+        RecurringTaskRuleStep(id: 'lead', title: 'Lead', assigneeId: null),
+      ],
+    );
+
+    expect(repository.lastUpdateSteps, hasLength(1));
+    expect(repository.lastUpdateSteps.first.id, 'lead');
+    expect(controller.rules.first.title, 'Updated rhythm');
+  });
+}
+
+class _FakeLocalNotificationService extends LocalNotificationService {
+  @override
+  Future<void> initialize() async {}
+
+  @override
+  Future<void> showMessageNotification({
+    required int id,
+    required String title,
+    required String body,
+  }) async {}
 }
 
 class _FakeDashboardDataSource extends DashboardDataSource {
@@ -296,4 +351,100 @@ class _FakeMessagesRepository extends MessagesRepository {
   Future<void> markRead(int threadId) async {
     markReadCallCount += 1;
   }
+}
+
+class _FakeRhythmsRepository extends RhythmsRepository {
+  _FakeRhythmsRepository() : super(_FakeRhythmsDataSource());
+
+  List<RecurringTaskRuleStep> lastCreateSteps = const [];
+  List<RecurringTaskRuleStep> lastUpdateSteps = const [];
+
+  final List<RecurringTaskRule> _rules = [
+    RecurringTaskRule(
+      id: 'rule-1',
+      title: 'Weekly Rhythm',
+      frequency: 'weekly',
+      dayOfWeek: 1,
+      dayOfMonth: null,
+      month: null,
+      enabled: true,
+      createdAt: '2026-03-29T00:00:00.000Z',
+      steps: [
+        RecurringTaskRuleStep(id: 'prep', title: 'Prep', assigneeId: 2),
+        RecurringTaskRuleStep(id: 'lead', title: 'Lead', assigneeId: null),
+      ],
+    ),
+  ];
+
+  @override
+  Future<List<RecurringTaskRule>> getAll() async => List.of(_rules);
+
+  @override
+  Future<List<AuthUser>> getUsers() async => const [
+        AuthUser(id: 1, name: 'Alice', email: 'alice@example.com', role: 'member'),
+        AuthUser(id: 2, name: 'Bob', email: 'bob@example.com', role: 'member'),
+      ];
+
+  @override
+  Future<RecurringTaskRule> create({
+    required String title,
+    required String frequency,
+    int? dayOfWeek,
+    int? dayOfMonth,
+    int? month,
+    List<RecurringTaskRuleStep>? steps,
+  }) async {
+    lastCreateSteps = List.of(steps ?? const []);
+    final rule = RecurringTaskRule(
+      id: 'rule-created',
+      title: title,
+      frequency: frequency,
+      dayOfWeek: dayOfWeek,
+      dayOfMonth: dayOfMonth,
+      month: month,
+      enabled: true,
+      createdAt: '2026-04-01T00:00:00.000Z',
+      steps: steps ?? const [],
+    );
+    _rules.add(rule);
+    return rule;
+  }
+
+  @override
+  Future<RecurringTaskRule> update(
+    String id, {
+    String? title,
+    String? frequency,
+    int? dayOfWeek,
+    int? dayOfMonth,
+    int? month,
+    bool? enabled,
+    List<RecurringTaskRuleStep>? steps,
+  }) async {
+    lastUpdateSteps = List.of(steps ?? const []);
+    final index = _rules.indexWhere((rule) => rule.id == id);
+    final existing = _rules[index];
+    final updated = RecurringTaskRule(
+      id: existing.id,
+      title: title ?? existing.title,
+      frequency: frequency ?? existing.frequency,
+      dayOfWeek: dayOfWeek ?? existing.dayOfWeek,
+      dayOfMonth: dayOfMonth ?? existing.dayOfMonth,
+      month: month ?? existing.month,
+      enabled: enabled ?? existing.enabled,
+      createdAt: existing.createdAt,
+      steps: steps ?? existing.steps,
+    );
+    _rules[index] = updated;
+    return updated;
+  }
+
+  @override
+  Future<void> delete(String id) async {
+    _rules.removeWhere((rule) => rule.id == id);
+  }
+}
+
+class _FakeRhythmsDataSource extends RhythmsDataSource {
+  _FakeRhythmsDataSource() : super(baseUrl: 'http://example.invalid');
 }

@@ -20,6 +20,7 @@ export function runMigrations(db: Database.Database): void {
       day_of_week INTEGER,
       day_of_month INTEGER,
       month INTEGER,
+      steps_json TEXT NOT NULL DEFAULT '[]',
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
@@ -241,6 +242,9 @@ export function runMigrations(db: Database.Database): void {
   if (!taskCols.includes('owner_id')) {
     db.exec(`ALTER TABLE tasks ADD COLUMN owner_id INTEGER REFERENCES users(id)`);
   }
+  if (!taskCols.includes('scheduled_order')) {
+    db.exec(`ALTER TABLE tasks ADD COLUMN scheduled_order INTEGER`);
+  }
 
   const stepCols = (db.pragma('table_info(project_instance_steps)') as { name: string }[]).map((c) => c.name);
   if (!stepCols.includes('notes')) {
@@ -258,6 +262,9 @@ export function runMigrations(db: Database.Database): void {
   }
   if (!recurringRuleCols.includes('owner_id')) {
     db.exec(`ALTER TABLE recurring_task_rules ADD COLUMN owner_id INTEGER REFERENCES users(id)`);
+  }
+  if (!recurringRuleCols.includes('steps_json')) {
+    db.exec(`ALTER TABLE recurring_task_rules ADD COLUMN steps_json TEXT NOT NULL DEFAULT '[]'`);
   }
 
   const userCols = (db.pragma('table_info(users)') as { name: string }[]).map((c) => c.name);

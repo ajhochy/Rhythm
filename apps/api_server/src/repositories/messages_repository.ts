@@ -257,4 +257,16 @@ export class MessagesRepository {
       )
       .run(threadId, userId, new Date().toISOString());
   }
+
+  markThreadUnread(threadId: number, userId: number): void {
+    this.findThreadByIdForUser(threadId, userId);
+    getDb()
+      .prepare(
+        `INSERT INTO thread_reads (thread_id, user_id, last_read_at)
+         VALUES (?, ?, NULL)
+         ON CONFLICT(thread_id, user_id)
+         DO UPDATE SET last_read_at = NULL`,
+      )
+      .run(threadId, userId);
+  }
 }

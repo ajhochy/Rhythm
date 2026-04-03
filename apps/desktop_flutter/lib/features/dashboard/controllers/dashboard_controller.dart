@@ -152,7 +152,10 @@ class DashboardController extends ChangeNotifier {
       if (!rule.enabled) continue;
       final ruleTasks = tasks
           .where((task) =>
-              task.sourceType == 'recurring_rule' && task.sourceId == rule.id)
+              task.sourceType == 'recurring_rule' &&
+              task.sourceId != null &&
+              (task.sourceId == rule.id ||
+                  task.sourceId!.startsWith('${rule.id}:')))
           .toList()
         ..sort(_compareTasks);
       final completed = ruleTasks.where((task) => task.status == 'done').length;

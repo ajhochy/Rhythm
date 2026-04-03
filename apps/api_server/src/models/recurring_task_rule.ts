@@ -1,3 +1,21 @@
+export interface RecurringTaskRuleStep {
+  id: string;
+  title: string;
+  assigneeId: number | null;
+  assigneeName?: string | null;
+}
+
+export interface RecurringTaskRuleProgress {
+  totalCount: number;
+  completedCount: number;
+  remainingCount: number;
+  personalRemainingCount: number;
+  waitingOnUserId: number | null;
+  waitingOnUserName: string | null;
+  nextDueDate: string | null;
+  completionRatio: number;
+}
+
 export interface RecurringTaskRule {
   id: string;
   title: string;
@@ -7,6 +25,8 @@ export interface RecurringTaskRule {
   month: number | null;
   enabled: boolean;
   ownerId: number | null;
+  steps: RecurringTaskRuleStep[];
+  progress?: RecurringTaskRuleProgress;
   createdAt: string;
 }
 
@@ -18,6 +38,7 @@ export interface CreateRecurringTaskRuleDto {
   month?: number | null;
   enabled?: boolean;
   ownerId?: number | null;
+  steps?: RecurringTaskRuleStep[];
 }
 
 export interface UpdateRecurringTaskRuleDto {
@@ -28,4 +49,5 @@ export interface UpdateRecurringTaskRuleDto {
   month?: number | null;
   enabled?: boolean;
   ownerId?: number | null;
+  steps?: RecurringTaskRuleStep[];
 }

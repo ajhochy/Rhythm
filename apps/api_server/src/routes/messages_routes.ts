@@ -11,3 +11,4 @@ messagesRouter.post('/', controller.createThread.bind(controller));
 messagesRouter.get('/:id/messages', controller.getMessages.bind(controller));
 messagesRouter.post('/:id/messages', controller.createMessage.bind(controller));
 messagesRouter.post('/:id/read', controller.markRead.bind(controller));
+messagesRouter.post('/:id/unread', controller.markUnread.bind(controller));

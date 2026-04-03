@@ -78,14 +78,19 @@ class WeeklyPlannerController extends ChangeNotifier {
 
   Future<void> scheduleTask(Task task, String date) async {
     try {
+      final scheduledOrder = _defaultScheduledOrderForDate(date);
       if (task.sourceType == 'project_step') {
         await _repository.updateTask(task.id,
             dueDate: date, sourceType: task.sourceType);
       } else if (task.dueDate == null && task.scheduledDate == null) {
         await _repository.updateTask(task.id,
-            dueDate: date, scheduledDate: date, sourceType: task.sourceType);
+            dueDate: date,
+            scheduledDate: date,
+            scheduledOrder: scheduledOrder,
+            sourceType: task.sourceType);
       } else {
-        await _repository.scheduleTask(task.id, date);
+        await _repository.scheduleTask(task.id, date,
+            scheduledOrder: scheduledOrder);
       }
       await load();
     } catch (e) {
@@ -108,12 +113,16 @@ class WeeklyPlannerController extends ChangeNotifier {
   }
 
   Future<void> updateTask(Task task,
-      {String? notes, String? dueDate, String? scheduledDate}) async {
+      {String? notes,
+      String? dueDate,
+      String? scheduledDate,
+      int? scheduledOrder}) async {
     try {
       await _repository.updateTask(task.id,
           notes: notes,
           dueDate: dueDate,
           scheduledDate: scheduledDate,
+          scheduledOrder: scheduledOrder,
           sourceType: task.sourceType);
       await load();
     } catch (e) {
@@ -150,6 +159,73 @@ class WeeklyPlannerController extends ChangeNotifier {
       _status = WeeklyPlannerStatus.error;
       notifyListeners();
     }
+  }
+
+  Future<void> moveTaskEarlier(Task task) async {
+    await _repositionTask(task, earlier: true);
+  }
+
+  Future<void> moveTaskLater(Task task) async {
+    await _repositionTask(task, earlier: false);
+  }
+
+  Future<void> _repositionTask(Task task, {required bool earlier}) async {
+    if (task.sourceType == 'calendar_shadow_event') return;
+    final date = task.scheduledDate ?? task.dueDate;
+    final plan = _plan;
+    if (date == null || plan == null) return;
+    final sameDay = [
+      ...plan.tasksForDate(date),
+    ]..sort(_compareVisualOrder);
+    final currentIndex = sameDay.indexWhere((item) => item.id == task.id);
+    if (currentIndex == -1) return;
+    final targetIndex = earlier ? currentIndex - 1 : currentIndex + 1;
+    if (targetIndex < 0 || targetIndex >= sameDay.length) return;
+
+    final target = sameDay[targetIndex];
+    final beforeAnchorIndex = earlier ? targetIndex - 1 : targetIndex;
+    final afterAnchorIndex = earlier ? targetIndex : targetIndex + 1;
+
+    final beforeOrder = beforeAnchorIndex >= 0
+        ? _visualOrderForTask(sameDay[beforeAnchorIndex])
+        : _visualOrderForTask(target) - 10000;
+    final afterOrder = afterAnchorIndex < sameDay.length
+        ? _visualOrderForTask(sameDay[afterAnchorIndex])
+        : _visualOrderForTask(target) + 10000;
+
+    final nextOrder = ((beforeOrder + afterOrder) / 2).round();
+
+    await updateTask(
+      task,
+      scheduledOrder: nextOrder,
+    );
+  }
+
+  int _defaultScheduledOrderForDate(String date) {
+    final dayTasks = [
+      ...?_plan?.tasksForDate(date),
+    ];
+    if (dayTasks.isEmpty) return 10000000;
+    final maxOrder = dayTasks
+        .map(_visualOrderForTask)
+        .reduce((value, element) => value > element ? value : element);
+    return maxOrder + 10000;
+  }
+
+  static int _compareVisualOrder(Task a, Task b) {
+    final compare = _visualOrderForTask(a).compareTo(_visualOrderForTask(b));
+    if (compare != 0) return compare;
+    return a.title.toLowerCase().compareTo(b.title.toLowerCase());
+  }
+
+  static int _visualOrderForTask(Task task) {
+    if (task.sourceType == 'calendar_shadow_event' && task.startsAt != null) {
+      final dateTime = DateTime.tryParse(task.startsAt!);
+      if (dateTime != null) {
+        return ((dateTime.hour * 60) + dateTime.minute) * 10000;
+      }
+    }
+    return task.scheduledOrder ?? 10000000;
   }
 
   // ── ISO week helpers ──────────────────────────────────────────────────────

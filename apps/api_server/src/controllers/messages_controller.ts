@@ -60,4 +60,13 @@ export class MessagesController {
       next(err);
     }
   }
+
+  markUnread(req: Request, res: Response, next: NextFunction) {
+    try {
+      repo.markThreadUnread(Number(req.params.id), req.auth!.user.id);
+      res.status(204).send();
+    } catch (err) {
+      next(err);
+    }
+  }
 }

@@ -1,5 +1,6 @@
 import '../../../features/tasks/models/recurring_task_rule.dart';
 import '../data/rhythms_data_source.dart';
+import '../../../app/core/auth/auth_user.dart';
 
 class RhythmsRepository {
   RhythmsRepository(this._dataSource);
@@ -8,12 +9,15 @@ class RhythmsRepository {
 
   Future<List<RecurringTaskRule>> getAll() => _dataSource.fetchAll();
 
+  Future<List<AuthUser>> getUsers() => _dataSource.fetchUsers();
+
   Future<RecurringTaskRule> create({
     required String title,
     required String frequency,
     int? dayOfWeek,
     int? dayOfMonth,
     int? month,
+    List<RecurringTaskRuleStep>? steps,
   }) =>
       _dataSource.create(
         title: title,
@@ -21,6 +25,7 @@ class RhythmsRepository {
         dayOfWeek: dayOfWeek,
         dayOfMonth: dayOfMonth,
         month: month,
+        steps: steps,
       );
 
   Future<RecurringTaskRule> update(
@@ -31,6 +36,7 @@ class RhythmsRepository {
     int? dayOfMonth,
     int? month,
     bool? enabled,
+    List<RecurringTaskRuleStep>? steps,
   }) =>
       _dataSource.update(id,
           title: title,
@@ -38,7 +44,8 @@ class RhythmsRepository {
           dayOfWeek: dayOfWeek,
           dayOfMonth: dayOfMonth,
           month: month,
-          enabled: enabled);
+          enabled: enabled,
+          steps: steps);
 
   Future<void> delete(String id) => _dataSource.delete(id);
 }

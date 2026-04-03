@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:http/http.dart' as http;
+import '../../../app/core/auth/auth_user.dart';
 import '../../../app/core/auth/auth_session_store.dart';
 import '../../../app/core/constants/app_constants.dart';
 import '../../../app/core/errors/app_error.dart';
@@ -23,12 +24,23 @@ class RhythmsDataSource {
         .toList();
   }
 
+  Future<List<AuthUser>> fetchUsers() async {
+    final response = await http.get(
+      Uri.parse('$_baseUrl/users'),
+      headers: AuthSessionStore.headers(),
+    );
+    _assertOk(response);
+    final list = jsonDecode(response.body) as List<dynamic>;
+    return list.map((j) => AuthUser.fromJson(j as Map<String, dynamic>)).toList();
+  }
+
   Future<RecurringTaskRule> create({
     required String title,
     required String frequency,
     int? dayOfWeek,
     int? dayOfMonth,
     int? month,
+    List<RecurringTaskRuleStep>? steps,
   }) async {
     final response = await http.post(
       Uri.parse('$_baseUrl/recurring-rules'),
@@ -39,6 +51,8 @@ class RhythmsDataSource {
         if (dayOfWeek != null) 'dayOfWeek': dayOfWeek,
         if (dayOfMonth != null) 'dayOfMonth': dayOfMonth,
         if (month != null) 'month': month,
+        if (steps != null)
+          'steps': steps.map((step) => step.toJson()).toList(),
       }),
     );
     _assertOk(response);
@@ -54,6 +68,7 @@ class RhythmsDataSource {
     int? dayOfMonth,
     int? month,
     bool? enabled,
+    List<RecurringTaskRuleStep>? steps,
   }) async {
     final response = await http.patch(
       Uri.parse('$_baseUrl/recurring-rules/$id'),
@@ -65,6 +80,8 @@ class RhythmsDataSource {
         if (dayOfMonth != null) 'dayOfMonth': dayOfMonth,
         if (month != null) 'month': month,
         if (enabled != null) 'enabled': enabled,
+        if (steps != null)
+          'steps': steps.map((step) => step.toJson()).toList(),
       }),
     );
     _assertOk(response);
