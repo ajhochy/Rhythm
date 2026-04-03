@@ -22,6 +22,7 @@ import '../../../features/weekly_planner/views/weekly_planner_view.dart';
 import '../server/api_server_controller.dart';
 import '../auth/auth_session_service.dart';
 import '../updates/update_controller.dart';
+import '../constants/app_constants.dart';
 import 'navigation_sidebar.dart';
 import '../../theme/rhythm_tokens.dart';
 
@@ -195,10 +196,10 @@ class _AppContent extends StatelessWidget {
     final authSessionService = context.watch<AuthSessionService>();
     final views = <Widget>[
       DashboardView(
-        openWeeklyPlanner: () => onItemSelected(1),
-        openRhythms: () => onItemSelected(3),
-        openProjects: () => onItemSelected(4),
-        openMessages: () => onItemSelected(5),
+        openWeeklyPlanner: () => onItemSelected(AppConstants.navWeeklyPlanner),
+        openRhythms: () => onItemSelected(AppConstants.navRhythms),
+        openProjects: () => onItemSelected(AppConstants.navProjects),
+        openMessages: () => onItemSelected(AppConstants.navMessages),
       ),
       const WeeklyPlannerView(),
       const TasksView(),

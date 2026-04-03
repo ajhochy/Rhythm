@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../../../features/messages/controllers/messages_controller.dart';
 import '../../../features/settings/views/settings_view.dart';
+import '../../constants/app_constants.dart';
 import '../../theme/rhythm_tokens.dart';
 
 class NavigationSidebar extends StatelessWidget {
@@ -41,7 +42,8 @@ class NavigationSidebar extends StatelessWidget {
           right: BorderSide(color: RhythmTokens.borderSoft),
         ),
       ),
-      padding: EdgeInsets.fromLTRB(collapsed ? 10 : 16, 14, collapsed ? 10 : 16, 14),
+      padding:
+          EdgeInsets.fromLTRB(collapsed ? 10 : 16, 14, collapsed ? 10 : 16, 14),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -57,8 +59,9 @@ class NavigationSidebar extends StatelessWidget {
               boxShadow: RhythmTokens.shadow,
             ),
             child: Row(
-              mainAxisAlignment:
-                  collapsed ? MainAxisAlignment.center : MainAxisAlignment.start,
+              mainAxisAlignment: collapsed
+                  ? MainAxisAlignment.center
+                  : MainAxisAlignment.start,
               children: [
                 const CircleAvatar(
                   radius: 15,
@@ -110,7 +113,7 @@ class NavigationSidebar extends StatelessWidget {
                       isSelected: i == selectedIndex,
                       collapsed: collapsed,
                       onTap: () => onItemSelected(i),
-                      badgeCount: i == 5 ? unreadCount : null,
+                      badgeCount: i == AppConstants.navMessages ? unreadCount : null,
                     ),
                     const SizedBox(height: 6),
                   ],
