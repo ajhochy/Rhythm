@@ -6,6 +6,7 @@ class GmailSignal {
     required this.isUnread,
     this.snippet,
     this.receivedAt,
+    this.threadId,
   });
 
   factory GmailSignal.fromJson(Map<String, dynamic> json) {
@@ -22,6 +23,7 @@ class GmailSignal {
       snippet: json['snippet'] as String?,
       receivedAt: json['receivedAt'] as String?,
       isUnread: json['isUnread'] as bool? ?? false,
+      threadId: json['threadId'] as String?,
     );
   }
 
@@ -31,4 +33,5 @@ class GmailSignal {
   final String? snippet;
   final String? receivedAt;
   final bool isUnread;
+  final String? threadId;
 }
