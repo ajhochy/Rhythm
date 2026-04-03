@@ -41,7 +41,7 @@ class AutomationRulePreview {
 
 class AutomationRulesDataSource {
   AutomationRulesDataSource({String? baseUrl})
-      : _baseUrl = baseUrl ?? AppConstants.apiBaseUrl;
+    : _baseUrl = baseUrl ?? AppConstants.apiBaseUrl;
 
   final String _baseUrl;
 
@@ -65,8 +65,11 @@ class AutomationRulesDataSource {
     assertOk(response);
     final list = jsonDecode(response.body) as List<dynamic>;
     return list
-        .map((item) =>
-            AutomationTriggerCatalogItem.fromJson(item as Map<String, dynamic>))
+        .map(
+          (item) => AutomationTriggerCatalogItem.fromJson(
+            item as Map<String, dynamic>,
+          ),
+        )
         .toList();
   }
 
@@ -78,8 +81,11 @@ class AutomationRulesDataSource {
     assertOk(response);
     final list = jsonDecode(response.body) as List<dynamic>;
     return list
-        .map((item) =>
-            AutomationActionCatalogItem.fromJson(item as Map<String, dynamic>))
+        .map(
+          (item) => AutomationActionCatalogItem.fromJson(
+            item as Map<String, dynamic>,
+          ),
+        )
         .toList();
   }
 
@@ -91,8 +97,11 @@ class AutomationRulesDataSource {
     assertOk(response);
     final list = jsonDecode(response.body) as List<dynamic>;
     return list
-        .map((item) => AutomationProviderCatalogItem.fromJson(
-            item as Map<String, dynamic>))
+        .map(
+          (item) => AutomationProviderCatalogItem.fromJson(
+            item as Map<String, dynamic>,
+          ),
+        )
         .toList();
   }
 
@@ -105,7 +114,8 @@ class AutomationRulesDataSource {
     final list = jsonDecode(response.body) as List<dynamic>;
     return list
         .map(
-            (item) => IntegrationAccount.fromJson(item as Map<String, dynamic>))
+          (item) => IntegrationAccount.fromJson(item as Map<String, dynamic>),
+        )
         .toList();
   }
 
@@ -118,6 +128,16 @@ class AutomationRulesDataSource {
     return PlanningCenterTaskOptions.fromJson(
       jsonDecode(response.body) as Map<String, dynamic>,
     );
+  }
+
+  Future<List<String>> fetchGmailLabels() async {
+    final response = await http.get(
+      Uri.parse('$_baseUrl/integrations/gmail/labels'),
+      headers: AuthSessionStore.headers(),
+    );
+    if (response.statusCode >= 400) return const [];
+    final list = jsonDecode(response.body) as List<dynamic>;
+    return list.map((item) => item as String).toList();
   }
 
   Future<AutomationRulePreview> fetchPreview(String id) async {
@@ -157,7 +177,8 @@ class AutomationRulesDataSource {
     );
     assertOk(response);
     return AutomationRule.fromJson(
-        jsonDecode(response.body) as Map<String, dynamic>);
+      jsonDecode(response.body) as Map<String, dynamic>,
+    );
   }
 
   Future<AutomationRule> update(
@@ -187,7 +208,8 @@ class AutomationRulesDataSource {
     );
     assertOk(response);
     return AutomationRule.fromJson(
-        jsonDecode(response.body) as Map<String, dynamic>);
+      jsonDecode(response.body) as Map<String, dynamic>,
+    );
   }
 
   Future<void> delete(String id) async {

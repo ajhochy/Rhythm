@@ -19,6 +19,7 @@ class AutomationRulesRepository {
   Future<List<IntegrationAccount>> getAccounts() => _dataSource.fetchAccounts();
   Future<PlanningCenterTaskOptions?> getPlanningCenterTaskOptions() =>
       _dataSource.fetchPlanningCenterTaskOptions();
+  Future<List<String>> getGmailLabels() => _dataSource.fetchGmailLabels();
   Future<AutomationRulePreview> getPreview(String id) =>
       _dataSource.fetchPreview(id);
 
@@ -31,17 +32,16 @@ class AutomationRulesRepository {
     Map<String, dynamic>? actionConfig,
     String? sourceAccountId,
     bool enabled = true,
-  }) =>
-      _dataSource.create(
-        name: name,
-        source: source,
-        triggerKey: triggerKey,
-        actionType: actionType,
-        triggerConfig: triggerConfig,
-        actionConfig: actionConfig,
-        sourceAccountId: sourceAccountId,
-        enabled: enabled,
-      );
+  }) => _dataSource.create(
+    name: name,
+    source: source,
+    triggerKey: triggerKey,
+    actionType: actionType,
+    triggerConfig: triggerConfig,
+    actionConfig: actionConfig,
+    sourceAccountId: sourceAccountId,
+    enabled: enabled,
+  );
 
   Future<AutomationRule> update(
     String id, {
@@ -53,18 +53,17 @@ class AutomationRulesRepository {
     Map<String, dynamic>? actionConfig,
     String? sourceAccountId,
     bool? enabled,
-  }) =>
-      _dataSource.update(
-        id,
-        name: name,
-        source: source,
-        triggerKey: triggerKey,
-        actionType: actionType,
-        triggerConfig: triggerConfig,
-        actionConfig: actionConfig,
-        sourceAccountId: sourceAccountId,
-        enabled: enabled,
-      );
+  }) => _dataSource.update(
+    id,
+    name: name,
+    source: source,
+    triggerKey: triggerKey,
+    actionType: actionType,
+    triggerConfig: triggerConfig,
+    actionConfig: actionConfig,
+    sourceAccountId: sourceAccountId,
+    enabled: enabled,
+  );
 
   Future<void> delete(String id) => _dataSource.delete(id);
   Future<void> resync(String id) => _dataSource.resync(id);
