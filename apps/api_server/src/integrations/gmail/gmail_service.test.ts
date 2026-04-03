@@ -75,6 +75,7 @@ describe('GmailService', () => {
     expect(results[1].isUnread).toBe(false);
     // fetch was called once for list + 3 for details = 4 total
     expect(vi.mocked(fetch)).toHaveBeenCalledTimes(4);
+    expect(fetchOrder).toHaveLength(3);
   });
 
   it('returns empty array when inbox is empty', async () => {
@@ -89,6 +90,26 @@ describe('GmailService', () => {
     const service = new GmailService();
     const results = await service.listRecentInboxSignals(mockAccount);
     expect(results).toHaveLength(0);
+  });
+
+  it('rejects when a message detail fetch fails', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        const u = url.toString();
+        if (u.includes('/messages?')) {
+          return makeMessageListResponse(['m1', 'm2']);
+        }
+        const id = u.match(/\/messages\/(m\d)/)?.[1] ?? 'unknown';
+        // m2 detail fetch fails
+        if (id === 'm2') {
+          return { ok: false, text: async () => 'Not Found' };
+        }
+        return makeMessageDetailResponse(id, false);
+      }),
+    );
+    const service = new GmailService();
+    await expect(service.listRecentInboxSignals(mockAccount)).rejects.toThrow();
   });
 
   it('throws when list request fails', async () => {

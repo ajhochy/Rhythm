@@ -99,7 +99,7 @@ export class GmailService {
 
         if (!detailResponse.ok) {
           const text = await detailResponse.text();
-          throw AppError.badRequest(`Gmail message lookup failed: ${text}`);
+          throw AppError.internal(`Gmail message lookup failed: ${text}`);
         }
 
         const detail = (await detailResponse.json()) as GmailMessageResponse;
