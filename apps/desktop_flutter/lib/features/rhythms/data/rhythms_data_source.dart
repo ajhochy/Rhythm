@@ -3,7 +3,7 @@ import 'package:http/http.dart' as http;
 import '../../../app/core/auth/auth_user.dart';
 import '../../../app/core/auth/auth_session_store.dart';
 import '../../../app/core/constants/app_constants.dart';
-import '../../../app/core/errors/app_error.dart';
+import '../../../app/core/utils/http_utils.dart';
 import '../../../features/tasks/models/recurring_task_rule.dart';
 
 class RhythmsDataSource {
@@ -17,7 +17,7 @@ class RhythmsDataSource {
       Uri.parse('$_baseUrl/recurring-rules'),
       headers: AuthSessionStore.headers(),
     );
-    _assertOk(response);
+    assertOk(response);
     final list = jsonDecode(response.body) as List<dynamic>;
     return list
         .map((j) => RecurringTaskRule.fromJson(j as Map<String, dynamic>))
@@ -29,9 +29,11 @@ class RhythmsDataSource {
       Uri.parse('$_baseUrl/users'),
       headers: AuthSessionStore.headers(),
     );
-    _assertOk(response);
+    assertOk(response);
     final list = jsonDecode(response.body) as List<dynamic>;
-    return list.map((j) => AuthUser.fromJson(j as Map<String, dynamic>)).toList();
+    return list
+        .map((j) => AuthUser.fromJson(j as Map<String, dynamic>))
+        .toList();
   }
 
   Future<RecurringTaskRule> create({
@@ -51,11 +53,10 @@ class RhythmsDataSource {
         if (dayOfWeek != null) 'dayOfWeek': dayOfWeek,
         if (dayOfMonth != null) 'dayOfMonth': dayOfMonth,
         if (month != null) 'month': month,
-        if (steps != null)
-          'steps': steps.map((step) => step.toJson()).toList(),
+        if (steps != null) 'steps': steps.map((step) => step.toJson()).toList(),
       }),
     );
-    _assertOk(response);
+    assertOk(response);
     return RecurringTaskRule.fromJson(
         jsonDecode(response.body) as Map<String, dynamic>);
   }
@@ -80,11 +81,10 @@ class RhythmsDataSource {
         if (dayOfMonth != null) 'dayOfMonth': dayOfMonth,
         if (month != null) 'month': month,
         if (enabled != null) 'enabled': enabled,
-        if (steps != null)
-          'steps': steps.map((step) => step.toJson()).toList(),
+        if (steps != null) 'steps': steps.map((step) => step.toJson()).toList(),
       }),
     );
-    _assertOk(response);
+    assertOk(response);
     return RecurringTaskRule.fromJson(
         jsonDecode(response.body) as Map<String, dynamic>);
   }
@@ -94,16 +94,6 @@ class RhythmsDataSource {
       Uri.parse('$_baseUrl/recurring-rules/$id'),
       headers: AuthSessionStore.headers(),
     );
-    _assertOk(response);
-  }
-
-  void _assertOk(http.Response response) {
-    if (response.statusCode >= 400) {
-      final body = jsonDecode(response.body) as Map<String, dynamic>?;
-      final message =
-          (body?['error'] as Map<String, dynamic>?)?['message'] as String? ??
-              'Request failed';
-      throw AppError(message);
-    }
+    assertOk(response);
   }
 }

@@ -243,7 +243,8 @@ class _SearchField extends StatelessWidget {
         isDense: true,
         filled: true,
         fillColor: _kSurfaceMuted,
-        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        contentPadding:
+            const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(RhythmTokens.radiusS),
           borderSide: const BorderSide(color: _kDivider),
@@ -589,13 +590,13 @@ class _MessagePanelState extends State<_MessagePanel> {
                             Container(
                               padding: const EdgeInsets.symmetric(
                                   horizontal: 10, vertical: 6),
-                            decoration: BoxDecoration(
-                          color: _kAccentSoft,
-                          borderRadius: BorderRadius.circular(
-                              RhythmTokens.radiusS),
-                        ),
-                        child: Text(
-                          'Direct',
+                              decoration: BoxDecoration(
+                                color: _kAccentSoft,
+                                borderRadius:
+                                    BorderRadius.circular(RhythmTokens.radiusS),
+                              ),
+                              child: Text(
+                                'Direct',
                                 style: TextStyle(
                                   fontSize: 11,
                                   fontWeight: FontWeight.w700,
@@ -621,8 +622,8 @@ class _MessagePanelState extends State<_MessagePanel> {
                                 )
                               : ListView.separated(
                                   controller: _scrollController,
-                                  padding: const EdgeInsets.fromLTRB(
-                                      20, 20, 20, 16),
+                                  padding:
+                                      const EdgeInsets.fromLTRB(20, 20, 20, 16),
                                   itemCount: controller.messages.length,
                                   separatorBuilder: (_, __) =>
                                       const SizedBox(height: 12),
@@ -650,7 +651,7 @@ class _EmptyConversationState extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Center(
-          child: Container(
+      child: Container(
         width: 340,
         padding: const EdgeInsets.all(28),
         decoration: BoxDecoration(
@@ -1063,7 +1064,7 @@ class _NewThreadDialogState extends State<_NewThreadDialog> {
             if (users.isEmpty)
               const Padding(
                 padding: EdgeInsets.symmetric(vertical: 16),
-              child: Text(
+                child: Text(
                   'No users available.',
                   style: TextStyle(color: _kTextMuted),
                 ),

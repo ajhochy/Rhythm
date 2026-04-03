@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../../../app/core/auth/auth_user.dart';
+import '../../../app/core/formatters/date_formatters.dart';
 import '../../../app/core/widgets/error_banner.dart';
 import '../../../app/theme/rhythm_tokens.dart';
 import '../controllers/rhythms_controller.dart';
@@ -425,7 +426,10 @@ class _RuleTileState extends State<_RuleTile> {
                                   border: Border.all(color: _kBorderSoft),
                                 ),
                                 child: Text(
-                                  date,
+                                  DateFormatters.fullDate(
+                                    date,
+                                    fallback: date,
+                                  ),
                                   style: Theme.of(context)
                                       .textTheme
                                       .labelSmall
@@ -444,7 +448,7 @@ class _RuleTileState extends State<_RuleTile> {
               ),
               crossFadeState: _expanded
                   ? CrossFadeState.showSecond
-              : CrossFadeState.showFirst,
+                  : CrossFadeState.showFirst,
               duration: const Duration(milliseconds: 180),
             ),
           ],
@@ -769,7 +773,8 @@ class _CreateRuleDialogState extends State<_CreateRuleDialog> {
                   ),
                   items: List.generate(
                     7,
-                    (i) => DropdownMenuItem(value: i, child: Text(_weekdays[i])),
+                    (i) =>
+                        DropdownMenuItem(value: i, child: Text(_weekdays[i])),
                   ),
                   onChanged: (v) => setState(() => _dayOfWeek = v!),
                 ),
@@ -789,7 +794,8 @@ class _CreateRuleDialogState extends State<_CreateRuleDialog> {
                   ),
                   items: List.generate(
                     12,
-                    (i) => DropdownMenuItem(value: i + 1, child: Text(_months[i])),
+                    (i) =>
+                        DropdownMenuItem(value: i + 1, child: Text(_months[i])),
                   ),
                   onChanged: (v) => setState(() => _month = v!),
                 ),
@@ -1032,7 +1038,8 @@ class _EditRuleDialogState extends State<_EditRuleDialog> {
                   ),
                   items: List.generate(
                     7,
-                    (i) => DropdownMenuItem(value: i, child: Text(_weekdays[i])),
+                    (i) =>
+                        DropdownMenuItem(value: i, child: Text(_weekdays[i])),
                   ),
                   onChanged: (v) => setState(() => _dayOfWeek = v!),
                 ),
@@ -1050,7 +1057,8 @@ class _EditRuleDialogState extends State<_EditRuleDialog> {
                   ),
                   items: List.generate(
                     12,
-                    (i) => DropdownMenuItem(value: i + 1, child: Text(_months[i])),
+                    (i) =>
+                        DropdownMenuItem(value: i + 1, child: Text(_months[i])),
                   ),
                   onChanged: (v) => setState(() => _month = v!),
                 ),

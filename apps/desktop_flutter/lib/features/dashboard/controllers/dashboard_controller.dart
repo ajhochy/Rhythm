@@ -1,18 +1,19 @@
 import 'package:flutter/foundation.dart';
 
+import '../../messages/models/message_thread.dart';
 import '../../projects/models/project_instance.dart';
 import '../../projects/models/project_template.dart';
 import '../../tasks/models/recurring_task_rule.dart';
 import '../../tasks/models/task.dart';
-import '../data/dashboard_data_source.dart';
 import '../models/dashboard_overview_models.dart';
+import '../repositories/dashboard_repository.dart';
 
 enum DashboardStatus { loading, ready, error }
 
 class DashboardController extends ChangeNotifier {
-  DashboardController(this._dataSource);
+  DashboardController(this._repository);
 
-  final DashboardDataSource _dataSource;
+  final DashboardRepository _repository;
 
   DashboardStatus _status = DashboardStatus.loading;
   String? _errorMessage;
@@ -67,14 +68,14 @@ class DashboardController extends ChangeNotifier {
     notifyListeners();
     try {
       final results = await Future.wait([
-        _dataSource.fetchTasks(),
-        _dataSource.fetchRecurringRules(),
-        _dataSource.fetchMessageThreadCount(),
+        _repository.getTasks(),
+        _repository.getRecurringRules(),
+        _repository.getMessageThreads(),
       ]);
 
       final tasks = results[0] as List<Task>;
       final rules = results[1] as List<RecurringTaskRule>;
-      final messageCount = results[2] as int;
+      final threads = results[2] as List<MessageThread>;
 
       final now = DateTime.now();
       final today = _stripDate(now)!;
@@ -85,17 +86,21 @@ class DashboardController extends ChangeNotifier {
         ..sort(_compareTasks);
       _todayTasks = tasks.where((t) => _isDueToday(t, today)).toList()
         ..sort(_compareTasks);
-      _thisWeekTasks = tasks.where((t) => _isDueThisWeek(t, today, weekEnd)).toList()
+      _thisWeekTasks = tasks
+          .where((t) => _isDueThisWeek(t, today, weekEnd))
+          .toList()
         ..sort(_compareTasks);
       _unscheduledTasks = tasks.where(_isUnscheduled).toList()
         ..sort((a, b) => b.id.compareTo(a.id));
       _pastDueTaskCount = _pastDueTasks.length;
       _todayTasksRemainingCount = _todayTasks.length;
-      _todayTasksTotalCount =
-          tasks.where((task) => _isDueToday(task, today, includeDone: true)).length;
+      _todayTasksTotalCount = tasks
+          .where((task) => _isDueToday(task, today, includeDone: true))
+          .length;
       _thisWeekTasksRemainingCount = _thisWeekTasks.length;
       _thisWeekTasksTotalCount = tasks
-          .where((task) => _isDueThisWeek(task, today, weekEnd, includeDone: true))
+          .where(
+              (task) => _isDueThisWeek(task, today, weekEnd, includeDone: true))
           .length;
       _unscheduledTaskCount = _unscheduledTasks.length;
       _dueThisWeekCount = _thisWeekTasksRemainingCount;
@@ -104,8 +109,11 @@ class DashboardController extends ChangeNotifier {
       _activeProjects = await _loadProjectSummaries();
       _activeRhythmsCount = _activeRhythms.length;
       _activeProjectsCount = _activeProjects.length;
-      _messageThreadCount = messageCount;
-      _unreadMessages = await _loadUnreadMessagePreviews();
+
+      _messageThreadCount = threads.length;
+      _unreadMessages = await _repository.getUnreadMessagePreviews(
+        threads: threads,
+      );
 
       final sortedRecent = tasks.where((task) => task.status != 'done').toList()
         ..sort(_compareTasks);
@@ -123,7 +131,7 @@ class DashboardController extends ChangeNotifier {
 
   Future<void> createTask(String title, {String? dueDate}) async {
     try {
-      await _dataSource.createTask(title, dueDate: dueDate);
+      await _repository.createTask(title, dueDate: dueDate);
       await refresh();
     } catch (e) {
       _errorMessage = e.toString();
@@ -135,7 +143,7 @@ class DashboardController extends ChangeNotifier {
     final task = _findTaskById(id);
     if (task == null) return;
     try {
-      await _dataSource.toggleTaskDone(id, task.status);
+      await _repository.toggleTaskDone(id, task.status);
       await refresh();
     } catch (e) {
       _errorMessage = e.toString();
@@ -226,7 +234,8 @@ class DashboardController extends ChangeNotifier {
     return date != null && date.isBefore(today);
   }
 
-  static bool _isDueToday(Task task, DateTime today, {bool includeDone = false}) {
+  static bool _isDueToday(Task task, DateTime today,
+      {bool includeDone = false}) {
     if (!includeDone && task.status == 'done') return false;
     final date = _taskPriorityDate(task);
     return date != null &&
@@ -247,13 +256,15 @@ class DashboardController extends ChangeNotifier {
   }
 
   static bool _isUnscheduled(Task task) =>
-      task.status != 'done' && task.dueDate == null && task.scheduledDate == null;
+      task.status != 'done' &&
+      task.dueDate == null &&
+      task.scheduledDate == null;
 
   Future<List<DashboardProjectProgress>> _loadProjectSummaries() async {
     try {
       final results = await Future.wait([
-        _dataSource.fetchProjectTemplates(),
-        _dataSource.fetchProjectInstances(),
+        _repository.getProjectTemplates(),
+        _repository.getProjectInstances(),
       ]);
       final templates = results[0] as List<ProjectTemplate>;
       final projectInstances = results[1] as List<ProjectInstance>;
@@ -261,16 +272,6 @@ class DashboardController extends ChangeNotifier {
         for (final template in templates) template.id: template
       };
       return _buildProjectSummaries(projectInstances, templatesById);
-    } catch (_) {
-      return const [];
-    }
-  }
-
-  Future<List<DashboardUnreadMessagePreview>>
-      _loadUnreadMessagePreviews() async {
-    try {
-      final threads = await _dataSource.fetchMessageThreads();
-      return _dataSource.fetchUnreadMessagePreviews(threads: threads);
     } catch (_) {
       return const [];
     }

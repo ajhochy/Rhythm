@@ -263,7 +263,8 @@ class _StatCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(label, style: const TextStyle(color: RhythmTokens.textSecondary)),
+          Text(label,
+              style: const TextStyle(color: RhythmTokens.textSecondary)),
           const SizedBox(height: 6),
           Text(value,
               style: const TextStyle(
@@ -1168,13 +1169,13 @@ class _AutomationBuilderDialogState extends State<_AutomationBuilderDialog> {
       'signalType': _asString(sample['signalType']) ?? '',
       'title': _asString(sample['title']) ?? '',
       'subject': _asString(sample['subject']) ?? '',
-      'sender': _asString(sample['fromEmail']) ??
-          _asString(sample['fromName']) ??
-          '',
+      'sender':
+          _asString(sample['fromEmail']) ?? _asString(sample['fromName']) ?? '',
       'serviceType': _asString(sample['serviceTypeName']) ?? '',
       'position': _asString(sample['positionName']) ?? '',
       'team': _asString(sample['teamName']) ?? '',
-      'date': _asString(sample['planDate']) ?? _asString(sample['startDate']) ?? '',
+      'date':
+          _asString(sample['planDate']) ?? _asString(sample['startDate']) ?? '',
       'snippet': _asString(sample['snippet']) ?? '',
     };
     return fallback.replaceAllMapped(
@@ -1214,8 +1215,8 @@ class _AutomationBuilderDialogState extends State<_AutomationBuilderDialog> {
           Text(
             label,
             style: Theme.of(context).textTheme.labelMedium?.copyWith(
-              fontWeight: FontWeight.w700,
-            ),
+                  fontWeight: FontWeight.w700,
+                ),
           ),
           const SizedBox(height: 6),
           Text(
@@ -1316,7 +1317,8 @@ class _AutomationBuilderDialogState extends State<_AutomationBuilderDialog> {
     switch (_selectedSource) {
       case 'gmail':
         return const [
-          _TemplateExample('Follow-up title', 'Reply to {{sender}} about {{subject}}'),
+          _TemplateExample(
+              'Follow-up title', 'Reply to {{sender}} about {{subject}}'),
           _TemplateExample('Simple email task', 'Email: {{subject}}'),
         ];
       case 'google_calendar':
@@ -1340,13 +1342,16 @@ class _AutomationBuilderDialogState extends State<_AutomationBuilderDialog> {
     switch (_selectedSource) {
       case 'gmail':
         return const [
-          _TemplateExample('Sender + snippet', 'From {{sender}}\n\n{{snippet}}'),
-          _TemplateExample('Subject summary', 'Subject: {{subject}}\nReceived: {{date}}'),
+          _TemplateExample(
+              'Sender + snippet', 'From {{sender}}\n\n{{snippet}}'),
+          _TemplateExample(
+              'Subject summary', 'Subject: {{subject}}\nReceived: {{date}}'),
         ];
       case 'google_calendar':
         return const [
           _TemplateExample('Event summary', 'Event: {{title}}\nDate: {{date}}'),
-          _TemplateExample('Prep note', 'Prepare for {{title}} happening on {{date}}.'),
+          _TemplateExample(
+              'Prep note', 'Prepare for {{title}} happening on {{date}}.'),
         ];
       case 'planning_center':
         return const [

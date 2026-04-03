@@ -33,6 +33,7 @@ import 'features/tasks/repositories/automation_rules_repository.dart';
 import 'features/tasks/repositories/tasks_repository.dart';
 import 'features/dashboard/controllers/dashboard_controller.dart';
 import 'features/dashboard/data/dashboard_data_source.dart';
+import 'features/dashboard/repositories/dashboard_repository.dart';
 import 'features/messages/controllers/messages_controller.dart';
 import 'features/messages/data/messages_data_source.dart';
 import 'features/messages/repositories/messages_repository.dart';
@@ -127,7 +128,7 @@ class RhythmApp extends StatelessWidget {
         ),
         ChangeNotifierProvider(
           create: (_) => DashboardController(
-            DashboardDataSource(baseUrl: baseUrl),
+            DashboardRepository(DashboardDataSource(baseUrl: baseUrl)),
           ),
         ),
         ChangeNotifierProvider(

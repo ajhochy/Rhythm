@@ -2,6 +2,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../app/core/formatters/date_formatters.dart';
+import '../../../app/core/tasks/task_visual_style.dart';
 import '../../../app/core/widgets/error_banner.dart';
 import '../../../app/theme/rhythm_tokens.dart';
 import '../../tasks/models/task.dart';
@@ -19,7 +20,6 @@ const _kTextSecondary = RhythmTokens.textSecondary;
 const _kTextMuted = RhythmTokens.textMuted;
 const _kPrimary = RhythmTokens.accent;
 const _kPrimarySoft = RhythmTokens.accentSoft;
-const _kWarm = RhythmTokens.accentWarm;
 const _kDanger = RhythmTokens.danger;
 
 class WeeklyPlannerView extends StatefulWidget {
@@ -1105,6 +1105,7 @@ class _TaskTile extends StatelessWidget {
     final isMultiSelected = controller.selectedTaskIds.contains(task.id);
     final isDone = task.status == 'done';
     final isShadowEvent = task.sourceType == 'calendar_shadow_event';
+    final visualStyle = TaskVisualStyles.resolve(task);
     final shadowTimeLabel = isShadowEvent ? _shadowEventLabel(task) : null;
     final isPastDue = DateFormatters.isPastDue(
       dueDate: task.dueDate,
@@ -1125,18 +1126,13 @@ class _TaskTile extends StatelessWidget {
           vertical: compact ? 6 : 10,
         ),
         decoration: BoxDecoration(
-          color: isShadowEvent
-              ? const Color(0xFFFFF7ED)
-              : isSelected || isMultiSelected
-                  ? _kPrimarySoft
-                  : _kSurface,
+          color: isSelected || isMultiSelected
+              ? _kPrimarySoft
+              : visualStyle.background,
           borderRadius: BorderRadius.circular(RhythmTokens.radiusS),
           border: Border.all(
-            color: isShadowEvent
-                ? _kWarm.withValues(alpha: 0.45)
-                : isSelected || isMultiSelected
-                    ? _kPrimary
-                    : _kBorder,
+            color:
+                isSelected || isMultiSelected ? _kPrimary : visualStyle.border,
           ),
           boxShadow:
               isSelected || isMultiSelected ? RhythmTokens.shadow : const [],
@@ -1149,7 +1145,7 @@ class _TaskTile extends StatelessWidget {
                 width: 3,
                 margin: const EdgeInsets.only(top: 2, right: 7),
                 decoration: BoxDecoration(
-                  color: _kWarm,
+                  color: visualStyle.accent,
                   borderRadius: BorderRadius.circular(999),
                 ),
               )
@@ -1186,7 +1182,7 @@ class _TaskTile extends StatelessWidget {
                             ?.copyWith(
                           fontSize: compact ? 9.5 : 10.5,
                           fontWeight: FontWeight.w700,
-                          color: _kWarm,
+                          color: visualStyle.accent,
                         ),
                       ),
                     ),
@@ -1203,7 +1199,7 @@ class _TaskTile extends StatelessWidget {
                             ?.copyWith(
                           fontSize: compact ? 9.5 : 10,
                           fontWeight: FontWeight.w700,
-                          color: _kPrimary,
+                          color: visualStyle.accent,
                         ),
                       ),
                     ),
@@ -1216,7 +1212,7 @@ class _TaskTile extends StatelessWidget {
                             : Theme.of(context).textTheme.bodySmall)
                         ?.copyWith(
                       decoration: isDone ? TextDecoration.lineThrough : null,
-                      color: isDone ? _kTextMuted : _kTextPrimary,
+                      color: isDone ? _kTextMuted : visualStyle.text,
                       fontSize: compact ? 10.5 : null,
                       height: compact ? 1.15 : 1.2,
                     ),
@@ -1233,8 +1229,7 @@ class _TaskTile extends StatelessWidget {
                             backgroundColor: _kDanger.withValues(alpha: 0.12),
                             foregroundColor: _kDanger,
                           ),
-                        if (task.sourceType != null)
-                          _SourceChip(sourceType: task.sourceType!),
+                        if (task.sourceType != null) _SourceChip(task: task),
                       ],
                     ),
                   ],
@@ -1609,7 +1604,8 @@ class _DetailPaneState extends State<_DetailPane> {
                       runSpacing: 8,
                       children: [
                         OutlinedButton.icon(
-                          onPressed: () => widget.controller.moveTaskEarlier(task),
+                          onPressed: () =>
+                              widget.controller.moveTaskEarlier(task),
                           icon: const Icon(Icons.arrow_upward, size: 14),
                           label: const Text('Move earlier'),
                           style: OutlinedButton.styleFrom(
@@ -1619,7 +1615,8 @@ class _DetailPaneState extends State<_DetailPane> {
                           ),
                         ),
                         OutlinedButton.icon(
-                          onPressed: () => widget.controller.moveTaskLater(task),
+                          onPressed: () =>
+                              widget.controller.moveTaskLater(task),
                           icon: const Icon(Icons.arrow_downward, size: 14),
                           label: const Text('Move later'),
                           style: OutlinedButton.styleFrom(
@@ -1722,7 +1719,6 @@ class _DetailPaneState extends State<_DetailPane> {
       ),
     );
   }
-
 }
 
 // ---------------------------------------------------------------------------
@@ -1758,18 +1754,20 @@ class _MiniMoveButton extends StatelessWidget {
 }
 
 class _SourceChip extends StatelessWidget {
-  const _SourceChip({required this.sourceType});
-  final String sourceType;
+  const _SourceChip({required this.task});
+  final Task task;
 
   @override
   Widget build(BuildContext context) {
+    final sourceType = task.sourceType ?? '';
+    final accent = TaskVisualStyles.resolve(task).accent;
     final (label, color) = switch (sourceType) {
-      'recurring_rule' => ('R', _kPrimary),
-      'project_step' => ('P', const Color(0xFF4E8A66)),
-      'calendar_shadow_event' => ('C', _kWarm),
-      'planning_center_signal' => ('PC', _kDanger),
-      'automation_rule' => ('A', const Color(0xFF8B5CF6)),
-      _ => ('T', _kTextMuted),
+      'recurring_rule' => ('R', accent),
+      'project_step' => ('P', accent),
+      'calendar_shadow_event' => ('C', accent),
+      'planning_center_signal' => ('PC', accent),
+      'automation_rule' => ('A', accent),
+      _ => ('T', accent),
     };
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
@@ -1786,7 +1784,8 @@ class _SourceChip extends StatelessWidget {
 
 String? _shadowEventLabel(Task task) {
   if (task.isAllDay) return 'All day';
-  final start = task.startsAt == null ? null : DateTime.tryParse(task.startsAt!);
+  final start =
+      task.startsAt == null ? null : DateTime.tryParse(task.startsAt!);
   final end = task.endsAt == null ? null : DateTime.tryParse(task.endsAt!);
   if (start == null) return null;
   final startLabel = _formatClockTime(start);

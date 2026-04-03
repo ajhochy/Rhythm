@@ -3,6 +3,7 @@ import 'package:rhythm_desktop/app/core/notifications/local_notification_service
 import 'package:rhythm_desktop/app/core/auth/auth_user.dart';
 import 'package:rhythm_desktop/features/dashboard/controllers/dashboard_controller.dart';
 import 'package:rhythm_desktop/features/dashboard/data/dashboard_data_source.dart';
+import 'package:rhythm_desktop/features/dashboard/repositories/dashboard_repository.dart';
 import 'package:rhythm_desktop/features/messages/controllers/messages_controller.dart';
 import 'package:rhythm_desktop/features/messages/data/messages_data_source.dart';
 import 'package:rhythm_desktop/features/messages/models/message.dart';
@@ -10,7 +11,6 @@ import 'package:rhythm_desktop/features/messages/models/message_thread.dart';
 import 'package:rhythm_desktop/features/messages/repositories/messages_repository.dart';
 import 'package:rhythm_desktop/features/projects/models/project_instance.dart';
 import 'package:rhythm_desktop/features/projects/models/project_template.dart';
-import 'package:rhythm_desktop/features/dashboard/models/dashboard_overview_models.dart';
 import 'package:rhythm_desktop/features/rhythms/controllers/rhythms_controller.dart';
 import 'package:rhythm_desktop/features/rhythms/data/rhythms_data_source.dart';
 import 'package:rhythm_desktop/features/rhythms/repositories/rhythms_repository.dart';
@@ -21,7 +21,8 @@ void main() {
   test('DashboardController refreshes recent tasks after toggling done',
       () async {
     final dataSource = _FakeDashboardDataSource();
-    final controller = DashboardController(dataSource);
+    final controller =
+        DashboardController(_FakeDashboardRepository(dataSource));
 
     await controller.load();
     expect(controller.openTaskCount, 3);
@@ -263,20 +264,7 @@ class _FakeDashboardDataSource extends DashboardDataSource {
       ];
 
   @override
-  Future<int> fetchProjectInstanceCount() async => 1;
-
-  @override
   Future<List<MessageThread>> fetchMessageThreads() async => const [];
-
-  @override
-  Future<List<DashboardUnreadMessagePreview>> fetchUnreadMessagePreviews({
-    List<MessageThread>? threads,
-    int limit = 3,
-  }) async =>
-      const [];
-
-  @override
-  Future<int> fetchMessageThreadCount() async => 0;
 
   @override
   Future<Task> toggleTaskDone(String id, String currentStatus) async {
@@ -289,6 +277,10 @@ class _FakeDashboardDataSource extends DashboardDataSource {
       updatedAt: '2026-03-31T00:00:00.000Z',
     );
   }
+}
+
+class _FakeDashboardRepository extends DashboardRepository {
+  _FakeDashboardRepository(super.dataSource);
 }
 
 class _FakeMessagesRepository extends MessagesRepository {
@@ -381,7 +373,8 @@ class _FakeRhythmsRepository extends RhythmsRepository {
 
   @override
   Future<List<AuthUser>> getUsers() async => const [
-        AuthUser(id: 1, name: 'Alice', email: 'alice@example.com', role: 'member'),
+        AuthUser(
+            id: 1, name: 'Alice', email: 'alice@example.com', role: 'member'),
         AuthUser(id: 2, name: 'Bob', email: 'bob@example.com', role: 'member'),
       ];
 

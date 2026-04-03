@@ -3,7 +3,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 import '../constants/app_constants.dart';
-import '../errors/app_error.dart';
+import '../utils/http_utils.dart';
 import 'auth_session_store.dart';
 import 'auth_user.dart';
 
@@ -29,7 +29,7 @@ class AuthDataSource {
       headers: {'Content-Type': 'application/json'},
       body: jsonEncode({'googleIdToken': googleIdToken}),
     );
-    _assertOk(response);
+    assertOk(response);
     final json = jsonDecode(response.body) as Map<String, dynamic>;
     return AuthLoginResponse(
       sessionToken: json['sessionToken'] as String,
@@ -43,7 +43,7 @@ class AuthDataSource {
       Uri.parse('$_baseUrl/auth/me'),
       headers: AuthSessionStore.headers(),
     );
-    _assertOk(response);
+    assertOk(response);
     return AuthUser.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
   }
 
@@ -53,20 +53,7 @@ class AuthDataSource {
       headers: AuthSessionStore.headers(),
     );
     if (response.statusCode != 204) {
-      _assertOk(response);
-    }
-  }
-
-  void _assertOk(http.Response response) {
-    if (response.statusCode >= 400) {
-      Map<String, dynamic>? body;
-      if (response.body.isNotEmpty) {
-        body = jsonDecode(response.body) as Map<String, dynamic>?;
-      }
-      final message =
-          (body?['error'] as Map<String, dynamic>?)?['message'] as String? ??
-              'Request failed';
-      throw AppError(message);
+      assertOk(response);
     }
   }
 }

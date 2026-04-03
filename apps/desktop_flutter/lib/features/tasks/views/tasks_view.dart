@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../app/core/formatters/date_formatters.dart';
+import '../../../app/core/tasks/task_visual_style.dart';
 import '../../../app/core/widgets/error_banner.dart';
 import '../../../app/theme/rhythm_tokens.dart';
 import '../controllers/tasks_controller.dart';
@@ -158,17 +159,19 @@ class _TasksViewState extends State<TasksView> {
                     children: [
                       Text(
                         'Tasks',
-                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                              color: RhythmTokens.textPrimary,
-                              fontWeight: FontWeight.w700,
-                              letterSpacing: -0.3,
-                            ),
+                        style:
+                            Theme.of(context).textTheme.titleMedium?.copyWith(
+                                  color: RhythmTokens.textPrimary,
+                                  fontWeight: FontWeight.w700,
+                                  letterSpacing: -0.3,
+                                ),
                       ),
                       _CompactFilterChip(
                         label: 'Completed',
                         selected: _showCompleted,
-                        icon:
-                            _showCompleted ? Icons.visibility_off : Icons.visibility,
+                        icon: _showCompleted
+                            ? Icons.visibility_off
+                            : Icons.visibility,
                         onSelected: (_) =>
                             setState(() => _showCompleted = !_showCompleted),
                       ),
@@ -334,6 +337,7 @@ class _TasksViewState extends State<TasksView> {
   Widget _buildTaskCard(Task task, TasksController controller) {
     final isDone = task.status == 'done';
     final hasNotes = task.notes != null && task.notes!.trim().isNotEmpty;
+    final visualStyle = TaskVisualStyles.resolve(task);
     final isPastDue = DateFormatters.isPastDue(
       dueDate: task.dueDate,
       scheduledDate: task.scheduledDate,
@@ -348,10 +352,9 @@ class _TasksViewState extends State<TasksView> {
       child: Container(
         padding: const EdgeInsets.all(16),
         decoration: BoxDecoration(
-          color:
-              isDone ? RhythmTokens.surfaceMuted : RhythmTokens.surfaceStrong,
+          color: visualStyle.background,
           borderRadius: BorderRadius.circular(RhythmTokens.radiusL),
-          border: Border.all(color: RhythmTokens.borderSoft),
+          border: Border.all(color: visualStyle.border),
           boxShadow: isDone ? const [] : RhythmTokens.shadow,
         ),
         child: Row(
@@ -377,9 +380,9 @@ class _TasksViewState extends State<TasksView> {
                       style: const TextStyle(
                         fontSize: 11,
                         fontWeight: FontWeight.w700,
-                        color: Color(0xFF2E8B57),
+                        color: Colors.transparent,
                         letterSpacing: 0.2,
-                      ),
+                      ).copyWith(color: visualStyle.accent),
                     ),
                     const SizedBox(height: 4),
                   ],
@@ -392,9 +395,7 @@ class _TasksViewState extends State<TasksView> {
                       decoration: isDone
                           ? TextDecoration.lineThrough
                           : TextDecoration.none,
-                      color: isDone
-                          ? RhythmTokens.textMuted
-                          : RhythmTokens.textPrimary,
+                      color: visualStyle.text,
                     ),
                   ),
                   const SizedBox(height: 10),
@@ -417,7 +418,8 @@ class _TasksViewState extends State<TasksView> {
                         _TaskMetaPill(
                           icon: _sourceIcon(task.sourceType!),
                           label: _sourceLabel(task),
-                          color: _sourceColor(task.sourceType!),
+                          color: visualStyle.accent,
+                          backgroundColor: visualStyle.badgeBackground,
                         ),
                       if (isDone)
                         const _TaskMetaPill(
@@ -433,10 +435,10 @@ class _TasksViewState extends State<TasksView> {
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
-                        color: RhythmTokens.textSecondary,
+                        color: Colors.transparent,
                         fontSize: 13,
                         height: 1.45,
-                      ),
+                      ).copyWith(color: visualStyle.mutedText),
                     ),
                   ],
                 ],
@@ -667,9 +669,7 @@ class _CompactFilterChip extends StatelessWidget {
             : RhythmTokens.borderSoft,
       ),
       labelStyle: TextStyle(
-        color: selected
-            ? RhythmTokens.textPrimary
-            : RhythmTokens.textSecondary,
+        color: selected ? RhythmTokens.textPrimary : RhythmTokens.textSecondary,
         fontWeight: FontWeight.w600,
       ),
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
@@ -682,18 +682,21 @@ class _TaskMetaPill extends StatelessWidget {
     required this.icon,
     required this.label,
     this.color,
+    this.backgroundColor,
   });
 
   final IconData icon;
   final String label;
   final Color? color;
+  final Color? backgroundColor;
 
   @override
   Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
       decoration: BoxDecoration(
-        color: (color ?? RhythmTokens.textSecondary).withValues(alpha: 0.08),
+        color: backgroundColor ??
+            (color ?? RhythmTokens.textSecondary).withValues(alpha: 0.08),
         borderRadius: BorderRadius.circular(RhythmTokens.radiusS),
         border: Border.all(
           color: (color ?? RhythmTokens.borderSoft).withValues(alpha: 0.25),
@@ -732,15 +735,6 @@ String _sourceLabel(Task task) {
   };
 }
 
-Color _sourceColor(String sourceType) => switch (sourceType) {
-      'automation_rule' => const Color(0xFF7C57F6),
-      'planning_center_signal' => const Color(0xFFDB6D28),
-      'calendar_shadow_event' => const Color(0xFF1D7ED6),
-      'project_step' => const Color(0xFF2E8B57),
-      'recurring_rule' => RhythmTokens.accent,
-      _ => RhythmTokens.textSecondary,
-    };
-
 IconData _sourceIcon(String sourceType) => switch (sourceType) {
       'automation_rule' => Icons.auto_awesome,
       'planning_center_signal' => Icons.groups_2_outlined,
@@ -752,7 +746,9 @@ IconData _sourceIcon(String sourceType) => switch (sourceType) {
 
 String? _projectTitle(Task task) {
   final sourceName = task.sourceName?.trim();
-  if (task.sourceType != 'project_step' || sourceName == null || sourceName.isEmpty) {
+  if (task.sourceType != 'project_step' ||
+      sourceName == null ||
+      sourceName.isEmpty) {
     return null;
   }
   return sourceName;

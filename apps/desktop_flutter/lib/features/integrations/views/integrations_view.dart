@@ -103,15 +103,16 @@ class _IntegrationsViewState extends State<IntegrationsView> {
                                 syncing: controller.syncingGoogleCalendar,
                                 child: _GoogleCalendarSelectionSection(
                                   settings: controller.googleCalendarSettings,
-                                  saving:
-                                      controller.savingGoogleCalendarPreferences,
+                                  saving: controller
+                                      .savingGoogleCalendarPreferences,
                                   onSave:
                                       controller.saveGoogleCalendarPreferences,
                                 ),
                               ),
                               const SizedBox(height: 16),
                               _IntegrationCard(
-                                account: _accountFor(controller.accounts, 'gmail'),
+                                account:
+                                    _accountFor(controller.accounts, 'gmail'),
                                 title: 'Gmail',
                                 description:
                                     'Read-only Gmail metadata for inbox-aware planning.',
@@ -139,8 +140,8 @@ class _IntegrationsViewState extends State<IntegrationsView> {
                                   preferences:
                                       controller.planningCenterTaskPreferences,
                                   options: controller.planningCenterTaskOptions,
-                                  saving:
-                                      controller.savingPlanningCenterTaskFilters,
+                                  saving: controller
+                                      .savingPlanningCenterTaskFilters,
                                   onEdit: () =>
                                       _editPlanningCenterFilters(controller),
                                 ),
@@ -391,7 +392,8 @@ class _GmailSignalsList extends StatelessWidget {
       return const _SubtleCallout(
         icon: Icons.inbox_outlined,
         title: 'No inbox signals yet',
-        body: 'Connect Gmail and sync once to surface recent inbox timing here.',
+        body:
+            'Connect Gmail and sync once to surface recent inbox timing here.',
       );
     }
 
@@ -510,7 +512,8 @@ class _GoogleCalendarSelectionSectionState
     super.didUpdateWidget(oldWidget);
     if (oldWidget.settings.selectedCalendarIds !=
             widget.settings.selectedCalendarIds ||
-        oldWidget.settings.calendars.length != widget.settings.calendars.length) {
+        oldWidget.settings.calendars.length !=
+            widget.settings.calendars.length) {
       _selectedCalendarIds = {...widget.settings.selectedCalendarIds};
     }
   }
@@ -1012,9 +1015,7 @@ class _IntegrationsHeader extends StatelessWidget {
             ),
             const SizedBox(width: 16),
             FilledButton.icon(
-              onPressed: syncing
-                  ? null
-                  : () => unawaited(onSyncAll()),
+              onPressed: syncing ? null : () => unawaited(onSyncAll()),
               icon: syncing
                   ? const SizedBox(
                       width: 14,

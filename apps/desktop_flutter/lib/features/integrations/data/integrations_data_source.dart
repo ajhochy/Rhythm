@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../../../app/core/auth/auth_session_store.dart';
 import '../../../app/core/constants/app_constants.dart';
-import '../../../app/core/errors/app_error.dart';
+import '../../../app/core/utils/http_utils.dart';
 import '../models/gmail_signal.dart';
 import '../models/google_calendar_settings.dart';
 import '../models/integration_account.dart';
@@ -20,7 +20,7 @@ class IntegrationsDataSource {
       Uri.parse('$_baseUrl/integrations/accounts'),
       headers: AuthSessionStore.headers(),
     );
-    _assertOk(response);
+    assertOk(response);
     final list = jsonDecode(response.body) as List<dynamic>;
     return list
         .map(
@@ -48,7 +48,7 @@ class IntegrationsDataSource {
       Uri.parse('$_baseUrl/integrations/google-calendar/sync'),
       headers: AuthSessionStore.headers(),
     );
-    _assertOk(response);
+    assertOk(response);
   }
 
   Future<void> syncAll() async {
@@ -56,7 +56,7 @@ class IntegrationsDataSource {
       Uri.parse('$_baseUrl/integrations/sync-all'),
       headers: AuthSessionStore.headers(),
     );
-    _assertOk(response);
+    assertOk(response);
   }
 
   Future<GoogleCalendarSettings> fetchGoogleCalendarSettings() async {
@@ -64,7 +64,7 @@ class IntegrationsDataSource {
       Uri.parse('$_baseUrl/integrations/google-calendar/settings'),
       headers: AuthSessionStore.headers(),
     );
-    _assertOk(response);
+    assertOk(response);
     return GoogleCalendarSettings.fromJson(
       jsonDecode(response.body) as Map<String, dynamic>,
     );
@@ -80,7 +80,7 @@ class IntegrationsDataSource {
         'selectedCalendarIds': selectedCalendarIds,
       }),
     );
-    _assertOk(response);
+    assertOk(response);
     return fetchGoogleCalendarSettings();
   }
 
@@ -89,7 +89,7 @@ class IntegrationsDataSource {
       Uri.parse('$_baseUrl/integrations/gmail/signals'),
       headers: AuthSessionStore.headers(),
     );
-    _assertOk(response);
+    assertOk(response);
     final list = jsonDecode(response.body) as List<dynamic>;
     return list
         .map((item) => GmailSignal.fromJson(item as Map<String, dynamic>))
@@ -101,7 +101,7 @@ class IntegrationsDataSource {
       Uri.parse('$_baseUrl/integrations/gmail/sync'),
       headers: AuthSessionStore.headers(),
     );
-    _assertOk(response);
+    assertOk(response);
   }
 
   Future<void> syncPlanningCenter() async {
@@ -109,7 +109,7 @@ class IntegrationsDataSource {
       Uri.parse('$_baseUrl/integrations/planning-center/sync'),
       headers: AuthSessionStore.headers(),
     );
-    _assertOk(response);
+    assertOk(response);
   }
 
   Future<PlanningCenterTaskPreferences>
@@ -120,7 +120,7 @@ class IntegrationsDataSource {
       ),
       headers: AuthSessionStore.headers(),
     );
-    _assertOk(response);
+    assertOk(response);
     return PlanningCenterTaskPreferences.fromJson(
       jsonDecode(response.body) as Map<String, dynamic>,
     );
@@ -133,7 +133,7 @@ class IntegrationsDataSource {
       ),
       headers: AuthSessionStore.headers(),
     );
-    _assertOk(response);
+    assertOk(response);
     return PlanningCenterTaskOptions.fromJson(
       jsonDecode(response.body) as Map<String, dynamic>,
     );
@@ -149,19 +149,9 @@ class IntegrationsDataSource {
       headers: AuthSessionStore.headers(json: true),
       body: jsonEncode(preferences.toJson()),
     );
-    _assertOk(response);
+    assertOk(response);
     return PlanningCenterTaskPreferences.fromJson(
       jsonDecode(response.body) as Map<String, dynamic>,
     );
-  }
-
-  void _assertOk(http.Response response) {
-    if (response.statusCode >= 400) {
-      final body = jsonDecode(response.body) as Map<String, dynamic>?;
-      final message =
-          (body?['error'] as Map<String, dynamic>?)?['message'] as String? ??
-              'Request failed';
-      throw AppError(message);
-    }
   }
 }
