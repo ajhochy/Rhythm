@@ -52,6 +52,23 @@ class DateFormatters {
     return comparisonDate.isBefore(DateTime(current.year, current.month, current.day));
   }
 
+  static bool isDueToday({
+    required String? dueDate,
+    required String? scheduledDate,
+    required bool isDone,
+    DateTime? today,
+  }) {
+    if (isDone) return false;
+    final comparisonDate = _parseIsoDate(scheduledDate) ?? _parseIsoDate(dueDate);
+    if (comparisonDate == null) return false;
+    final current = today == null
+        ? DateTime.now()
+        : DateTime(today.year, today.month, today.day);
+    return comparisonDate.year == current.year &&
+        comparisonDate.month == current.month &&
+        comparisonDate.day == current.day;
+  }
+
   static DateTime? _parseIsoDate(String? value) {
     if (value == null || value.trim().isEmpty) return null;
     final match = RegExp(r'^(\d{4})-(\d{2})-(\d{2})').firstMatch(value.trim());

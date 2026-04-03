@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../../../app/core/auth/auth_user.dart';
+import '../../../app/core/formatters/date_formatters.dart';
 import '../../../app/core/widgets/error_banner.dart';
 import '../../../app/theme/rhythm_tokens.dart';
 import '../controllers/rhythms_controller.dart';
@@ -425,7 +426,10 @@ class _RuleTileState extends State<_RuleTile> {
                                   border: Border.all(color: _kBorderSoft),
                                 ),
                                 child: Text(
-                                  date,
+                                  DateFormatters.fullDate(
+                                    date,
+                                    fallback: date,
+                                  ),
                                   style: Theme.of(context)
                                       .textTheme
                                       .labelSmall

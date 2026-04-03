@@ -3,6 +3,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../app/core/formatters/date_formatters.dart';
+import '../../../app/core/tasks/task_visual_style.dart';
 import '../../messages/controllers/messages_controller.dart';
 import '../controllers/dashboard_controller.dart';
 import '../../tasks/models/task.dart';
@@ -1335,11 +1336,18 @@ class _TaskPreviewRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final visualStyle = TaskVisualStyles.resolve(task);
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(16),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Container(
+        margin: const EdgeInsets.symmetric(vertical: 4),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        decoration: BoxDecoration(
+          color: visualStyle.background,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: visualStyle.border),
+        ),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -1352,7 +1360,7 @@ class _TaskPreviewRow extends StatelessWidget {
                     ? _kCardBorder
                     : showPastDue && _isPastDue(task)
                         ? _kDanger
-                        : accent.withValues(alpha: 0.9),
+                        : visualStyle.accent,
                 borderRadius: BorderRadius.circular(999),
               ),
             ),
@@ -1367,7 +1375,7 @@ class _TaskPreviewRow extends StatelessWidget {
                       style: TextStyle(
                         fontSize: 11,
                         fontWeight: FontWeight.w700,
-                        color: _taskSourceColor(task),
+                        color: visualStyle.accent,
                       ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
@@ -1411,9 +1419,8 @@ class _TaskPreviewRow extends StatelessWidget {
                       if (task.sourceType != null)
                         _TaskBadge(
                           label: _taskSourceLabel(task),
-                          backgroundColor:
-                              _taskSourceColor(task).withValues(alpha: 0.12),
-                          foregroundColor: _taskSourceColor(task),
+                          backgroundColor: visualStyle.badgeBackground,
+                          foregroundColor: visualStyle.accent,
                         ),
                     ],
                   ),
