@@ -51,7 +51,7 @@ describe('Automation overhaul backend', () => {
       triggerConfig: {
         sender: 'finance@',
         subjectContains: 'invoice',
-        hoursSinceReceived: 24,
+        hoursSinceReceived: 48,
       },
       actionType: 'create_task',
       actionConfig: {

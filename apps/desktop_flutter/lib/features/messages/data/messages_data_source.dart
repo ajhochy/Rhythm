@@ -88,6 +88,16 @@ class MessagesDataSource {
     }
   }
 
+  Future<void> markUnread(int threadId) async {
+    final response = await http.post(
+      Uri.parse('$_baseUrl/message-threads/$threadId/unread'),
+      headers: AuthSessionStore.headers(),
+    );
+    if (response.statusCode != 204) {
+      _assertOk(response);
+    }
+  }
+
   void _assertOk(http.Response response) {
     if (response.statusCode >= 400) {
       final body = jsonDecode(response.body) as Map<String, dynamic>?;

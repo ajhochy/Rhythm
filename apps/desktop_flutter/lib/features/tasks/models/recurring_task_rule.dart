@@ -1,3 +1,67 @@
+class RecurringTaskRuleStep {
+  RecurringTaskRuleStep({
+    required this.id,
+    required this.title,
+    this.assigneeId,
+    this.assigneeName,
+  });
+
+  factory RecurringTaskRuleStep.fromJson(Map<String, dynamic> json) {
+    return RecurringTaskRuleStep(
+      id: json['id'] as String,
+      title: json['title'] as String,
+      assigneeId: json['assigneeId'] as int?,
+      assigneeName: json['assigneeName'] as String?,
+    );
+  }
+
+  final String id;
+  final String title;
+  final int? assigneeId;
+  final String? assigneeName;
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'title': title,
+        'assigneeId': assigneeId,
+      };
+}
+
+class RecurringTaskRuleProgress {
+  RecurringTaskRuleProgress({
+    required this.totalCount,
+    required this.completedCount,
+    required this.remainingCount,
+    required this.personalRemainingCount,
+    required this.waitingOnUserId,
+    required this.waitingOnUserName,
+    required this.nextDueDate,
+    required this.completionRatio,
+  });
+
+  factory RecurringTaskRuleProgress.fromJson(Map<String, dynamic> json) {
+    return RecurringTaskRuleProgress(
+      totalCount: json['totalCount'] as int? ?? 0,
+      completedCount: json['completedCount'] as int? ?? 0,
+      remainingCount: json['remainingCount'] as int? ?? 0,
+      personalRemainingCount: json['personalRemainingCount'] as int? ?? 0,
+      waitingOnUserId: json['waitingOnUserId'] as int?,
+      waitingOnUserName: json['waitingOnUserName'] as String?,
+      nextDueDate: json['nextDueDate'] as String?,
+      completionRatio: (json['completionRatio'] as num?)?.toDouble() ?? 0,
+    );
+  }
+
+  final int totalCount;
+  final int completedCount;
+  final int remainingCount;
+  final int personalRemainingCount;
+  final int? waitingOnUserId;
+  final String? waitingOnUserName;
+  final String? nextDueDate;
+  final double completionRatio;
+}
+
 class RecurringTaskRule {
   RecurringTaskRule({
     required this.id,
@@ -8,6 +72,8 @@ class RecurringTaskRule {
     this.dayOfMonth,
     this.month,
     this.enabled = true,
+    this.steps = const [],
+    this.progress,
   });
 
   factory RecurringTaskRule.fromJson(Map<String, dynamic> json) {
@@ -20,6 +86,16 @@ class RecurringTaskRule {
       month: json['month'] as int?,
       createdAt: json['createdAt'] as String,
       enabled: (json['enabled'] as bool?) ?? true,
+      steps: ((json['steps'] as List<dynamic>?) ?? const [])
+          .map((step) => RecurringTaskRuleStep.fromJson(
+                step as Map<String, dynamic>,
+              ))
+          .toList(),
+      progress: json['progress'] is Map<String, dynamic>
+          ? RecurringTaskRuleProgress.fromJson(
+              json['progress'] as Map<String, dynamic>,
+            )
+          : null,
     );
   }
 
@@ -31,6 +107,8 @@ class RecurringTaskRule {
   final int? month; // 1-12 (annual)
   final bool enabled;
   final String createdAt;
+  final List<RecurringTaskRuleStep> steps;
+  final RecurringTaskRuleProgress? progress;
 
   RecurringTaskRule copyWith({bool? enabled}) {
     return RecurringTaskRule(
@@ -42,8 +120,17 @@ class RecurringTaskRule {
       month: month,
       createdAt: createdAt,
       enabled: enabled ?? this.enabled,
+      steps: steps,
+      progress: progress,
     );
   }
+
+  bool get hasWorkflowSteps => steps.isNotEmpty;
+  double get completionFraction => progress?.completionRatio ?? 0;
+  int get remainingCount => progress?.remainingCount ?? 0;
+  int get personalRemainingCount => progress?.personalRemainingCount ?? 0;
+  String? get waitingOnUserName => progress?.waitingOnUserName;
+  String? get nextDueDate => progress?.nextDueDate;
 
   String get patternDescription {
     switch (frequency) {

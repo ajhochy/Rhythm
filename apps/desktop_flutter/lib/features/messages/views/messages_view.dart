@@ -142,6 +142,14 @@ class _ThreadListPanel extends StatelessWidget {
                               context.read<MessagesController>().selectThread(
                                     filtered[i].id,
                                   ),
+                          onToggleUnread: () {
+                            final messages = context.read<MessagesController>();
+                            if (filtered[i].isUnread) {
+                              messages.markThreadRead(filtered[i].id);
+                            } else {
+                              messages.markThreadUnread(filtered[i].id);
+                            }
+                          },
                         ),
                       ),
           ),
@@ -258,11 +266,13 @@ class _ThreadRow extends StatelessWidget {
     required this.thread,
     required this.isSelected,
     required this.onTap,
+    required this.onToggleUnread,
   });
 
   final MessageThread thread;
   final bool isSelected;
   final VoidCallback onTap;
+  final VoidCallback onToggleUnread;
 
   @override
   Widget build(BuildContext context) {
@@ -299,13 +309,13 @@ class _ThreadRow extends StatelessWidget {
             Container(
               width: 32,
               height: 32,
+              alignment: Alignment.center,
               decoration: BoxDecoration(
                 color: isSelected ? _kPrimary : const Color(0xFFE9EEF9),
                 borderRadius: BorderRadius.circular(10),
-            ),
-            alignment: Alignment.center,
-            child: Text(
-              initial,
+              ),
+              child: Text(
+                initial,
                 style: TextStyle(
                   fontSize: 13,
                   fontWeight: FontWeight.w700,
@@ -359,25 +369,52 @@ class _ThreadRow extends StatelessWidget {
                 ],
               ),
             ),
-            if (thread.isUnread) ...[
-              const SizedBox(width: 10),
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                decoration: BoxDecoration(
-                  color: _kPrimary,
-                  borderRadius: BorderRadius.circular(999),
-                ),
-                child: Text(
-                  '${thread.unreadCount}',
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
+            const SizedBox(width: 8),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                PopupMenuButton<String>(
+                  tooltip: 'Thread actions',
+                  icon: const Icon(
+                    Icons.more_horiz,
+                    size: 18,
+                    color: _kTextMuted,
                   ),
+                  color: _kSurface,
+                  surfaceTintColor: _kSurface,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(RhythmTokens.radiusS),
+                    side: const BorderSide(color: _kDivider),
+                  ),
+                  itemBuilder: (context) => [
+                    PopupMenuItem<String>(
+                      value: thread.isUnread ? 'read' : 'unread',
+                      child: Text(
+                        thread.isUnread ? 'Mark as read' : 'Mark as unread',
+                      ),
+                    ),
+                  ],
+                  onSelected: (_) => onToggleUnread(),
                 ),
-              ),
-            ],
+                if (thread.isUnread)
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    decoration: BoxDecoration(
+                      color: _kPrimary,
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: Text(
+                      '${thread.unreadCount}',
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
           ],
         ),
       ),

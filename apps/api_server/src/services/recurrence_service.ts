@@ -13,24 +13,33 @@ export class RecurrenceService {
   generateInstances(rule: RecurringTaskRule, from: Date, to: Date): Task[] {
     const dates = this.computeDates(rule, from, to);
     const created: Task[] = [];
+    const hasWorkflowSteps = rule.steps.length > 0;
 
     for (const date of dates) {
       const dateStr = toDateStr(date);
-      const existing = getDb()
-        .prepare('SELECT id FROM tasks WHERE source_type = ? AND source_id = ? AND due_date = ?')
-        .get('recurring_rule', rule.id, dateStr);
+      const steps = hasWorkflowSteps
+        ? rule.steps
+        : [{ id: rule.id, title: rule.title, assigneeId: rule.ownerId }];
 
-      if (!existing) {
-        const task = this.tasksRepo.create({
-          title: rule.title,
-          dueDate: dateStr,
-          status: 'open',
-          sourceType: 'recurring_rule',
-          sourceId: rule.id,
-          ownerId: rule.ownerId,
-        });
-        created.push(task);
-      }
+      steps.forEach((step, index) => {
+        const sourceId = hasWorkflowSteps ? `${rule.id}:${step.id}` : rule.id;
+        const existing = getDb()
+          .prepare('SELECT id FROM tasks WHERE source_type = ? AND source_id = ? AND due_date = ?')
+          .get('recurring_rule', sourceId, dateStr);
+
+        if (!existing) {
+          const task = this.tasksRepo.create({
+            title: step.title,
+            dueDate: dateStr,
+            status: 'open',
+            sourceType: 'recurring_rule',
+            sourceId,
+            ownerId: step.assigneeId ?? rule.ownerId,
+            scheduledOrder: hasWorkflowSteps ? (index + 1) * 10000 : null,
+          });
+          created.push(task);
+        }
+      });
     }
 
     return created;

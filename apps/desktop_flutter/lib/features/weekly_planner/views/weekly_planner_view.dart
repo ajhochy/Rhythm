@@ -115,7 +115,7 @@ class _WeekHeader extends StatelessWidget {
     final hasSelection = controller.selectedTaskIds.isNotEmpty;
     return Container(
       padding: const EdgeInsets.fromLTRB(20, 18, 20, 16),
-      decoration: BoxDecoration(
+      decoration: const BoxDecoration(
         color: _kSurface,
         border: Border(bottom: BorderSide(color: _kBorder)),
       ),
@@ -425,7 +425,7 @@ class _PlannerBody extends StatelessWidget {
     }
     final plan = controller.plan;
     if (plan == null) {
-      return Center(
+      return const Center(
         child: _EmptyWorkspaceState(
           icon: Icons.view_week_outlined,
           title: 'No weekly plan loaded',
@@ -840,6 +840,45 @@ class _DayColumnState extends State<_DayColumn> {
     final displayTasks = widget.showCompleted
         ? widget.tasks
         : widget.tasks.where((t) => t.status != 'done').toList();
+    final addButton = Padding(
+      padding: const EdgeInsets.fromLTRB(8, 8, 8, 8),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(RhythmTokens.radiusS),
+        onTap: () => _showAddTaskDialog(context),
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(
+            horizontal: 10,
+            vertical: 8,
+          ),
+          decoration: BoxDecoration(
+            color: _kSurface,
+            borderRadius: BorderRadius.circular(RhythmTokens.radiusS),
+            border: Border.all(color: _kBorder),
+          ),
+          child: Row(
+            children: [
+              const Icon(
+                Icons.add,
+                size: 13,
+                color: _kTextSecondary,
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  'Add task to ${widget.dayName}',
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                        color: _kTextSecondary,
+                        fontWeight: FontWeight.w600,
+                      ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
 
     return DragTarget<Task>(
       onWillAcceptWithDetails: (_) {
@@ -931,75 +970,31 @@ class _DayColumnState extends State<_DayColumn> {
                 ),
               ),
               Expanded(
-                child: Column(
-                  children: [
-                    Expanded(
-                      child: displayTasks.isEmpty
-                          ? const SizedBox.shrink()
-                          : ListView.separated(
-                              padding: const EdgeInsets.fromLTRB(8, 8, 8, 10),
-                              itemCount: displayTasks.length,
-                              separatorBuilder: (_, __) =>
-                                  const SizedBox(height: 6),
-                              itemBuilder: (context, i) => _TaskTile(
-                                task: displayTasks[i],
-                                controller: widget.controller,
-                                draggable: true,
-                                compact: true,
-                              ),
+                child: displayTasks.isEmpty
+                    ? Align(
+                        alignment: Alignment.topCenter,
+                        child: addButton,
+                      )
+                    : ListView.builder(
+                        padding: const EdgeInsets.fromLTRB(0, 0, 0, 0),
+                        itemCount: displayTasks.length + 1,
+                        itemBuilder: (context, index) {
+                          if (index == displayTasks.length) {
+                            return addButton;
+                          }
+                          return Padding(
+                            padding: EdgeInsets.only(
+                              top: index == 0 ? 8 : 6,
                             ),
-                    ),
-                    Padding(
-                      padding: EdgeInsets.fromLTRB(
-                        8,
-                        displayTasks.isEmpty ? 8 : 0,
-                        8,
-                        8,
+                            child: _TaskTile(
+                              task: displayTasks[index],
+                              controller: widget.controller,
+                              draggable: true,
+                              compact: true,
+                            ),
+                          );
+                        },
                       ),
-                      child: InkWell(
-                        borderRadius:
-                            BorderRadius.circular(RhythmTokens.radiusS),
-                        onTap: () => _showAddTaskDialog(context),
-                        child: Container(
-                          width: double.infinity,
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 10,
-                            vertical: 8,
-                          ),
-                          decoration: BoxDecoration(
-                            color: _kSurface,
-                            borderRadius:
-                                BorderRadius.circular(RhythmTokens.radiusS),
-                            border: Border.all(color: _kBorder),
-                          ),
-                          child: Row(
-                            children: [
-                              const Icon(
-                                Icons.add,
-                                size: 13,
-                                color: _kTextSecondary,
-                              ),
-                              const SizedBox(width: 6),
-                              Expanded(
-                                child: Text(
-                                  'Add task to ${widget.dayName}',
-                                  overflow: TextOverflow.ellipsis,
-                                  style: Theme.of(context)
-                                      .textTheme
-                                      .labelSmall
-                                      ?.copyWith(
-                                        color: _kTextSecondary,
-                                        fontWeight: FontWeight.w600,
-                                      ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
               ),
             ],
           ),
@@ -1110,6 +1105,7 @@ class _TaskTile extends StatelessWidget {
     final isMultiSelected = controller.selectedTaskIds.contains(task.id);
     final isDone = task.status == 'done';
     final isShadowEvent = task.sourceType == 'calendar_shadow_event';
+    final shadowTimeLabel = isShadowEvent ? _shadowEventLabel(task) : null;
     final isPastDue = DateFormatters.isPastDue(
       dueDate: task.dueDate,
       scheduledDate: task.scheduledDate,
@@ -1129,36 +1125,71 @@ class _TaskTile extends StatelessWidget {
           vertical: compact ? 6 : 10,
         ),
         decoration: BoxDecoration(
-          color: isSelected || isMultiSelected ? _kPrimarySoft : _kSurface,
+          color: isShadowEvent
+              ? const Color(0xFFFFF7ED)
+              : isSelected || isMultiSelected
+                  ? _kPrimarySoft
+                  : _kSurface,
           borderRadius: BorderRadius.circular(RhythmTokens.radiusS),
           border: Border.all(
-            color: isSelected || isMultiSelected ? _kPrimary : _kBorder,
+            color: isShadowEvent
+                ? _kWarm.withValues(alpha: 0.45)
+                : isSelected || isMultiSelected
+                    ? _kPrimary
+                    : _kBorder,
           ),
           boxShadow:
               isSelected || isMultiSelected ? RhythmTokens.shadow : const [],
         ),
         child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            SizedBox(
-              width: compact ? 14 : 16,
-              height: compact ? 14 : 16,
-              child: Checkbox(
-                value: isShadowEvent ? false : isDone,
-                onChanged: isShadowEvent
-                    ? null
-                    : (_) => controller.toggleTaskDone(task, isDone),
-                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                visualDensity: compact
-                    ? const VisualDensity(horizontal: -4, vertical: -4)
-                    : VisualDensity.compact,
+            if (isShadowEvent)
+              Container(
+                width: 3,
+                margin: const EdgeInsets.only(top: 2, right: 7),
+                decoration: BoxDecoration(
+                  color: _kWarm,
+                  borderRadius: BorderRadius.circular(999),
+                ),
+              )
+            else ...[
+              SizedBox(
+                width: compact ? 14 : 16,
+                height: compact ? 14 : 16,
+                child: Checkbox(
+                  value: isDone,
+                  onChanged: (_) => controller.toggleTaskDone(task, isDone),
+                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  visualDensity: compact
+                      ? const VisualDensity(horizontal: -4, vertical: -4)
+                      : VisualDensity.compact,
+                ),
               ),
-            ),
-            SizedBox(width: compact ? 6 : 8),
+              SizedBox(width: compact ? 6 : 8),
+            ],
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 mainAxisSize: MainAxisSize.min,
                 children: [
+                  if (shadowTimeLabel != null)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 3),
+                      child: Text(
+                        shadowTimeLabel,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: (compact
+                                ? Theme.of(context).textTheme.labelSmall
+                                : Theme.of(context).textTheme.bodySmall)
+                            ?.copyWith(
+                          fontSize: compact ? 9.5 : 10.5,
+                          fontWeight: FontWeight.w700,
+                          color: _kWarm,
+                        ),
+                      ),
+                    ),
                   if (task.sourceName != null && task.sourceName!.isNotEmpty)
                     Padding(
                       padding: const EdgeInsets.only(bottom: 2),
@@ -1210,13 +1241,30 @@ class _TaskTile extends StatelessWidget {
                 ],
               ),
             ),
+            if (!isShadowEvent && compact) ...[
+              const SizedBox(width: 6),
+              Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _MiniMoveButton(
+                    icon: Icons.keyboard_arrow_up,
+                    onPressed: () => controller.moveTaskEarlier(task),
+                  ),
+                  const SizedBox(height: 4),
+                  _MiniMoveButton(
+                    icon: Icons.keyboard_arrow_down,
+                    onPressed: () => controller.moveTaskLater(task),
+                  ),
+                ],
+              ),
+            ],
             if (isMultiSelected && !compact) ...[
               const SizedBox(width: 6),
-              Icon(Icons.done_all, size: 14, color: _kPrimary),
+              const Icon(Icons.done_all, size: 14, color: _kPrimary),
             ],
             if (task.locked && !compact) ...[
               const SizedBox(width: 6),
-              Icon(Icons.lock, size: 11, color: _kTextSecondary),
+              const Icon(Icons.lock, size: 11, color: _kTextSecondary),
             ],
           ],
         ),
@@ -1346,6 +1394,7 @@ class _DetailPaneState extends State<_DetailPane> {
     final task = widget.task;
     final isDone = task.status == 'done';
     final isShadowEvent = task.sourceType == 'calendar_shadow_event';
+    final timeLabel = _shadowEventLabel(task);
     return Container(
       decoration: BoxDecoration(
         color: _kSurfaceMuted,
@@ -1458,6 +1507,8 @@ class _DetailPaneState extends State<_DetailPane> {
                       DateFormatters.fullDate(_plannerDate!,
                           fallback: _plannerDate!),
                     ),
+                  if (isShadowEvent && timeLabel != null)
+                    _row(context, 'Time', timeLabel),
                   if (task.sourceType != null)
                     _row(context, 'Source', _sourceLabel(task.sourceType!)),
                   if (task.sourceName != null && task.sourceName!.isNotEmpty)
@@ -1551,6 +1602,35 @@ class _DetailPaneState extends State<_DetailPane> {
                         ),
                       ],
                     ),
+                  if (!isShadowEvent) ...[
+                    const SizedBox(height: 10),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        OutlinedButton.icon(
+                          onPressed: () => widget.controller.moveTaskEarlier(task),
+                          icon: const Icon(Icons.arrow_upward, size: 14),
+                          label: const Text('Move earlier'),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: _kTextPrimary,
+                            side: const BorderSide(color: _kBorderStrong),
+                            backgroundColor: _kSurface,
+                          ),
+                        ),
+                        OutlinedButton.icon(
+                          onPressed: () => widget.controller.moveTaskLater(task),
+                          icon: const Icon(Icons.arrow_downward, size: 14),
+                          label: const Text('Move later'),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: _kTextPrimary,
+                            side: const BorderSide(color: _kBorderStrong),
+                            backgroundColor: _kSurface,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -1649,6 +1729,34 @@ class _DetailPaneState extends State<_DetailPane> {
 // Shared
 // ---------------------------------------------------------------------------
 
+class _MiniMoveButton extends StatelessWidget {
+  const _MiniMoveButton({
+    required this.icon,
+    required this.onPressed,
+  });
+
+  final IconData icon;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onPressed,
+      borderRadius: BorderRadius.circular(999),
+      child: Container(
+        width: 18,
+        height: 18,
+        decoration: BoxDecoration(
+          color: _kSurfaceMuted,
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(color: _kBorder),
+        ),
+        child: Icon(icon, size: 12, color: _kTextSecondary),
+      ),
+    );
+  }
+}
+
 class _SourceChip extends StatelessWidget {
   const _SourceChip({required this.sourceType});
   final String sourceType;
@@ -1674,6 +1782,27 @@ class _SourceChip extends StatelessWidget {
               fontSize: 9.5, fontWeight: FontWeight.bold, color: color)),
     );
   }
+}
+
+String? _shadowEventLabel(Task task) {
+  if (task.isAllDay) return 'All day';
+  final start = task.startsAt == null ? null : DateTime.tryParse(task.startsAt!);
+  final end = task.endsAt == null ? null : DateTime.tryParse(task.endsAt!);
+  if (start == null) return null;
+  final startLabel = _formatClockTime(start);
+  if (end == null) return startLabel;
+  return '$startLabel - ${_formatClockTime(end)}';
+}
+
+String _formatClockTime(DateTime dateTime) {
+  final hour = dateTime.hour == 0
+      ? 12
+      : dateTime.hour > 12
+          ? dateTime.hour - 12
+          : dateTime.hour;
+  final minute = dateTime.minute.toString().padLeft(2, '0');
+  final suffix = dateTime.hour >= 12 ? 'PM' : 'AM';
+  return '$hour:$minute $suffix';
 }
 
 String _sourceLabel(String t) => switch (t) {

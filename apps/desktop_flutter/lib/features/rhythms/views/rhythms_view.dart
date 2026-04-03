@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
+import '../../../app/core/auth/auth_user.dart';
 import '../../../app/core/widgets/error_banner.dart';
 import '../../../app/theme/rhythm_tokens.dart';
 import '../controllers/rhythms_controller.dart';
@@ -18,6 +19,7 @@ const _kTextSecondary = RhythmTokens.textSecondary;
 const _kTextMuted = RhythmTokens.textMuted;
 const _kPrimary = RhythmTokens.accent;
 const _kPrimarySoft = RhythmTokens.accentSoft;
+const _kWarm = RhythmTokens.accentWarm;
 
 class RhythmsView extends StatefulWidget {
   const RhythmsView({super.key});
@@ -272,6 +274,10 @@ class _RuleTileState extends State<_RuleTile> {
                               color: _kTextSecondary,
                             ),
                       ),
+                      if (widget.rule.progress != null) ...[
+                        const SizedBox(height: 12),
+                        _ProgressStrip(rule: widget.rule),
+                      ],
                     ],
                   ),
                 ),
@@ -348,6 +354,40 @@ class _RuleTileState extends State<_RuleTile> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
+                      if (widget.rule.steps.isNotEmpty) ...[
+                        Row(
+                          children: [
+                            const Icon(
+                              Icons.route_outlined,
+                              size: 14,
+                              color: _kTextMuted,
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              'Workflow steps',
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .labelMedium
+                                  ?.copyWith(
+                                    color: _kTextSecondary,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 10),
+                        Column(
+                          children: widget.rule.steps
+                              .map(
+                                (step) => Padding(
+                                  padding: const EdgeInsets.only(bottom: 8),
+                                  child: _WorkflowStepTile(step: step),
+                                ),
+                              )
+                              .toList(),
+                        ),
+                        const SizedBox(height: 8),
+                      ],
                       Row(
                         children: [
                           const Icon(
@@ -404,7 +444,7 @@ class _RuleTileState extends State<_RuleTile> {
               ),
               crossFadeState: _expanded
                   ? CrossFadeState.showSecond
-                  : CrossFadeState.showFirst,
+              : CrossFadeState.showFirst,
               duration: const Duration(milliseconds: 180),
             ),
           ],
@@ -445,9 +485,196 @@ class _RuleTileState extends State<_RuleTile> {
   }
 }
 
+class _ProgressStrip extends StatelessWidget {
+  const _ProgressStrip({required this.rule});
+
+  final RecurringTaskRule rule;
+
+  @override
+  Widget build(BuildContext context) {
+    final progress = rule.progress;
+    if (progress == null) return const SizedBox.shrink();
+    final percent = (progress.completionRatio * 100).round().clamp(0, 100);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            _InlineMetric(
+              label: 'Remaining',
+              value: '${progress.remainingCount}',
+              color: _kPrimary,
+            ),
+            const SizedBox(width: 8),
+            _InlineMetric(
+              label: 'Personal',
+              value: '${progress.personalRemainingCount}',
+              color: _kWarm,
+            ),
+            const SizedBox(width: 8),
+            _InlineMetric(
+              label: 'Complete',
+              value: '$percent%',
+              color: _kPrimary,
+            ),
+            const SizedBox(width: 8),
+            if (progress.waitingOnUserName != null)
+              Flexible(
+                child: _InlineMetric(
+                  label: 'Waiting on',
+                  value: progress.waitingOnUserName!,
+                  color: _kTextSecondary,
+                ),
+              ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(999),
+          child: LinearProgressIndicator(
+            minHeight: 7,
+            value: progress.totalCount == 0 ? 0 : progress.completionRatio,
+            backgroundColor: _kBorderSoft,
+            valueColor: const AlwaysStoppedAnimation<Color>(_kPrimary),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _InlineMetric extends StatelessWidget {
+  const _InlineMetric({
+    required this.label,
+    required this.value,
+    required this.color,
+  });
+
+  final String label;
+  final String value;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.08),
+        borderRadius: BorderRadius.circular(RhythmTokens.radiusS),
+        border: Border.all(color: color.withValues(alpha: 0.14)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            label,
+            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                  color: _kTextMuted,
+                  fontWeight: FontWeight.w600,
+                ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            value,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                  color: color,
+                  fontWeight: FontWeight.w700,
+                ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _WorkflowStepTile extends StatelessWidget {
+  const _WorkflowStepTile({required this.step});
+
+  final RecurringTaskRuleStep step;
+
+  @override
+  Widget build(BuildContext context) {
+    final assignee = step.assigneeName?.trim().isNotEmpty == true
+        ? step.assigneeName!
+        : 'Unassigned';
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: _kSurface,
+        borderRadius: BorderRadius.circular(RhythmTokens.radiusS),
+        border: Border.all(color: _kBorderSoft),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 22,
+            height: 22,
+            decoration: BoxDecoration(
+              color: _kPrimarySoft,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: const Icon(Icons.checklist, size: 13, color: _kPrimary),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  step.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                        color: _kTextPrimary,
+                        fontWeight: FontWeight.w700,
+                      ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  assignee,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                        color: _kTextSecondary,
+                      ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Create Rule Dialog
 // ---------------------------------------------------------------------------
+
+class _StepEditorModel {
+  _StepEditorModel({required this.id, String? title, this.assigneeId})
+      : titleController = TextEditingController(text: title ?? '');
+
+  final String id;
+  final TextEditingController titleController;
+  int? assigneeId;
+
+  void dispose() => titleController.dispose();
+
+  RecurringTaskRuleStep toStep() {
+    return RecurringTaskRuleStep(
+      id: id,
+      title: titleController.text.trim(),
+      assigneeId: assigneeId,
+    );
+  }
+}
 
 class _CreateRuleDialog extends StatefulWidget {
   const _CreateRuleDialog({required this.controller});
@@ -464,6 +691,7 @@ class _CreateRuleDialogState extends State<_CreateRuleDialog> {
   int _dayOfMonth = 1;
   int _month = 1;
   bool _saving = false;
+  final List<_StepEditorModel> _steps = [];
 
   static const _weekdays = [
     'Sunday',
@@ -491,6 +719,9 @@ class _CreateRuleDialogState extends State<_CreateRuleDialog> {
 
   @override
   void dispose() {
+    for (final step in _steps) {
+      step.dispose();
+    }
     _titleController.dispose();
     super.dispose();
   }
@@ -500,66 +731,146 @@ class _CreateRuleDialogState extends State<_CreateRuleDialog> {
     return AlertDialog(
       title: const Text('New Recurring Rule'),
       content: SizedBox(
-        width: 400,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            TextField(
-              controller: _titleController,
-              decoration: const InputDecoration(
-                  labelText: 'Title', border: OutlineInputBorder()),
-              autofocus: true,
-            ),
-            const SizedBox(height: 16),
-            DropdownButtonFormField<String>(
-              value: _frequency,
-              decoration: const InputDecoration(
-                  labelText: 'Frequency', border: OutlineInputBorder()),
-              items: const [
-                DropdownMenuItem(value: 'weekly', child: Text('Weekly')),
-                DropdownMenuItem(value: 'monthly', child: Text('Monthly')),
-                DropdownMenuItem(value: 'annual', child: Text('Annual')),
-              ],
-              onChanged: (v) => setState(() => _frequency = v!),
-            ),
-            const SizedBox(height: 16),
-            if (_frequency == 'weekly') ...[
-              DropdownButtonFormField<int>(
-                value: _dayOfWeek,
+        width: 620,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              TextField(
+                controller: _titleController,
                 decoration: const InputDecoration(
-                    labelText: 'Day of Week', border: OutlineInputBorder()),
-                items: List.generate(
+                  labelText: 'Title',
+                  border: OutlineInputBorder(),
+                ),
+                autofocus: true,
+              ),
+              const SizedBox(height: 16),
+              DropdownButtonFormField<String>(
+                value: _frequency,
+                decoration: const InputDecoration(
+                  labelText: 'Frequency',
+                  border: OutlineInputBorder(),
+                ),
+                items: const [
+                  DropdownMenuItem(value: 'weekly', child: Text('Weekly')),
+                  DropdownMenuItem(value: 'monthly', child: Text('Monthly')),
+                  DropdownMenuItem(value: 'annual', child: Text('Annual')),
+                ],
+                onChanged: (v) => setState(() => _frequency = v!),
+              ),
+              const SizedBox(height: 16),
+              if (_frequency == 'weekly') ...[
+                DropdownButtonFormField<int>(
+                  value: _dayOfWeek,
+                  decoration: const InputDecoration(
+                    labelText: 'Day of Week',
+                    border: OutlineInputBorder(),
+                  ),
+                  items: List.generate(
                     7,
-                    (i) =>
-                        DropdownMenuItem(value: i, child: Text(_weekdays[i]))),
-                onChanged: (v) => setState(() => _dayOfWeek = v!),
-              ),
-            ],
-            if (_frequency == 'monthly') ...[
-              _DayOfMonthField(
-                value: _dayOfMonth,
-                onChanged: (v) => setState(() => _dayOfMonth = v),
-              ),
-            ],
-            if (_frequency == 'annual') ...[
-              DropdownButtonFormField<int>(
-                value: _month,
-                decoration: const InputDecoration(
-                    labelText: 'Month', border: OutlineInputBorder()),
-                items: List.generate(
+                    (i) => DropdownMenuItem(value: i, child: Text(_weekdays[i])),
+                  ),
+                  onChanged: (v) => setState(() => _dayOfWeek = v!),
+                ),
+              ],
+              if (_frequency == 'monthly') ...[
+                _DayOfMonthField(
+                  value: _dayOfMonth,
+                  onChanged: (v) => setState(() => _dayOfMonth = v),
+                ),
+              ],
+              if (_frequency == 'annual') ...[
+                DropdownButtonFormField<int>(
+                  value: _month,
+                  decoration: const InputDecoration(
+                    labelText: 'Month',
+                    border: OutlineInputBorder(),
+                  ),
+                  items: List.generate(
                     12,
-                    (i) => DropdownMenuItem(
-                        value: i + 1, child: Text(_months[i]))),
-                onChanged: (v) => setState(() => _month = v!),
+                    (i) => DropdownMenuItem(value: i + 1, child: Text(_months[i])),
+                  ),
+                  onChanged: (v) => setState(() => _month = v!),
+                ),
+                const SizedBox(height: 12),
+                _DayOfMonthField(
+                  value: _dayOfMonth,
+                  onChanged: (v) => setState(() => _dayOfMonth = v),
+                ),
+              ],
+              const SizedBox(height: 18),
+              Row(
+                children: [
+                  const Expanded(
+                    child: Text(
+                      'Workflow steps',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: _kTextPrimary,
+                      ),
+                    ),
+                  ),
+                  TextButton.icon(
+                    onPressed: () {
+                      setState(() {
+                        _steps.add(
+                          _StepEditorModel(
+                            id: _newStepId(_steps.length),
+                          ),
+                        );
+                      });
+                    },
+                    icon: const Icon(Icons.add, size: 16),
+                    label: const Text('Add step'),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'Leave this empty to use the rhythm title as a single recurring task.',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: _kTextMuted,
+                    ),
               ),
               const SizedBox(height: 12),
-              _DayOfMonthField(
-                value: _dayOfMonth,
-                onChanged: (v) => setState(() => _dayOfMonth = v),
-              ),
+              if (_steps.isEmpty)
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: _kSurfaceMuted,
+                    borderRadius: BorderRadius.circular(RhythmTokens.radiusS),
+                    border: Border.all(color: _kBorderSoft),
+                  ),
+                  child: const Text(
+                    'No steps yet. Add one if this rhythm needs multiple tasks or assignees.',
+                    style: TextStyle(color: _kTextMuted, fontSize: 12),
+                  ),
+                )
+              else
+                Column(
+                  children: [
+                    for (var i = 0; i < _steps.length; i++) ...[
+                      _StepEditorRow(
+                        step: _steps[i],
+                        users: widget.controller.users,
+                        onAssigneeChanged: (value) =>
+                            setState(() => _steps[i].assigneeId = value),
+                        onRemove: () {
+                          setState(() {
+                            _steps[i].dispose();
+                            _steps.removeAt(i);
+                          });
+                        },
+                      ),
+                      if (i != _steps.length - 1) const SizedBox(height: 10),
+                    ],
+                  ],
+                ),
             ],
-          ],
+          ),
         ),
       ),
       actions: [
@@ -580,9 +891,18 @@ class _CreateRuleDialogState extends State<_CreateRuleDialog> {
     );
   }
 
+  String _newStepId(int index) {
+    return 'step-${DateTime.now().microsecondsSinceEpoch}-$index';
+  }
+
   Future<void> _save() async {
     final title = _titleController.text.trim();
     if (title.isEmpty) return;
+
+    final steps = _steps
+        .map((step) => step.toStep())
+        .where((step) => step.title.trim().isNotEmpty)
+        .toList();
 
     setState(() => _saving = true);
     await widget.controller.createRule(
@@ -593,6 +913,7 @@ class _CreateRuleDialogState extends State<_CreateRuleDialog> {
           ? _dayOfMonth
           : null,
       month: _frequency == 'annual' ? _month : null,
+      steps: steps,
     );
     if (mounted) Navigator.pop(context);
   }
@@ -614,6 +935,7 @@ class _EditRuleDialogState extends State<_EditRuleDialog> {
   late int _dayOfMonth;
   late int _month;
   bool _saving = false;
+  final List<_StepEditorModel> _steps = [];
 
   static const _weekdays = [
     'Sunday',
@@ -647,10 +969,22 @@ class _EditRuleDialogState extends State<_EditRuleDialog> {
     _dayOfWeek = widget.rule.dayOfWeek ?? 1;
     _dayOfMonth = widget.rule.dayOfMonth ?? 1;
     _month = widget.rule.month ?? 1;
+    _steps.addAll(
+      widget.rule.steps.map(
+        (step) => _StepEditorModel(
+          id: step.id,
+          title: step.title,
+          assigneeId: step.assigneeId,
+        ),
+      ),
+    );
   }
 
   @override
   void dispose() {
+    for (final step in _steps) {
+      step.dispose();
+    }
     _titleController.dispose();
     super.dispose();
   }
@@ -660,68 +994,151 @@ class _EditRuleDialogState extends State<_EditRuleDialog> {
     return AlertDialog(
       title: const Text('Edit Rule'),
       content: SizedBox(
-        width: 400,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            TextField(
-              controller: _titleController,
-              decoration: const InputDecoration(
-                  labelText: 'Title', border: OutlineInputBorder()),
-              autofocus: true,
-            ),
-            const SizedBox(height: 16),
-            DropdownButtonFormField<String>(
-              value: _frequency,
-              decoration: const InputDecoration(
-                  labelText: 'Frequency', border: OutlineInputBorder()),
-              items: const [
-                DropdownMenuItem(value: 'weekly', child: Text('Weekly')),
-                DropdownMenuItem(value: 'monthly', child: Text('Monthly')),
-                DropdownMenuItem(value: 'annual', child: Text('Annual')),
-              ],
-              onChanged: (v) => setState(() => _frequency = v!),
-            ),
-            const SizedBox(height: 16),
-            if (_frequency == 'weekly')
-              DropdownButtonFormField<int>(
-                value: _dayOfWeek,
+        width: 620,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              TextField(
+                controller: _titleController,
                 decoration: const InputDecoration(
-                    labelText: 'Day of Week', border: OutlineInputBorder()),
-                items: List.generate(
-                    7,
-                    (i) =>
-                        DropdownMenuItem(value: i, child: Text(_weekdays[i]))),
-                onChanged: (v) => setState(() => _dayOfWeek = v!),
+                  labelText: 'Title',
+                  border: OutlineInputBorder(),
+                ),
+                autofocus: true,
               ),
-            if (_frequency == 'monthly')
-              _DayOfMonthField(
-                  value: _dayOfMonth,
-                  onChanged: (v) => setState(() => _dayOfMonth = v)),
-            if (_frequency == 'annual') ...[
-              DropdownButtonFormField<int>(
-                value: _month,
+              const SizedBox(height: 16),
+              DropdownButtonFormField<String>(
+                value: _frequency,
                 decoration: const InputDecoration(
-                    labelText: 'Month', border: OutlineInputBorder()),
-                items: List.generate(
+                  labelText: 'Frequency',
+                  border: OutlineInputBorder(),
+                ),
+                items: const [
+                  DropdownMenuItem(value: 'weekly', child: Text('Weekly')),
+                  DropdownMenuItem(value: 'monthly', child: Text('Monthly')),
+                  DropdownMenuItem(value: 'annual', child: Text('Annual')),
+                ],
+                onChanged: (v) => setState(() => _frequency = v!),
+              ),
+              const SizedBox(height: 16),
+              if (_frequency == 'weekly')
+                DropdownButtonFormField<int>(
+                  value: _dayOfWeek,
+                  decoration: const InputDecoration(
+                    labelText: 'Day of Week',
+                    border: OutlineInputBorder(),
+                  ),
+                  items: List.generate(
+                    7,
+                    (i) => DropdownMenuItem(value: i, child: Text(_weekdays[i])),
+                  ),
+                  onChanged: (v) => setState(() => _dayOfWeek = v!),
+                ),
+              if (_frequency == 'monthly')
+                _DayOfMonthField(
+                  value: _dayOfMonth,
+                  onChanged: (v) => setState(() => _dayOfMonth = v),
+                ),
+              if (_frequency == 'annual') ...[
+                DropdownButtonFormField<int>(
+                  value: _month,
+                  decoration: const InputDecoration(
+                    labelText: 'Month',
+                    border: OutlineInputBorder(),
+                  ),
+                  items: List.generate(
                     12,
-                    (i) => DropdownMenuItem(
-                        value: i + 1, child: Text(_months[i]))),
-                onChanged: (v) => setState(() => _month = v!),
+                    (i) => DropdownMenuItem(value: i + 1, child: Text(_months[i])),
+                  ),
+                  onChanged: (v) => setState(() => _month = v!),
+                ),
+                const SizedBox(height: 12),
+                _DayOfMonthField(
+                  value: _dayOfMonth,
+                  onChanged: (v) => setState(() => _dayOfMonth = v),
+                ),
+              ],
+              const SizedBox(height: 18),
+              Row(
+                children: [
+                  const Expanded(
+                    child: Text(
+                      'Workflow steps',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w700,
+                        color: _kTextPrimary,
+                      ),
+                    ),
+                  ),
+                  TextButton.icon(
+                    onPressed: () {
+                      setState(() {
+                        _steps.add(
+                          _StepEditorModel(
+                            id: _newStepId(_steps.length),
+                          ),
+                        );
+                      });
+                    },
+                    icon: const Icon(Icons.add, size: 16),
+                    label: const Text('Add step'),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'Leave this empty to keep the rhythm as a single task.',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: _kTextMuted,
+                    ),
               ),
               const SizedBox(height: 12),
-              _DayOfMonthField(
-                  value: _dayOfMonth,
-                  onChanged: (v) => setState(() => _dayOfMonth = v)),
+              if (_steps.isEmpty)
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: _kSurfaceMuted,
+                    borderRadius: BorderRadius.circular(RhythmTokens.radiusS),
+                    border: Border.all(color: _kBorderSoft),
+                  ),
+                  child: const Text(
+                    'No steps yet. Add one if this rhythm needs multiple tasks or assignees.',
+                    style: TextStyle(color: _kTextMuted, fontSize: 12),
+                  ),
+                )
+              else
+                Column(
+                  children: [
+                    for (var i = 0; i < _steps.length; i++) ...[
+                      _StepEditorRow(
+                        step: _steps[i],
+                        users: widget.controller.users,
+                        onAssigneeChanged: (value) =>
+                            setState(() => _steps[i].assigneeId = value),
+                        onRemove: () {
+                          setState(() {
+                            _steps[i].dispose();
+                            _steps.removeAt(i);
+                          });
+                        },
+                      ),
+                      if (i != _steps.length - 1) const SizedBox(height: 10),
+                    ],
+                  ],
+                ),
             ],
-          ],
+          ),
         ),
       ),
       actions: [
         TextButton(
-            onPressed: _saving ? null : () => Navigator.pop(context),
-            child: const Text('Cancel')),
+          onPressed: _saving ? null : () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
         FilledButton(
           onPressed: _saving ? null : _save,
           child: _saving
@@ -735,9 +1152,17 @@ class _EditRuleDialogState extends State<_EditRuleDialog> {
     );
   }
 
+  String _newStepId(int index) {
+    return 'step-${DateTime.now().microsecondsSinceEpoch}-$index';
+  }
+
   Future<void> _save() async {
     final title = _titleController.text.trim();
     if (title.isEmpty) return;
+    final steps = _steps
+        .map((step) => step.toStep())
+        .where((step) => step.title.trim().isNotEmpty)
+        .toList();
     setState(() => _saving = true);
     await widget.controller.updateRule(
       widget.rule.id,
@@ -748,8 +1173,87 @@ class _EditRuleDialogState extends State<_EditRuleDialog> {
           ? _dayOfMonth
           : null,
       month: _frequency == 'annual' ? _month : null,
+      steps: steps,
     );
     if (mounted) Navigator.pop(context);
+  }
+}
+
+class _StepEditorRow extends StatelessWidget {
+  const _StepEditorRow({
+    required this.step,
+    required this.users,
+    required this.onAssigneeChanged,
+    required this.onRemove,
+  });
+
+  final _StepEditorModel step;
+  final List<AuthUser> users;
+  final ValueChanged<int?> onAssigneeChanged;
+  final VoidCallback onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: _kSurfaceMuted,
+        borderRadius: BorderRadius.circular(RhythmTokens.radiusS),
+        border: Border.all(color: _kBorderSoft),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Expanded(
+                child: Text(
+                  'Step',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: _kTextSecondary,
+                  ),
+                ),
+              ),
+              IconButton(
+                onPressed: onRemove,
+                icon: const Icon(Icons.delete_outline, size: 18),
+                tooltip: 'Remove step',
+              ),
+            ],
+          ),
+          TextField(
+            controller: step.titleController,
+            decoration: const InputDecoration(
+              labelText: 'Task title',
+              border: OutlineInputBorder(),
+            ),
+          ),
+          const SizedBox(height: 12),
+          DropdownButtonFormField<int?>(
+            value: step.assigneeId,
+            decoration: const InputDecoration(
+              labelText: 'Assign to',
+              border: OutlineInputBorder(),
+            ),
+            items: [
+              const DropdownMenuItem<int?>(
+                value: null,
+                child: Text('Unassigned'),
+              ),
+              ...users.map(
+                (user) => DropdownMenuItem<int?>(
+                  value: user.id,
+                  child: Text(user.name),
+                ),
+              ),
+            ],
+            onChanged: onAssigneeChanged,
+          ),
+        ],
+      ),
+    );
   }
 }
 

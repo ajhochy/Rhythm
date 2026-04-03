@@ -31,6 +31,7 @@ interface TaskRow {
   notes: string | null;
   due_date: string | null;
   scheduled_date: string | null;
+  scheduled_order: number | null;
   locked: number;
   status: string;
   source_type: string | null;
@@ -111,7 +112,7 @@ export class WeeklyPlanningService {
         ON pi.template_id = pt.id
       LEFT JOIN recurring_task_rules rr
         ON tasks.source_type = 'recurring_rule'
-       AND tasks.source_id = rr.id
+       AND (tasks.source_id = rr.id OR tasks.source_id LIKE rr.id || ':%')
     `;
     const taskRows =
       userId != null
@@ -141,6 +142,7 @@ export class WeeklyPlanningService {
         title: row.title,
         dueDate: row.due_date,
         scheduledDate: row.scheduled_date ?? null,
+        scheduledOrder: row.scheduled_order ?? null,
         notes: row.notes ?? null,
         locked: row.locked === 1,
         status: row.status as Task['status'],
@@ -175,6 +177,7 @@ export class WeeklyPlanningService {
         notes: row.notes ?? null,
         dueDate: row.due_date,
         scheduledDate: null,
+        scheduledOrder: null,
         locked: false,
         status: row.status as Task['status'],
         sourceType: 'project_step',
@@ -218,11 +221,15 @@ export class WeeklyPlanningService {
         notes: detailBits.join(' • '),
         dueDate: dayKey,
         scheduledDate: dayKey,
+        scheduledOrder: null,
         locked: true,
         status: 'open',
         sourceType: 'calendar_shadow_event',
         sourceId: event.externalId,
         sourceName: event.sourceName,
+        startsAt: event.startAt,
+        endsAt: event.endAt,
+        isAllDay: event.isAllDay,
         ownerId: event.ownerId,
         createdAt: event.createdAt,
         updatedAt: event.updatedAt,
@@ -273,6 +280,7 @@ export class WeeklyPlanningService {
       notes: row.notes ?? null,
       dueDate: row.due_date ?? null,
       scheduledDate: row.scheduled_date ?? null,
+      scheduledOrder: row.scheduled_order ?? null,
       locked: row.locked === 1,
       status: row.status as Task['status'],
       sourceType: row.source_type,
@@ -301,6 +309,7 @@ export class WeeklyPlanningService {
         notes: row.notes ?? null,
         dueDate: null,
         scheduledDate: null,
+        scheduledOrder: null,
         locked: false,
         status: row.status as Task['status'],
         sourceType: 'project_step',
@@ -333,6 +342,7 @@ export class WeeklyPlanningService {
         notes: row.notes ?? null,
         dueDate: row.due_date ?? null,
         scheduledDate: null,
+        scheduledOrder: null,
         locked: false,
         status: row.status as Task['status'],
         sourceType: 'project_step',
@@ -344,6 +354,27 @@ export class WeeklyPlanningService {
       })),
     );
 
+    for (const day of days) {
+      day.tasks.sort(compareTaskVisualOrder);
+    }
+    backlog.sort(compareTaskVisualOrder);
+
     return { weekLabel, weekStart: startStr, days, backlog };
   }
+}
+
+function compareTaskVisualOrder(a: Task, b: Task): number {
+  const compare = taskVisualOrder(a) - taskVisualOrder(b);
+  if (compare !== 0) return compare;
+  return a.title.toLowerCase().localeCompare(b.title.toLowerCase());
+}
+
+function taskVisualOrder(task: Task): number {
+  if (task.sourceType === 'calendar_shadow_event' && task.startsAt != null) {
+    const date = new Date(task.startsAt);
+    if (!Number.isNaN(date.getTime())) {
+      return ((date.getUTCHours() * 60) + date.getUTCMinutes()) * 10000;
+    }
+  }
+  return task.scheduledOrder ?? 10000000;
 }

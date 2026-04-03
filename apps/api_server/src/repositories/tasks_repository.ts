@@ -9,6 +9,7 @@ interface TaskRow {
   notes: string | null;
   due_date: string | null;
   scheduled_date: string | null;
+  scheduled_order: number | null;
   locked: number;
   status: string;
   source_type: string | null;
@@ -26,6 +27,7 @@ function rowToTask(row: TaskRow): Task {
     notes: row.notes ?? null,
     dueDate: row.due_date,
     scheduledDate: row.scheduled_date ?? null,
+    scheduledOrder: row.scheduled_order ?? null,
     locked: row.locked === 1,
     status: row.status as Task['status'],
     sourceType: row.source_type,
@@ -53,7 +55,7 @@ const TASK_SELECT = `
     ON pi.template_id = pt.id
   LEFT JOIN recurring_task_rules rr
     ON tasks.source_type = 'recurring_rule'
-   AND tasks.source_id = rr.id
+   AND (tasks.source_id = rr.id OR tasks.source_id LIKE rr.id || ':%')
 `;
 
 export class TasksRepository {
@@ -63,13 +65,13 @@ export class TasksRepository {
         .prepare(
           `${TASK_SELECT}
            WHERE tasks.owner_id = ? OR tasks.owner_id IS NULL
-           ORDER BY tasks.due_date ASC, tasks.created_at ASC`,
+           ORDER BY tasks.due_date ASC, tasks.scheduled_order ASC, tasks.created_at ASC`,
         )
         .all(userId) as TaskRow[];
       return rows.map(rowToTask);
     }
     const rows = getDb()
-      .prepare(`${TASK_SELECT} ORDER BY tasks.due_date ASC, tasks.created_at ASC`)
+      .prepare(`${TASK_SELECT} ORDER BY tasks.due_date ASC, tasks.scheduled_order ASC, tasks.created_at ASC`)
       .all() as TaskRow[];
     return rows.map(rowToTask);
   }
@@ -102,10 +104,10 @@ export class TasksRepository {
       const rows = getDb()
           .prepare(
             `${TASK_SELECT}
-           WHERE (tasks.owner_id = ? OR tasks.owner_id IS NULL)
+          WHERE (tasks.owner_id = ? OR tasks.owner_id IS NULL)
              AND (tasks.due_date BETWEEN ? AND ? OR tasks.scheduled_date BETWEEN ? AND ?)
-           ORDER BY tasks.due_date ASC, tasks.created_at ASC`,
-        )
+         ORDER BY tasks.due_date ASC, tasks.scheduled_order ASC, tasks.created_at ASC`,
+      )
         .all(userId, weekStart, weekEnd, weekStart, weekEnd) as TaskRow[];
       return rows.map(rowToTask);
     }
@@ -126,9 +128,9 @@ export class TasksRepository {
       .prepare(
         `INSERT INTO tasks (
           id, title, notes, due_date, scheduled_date, locked, status,
-          source_type, source_id, owner_id, created_at, updated_at
+          scheduled_order, source_type, source_id, owner_id, created_at, updated_at
         )
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         id,
@@ -138,6 +140,7 @@ export class TasksRepository {
         data.scheduledDate ?? null,
         data.locked ? 1 : 0,
         data.status ?? 'open',
+        data.scheduledOrder ?? null,
         data.sourceType ?? null,
         data.sourceId ?? null,
         data.ownerId ?? null,
@@ -165,6 +168,7 @@ export class TasksRepository {
       notes: data.notes ?? null,
       dueDate: data.dueDate ?? null,
       scheduledDate: data.scheduledDate ?? null,
+      scheduledOrder: data.scheduledOrder ?? null,
       status: data.status ?? 'open',
       locked: data.locked ?? existing.locked,
     });
@@ -208,9 +212,13 @@ export class TasksRepository {
     const today = new Date().toISOString().substring(0, 10);
     const result = getDb()
       .prepare(
-        `DELETE FROM tasks WHERE source_type = ? AND source_id = ? AND status = 'open' AND (due_date IS NULL OR due_date >= ?)`,
+        `DELETE FROM tasks
+         WHERE source_type = ?
+           AND (source_id = ? OR source_id LIKE ? || ':%')
+           AND status = 'open'
+           AND (due_date IS NULL OR due_date >= ?)`,
       )
-      .run(sourceType, sourceId, today);
+      .run(sourceType, sourceId, sourceId, today);
     return result.changes;
   }
 
@@ -228,11 +236,13 @@ export class TasksRepository {
     const nextDueDate = data.dueDate === '' ? null : data.dueDate;
     const nextScheduledDate =
       data.scheduledDate === '' ? null : data.scheduledDate;
+    const nextScheduledOrder =
+      data.scheduledOrder === null ? null : data.scheduledOrder;
     getDb()
       .prepare(
         `UPDATE tasks
          SET title = ?, notes = ?, due_date = ?, status = ?,
-             scheduled_date = ?, locked = ?, owner_id = ?, updated_at = ?
+             scheduled_date = ?, scheduled_order = ?, locked = ?, owner_id = ?, updated_at = ?
          WHERE id = ?`,
       )
       .run(
@@ -243,6 +253,9 @@ export class TasksRepository {
         nextScheduledDate !== undefined
             ? nextScheduledDate
             : existing.scheduledDate,
+        data.scheduledOrder !== undefined
+            ? nextScheduledOrder
+            : existing.scheduledOrder,
         data.locked !== undefined ? (data.locked ? 1 : 0) : (existing.locked ? 1 : 0),
         data.ownerId !== undefined ? data.ownerId : existing.ownerId,
         now,

@@ -286,7 +286,8 @@ class _EmptyState extends StatelessWidget {
   Widget build(BuildContext context) {
     return Center(
       child: Container(
-        padding: const EdgeInsets.all(28),
+        constraints: const BoxConstraints(maxWidth: 520),
+        padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 18),
         decoration: BoxDecoration(
           color: RhythmTokens.surfaceStrong,
           borderRadius: BorderRadius.circular(RhythmTokens.radiusL),
@@ -297,34 +298,35 @@ class _EmptyState extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             Container(
-              width: 56,
-              height: 56,
+              width: 40,
+              height: 40,
               decoration: BoxDecoration(
                 color: RhythmTokens.accentSoft,
                 borderRadius: BorderRadius.circular(RhythmTokens.radiusM),
               ),
               child: const Icon(
                 Icons.bolt_outlined,
-                size: 28,
+                size: 20,
                 color: RhythmTokens.accent,
               ),
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 10),
             const Text(
               'No automations yet',
               style: TextStyle(
-                fontSize: 18,
+                fontSize: 16,
                 fontWeight: FontWeight.w600,
                 color: RhythmTokens.textPrimary,
               ),
             ),
-            const SizedBox(height: 8),
+            const SizedBox(height: 6),
             const Text(
               'Connect providers, sync data, and create rules from external metadata.',
+              maxLines: 2,
               style: TextStyle(color: RhythmTokens.textSecondary),
               textAlign: TextAlign.center,
             ),
-            const SizedBox(height: 20),
+            const SizedBox(height: 12),
             FilledButton.icon(
               onPressed: onCreate,
               icon: const Icon(Icons.add),

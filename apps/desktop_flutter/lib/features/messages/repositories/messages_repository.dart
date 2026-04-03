@@ -23,4 +23,6 @@ class MessagesRepository {
       _dataSource.sendMessage(threadId, content);
 
   Future<void> markRead(int threadId) => _dataSource.markRead(threadId);
+
+  Future<void> markUnread(int threadId) => _dataSource.markUnread(threadId);
 }
