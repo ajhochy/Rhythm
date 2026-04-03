@@ -28,7 +28,7 @@ export class WeeklyPlanController {
         syncedAt: now,
         sourceAccountId: null,
         sourceLabel: 'Rhythm',
-        payload: { weekLabel, taskCount: plan.tasks?.length ?? 0 },
+        payload: { weekLabel, taskCount: plan.days.reduce((sum, d) => sum + d.tasks.length, 0) + plan.backlog.length },
         createdAt: now,
         updatedAt: now,
       };
