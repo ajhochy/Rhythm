@@ -1,5 +1,5 @@
 import Database from 'better-sqlite3';
-import { beforeEach, describe, expect, test } from 'vitest';
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest';
 import { AutomationCatalogController } from '../controllers/automation_catalog_controller';
 import { AutomationRulesController } from '../controllers/automation_rules_controller';
 import { setDb } from '../database/db';
@@ -20,6 +20,14 @@ describe('Automation overhaul backend', () => {
     const db = new Database(':memory:');
     runMigrations(db);
     setDb(db);
+    // Freeze time so time-sensitive filters (e.g. hoursSinceReceived) behave
+    // consistently regardless of when tests run.
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-04-01T18:00:00.000Z'));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   test('creates a follow-up task from a matching unread Gmail signal', () => {
