@@ -1,3 +1,29 @@
+class AutomationCondition {
+  const AutomationCondition({
+    required this.field,
+    required this.operator,
+    required this.value,
+  });
+
+  final String field;
+  final String operator;
+  final String value;
+
+  factory AutomationCondition.fromJson(Map<String, dynamic> json) {
+    return AutomationCondition(
+      field: json['field'] as String,
+      operator: json['operator'] as String,
+      value: json['value'] as String,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'field': field,
+        'operator': operator,
+        'value': value,
+      };
+}
+
 class AutomationRule {
   const AutomationRule({
     required this.id,
@@ -7,6 +33,7 @@ class AutomationRule {
     this.triggerConfig,
     required this.actionType,
     this.actionConfig,
+    this.conditions,
     required this.enabled,
     this.sourceAccountId,
     this.lastEvaluatedAt,
@@ -24,6 +51,7 @@ class AutomationRule {
   final Map<String, dynamic>? triggerConfig;
   final String actionType;
   final Map<String, dynamic>? actionConfig;
+  final List<AutomationCondition>? conditions;
   final bool enabled;
   final String? sourceAccountId;
   final String? lastEvaluatedAt;
@@ -41,6 +69,7 @@ class AutomationRule {
       };
 
   factory AutomationRule.fromJson(Map<String, dynamic> json) {
+    final conditionsJson = json['conditions'] as List<dynamic>?;
     return AutomationRule(
       id: json['id'] as String,
       name: json['name'] as String,
@@ -50,6 +79,9 @@ class AutomationRule {
       triggerConfig: json['triggerConfig'] as Map<String, dynamic>?,
       actionType: json['actionType'] as String,
       actionConfig: json['actionConfig'] as Map<String, dynamic>?,
+      conditions: conditionsJson
+          ?.map((c) => AutomationCondition.fromJson(c as Map<String, dynamic>))
+          .toList(),
       enabled: json['enabled'] as bool? ?? true,
       sourceAccountId: json['sourceAccountId'] as String?,
       lastEvaluatedAt: json['lastEvaluatedAt'] as String?,
@@ -69,6 +101,8 @@ class AutomationRule {
         if (triggerConfig != null) 'triggerConfig': triggerConfig,
         'actionType': actionType,
         if (actionConfig != null) 'actionConfig': actionConfig,
+        if (conditions != null)
+          'conditions': conditions!.map((c) => c.toJson()).toList(),
         'enabled': enabled,
         if (sourceAccountId != null) 'sourceAccountId': sourceAccountId,
         if (lastEvaluatedAt != null) 'lastEvaluatedAt': lastEvaluatedAt,
@@ -93,6 +127,9 @@ class AutomationRule {
         'rhythm.task_due' => 'Task is due',
         'plan_assembly' => 'Plan is assembled',
         'rhythm.plan_assembly' => 'Plan is assembled',
+        'planning_center.plan_upcoming' => 'Plan upcoming',
+        'planning_center.plan_published' => 'Plan published',
+        'planning_center.service_item_updated' => 'Service item updated',
         'planning_center.plan_person_declined' => 'Volunteer declined',
         'planning_center.plan_person_unconfirmed' => 'Volunteer unconfirmed',
         'planning_center.needed_position_open' => 'Needed position open',

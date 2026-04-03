@@ -433,6 +433,9 @@ export function runMigrations(db: Database.Database): void {
   if (!automationRuleCols.includes('preview_sample')) {
     db.exec(`ALTER TABLE automation_rules ADD COLUMN preview_sample TEXT`);
   }
+  if (!automationRuleCols.includes('conditions')) {
+    db.exec(`ALTER TABLE automation_rules ADD COLUMN conditions TEXT`);
+  }
 
   const automationRuleFks = db.pragma('foreign_key_list(automation_rules)') as {
     table: string;

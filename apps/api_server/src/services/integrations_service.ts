@@ -18,6 +18,7 @@ import { ProjectTemplatesRepository } from '../repositories/project_templates_re
 import { AutomationEngineService } from './automation_engine_service';
 import { GoogleOAuthService } from './google_oauth_service';
 import { PlanningCenterOAuthService } from './planning_center_oauth_service';
+import { RhythmSignalGeneratorService } from './rhythm_signal_generator_service';
 
 function daysUntil(dateString: string): number {
   const start = new Date();
@@ -44,6 +45,7 @@ export class IntegrationsService {
   private readonly automationEngine = new AutomationEngineService();
   private readonly googleOAuth = new GoogleOAuthService();
   private readonly planningCenterOAuth = new PlanningCenterOAuthService();
+  private readonly rhythmGenerator = new RhythmSignalGeneratorService();
 
   async syncGoogleCalendar(userId: number) {
     const account = await this.ensureFreshAccount('google_calendar', userId);
@@ -252,10 +254,10 @@ export class IntegrationsService {
       this.ensureDefaultRules();
       const preferences =
         this.preferencesRepo.getPlanningCenterTaskPreferences(userId);
-      const collected = await this.planningCenter.collectAutomationSignals(
-        account,
-        preferences,
-      );
+      const [collected, serviceTypeItems] = await Promise.all([
+        this.planningCenter.collectAutomationSignals(account, preferences),
+        this.planningCenter.collectServiceItemSignals(account),
+      ]);
       const syncedAt = new Date().toISOString();
       const automationSignals: CreateAutomationSignalDto[] = [
         ...collected.upcomingPlans.map((plan) => ({
@@ -272,8 +274,28 @@ export class IntegrationsService {
             serviceTypeName: plan.serviceTypeName,
             planDate: plan.planDate,
             daysUntil: plan.daysUntil,
+            publishedAt: plan.publishedAt,
           },
         })),
+        ...collected.upcomingPlans
+          .filter((plan) => plan.publishedAt != null)
+          .map((plan) => ({
+            provider: 'planning_center' as const,
+            signalType: 'plan_published' as const,
+            externalId: plan.planId,
+            dedupeKey: `planning_center:published:${plan.planId}`,
+            occurredAt: plan.publishedAt!,
+            syncedAt,
+            sourceAccountId: account.id,
+            sourceLabel: account.email ?? account.displayName ?? 'Planning Center',
+            payload: {
+              title: plan.title,
+              serviceTypeName: plan.serviceTypeName,
+              planDate: plan.planDate,
+              daysUntil: plan.daysUntil,
+              publishedAt: plan.publishedAt,
+            },
+          })),
         ...collected.tasks.map((task) => ({
           provider: 'planning_center' as const,
           signalType: task.signalType,
@@ -296,6 +318,25 @@ export class IntegrationsService {
             planTitle: task.planTitle,
             planDate: task.planDate,
             daysUntil: task.daysUntil,
+          },
+        })),
+        ...serviceTypeItems.map((item) => ({
+          provider: 'planning_center' as const,
+          signalType: 'service_item_updated' as const,
+          externalId: item.itemId,
+          dedupeKey: `planning_center:service_item:${item.itemId}`,
+          occurredAt: `${item.planDate}T00:00:00Z`,
+          syncedAt,
+          sourceAccountId: account.id,
+          sourceLabel: account.email ?? account.displayName ?? 'Planning Center',
+          payload: {
+            title: item.title,
+            itemType: item.itemType,
+            sequence: item.sequence,
+            serviceTypeName: item.serviceTypeName,
+            planId: item.planId,
+            planDate: item.planDate,
+            daysUntil: item.daysUntil,
           },
         })),
         ...collected.specialProjects.map((project) => ({
@@ -412,16 +453,14 @@ export class IntegrationsService {
           result: await this.syncPlanningCenter(userId),
         };
       case 'rhythm': {
-        const recentSignals = this.signalsRepo.listRecent(100).filter(
-          (signal) => signal.provider === 'rhythm',
-        );
-        const evaluation = this.automationEngine.evaluateSignals(
-          'rhythm',
-          recentSignals,
-        );
+        const rhythmSignals = [
+          ...this.rhythmGenerator.generateTaskDueSignals(),
+          ...this.rhythmGenerator.generateProjectStepDueSignals(),
+        ];
+        const evaluation = this.automationEngine.evaluateSignals('rhythm', rhythmSignals);
         return {
           source: rule.source,
-          generatedSignalCount: recentSignals.length,
+          generatedSignalCount: rhythmSignals.length,
           matchedRuleCount: evaluation.matchedRules,
           executedActionCount: evaluation.executedActions,
         };

@@ -31,6 +31,7 @@ class AutomationRulesRepository {
     Map<String, dynamic>? actionConfig,
     String? sourceAccountId,
     bool enabled = true,
+    List<AutomationCondition>? conditions,
   }) =>
       _dataSource.create(
         name: name,
@@ -41,6 +42,7 @@ class AutomationRulesRepository {
         actionConfig: actionConfig,
         sourceAccountId: sourceAccountId,
         enabled: enabled,
+        conditions: conditions,
       );
 
   Future<AutomationRule> update(
@@ -53,6 +55,7 @@ class AutomationRulesRepository {
     Map<String, dynamic>? actionConfig,
     String? sourceAccountId,
     bool? enabled,
+    List<AutomationCondition>? conditions,
   }) =>
       _dataSource.update(
         id,
@@ -64,6 +67,7 @@ class AutomationRulesRepository {
         actionConfig: actionConfig,
         sourceAccountId: sourceAccountId,
         enabled: enabled,
+        conditions: conditions,
       );
 
   Future<void> delete(String id) => _dataSource.delete(id);
