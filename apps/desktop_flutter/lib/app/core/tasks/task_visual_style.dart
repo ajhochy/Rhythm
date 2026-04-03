@@ -117,8 +117,8 @@ class TaskVisualStyles {
     List<TaskVisualStyle> styles,
     String key,
   ) {
-    final index = key.runes.fold<int>(0, (sum, rune) => sum + rune) %
-        styles.length;
+    final index =
+        key.runes.fold<int>(0, (sum, rune) => sum + rune) % styles.length;
     return styles[index];
   }
 }

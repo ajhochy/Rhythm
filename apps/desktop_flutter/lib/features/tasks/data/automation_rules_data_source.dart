@@ -205,5 +205,4 @@ class AutomationRulesDataSource {
     );
     assertOk(response);
   }
-
 }

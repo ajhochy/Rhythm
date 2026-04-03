@@ -1131,9 +1131,8 @@ class _TaskTile extends StatelessWidget {
               : visualStyle.background,
           borderRadius: BorderRadius.circular(RhythmTokens.radiusS),
           border: Border.all(
-            color: isSelected || isMultiSelected
-                ? _kPrimary
-                : visualStyle.border,
+            color:
+                isSelected || isMultiSelected ? _kPrimary : visualStyle.border,
           ),
           boxShadow:
               isSelected || isMultiSelected ? RhythmTokens.shadow : const [],
@@ -1230,8 +1229,7 @@ class _TaskTile extends StatelessWidget {
                             backgroundColor: _kDanger.withValues(alpha: 0.12),
                             foregroundColor: _kDanger,
                           ),
-                        if (task.sourceType != null)
-                          _SourceChip(task: task),
+                        if (task.sourceType != null) _SourceChip(task: task),
                       ],
                     ),
                   ],
@@ -1606,7 +1604,8 @@ class _DetailPaneState extends State<_DetailPane> {
                       runSpacing: 8,
                       children: [
                         OutlinedButton.icon(
-                          onPressed: () => widget.controller.moveTaskEarlier(task),
+                          onPressed: () =>
+                              widget.controller.moveTaskEarlier(task),
                           icon: const Icon(Icons.arrow_upward, size: 14),
                           label: const Text('Move earlier'),
                           style: OutlinedButton.styleFrom(
@@ -1616,7 +1615,8 @@ class _DetailPaneState extends State<_DetailPane> {
                           ),
                         ),
                         OutlinedButton.icon(
-                          onPressed: () => widget.controller.moveTaskLater(task),
+                          onPressed: () =>
+                              widget.controller.moveTaskLater(task),
                           icon: const Icon(Icons.arrow_downward, size: 14),
                           label: const Text('Move later'),
                           style: OutlinedButton.styleFrom(
@@ -1719,7 +1719,6 @@ class _DetailPaneState extends State<_DetailPane> {
       ),
     );
   }
-
 }
 
 // ---------------------------------------------------------------------------
@@ -1785,7 +1784,8 @@ class _SourceChip extends StatelessWidget {
 
 String? _shadowEventLabel(Task task) {
   if (task.isAllDay) return 'All day';
-  final start = task.startsAt == null ? null : DateTime.tryParse(task.startsAt!);
+  final start =
+      task.startsAt == null ? null : DateTime.tryParse(task.startsAt!);
   final end = task.endsAt == null ? null : DateTime.tryParse(task.endsAt!);
   if (start == null) return null;
   final startLabel = _formatClockTime(start);

@@ -31,7 +31,9 @@ class RhythmsDataSource {
     );
     assertOk(response);
     final list = jsonDecode(response.body) as List<dynamic>;
-    return list.map((j) => AuthUser.fromJson(j as Map<String, dynamic>)).toList();
+    return list
+        .map((j) => AuthUser.fromJson(j as Map<String, dynamic>))
+        .toList();
   }
 
   Future<RecurringTaskRule> create({
@@ -51,8 +53,7 @@ class RhythmsDataSource {
         if (dayOfWeek != null) 'dayOfWeek': dayOfWeek,
         if (dayOfMonth != null) 'dayOfMonth': dayOfMonth,
         if (month != null) 'month': month,
-        if (steps != null)
-          'steps': steps.map((step) => step.toJson()).toList(),
+        if (steps != null) 'steps': steps.map((step) => step.toJson()).toList(),
       }),
     );
     assertOk(response);
@@ -80,8 +81,7 @@ class RhythmsDataSource {
         if (dayOfMonth != null) 'dayOfMonth': dayOfMonth,
         if (month != null) 'month': month,
         if (enabled != null) 'enabled': enabled,
-        if (steps != null)
-          'steps': steps.map((step) => step.toJson()).toList(),
+        if (steps != null) 'steps': steps.map((step) => step.toJson()).toList(),
       }),
     );
     assertOk(response);
@@ -96,5 +96,4 @@ class RhythmsDataSource {
     );
     assertOk(response);
   }
-
 }

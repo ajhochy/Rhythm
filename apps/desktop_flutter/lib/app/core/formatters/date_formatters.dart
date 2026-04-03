@@ -44,12 +44,14 @@ class DateFormatters {
     DateTime? today,
   }) {
     if (isDone) return false;
-    final comparisonDate = _parseIsoDate(scheduledDate) ?? _parseIsoDate(dueDate);
+    final comparisonDate =
+        _parseIsoDate(scheduledDate) ?? _parseIsoDate(dueDate);
     if (comparisonDate == null) return false;
     final current = today == null
         ? DateTime.now()
         : DateTime(today.year, today.month, today.day);
-    return comparisonDate.isBefore(DateTime(current.year, current.month, current.day));
+    return comparisonDate
+        .isBefore(DateTime(current.year, current.month, current.day));
   }
 
   static bool isDueToday({
@@ -59,7 +61,8 @@ class DateFormatters {
     DateTime? today,
   }) {
     if (isDone) return false;
-    final comparisonDate = _parseIsoDate(scheduledDate) ?? _parseIsoDate(dueDate);
+    final comparisonDate =
+        _parseIsoDate(scheduledDate) ?? _parseIsoDate(dueDate);
     if (comparisonDate == null) return false;
     final current = today == null
         ? DateTime.now()

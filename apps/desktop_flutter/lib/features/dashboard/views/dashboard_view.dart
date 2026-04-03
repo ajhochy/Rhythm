@@ -840,7 +840,9 @@ class _ProgressDialCard extends StatelessWidget {
                   children: [
                     Text(
                       primaryLabel ??
-                          (totalCount == 0 ? 'No tasks' : '$remainingCount left'),
+                          (totalCount == 0
+                              ? 'No tasks'
+                              : '$remainingCount left'),
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
@@ -1210,7 +1212,8 @@ DateTime? _taskPriorityDate(Task task) {
   final scheduled = task.scheduledDate == null
       ? null
       : DateTime.tryParse(task.scheduledDate!);
-  if (scheduled != null) return DateTime(scheduled.year, scheduled.month, scheduled.day);
+  if (scheduled != null)
+    return DateTime(scheduled.year, scheduled.month, scheduled.day);
   final due = task.dueDate == null ? null : DateTime.tryParse(task.dueDate!);
   return due == null ? null : DateTime(due.year, due.month, due.day);
 }
@@ -1405,7 +1408,8 @@ class _TaskPreviewRow extends StatelessWidget {
                         ),
                       if (task.dueDate != null)
                         _TaskBadge(
-                          label: 'Due ${DateFormatters.fullDate(task.dueDate, fallback: task.dueDate!)}',
+                          label:
+                              'Due ${DateFormatters.fullDate(task.dueDate, fallback: task.dueDate!)}',
                           backgroundColor: _kSurfaceSoft,
                           foregroundColor: _kTextSecondary,
                         ),

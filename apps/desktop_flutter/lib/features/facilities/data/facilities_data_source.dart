@@ -82,5 +82,4 @@ class FacilitiesDataSource {
     );
     assertOk(response);
   }
-
 }

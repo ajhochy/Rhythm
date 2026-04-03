@@ -1,8 +1,7 @@
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
 class LocalNotificationService {
-  LocalNotificationService()
-      : _plugin = FlutterLocalNotificationsPlugin();
+  LocalNotificationService() : _plugin = FlutterLocalNotificationsPlugin();
 
   final FlutterLocalNotificationsPlugin _plugin;
   bool _initialized = false;

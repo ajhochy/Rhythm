@@ -379,7 +379,7 @@ class _TemplateList extends StatelessWidget {
                         elevation: 0,
                         color: colorScheme.surface,
                         surfaceTintColor: Colors.transparent,
-                          shape: RoundedRectangleBorder(
+                        shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(18),
                           side: BorderSide(
                             color: isSelected
@@ -389,9 +389,8 @@ class _TemplateList extends StatelessWidget {
                         ),
                         child: ListTile(
                           selected: isSelected,
-                          selectedTileColor:
-                              colorScheme.primaryContainer
-                                  .withValues(alpha: 0.22),
+                          selectedTileColor: colorScheme.primaryContainer
+                              .withValues(alpha: 0.22),
                           contentPadding: const EdgeInsets.symmetric(
                             horizontal: 14,
                             vertical: 8,

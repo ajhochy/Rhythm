@@ -60,12 +60,12 @@ class IntegrationsController extends ChangeNotifier {
       );
       _googleCalendarSettings = calendarConnected
           ? await _repository.getGoogleCalendarSettings()
-          : GoogleCalendarSettings(calendars: const [], selectedCalendarIds: const []);
+          : GoogleCalendarSettings(
+              calendars: const [], selectedCalendarIds: const []);
       final gmailConnected = _accounts.any(
         (account) => account.provider == 'gmail' && account.connected,
       );
-      _gmailSignals =
-          gmailConnected ? await _repository.getGmailSignals() : [];
+      _gmailSignals = gmailConnected ? await _repository.getGmailSignals() : [];
       final pcoConnected = _accounts.any(
         (account) => account.provider == 'planning_center' && account.connected,
       );
@@ -123,7 +123,8 @@ class IntegrationsController extends ChangeNotifier {
     }
   }
 
-  Future<void> saveGoogleCalendarPreferences(List<String> selectedCalendarIds) async {
+  Future<void> saveGoogleCalendarPreferences(
+      List<String> selectedCalendarIds) async {
     _savingGoogleCalendarPreferences = true;
     _errorMessage = null;
     notifyListeners();

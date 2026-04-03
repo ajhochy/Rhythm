@@ -448,7 +448,7 @@ class _RuleTileState extends State<_RuleTile> {
               ),
               crossFadeState: _expanded
                   ? CrossFadeState.showSecond
-              : CrossFadeState.showFirst,
+                  : CrossFadeState.showFirst,
               duration: const Duration(milliseconds: 180),
             ),
           ],
@@ -773,7 +773,8 @@ class _CreateRuleDialogState extends State<_CreateRuleDialog> {
                   ),
                   items: List.generate(
                     7,
-                    (i) => DropdownMenuItem(value: i, child: Text(_weekdays[i])),
+                    (i) =>
+                        DropdownMenuItem(value: i, child: Text(_weekdays[i])),
                   ),
                   onChanged: (v) => setState(() => _dayOfWeek = v!),
                 ),
@@ -793,7 +794,8 @@ class _CreateRuleDialogState extends State<_CreateRuleDialog> {
                   ),
                   items: List.generate(
                     12,
-                    (i) => DropdownMenuItem(value: i + 1, child: Text(_months[i])),
+                    (i) =>
+                        DropdownMenuItem(value: i + 1, child: Text(_months[i])),
                   ),
                   onChanged: (v) => setState(() => _month = v!),
                 ),
@@ -1036,7 +1038,8 @@ class _EditRuleDialogState extends State<_EditRuleDialog> {
                   ),
                   items: List.generate(
                     7,
-                    (i) => DropdownMenuItem(value: i, child: Text(_weekdays[i])),
+                    (i) =>
+                        DropdownMenuItem(value: i, child: Text(_weekdays[i])),
                   ),
                   onChanged: (v) => setState(() => _dayOfWeek = v!),
                 ),
@@ -1054,7 +1057,8 @@ class _EditRuleDialogState extends State<_EditRuleDialog> {
                   ),
                   items: List.generate(
                     12,
-                    (i) => DropdownMenuItem(value: i + 1, child: Text(_months[i])),
+                    (i) =>
+                        DropdownMenuItem(value: i + 1, child: Text(_months[i])),
                   ),
                   onChanged: (v) => setState(() => _month = v!),
                 ),

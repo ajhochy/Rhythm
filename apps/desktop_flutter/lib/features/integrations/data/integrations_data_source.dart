@@ -154,5 +154,4 @@ class IntegrationsDataSource {
       jsonDecode(response.body) as Map<String, dynamic>,
     );
   }
-
 }

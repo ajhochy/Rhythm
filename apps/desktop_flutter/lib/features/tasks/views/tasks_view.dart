@@ -159,17 +159,19 @@ class _TasksViewState extends State<TasksView> {
                     children: [
                       Text(
                         'Tasks',
-                        style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                              color: RhythmTokens.textPrimary,
-                              fontWeight: FontWeight.w700,
-                              letterSpacing: -0.3,
-                            ),
+                        style:
+                            Theme.of(context).textTheme.titleMedium?.copyWith(
+                                  color: RhythmTokens.textPrimary,
+                                  fontWeight: FontWeight.w700,
+                                  letterSpacing: -0.3,
+                                ),
                       ),
                       _CompactFilterChip(
                         label: 'Completed',
                         selected: _showCompleted,
-                        icon:
-                            _showCompleted ? Icons.visibility_off : Icons.visibility,
+                        icon: _showCompleted
+                            ? Icons.visibility_off
+                            : Icons.visibility,
                         onSelected: (_) =>
                             setState(() => _showCompleted = !_showCompleted),
                       ),
@@ -667,9 +669,7 @@ class _CompactFilterChip extends StatelessWidget {
             : RhythmTokens.borderSoft,
       ),
       labelStyle: TextStyle(
-        color: selected
-            ? RhythmTokens.textPrimary
-            : RhythmTokens.textSecondary,
+        color: selected ? RhythmTokens.textPrimary : RhythmTokens.textSecondary,
         fontWeight: FontWeight.w600,
       ),
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
@@ -746,7 +746,9 @@ IconData _sourceIcon(String sourceType) => switch (sourceType) {
 
 String? _projectTitle(Task task) {
   final sourceName = task.sourceName?.trim();
-  if (task.sourceType != 'project_step' || sourceName == null || sourceName.isEmpty) {
+  if (task.sourceType != 'project_step' ||
+      sourceName == null ||
+      sourceName.isEmpty) {
     return null;
   }
   return sourceName;
