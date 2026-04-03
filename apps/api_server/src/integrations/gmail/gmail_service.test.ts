@@ -5,24 +5,27 @@ import type { IntegrationAccount } from '../../models/integration_account';
 const mockAccount: IntegrationAccount = {
   id: 'acc-1',
   provider: 'gmail',
-  accessToken: 'tok',
-  refreshToken: null,
-  expiresAt: null,
+  externalAccountId: 'ext-1',
   email: 'test@example.com',
   displayName: null,
-  connectedAt: new Date().toISOString(),
+  status: 'connected',
+  accessToken: 'tok',
+  refreshToken: null,
+  scope: null,
+  tokenType: null,
+  expiresAt: null,
   lastSyncedAt: null,
-  lastErrorAt: null,
-  lastError: null,
+  errorMessage: null,
   ownerId: 1,
-  sourceAccountId: null,
+  createdAt: new Date().toISOString(),
+  updatedAt: new Date().toISOString(),
 };
 
 function makeMessageListResponse(ids: string[]) {
   return {
     ok: true,
     json: async () => ({ messages: ids.map((id) => ({ id, threadId: `t-${id}` })) }),
-    text: async () => '',
+    text: async (): Promise<string> => '',
   };
 }
 
@@ -103,7 +106,7 @@ describe('GmailService', () => {
         const id = u.match(/\/messages\/(m\d)/)?.[1] ?? 'unknown';
         // m2 detail fetch fails
         if (id === 'm2') {
-          return { ok: false, text: async () => 'Not Found' };
+          return { ok: false, text: async (): Promise<string> => 'Not Found' };
         }
         return makeMessageDetailResponse(id, false);
       }),
