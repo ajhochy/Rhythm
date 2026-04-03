@@ -1,21 +1,21 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
+import '../../../app/theme/rhythm_tokens.dart';
 import '../controllers/messages_controller.dart';
 import '../models/message.dart';
 import '../models/message_thread.dart';
 
-// ---------------------------------------------------------------------------
-// Theme tokens (Rhythm 2.0 Light)
-// ---------------------------------------------------------------------------
-const _kSidebarBg = Color(0xFFF8F9FA);
-const _kSidebarBorder = Color(0xFFE5E7EB);
-const _kPrimary = Color(0xFF4F6AF5);
-const _kTextPrimary = Color(0xFF111827);
-const _kTextSecondary = Color(0xFF6B7280);
-const _kTextMuted = Color(0xFF9CA3AF);
-const _kDivider = Color(0xFFE5E7EB);
+const _kCanvas = RhythmTokens.background;
+const _kPrimary = RhythmTokens.accent;
+const _kTextPrimary = RhythmTokens.textPrimary;
+const _kTextSecondary = RhythmTokens.textSecondary;
+const _kTextMuted = RhythmTokens.textMuted;
+const _kDivider = RhythmTokens.borderSoft;
+const _kSurface = RhythmTokens.surfaceStrong;
+const _kSurfaceMuted = RhythmTokens.surfaceMuted;
+const _kBorder = RhythmTokens.border;
+const _kAccentSoft = RhythmTokens.accentSoft;
 
 class MessagesView extends StatefulWidget {
   const MessagesView({super.key});
@@ -51,16 +51,33 @@ class _MessagesViewState extends State<MessagesView> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: Colors.white,
-      body: Row(
-        children: [
-          _ThreadListPanel(
-            searchController: _searchController,
-            searchQuery: _searchQuery,
+      backgroundColor: _kCanvas,
+      body: Container(
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              _kCanvas,
+              Color(0xFFF7F4EF),
+              _kCanvas,
+            ],
+            stops: [0.0, 0.45, 1.0],
           ),
-          const VerticalDivider(width: 1, color: _kSidebarBorder),
-          const Expanded(child: _MessagePanel()),
-        ],
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: Row(
+            children: [
+              _ThreadListPanel(
+                searchController: _searchController,
+                searchQuery: _searchQuery,
+              ),
+              const SizedBox(width: 12),
+              const Expanded(child: _MessagePanel()),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -87,8 +104,13 @@ class _ThreadListPanel extends StatelessWidget {
         .toList();
 
     return Container(
-      width: 280,
-      color: _kSidebarBg,
+      width: 330,
+      decoration: BoxDecoration(
+        color: _kSurface,
+        borderRadius: BorderRadius.circular(RhythmTokens.radiusL),
+        border: Border.all(color: _kBorder),
+        boxShadow: RhythmTokens.shadow,
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -96,7 +118,7 @@ class _ThreadListPanel extends StatelessWidget {
             onNewThread: () => _showNewThreadDialog(context),
           ),
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
             child: _SearchField(controller: searchController),
           ),
           const Divider(height: 1, color: _kDivider),
@@ -104,16 +126,14 @@ class _ThreadListPanel extends StatelessWidget {
             child: controller.status == MessagesStatus.loading &&
                     controller.threads.isEmpty
                 ? const Center(
-                    child: CircularProgressIndicator(color: _kPrimary))
+                    child: CircularProgressIndicator(color: _kPrimary),
+                  )
                 : filtered.isEmpty
-                    ? const Center(
-                        child: Text(
-                          'No conversations',
-                          style: TextStyle(color: _kTextMuted, fontSize: 13),
-                        ),
-                      )
-                    : ListView.builder(
+                    ? const _EmptyThreadsState()
+                    : ListView.separated(
+                        padding: const EdgeInsets.fromLTRB(12, 12, 12, 14),
                         itemCount: filtered.length,
+                        separatorBuilder: (_, __) => const SizedBox(height: 8),
                         itemBuilder: (context, i) => _ThreadRow(
                           thread: filtered[i],
                           isSelected:
@@ -150,27 +170,47 @@ class _PanelHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 16, 12, 4),
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
       child: Row(
         children: [
           const Expanded(
-            child: Text(
-              'Messages',
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w600,
-                color: _kTextPrimary,
-              ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Messages',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w700,
+                    color: _kTextPrimary,
+                  ),
+                ),
+                SizedBox(height: 3),
+                Text(
+                  'Unread threads and direct conversations',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: _kTextMuted,
+                  ),
+                ),
+              ],
             ),
           ),
-          TextButton(
+          FilledButton.tonal(
             onPressed: onNewThread,
-            style: TextButton.styleFrom(
+            style: FilledButton.styleFrom(
+              backgroundColor: _kAccentSoft,
               foregroundColor: _kPrimary,
-              minimumSize: const Size(40, 32),
-              padding: const EdgeInsets.symmetric(horizontal: 10),
+              elevation: 0,
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(RhythmTokens.radiusS),
+              ),
             ),
-            child: const Text('New', style: TextStyle(fontSize: 13)),
+            child: const Text(
+              'New',
+              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+            ),
           ),
         ],
       ),
@@ -194,18 +234,18 @@ class _SearchField extends StatelessWidget {
         prefixIcon: const Icon(Icons.search, size: 16, color: _kTextMuted),
         isDense: true,
         filled: true,
-        fillColor: Colors.white,
-        contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        fillColor: _kSurfaceMuted,
+        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
         border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.circular(RhythmTokens.radiusS),
           borderSide: const BorderSide(color: _kDivider),
         ),
         enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.circular(RhythmTokens.radiusS),
           borderSide: const BorderSide(color: _kDivider),
         ),
         focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(8),
+          borderRadius: BorderRadius.circular(RhythmTokens.radiusS),
           borderSide: const BorderSide(color: _kPrimary),
         ),
       ),
@@ -226,36 +266,76 @@ class _ThreadRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final initial = thread.title.trim().isNotEmpty
+        ? thread.title.trim()[0].toUpperCase()
+        : '?';
+
     return InkWell(
       onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      borderRadius: BorderRadius.circular(RhythmTokens.radiusM),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 160),
+        curve: Curves.easeOut,
+        padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: isSelected ? const Color(0x144F6AF5) : Colors.transparent,
+          color: isSelected ? _kAccentSoft : _kSurfaceMuted,
+          borderRadius: BorderRadius.circular(RhythmTokens.radiusM),
+          border: Border.all(
+            color: isSelected ? _kPrimary.withValues(alpha: 0.28) : _kBorder,
+          ),
+          boxShadow: isSelected
+              ? [
+                  BoxShadow(
+                    color: _kPrimary.withValues(alpha: 0.08),
+                    blurRadius: 18,
+                    offset: const Offset(0, 6),
+                  ),
+                ]
+              : const [],
         ),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            Container(
+              width: 32,
+              height: 32,
+              decoration: BoxDecoration(
+                color: isSelected ? _kPrimary : const Color(0xFFE9EEF9),
+                borderRadius: BorderRadius.circular(10),
+            ),
+            alignment: Alignment.center,
+            child: Text(
+              initial,
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: isSelected ? Colors.white : _kPrimary,
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Expanded(
                         child: Text(
                           thread.title,
                           style: TextStyle(
-                            fontSize: 13,
+                            fontSize: 13.5,
                             fontWeight: thread.isUnread
-                                ? FontWeight.w600
-                                : FontWeight.w400,
+                                ? FontWeight.w700
+                                : FontWeight.w600,
                             color: _kTextPrimary,
                           ),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                         ),
                       ),
+                      const SizedBox(width: 8),
                       Text(
                         _formatTimestamp(thread.updatedAt),
                         style: const TextStyle(
@@ -265,25 +345,25 @@ class _ThreadRow extends StatelessWidget {
                       ),
                     ],
                   ),
-                  if (thread.lastMessage != null) ...[
-                    const SizedBox(height: 2),
-                    Text(
-                      thread.lastMessage!,
-                      style: const TextStyle(
-                        fontSize: 12,
-                        color: _kTextSecondary,
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
+                  const SizedBox(height: 4),
+                  Text(
+                    thread.lastMessage ?? 'No messages yet',
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: _kTextSecondary,
+                      height: 1.3,
                     ),
-                  ],
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
                 ],
               ),
             ),
             if (thread.isUnread) ...[
-              const SizedBox(width: 8),
+              const SizedBox(width: 10),
               Container(
-                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                 decoration: BoxDecoration(
                   color: _kPrimary,
                   borderRadius: BorderRadius.circular(999),
@@ -293,7 +373,7 @@ class _ThreadRow extends StatelessWidget {
                   style: const TextStyle(
                     color: Colors.white,
                     fontSize: 11,
-                    fontWeight: FontWeight.w600,
+                    fontWeight: FontWeight.w700,
                   ),
                 ),
               ),
@@ -320,6 +400,48 @@ class _ThreadRow extends StatelessWidget {
       return '${diff.inDays}d ago';
     }
     return '${dt.month}/${dt.day}/${dt.year}';
+  }
+}
+
+class _EmptyThreadsState extends StatelessWidget {
+  const _EmptyThreadsState();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Center(
+      child: Padding(
+        padding: EdgeInsets.all(24),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.forum_outlined,
+              size: 34,
+              color: _kTextMuted,
+            ),
+            SizedBox(height: 10),
+            Text(
+              'No conversations',
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                color: _kTextPrimary,
+              ),
+            ),
+            SizedBox(height: 4),
+            Text(
+              'Start a direct thread to begin the conversation.',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 12,
+                color: _kTextMuted,
+                height: 1.35,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
 
@@ -369,62 +491,248 @@ class _MessagePanelState extends State<_MessagePanel> {
   @override
   Widget build(BuildContext context) {
     final controller = context.watch<MessagesController>();
-
-    if (controller.selectedThreadId == null) {
-      return const Center(
-        child: Text(
-          'Select a conversation',
-          style: TextStyle(color: _kTextMuted, fontSize: 14),
-        ),
-      );
+    if (controller.selectedThreadId != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!_scrollController.hasClients) return;
+        _scrollController.animateTo(
+          _scrollController.position.maxScrollExtent,
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeOut,
+        );
+      });
     }
-
-    final thread = controller.selectedThread;
 
     return Column(
       children: [
-        // Header
-        Container(
-          height: 56,
-          padding: const EdgeInsets.symmetric(horizontal: 20),
-          decoration: const BoxDecoration(
-            border: Border(bottom: BorderSide(color: _kDivider)),
-          ),
-          child: Align(
-            alignment: Alignment.centerLeft,
-            child: Text(
-              thread?.title ?? '',
-              style: const TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w600,
-                color: _kTextPrimary,
-              ),
-            ),
-          ),
-        ),
-        // Message list
+        if (controller.incomingNotice != null)
+          _IncomingMessageBanner(notice: controller.incomingNotice!),
         Expanded(
-          child: controller.messages.isEmpty
-              ? const Center(
-                  child: Text(
-                    'No messages yet. Say something!',
-                    style: TextStyle(color: _kTextMuted, fontSize: 13),
+          child: Container(
+            decoration: BoxDecoration(
+              color: _kSurface,
+              borderRadius: BorderRadius.circular(RhythmTokens.radiusL),
+              border: Border.all(color: _kBorder),
+              boxShadow: RhythmTokens.shadow,
+            ),
+            child: controller.selectedThreadId == null
+                ? const _EmptyConversationState()
+                : Column(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 20, vertical: 16),
+                        decoration: const BoxDecoration(
+                          border: Border(bottom: BorderSide(color: _kDivider)),
+                        ),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    controller.selectedThread?.title ?? '',
+                                    style: const TextStyle(
+                                      fontSize: 18,
+                                      fontWeight: FontWeight.w700,
+                                      color: _kTextPrimary,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    '${controller.messages.length} message${controller.messages.length == 1 ? '' : 's'}',
+                                    style: const TextStyle(
+                                      fontSize: 12,
+                                      color: _kTextMuted,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 10, vertical: 6),
+                            decoration: BoxDecoration(
+                          color: _kAccentSoft,
+                          borderRadius: BorderRadius.circular(
+                              RhythmTokens.radiusS),
+                        ),
+                        child: Text(
+                          'Direct',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w700,
+                                  color: _kPrimary.withValues(alpha: 0.9),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Expanded(
+                        child: Container(
+                          color: _kCanvas.withValues(alpha: 0.45),
+                          child: controller.messages.isEmpty
+                              ? const Center(
+                                  child: Text(
+                                    'No messages yet. Say something!',
+                                    style: TextStyle(
+                                      color: _kTextMuted,
+                                      fontSize: 13,
+                                    ),
+                                  ),
+                                )
+                              : ListView.separated(
+                                  controller: _scrollController,
+                                  padding: const EdgeInsets.fromLTRB(
+                                      20, 20, 20, 16),
+                                  itemCount: controller.messages.length,
+                                  separatorBuilder: (_, __) =>
+                                      const SizedBox(height: 12),
+                                  itemBuilder: (context, i) => _MessageBubble(
+                                      message: controller.messages[i]),
+                                ),
+                        ),
+                      ),
+                      _ReplyArea(
+                        messageController: _messageController,
+                        onSend: () => _sendMessage(context),
+                      ),
+                    ],
                   ),
-                )
-              : ListView.builder(
-                  controller: _scrollController,
-                  padding: const EdgeInsets.all(16),
-                  itemCount: controller.messages.length,
-                  itemBuilder: (context, i) =>
-                      _MessageBubble(message: controller.messages[i]),
-                ),
-        ),
-        // Reply area
-        _ReplyArea(
-          messageController: _messageController,
-          onSend: () => _sendMessage(context),
+          ),
         ),
       ],
+    );
+  }
+}
+
+class _EmptyConversationState extends StatelessWidget {
+  const _EmptyConversationState();
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+          child: Container(
+        width: 340,
+        padding: const EdgeInsets.all(28),
+        decoration: BoxDecoration(
+          color: _kSurface,
+          borderRadius: BorderRadius.circular(RhythmTokens.radiusL),
+          border: Border.all(color: _kBorder),
+          boxShadow: RhythmTokens.shadow,
+        ),
+        child: const Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.chat_bubble_outline,
+              size: 36,
+              color: _kTextMuted,
+            ),
+            SizedBox(height: 12),
+            Text(
+              'Select a conversation',
+              style: TextStyle(
+                color: _kTextPrimary,
+                fontSize: 15,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            SizedBox(height: 6),
+            Text(
+              'Messages, thread previews, and reply activity appear here.',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: _kTextMuted,
+                fontSize: 12,
+                height: 1.35,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _IncomingMessageBanner extends StatelessWidget {
+  const _IncomingMessageBanner({required this.notice});
+
+  final IncomingMessageNotice notice;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Material(
+        color: Colors.transparent,
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          decoration: BoxDecoration(
+            color: _kAccentSoft,
+            borderRadius: BorderRadius.circular(RhythmTokens.radiusM),
+            border: Border.all(
+              color: _kPrimary.withValues(alpha: 0.18),
+            ),
+          ),
+          child: Row(
+            children: [
+              Container(
+                width: 28,
+                height: 28,
+                decoration: BoxDecoration(
+                  color: _kPrimary.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: const Icon(
+                  Icons.notifications_active_outlined,
+                  size: 16,
+                  color: _kPrimary,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      notice.senderName,
+                      style: const TextStyle(
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w700,
+                        color: _kTextPrimary,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      notice.preview,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: _kTextSecondary,
+                        height: 1.35,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              TextButton(
+                onPressed: () =>
+                    context.read<MessagesController>().clearIncomingNotice(),
+                style: TextButton.styleFrom(
+                  foregroundColor: _kPrimary,
+                  minimumSize: const Size(0, 34),
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                ),
+                child: const Text('Dismiss'),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
@@ -437,43 +745,85 @@ class _MessageBubble extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: Column(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            children: [
-              Text(
-                message.senderName,
-                style: const TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  color: _kTextPrimary,
-                ),
-              ),
-              const SizedBox(width: 8),
-              Text(
-                _formatTime(message.createdAt),
-                style: const TextStyle(
-                  fontSize: 11,
-                  color: _kTextMuted,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 4),
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            width: 26,
+            height: 26,
             decoration: BoxDecoration(
-              color: const Color(0xFFF3F4F6),
-              borderRadius: BorderRadius.circular(8),
+              color: const Color(0xFFE9EEF9),
+              borderRadius: BorderRadius.circular(9),
             ),
+            alignment: Alignment.center,
             child: Text(
-              message.content,
+              message.senderName.trim().isNotEmpty
+                  ? message.senderName.trim()[0].toUpperCase()
+                  : '?',
               style: const TextStyle(
-                fontSize: 13,
-                color: _kTextPrimary,
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+                color: _kPrimary,
               ),
+            ),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        message.senderName,
+                        style: const TextStyle(
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w700,
+                          color: _kTextPrimary,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      _formatTime(message.createdAt),
+                      style: const TextStyle(
+                        fontSize: 11,
+                        color: _kTextMuted,
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 10,
+                  ),
+                  decoration: BoxDecoration(
+                    color: _kSurface,
+                    borderRadius: BorderRadius.circular(RhythmTokens.radiusM),
+                    border: Border.all(color: _kBorder),
+                    boxShadow: const [
+                      BoxShadow(
+                        color: Color(0x081F2937),
+                        blurRadius: 14,
+                        offset: Offset(0, 5),
+                      ),
+                    ],
+                  ),
+                  child: Text(
+                    message.content,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      color: _kTextPrimary,
+                      height: 1.35,
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
         ],
@@ -505,50 +855,65 @@ class _ReplyArea extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.fromLTRB(18, 14, 18, 18),
       decoration: const BoxDecoration(
         border: Border(top: BorderSide(color: _kDivider)),
-        color: Colors.white,
+        color: _kSurface,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          KeyboardListener(
-            focusNode: FocusNode(),
-            onKeyEvent: (event) {
-              if (event is KeyDownEvent &&
-                  event.logicalKey == LogicalKeyboardKey.enter &&
-                  HardwareKeyboard.instance.isMetaPressed) {
-                onSend();
-              }
-            },
-            child: TextField(
-              controller: messageController,
-              style: const TextStyle(fontSize: 13, color: _kTextPrimary),
-              maxLines: 3,
-              minLines: 2,
-              decoration: InputDecoration(
-                hintText: 'Write a message\u2026',
-                hintStyle: const TextStyle(color: _kTextMuted, fontSize: 13),
-                isDense: true,
-                contentPadding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(6),
-                  borderSide: const BorderSide(color: _kDivider),
+          const Row(
+            children: [
+              Text(
+                'Reply',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  color: _kTextPrimary,
                 ),
-                enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(6),
-                  borderSide: const BorderSide(color: _kDivider),
+              ),
+              Spacer(),
+              Text(
+                'Cmd + Enter to send',
+                style: TextStyle(
+                  fontSize: 11,
+                  color: _kTextMuted,
                 ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(6),
-                  borderSide: const BorderSide(color: _kPrimary),
-                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          TextField(
+            controller: messageController,
+            style: const TextStyle(fontSize: 13, color: _kTextPrimary),
+            maxLines: 4,
+            minLines: 2,
+            decoration: InputDecoration(
+              hintText: 'Write a message\u2026',
+              hintStyle: const TextStyle(color: _kTextMuted, fontSize: 13),
+              isDense: true,
+              filled: true,
+              fillColor: _kCanvas.withValues(alpha: 0.6),
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 14,
+                vertical: 12,
+              ),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(RhythmTokens.radiusM),
+                borderSide: const BorderSide(color: _kBorder),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(RhythmTokens.radiusM),
+                borderSide: const BorderSide(color: _kBorder),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(RhythmTokens.radiusM),
+                borderSide: const BorderSide(color: _kPrimary),
               ),
             ),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 12),
           Align(
             alignment: Alignment.centerRight,
             child: FilledButton(
@@ -556,12 +921,19 @@ class _ReplyArea extends StatelessWidget {
               style: FilledButton.styleFrom(
                 backgroundColor: _kPrimary,
                 padding:
-                    const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-                minimumSize: const Size(80, 36),
+                    const EdgeInsets.symmetric(horizontal: 22, vertical: 12),
+                minimumSize: const Size(88, 40),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(999),
+                ),
               ),
               child: const Text(
                 'Send',
-                style: TextStyle(fontSize: 13, color: Colors.white),
+                style: TextStyle(
+                  fontSize: 13,
+                  color: Colors.white,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
             ),
           ),
@@ -611,9 +983,19 @@ class _NewThreadDialogState extends State<_NewThreadDialog> {
     final controller = context.watch<MessagesController>();
     final users = controller.users;
     return AlertDialog(
+      backgroundColor: _kSurface,
+      surfaceTintColor: _kSurface,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(RhythmTokens.radiusL),
+        side: const BorderSide(color: _kBorder),
+      ),
       title: const Text(
         'New Direct Message',
-        style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+        style: TextStyle(
+          fontSize: 17,
+          fontWeight: FontWeight.w700,
+          color: _kTextPrimary,
+        ),
       ),
       content: SizedBox(
         width: 420,
@@ -623,15 +1005,18 @@ class _NewThreadDialogState extends State<_NewThreadDialog> {
             TextField(
               controller: _titleController,
               autofocus: true,
-              style: const TextStyle(fontSize: 14),
+              style: const TextStyle(fontSize: 14, color: _kTextPrimary),
               decoration: InputDecoration(
                 labelText: 'Optional title',
                 hintText: 'Defaults to participant names',
+                filled: true,
+                fillColor: _kSurfaceMuted,
                 border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(8),
+                  borderRadius: BorderRadius.circular(RhythmTokens.radiusS),
+                  borderSide: const BorderSide(color: _kDivider),
                 ),
                 focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(8),
+                  borderRadius: BorderRadius.circular(RhythmTokens.radiusS),
                   borderSide: const BorderSide(color: _kPrimary),
                 ),
               ),
@@ -641,7 +1026,7 @@ class _NewThreadDialogState extends State<_NewThreadDialog> {
             if (users.isEmpty)
               const Padding(
                 padding: EdgeInsets.symmetric(vertical: 16),
-                child: Text(
+              child: Text(
                   'No users available.',
                   style: TextStyle(color: _kTextMuted),
                 ),
@@ -657,8 +1042,17 @@ class _NewThreadDialogState extends State<_NewThreadDialog> {
                     return CheckboxListTile(
                       value: isSelected,
                       activeColor: _kPrimary,
-                      title: Text(user.name),
-                      subtitle: Text(user.email),
+                      title: Text(
+                        user.name,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w600,
+                          color: _kTextPrimary,
+                        ),
+                      ),
+                      subtitle: Text(
+                        user.email,
+                        style: const TextStyle(color: _kTextMuted),
+                      ),
                       controlAffinity: ListTileControlAffinity.leading,
                       onChanged: (value) {
                         setState(() {
@@ -679,7 +1073,10 @@ class _NewThreadDialogState extends State<_NewThreadDialog> {
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Cancel', style: TextStyle(color: _kTextSecondary)),
+          child: const Text(
+            'Cancel',
+            style: TextStyle(color: _kTextSecondary),
+          ),
         ),
         FilledButton(
           onPressed: _selectedUserIds.isEmpty ? null : _submit,

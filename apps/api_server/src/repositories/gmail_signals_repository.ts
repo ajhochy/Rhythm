@@ -4,6 +4,7 @@ import type { GmailSignal } from '../models/gmail_signal';
 
 interface GmailSignalRow {
   id: string;
+  owner_id: number | null;
   external_id: string;
   thread_id: string;
   from_name: string | null;
@@ -17,6 +18,7 @@ interface GmailSignalRow {
 }
 
 interface GmailSignalInput {
+  ownerId: number;
   externalId: string;
   threadId: string;
   fromName: string | null;
@@ -30,6 +32,7 @@ interface GmailSignalInput {
 function rowToSignal(row: GmailSignalRow): GmailSignal {
   return {
     id: row.id,
+    ownerId: row.owner_id,
     externalId: row.external_id,
     threadId: row.thread_id,
     fromName: row.from_name,
@@ -44,71 +47,51 @@ function rowToSignal(row: GmailSignalRow): GmailSignal {
 }
 
 export class GmailSignalsRepository {
-  upsertMany(signals: GmailSignalInput[]): GmailSignal[] {
+  replaceForOwner(ownerId: number, signals: GmailSignalInput[]): GmailSignal[] {
     const now = new Date().toISOString();
-    const selectStmt = getDb().prepare(
-      'SELECT * FROM gmail_signals WHERE external_id = ? LIMIT 1',
+    const deleteStmt = getDb().prepare(
+      'DELETE FROM gmail_signals WHERE owner_id = ?',
     );
     const insertStmt = getDb().prepare(
       `INSERT INTO gmail_signals (
-        id, external_id, thread_id, from_name, from_email, subject, snippet,
+        id, owner_id, external_id, thread_id, from_name, from_email, subject, snippet,
         received_at, is_unread, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    );
-    const updateStmt = getDb().prepare(
-      `UPDATE gmail_signals
-       SET thread_id = ?, from_name = ?, from_email = ?, subject = ?, snippet = ?,
-           received_at = ?, is_unread = ?, updated_at = ?
-       WHERE id = ?`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
 
     const transaction = getDb().transaction((items: GmailSignalInput[]) => {
+      deleteStmt.run(ownerId);
       for (const item of items) {
-        const existing = selectStmt.get(item.externalId) as
-          | GmailSignalRow
-          | undefined;
-        if (existing) {
-          updateStmt.run(
-            item.threadId,
-            item.fromName,
-            item.fromEmail,
-            item.subject,
-            item.snippet,
-            item.receivedAt,
-            item.isUnread ? 1 : 0,
-            now,
-            existing.id,
-          );
-        } else {
-          insertStmt.run(
-            uuidv4(),
-            item.externalId,
-            item.threadId,
-            item.fromName,
-            item.fromEmail,
-            item.subject,
-            item.snippet,
-            item.receivedAt,
-            item.isUnread ? 1 : 0,
-            now,
-            now,
-          );
-        }
+        insertStmt.run(
+          uuidv4(),
+          ownerId,
+          item.externalId,
+          item.threadId,
+          item.fromName,
+          item.fromEmail,
+          item.subject,
+          item.snippet,
+          item.receivedAt,
+          item.isUnread ? 1 : 0,
+          now,
+          now,
+        );
       }
     });
 
     transaction(signals);
-    return this.listRecent();
+    return this.listRecent(ownerId);
   }
 
-  listRecent(limit = 12): GmailSignal[] {
+  listRecent(ownerId: number, limit = 12): GmailSignal[] {
     const rows = getDb()
       .prepare(
         `SELECT * FROM gmail_signals
+         WHERE owner_id = ?
          ORDER BY COALESCE(received_at, created_at) DESC, updated_at DESC
          LIMIT ?`,
       )
-      .all(limit) as GmailSignalRow[];
+      .all(ownerId, limit) as GmailSignalRow[];
     return rows.map(rowToSignal);
   }
 }

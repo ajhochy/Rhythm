@@ -1,5 +1,6 @@
 export interface CalendarShadowEvent {
   id: string;
+  ownerId: number | null;
   provider: 'google_calendar';
   externalId: string;
   calendarId: string;

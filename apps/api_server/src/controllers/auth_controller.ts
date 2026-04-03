@@ -1,5 +1,6 @@
 import type { NextFunction, Request, Response } from 'express';
 import { AppError } from '../errors/app_error';
+import { IntegrationAccountsRepository } from '../repositories/integration_accounts_repository';
 import { AuthService } from '../services/auth_service';
 import { GoogleOAuthService } from '../services/google_oauth_service';
 import { PlanningCenterOAuthService } from '../services/planning_center_oauth_service';
@@ -7,6 +8,7 @@ import { PlanningCenterOAuthService } from '../services/planning_center_oauth_se
 const googleOAuth = new GoogleOAuthService();
 const planningCenterOAuth = new PlanningCenterOAuthService();
 const authService = new AuthService();
+const integrationAccountsRepo = new IntegrationAccountsRepository();
 
 export class AuthController {
   async googleLogin(req: Request, res: Response, next: NextFunction) {
@@ -44,7 +46,34 @@ export class AuthController {
 
   beginGoogleOAuth(_req: Request, res: Response, next: NextFunction) {
     try {
-      res.redirect(googleOAuth.getAuthorizationUrl());
+      const { sessionToken } = _req.query as Record<string, string>;
+      const user = sessionToken
+        ? authService.getUserForSessionToken(sessionToken)
+        : null;
+      if (!sessionToken || !user) {
+        throw AppError.unauthorized('Valid sessionToken is required');
+      }
+      const existingCalendar = integrationAccountsRepo.findByProvider(
+        'google_calendar',
+        user.id,
+      );
+      const existingGmail = integrationAccountsRepo.findByProvider(
+        'gmail',
+        user.id,
+      );
+      const needsCalendarScope =
+        existingCalendar?.scope?.includes(
+          'https://www.googleapis.com/auth/calendar.readonly',
+        ) != true;
+      res.redirect(
+        googleOAuth.getAuthorizationUrl({
+          sessionToken,
+          loginHint: user.email,
+          forceConsent:
+            needsCalendarScope ||
+            (!existingCalendar?.refreshToken && !existingGmail?.refreshToken),
+        }),
+      );
     } catch (err) {
       next(err);
     }
@@ -52,11 +81,15 @@ export class AuthController {
 
   async googleCallback(req: Request, res: Response, next: NextFunction) {
     try {
-      const { code, error } = req.query as Record<string, string>;
+      const { code, error, state } = req.query as Record<string, string>;
       if (error) throw AppError.badRequest(`Google OAuth failed: ${error}`);
       if (!code) throw AppError.badRequest('Missing Google OAuth code');
+      const user = state ? authService.getUserForSessionToken(state) : null;
+      if (!state || !user) {
+        throw AppError.unauthorized('Missing integration auth session');
+      }
 
-      await googleOAuth.handleCallback(code);
+      await googleOAuth.handleCallback(code, user.id);
 
       res
         .status(200)
@@ -70,12 +103,19 @@ export class AuthController {
   }
 
   beginPlanningCenterOAuth(
-    _req: Request,
+    req: Request,
     res: Response,
     next: NextFunction,
   ) {
     try {
-      res.redirect(planningCenterOAuth.getAuthorizationUrl());
+      const { sessionToken } = req.query as Record<string, string>;
+      const user = sessionToken
+        ? authService.getUserForSessionToken(sessionToken)
+        : null;
+      if (!sessionToken || !user) {
+        throw AppError.unauthorized('Valid sessionToken is required');
+      }
+      res.redirect(planningCenterOAuth.getAuthorizationUrl(sessionToken));
     } catch (err) {
       next(err);
     }
@@ -87,15 +127,19 @@ export class AuthController {
     next: NextFunction,
   ) {
     try {
-      const { code, error } = req.query as Record<string, string>;
+      const { code, error, state } = req.query as Record<string, string>;
       if (error) {
         throw AppError.badRequest(`Planning Center OAuth failed: ${error}`);
       }
       if (!code) {
         throw AppError.badRequest('Missing Planning Center OAuth code');
       }
+      const user = state ? authService.getUserForSessionToken(state) : null;
+      if (!state || !user) {
+        throw AppError.unauthorized('Missing integration auth session');
+      }
 
-      await planningCenterOAuth.handleCallback(code);
+      await planningCenterOAuth.handleCallback(code, user.id);
 
       res
         .status(200)

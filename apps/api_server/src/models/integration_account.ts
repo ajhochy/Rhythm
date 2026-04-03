@@ -5,6 +5,7 @@ export type IntegrationProvider =
 
 export interface IntegrationAccount {
   id: string;
+  ownerId: number | null;
   provider: IntegrationProvider;
   externalAccountId: string;
   email: string | null;

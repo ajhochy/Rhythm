@@ -4,6 +4,7 @@ import type { CalendarShadowEvent } from '../models/calendar_shadow_event';
 
 interface CalendarShadowEventRow {
   id: string;
+  owner_id: number | null;
   provider: string;
   external_id: string;
   calendar_id: string;
@@ -21,6 +22,7 @@ interface CalendarShadowEventRow {
 function rowToEvent(row: CalendarShadowEventRow): CalendarShadowEvent {
   return {
     id: row.id,
+    ownerId: row.owner_id,
     provider: row.provider as 'google_calendar',
     externalId: row.external_id,
     calendarId: row.calendar_id,
@@ -37,7 +39,8 @@ function rowToEvent(row: CalendarShadowEventRow): CalendarShadowEvent {
 }
 
 export class CalendarShadowEventsRepository {
-  upsertMany(
+  replaceForOwner(
+    ownerId: number,
     events: Array<{
       provider: 'google_calendar';
       externalId: string;
@@ -53,80 +56,70 @@ export class CalendarShadowEventsRepository {
   ): CalendarShadowEvent[] {
     const now = new Date().toISOString();
     const db = getDb();
-
-    const existingStmt = db.prepare(
-      'SELECT * FROM calendar_shadow_events WHERE external_id = ?',
+    const deleteStmt = db.prepare(
+      'DELETE FROM calendar_shadow_events WHERE owner_id = ?',
     );
     const insertStmt = db.prepare(
       `INSERT INTO calendar_shadow_events (
-        id, provider, external_id, calendar_id, source_name, title,
+        id, owner_id, provider, external_id, calendar_id, source_name, title,
         description, location, start_at, end_at, is_all_day, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    );
-    const updateStmt = db.prepare(
-      `UPDATE calendar_shadow_events
-       SET provider = ?, calendar_id = ?, source_name = ?, title = ?, description = ?,
-           location = ?, start_at = ?, end_at = ?, is_all_day = ?, updated_at = ?
-       WHERE id = ?`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     );
 
     db.transaction(() => {
+      deleteStmt.run(ownerId);
       for (const event of events) {
-        const existing = existingStmt.get(
+        insertStmt.run(
+          uuidv4(),
+          ownerId,
+          event.provider,
           event.externalId,
-        ) as CalendarShadowEventRow | undefined;
-
-        if (existing) {
-          updateStmt.run(
-            event.provider,
-            event.calendarId,
-            event.sourceName,
-            event.title,
-            event.description,
-            event.location,
-            event.startAt,
-            event.endAt,
-            event.isAllDay ? 1 : 0,
-            now,
-            existing.id,
-          );
-        } else {
-          insertStmt.run(
-            uuidv4(),
-            event.provider,
-            event.externalId,
-            event.calendarId,
-            event.sourceName,
-            event.title,
-            event.description,
-            event.location,
-            event.startAt,
-            event.endAt,
-            event.isAllDay ? 1 : 0,
-            now,
-            now,
-          );
-        }
+          event.calendarId,
+          event.sourceName,
+          event.title,
+          event.description,
+          event.location,
+          event.startAt,
+          event.endAt,
+          event.isAllDay ? 1 : 0,
+          now,
+          now,
+        );
       }
     })();
+
+    if (events.length == 0) {
+      return [];
+    }
 
     const rows = db
       .prepare(
         `SELECT * FROM calendar_shadow_events
-         WHERE external_id IN (${events.map(() => '?').join(', ')})`,
+         WHERE owner_id = ?
+           AND external_id IN (${events.map(() => '?').join(', ')})`,
       )
-      .all(...events.map((event) => event.externalId)) as CalendarShadowEventRow[];
+      .all(ownerId, ...events.map((event) => event.externalId)) as CalendarShadowEventRow[];
     return rows.map(rowToEvent);
   }
 
-  findByRange(startAt: string, endAt: string): CalendarShadowEvent[] {
-    const rows = getDb()
-      .prepare(
-        `SELECT * FROM calendar_shadow_events
-         WHERE start_at BETWEEN ? AND ?
-         ORDER BY start_at ASC`,
-      )
-      .all(startAt, endAt) as CalendarShadowEventRow[];
+  findByRange(startAt: string, endAt: string, ownerId?: number): CalendarShadowEvent[] {
+    const rows =
+      ownerId != null
+        ? ((getDb()
+            .prepare(
+              `SELECT * FROM calendar_shadow_events
+               WHERE owner_id = ?
+                 AND start_at BETWEEN ? AND ?
+               ORDER BY start_at ASC`,
+            )
+            .all(ownerId, startAt, endAt)) as CalendarShadowEventRow[])
+        : ((getDb()
+            .prepare(
+              `SELECT * FROM calendar_shadow_events
+               WHERE start_at BETWEEN ? AND ?
+               ORDER BY start_at ASC`,
+            )
+            .all(startAt, endAt)) as CalendarShadowEventRow[]);
     return rows.map(rowToEvent);
   }
 }

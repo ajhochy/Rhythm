@@ -42,3 +42,12 @@ export interface CreateReservationDto {
   end_time: string;
   notes?: string | null;
 }
+
+export interface UpdateReservationDto {
+  title?: string;
+  reserved_by?: string;
+  reserved_by_user_id?: number | null;
+  start_time?: string;
+  end_time?: string;
+  notes?: string | null;
+}

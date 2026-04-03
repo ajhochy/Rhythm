@@ -9,6 +9,7 @@ import {
 } from '../services/weekly_planning_service';
 import { TasksRepository } from '../repositories/tasks_repository';
 import { CalendarShadowEventsRepository } from '../repositories/calendar_shadow_events_repository';
+import { UsersRepository } from '../repositories/users_repository';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -60,6 +61,8 @@ describe('WeeklyPlanningService.assemblePlan', () => {
   let tasksRepo: TasksRepository;
   let shadowRepo: CalendarShadowEventsRepository;
   let service: WeeklyPlanningService;
+  let usersRepo: UsersRepository;
+  let ownerId: number;
 
   const WEEK = '2026-W13'; // Mon 2026-03-23 → Sun 2026-03-29
 
@@ -69,6 +72,8 @@ describe('WeeklyPlanningService.assemblePlan', () => {
     tasksRepo = new TasksRepository();
     shadowRepo = new CalendarShadowEventsRepository();
     service = new WeeklyPlanningService();
+    usersRepo = new UsersRepository();
+    ownerId = usersRepo.create({ name: 'Alice', email: 'alice@example.com' }).id;
   });
 
   it('returns the correct week label and 7 days', () => {
@@ -122,7 +127,7 @@ describe('WeeklyPlanningService.assemblePlan', () => {
   });
 
   it('places calendar shadow events into the correct day', () => {
-    shadowRepo.upsertMany([
+    shadowRepo.replaceForOwner(ownerId, [
       {
         provider: 'google_calendar',
         externalId: 'evt-001',
@@ -136,7 +141,7 @@ describe('WeeklyPlanningService.assemblePlan', () => {
         isAllDay: false,
       },
     ]);
-    const plan = service.assemblePlan(WEEK);
+    const plan = service.assemblePlan(WEEK, ownerId);
     const tue = plan.days.find((d) => d.date === '2026-03-24')!;
     expect(tue.tasks).toHaveLength(1);
     expect(tue.tasks[0].title).toBe('Team standup');

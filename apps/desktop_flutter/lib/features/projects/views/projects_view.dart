@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
+import '../../../app/core/formatters/date_formatters.dart';
+import '../../../app/core/auth/auth_session_store.dart';
 import '../controllers/project_template_controller.dart';
 import '../models/project_instance.dart';
 import '../models/project_template.dart';
@@ -19,6 +21,10 @@ class ProjectsView extends StatefulWidget {
 
 class _ProjectsViewState extends State<ProjectsView> {
   ProjectTemplate? _selected;
+  bool _showActiveProjects = false;
+  List<ProjectInstance> _activeInstances = [];
+  bool _activeInstancesLoaded = false;
+  String? _activeInstancesError;
 
   @override
   void initState() {
@@ -30,46 +36,239 @@ class _ProjectsViewState extends State<ProjectsView> {
 
   @override
   Widget build(BuildContext context) {
-    return Consumer<ProjectTemplateController>(
-      builder: (context, controller, _) {
-        // If the selected template was deleted, deselect it.
-        if (_selected != null &&
-            !controller.templates.any((t) => t.id == _selected!.id)) {
-          _selected = null;
-        }
-        // Refresh selected template reference to reflect updates
-        if (_selected != null) {
-          _selected = controller.templates.firstWhere(
-              (t) => t.id == _selected!.id,
-              orElse: () => _selected!);
-        }
-
-        return Row(
-          children: [
-            // Left panel: template list
-            SizedBox(
-              width: 280,
-              child: _TemplateList(
-                controller: controller,
-                selected: _selected,
-                onSelect: (t) => setState(() => _selected = t),
-              ),
-            ),
-            const VerticalDivider(width: 1),
-            // Right panel: detail
-            Expanded(
-              child: _selected == null
-                  ? const Center(
-                      child: Text('Select a template to view details'))
-                  : _TemplateDetail(
-                      template: _selected!,
-                      controller: controller,
-                    ),
-            ),
+    return Container(
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Color(0xFFF7F4EF),
+            Color(0xFFFDFBF7),
+            Color(0xFFF6F1EA),
           ],
-        );
-      },
+          stops: [0.0, 0.5, 1.0],
+        ),
+      ),
+      child: Consumer<ProjectTemplateController>(
+        builder: (context, controller, _) {
+          // If the selected template was deleted, deselect it.
+          if (_selected != null &&
+              !controller.templates.any((t) => t.id == _selected!.id)) {
+            _selected = null;
+          }
+          // Refresh selected template reference to reflect updates
+          if (_selected != null) {
+            _selected = controller.templates.firstWhere(
+              (t) => t.id == _selected!.id,
+              orElse: () => _selected!,
+            );
+          }
+
+          final templateNames = {
+            for (final template in controller.templates)
+              template.id: template.name,
+          };
+
+          return Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(24, 20, 24, 12),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Projects',
+                            style: Theme.of(context)
+                                .textTheme
+                                .headlineSmall
+                                ?.copyWith(
+                                  fontWeight: FontWeight.w600,
+                                  letterSpacing: -0.5,
+                                ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            'Templates on the left, live work on the right.',
+                            style: Theme.of(context)
+                                .textTheme
+                                .bodyMedium
+                                ?.copyWith(
+                                  color: Theme.of(context)
+                                      .colorScheme
+                                      .onSurfaceVariant,
+                                  height: 1.4,
+                                ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    Container(
+                      padding: const EdgeInsets.all(4),
+                      decoration: BoxDecoration(
+                        color: Theme.of(context).colorScheme.surface,
+                        borderRadius: BorderRadius.circular(22),
+                        border: Border.all(
+                          color: Theme.of(context).colorScheme.outlineVariant,
+                        ),
+                        boxShadow: const [
+                          BoxShadow(
+                            color: Color(0x12000000),
+                            blurRadius: 18,
+                            offset: Offset(0, 8),
+                          ),
+                        ],
+                      ),
+                      child: SegmentedButton<bool>(
+                        segments: const [
+                          ButtonSegment<bool>(
+                            value: false,
+                            label: Text('Templates'),
+                            icon: Icon(Icons.dashboard_customize_outlined),
+                          ),
+                          ButtonSegment<bool>(
+                            value: true,
+                            label: Text('Active Projects'),
+                            icon:
+                                Icon(Icons.playlist_add_check_circle_outlined),
+                          ),
+                        ],
+                        selected: {_showActiveProjects},
+                        showSelectedIcon: false,
+                        style: const ButtonStyle(
+                          visualDensity: VisualDensity.compact,
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          padding: WidgetStatePropertyAll(
+                            EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                          ),
+                        ),
+                        onSelectionChanged: (selection) {
+                          final showActive = selection.first;
+                          setState(() => _showActiveProjects = showActive);
+                          if (showActive && !_activeInstancesLoaded) {
+                            _loadActiveInstances();
+                          }
+                        },
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Expanded(
+                child: _showActiveProjects
+                    ? _InstancesPanel(
+                        instances: _activeInstances,
+                        loaded: _activeInstancesLoaded,
+                        error: _activeInstancesError,
+                        onRefresh: _loadActiveInstances,
+                        onUpdateStep: _updateActiveProjectStep,
+                        onDeleteInstance: _deleteActiveProjectInstance,
+                        templateNames: templateNames,
+                      )
+                    : Padding(
+                        padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
+                        child: Row(
+                          children: [
+                            SizedBox(
+                              width: 300,
+                              child: _TemplateList(
+                                controller: controller,
+                                selected: _selected,
+                                onSelect: (t) => setState(() => _selected = t),
+                              ),
+                            ),
+                            const SizedBox(width: 16),
+                            Expanded(
+                              child: _selected == null
+                                  ? const _EmptyDetailState(
+                                      icon: Icons.folder_open_outlined,
+                                      title: 'Choose a template',
+                                      message:
+                                          'Template details, steps, and generated project instances will appear here.',
+                                    )
+                                  : _TemplateDetail(
+                                      template: _selected!,
+                                      controller: controller,
+                                    ),
+                            ),
+                          ],
+                        ),
+                      ),
+              ),
+            ],
+          );
+        },
+      ),
     );
+  }
+
+  Future<void> _loadActiveInstances() async {
+    try {
+      final response = await http.get(
+        Uri.parse(
+            '${context.read<ServerConfigService>().url}/project-instances'),
+        headers: AuthSessionStore.headers(),
+      );
+      if (response.statusCode >= 400) {
+        setState(() {
+          _activeInstancesError = 'Failed to load active projects';
+          _activeInstancesLoaded = true;
+        });
+        return;
+      }
+      final list = (jsonDecode(response.body) as List<dynamic>)
+          .map((e) => ProjectInstance.fromJson(e as Map<String, dynamic>))
+          .toList()
+        ..sort((a, b) => a.anchorDate.compareTo(b.anchorDate));
+      setState(() {
+        _activeInstances = list;
+        _activeInstancesLoaded = true;
+        _activeInstancesError = null;
+      });
+    } catch (error) {
+      setState(() {
+        _activeInstancesError = error.toString();
+        _activeInstancesLoaded = true;
+      });
+    }
+  }
+
+  Future<void> _updateActiveProjectStep(ProjectInstanceStep step,
+      {String? title, String? dueDate, String? status, String? notes}) async {
+    try {
+      final body = <String, dynamic>{
+        if (title != null) 'title': title,
+        if (dueDate != null) 'dueDate': dueDate,
+        if (status != null) 'status': status,
+        if (notes != null) 'notes': notes.isEmpty ? null : notes,
+      };
+      final response = await http.patch(
+        Uri.parse(
+            '${context.read<ServerConfigService>().url}/project-instances/steps/${step.id}'),
+        headers: AuthSessionStore.headers(json: true),
+        body: jsonEncode(body),
+      );
+      if (response.statusCode < 400) {
+        await _loadActiveInstances();
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _deleteActiveProjectInstance(String instanceId) async {
+    try {
+      final response = await http.delete(
+        Uri.parse(
+            '${context.read<ServerConfigService>().url}/project-instances/$instanceId'),
+        headers: AuthSessionStore.headers(),
+      );
+      if (response.statusCode < 400) {
+        await _loadActiveInstances();
+      }
+    } catch (_) {}
   }
 }
 
@@ -88,61 +287,151 @@ class _TemplateList extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 24, 16, 0),
-          child: Row(
-            children: [
-              Text('Project Templates',
-                  style: Theme.of(context).textTheme.titleMedium),
-              const Spacer(),
-              IconButton(
-                icon: const Icon(Icons.add),
-                tooltip: 'New template',
-                onPressed: () => _showCreateDialog(context, controller),
-              ),
-            ],
+    final colorScheme = Theme.of(context).colorScheme;
+    return Container(
+      decoration: BoxDecoration(
+        color: colorScheme.surface,
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: colorScheme.outlineVariant),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x10000000),
+            blurRadius: 20,
+            offset: Offset(0, 10),
           ),
-        ),
-        if (controller.status == ProjectsStatus.error &&
-            controller.errorMessage != null)
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
           Padding(
-            padding: const EdgeInsets.all(8),
-            child: Text(controller.errorMessage!,
-                style: const TextStyle(color: Colors.red, fontSize: 12)),
-          ),
-        if (controller.status == ProjectsStatus.loading &&
-            controller.templates.isEmpty)
-          const Padding(
-              padding: EdgeInsets.all(16), child: LinearProgressIndicator()),
-        Expanded(
-          child: controller.templates.isEmpty
-              ? const Center(
-                  child: Text('No templates yet',
-                      style: TextStyle(color: Colors.grey)))
-              : ListView.builder(
-                  itemCount: controller.templates.length,
-                  itemBuilder: (ctx, i) {
-                    final t = controller.templates[i];
-                    final isSelected = selected?.id == t.id;
-                    return ListTile(
-                      selected: isSelected,
-                      title: Text(t.name),
-                      subtitle: Text(
-                          '${t.steps.length} step${t.steps.length == 1 ? '' : 's'}'),
-                      onTap: () => onSelect(t),
-                      trailing: IconButton(
-                        icon: const Icon(Icons.delete_outline, size: 18),
-                        tooltip: 'Delete',
-                        onPressed: () => _confirmDelete(ctx, controller, t),
+            padding: const EdgeInsets.fromLTRB(16, 16, 12, 12),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Project Templates',
+                        style:
+                            Theme.of(context).textTheme.titleMedium?.copyWith(
+                                  fontWeight: FontWeight.w600,
+                                ),
                       ),
-                    );
-                  },
+                      const SizedBox(height: 2),
+                      Text(
+                        'Select one to inspect or edit its steps.',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: colorScheme.onSurfaceVariant,
+                            ),
+                      ),
+                    ],
+                  ),
                 ),
-        ),
-      ],
+                IconButton(
+                  icon: const Icon(Icons.add),
+                  tooltip: 'New template',
+                  onPressed: () => _showCreateDialog(context, controller),
+                ),
+              ],
+            ),
+          ),
+          if (controller.status == ProjectsStatus.error &&
+              controller.errorMessage != null)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+              child: Text(
+                controller.errorMessage!,
+                style: TextStyle(
+                  color: colorScheme.error,
+                  fontSize: 12,
+                ),
+              ),
+            ),
+          if (controller.status == ProjectsStatus.loading &&
+              controller.templates.isEmpty)
+            const Padding(
+              padding: EdgeInsets.fromLTRB(16, 0, 16, 12),
+              child: LinearProgressIndicator(minHeight: 2),
+            ),
+          SizedBox(
+              height: 1, child: Container(color: colorScheme.outlineVariant)),
+          const SizedBox(height: 12),
+          Expanded(
+            child: controller.templates.isEmpty
+                ? _EmptyPanelState(
+                    icon: Icons.folder_open_outlined,
+                    title: 'No templates yet',
+                    message:
+                        'Create a template to start mapping out recurring project steps.',
+                    actionLabel: 'New template',
+                    onAction: () => _showCreateDialog(context, controller),
+                  )
+                : ListView.separated(
+                    padding: const EdgeInsets.fromLTRB(12, 0, 12, 14),
+                    itemCount: controller.templates.length,
+                    separatorBuilder: (_, __) => const SizedBox(height: 8),
+                    itemBuilder: (ctx, i) {
+                      final t = controller.templates[i];
+                      final isSelected = selected?.id == t.id;
+                      return Card(
+                        elevation: 0,
+                        color: colorScheme.surface,
+                        surfaceTintColor: Colors.transparent,
+                          shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(18),
+                          side: BorderSide(
+                            color: isSelected
+                                ? colorScheme.primary.withValues(alpha: 0.35)
+                                : colorScheme.outlineVariant,
+                          ),
+                        ),
+                        child: ListTile(
+                          selected: isSelected,
+                          selectedTileColor:
+                              colorScheme.primaryContainer
+                                  .withValues(alpha: 0.22),
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 14,
+                            vertical: 8,
+                          ),
+                          leading: CircleAvatar(
+                            radius: 16,
+                            backgroundColor: colorScheme.primaryContainer,
+                            child: Text(
+                              '${t.steps.length}',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                color: colorScheme.onPrimaryContainer,
+                              ),
+                            ),
+                          ),
+                          title: Text(
+                            t.name,
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          subtitle: Text(
+                            '${t.steps.length} step${t.steps.length == 1 ? '' : 's'}',
+                            style:
+                                TextStyle(color: colorScheme.onSurfaceVariant),
+                          ),
+                          onTap: () => onSelect(t),
+                          trailing: IconButton(
+                            icon: const Icon(Icons.delete_outline, size: 18),
+                            tooltip: 'Delete',
+                            onPressed: () => _confirmDelete(ctx, controller, t),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -233,6 +522,7 @@ class _TemplateDetailState extends State<_TemplateDetail>
       final response = await http.get(
         Uri.parse(
             '${context.read<ServerConfigService>().url}/project-instances?templateId=${widget.template.id}'),
+        headers: AuthSessionStore.headers(),
       );
       if (response.statusCode >= 400) {
         setState(() => _instancesError = 'Failed to load instances');
@@ -263,7 +553,7 @@ class _TemplateDetailState extends State<_TemplateDetail>
       final response = await http.patch(
         Uri.parse(
             '${context.read<ServerConfigService>().url}/project-instances/steps/${step.id}'),
-        headers: {'Content-Type': 'application/json'},
+        headers: AuthSessionStore.headers(json: true),
         body: jsonEncode(body),
       );
       if (response.statusCode < 400) {
@@ -277,6 +567,7 @@ class _TemplateDetailState extends State<_TemplateDetail>
       final response = await http.delete(
         Uri.parse(
             '${context.read<ServerConfigService>().url}/project-instances/$instanceId'),
+        headers: AuthSessionStore.headers(),
       );
       if (response.statusCode < 400) {
         await _loadInstances();
@@ -286,119 +577,171 @@ class _TemplateDetailState extends State<_TemplateDetail>
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
     final sortedSteps = [...widget.template.steps]
       ..sort((a, b) => a.offsetDays.compareTo(b.offsetDays));
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        // Header
-        Padding(
-          padding: const EdgeInsets.fromLTRB(24, 24, 24, 0),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(widget.template.name,
-                        style: Theme.of(context).textTheme.headlineSmall),
-                    if (widget.template.description != null &&
-                        widget.template.description!.isNotEmpty)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 4),
-                        child: Text(widget.template.description!,
-                            style: const TextStyle(color: Colors.grey)),
+    return Container(
+      decoration: BoxDecoration(
+        color: colorScheme.surface,
+        borderRadius: BorderRadius.circular(28),
+        border: Border.all(color: colorScheme.outlineVariant),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x12000000),
+            blurRadius: 28,
+            offset: Offset(0, 14),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(24, 20, 24, 14),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        widget.template.name,
+                        style:
+                            Theme.of(context).textTheme.headlineSmall?.copyWith(
+                                  fontWeight: FontWeight.w600,
+                                  letterSpacing: -0.4,
+                                ),
                       ),
-                    const SizedBox(height: 4),
-                    Text('Anchor type: ${widget.template.anchorType}',
-                        style: Theme.of(context).textTheme.bodySmall),
+                      if (widget.template.description != null &&
+                          widget.template.description!.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 6),
+                          child: Text(
+                            widget.template.description!,
+                            style: Theme.of(context)
+                                .textTheme
+                                .bodyMedium
+                                ?.copyWith(
+                                  color: colorScheme.onSurfaceVariant,
+                                  height: 1.4,
+                                ),
+                          ),
+                        ),
+                      const SizedBox(height: 10),
+                      Text(
+                        'Anchor type: ${widget.template.anchorType}',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: colorScheme.onSurfaceVariant,
+                            ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  alignment: WrapAlignment.end,
+                  children: [
+                    OutlinedButton.icon(
+                      onPressed: () => _showEditTemplateDialog(context),
+                      icon: const Icon(Icons.edit_outlined, size: 18),
+                      label: const Text('Edit'),
+                    ),
+                    FilledButton.icon(
+                      onPressed: () => _showGenerateDialog(context),
+                      icon: const Icon(Icons.play_arrow, size: 18),
+                      label: const Text('Start Project'),
+                    ),
                   ],
                 ),
-              ),
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  OutlinedButton.icon(
-                    onPressed: () => _showEditTemplateDialog(context),
-                    icon: const Icon(Icons.edit_outlined, size: 18),
-                    label: const Text('Edit'),
-                  ),
-                  const SizedBox(width: 8),
-                  FilledButton.icon(
-                    onPressed: () => _showGenerateDialog(context),
-                    icon: const Icon(Icons.play_arrow, size: 18),
-                    label: const Text('Start Project'),
-                  ),
-                ],
-              ),
-            ],
+              ],
+            ),
           ),
-        ),
-        const SizedBox(height: 8),
-        TabBar(
-          controller: _tabController,
-          tabs: const [
-            Tab(text: 'Template Steps'),
-            Tab(text: 'Active Projects'),
-          ],
-          labelPadding: const EdgeInsets.symmetric(horizontal: 24),
-        ),
-        Expanded(
-          child: TabBarView(
-            controller: _tabController,
-            children: [
-              // Tab 1: Template steps
-              Column(
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(24, 12, 24, 0),
-                    child: Row(
-                      children: [
-                        Text('Steps',
-                            style: Theme.of(context).textTheme.titleMedium),
-                        const Spacer(),
-                        TextButton.icon(
-                          onPressed: () => _showAddStepDialog(context),
-                          icon: const Icon(Icons.add, size: 16),
-                          label: const Text('Add Step'),
-                        ),
-                      ],
-                    ),
-                  ),
-                  Expanded(
-                    child: sortedSteps.isEmpty
-                        ? const Center(
-                            child: Text(
-                                'No steps yet. Add a step to get started.'))
-                        : ListView.separated(
-                            padding: const EdgeInsets.all(24),
-                            itemCount: sortedSteps.length,
-                            separatorBuilder: (_, __) =>
-                                const SizedBox(height: 8),
-                            itemBuilder: (ctx, i) => _StepTile(
-                              step: sortedSteps[i],
-                              template: widget.template,
-                              controller: widget.controller,
-                            ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 24),
+            child: Container(
+              decoration: BoxDecoration(
+                color: colorScheme.surface,
+                borderRadius: BorderRadius.circular(18),
+                border: Border.all(color: colorScheme.outlineVariant),
+              ),
+              child: TabBar(
+                controller: _tabController,
+                tabs: const [
+                  Tab(text: 'Template Steps'),
+                  Tab(text: 'Active Projects'),
+                ],
+                labelPadding: const EdgeInsets.symmetric(horizontal: 20),
+                indicatorSize: TabBarIndicatorSize.tab,
+              ),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Expanded(
+            child: TabBarView(
+              controller: _tabController,
+              children: [
+                Column(
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(24, 12, 24, 0),
+                      child: Row(
+                        children: [
+                          Text(
+                            'Steps',
+                            style: Theme.of(context)
+                                .textTheme
+                                .titleMedium
+                                ?.copyWith(fontWeight: FontWeight.w600),
                           ),
-                  ),
-                ],
-              ),
-              // Tab 2: Instances
-              _InstancesPanel(
-                instances: _instances,
-                loaded: _instancesLoaded,
-                error: _instancesError,
-                onRefresh: _loadInstances,
-                onUpdateStep: _updateStep,
-                onDeleteInstance: _deleteInstance,
-              ),
-            ],
+                          const Spacer(),
+                          TextButton.icon(
+                            onPressed: () => _showAddStepDialog(context),
+                            icon: const Icon(Icons.add, size: 16),
+                            label: const Text('Add Step'),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Expanded(
+                      child: sortedSteps.isEmpty
+                          ? const _EmptyPanelState(
+                              icon: Icons.task_alt_outlined,
+                              title: 'No steps yet',
+                              message:
+                                  'Add a step to map the work that belongs in this template.',
+                            )
+                          : ListView.separated(
+                              padding:
+                                  const EdgeInsets.fromLTRB(24, 16, 24, 24),
+                              itemCount: sortedSteps.length,
+                              separatorBuilder: (_, __) =>
+                                  const SizedBox(height: 10),
+                              itemBuilder: (ctx, i) => _StepTile(
+                                step: sortedSteps[i],
+                                template: widget.template,
+                                controller: widget.controller,
+                              ),
+                            ),
+                    ),
+                  ],
+                ),
+                _InstancesPanel(
+                  instances: _instances,
+                  loaded: _instancesLoaded,
+                  error: _instancesError,
+                  onRefresh: _loadInstances,
+                  onUpdateStep: _updateStep,
+                  onDeleteInstance: _deleteInstance,
+                ),
+              ],
+            ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 
@@ -428,6 +771,110 @@ class _TemplateDetailState extends State<_TemplateDetail>
   }
 }
 
+class _EmptyPanelState extends StatelessWidget {
+  const _EmptyPanelState({
+    required this.icon,
+    required this.title,
+    required this.message,
+    this.actionLabel,
+    this.onAction,
+  });
+
+  final IconData icon;
+  final String title;
+  final String message;
+  final String? actionLabel;
+  final VoidCallback? onAction;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return Center(
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 360),
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: colorScheme.primaryContainer.withValues(alpha: 0.45),
+                  shape: BoxShape.circle,
+                ),
+                child: Icon(icon, color: colorScheme.onPrimaryContainer),
+              ),
+              const SizedBox(height: 16),
+              Text(
+                title,
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                message,
+                textAlign: TextAlign.center,
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: colorScheme.onSurfaceVariant,
+                      height: 1.4,
+                    ),
+              ),
+              if (actionLabel != null && onAction != null) ...[
+                const SizedBox(height: 16),
+                OutlinedButton(
+                  onPressed: onAction,
+                  child: Text(actionLabel!),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _EmptyDetailState extends StatelessWidget {
+  const _EmptyDetailState({
+    required this.icon,
+    required this.title,
+    required this.message,
+  });
+
+  final IconData icon;
+  final String title;
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    return Container(
+      decoration: BoxDecoration(
+        color: colorScheme.surface,
+        borderRadius: BorderRadius.circular(28),
+        border: Border.all(color: colorScheme.outlineVariant),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x0F000000),
+            blurRadius: 24,
+            offset: Offset(0, 12),
+          ),
+        ],
+      ),
+      child: SizedBox.expand(
+        child: _EmptyPanelState(
+          icon: icon,
+          title: title,
+          message: message,
+        ),
+      ),
+    );
+  }
+}
+
 class _InstancesPanel extends StatelessWidget {
   const _InstancesPanel({
     required this.instances,
@@ -436,6 +883,7 @@ class _InstancesPanel extends StatelessWidget {
     required this.onRefresh,
     required this.onUpdateStep,
     required this.onDeleteInstance,
+    this.templateNames = const {},
   });
   final List<ProjectInstance> instances;
   final bool loaded;
@@ -447,35 +895,49 @@ class _InstancesPanel extends StatelessWidget {
       String? status,
       String? notes}) onUpdateStep;
   final Future<void> Function(String instanceId) onDeleteInstance;
+  final Map<String, String> templateNames;
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
     if (error != null) {
-      return Center(
-          child: Text(error!, style: const TextStyle(color: Colors.red)));
+      return _EmptyPanelState(
+        icon: Icons.error_outline,
+        title: 'Could not load active projects',
+        message: error!,
+        actionLabel: 'Retry',
+        onAction: onRefresh,
+      );
     }
     if (!loaded) {
-      return Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text('Click to load active projects',
-                style: TextStyle(color: Colors.grey)),
-            const SizedBox(height: 8),
-            OutlinedButton(onPressed: onRefresh, child: const Text('Load')),
-          ],
-        ),
+      return _EmptyPanelState(
+        icon: Icons.playlist_add_check_circle_outlined,
+        title: 'Load active projects',
+        message: 'Open the live project list to review work in progress.',
+        actionLabel: 'Load',
+        onAction: onRefresh,
       );
     }
     if (instances.isEmpty) {
-      return const Center(
-          child: Text('No active projects yet.',
-              style: TextStyle(color: Colors.grey)));
+      return const _EmptyPanelState(
+        icon: Icons.inbox_outlined,
+        title: 'No active projects yet',
+        message:
+            'When a template is started, its project instance will appear here.',
+      );
     }
-    return _InstancesList(
-      instances: instances,
-      onUpdateStep: onUpdateStep,
-      onDeleteInstance: onDeleteInstance,
+    return Container(
+      decoration: BoxDecoration(
+        color: colorScheme.surface,
+        borderRadius: BorderRadius.circular(28),
+        border: Border.all(color: colorScheme.outlineVariant),
+      ),
+      child: _InstancesList(
+        instances: instances,
+        onUpdateStep: onUpdateStep,
+        onDeleteInstance: onDeleteInstance,
+        templateNames: templateNames,
+      ),
     );
   }
 }
@@ -485,6 +947,7 @@ class _InstancesList extends StatefulWidget {
     required this.instances,
     required this.onUpdateStep,
     required this.onDeleteInstance,
+    this.templateNames = const {},
   });
   final List<ProjectInstance> instances;
   final Future<void> Function(ProjectInstanceStep step,
@@ -493,6 +956,7 @@ class _InstancesList extends StatefulWidget {
       String? status,
       String? notes}) onUpdateStep;
   final Future<void> Function(String instanceId) onDeleteInstance;
+  final Map<String, String> templateNames;
 
   @override
   State<_InstancesList> createState() => _InstancesListState();
@@ -514,11 +978,15 @@ class _InstancesListState extends State<_InstancesList> {
     return Column(
       children: [
         Padding(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 12),
           child: Row(
             children: [
-              Text('Active Projects',
-                  style: Theme.of(context).textTheme.titleMedium),
+              Text(
+                'Active Projects',
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+              ),
               const Spacer(),
               TextButton.icon(
                 onPressed: () =>
@@ -535,22 +1003,25 @@ class _InstancesListState extends State<_InstancesList> {
         ),
         Expanded(
           child: visibleInstances.isEmpty
-              ? Center(
-                  child: Text(
-                    _showCompleted
-                        ? 'No active projects yet.'
-                        : 'No incomplete active projects.',
-                    style: const TextStyle(color: Colors.grey),
-                  ),
+              ? _EmptyPanelState(
+                  icon: Icons.inbox_outlined,
+                  title: _showCompleted
+                      ? 'No active projects yet'
+                      : 'No incomplete active projects',
+                  message: _showCompleted
+                      ? 'All project instances are currently filtered out or finished.'
+                      : 'Turn on completed items if you want to inspect finished work.',
                 )
               : ListView.builder(
-                  padding: const EdgeInsets.all(16),
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
                   itemCount: visibleInstances.length,
                   itemBuilder: (ctx, i) => _InstanceCard(
                     instance: visibleInstances[i],
                     onUpdateStep: widget.onUpdateStep,
                     onDeleteInstance: widget.onDeleteInstance,
                     showCompleted: _showCompleted,
+                    templateName:
+                        widget.templateNames[visibleInstances[i].templateId],
                   ),
                 ),
         ),
@@ -565,6 +1036,7 @@ class _InstanceCard extends StatelessWidget {
     required this.onUpdateStep,
     required this.onDeleteInstance,
     required this.showCompleted,
+    this.templateName,
   });
   final ProjectInstance instance;
   final Future<void> Function(ProjectInstanceStep step,
@@ -574,22 +1046,41 @@ class _InstanceCard extends StatelessWidget {
       String? notes}) onUpdateStep;
   final Future<void> Function(String instanceId) onDeleteInstance;
   final bool showCompleted;
+  final String? templateName;
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
     final visibleSteps = showCompleted
         ? instance.steps
         : instance.steps.where((step) => step.status != 'done').toList();
     final title = instance.name?.trim().isNotEmpty == true
         ? instance.name!
-        : 'Anchor: ${instance.anchorDate}';
+        : 'Anchor: ${DateFormatters.fullDate(instance.anchorDate, fallback: instance.anchorDate)}';
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
+      elevation: 0,
+      color: colorScheme.surface,
+      surfaceTintColor: Colors.transparent,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(20),
+        side: BorderSide(color: colorScheme.outlineVariant),
+      ),
       child: ExpansionTile(
-        title: Text(title, style: Theme.of(context).textTheme.titleSmall),
+        tilePadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+        childrenPadding: const EdgeInsets.fromLTRB(8, 0, 8, 10),
+        title: Text(
+          title,
+          style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                fontWeight: FontWeight.w600,
+              ),
+        ),
         subtitle: Text(
-            'Anchor ${instance.anchorDate} · ${visibleSteps.length} visible · ${instance.steps.length} total · ${instance.status}',
-            style: const TextStyle(fontSize: 12, color: Colors.grey)),
+          '${templateName?.isNotEmpty == true ? '${templateName!} · ' : ''}Anchor ${DateFormatters.fullDate(instance.anchorDate, fallback: instance.anchorDate)} · ${visibleSteps.length} visible · ${instance.steps.length} total · ${instance.status}',
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: colorScheme.onSurfaceVariant,
+              ),
+        ),
         trailing: IconButton(
           icon: const Icon(Icons.delete_outline, size: 18),
           tooltip: 'Delete active project',
@@ -617,37 +1108,55 @@ class _InstanceStepTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
     final isDone = step.status == 'done';
-    return ListTile(
-      leading: Checkbox(
-        value: isDone,
-        onChanged: (_) => onUpdateStep(step, status: isDone ? 'open' : 'done'),
-        visualDensity: VisualDensity.compact,
-        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+    return Container(
+      decoration: BoxDecoration(
+        color: colorScheme.surface,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: colorScheme.outlineVariant),
       ),
-      title: Text(
-        step.title,
-        style: TextStyle(
-          decoration: isDone ? TextDecoration.lineThrough : null,
-          color: isDone ? Colors.grey : null,
+      child: ListTile(
+        leading: Checkbox(
+          value: isDone,
+          onChanged: (_) =>
+              onUpdateStep(step, status: isDone ? 'open' : 'done'),
+          visualDensity: VisualDensity.compact,
+          materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
         ),
-      ),
-      subtitle: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text('Due: ${step.dueDate}',
-              style: const TextStyle(fontSize: 12, color: Colors.grey)),
-          if (step.notes != null && step.notes!.isNotEmpty)
-            Text(step.notes!,
-                style: const TextStyle(fontSize: 12, color: Colors.blueGrey)),
-        ],
-      ),
-      trailing: IconButton(
-        icon: const Icon(Icons.edit_outlined, size: 16),
-        onPressed: () => showDialog<void>(
-          context: context,
-          builder: (_) =>
-              _EditInstanceStepDialog(step: step, onSave: onUpdateStep),
+        title: Text(
+          step.title,
+          style: TextStyle(
+            decoration: isDone ? TextDecoration.lineThrough : null,
+            color: isDone ? colorScheme.onSurfaceVariant : null,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+        subtitle: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Due: ${DateFormatters.fullDate(step.dueDate, fallback: step.dueDate)}',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: colorScheme.onSurfaceVariant,
+                  ),
+            ),
+            if (step.notes != null && step.notes!.isNotEmpty)
+              Text(
+                step.notes!,
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: colorScheme.onSurfaceVariant,
+                    ),
+              ),
+          ],
+        ),
+        trailing: IconButton(
+          icon: const Icon(Icons.edit_outlined, size: 16),
+          onPressed: () => showDialog<void>(
+            context: context,
+            builder: (_) =>
+                _EditInstanceStepDialog(step: step, onSave: onUpdateStep),
+          ),
         ),
       ),
     );
@@ -761,6 +1270,7 @@ class _StepTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
     final offsetLabel = step.offsetDescription ??
         (step.offsetDays == 0
             ? 'On anchor date'
@@ -770,28 +1280,37 @@ class _StepTile extends StatelessWidget {
 
     return Card(
       elevation: 0,
+      color: colorScheme.surface,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(8),
-        side: BorderSide(color: Theme.of(context).colorScheme.outlineVariant),
+        borderRadius: BorderRadius.circular(14),
+        side: BorderSide(color: colorScheme.outlineVariant),
       ),
       child: ListTile(
         leading: CircleAvatar(
           radius: 14,
-          backgroundColor: Theme.of(context).colorScheme.primaryContainer,
+          backgroundColor: colorScheme.primaryContainer,
           child: Text(
             step.sortOrder.toString(),
-            style: TextStyle(
-                fontSize: 12,
-                color: Theme.of(context).colorScheme.onPrimaryContainer),
+            style:
+                TextStyle(fontSize: 12, color: colorScheme.onPrimaryContainer),
           ),
         ),
-        title: Text(step.title),
-        subtitle: Text(offsetLabel),
+        title: Text(
+          step.title,
+          style: const TextStyle(fontWeight: FontWeight.w500),
+        ),
+        subtitle: Text(
+          offsetLabel,
+          style: TextStyle(color: colorScheme.onSurfaceVariant),
+        ),
         trailing: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
             Text('Offset: ${step.offsetDays}d',
-                style: Theme.of(context).textTheme.bodySmall),
+                style: Theme.of(context)
+                    .textTheme
+                    .bodySmall
+                    ?.copyWith(color: colorScheme.onSurfaceVariant)),
             const SizedBox(width: 4),
             IconButton(
               icon: const Icon(Icons.edit_outlined, size: 16),
@@ -1303,7 +1822,7 @@ class _GenerateInstanceDialogState extends State<_GenerateInstanceDialog> {
       final response = await http.post(
         Uri.parse(
             '${context.read<ServerConfigService>().url}/project-templates/${widget.template.id}/generate'),
-        headers: {'Content-Type': 'application/json'},
+        headers: AuthSessionStore.headers(json: true),
         body: jsonEncode({
           'anchorDate': dateStr,
           if (_nameController.text.trim().isNotEmpty)
@@ -1353,17 +1872,25 @@ class _FormView extends StatelessWidget {
   Widget build(BuildContext context) {
     final dateLabel = anchorDate == null
         ? 'Pick anchor date'
-        : '${anchorDate!.year}-${anchorDate!.month.toString().padLeft(2, '0')}-${anchorDate!.day.toString().padLeft(2, '0')}';
+        : DateFormatters.fullDateFromDateTime(anchorDate!);
 
     return Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        Text(
+          'Give this project run a unique name if you want to use the same template more than once.',
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+                height: 1.4,
+              ),
+        ),
+        const SizedBox(height: 12),
         TextField(
           controller: nameController,
           decoration: const InputDecoration(
-            labelText: 'Project instance name (optional)',
-            hintText: 'Easter',
+            labelText: 'Instance name (optional)',
+            hintText: 'Christmas Eve Service',
             border: OutlineInputBorder(),
           ),
           autofocus: true,
@@ -1385,8 +1912,7 @@ class _FormView extends StatelessWidget {
           const SizedBox(height: 8),
           ...preview.map((rs) {
             final d = rs.dueDate;
-            final ds =
-                '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+            final ds = DateFormatters.fullDateFromDateTime(d);
             return Padding(
               padding: const EdgeInsets.symmetric(vertical: 2),
               child: Row(
@@ -1429,7 +1955,8 @@ class _SuccessView extends StatelessWidget {
           Text(instance.name!, style: Theme.of(context).textTheme.titleMedium),
           const SizedBox(height: 8),
         ],
-        Text('Anchor: ${instance.anchorDate}',
+        Text(
+            'Anchor: ${DateFormatters.fullDate(instance.anchorDate, fallback: instance.anchorDate)}',
             style: Theme.of(context).textTheme.bodySmall),
         const SizedBox(height: 8),
         ...instance.steps.map((s) => Padding(
@@ -1441,7 +1968,7 @@ class _SuccessView extends StatelessWidget {
                   Expanded(
                       child: Text(s.title,
                           style: Theme.of(context).textTheme.bodySmall)),
-                  Text(s.dueDate,
+                  Text(DateFormatters.fullDate(s.dueDate, fallback: s.dueDate),
                       style: const TextStyle(color: Colors.grey, fontSize: 11)),
                 ],
               ),

@@ -37,59 +37,68 @@ class _ImportDialogState extends State<ImportDialog>
   }
 
   static const _aiPrompt = '''
-You are helping import data into Rhythm, a personal task and project management tool.
+You are helping import data into Rhythm, a personal task, project, and rhythm planning tool.
 
-Please output a JSON array of objects. Each object represents one item. Supported types:
+Return ONLY valid JSON. Do not include markdown fences, commentary, or explanation.
 
----
-TASK (one-off):
+Preferred output shape:
 {
-  "type": "task",
-  "title": "string (required)",
-  "notes": "string (optional)",
-  "dueDate": "YYYY-MM-DD (optional)"
-}
-
-RECURRING RULE:
-{
-  "type": "recurring_rule",
-  "title": "string (required)",
-  "frequency": "weekly | monthly | annual",
-  "dayOfWeek": 0-6 (0=Sun, optional, for weekly),
-  "dayOfMonth": 1-31 (optional, for monthly),
-  "month": 1-12 (optional, for annual)
-}
-
-PROJECT TEMPLATE:
-{
-  "type": "project_template",
-  "name": "string (required)",
-  "description": "string (optional)",
-  "steps": [
+  "tasks": [
     {
       "title": "string (required)",
-      "offsetDays": integer (days before anchor, negative = before, positive = after),
-      "offsetDescription": "string (optional, e.g. '2 weeks before')"
+      "notes": "string (optional)",
+      "dueDate": "YYYY-MM-DD (optional)"
+    }
+  ],
+  "rhythms": [
+    {
+      "title": "string (required)",
+      "frequency": "weekly | monthly | annual",
+      "dayOfWeek": 0-6 (0=Sun, optional, for weekly),
+      "dayOfMonth": 1-31 (optional, for monthly),
+      "month": 1-12 (optional, for annual)
+    }
+  ],
+  "projects": [
+    {
+      "name": "string (required)",
+      "description": "string (optional)",
+      "steps": [
+        {
+          "title": "string (required)",
+          "offsetDays": integer (days before anchor, negative = before, positive = after),
+          "offsetDescription": "string (optional, e.g. '2 weeks before')"
+        }
+      ]
     }
   ]
 }
----
 
-Return ONLY the JSON array, no explanation or markdown fences.
+Definitions:
+- tasks = one-off tasks
+- rhythms = recurring rules
+- projects = project templates, not active project instances
 
 Example:
-[
-  { "type": "task", "title": "Call dentist", "dueDate": "2026-04-01" },
-  { "type": "recurring_rule", "title": "Weekly review", "frequency": "weekly", "dayOfWeek": 1 },
-  {
-    "type": "project_template",
-    "name": "Conference Prep",
-    "steps": [
-      { "title": "Book travel", "offsetDays": -30, "offsetDescription": "30 days before" },
-      { "title": "Prepare slides", "offsetDays": -7, "offsetDescription": "1 week before" }
-    ]
-  }
-]
+{
+  "tasks": [
+    { "title": "Call dentist", "dueDate": "2026-04-01" },
+    { "title": "Email worship team", "notes": "Confirm rehearsal details" }
+  ],
+  "rhythms": [
+    { "title": "Weekly review", "frequency": "weekly", "dayOfWeek": 1 }
+  ],
+  "projects": [
+    {
+      "name": "Conference Prep",
+      "description": "Template for recurring conference planning",
+      "steps": [
+        { "title": "Book travel", "offsetDays": -30, "offsetDescription": "30 days before" },
+        { "title": "Prepare slides", "offsetDays": -7, "offsetDescription": "1 week before" }
+      ]
+    }
+  ]
+}
 ''';
 
   Future<void> _copyPrompt() async {
@@ -102,7 +111,7 @@ Example:
   Future<void> _runImport() async {
     final raw = _jsonController.text.trim();
     if (raw.isEmpty) {
-      setState(() => _importError = 'Paste the JSON array first.');
+      setState(() => _importError = 'Paste the JSON first.');
       return;
     }
 
@@ -112,10 +121,9 @@ Example:
     });
 
     try {
-      final decoded = jsonDecode(raw);
-      if (decoded is! List) {
-        throw const FormatException('Expected a JSON array.');
-      }
+      final normalized = _normalizeImportText(raw);
+      final decoded = jsonDecode(normalized);
+      final payload = _parseImportPayload(decoded);
 
       final tasksCtrl = context.read<TasksController>();
       final rhythmsCtrl = context.read<RhythmsController>();
@@ -123,49 +131,44 @@ Example:
 
       int tasks = 0, rules = 0, templates = 0;
 
-      for (final entry in decoded) {
-        final item = entry as Map<String, dynamic>;
-        switch (item['type'] as String?) {
-          case 'task':
-            await tasksCtrl.createTask(
-              item['title'] as String,
-              notes: item['notes'] as String?,
-              dueDate: item['dueDate'] as String?,
-            );
-            tasks++;
+      for (final item in payload.tasks) {
+        await tasksCtrl.createTask(
+          item['title'] as String,
+          notes: item['notes'] as String?,
+          dueDate: item['dueDate'] as String?,
+        );
+        tasks++;
+      }
 
-          case 'recurring_rule':
-            await rhythmsCtrl.createRule(
-              title: item['title'] as String,
-              frequency: item['frequency'] as String,
-              dayOfWeek: item['dayOfWeek'] as int?,
-              dayOfMonth: item['dayOfMonth'] as int?,
-              month: item['month'] as int?,
-            );
-            rules++;
+      for (final item in payload.rhythms) {
+        await rhythmsCtrl.createRule(
+          title: item['title'] as String,
+          frequency: item['frequency'] as String,
+          dayOfWeek: item['dayOfWeek'] as int?,
+          dayOfMonth: item['dayOfMonth'] as int?,
+          month: item['month'] as int?,
+        );
+        rules++;
+      }
 
-          case 'project_template':
-            await projectsCtrl.createTemplate(
-              item['name'] as String,
-              description: item['description'] as String?,
-            );
-            final templateId = projectsCtrl.templates.last.id;
-            final steps = (item['steps'] as List?) ?? [];
-            for (var i = 0; i < steps.length; i++) {
-              final step = steps[i] as Map<String, dynamic>;
-              await projectsCtrl.addStep(
-                templateId,
-                title: step['title'] as String,
-                offsetDays: step['offsetDays'] as int,
-                offsetDescription: step['offsetDescription'] as String?,
-                sortOrder: i,
-              );
-            }
-            templates++;
-
-          default:
-            break; // Unknown type — skip silently.
+      for (final item in payload.projects) {
+        await projectsCtrl.createTemplate(
+          item['name'] as String,
+          description: item['description'] as String?,
+        );
+        final templateId = projectsCtrl.templates.last.id;
+        final steps = (item['steps'] as List?) ?? [];
+        for (var i = 0; i < steps.length; i++) {
+          final step = steps[i] as Map<String, dynamic>;
+          await projectsCtrl.addStep(
+            templateId,
+            title: step['title'] as String,
+            offsetDays: step['offsetDays'] as int,
+            offsetDescription: step['offsetDescription'] as String?,
+            sortOrder: i,
+          );
         }
+        templates++;
       }
 
       if (!mounted) return;
@@ -301,8 +304,8 @@ class _PromptTab extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Copy this prompt into ChatGPT, Claude, or any AI. '
-            "Then paste the AI's JSON output in the next tab.",
+            'Copy this prompt into ChatGPT or Claude. '
+            "Then paste the JSON result in the next tab.",
             style: TextStyle(color: Colors.grey[700], fontSize: 13),
           ),
           const SizedBox(height: 12),
@@ -365,7 +368,8 @@ class _ImportTab extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Paste the JSON array returned by the AI below, then press Import.',
+            'Paste AI output below. Rhythm accepts either a structured object '
+            'with tasks, rhythms, and projects, or the older flat array format.',
             style: TextStyle(color: Colors.grey[700], fontSize: 13),
           ),
           const SizedBox(height: 12),
@@ -376,7 +380,8 @@ class _ImportTab extends StatelessWidget {
               expands: true,
               textAlignVertical: TextAlignVertical.top,
               decoration: InputDecoration(
-                hintText: '[\n  { "type": "task", "title": "..." }\n]',
+                hintText:
+                    '{\n  "tasks": [{ "title": "..." }],\n  "rhythms": [],\n  "projects": []\n}',
                 border: const OutlineInputBorder(),
                 contentPadding: const EdgeInsets.all(12),
                 errorText: errorMessage,
@@ -388,6 +393,91 @@ class _ImportTab extends StatelessWidget {
       ),
     );
   }
+}
+
+class _ParsedImportPayload {
+  const _ParsedImportPayload({
+    required this.tasks,
+    required this.rhythms,
+    required this.projects,
+  });
+
+  final List<Map<String, dynamic>> tasks;
+  final List<Map<String, dynamic>> rhythms;
+  final List<Map<String, dynamic>> projects;
+}
+
+String _normalizeImportText(String raw) {
+  final trimmed = raw.trim();
+  if (!trimmed.startsWith('```')) {
+    return trimmed;
+  }
+
+  final lines = trimmed.split('\n');
+  if (lines.length < 2) {
+    return trimmed;
+  }
+
+  if (lines.first.startsWith('```')) {
+    lines.removeAt(0);
+  }
+  if (lines.isNotEmpty && lines.last.trim() == '```') {
+    lines.removeLast();
+  }
+  return lines.join('\n').trim();
+}
+
+_ParsedImportPayload _parseImportPayload(dynamic decoded) {
+  if (decoded is List) {
+    final tasks = <Map<String, dynamic>>[];
+    final rhythms = <Map<String, dynamic>>[];
+    final projects = <Map<String, dynamic>>[];
+
+    for (final entry in decoded) {
+      if (entry is! Map) continue;
+      final item = Map<String, dynamic>.from(entry);
+      switch (item['type'] as String?) {
+        case 'task':
+          tasks.add(item);
+        case 'recurring_rule':
+          rhythms.add(item);
+        case 'project_template':
+          projects.add(item);
+        default:
+          break;
+      }
+    }
+
+    return _ParsedImportPayload(
+      tasks: tasks,
+      rhythms: rhythms,
+      projects: projects,
+    );
+  }
+
+  if (decoded is Map) {
+    List<Map<String, dynamic>> parseList(String key) {
+      final raw = decoded[key];
+      if (raw == null) return const [];
+      if (raw is! List) {
+        throw FormatException('"$key" must be an array.');
+      }
+      return raw
+          .whereType<Map>()
+          .map((entry) => Map<String, dynamic>.from(entry))
+          .toList();
+    }
+
+    return _ParsedImportPayload(
+      tasks: parseList('tasks'),
+      rhythms: parseList('rhythms'),
+      projects: parseList('projects'),
+    );
+  }
+
+  throw const FormatException(
+    'Expected either a JSON object with tasks/rhythms/projects or a JSON array.',
+  );
 }
 
 // ---------------------------------------------------------------------------

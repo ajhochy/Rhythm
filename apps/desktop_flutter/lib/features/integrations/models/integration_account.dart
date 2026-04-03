@@ -6,8 +6,13 @@ class IntegrationAccount {
     required this.connected,
     this.email,
     this.displayName,
+    this.providerDisplayName,
+    this.accountLabel,
     this.lastSyncedAt,
     this.errorMessage,
+    this.scope,
+    this.availableTriggerFamilies = const [],
+    this.syncSupportMode,
   });
 
   factory IntegrationAccount.fromJson(Map<String, dynamic> json) {
@@ -19,8 +24,16 @@ class IntegrationAccount {
       connected: status == 'connected',
       email: json['email'] as String?,
       displayName: json['displayName'] as String?,
+      providerDisplayName: json['providerDisplayName'] as String?,
+      accountLabel: json['accountLabel'] as String?,
       lastSyncedAt: json['lastSyncedAt'] as String?,
       errorMessage: json['errorMessage'] as String?,
+      scope: json['scope'] as String?,
+      availableTriggerFamilies:
+          (json['availableTriggerFamilies'] as List<dynamic>? ?? const [])
+              .map((item) => item.toString())
+              .toList(),
+      syncSupportMode: json['syncSupportMode'] as String?,
     );
   }
 
@@ -30,6 +43,11 @@ class IntegrationAccount {
   final bool connected;
   final String? email;
   final String? displayName;
+  final String? providerDisplayName;
+  final String? accountLabel;
   final String? lastSyncedAt;
   final String? errorMessage;
+  final String? scope;
+  final List<String> availableTriggerFamilies;
+  final String? syncSupportMode;
 }

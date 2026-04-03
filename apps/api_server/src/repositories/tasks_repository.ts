@@ -13,6 +13,7 @@ interface TaskRow {
   status: string;
   source_type: string | null;
   source_id: string | null;
+  source_name: string | null;
   owner_id: number | null;
   created_at: string;
   updated_at: string;
@@ -29,27 +30,46 @@ function rowToTask(row: TaskRow): Task {
     status: row.status as Task['status'],
     sourceType: row.source_type,
     sourceId: row.source_id,
-    sourceName: null,
+    sourceName: row.source_name ?? null,
     ownerId: row.owner_id,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
 }
 
+const TASK_SELECT = `
+  SELECT
+    tasks.*,
+    CASE
+      WHEN tasks.source_type = 'project_step' THEN COALESCE(pi.name, pt.name)
+      WHEN tasks.source_type = 'recurring_rule' THEN rr.title
+      ELSE NULL
+    END AS source_name
+  FROM tasks
+  LEFT JOIN project_instances pi
+    ON tasks.source_type = 'project_step'
+   AND tasks.source_id = pi.id
+  LEFT JOIN project_templates pt
+    ON pi.template_id = pt.id
+  LEFT JOIN recurring_task_rules rr
+    ON tasks.source_type = 'recurring_rule'
+   AND tasks.source_id = rr.id
+`;
+
 export class TasksRepository {
   findAll(userId?: number): Task[] {
     if (userId != null) {
       const rows = getDb()
         .prepare(
-          `SELECT * FROM tasks
-           WHERE owner_id = ? OR owner_id IS NULL
-           ORDER BY due_date ASC, created_at ASC`,
+          `${TASK_SELECT}
+           WHERE tasks.owner_id = ? OR tasks.owner_id IS NULL
+           ORDER BY tasks.due_date ASC, tasks.created_at ASC`,
         )
         .all(userId) as TaskRow[];
       return rows.map(rowToTask);
     }
     const rows = getDb()
-      .prepare('SELECT * FROM tasks ORDER BY due_date ASC, created_at ASC')
+      .prepare(`${TASK_SELECT} ORDER BY tasks.due_date ASC, tasks.created_at ASC`)
       .all() as TaskRow[];
     return rows.map(rowToTask);
   }
@@ -58,10 +78,10 @@ export class TasksRepository {
     const row = (userId != null
       ? getDb()
           .prepare(
-            'SELECT * FROM tasks WHERE id = ? AND (owner_id = ? OR owner_id IS NULL)',
+            `${TASK_SELECT} WHERE tasks.id = ? AND (tasks.owner_id = ? OR tasks.owner_id IS NULL)`,
           )
           .get(id, userId)
-      : getDb().prepare('SELECT * FROM tasks WHERE id = ?').get(id)) as
+      : getDb().prepare(`${TASK_SELECT} WHERE tasks.id = ?`).get(id)) as
       | TaskRow
       | undefined;
     if (!row) throw AppError.notFound('Task');
@@ -70,7 +90,9 @@ export class TasksRepository {
 
   findBySource(sourceType: string, sourceId: string): Task | null {
     const row = getDb()
-      .prepare('SELECT * FROM tasks WHERE source_type = ? AND source_id = ? LIMIT 1')
+      .prepare(
+        `${TASK_SELECT} WHERE tasks.source_type = ? AND tasks.source_id = ? LIMIT 1`,
+      )
       .get(sourceType, sourceId) as TaskRow | undefined;
     return row ? rowToTask(row) : null;
   }
@@ -78,20 +100,20 @@ export class TasksRepository {
   findByWeek(weekStart: string, weekEnd: string, userId?: number): Task[] {
     if (userId != null) {
       const rows = getDb()
-        .prepare(
-          `SELECT * FROM tasks
-           WHERE (owner_id = ? OR owner_id IS NULL)
-             AND (due_date BETWEEN ? AND ? OR scheduled_date BETWEEN ? AND ?)
-           ORDER BY due_date ASC, created_at ASC`,
+          .prepare(
+            `${TASK_SELECT}
+           WHERE (tasks.owner_id = ? OR tasks.owner_id IS NULL)
+             AND (tasks.due_date BETWEEN ? AND ? OR tasks.scheduled_date BETWEEN ? AND ?)
+           ORDER BY tasks.due_date ASC, tasks.created_at ASC`,
         )
         .all(userId, weekStart, weekEnd, weekStart, weekEnd) as TaskRow[];
       return rows.map(rowToTask);
     }
     const rows = getDb()
       .prepare(
-        `SELECT * FROM tasks
-         WHERE (due_date BETWEEN ? AND ? OR scheduled_date BETWEEN ? AND ?)
-         ORDER BY due_date ASC, created_at ASC`,
+        `${TASK_SELECT}
+         WHERE (tasks.due_date BETWEEN ? AND ? OR tasks.scheduled_date BETWEEN ? AND ?)
+         ORDER BY tasks.due_date ASC, tasks.created_at ASC`,
       )
       .all(weekStart, weekEnd, weekStart, weekEnd) as TaskRow[];
     return rows.map(rowToTask);
@@ -229,7 +251,8 @@ export class TasksRepository {
     return this.findById(id, userId);
   }
 
-  delete(id: string): void {
+  delete(id: string, userId?: number): void {
+    this.findById(id, userId);
     const result = getDb().prepare('DELETE FROM tasks WHERE id = ?').run(id);
     if (result.changes === 0) throw AppError.notFound('Task');
   }

@@ -91,6 +91,17 @@ jobs:
             "$PCO_APPLICATION_ID" "$PCO_SECRET" "$PCO_REDIRECT_URI" \
             > "$DEST/.env"
 
+      - name: Verify bundled API payload
+        working-directory: apps/desktop_flutter
+        run: |
+          DEST="build/macos/Build/Products/Release/Rhythm.app/Contents/Resources/api_server"
+          test -f "$DEST/dist/server.js"
+          test -f "$DEST/package.json"
+          test -f "$DEST/package-lock.json"
+          test -f "$DEST/.env"
+          test -d "$DEST/node_modules"
+          test -f "$DEST/node_modules/better-sqlite3/package.json"
+
       - name: Package macOS artifacts
         working-directory: apps/desktop_flutter
         run: ../../tools/release/package_macos.sh

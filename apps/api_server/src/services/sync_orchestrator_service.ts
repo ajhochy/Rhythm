@@ -7,43 +7,40 @@ export class SyncOrchestratorService {
   private readonly integrationsService = new IntegrationsService();
 
   async runSync(): Promise<void> {
-    const gcal = this.accountsRepo.findByProvider('google_calendar');
-    if (gcal?.accessToken) {
-      try {
-        const result = await this.integrationsService.syncGoogleCalendar();
-        logger.info(
-          `SyncOrchestrator: Google Calendar synced ${result.syncedCount} event(s)`,
-        );
-      } catch (err) {
-        logger.error(
-          `SyncOrchestrator: Google Calendar sync failed — ${String(err)}`,
-        );
-      }
-    }
+    const accounts = this.accountsRepo.findAll();
+    const ownerIds = new Set(
+      accounts
+        .map((account) => account.ownerId)
+        .filter((ownerId): ownerId is number => ownerId != null),
+    );
 
-    const gmail = this.accountsRepo.findByProvider('gmail');
-    if (gmail?.accessToken) {
-      try {
-        const result = await this.integrationsService.syncGmail();
-        logger.info(
-          `SyncOrchestrator: Gmail synced ${result.syncedCount} signal(s)`,
-        );
-      } catch (err) {
-        logger.error(`SyncOrchestrator: Gmail sync failed — ${String(err)}`);
+    for (const ownerId of ownerIds) {
+      const gcal = this.accountsRepo.findByProvider('google_calendar', ownerId);
+      if (gcal?.accessToken) {
+        try {
+          const result = await this.integrationsService.syncGoogleCalendar(ownerId);
+          logger.info(
+            `SyncOrchestrator: Google Calendar synced ${result.syncedCount} event(s) for user ${ownerId}`,
+          );
+        } catch (err) {
+          logger.error(
+            `SyncOrchestrator: Google Calendar sync failed for user ${ownerId} — ${String(err)}`,
+          );
+        }
       }
-    }
 
-    const pco = this.accountsRepo.findByProvider('planning_center');
-    if (pco?.accessToken) {
-      try {
-        const result = await this.integrationsService.syncPlanningCenter();
-        logger.info(
-          `SyncOrchestrator: Planning Center synced — ${result.taskSignalCount} task(s), ${result.startedProjectCount} project(s) started`,
-        );
-      } catch (err) {
-        logger.error(
-          `SyncOrchestrator: Planning Center sync failed — ${String(err)}`,
-        );
+      const gmail = this.accountsRepo.findByProvider('gmail', ownerId);
+      if (gmail?.accessToken) {
+        try {
+          const result = await this.integrationsService.syncGmail(ownerId);
+          logger.info(
+            `SyncOrchestrator: Gmail synced ${result.syncedCount} signal(s) for user ${ownerId}`,
+          );
+        } catch (err) {
+          logger.error(
+            `SyncOrchestrator: Gmail sync failed for user ${ownerId} — ${String(err)}`,
+          );
+        }
       }
     }
   }

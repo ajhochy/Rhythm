@@ -5,6 +5,7 @@ import type {
   CreateThreadDto,
   Message,
   MessageThread,
+  MessageThreadParticipant,
 } from '../models/message';
 import { UsersRepository } from './users_repository';
 
@@ -41,6 +42,7 @@ function rowToThread(row: ThreadSummaryRow): MessageThread {
     lastMessage: row.last_message ?? null,
     unreadCount,
     isUnread: unreadCount > 0,
+    participants: [],
   };
 }
 
@@ -57,6 +59,42 @@ function rowToMessage(row: MessageRow): Message {
 
 export class MessagesRepository {
   private readonly usersRepo = new UsersRepository();
+
+  private getParticipantsForThread(threadId: number): MessageThreadParticipant[] {
+    const rows = getDb()
+      .prepare(
+        `SELECT u.id, u.name, u.email
+         FROM thread_participants tp
+         JOIN users u ON u.id = tp.user_id
+         WHERE tp.thread_id = ?
+         ORDER BY lower(u.name) ASC, u.id ASC`,
+      )
+      .all(threadId) as MessageThreadParticipant[];
+    return rows;
+  }
+
+  private withParticipants(thread: MessageThread): MessageThread {
+    return {
+      ...thread,
+      participants: this.getParticipantsForThread(thread.id),
+    };
+  }
+
+  private findExistingDirectThreadId(userIds: number[]): number | null {
+    if (userIds.length != 2) return null;
+    const normalized = [...userIds].sort((a, b) => a - b);
+    const row = getDb()
+      .prepare(
+        `SELECT tp.thread_id AS id
+         FROM thread_participants tp
+         GROUP BY tp.thread_id
+         HAVING COUNT(*) = 2
+            AND SUM(CASE WHEN tp.user_id IN (?, ?) THEN 1 ELSE 0 END) = 2
+         LIMIT 1`,
+      )
+      .get(normalized[0], normalized[1]) as { id: number } | undefined;
+    return row?.id ?? null;
+  }
 
   findAllThreadsForUser(userId: number): MessageThread[] {
     const rows = getDb()
@@ -84,7 +122,7 @@ export class MessagesRepository {
          ORDER BY t.updated_at DESC`,
       )
       .all(userId, userId, userId) as ThreadSummaryRow[];
-    return rows.map(rowToThread);
+    return rows.map((row) => this.withParticipants(rowToThread(row)));
   }
 
   findThreadByIdForUser(id: number, userId: number): MessageThread {
@@ -112,22 +150,26 @@ export class MessagesRepository {
       )
       .get(userId, userId, id, userId) as ThreadSummaryRow | undefined;
     if (!row) throw AppError.notFound('MessageThread');
-    return rowToThread(row);
+    return this.withParticipants(rowToThread(row));
   }
 
   createThread(data: CreateThreadDto): MessageThread {
     const participantIds = Array.from(
       new Set([data.createdBy, ...data.participantIds]),
     );
-    if (participantIds.length < 2) {
-      throw AppError.badRequest('A thread must include at least two participants');
+    if (participantIds.length !== 2) {
+      throw AppError.badRequest(
+        'Direct messages must include exactly one other participant',
+      );
+    }
+
+    const existingThreadId = this.findExistingDirectThreadId(participantIds);
+    if (existingThreadId != null) {
+      return this.findThreadByIdForUser(existingThreadId, data.createdBy);
     }
 
     const participantUsers = participantIds.map((id) => this.usersRepo.findById(id));
-    const title =
-      (data.title?.trim().length ?? 0) > 0
-        ? data.title!.trim()
-        : participantUsers.map((user) => user.name).join(', ');
+    const title = participantUsers.map((user) => user.name).join(', ');
 
     const now = new Date().toISOString();
     const result = getDb()
@@ -194,6 +236,14 @@ export class MessagesRepository {
       .prepare('SELECT * FROM messages WHERE id = ?')
       .get(result.lastInsertRowid as number) as MessageRow;
     return rowToMessage(row);
+  }
+
+  sendDirectMessage(senderUserId: number, recipientUserId: number, body: string): Message {
+    const thread = this.createThread({
+      createdBy: senderUserId,
+      participantIds: [recipientUserId],
+    });
+    return this.createMessage(thread.id, senderUserId, { body });
   }
 
   markThreadRead(threadId: number, userId: number): void {

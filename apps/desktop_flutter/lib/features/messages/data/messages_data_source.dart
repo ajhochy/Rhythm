@@ -45,8 +45,8 @@ class MessagesDataSource {
       Uri.parse('$_baseUrl/message-threads'),
       headers: AuthSessionStore.headers(json: true),
       body: jsonEncode({
-        if (title != null && title.isNotEmpty) 'title': title,
         'participantIds': participantIds,
+        if (title != null && title.trim().isNotEmpty) 'title': title.trim(),
       }),
     );
     _assertOk(response);
