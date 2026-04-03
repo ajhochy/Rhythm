@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../../../app/core/auth/auth_session_store.dart';
 import '../../../app/core/constants/app_constants.dart';
-import '../../../app/core/errors/app_error.dart';
+import '../../../app/core/utils/http_utils.dart';
 import '../../tasks/models/task.dart';
 import '../models/weekly_plan.dart';
 
@@ -16,7 +16,7 @@ class WeeklyPlanDataSource {
     final uri = Uri.parse('$_baseUrl/weekly-plan')
         .replace(queryParameters: {'week': weekLabel});
     final response = await http.get(uri, headers: AuthSessionStore.headers());
-    _assertOk(response);
+    assertOk(response);
     return WeeklyPlan.fromJson(
         jsonDecode(response.body) as Map<String, dynamic>);
   }
@@ -32,7 +32,7 @@ class WeeklyPlanDataSource {
         if (scheduledOrder != null) 'scheduledOrder': scheduledOrder,
       }),
     );
-    _assertOk(response);
+    assertOk(response);
     return Task.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
   }
 
@@ -59,7 +59,7 @@ class WeeklyPlanDataSource {
           'scheduledOrder': scheduledOrder,
       }),
     );
-    _assertOk(response);
+    assertOk(response);
     final body = jsonDecode(response.body) as Map<String, dynamic>;
     return isProjectStep
         ? Task(
@@ -86,16 +86,7 @@ class WeeklyPlanDataSource {
         if (dueDate != null) 'dueDate': dueDate,
       }),
     );
-    _assertOk(response);
+    assertOk(response);
   }
 
-  void _assertOk(http.Response response) {
-    if (response.statusCode >= 400) {
-      final body = jsonDecode(response.body) as Map<String, dynamic>?;
-      final message =
-          (body?['error'] as Map<String, dynamic>?)?['message'] as String? ??
-              'Request failed';
-      throw AppError(message);
-    }
-  }
 }

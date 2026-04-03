@@ -4,7 +4,7 @@ import 'package:http/http.dart' as http;
 
 import '../../../app/core/auth/auth_session_store.dart';
 import '../../../app/core/constants/app_constants.dart';
-import '../../../app/core/errors/app_error.dart';
+import '../../../app/core/utils/http_utils.dart';
 import '../../integrations/models/integration_account.dart';
 import '../../integrations/models/planning_center_task_options.dart';
 import '../models/automation_catalog.dart';
@@ -50,7 +50,7 @@ class AutomationRulesDataSource {
       Uri.parse('$_baseUrl/automation-rules'),
       headers: AuthSessionStore.headers(),
     );
-    _assertOk(response);
+    assertOk(response);
     final list = jsonDecode(response.body) as List<dynamic>;
     return list
         .map((j) => AutomationRule.fromJson(j as Map<String, dynamic>))
@@ -62,7 +62,7 @@ class AutomationRulesDataSource {
       Uri.parse('$_baseUrl/automation-catalog/triggers'),
       headers: AuthSessionStore.headers(),
     );
-    _assertOk(response);
+    assertOk(response);
     final list = jsonDecode(response.body) as List<dynamic>;
     return list
         .map((item) =>
@@ -75,7 +75,7 @@ class AutomationRulesDataSource {
       Uri.parse('$_baseUrl/automation-catalog/actions'),
       headers: AuthSessionStore.headers(),
     );
-    _assertOk(response);
+    assertOk(response);
     final list = jsonDecode(response.body) as List<dynamic>;
     return list
         .map((item) =>
@@ -88,7 +88,7 @@ class AutomationRulesDataSource {
       Uri.parse('$_baseUrl/automation-catalog/providers'),
       headers: AuthSessionStore.headers(),
     );
-    _assertOk(response);
+    assertOk(response);
     final list = jsonDecode(response.body) as List<dynamic>;
     return list
         .map((item) => AutomationProviderCatalogItem.fromJson(
@@ -101,7 +101,7 @@ class AutomationRulesDataSource {
       Uri.parse('$_baseUrl/integrations/accounts'),
       headers: AuthSessionStore.headers(),
     );
-    _assertOk(response);
+    assertOk(response);
     final list = jsonDecode(response.body) as List<dynamic>;
     return list
         .map(
@@ -125,7 +125,7 @@ class AutomationRulesDataSource {
       Uri.parse('$_baseUrl/automation-rules/$id/preview'),
       headers: AuthSessionStore.headers(),
     );
-    _assertOk(response);
+    assertOk(response);
     return AutomationRulePreview.fromJson(
       jsonDecode(response.body) as Map<String, dynamic>,
     );
@@ -155,7 +155,7 @@ class AutomationRulesDataSource {
         'enabled': enabled,
       }),
     );
-    _assertOk(response);
+    assertOk(response);
     return AutomationRule.fromJson(
         jsonDecode(response.body) as Map<String, dynamic>);
   }
@@ -185,7 +185,7 @@ class AutomationRulesDataSource {
         if (enabled != null) 'enabled': enabled,
       }),
     );
-    _assertOk(response);
+    assertOk(response);
     return AutomationRule.fromJson(
         jsonDecode(response.body) as Map<String, dynamic>);
   }
@@ -195,7 +195,7 @@ class AutomationRulesDataSource {
       Uri.parse('$_baseUrl/automation-rules/$id'),
       headers: AuthSessionStore.headers(),
     );
-    _assertOk(response);
+    assertOk(response);
   }
 
   Future<void> resync(String id) async {
@@ -203,16 +203,7 @@ class AutomationRulesDataSource {
       Uri.parse('$_baseUrl/automation-rules/$id/resync'),
       headers: AuthSessionStore.headers(),
     );
-    _assertOk(response);
+    assertOk(response);
   }
 
-  void _assertOk(http.Response response) {
-    if (response.statusCode >= 400) {
-      final body = jsonDecode(response.body) as Map<String, dynamic>?;
-      final message =
-          (body?['error'] as Map<String, dynamic>?)?['message'] as String? ??
-              'Request failed';
-      throw AppError(message);
-    }
-  }
 }

@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../../../app/core/auth/auth_session_store.dart';
 import '../../../app/core/constants/app_constants.dart';
-import '../../../app/core/errors/app_error.dart';
+import '../../../app/core/utils/http_utils.dart';
 import '../models/task.dart';
 
 class TasksLocalDataSource {
@@ -16,7 +16,7 @@ class TasksLocalDataSource {
       Uri.parse('$_baseUrl/tasks'),
       headers: AuthSessionStore.headers(),
     );
-    _assertOk(response);
+    assertOk(response);
     final list = jsonDecode(response.body) as List<dynamic>;
     return list.map((j) => Task.fromJson(j as Map<String, dynamic>)).toList();
   }
@@ -31,7 +31,7 @@ class TasksLocalDataSource {
         if (dueDate != null) 'dueDate': dueDate,
       }),
     );
-    _assertOk(response);
+    assertOk(response);
     return Task.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
   }
 
@@ -47,7 +47,7 @@ class TasksLocalDataSource {
         if (status != null) 'status': status,
       }),
     );
-    _assertOk(response);
+    assertOk(response);
     return Task.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
   }
 
@@ -56,16 +56,7 @@ class TasksLocalDataSource {
       Uri.parse('$_baseUrl/tasks/$id'),
       headers: AuthSessionStore.headers(),
     );
-    _assertOk(response);
+    assertOk(response);
   }
 
-  void _assertOk(http.Response response) {
-    if (response.statusCode >= 400) {
-      final body = jsonDecode(response.body) as Map<String, dynamic>?;
-      final message =
-          (body?['error'] as Map<String, dynamic>?)?['message'] as String? ??
-              'Request failed';
-      throw AppError(message);
-    }
-  }
 }

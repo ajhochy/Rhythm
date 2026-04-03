@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import '../../../app/core/auth/auth_session_store.dart';
 import '../../../app/core/constants/app_constants.dart';
-import '../../../app/core/errors/app_error.dart';
+import '../../../app/core/utils/http_utils.dart';
 import '../models/project_template.dart';
 import '../models/project_template_step.dart';
 
@@ -17,7 +17,7 @@ class ProjectsLocalDataSource {
       Uri.parse('$_baseUrl/project-templates'),
       headers: AuthSessionStore.headers(),
     );
-    _assertOk(response);
+    assertOk(response);
     final list = jsonDecode(response.body) as List<dynamic>;
     return list
         .map((j) => ProjectTemplate.fromJson(j as Map<String, dynamic>))
@@ -35,7 +35,7 @@ class ProjectsLocalDataSource {
         if (anchorType != null) 'anchorType': anchorType,
       }),
     );
-    _assertOk(response);
+    assertOk(response);
     return ProjectTemplate.fromJson(
         jsonDecode(response.body) as Map<String, dynamic>);
   }
@@ -57,7 +57,7 @@ class ProjectsLocalDataSource {
         if (sortOrder != null) 'sortOrder': sortOrder,
       }),
     );
-    _assertOk(response);
+    assertOk(response);
     return ProjectTemplateStep.fromJson(
         jsonDecode(response.body) as Map<String, dynamic>);
   }
@@ -72,7 +72,7 @@ class ProjectsLocalDataSource {
         if (description != null) 'description': description,
       }),
     );
-    _assertOk(response);
+    assertOk(response);
     return ProjectTemplate.fromJson(
         jsonDecode(response.body) as Map<String, dynamic>);
   }
@@ -93,7 +93,7 @@ class ProjectsLocalDataSource {
         if (offsetDescription != null) 'offsetDescription': offsetDescription,
       }),
     );
-    _assertOk(response);
+    assertOk(response);
     return ProjectTemplateStep.fromJson(
         jsonDecode(response.body) as Map<String, dynamic>);
   }
@@ -103,7 +103,7 @@ class ProjectsLocalDataSource {
       Uri.parse('$_baseUrl/project-templates/$templateId/steps/$stepId'),
       headers: AuthSessionStore.headers(),
     );
-    _assertOk(response);
+    assertOk(response);
   }
 
   Future<void> delete(String id) async {
@@ -111,16 +111,7 @@ class ProjectsLocalDataSource {
       Uri.parse('$_baseUrl/project-templates/$id'),
       headers: AuthSessionStore.headers(),
     );
-    _assertOk(response);
+    assertOk(response);
   }
 
-  void _assertOk(http.Response response) {
-    if (response.statusCode >= 400) {
-      final body = jsonDecode(response.body) as Map<String, dynamic>?;
-      final message =
-          (body?['error'] as Map<String, dynamic>?)?['message'] as String? ??
-              'Request failed';
-      throw AppError(message);
-    }
-  }
 }

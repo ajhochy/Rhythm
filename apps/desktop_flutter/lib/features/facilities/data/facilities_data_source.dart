@@ -4,7 +4,7 @@ import 'package:http/http.dart' as http;
 
 import '../../../app/core/auth/auth_session_store.dart';
 import '../../../app/core/constants/app_constants.dart';
-import '../../../app/core/errors/app_error.dart';
+import '../../../app/core/utils/http_utils.dart';
 import '../models/facility.dart';
 import '../models/reservation.dart';
 
@@ -19,7 +19,7 @@ class FacilitiesDataSource {
       Uri.parse('$_baseUrl/facilities'),
       headers: AuthSessionStore.headers(),
     );
-    _assertOk(response);
+    assertOk(response);
     final list = jsonDecode(response.body) as List<dynamic>;
     return list
         .map((j) => Facility.fromJson(j as Map<String, dynamic>))
@@ -32,7 +32,7 @@ class FacilitiesDataSource {
       headers: AuthSessionStore.headers(json: true),
       body: jsonEncode(body),
     );
-    _assertOk(response);
+    assertOk(response);
     return Facility.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
   }
 
@@ -41,7 +41,7 @@ class FacilitiesDataSource {
       Uri.parse('$_baseUrl/facilities/$facilityId/reservations'),
       headers: AuthSessionStore.headers(),
     );
-    _assertOk(response);
+    assertOk(response);
     final list = jsonDecode(response.body) as List<dynamic>;
     return list
         .map((j) => Reservation.fromJson(j as Map<String, dynamic>))
@@ -55,7 +55,7 @@ class FacilitiesDataSource {
       headers: AuthSessionStore.headers(json: true),
       body: jsonEncode(body),
     );
-    _assertOk(response);
+    assertOk(response);
     return Reservation.fromJson(
         jsonDecode(response.body) as Map<String, dynamic>);
   }
@@ -70,7 +70,7 @@ class FacilitiesDataSource {
       headers: AuthSessionStore.headers(json: true),
       body: jsonEncode(body),
     );
-    _assertOk(response);
+    assertOk(response);
     return Reservation.fromJson(
         jsonDecode(response.body) as Map<String, dynamic>);
   }
@@ -80,16 +80,7 @@ class FacilitiesDataSource {
       Uri.parse('$_baseUrl/facilities/$facilityId/reservations/$reservationId'),
       headers: AuthSessionStore.headers(),
     );
-    _assertOk(response);
+    assertOk(response);
   }
 
-  void _assertOk(http.Response response) {
-    if (response.statusCode >= 400) {
-      final body = jsonDecode(response.body) as Map<String, dynamic>?;
-      final message =
-          (body?['error'] as Map<String, dynamic>?)?['message'] as String? ??
-              'Request failed';
-      throw AppError(message);
-    }
-  }
 }
