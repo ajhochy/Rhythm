@@ -9,6 +9,7 @@ interface InstanceRow {
   name: string | null;
   anchor_date: string;
   status: string;
+  owner_id: number | null;
   created_at: string;
 }
 
@@ -41,6 +42,7 @@ function rowToInstance(row: InstanceRow, steps: ProjectInstanceStep[]): ProjectI
     name: row.name ?? null,
     anchorDate: row.anchor_date,
     status: row.status,
+    ownerId: row.owner_id,
     createdAt: row.created_at,
     steps,
   };
@@ -68,24 +70,49 @@ export class ProjectInstancesRepository {
       .run(row.remaining === 0 ? 'done' : 'active', instanceId);
   }
 
-  findAll(): ProjectInstance[] {
-    const rows = getDb()
-      .prepare('SELECT * FROM project_instances ORDER BY created_at DESC')
-      .all() as InstanceRow[];
+  findAll(userId?: number): ProjectInstance[] {
+    const rows = (userId != null
+      ? getDb()
+          .prepare(
+            `SELECT * FROM project_instances
+             WHERE owner_id = ? OR owner_id IS NULL
+             ORDER BY created_at DESC`,
+          )
+          .all(userId)
+      : getDb()
+          .prepare('SELECT * FROM project_instances ORDER BY created_at DESC')
+          .all()) as InstanceRow[];
     return rows.map((row) => rowToInstance(row, this.getSteps(row.id)));
   }
 
-  findByTemplateId(templateId: string): ProjectInstance[] {
-    const rows = getDb()
-      .prepare('SELECT * FROM project_instances WHERE template_id = ? ORDER BY anchor_date DESC')
-      .all(templateId) as InstanceRow[];
+  findByTemplateId(templateId: string, userId?: number): ProjectInstance[] {
+    const rows = (userId != null
+      ? getDb()
+          .prepare(
+            `SELECT * FROM project_instances
+             WHERE template_id = ? AND (owner_id = ? OR owner_id IS NULL)
+             ORDER BY anchor_date DESC`,
+          )
+          .all(templateId, userId)
+      : getDb()
+          .prepare(
+            'SELECT * FROM project_instances WHERE template_id = ? ORDER BY anchor_date DESC',
+          )
+          .all(templateId)) as InstanceRow[];
     return rows.map((row) => rowToInstance(row, this.getSteps(row.id)));
   }
 
-  findById(id: string): ProjectInstance {
-    const row = getDb()
-      .prepare('SELECT * FROM project_instances WHERE id = ?')
-      .get(id) as InstanceRow | undefined;
+  findById(id: string, userId?: number): ProjectInstance {
+    const row = (userId != null
+      ? getDb()
+          .prepare(
+            `SELECT * FROM project_instances
+             WHERE id = ? AND (owner_id = ? OR owner_id IS NULL)`,
+          )
+          .get(id, userId)
+      : getDb()
+          .prepare('SELECT * FROM project_instances WHERE id = ?')
+          .get(id)) as InstanceRow | undefined;
     if (!row) throw AppError.notFound('ProjectInstance');
     return rowToInstance(row, this.getSteps(id));
   }
@@ -94,13 +121,24 @@ export class ProjectInstancesRepository {
     templateId: string,
     anchorDate: string,
     name?: string | null,
+    userId?: number | null,
   ): ProjectInstance | null {
-    const row = getDb()
-      .prepare(
-        `SELECT * FROM project_instances
-         WHERE template_id = ? AND anchor_date = ? AND COALESCE(name, '') = COALESCE(?, '')`,
-      )
-      .get(templateId, anchorDate, name ?? null) as InstanceRow | undefined;
+    const row = (userId != null
+      ? getDb()
+          .prepare(
+            `SELECT * FROM project_instances
+             WHERE template_id = ?
+               AND anchor_date = ?
+               AND COALESCE(name, '') = COALESCE(?, '')
+               AND (owner_id = ? OR owner_id IS NULL)`,
+          )
+          .get(templateId, anchorDate, name ?? null, userId)
+      : getDb()
+          .prepare(
+            `SELECT * FROM project_instances
+             WHERE template_id = ? AND anchor_date = ? AND COALESCE(name, '') = COALESCE(?, '')`,
+          )
+          .get(templateId, anchorDate, name ?? null)) as InstanceRow | undefined;
     if (!row) return null;
     return rowToInstance(row, this.getSteps(row.id));
   }
@@ -109,6 +147,7 @@ export class ProjectInstancesRepository {
     templateId: string,
     anchorDate: string,
     name: string | null,
+    ownerId: number | null,
     steps: Array<{ stepId: string; title: string; dueDate: string }>,
   ): ProjectInstance {
     const instanceId = uuidv4();
@@ -116,14 +155,22 @@ export class ProjectInstancesRepository {
 
     const db = getDb();
     const insertInstance = db.prepare(
-      `INSERT INTO project_instances (id, template_id, name, anchor_date, status, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO project_instances (id, template_id, name, anchor_date, status, owner_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
     );
     const insertStep = db.prepare(
       `INSERT INTO project_instance_steps (id, instance_id, step_id, title, due_date, status) VALUES (?, ?, ?, ?, ?, ?)`,
     );
 
     db.transaction(() => {
-      insertInstance.run(instanceId, templateId, name, anchorDate, 'active', now);
+      insertInstance.run(
+        instanceId,
+        templateId,
+        name,
+        anchorDate,
+        'active',
+        ownerId,
+        now,
+      );
       for (const step of steps) {
         insertStep.run(uuidv4(), instanceId, step.stepId, step.title, step.dueDate, 'open');
       }
@@ -135,10 +182,20 @@ export class ProjectInstancesRepository {
   updateStep(
     stepId: string,
     data: { title?: string; dueDate?: string; status?: string; notes?: string | null },
+    userId?: number,
   ): ProjectInstanceStep {
-    const row = getDb()
-      .prepare('SELECT * FROM project_instance_steps WHERE id = ?')
-      .get(stepId) as InstanceStepRow | undefined;
+    const row = (userId != null
+      ? getDb()
+          .prepare(
+            `SELECT pis.*
+             FROM project_instance_steps pis
+             JOIN project_instances pi ON pi.id = pis.instance_id
+             WHERE pis.id = ? AND (pi.owner_id = ? OR pi.owner_id IS NULL)`,
+          )
+          .get(stepId, userId)
+      : getDb()
+          .prepare('SELECT * FROM project_instance_steps WHERE id = ?')
+          .get(stepId)) as InstanceStepRow | undefined;
     if (!row) throw AppError.notFound('ProjectInstanceStep');
 
     getDb()
@@ -161,12 +218,27 @@ export class ProjectInstancesRepository {
     return rowToStep(updated);
   }
 
-  deleteByTemplateId(templateId: string): void {
+  deleteByTemplateId(templateId: string, userId?: number): void {
+    if (userId != null) {
+      getDb()
+        .prepare(
+          'DELETE FROM project_instances WHERE template_id = ? AND (owner_id = ? OR owner_id IS NULL)',
+        )
+        .run(templateId, userId);
+      return;
+    }
     getDb().prepare('DELETE FROM project_instances WHERE template_id = ?').run(templateId);
   }
 
-  delete(instanceId: string): void {
-    const result = getDb().prepare('DELETE FROM project_instances WHERE id = ?').run(instanceId);
+  delete(instanceId: string, userId?: number): void {
+    this.findById(instanceId, userId);
+    const result = (userId != null
+      ? getDb()
+          .prepare(
+            'DELETE FROM project_instances WHERE id = ? AND (owner_id = ? OR owner_id IS NULL)',
+          )
+          .run(instanceId, userId)
+      : getDb().prepare('DELETE FROM project_instances WHERE id = ?').run(instanceId));
     if (result.changes === 0) throw AppError.notFound('ProjectInstance');
   }
 }

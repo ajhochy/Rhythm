@@ -29,6 +29,7 @@ export function runMigrations(db: Database.Database): void {
       name TEXT NOT NULL,
       description TEXT,
       anchor_type TEXT NOT NULL DEFAULT 'date',
+      owner_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
@@ -47,6 +48,7 @@ export function runMigrations(db: Database.Database): void {
       name TEXT,
       anchor_date TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'active',
+      owner_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
@@ -163,6 +165,7 @@ export function runMigrations(db: Database.Database): void {
       google_sub TEXT UNIQUE,
       photo_url TEXT,
       role TEXT NOT NULL DEFAULT 'member',
+      is_facilities_manager INTEGER NOT NULL DEFAULT 0,
       password_hash TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -198,6 +201,7 @@ export function runMigrations(db: Database.Database): void {
       description TEXT,
       capacity INTEGER,
       location TEXT,
+      building TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
@@ -205,13 +209,39 @@ export function runMigrations(db: Database.Database): void {
     CREATE TABLE IF NOT EXISTS reservations (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       facility_id INTEGER NOT NULL REFERENCES facilities(id) ON DELETE CASCADE,
+      series_id TEXT REFERENCES reservation_series(id) ON DELETE SET NULL,
       title TEXT NOT NULL,
       reserved_by TEXT NOT NULL,
       reserved_by_user_id INTEGER REFERENCES users(id),
+      created_by_user_id INTEGER REFERENCES users(id),
       start_time TEXT NOT NULL,
       end_time TEXT NOT NULL,
       notes TEXT,
-      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      external_event_id TEXT,
+      external_source TEXT,
+      created_by_rhythm INTEGER NOT NULL DEFAULT 1,
+      is_conflicted INTEGER NOT NULL DEFAULT 0,
+      conflict_reason TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS reservation_series (
+      id TEXT PRIMARY KEY,
+      facility_id INTEGER NOT NULL REFERENCES facilities(id) ON DELETE CASCADE,
+      title TEXT NOT NULL,
+      requester_name TEXT NOT NULL,
+      requester_user_id INTEGER REFERENCES users(id),
+      created_by_user_id INTEGER REFERENCES users(id),
+      notes TEXT,
+      recurrence_type TEXT NOT NULL,
+      recurrence_interval INTEGER,
+      weekday_pattern_json TEXT,
+      custom_dates_json TEXT NOT NULL DEFAULT '[]',
+      start_date TEXT NOT NULL,
+      end_date TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
     CREATE TABLE IF NOT EXISTS thread_participants (
@@ -255,6 +285,14 @@ export function runMigrations(db: Database.Database): void {
   if (!instanceCols.includes('name')) {
     db.exec(`ALTER TABLE project_instances ADD COLUMN name TEXT`);
   }
+  if (!instanceCols.includes('owner_id')) {
+    db.exec(`ALTER TABLE project_instances ADD COLUMN owner_id INTEGER REFERENCES users(id)`);
+  }
+
+  const projectTemplateCols = (db.pragma('table_info(project_templates)') as { name: string }[]).map((c) => c.name);
+  if (!projectTemplateCols.includes('owner_id')) {
+    db.exec(`ALTER TABLE project_templates ADD COLUMN owner_id INTEGER REFERENCES users(id)`);
+  }
 
   const recurringRuleCols = (db.pragma('table_info(recurring_task_rules)') as { name: string }[]).map((c) => c.name);
   if (!recurringRuleCols.includes('enabled')) {
@@ -275,10 +313,85 @@ export function runMigrations(db: Database.Database): void {
   if (!userCols.includes('photo_url')) {
     db.exec(`ALTER TABLE users ADD COLUMN photo_url TEXT`);
   }
+  if (!userCols.includes('is_facilities_manager')) {
+    db.exec(
+      `ALTER TABLE users ADD COLUMN is_facilities_manager INTEGER NOT NULL DEFAULT 0`,
+    );
+  }
+
+  const facilityCols = (db.pragma('table_info(facilities)') as {
+    name: string;
+  }[]).map((c) => c.name);
+  if (!facilityCols.includes('building')) {
+    db.exec(`ALTER TABLE facilities ADD COLUMN building TEXT`);
+  }
 
   const reservationCols = (db.pragma('table_info(reservations)') as { name: string }[]).map((c) => c.name);
+  if (!reservationCols.includes('series_id')) {
+    db.exec(
+      `ALTER TABLE reservations ADD COLUMN series_id TEXT REFERENCES reservation_series(id) ON DELETE SET NULL`,
+    );
+  }
   if (!reservationCols.includes('reserved_by_user_id')) {
     db.exec(`ALTER TABLE reservations ADD COLUMN reserved_by_user_id INTEGER REFERENCES users(id)`);
+  }
+  if (!reservationCols.includes('created_by_user_id')) {
+    db.exec(
+      `ALTER TABLE reservations ADD COLUMN created_by_user_id INTEGER REFERENCES users(id)`,
+    );
+  }
+  if (!reservationCols.includes('external_event_id')) {
+    db.exec(`ALTER TABLE reservations ADD COLUMN external_event_id TEXT`);
+  }
+  if (!reservationCols.includes('external_source')) {
+    db.exec(`ALTER TABLE reservations ADD COLUMN external_source TEXT`);
+  }
+  if (!reservationCols.includes('created_by_rhythm')) {
+    db.exec(
+      `ALTER TABLE reservations ADD COLUMN created_by_rhythm INTEGER NOT NULL DEFAULT 1`,
+    );
+  }
+  if (!reservationCols.includes('is_conflicted')) {
+    db.exec(
+      `ALTER TABLE reservations ADD COLUMN is_conflicted INTEGER NOT NULL DEFAULT 0`,
+    );
+  }
+  if (!reservationCols.includes('conflict_reason')) {
+    db.exec(`ALTER TABLE reservations ADD COLUMN conflict_reason TEXT`);
+  }
+  if (!reservationCols.includes('updated_at')) {
+    db.exec(
+      `ALTER TABLE reservations ADD COLUMN updated_at TEXT NOT NULL DEFAULT (datetime('now'))`,
+    );
+  }
+
+  const reservationSeriesCols = (db.pragma('table_info(reservation_series)') as {
+    name: string;
+  }[]).map((c) => c.name);
+  if (reservationSeriesCols.length > 0) {
+    if (!reservationSeriesCols.includes('recurrence_interval')) {
+      db.exec(
+        `ALTER TABLE reservation_series ADD COLUMN recurrence_interval INTEGER`,
+      );
+    }
+    if (!reservationSeriesCols.includes('weekday_pattern_json')) {
+      db.exec(
+        `ALTER TABLE reservation_series ADD COLUMN weekday_pattern_json TEXT`,
+      );
+    }
+    if (!reservationSeriesCols.includes('custom_dates_json')) {
+      db.exec(
+        `ALTER TABLE reservation_series ADD COLUMN custom_dates_json TEXT NOT NULL DEFAULT '[]'`,
+      );
+    }
+    if (!reservationSeriesCols.includes('end_date')) {
+      db.exec(`ALTER TABLE reservation_series ADD COLUMN end_date TEXT`);
+    }
+    if (!reservationSeriesCols.includes('updated_at')) {
+      db.exec(
+        `ALTER TABLE reservation_series ADD COLUMN updated_at TEXT NOT NULL DEFAULT (datetime('now'))`,
+      );
+    }
   }
 
   const integrationAccountCols = (db.pragma('table_info(integration_accounts)') as { name: string }[]).map((c) => c.name);

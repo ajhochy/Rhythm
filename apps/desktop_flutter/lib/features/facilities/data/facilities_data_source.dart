@@ -7,6 +7,7 @@ import '../../../app/core/constants/app_constants.dart';
 import '../../../app/core/utils/http_utils.dart';
 import '../models/facility.dart';
 import '../models/reservation.dart';
+import '../models/reservation_series.dart';
 
 class FacilitiesDataSource {
   FacilitiesDataSource({String? baseUrl})
@@ -48,6 +49,44 @@ class FacilitiesDataSource {
         .toList();
   }
 
+  Future<List<Reservation>> getReservationOverview({
+    String? start,
+    String? end,
+    int? facilityId,
+    String? building,
+  }) async {
+    final queryParameters = <String, String>{
+      if (start != null && start.isNotEmpty) 'start': start,
+      if (end != null && end.isNotEmpty) 'end': end,
+      if (facilityId != null) 'facilityId': '$facilityId',
+      if (building != null && building.isNotEmpty) 'building': building,
+    };
+    final uri = Uri.parse('$_baseUrl/facilities/reservations').replace(
+      queryParameters: queryParameters.isEmpty ? null : queryParameters,
+    );
+    final response = await http.get(
+      uri,
+      headers: AuthSessionStore.headers(),
+    );
+    assertOk(response);
+    final list = jsonDecode(response.body) as List<dynamic>;
+    return list
+        .map((j) => Reservation.fromJson(j as Map<String, dynamic>))
+        .toList();
+  }
+
+  Future<List<ReservationSeries>> getReservationSeries(int facilityId) async {
+    final response = await http.get(
+      Uri.parse('$_baseUrl/facilities/$facilityId/reservation-series'),
+      headers: AuthSessionStore.headers(),
+    );
+    assertOk(response);
+    final list = jsonDecode(response.body) as List<dynamic>;
+    return list
+        .map((j) => ReservationSeries.fromJson(j as Map<String, dynamic>))
+        .toList();
+  }
+
   Future<Reservation> createReservation(
       int facilityId, Map<String, dynamic> body) async {
     final response = await http.post(
@@ -58,6 +97,21 @@ class FacilitiesDataSource {
     assertOk(response);
     return Reservation.fromJson(
         jsonDecode(response.body) as Map<String, dynamic>);
+  }
+
+  Future<ReservationSeriesCreationResult> createReservationSeries(
+    int facilityId,
+    Map<String, dynamic> body,
+  ) async {
+    final response = await http.post(
+      Uri.parse('$_baseUrl/facilities/$facilityId/reservation-series'),
+      headers: AuthSessionStore.headers(json: true),
+      body: jsonEncode(body),
+    );
+    assertOk(response);
+    return ReservationSeriesCreationResult.fromJson(
+      jsonDecode(response.body) as Map<String, dynamic>,
+    );
   }
 
   Future<Reservation> updateReservation(
