@@ -32,6 +32,12 @@ class FacilitiesRepository {
   Future<List<ReservationSeries>> getReservationSeries(int facilityId) =>
       _dataSource.getReservationSeries(facilityId);
 
+  Future<ReservationSeries> getReservationSeriesDetail(
+    int facilityId,
+    String seriesId,
+  ) =>
+      _dataSource.getReservationSeriesDetail(facilityId, seriesId);
+
   Future<Reservation> createReservation(
           int facilityId, Map<String, dynamic> body) =>
       _dataSource.createReservation(facilityId, body);
@@ -42,6 +48,13 @@ class FacilitiesRepository {
   ) =>
       _dataSource.createReservationSeries(facilityId, body);
 
+  Future<ReservationSeries> updateReservationSeries(
+    int facilityId,
+    String seriesId,
+    Map<String, dynamic> body,
+  ) =>
+      _dataSource.updateReservationSeries(facilityId, seriesId, body);
+
   Future<Reservation> updateReservation(
     int facilityId,
     int reservationId,
@@ -51,4 +64,7 @@ class FacilitiesRepository {
 
   Future<void> deleteReservation(int facilityId, int reservationId) =>
       _dataSource.deleteReservation(facilityId, reservationId);
+
+  Future<void> deleteReservationSeries(int facilityId, String seriesId) =>
+      _dataSource.deleteReservationSeries(facilityId, seriesId);
 }

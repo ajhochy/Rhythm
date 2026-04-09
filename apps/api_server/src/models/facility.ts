@@ -120,3 +120,23 @@ export interface CreateReservationSeriesResult {
   createdReservations: Reservation[];
   conflicts: ReservationSeriesConflict[];
 }
+
+export interface ReservationSeriesDetail {
+  series: ReservationSeries;
+  reservations: Reservation[];
+}
+
+export interface UpdateReservationSeriesDto {
+  title?: string;
+  requester_name?: string;
+  requester_user_id?: number | null;
+  notes?: string | null;
+  recurrence_type?: ReservationSeries['recurrenceType'];
+  recurrence_interval?: number | null;
+  weekday_pattern?: ReservationSeries['weekdayPattern'];
+  custom_dates?: string[] | null;
+  start_time?: string;
+  end_time?: string;
+  start_date?: string;
+  end_date?: string | null;
+}

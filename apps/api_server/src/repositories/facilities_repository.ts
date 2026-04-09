@@ -6,6 +6,7 @@ import type {
   CreateReservationSeriesDto,
   Facility,
   Reservation,
+  ReservationSeriesDetail,
   ReservationSeries,
   UpdateReservationDto,
   UpdateFacilityDto,
@@ -364,6 +365,84 @@ export class FacilitiesRepository {
       .get(id) as ReservationSeriesRow | undefined;
     if (!row) throw AppError.notFound('ReservationSeries');
     return rowToReservationSeries(row);
+  }
+
+  findReservationSeriesDetailById(id: string): ReservationSeriesDetail {
+    return {
+      series: this.findReservationSeriesById(id),
+      reservations: this.findReservationsBySeriesId(id),
+    };
+  }
+
+  findReservationsBySeriesId(seriesId: string): Reservation[] {
+    const rows = getDb()
+      .prepare(
+        `${RESERVATION_SELECT}
+         WHERE reservations.series_id = ?
+         ORDER BY reservations.start_time ASC`,
+      )
+      .all(seriesId) as ReservationRow[];
+    return rows.map(rowToReservation);
+  }
+
+  updateReservationSeries(
+    id: string,
+    data: {
+      title: string;
+      requester_name: string;
+      requester_user_id: number | null;
+      created_by_user_id: number | null;
+      notes: string | null;
+      recurrence_type: ReservationSeries['recurrenceType'];
+      recurrence_interval: number | null;
+      weekday_pattern: ReservationSeries['weekdayPattern'];
+      custom_dates: string[];
+      start_date: string;
+      end_date: string | null;
+    },
+  ): ReservationSeries {
+    this.findReservationSeriesById(id);
+    const now = new Date().toISOString();
+    getDb()
+      .prepare(
+        `UPDATE reservation_series
+         SET title = ?, requester_name = ?, requester_user_id = ?, created_by_user_id = ?,
+             notes = ?, recurrence_type = ?, recurrence_interval = ?, weekday_pattern_json = ?,
+             custom_dates_json = ?, start_date = ?, end_date = ?, updated_at = ?
+         WHERE id = ?`,
+      )
+      .run(
+        data.title,
+        data.requester_name,
+        data.requester_user_id,
+        data.created_by_user_id,
+        data.notes,
+        data.recurrence_type,
+        data.recurrence_interval,
+        data.weekday_pattern ? JSON.stringify(data.weekday_pattern) : null,
+        JSON.stringify(data.custom_dates),
+        data.start_date,
+        data.end_date,
+        now,
+        id,
+      );
+    return this.findReservationSeriesById(id);
+  }
+
+  deleteReservationsBySeriesId(seriesId: string): Reservation[] {
+    const deleted = this.findReservationsBySeriesId(seriesId);
+    getDb()
+      .prepare('DELETE FROM reservations WHERE series_id = ?')
+      .run(seriesId);
+    return deleted;
+  }
+
+  deleteReservationSeriesById(id: string): ReservationSeries {
+    const series = this.findReservationSeriesById(id);
+    getDb()
+      .prepare('DELETE FROM reservation_series WHERE id = ?')
+      .run(id);
+    return series;
   }
 
   findReservationById(id: number): Reservation {

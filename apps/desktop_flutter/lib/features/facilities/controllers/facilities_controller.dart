@@ -150,6 +150,19 @@ class FacilitiesController extends ChangeNotifier {
     }
   }
 
+  Future<void> _refreshFacilityCache(int facilityId) async {
+    final reservations = await _repository.getReservations(facilityId);
+    final series = await _repository.getReservationSeries(facilityId);
+    _reservationsByFacility = {
+      ..._reservationsByFacility,
+      facilityId: reservations,
+    };
+    _reservationSeriesByFacility = {
+      ..._reservationSeriesByFacility,
+      facilityId: series,
+    };
+  }
+
   Future<void> reloadReservationOverview() async {
     final last = _lastOverviewQuery;
     if (last == null) return;
@@ -261,6 +274,31 @@ class FacilitiesController extends ChangeNotifier {
     return series;
   }
 
+  Future<ReservationSeries?> loadReservationSeriesDetail(
+    int facilityId,
+    String seriesId,
+  ) async {
+    final series = await _repository.getReservationSeriesDetail(
+      facilityId,
+      seriesId,
+    );
+    final updated = List<ReservationSeries>.from(
+      _reservationSeriesByFacility[facilityId] ?? const [],
+    );
+    final index = updated.indexWhere((item) => item.id == seriesId);
+    if (index >= 0) {
+      updated[index] = series;
+    } else {
+      updated.add(series);
+    }
+    _reservationSeriesByFacility = {
+      ..._reservationSeriesByFacility,
+      facilityId: updated,
+    };
+    notifyListeners();
+    return series;
+  }
+
   Future<ReservationSeriesCreationResult> createReservationSeries(
     int facilityId, {
     required String title,
@@ -331,6 +369,63 @@ class FacilitiesController extends ChangeNotifier {
       ..._reservationsByFacility,
       facilityId: updated,
     };
+    await reloadReservationOverview();
+    notifyListeners();
+  }
+
+  Future<ReservationSeries> updateReservationSeries(
+    int facilityId,
+    String seriesId, {
+    required String title,
+    String? requesterName,
+    int? requesterUserId,
+    int? createdByUserId,
+    String? notes,
+    required String recurrenceType,
+    int? recurrenceInterval,
+    Map<String, dynamic>? weekdayPattern,
+    List<String>? customDates,
+    required String startTime,
+    required String endTime,
+    required String startDate,
+    String? endDate,
+  }) async {
+    final effectiveRequesterName = (requesterName ?? currentUser?.name)?.trim();
+    if (effectiveRequesterName == null || effectiveRequesterName.isEmpty) {
+      throw ArgumentError('requesterName is required');
+    }
+    final updatedSeries = await _repository.updateReservationSeries(
+      facilityId,
+      seriesId,
+      {
+        'title': title,
+        'requester_name': effectiveRequesterName,
+        if (requesterUserId != null) 'requester_user_id': requesterUserId,
+        if (createdByUserId != null) 'created_by_user_id': createdByUserId,
+        if (notes != null && notes.isNotEmpty) 'notes': notes,
+        'recurrence_type': recurrenceType,
+        if (recurrenceInterval != null)
+          'recurrence_interval': recurrenceInterval,
+        if (weekdayPattern != null) 'weekday_pattern': weekdayPattern,
+        if (customDates != null) 'custom_dates': customDates,
+        'start_time': startTime,
+        'end_time': endTime,
+        'start_date': startDate,
+        if (endDate != null && endDate.isNotEmpty) 'end_date': endDate,
+      },
+    );
+    await _refreshFacilityCache(facilityId);
+    await reloadReservationOverview();
+    notifyListeners();
+    return updatedSeries;
+  }
+
+  Future<void> deleteReservationSeries(
+    int facilityId,
+    String seriesId,
+  ) async {
+    await _repository.deleteReservationSeries(facilityId, seriesId);
+    await _refreshFacilityCache(facilityId);
     await reloadReservationOverview();
     notifyListeners();
   }

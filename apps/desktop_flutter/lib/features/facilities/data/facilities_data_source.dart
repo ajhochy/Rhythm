@@ -87,6 +87,23 @@ class FacilitiesDataSource {
         .toList();
   }
 
+  Future<ReservationSeries> getReservationSeriesDetail(
+    int facilityId,
+    String seriesId,
+  ) async {
+    final response = await http.get(
+      Uri.parse(
+          '$_baseUrl/facilities/$facilityId/reservation-series/$seriesId'),
+      headers: AuthSessionStore.headers(),
+    );
+    assertOk(response);
+    final json = jsonDecode(response.body) as Map<String, dynamic>;
+    final seriesJson = json['series'];
+    return ReservationSeries.fromJson(
+      seriesJson is Map<String, dynamic> ? seriesJson : json,
+    );
+  }
+
   Future<Reservation> createReservation(
       int facilityId, Map<String, dynamic> body) async {
     final response = await http.post(
@@ -114,6 +131,25 @@ class FacilitiesDataSource {
     );
   }
 
+  Future<ReservationSeries> updateReservationSeries(
+    int facilityId,
+    String seriesId,
+    Map<String, dynamic> body,
+  ) async {
+    final response = await http.patch(
+      Uri.parse(
+          '$_baseUrl/facilities/$facilityId/reservation-series/$seriesId'),
+      headers: AuthSessionStore.headers(json: true),
+      body: jsonEncode(body),
+    );
+    assertOk(response);
+    final json = jsonDecode(response.body) as Map<String, dynamic>;
+    final seriesJson = json['series'];
+    return ReservationSeries.fromJson(
+      seriesJson is Map<String, dynamic> ? seriesJson : json,
+    );
+  }
+
   Future<Reservation> updateReservation(
     int facilityId,
     int reservationId,
@@ -132,6 +168,15 @@ class FacilitiesDataSource {
   Future<void> deleteReservation(int facilityId, int reservationId) async {
     final response = await http.delete(
       Uri.parse('$_baseUrl/facilities/$facilityId/reservations/$reservationId'),
+      headers: AuthSessionStore.headers(),
+    );
+    assertOk(response);
+  }
+
+  Future<void> deleteReservationSeries(int facilityId, String seriesId) async {
+    final response = await http.delete(
+      Uri.parse(
+          '$_baseUrl/facilities/$facilityId/reservation-series/$seriesId'),
       headers: AuthSessionStore.headers(),
     );
     assertOk(response);

@@ -7,6 +7,7 @@ import { AppError } from '../errors/app_error';
 import { FacilitiesController } from '../controllers/facilities_controller';
 import { FacilitiesRepository } from '../repositories/facilities_repository';
 import { UsersRepository } from '../repositories/users_repository';
+import { FacilitiesBookingService } from '../services/facilities_booking_service';
 
 function makeDb() {
   const db = new Database(':memory:');
@@ -219,5 +220,93 @@ describe('Facilities permissions and schema', () => {
       requesterUserId: null,
       createdByUserId: manager.id,
     });
+  });
+
+  it('allows creators and managers to mutate recurring series, but blocks other members', () => {
+    const controller = new FacilitiesController();
+    const bookingService = new FacilitiesBookingService();
+    const creator = usersRepo.create({
+      name: 'Series Creator',
+      email: 'creator@example.com',
+    });
+    const otherMember = usersRepo.create({
+      name: 'Other Member',
+      email: 'other@example.com',
+    });
+    const facility = facilitiesRepo.create({
+      name: 'North Room',
+      building: 'North Campus',
+    });
+    const created = bookingService.createRecurringSeries({
+      facility_id: facility.id,
+      title: 'Monthly Leadership Meeting',
+      requester_name: creator.name,
+      requester_user_id: creator.id,
+      created_by_user_id: creator.id,
+      start_time: '2026-04-14T16:00:00.000Z',
+      end_time: '2026-04-14T17:00:00.000Z',
+      recurrence_type: 'monthly',
+      start_date: '2026-04-14',
+      end_date: '2026-06-30',
+    });
+
+    const updateReq = {
+      params: { id: String(facility.id), seriesId: created.series.id },
+      body: {
+        title: 'Updated Leadership Meeting',
+        start_time: '2026-04-14T16:00:00.000Z',
+        end_time: '2026-04-14T17:00:00.000Z',
+        recurrence_type: 'monthly',
+        start_date: '2026-04-14',
+        end_date: '2026-06-30',
+      },
+      auth: { user: creator },
+    } as never;
+    let updateStatus = 200;
+    let updatePayload: unknown;
+    const updateRes = {
+      status(code: number) {
+        updateStatus = code;
+        return this;
+      },
+      json(value: unknown) {
+        updatePayload = value;
+        return this;
+      },
+    } as never;
+    controller.updateReservationSeries(updateReq, updateRes, (error?: unknown) => {
+      if (error) throw error;
+    });
+
+    expect(updateStatus).toBe(200);
+    expect(updatePayload).toMatchObject({
+      series: {
+        title: 'Updated Leadership Meeting',
+      },
+    });
+
+    const deleteReq = {
+      params: { id: String(facility.id), seriesId: created.series.id },
+      auth: { user: otherMember },
+    } as never;
+    let forwardedError: unknown;
+    const deleteRes = {
+      status() {
+        return this;
+      },
+      json() {
+        return this;
+      },
+      send() {
+        return this;
+      },
+    } as never;
+
+    controller.deleteReservationSeries(deleteReq, deleteRes, (error?: unknown) => {
+      forwardedError = error;
+    });
+
+    expect(forwardedError).toBeInstanceOf(AppError);
+    expect((forwardedError as AppError).statusCode).toBe(403);
   });
 });

@@ -8,6 +8,8 @@ class ReservationSeries {
     required this.requesterName,
     required this.recurrenceType,
     required this.startDate,
+    this.startTime,
+    this.endTime,
     this.requesterUserId,
     this.createdByUserId,
     this.notes,
@@ -23,6 +25,8 @@ class ReservationSeries {
   final int facilityId;
   final String title;
   final String requesterName;
+  final String? startTime;
+  final String? endTime;
   final int? requesterUserId;
   final int? createdByUserId;
   final String? notes;
@@ -44,6 +48,8 @@ class ReservationSeries {
       requesterName: _asString(json['requesterName']) ??
           _asString(json['requester_name']) ??
           '',
+      startTime: _asString(json['startTime']) ?? _asString(json['start_time']),
+      endTime: _asString(json['endTime']) ?? _asString(json['end_time']),
       requesterUserId:
           _asInt(json['requesterUserId']) ?? _asInt(json['requester_user_id']),
       createdByUserId:

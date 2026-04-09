@@ -1,10 +1,29 @@
+import { getDb } from '../database/db';
+import { AppError } from '../errors/app_error';
 import type {
   CreateReservationSeriesDto,
   CreateReservationSeriesResult,
+  Reservation,
   ReservationSeries,
+  ReservationSeriesDetail,
+  ReservationSeriesConflict,
+  UpdateReservationSeriesDto,
 } from '../models/facility';
-import { AppError } from '../errors/app_error';
 import { FacilitiesRepository } from '../repositories/facilities_repository';
+
+type ResolvedSeriesInput = {
+  title: string;
+  requesterName: string;
+  requesterUserId: number | null;
+  createdByUserId: number | null;
+  notes: string | null;
+  recurrenceType: ReservationSeries['recurrenceType'];
+  recurrenceInterval: number | null;
+  weekdayPattern: ReservationSeries['weekdayPattern'];
+  customDates: string[];
+  startDate: string;
+  endDate: string | null;
+};
 
 export class FacilitiesBookingService {
   private readonly repo = new FacilitiesRepository();
@@ -12,32 +31,158 @@ export class FacilitiesBookingService {
   createRecurringSeries(
     data: CreateReservationSeriesDto,
   ): CreateReservationSeriesResult {
-    const start = new Date(data.start_time);
-    const end = new Date(data.end_time);
-    if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
-      throw AppError.badRequest('start_time and end_time must be valid ISO timestamps');
-    }
-    if (end <= start) {
-      throw AppError.badRequest('end_time must be after start_time');
-    }
-    if (data.recurrence_type !== 'custom' && !data.end_date) {
-      throw AppError.badRequest(
-        'end_date is required for weekly, biweekly, and monthly series',
-      );
-    }
-    if (
-      data.recurrence_type === 'custom' &&
-      (!data.custom_dates || data.custom_dates.length === 0)
-    ) {
-      throw AppError.badRequest(
-        'custom_dates is required for custom recurring series',
-      );
-    }
+    const start = this.parseTime(data.start_time, 'start_time');
+    const end = this.parseTime(data.end_time, 'end_time');
+    this.assertValidTimeRange(start, end);
 
-    const series = this.repo.createReservationSeries(data);
+    const resolved = this.resolveSeriesInput(data, {
+      title: data.title,
+      requesterName: data.requester_name,
+      requesterUserId: data.requester_user_id ?? null,
+      createdByUserId: data.created_by_user_id ?? null,
+      notes: data.notes ?? null,
+      recurrenceType: data.recurrence_type,
+      recurrenceInterval:
+        data.recurrence_interval ?? (data.recurrence_type === 'biweekly' ? 1 : null),
+      weekdayPattern: data.weekday_pattern ?? null,
+      customDates: data.custom_dates ?? [],
+      startDate: data.start_date,
+      endDate: data.end_date ?? null,
+    });
+
+    const series = this.repo.createReservationSeries({
+      facility_id: data.facility_id,
+      title: resolved.title,
+      requester_name: resolved.requesterName,
+      requester_user_id: resolved.requesterUserId,
+      created_by_user_id: resolved.createdByUserId,
+      notes: resolved.notes,
+      recurrence_type: resolved.recurrenceType,
+      recurrence_interval: resolved.recurrenceInterval,
+      weekday_pattern: resolved.weekdayPattern,
+      custom_dates: resolved.customDates,
+      start_time: data.start_time,
+      end_time: data.end_time,
+      start_date: resolved.startDate,
+      end_date: resolved.endDate,
+    });
+
+    return this.materializeSeries(series, start, end);
+  }
+
+  getReservationSeries(seriesId: string): ReservationSeriesDetail {
+    return this.repo.findReservationSeriesDetailById(seriesId);
+  }
+
+  updateRecurringSeries(
+    seriesId: string,
+    data: UpdateReservationSeriesDto,
+  ): CreateReservationSeriesResult {
+    const existingSeries = this.repo.findReservationSeriesById(seriesId);
+    const existingReservations = this.repo.findReservationsBySeriesId(seriesId);
+
+    const start =
+      data.start_time != null
+        ? this.parseTime(data.start_time, 'start_time')
+        : existingReservations[0]
+          ? this.parseTime(existingReservations[0].startTime, 'start_time')
+          : null;
+    const end =
+      data.end_time != null
+        ? this.parseTime(data.end_time, 'end_time')
+        : existingReservations[0]
+          ? this.parseTime(existingReservations[0].endTime, 'end_time')
+          : null;
+    if (!start || !end) {
+      throw AppError.badRequest(
+        'start_time and end_time are required to update a recurring series',
+      );
+    }
+    this.assertValidTimeRange(start, end);
+
+    const resolved = this.resolveSeriesInput(data, {
+      title: data.title ?? existingSeries.title,
+      requesterName: data.requester_name ?? existingSeries.requesterName,
+      requesterUserId:
+        data.requester_user_id !== undefined
+          ? data.requester_user_id
+          : existingSeries.requesterUserId,
+      createdByUserId: existingSeries.createdByUserId,
+      notes: data.notes !== undefined ? data.notes : existingSeries.notes,
+      recurrenceType: data.recurrence_type ?? existingSeries.recurrenceType,
+      recurrenceInterval:
+        data.recurrence_interval !== undefined
+          ? data.recurrence_interval
+          : existingSeries.recurrenceInterval,
+      weekdayPattern:
+        data.weekday_pattern !== undefined
+          ? data.weekday_pattern
+          : existingSeries.weekdayPattern,
+      customDates:
+        data.custom_dates !== undefined
+          ? data.custom_dates ?? []
+          : existingSeries.customDates,
+      startDate: data.start_date ?? existingSeries.startDate,
+      endDate: data.end_date !== undefined ? data.end_date : existingSeries.endDate,
+    });
+
+    let updatedSeries = existingSeries;
+    let createdReservations: Reservation[] = [];
+    let conflicts: ReservationSeriesConflict[] = [];
+
+    getDb().transaction(() => {
+      updatedSeries = this.repo.updateReservationSeries(seriesId, {
+        title: resolved.title,
+        requester_name: resolved.requesterName,
+        requester_user_id: resolved.requesterUserId,
+        created_by_user_id: resolved.createdByUserId,
+        notes: resolved.notes,
+        recurrence_type: resolved.recurrenceType,
+        recurrence_interval: resolved.recurrenceInterval,
+        weekday_pattern: resolved.weekdayPattern,
+        custom_dates: resolved.customDates,
+        start_date: resolved.startDate,
+        end_date: resolved.endDate,
+      });
+      this.repo.deleteReservationsBySeriesId(seriesId);
+      const materialized = this.materializeSeries(updatedSeries, start, end);
+      createdReservations = materialized.createdReservations;
+      conflicts = materialized.conflicts;
+    })();
+
+    return {
+      series: updatedSeries,
+      createdReservations,
+      conflicts,
+    };
+  }
+
+  deleteRecurringSeries(seriesId: string): {
+    series: ReservationSeries;
+    deletedReservations: Reservation[];
+  } {
+    let deletedSeries = this.repo.findReservationSeriesById(seriesId);
+    let deletedReservations: Reservation[] = [];
+
+    getDb().transaction(() => {
+      deletedReservations = this.repo.deleteReservationsBySeriesId(seriesId);
+      deletedSeries = this.repo.deleteReservationSeriesById(seriesId);
+    })();
+
+    return {
+      series: deletedSeries,
+      deletedReservations,
+    };
+  }
+
+  private materializeSeries(
+    series: ReservationSeries,
+    start: Date,
+    end: Date,
+  ): CreateReservationSeriesResult {
     const occurrenceDates = this.computeSeriesDates(series);
-    const createdReservations = [];
-    const conflicts = [];
+    const createdReservations: Reservation[] = [];
+    const conflicts: ReservationSeriesConflict[] = [];
     const durationMs = end.getTime() - start.getTime();
 
     for (const date of occurrenceDates) {
@@ -75,6 +220,63 @@ export class FacilitiesBookingService {
     };
   }
 
+  private resolveSeriesInput(
+    data: Partial<CreateReservationSeriesDto> | UpdateReservationSeriesDto,
+    fallback: ResolvedSeriesInput,
+  ): ResolvedSeriesInput {
+    const recurrenceType =
+      data.recurrence_type ?? fallback.recurrenceType;
+    this.assertValidRecurrenceType(recurrenceType);
+
+    const recurrenceInterval =
+      data.recurrence_interval !== undefined
+        ? data.recurrence_interval
+        : fallback.recurrenceInterval;
+    const weekdayPattern =
+      data.weekday_pattern !== undefined
+        ? data.weekday_pattern
+        : fallback.weekdayPattern;
+    const customDates =
+      data.custom_dates !== undefined ? data.custom_dates ?? [] : fallback.customDates;
+    const startDate = data.start_date ?? fallback.startDate;
+    const endDate = data.end_date !== undefined ? data.end_date : fallback.endDate;
+
+    if (recurrenceType !== 'custom' && !endDate) {
+      throw AppError.badRequest(
+        'end_date is required for weekly, biweekly, and monthly series',
+      );
+    }
+    if (recurrenceType === 'custom' && customDates.length === 0) {
+      throw AppError.badRequest('custom_dates is required for custom recurring series');
+    }
+    if (
+      recurrenceInterval != null &&
+      (!Number.isFinite(recurrenceInterval) || recurrenceInterval <= 0)
+    ) {
+      throw AppError.badRequest('recurrence_interval must be a positive number');
+    }
+
+    return {
+      title: data.title ?? fallback.title,
+      requesterName: data.requester_name ?? fallback.requesterName,
+      requesterUserId:
+        data.requester_user_id !== undefined
+          ? data.requester_user_id
+          : fallback.requesterUserId,
+      createdByUserId:
+        'created_by_user_id' in data && data.created_by_user_id !== undefined
+          ? data.created_by_user_id
+          : fallback.createdByUserId,
+      notes: data.notes !== undefined ? data.notes : fallback.notes,
+      recurrenceType,
+      recurrenceInterval: recurrenceInterval ?? (recurrenceType === 'biweekly' ? 1 : null),
+      weekdayPattern: recurrenceType === 'monthly' ? weekdayPattern : fallback.weekdayPattern,
+      customDates,
+      startDate,
+      endDate,
+    };
+  }
+
   private computeSeriesDates(series: ReservationSeries): Date[] {
     const startDate = parseDateOnly(series.startDate);
     const endDate =
@@ -95,6 +297,35 @@ export class FacilitiesBookingService {
           .map(parseDateOnly)
           .filter((date) => date >= startDate && date <= endDate)
           .sort((a, b) => a.getTime() - b.getTime());
+    }
+  }
+
+  private parseTime(value: string, fieldName: string): Date {
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) {
+      throw AppError.badRequest(`${fieldName} must be a valid ISO timestamp`);
+    }
+    return parsed;
+  }
+
+  private assertValidTimeRange(start: Date, end: Date): void {
+    if (end <= start) {
+      throw AppError.badRequest('end_time must be after start_time');
+    }
+  }
+
+  private assertValidRecurrenceType(
+    recurrenceType: string,
+  ): asserts recurrenceType is ReservationSeries['recurrenceType'] {
+    if (
+      recurrenceType !== 'weekly' &&
+      recurrenceType !== 'biweekly' &&
+      recurrenceType !== 'monthly' &&
+      recurrenceType !== 'custom'
+    ) {
+      throw AppError.badRequest(
+        'recurrence_type must be weekly, biweekly, monthly, or custom',
+      );
     }
   }
 }
@@ -126,7 +357,7 @@ function applyUtcDate(timeSource: Date, dateSource: Date): Date {
 }
 
 function everyNDays(startDate: Date, endDate: Date, dayStep: number): Date[] {
-  const results = [];
+  const results: Date[] = [];
   const current = new Date(startDate);
   while (current <= endDate) {
     results.push(new Date(current));
@@ -139,7 +370,7 @@ function monthlyWeekdayPatternDates(startDate: Date, endDate: Date): Date[] {
   const weekday = startDate.getUTCDay();
   const weekOfMonth = Math.floor((startDate.getUTCDate() - 1) / 7) + 1;
   const isLastWeek = startDate.getUTCDate() + 7 > daysInMonth(startDate);
-  const results = [];
+  const results: Date[] = [];
 
   let year = startDate.getUTCFullYear();
   let month = startDate.getUTCMonth();

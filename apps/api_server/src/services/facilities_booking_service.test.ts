@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import Database from 'better-sqlite3';
 
 import { setDb } from '../database/db';
+import { AppError } from '../errors/app_error';
 import { runMigrations } from '../database/migrations';
 import type { Reservation } from '../models/facility';
 import { FacilitiesRepository } from '../repositories/facilities_repository';
@@ -144,5 +145,90 @@ describe('FacilitiesBookingService', () => {
     ).toEqual(['2026-04-08', '2026-04-15']);
     expect(result.conflicts).toHaveLength(1);
     expect(result.conflicts[0].date).toBe('2026-04-10');
+  });
+
+  it('updates a recurring series by regenerating linked occurrences and reporting partial conflicts', () => {
+    const created = service.createRecurringSeries({
+      facility_id: facilityId,
+      title: 'Weekly Prayer',
+      requester_name: 'Alice',
+      requester_user_id: userId,
+      created_by_user_id: userId,
+      start_time: '2026-04-06T18:00:00.000Z',
+      end_time: '2026-04-06T19:00:00.000Z',
+      recurrence_type: 'weekly',
+      recurrence_interval: 1,
+      start_date: '2026-04-06',
+      end_date: '2026-04-20',
+    });
+
+    facilitiesRepo.createReservation(facilityId, {
+      title: 'Competing Booking',
+      requester_name: 'Alice',
+      requester_user_id: userId,
+      created_by_user_id: userId,
+      start_time: '2026-04-13T20:00:00.000Z',
+      end_time: '2026-04-13T21:00:00.000Z',
+    });
+
+    const result = service.updateRecurringSeries(created.series.id, {
+      title: 'Weekly Prayer Updated',
+      requester_name: 'Alice',
+      requester_user_id: userId,
+      start_time: '2026-04-06T20:00:00.000Z',
+      end_time: '2026-04-06T21:00:00.000Z',
+      recurrence_type: 'weekly',
+      recurrence_interval: 1,
+      start_date: '2026-04-06',
+      end_date: '2026-04-20',
+    });
+
+    expect(result.series.title).toBe('Weekly Prayer Updated');
+    expect(result.createdReservations).toHaveLength(2);
+    expect(result.conflicts).toHaveLength(1);
+    expect(result.conflicts[0]).toMatchObject({
+      date: '2026-04-13',
+    });
+    expect(
+      facilitiesRepo
+        .findReservationsBySeriesId(created.series.id)
+        .map((item: Reservation) => item.startTime.slice(0, 10)),
+    ).toEqual(['2026-04-06', '2026-04-20']);
+  });
+
+  it('deletes a recurring series and its linked reservations', () => {
+    const created = service.createRecurringSeries({
+      facility_id: facilityId,
+      title: 'Recurring Lunch',
+      requester_name: 'Alice',
+      requester_user_id: userId,
+      created_by_user_id: userId,
+      start_time: '2026-04-07T18:00:00.000Z',
+      end_time: '2026-04-07T19:00:00.000Z',
+      recurrence_type: 'weekly',
+      recurrence_interval: 1,
+      start_date: '2026-04-07',
+      end_date: '2026-04-21',
+    });
+
+    facilitiesRepo.createReservation(facilityId, {
+      title: 'Independent Event',
+      requester_name: 'Alice',
+      requester_user_id: userId,
+      created_by_user_id: userId,
+      start_time: '2026-04-08T18:00:00.000Z',
+      end_time: '2026-04-08T19:00:00.000Z',
+    });
+
+    const deleted = service.deleteRecurringSeries(created.series.id);
+
+    expect(deleted.series.id).toBe(created.series.id);
+    expect(deleted.deletedReservations).toHaveLength(3);
+    expect(() => facilitiesRepo.findReservationSeriesById(created.series.id)).toThrowError(
+      AppError,
+    );
+    expect(
+      facilitiesRepo.findReservationsByFacility(facilityId).map((item) => item.title),
+    ).toEqual(['Independent Event']);
   });
 });

@@ -4,6 +4,7 @@ import { FacilitiesRepository } from '../repositories/facilities_repository';
 import { MessagesRepository } from '../repositories/messages_repository';
 import { UsersRepository } from '../repositories/users_repository';
 import { FacilitiesBookingService } from '../services/facilities_booking_service';
+import type { UpdateReservationSeriesDto } from '../models/facility';
 
 const repo = new FacilitiesRepository();
 const messagesRepo = new MessagesRepository();
@@ -27,6 +28,19 @@ export class FacilitiesController {
     if (actor.isFacilitiesManager) return;
     if (reservation.createdByUserId === actor.id) return;
     throw AppError.forbidden('You can only modify reservations you created');
+  }
+
+  private assertCanManageSeries(
+    req: Request,
+    series: { createdByUserId: number | null },
+  ): void {
+    const actor = req.auth?.user;
+    if (actor == null) {
+      throw AppError.unauthorized('Missing auth context');
+    }
+    if (actor.isFacilitiesManager) return;
+    if (series.createdByUserId === actor.id) return;
+    throw AppError.forbidden('You can only modify series you created');
   }
 
   getAll(_req: Request, res: Response, next: NextFunction) {
@@ -127,6 +141,18 @@ export class FacilitiesController {
   getReservationSeries(req: Request, res: Response, next: NextFunction) {
     try {
       res.json(repo.findReservationSeriesByFacility(Number(req.params.id)));
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  getReservationSeriesDetail(req: Request, res: Response, next: NextFunction) {
+    try {
+      const series = repo.findReservationSeriesById(req.params.seriesId);
+      if (series.facilityId !== Number(req.params.id)) {
+        throw AppError.notFound('ReservationSeries');
+      }
+      res.json(repo.findReservationSeriesDetailById(req.params.seriesId));
     } catch (err) {
       next(err);
     }
@@ -295,6 +321,119 @@ export class FacilitiesController {
               : null,
       });
       res.status(201).json(result);
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  updateReservationSeries(req: Request, res: Response, next: NextFunction) {
+    try {
+      const existingSeries = repo.findReservationSeriesById(req.params.seriesId);
+      if (existingSeries.facilityId !== Number(req.params.id)) {
+        throw AppError.notFound('ReservationSeries');
+      }
+      this.assertCanManageSeries(req, existingSeries);
+      const actor = req.auth?.user;
+      if (actor == null) {
+        throw AppError.unauthorized('Missing auth context');
+      }
+
+      const body = req.body as Record<string, unknown>;
+      const requestedUserId =
+        body.requester_user_id !== undefined
+          ? typeof body.requester_user_id === 'number'
+            ? body.requester_user_id
+            : typeof body.requester_user_id === 'string' &&
+                body.requester_user_id.trim().length > 0
+              ? Number(body.requester_user_id)
+              : null
+          : undefined;
+      if (requestedUserId !== undefined && requestedUserId != null && !Number.isFinite(requestedUserId)) {
+        throw AppError.badRequest('requester_user_id must be a valid number');
+      }
+      const requestedName =
+        typeof body.requester_name === 'string' && body.requester_name.trim().length > 0
+          ? body.requester_name.trim()
+          : body.requester_name === null
+            ? null
+            : undefined;
+      const isReassigning =
+        (requestedUserId != null && requestedUserId !== existingSeries.requesterUserId) ||
+        (requestedName != null && requestedName !== existingSeries.requesterName);
+      if (isReassigning && !actor.isFacilitiesManager) {
+        throw AppError.forbidden(
+          'Only facilities managers can reassign reservations to another user',
+        );
+      }
+      const requester =
+        requestedUserId != null
+          ? usersRepo.findById(requestedUserId)
+          : requestedName != null && requestedName !== actor.name
+            ? null
+            : null;
+      const updateBody: UpdateReservationSeriesDto = {
+        ...(typeof body.title === 'string' ? { title: body.title } : {}),
+        ...(typeof body.start_time === 'string' ? { start_time: body.start_time } : {}),
+        ...(typeof body.end_time === 'string' ? { end_time: body.end_time } : {}),
+        ...(body.notes !== undefined
+          ? { notes: (body.notes as string | null) ?? null }
+          : {}),
+        ...(body.requester_user_id !== undefined
+          ? { requester_user_id: requester?.id ?? null }
+          : {}),
+        ...(body.requester_name !== undefined || requester != null
+          ? {
+              requester_name:
+                requester?.name ?? requestedName ?? existingSeries.requesterName,
+            }
+          : {}),
+        ...(typeof body.recurrence_type === 'string'
+          ? { recurrence_type: body.recurrence_type as UpdateReservationSeriesDto['recurrence_type'] }
+          : {}),
+        ...(body.recurrence_interval !== undefined
+          ? {
+              recurrence_interval:
+                body.recurrence_interval === null
+                  ? null
+                  : Number(body.recurrence_interval),
+            }
+          : {}),
+        ...(body.weekday_pattern !== undefined
+          ? { weekday_pattern: body.weekday_pattern as UpdateReservationSeriesDto['weekday_pattern'] }
+          : {}),
+        ...(body.custom_dates !== undefined
+          ? {
+              custom_dates: Array.isArray(body.custom_dates)
+                ? body.custom_dates.map((item) => String(item))
+                : null,
+            }
+          : {}),
+        ...(typeof body.start_date === 'string' ? { start_date: body.start_date } : {}),
+        ...(typeof body.end_date === 'string'
+          ? { end_date: body.end_date }
+          : body.end_date === null
+            ? { end_date: null }
+            : {}),
+      };
+      const result = bookingService.updateRecurringSeries(
+        req.params.seriesId,
+        updateBody,
+      );
+      res.json(result);
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  deleteReservationSeries(req: Request, res: Response, next: NextFunction) {
+    try {
+      const existingSeries = repo.findReservationSeriesById(req.params.seriesId);
+      if (existingSeries.facilityId !== Number(req.params.id)) {
+        throw AppError.notFound('ReservationSeries');
+      }
+      this.assertCanManageSeries(req, existingSeries);
+      bookingService.deleteRecurringSeries(req.params.seriesId);
+      res.status(204).send();
     } catch (err) {
       next(err);
     }

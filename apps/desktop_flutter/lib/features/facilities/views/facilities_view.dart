@@ -249,6 +249,58 @@ DateTime? _parseReservationDateTime(String? raw) {
   return DateTime.tryParse(normalized);
 }
 
+ReservationSeries? _seriesForReservation(
+  FacilitiesController controller,
+  Reservation reservation,
+) {
+  final seriesId = reservation.seriesId;
+  if (seriesId == null) return null;
+  final seriesList =
+      controller.reservationSeriesByFacility[reservation.facilityId];
+  if (seriesList == null) return null;
+  for (final series in seriesList) {
+    if (series.id == seriesId) {
+      return series;
+    }
+  }
+  return null;
+}
+
+Facility? _facilityForReservation(
+  FacilitiesController controller,
+  Reservation reservation,
+) {
+  for (final facility in controller.facilities) {
+    if (facility.id == reservation.facilityId) {
+      return facility;
+    }
+  }
+  return null;
+}
+
+bool _canManageReservation(
+    FacilitiesController controller, Reservation reservation) {
+  final currentUser = controller.currentUser;
+  if (controller.isFacilitiesManager) return true;
+  if (currentUser == null) return false;
+  return reservation.createdByUserId == currentUser.id ||
+      reservation.requesterUserId == currentUser.id;
+}
+
+Future<void> _showReservationDetails(
+  BuildContext context,
+  FacilitiesController controller,
+  Reservation reservation,
+) async {
+  await showDialog<void>(
+    context: context,
+    builder: (_) => _ReservationDetailDialog(
+      controller: controller,
+      reservation: reservation,
+    ),
+  );
+}
+
 String _formatDateShort(DateTime date) {
   const months = [
     'Jan',
@@ -327,6 +379,20 @@ String _recurrenceTypeApiValue(_RecurrenceType type) {
       return 'monthly';
     case _RecurrenceType.custom:
       return 'custom';
+  }
+}
+
+_RecurrenceType _recurrenceTypeFromApiValue(String value) {
+  switch (value.toLowerCase()) {
+    case 'biweekly':
+      return _RecurrenceType.biweekly;
+    case 'monthly':
+      return _RecurrenceType.monthly;
+    case 'custom':
+      return _RecurrenceType.custom;
+    case 'weekly':
+    default:
+      return _RecurrenceType.weekly;
   }
 }
 
@@ -710,6 +776,7 @@ class _FacilitiesOverview extends StatelessWidget {
                               title: entry.key,
                               reservations: entry.value,
                               facilities: controller.facilities,
+                              controller: controller,
                             ),
                           );
                         }).toList(),
@@ -869,11 +936,13 @@ class _OverviewGroup extends StatelessWidget {
     required this.title,
     required this.reservations,
     required this.facilities,
+    required this.controller,
   });
 
   final String title;
   final List<Reservation> reservations;
   final List<Facility> facilities;
+  final FacilitiesController controller;
 
   @override
   Widget build(BuildContext context) {
@@ -907,6 +976,9 @@ class _OverviewGroup extends StatelessWidget {
               child: _OverviewReservationRow(
                 reservation: reservation,
                 facility: facility,
+                controller: controller,
+                onTap: () =>
+                    _showReservationDetails(context, controller, reservation),
               ),
             );
           }),
@@ -920,115 +992,167 @@ class _OverviewReservationRow extends StatelessWidget {
   const _OverviewReservationRow({
     required this.reservation,
     required this.facility,
+    required this.controller,
+    required this.onTap,
   });
 
   final Reservation reservation;
   final Facility? facility;
+  final FacilitiesController controller;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     final start = _parseReservationDateTime(reservation.startTime);
     final end = _parseReservationDateTime(reservation.endTime);
     final currentFacility = facility;
+    final series = _seriesForReservation(controller, reservation);
     final facilityLabel = currentFacility == null
         ? reservation.requesterName
         : '${currentFacility.name}${currentFacility.building?.isNotEmpty == true ? ' · ${currentFacility.building}' : ''}';
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: _kCanvas.withValues(alpha: 0.5),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: _kBorder),
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: 118,
-            child: Text(
-              start != null
-                  ? '${_formatTimeOnly(start)}${end != null ? '\n${_formatTimeOnly(end)}' : ''}'
-                  : 'Time TBD',
-              style: const TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-                color: _kTextPrimary,
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: _kCanvas.withValues(alpha: 0.5),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: _kBorder),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SizedBox(
+              width: 118,
+              child: Text(
+                start != null
+                    ? '${_formatTimeOnly(start)}${end != null ? '\n${_formatTimeOnly(end)}' : ''}'
+                    : 'Time TBD',
+                style: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: _kTextPrimary,
+                ),
               ),
             ),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  reservation.title,
-                  style: const TextStyle(
-                    fontSize: 13,
+            const SizedBox(width: 14),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: Text(
+                          reservation.title,
+                          style: const TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w700,
+                            color: _kTextPrimary,
+                          ),
+                        ),
+                      ),
+                      if (series != null) ...[
+                        const SizedBox(width: 8),
+                        _SeriesBadge(series: series),
+                      ],
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    facilityLabel,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: _kTextSecondary,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    'Requester: ${reservation.requesterName}',
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: _kTextSecondary,
+                    ),
+                  ),
+                  if (reservation.createdByName != null &&
+                      reservation.createdByName != reservation.requesterName)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 2),
+                      child: Text(
+                        'Booked by ${reservation.createdByName}',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: _kTextSecondary,
+                        ),
+                      ),
+                    ),
+                  if (reservation.notes != null &&
+                      reservation.notes!.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: Text(
+                        reservation.notes!,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: _kTextSecondary,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            if (reservation.isConflicted)
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFDECEC),
+                  borderRadius: BorderRadius.circular(999),
+                  border: Border.all(color: const Color(0xFFF4C7C7)),
+                ),
+                child: const Text(
+                  'Conflict',
+                  style: TextStyle(
+                    fontSize: 11,
                     fontWeight: FontWeight.w700,
-                    color: _kTextPrimary,
+                    color: Color(0xFFB42318),
                   ),
                 ),
-                const SizedBox(height: 4),
-                Text(
-                  facilityLabel,
-                  style: const TextStyle(
-                    fontSize: 12,
-                    color: _kTextSecondary,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  'Requester: ${reservation.requesterName}',
-                  style: const TextStyle(
-                    fontSize: 12,
-                    color: _kTextSecondary,
-                  ),
-                ),
-                if (reservation.createdByName != null &&
-                    reservation.createdByName != reservation.requesterName)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 2),
-                    child: Text(
-                      'Booked by ${reservation.createdByName}',
-                      style: const TextStyle(
-                        fontSize: 12,
-                        color: _kTextSecondary,
-                      ),
-                    ),
-                  ),
-                if (reservation.notes != null && reservation.notes!.isNotEmpty)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 8),
-                    child: Text(
-                      reservation.notes!,
-                      style: const TextStyle(
-                        fontSize: 12,
-                        color: _kTextSecondary,
-                      ),
-                    ),
-                  ),
-              ],
-            ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SeriesBadge extends StatelessWidget {
+  const _SeriesBadge({required this.series});
+
+  final ReservationSeries series;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: series.title,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          color: RhythmTokens.accentSoft,
+          borderRadius: BorderRadius.circular(999),
+          border:
+              Border.all(color: RhythmTokens.accent.withValues(alpha: 0.16)),
+        ),
+        child: Text(
+          'Series',
+          style: TextStyle(
+            fontSize: 10,
+            fontWeight: FontWeight.w700,
+            color: RhythmTokens.accent.withValues(alpha: 0.9),
           ),
-          if (reservation.isConflicted)
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-              decoration: BoxDecoration(
-                color: const Color(0xFFFDECEC),
-                borderRadius: BorderRadius.circular(999),
-                border: Border.all(color: const Color(0xFFF4C7C7)),
-              ),
-              child: const Text(
-                'Conflict',
-                style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w700,
-                  color: Color(0xFFB42318),
-                ),
-              ),
-            ),
-        ],
+        ),
       ),
     );
   }
@@ -1206,7 +1330,15 @@ class _FacilityCard extends StatelessWidget {
                 ),
               )
             else
-              _ReservationPreviewCard(reservation: previewReservation),
+              _ReservationPreviewCard(
+                reservation: previewReservation,
+                series: _seriesForReservation(controller, previewReservation),
+                onTap: () => _showReservationDetails(
+                  context,
+                  controller,
+                  previewReservation,
+                ),
+              ),
             const Spacer(),
             Row(
               children: [
@@ -1481,94 +1613,336 @@ class _ReservationBadge extends StatelessWidget {
 }
 
 class _ReservationPreviewCard extends StatelessWidget {
-  const _ReservationPreviewCard({required this.reservation});
+  const _ReservationPreviewCard({
+    required this.reservation,
+    required this.series,
+    required this.onTap,
+  });
 
   final Reservation reservation;
+  final ReservationSeries? series;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     final start = _parseReservationDateTime(reservation.startTime);
     final end = _parseReservationDateTime(reservation.endTime);
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+        decoration: BoxDecoration(
+          color: _kCanvas.withValues(alpha: 0.55),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: _kBorder),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Text(
+                    reservation.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w700,
+                      color: _kTextPrimary,
+                    ),
+                  ),
+                ),
+                if (series != null) ...[
+                  const SizedBox(width: 8),
+                  _SeriesBadge(series: series!),
+                ],
+              ],
+            ),
+            const SizedBox(height: 4),
+            Text(
+              reservation.requesterName,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 11, color: _kTextSecondary),
+            ),
+            if (reservation.createdByName != null &&
+                reservation.createdByName != reservation.requesterName) ...[
+              const SizedBox(height: 2),
+              Text(
+                'Booked by ${reservation.createdByName}',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 11, color: _kTextSecondary),
+              ),
+            ],
+            if (start != null) ...[
+              const SizedBox(height: 2),
+              Text(
+                '${_formatDateShort(start)} · ${_formatTimeOnly(start)}${end != null ? ' - ${_formatTimeOnly(end)}' : ''}',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 11, color: _kTextSecondary),
+              ),
+            ],
+            if (reservation.notes != null && reservation.notes!.isNotEmpty) ...[
+              const SizedBox(height: 6),
+              Text(
+                reservation.notes!,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 11, color: _kTextSecondary),
+              ),
+            ],
+            if (reservation.isConflicted) ...[
+              const SizedBox(height: 6),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFDECEC),
+                  borderRadius: BorderRadius.circular(999),
+                  border: Border.all(color: const Color(0xFFF4C7C7)),
+                ),
+                child: Text(
+                  reservation.conflictReason?.isNotEmpty == true
+                      ? reservation.conflictReason!
+                      : 'Conflict flagged',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w600,
+                    color: Color(0xFFB42318),
+                  ),
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ReservationDetailDialog extends StatefulWidget {
+  const _ReservationDetailDialog({
+    required this.controller,
+    required this.reservation,
+  });
+
+  final FacilitiesController controller;
+  final Reservation reservation;
+
+  @override
+  State<_ReservationDetailDialog> createState() =>
+      _ReservationDetailDialogState();
+}
+
+class _ReservationDetailDialogState extends State<_ReservationDetailDialog> {
+  ReservationSeries? _series;
+  bool _loadingSeries = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSeries();
+  }
+
+  Future<void> _loadSeries() async {
+    final seriesId = widget.reservation.seriesId;
+    if (seriesId == null) return;
+    final cached = _seriesForReservation(widget.controller, widget.reservation);
+    if (cached != null) {
+      setState(() => _series = cached);
+      return;
+    }
+    setState(() => _loadingSeries = true);
+    try {
+      final series = await widget.controller.loadReservationSeriesDetail(
+        widget.reservation.facilityId,
+        seriesId,
+      );
+      if (mounted) {
+        setState(() => _series = series);
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _loadingSeries = false);
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final reservation = widget.reservation;
+    final facility = _facilityForReservation(widget.controller, reservation);
+    final start = _parseReservationDateTime(reservation.startTime);
+    final end = _parseReservationDateTime(reservation.endTime);
+    final canManage = _canManageReservation(widget.controller, reservation);
+
+    return AlertDialog(
+      title: const Text('Reservation details'),
+      content: SizedBox(
+        width: 480,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              reservation.title,
+              style: const TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              facility == null
+                  ? 'Room #${reservation.facilityId}'
+                  : '${facility.name}${facility.building?.isNotEmpty == true ? ' · ${facility.building}' : ''}',
+              style: const TextStyle(fontSize: 13, color: _kTextSecondary),
+            ),
+            const SizedBox(height: 8),
+            if (start != null)
+              Text(
+                '${_formatDatePickerValue(start)} · ${_formatTimeOnly(start)}${end != null ? ' - ${_formatTimeOnly(end)}' : ''}',
+                style: const TextStyle(fontSize: 13, color: _kTextSecondary),
+              ),
+            const SizedBox(height: 8),
+            Text(
+              'Requester: ${reservation.requesterName}',
+              style: const TextStyle(fontSize: 13, color: _kTextSecondary),
+            ),
+            if (reservation.createdByName != null &&
+                reservation.createdByName != reservation.requesterName)
+              Text(
+                'Booked by ${reservation.createdByName}',
+                style: const TextStyle(fontSize: 13, color: _kTextSecondary),
+              ),
+            if (reservation.notes != null && reservation.notes!.isNotEmpty) ...[
+              const SizedBox(height: 10),
+              Text(
+                reservation.notes!,
+                style: const TextStyle(fontSize: 13, color: _kTextSecondary),
+              ),
+            ],
+            const SizedBox(height: 12),
+            if (reservation.seriesId != null)
+              _series == null && _loadingSeries
+                  ? const LinearProgressIndicator(minHeight: 2)
+                  : _series != null
+                      ? _SeriesInfoPanel(series: _series!)
+                      : const Text(
+                          'This reservation belongs to a recurring series.',
+                          style:
+                              TextStyle(fontSize: 13, color: _kTextSecondary),
+                        ),
+          ],
+        ),
+      ),
+      actions: [
+        if (reservation.seriesId != null && canManage)
+          TextButton(
+            onPressed: _loadingSeries ? null : _editEntireSeries,
+            child: const Text('Edit entire series'),
+          ),
+        if (reservation.seriesId != null && canManage)
+          TextButton(
+            onPressed: _loadingSeries ? null : _deleteEntireSeries,
+            style: TextButton.styleFrom(
+              foregroundColor: const Color(0xFFB42318),
+            ),
+            child: const Text('Delete entire series'),
+          ),
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Close'),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _editEntireSeries() async {
+    final seriesId = widget.reservation.seriesId;
+    if (seriesId == null) return;
+    final series =
+        _series ?? _seriesForReservation(widget.controller, widget.reservation);
+    final facility =
+        _facilityForReservation(widget.controller, widget.reservation);
+    if (series == null || facility == null) return;
+    final saved = await showDialog<bool>(
+      context: context,
+      builder: (_) => _ReservationDialog(
+        controller: widget.controller,
+        facilities: widget.controller.facilities,
+        preselectedFacility: facility,
+        existingReservation: widget.reservation,
+        existingSeries: series,
+        isEditingSeries: true,
+      ),
+    );
+    if (saved == true && mounted) {
+      Navigator.of(context).pop();
+    }
+  }
+
+  Future<void> _deleteEntireSeries() async {
+    final seriesId = widget.reservation.seriesId;
+    if (seriesId == null) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete recurring series?'),
+        content: const Text(
+          'This will delete the entire recurring series and all generated reservations.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            style: FilledButton.styleFrom(
+              backgroundColor: const Color(0xFFB42318),
+            ),
+            child: const Text('Delete series'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    await widget.controller.deleteReservationSeries(
+      widget.reservation.facilityId,
+      seriesId,
+    );
+    if (mounted) {
+      Navigator.of(context).pop();
+    }
+  }
+}
+
+class _SeriesInfoPanel extends StatelessWidget {
+  const _SeriesInfoPanel({required this.series});
+
+  final ReservationSeries series;
+
+  @override
+  Widget build(BuildContext context) {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+      padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: _kCanvas.withValues(alpha: 0.55),
+        color: _kCanvas.withValues(alpha: 0.45),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: _kBorder),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            reservation.title,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w700,
-              color: _kTextPrimary,
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            reservation.requesterName,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(fontSize: 11, color: _kTextSecondary),
-          ),
-          if (reservation.createdByName != null &&
-              reservation.createdByName != reservation.requesterName) ...[
-            const SizedBox(height: 2),
-            Text(
-              'Booked by ${reservation.createdByName}',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontSize: 11, color: _kTextSecondary),
-            ),
-          ],
-          if (start != null) ...[
-            const SizedBox(height: 2),
-            Text(
-              '${_formatDateShort(start)} · ${_formatTimeOnly(start)}${end != null ? ' - ${_formatTimeOnly(end)}' : ''}',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontSize: 11, color: _kTextSecondary),
-            ),
-          ],
-          if (reservation.notes != null && reservation.notes!.isNotEmpty) ...[
-            const SizedBox(height: 6),
-            Text(
-              reservation.notes!,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontSize: 11, color: _kTextSecondary),
-            ),
-          ],
-          if (reservation.isConflicted) ...[
-            const SizedBox(height: 6),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              decoration: BoxDecoration(
-                color: const Color(0xFFFDECEC),
-                borderRadius: BorderRadius.circular(999),
-                border: Border.all(color: const Color(0xFFF4C7C7)),
-              ),
-              child: Text(
-                reservation.conflictReason?.isNotEmpty == true
-                    ? reservation.conflictReason!
-                    : 'Conflict flagged',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  fontSize: 10,
-                  fontWeight: FontWeight.w600,
-                  color: Color(0xFFB42318),
-                ),
-              ),
-            ),
-          ],
-        ],
+      child: Text(
+        'Recurring series: ${series.title} · ${series.recurrenceType}',
+        style: const TextStyle(fontSize: 12, color: _kTextSecondary),
       ),
     );
   }
@@ -1583,11 +1957,17 @@ class _ReservationDialog extends StatefulWidget {
     required this.controller,
     required this.facilities,
     this.preselectedFacility,
+    this.existingReservation,
+    this.existingSeries,
+    this.isEditingSeries = false,
   });
 
   final FacilitiesController controller;
   final List<Facility> facilities;
   final Facility? preselectedFacility;
+  final Reservation? existingReservation;
+  final ReservationSeries? existingSeries;
+  final bool isEditingSeries;
 
   @override
   State<_ReservationDialog> createState() => _ReservationDialogState();
@@ -1617,7 +1997,48 @@ class _ReservationDialogState extends State<_ReservationDialog> {
     super.initState();
     _selectedFacility = widget.preselectedFacility ??
         (widget.facilities.isNotEmpty ? widget.facilities.first : null);
-    _requesterController.text = widget.controller.currentUser?.name ?? '';
+    final reservation = widget.existingReservation;
+    final series = widget.existingSeries;
+    _titleController.text = reservation?.title ?? series?.title ?? '';
+    _requesterController.text = reservation?.requesterName ??
+        series?.requesterName ??
+        widget.controller.currentUser?.name ??
+        '';
+    _notesController.text = reservation?.notes ?? series?.notes ?? '';
+
+    final startValue = reservation?.startTime ?? series?.startTime;
+    final endValue = reservation?.endTime ?? series?.endTime;
+    final startDateTime = _parseReservationDateTime(startValue);
+    final endDateTime = _parseReservationDateTime(endValue);
+    if (startDateTime != null) {
+      _selectedDate = startDateTime;
+      _dateController.text = _formatDatePickerValue(startDateTime);
+      _selectedStartTime = TimeOfDay.fromDateTime(startDateTime);
+      _startTimeDisplayController.text = _formatTimeOfDay(_selectedStartTime!);
+    }
+    if (endDateTime != null) {
+      _selectedEndTime = TimeOfDay.fromDateTime(endDateTime);
+      _endTimeDisplayController.text = _formatTimeOfDay(_selectedEndTime!);
+    }
+    if (widget.isEditingSeries && series != null) {
+      _isRecurring = true;
+      _recurrenceType = _recurrenceTypeFromApiValue(series.recurrenceType);
+      _recurrenceEndDate =
+          series.endDate == null ? null : DateTime.tryParse(series.endDate!);
+      _customRecurrenceDates.addAll(
+        series.customDates
+            .map(DateTime.tryParse)
+            .whereType<DateTime>()
+            .toList(),
+      );
+      if (_selectedDate == null) {
+        final seriesStart = DateTime.tryParse(series.startDate);
+        if (seriesStart != null) {
+          _selectedDate = seriesStart;
+          _dateController.text = _formatDatePickerValue(seriesStart);
+        }
+      }
+    }
   }
 
   @override
@@ -1696,9 +2117,11 @@ class _ReservationDialogState extends State<_ReservationDialog> {
                           border: Border.all(color: _kBorder),
                         ),
                         child: Text(
-                          isTopLevel
-                              ? 'New booking'
-                              : widget.preselectedFacility!.name,
+                          widget.isEditingSeries
+                              ? 'Edit series'
+                              : isTopLevel
+                                  ? 'New booking'
+                                  : widget.preselectedFacility!.name,
                           style: const TextStyle(
                             fontSize: 11,
                             fontWeight: FontWeight.w600,
@@ -1810,35 +2233,36 @@ class _ReservationDialogState extends State<_ReservationDialog> {
                     ],
                   ),
                   const SizedBox(height: 16),
-                  SwitchListTile.adaptive(
-                    value: _isRecurring,
-                    contentPadding: EdgeInsets.zero,
-                    title: const Text(
-                      'Recurring reservation',
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                        color: _kTextPrimary,
+                  if (!widget.isEditingSeries)
+                    SwitchListTile.adaptive(
+                      value: _isRecurring,
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text(
+                        'Recurring reservation',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color: _kTextPrimary,
+                        ),
                       ),
-                    ),
-                    subtitle: const Text(
-                      'Create a weekly, bi-weekly, monthly, or custom-date series.',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: _kTextSecondary,
+                      subtitle: const Text(
+                        'Create a weekly, bi-weekly, monthly, or custom-date series.',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: _kTextSecondary,
+                        ),
                       ),
+                      onChanged: (value) {
+                        setState(() {
+                          _isRecurring = value;
+                          if (!value) {
+                            _customRecurrenceDates.clear();
+                            _recurrenceEndDate = null;
+                          }
+                        });
+                      },
                     ),
-                    onChanged: (value) {
-                      setState(() {
-                        _isRecurring = value;
-                        if (!value) {
-                          _customRecurrenceDates.clear();
-                          _recurrenceEndDate = null;
-                        }
-                      });
-                    },
-                  ),
-                  if (_isRecurring) ...[
+                  if (_isRecurring || widget.isEditingSeries) ...[
                     const SizedBox(height: 10),
                     Wrap(
                       spacing: 8,
@@ -1941,7 +2365,9 @@ class _ReservationDialogState extends State<_ReservationDialog> {
                                   color: Colors.white,
                                 ),
                               )
-                            : const Text('Submit'),
+                            : Text(widget.isEditingSeries
+                                ? 'Save series'
+                                : 'Submit'),
                       ),
                     ],
                   ),
@@ -2005,9 +2431,35 @@ class _ReservationDialogState extends State<_ReservationDialog> {
           currentUser != null && trimmedRequester == currentUser.name
               ? currentUser.id
               : null;
-      ReservationSeriesCreationResult? recurringResult;
-      if (_isRecurring) {
-        recurringResult = await widget.controller.createReservationSeries(
+      final isRecurring = _isRecurring || widget.isEditingSeries;
+      final isCustomSeries = _recurrenceType == _RecurrenceType.custom;
+      final seriesEndDate = isCustomSeries
+          ? _dateOnly(_effectiveCustomDates.last)
+          : _recurrenceEndDate != null
+              ? _dateOnly(_recurrenceEndDate!)
+              : null;
+      final notes = _notesController.text.trim();
+      if (widget.isEditingSeries) {
+        await widget.controller.updateReservationSeries(
+          _selectedFacility!.id,
+          widget.existingSeries!.id,
+          title: _titleController.text.trim(),
+          requesterName: trimmedRequester,
+          requesterUserId: requesterUserId,
+          startTime: startAt.toIso8601String(),
+          endTime: endAt.toIso8601String(),
+          startDate: _dateOnly(_selectedDate!),
+          endDate: seriesEndDate,
+          customDates: isCustomSeries
+              ? _effectiveCustomDates.map(_dateOnly).toList()
+              : null,
+          recurrenceType: _recurrenceTypeApiValue(_recurrenceType),
+          recurrenceInterval:
+              _recurrenceType == _RecurrenceType.weekly ? 1 : null,
+          notes: notes,
+        );
+      } else if (isRecurring) {
+        final recurringResult = await widget.controller.createReservationSeries(
           _selectedFacility!.id,
           title: _titleController.text.trim(),
           requesterName: trimmedRequester,
@@ -2015,17 +2467,23 @@ class _ReservationDialogState extends State<_ReservationDialog> {
           startTime: startAt.toIso8601String(),
           endTime: endAt.toIso8601String(),
           startDate: _dateOnly(_selectedDate!),
-          endDate: _recurrenceType == _RecurrenceType.custom
-              ? _dateOnly(_effectiveCustomDates.last)
-              : _dateOnly(_recurrenceEndDate!),
-          customDates: _recurrenceType == _RecurrenceType.custom
+          endDate: seriesEndDate!,
+          customDates: isCustomSeries
               ? _effectiveCustomDates.map(_dateOnly).toList()
               : null,
           recurrenceType: _recurrenceTypeApiValue(_recurrenceType),
           recurrenceInterval:
               _recurrenceType == _RecurrenceType.weekly ? 1 : null,
-          notes: _notesController.text.trim(),
+          notes: notes,
         );
+        if (mounted) {
+          navigator.pop();
+          await showDialog<void>(
+            context: navigator.context,
+            builder: (_) => _RecurringSummaryDialog(result: recurringResult),
+          );
+        }
+        return;
       } else {
         await widget.controller.createReservation(
           _selectedFacility!.id,
@@ -2034,19 +2492,14 @@ class _ReservationDialogState extends State<_ReservationDialog> {
           requesterUserId: requesterUserId,
           startTime: startAt.toIso8601String(),
           endTime: endAt.toIso8601String(),
-          notes: _notesController.text.trim(),
+          notes: notes,
         );
       }
       if (mounted) {
-        navigator.pop();
-        if (recurringResult == null) {
+        navigator.pop(widget.isEditingSeries ? true : null);
+        if (!widget.isEditingSeries) {
           ScaffoldMessenger.of(navigator.context).showSnackBar(
             const SnackBar(content: Text('Reservation created')),
-          );
-        } else {
-          await showDialog<void>(
-            context: navigator.context,
-            builder: (_) => _RecurringSummaryDialog(result: recurringResult!),
           );
         }
       }
