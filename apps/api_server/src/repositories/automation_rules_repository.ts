@@ -16,6 +16,7 @@ interface AutomationRuleRow {
   trigger_config: string | null;
   action_type: string;
   action_config: string | null;
+  conditions: string | null;
   enabled: number;
   owner_id: number | null;
   source_account_id: string | null;
@@ -36,6 +37,7 @@ function rowToRule(row: AutomationRuleRow): AutomationRule {
     triggerConfig: row.trigger_config ? JSON.parse(row.trigger_config) : null,
     actionType: row.action_type as AutomationRule['actionType'],
     actionConfig: row.action_config ? JSON.parse(row.action_config) : null,
+    conditions: row.conditions ? JSON.parse(row.conditions) : null,
     enabled: row.enabled === 1,
     ownerId: row.owner_id,
     sourceAccountId: row.source_account_id,
@@ -96,8 +98,8 @@ export class AutomationRulesRepository {
     getDb()
       .prepare(
         `INSERT INTO automation_rules
-         (id, name, trigger_type, source, trigger_key, trigger_config, action_type, action_config, enabled, owner_id, source_account_id, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         (id, name, trigger_type, source, trigger_key, trigger_config, action_type, action_config, conditions, enabled, owner_id, source_account_id, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         id,
@@ -108,6 +110,7 @@ export class AutomationRulesRepository {
         dto.triggerConfig ? JSON.stringify(dto.triggerConfig) : null,
         dto.actionType,
         dto.actionConfig ? JSON.stringify(dto.actionConfig) : null,
+        dto.conditions ? JSON.stringify(dto.conditions) : null,
         dto.enabled !== false ? 1 : 0,
         dto.ownerId ?? null,
         dto.sourceAccountId ?? null,
@@ -128,7 +131,7 @@ export class AutomationRulesRepository {
       .prepare(
         `UPDATE automation_rules
          SET name = ?, trigger_type = ?, source = ?, trigger_key = ?, trigger_config = ?,
-             action_type = ?, action_config = ?, enabled = ?, owner_id = ?, source_account_id = ?, updated_at = ?
+             action_type = ?, action_config = ?, conditions = ?, enabled = ?, owner_id = ?, source_account_id = ?, updated_at = ?
          WHERE id = ?`,
       )
       .run(
@@ -150,6 +153,13 @@ export class AutomationRulesRepository {
             : null
           : existing.actionConfig
             ? JSON.stringify(existing.actionConfig)
+            : null,
+        'conditions' in dto
+          ? dto.conditions
+            ? JSON.stringify(dto.conditions)
+            : null
+          : existing.conditions
+            ? JSON.stringify(existing.conditions)
             : null,
         dto.enabled !== undefined
           ? dto.enabled

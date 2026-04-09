@@ -84,6 +84,7 @@ class AutomationRulesController extends ChangeNotifier {
     Map<String, dynamic>? triggerConfig,
     Map<String, dynamic>? actionConfig,
     String? sourceAccountId,
+    List<AutomationCondition>? conditions,
   }) async {
     try {
       final rule = await _repository.create(
@@ -94,6 +95,7 @@ class AutomationRulesController extends ChangeNotifier {
         triggerConfig: triggerConfig,
         actionConfig: actionConfig,
         sourceAccountId: sourceAccountId,
+        conditions: conditions,
       );
       _rules = [..._rules, rule];
       _selectedPreview = null;
@@ -114,6 +116,7 @@ class AutomationRulesController extends ChangeNotifier {
     Map<String, dynamic>? triggerConfig,
     Map<String, dynamic>? actionConfig,
     String? sourceAccountId,
+    List<AutomationCondition>? conditions,
   }) async {
     try {
       final updated = await _repository.update(
@@ -125,6 +128,7 @@ class AutomationRulesController extends ChangeNotifier {
         triggerConfig: triggerConfig,
         actionConfig: actionConfig,
         sourceAccountId: sourceAccountId,
+        conditions: conditions,
       );
       _rules = _rules.map((r) => r.id == id ? updated : r).toList();
       if (_selectedPreview?.ruleId == id) {

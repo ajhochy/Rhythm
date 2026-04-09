@@ -4,7 +4,7 @@ import { ProjectTemplatesRepository } from '../repositories/project_templates_re
 import { TasksRepository } from '../repositories/tasks_repository';
 import { UsersRepository } from '../repositories/users_repository';
 import type { AutomationSignal } from '../models/automation_signal';
-import type { AutomationRule } from '../models/automation_rule';
+import type { AutomationRule, Condition } from '../models/automation_rule';
 import { ProjectGenerationService } from './project_generation_service';
 
 interface EvaluationResult {
@@ -94,7 +94,9 @@ export class AutomationEngineService {
     let executedActions = 0;
 
     for (const rule of rules) {
-      const matchingSignals = signals.filter((signal) => this.matchesRule(rule, signal));
+      const matchingSignals = signals.filter(
+        (signal) => this.matchesRule(rule, signal) && this.evaluateConditions(rule.conditions, signal),
+      );
       const preview = matchingSignals[0]?.payload ?? null;
       this.rulesRepo.updateEvaluation(rule.id, {
         lastEvaluatedAt: new Date().toISOString(),
@@ -119,6 +121,18 @@ export class AutomationEngineService {
 
   private matchesRule(rule: AutomationRule, signal: AutomationSignal): boolean {
     switch (rule.triggerKey) {
+      case 'rhythm.task_due':
+        return signal.signalType === 'task_due' && this.matchesDaysBeforeDue(rule, signal);
+      case 'rhythm.project_step_due':
+        return signal.signalType === 'project_step_due' && this.matchesDaysBeforeDue(rule, signal);
+      case 'rhythm.plan_assembly':
+        return signal.signalType === 'plan_assembly';
+      case 'planning_center.plan_upcoming':
+        return signal.signalType === 'plan_upcoming' && this.matchesPlanningCenterFilters(rule, signal);
+      case 'planning_center.plan_published':
+        return signal.signalType === 'plan_published' && this.matchesPlanningCenterFilters(rule, signal);
+      case 'planning_center.service_item_updated':
+        return signal.signalType === 'service_item_updated' && this.matchesPlanningCenterFilters(rule, signal);
       case 'planning_center.plan_person_declined':
         return signal.signalType === 'team_member_declined' && this.matchesPlanningCenterFilters(rule, signal);
       case 'planning_center.plan_person_unconfirmed':
@@ -151,6 +165,15 @@ export class AutomationEngineService {
       default:
         return false;
     }
+  }
+
+  private matchesDaysBeforeDue(rule: AutomationRule, signal: AutomationSignal): boolean {
+    const config = rule.triggerConfig ?? {};
+    const daysBeforeDue = asNumber(config.daysBeforeDue);
+    if (daysBeforeDue == null) return true;
+    const daysUntilDue = asNumber(signal.payload.daysUntilDue);
+    if (daysUntilDue == null) return true;
+    return daysUntilDue <= daysBeforeDue;
   }
 
   private matchesPlanningCenterFilters(rule: AutomationRule, signal: AutomationSignal): boolean {
@@ -240,6 +263,46 @@ export class AutomationEngineService {
     }
 
     return true;
+  }
+
+  private evaluateConditions(
+    conditions: Condition[] | null | undefined,
+    signal: AutomationSignal,
+  ): boolean {
+    if (!conditions || conditions.length === 0) return true;
+    return conditions.every((condition) => this.evaluateSingleCondition(signal.payload, condition));
+  }
+
+  private evaluateSingleCondition(
+    payload: Record<string, unknown>,
+    condition: Condition,
+  ): boolean {
+    const actual = payload[condition.field];
+    const actualStr = typeof actual === 'string' ? actual.toLowerCase() : String(actual ?? '').toLowerCase();
+    const expected = condition.value.toLowerCase();
+
+    switch (condition.operator) {
+      case 'equals':
+        return actualStr === expected;
+      case 'not_equals':
+        return actualStr !== expected;
+      case 'contains':
+        return actualStr.includes(expected);
+      case 'not_contains':
+        return !actualStr.includes(expected);
+      case 'greater_than': {
+        const n = asNumber(actual);
+        const threshold = asNumber(condition.value);
+        return n != null && threshold != null && n > threshold;
+      }
+      case 'less_than': {
+        const n = asNumber(actual);
+        const threshold = asNumber(condition.value);
+        return n != null && threshold != null && n < threshold;
+      }
+      default:
+        return true;
+    }
   }
 
   private executeAction(rule: AutomationRule, signal: AutomationSignal): boolean {
