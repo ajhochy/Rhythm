@@ -154,8 +154,8 @@ void main() {
         title: 'Morning rehearsal',
         requesterName: 'Jordan',
         createdByUserId: 21,
-        startTime: '2026-04-10T09:00:00.000Z',
-        endTime: '2026-04-10T10:00:00.000Z',
+        startTime: '2026-04-10T16:00:00.000Z',
+        endTime: '2026-04-10T17:00:00.000Z',
       ),
       Reservation(
         id: 21,
@@ -163,21 +163,25 @@ void main() {
         title: 'Conference setup',
         requesterName: 'Taylor',
         createdByUserId: 22,
-        startTime: '2026-04-10T09:30:00.000Z',
-        endTime: '2026-04-10T10:30:00.000Z',
+        startTime: '2026-04-10T16:30:00.000Z',
+        endTime: '2026-04-10T17:30:00.000Z',
       ),
     ];
+    final repository = _FakeFacilitiesRepository()
+      ..facilitiesFixture = const [facility]
+      ..reservationsByFacilityFixture = {2: reservations};
+    final controller = FacilitiesController(repository);
+    await controller.loadFacilities();
 
     await tester.pumpWidget(
       MaterialApp(
         home: Scaffold(
           body: FacilitiesAvailabilityPanel(
-            facility: facility,
+            controller: controller,
+            selectedFacilities: const [facility],
             selectedDate: DateTime(2026, 4, 10),
             selectedStartTime: const TimeOfDay(hour: 9, minute: 0),
             selectedEndTime: const TimeOfDay(hour: 10, minute: 0),
-            dayReservations: reservations,
-            conflictingReservations: [reservations[1]],
             showRecurringHint: true,
           ),
         ),
@@ -190,12 +194,65 @@ void main() {
       find.textContaining('Selected time overlaps'),
       findsOneWidget,
     );
-    expect(find.text('Overlap'), findsOneWidget);
+    expect(find.text('Overlap'), findsWidgets);
     expect(
       find.textContaining(
           'Recurring conflicts are checked across the full series'),
       findsOneWidget,
     );
+  });
+
+  testWidgets(
+      'Facilities overview groups multi-room reservations into one reservation cluster',
+      (tester) async {
+    await tester.binding.setSurfaceSize(const Size(1600, 1200));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    _FakeAuthSessionService(
+      const AuthUser(
+        id: 77,
+        name: 'Facilities Manager',
+        email: 'facilities@example.com',
+        role: 'manager',
+        isFacilitiesManager: true,
+      ),
+    );
+    await _setTestSurfaceSize(tester);
+
+    final repository = _FakeFacilitiesRepository()
+      ..facilitiesFixture = const [
+        Facility(id: 1, name: 'Sanctuary', building: 'Main Campus'),
+        Facility(id: 2, name: 'Fellowship Hall', building: 'Main Campus'),
+      ]
+      ..overviewFixture = const [
+        Reservation(
+          id: 100,
+          facilityId: 1,
+          title: 'Sunday School',
+          requesterName: 'Children Ministry',
+          createdByUserId: 77,
+          startTime: '2026-04-12T15:00:00.000Z',
+          endTime: '2026-04-12T16:00:00.000Z',
+        ),
+        Reservation(
+          id: 101,
+          facilityId: 2,
+          title: 'Sunday School',
+          requesterName: 'Children Ministry',
+          createdByUserId: 77,
+          startTime: '2026-04-12T15:00:00.000Z',
+          endTime: '2026-04-12T16:00:00.000Z',
+        ),
+      ];
+
+    await _pumpFacilitiesView(tester, repository);
+
+    expect(find.text('Sunday School'), findsOneWidget);
+    expect(
+      find.textContaining('Rooms: Sanctuary, Fellowship Hall'),
+      findsOneWidget,
+    );
+    expect(find.text('2 rooms'), findsOneWidget);
   });
 
   testWidgets(

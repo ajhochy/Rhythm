@@ -206,9 +206,25 @@ export function runMigrations(db: Database.Database): void {
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
 
+    CREATE TABLE IF NOT EXISTS reservation_groups (
+      id TEXT PRIMARY KEY,
+      series_id TEXT REFERENCES reservation_series(id) ON DELETE CASCADE,
+      title TEXT NOT NULL,
+      requester_name TEXT NOT NULL,
+      requester_user_id INTEGER REFERENCES users(id),
+      created_by_user_id INTEGER REFERENCES users(id),
+      notes TEXT,
+      start_time TEXT NOT NULL,
+      end_time TEXT NOT NULL,
+      occurrence_date TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
     CREATE TABLE IF NOT EXISTS reservations (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       facility_id INTEGER NOT NULL REFERENCES facilities(id) ON DELETE CASCADE,
+      group_id TEXT REFERENCES reservation_groups(id) ON DELETE CASCADE,
       series_id TEXT REFERENCES reservation_series(id) ON DELETE SET NULL,
       title TEXT NOT NULL,
       reserved_by TEXT NOT NULL,
@@ -327,6 +343,9 @@ export function runMigrations(db: Database.Database): void {
   }
 
   const reservationCols = (db.pragma('table_info(reservations)') as { name: string }[]).map((c) => c.name);
+  if (!reservationCols.includes('group_id')) {
+    db.exec(`ALTER TABLE reservations ADD COLUMN group_id TEXT REFERENCES reservation_groups(id) ON DELETE CASCADE`);
+  }
   if (!reservationCols.includes('series_id')) {
     db.exec(
       `ALTER TABLE reservations ADD COLUMN series_id TEXT REFERENCES reservation_series(id) ON DELETE SET NULL`,

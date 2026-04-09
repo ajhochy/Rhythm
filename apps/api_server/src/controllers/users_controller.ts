@@ -5,6 +5,16 @@ import { UsersRepository } from '../repositories/users_repository';
 const repo = new UsersRepository();
 
 export class UsersController {
+  private requireAdmin(req: Request) {
+    const actor = req.auth?.user;
+    if (!actor) {
+      throw AppError.unauthorized('Authentication required');
+    }
+    if (actor.role !== 'admin' && actor.role !== 'system') {
+      throw AppError.forbidden('Only admins can manage user permissions');
+    }
+  }
+
   getAll(_req: Request, res: Response, next: NextFunction) {
     try {
       res.json(repo.findAll());
@@ -23,6 +33,7 @@ export class UsersController {
 
   create(req: Request, res: Response, next: NextFunction) {
     try {
+      this.requireAdmin(req);
       const { name, email, role, isFacilitiesManager } =
         req.body as Record<string, unknown>;
       if (!name || typeof name !== 'string') {
@@ -48,6 +59,7 @@ export class UsersController {
 
   update(req: Request, res: Response, next: NextFunction) {
     try {
+      this.requireAdmin(req);
       const { name, email, role, googleSub, photoUrl, isFacilitiesManager } =
         req.body as Record<string, unknown>;
       const user = repo.update(Number(req.params.id), {

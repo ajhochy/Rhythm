@@ -153,6 +153,61 @@ class _FacilitiesViewState extends State<FacilitiesView> {
     );
   }
 
+  Future<void> _showCreateFacilityDialog(
+    BuildContext context,
+    FacilitiesController controller,
+  ) async {
+    await showDialog<void>(
+      context: context,
+      builder: (_) => _FacilityDialog(controller: controller),
+    );
+  }
+
+  Future<void> _showEditFacilityDialog(
+    BuildContext context,
+    FacilitiesController controller,
+    Facility facility,
+  ) async {
+    await showDialog<void>(
+      context: context,
+      builder: (_) => _FacilityDialog(
+        controller: controller,
+        existingFacility: facility,
+      ),
+    );
+  }
+
+  Future<void> _deleteFacilityWithConfirmation(
+    BuildContext context,
+    FacilitiesController controller,
+    Facility facility,
+  ) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete space?'),
+        content: Text(
+          'This will remove ${facility.name} and its room schedule from the app.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            style: FilledButton.styleFrom(
+              backgroundColor: const Color(0xFFB42318),
+            ),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    await controller.deleteFacility(facility.id);
+  }
+
   Future<void> _handleRangeChanged(_OverviewRange range) async {
     final now = DateTime.now();
     setState(() {
@@ -246,7 +301,165 @@ class _FacilitiesViewState extends State<FacilitiesView> {
 DateTime? _parseReservationDateTime(String? raw) {
   if (raw == null || raw.isEmpty) return null;
   final normalized = raw.contains('T') ? raw : raw.replaceFirst(' ', 'T');
-  return DateTime.tryParse(normalized);
+  final parsed = DateTime.tryParse(normalized);
+  if (parsed == null) return null;
+  return parsed.isUtc ? parsed.toLocal() : parsed;
+}
+
+const List<String> _kWeekdayNames = <String>[
+  'Monday',
+  'Tuesday',
+  'Wednesday',
+  'Thursday',
+  'Friday',
+  'Saturday',
+  'Sunday',
+];
+
+const List<String> _kMonthNames = <String>[
+  'January',
+  'February',
+  'March',
+  'April',
+  'May',
+  'June',
+  'July',
+  'August',
+  'September',
+  'October',
+  'November',
+  'December',
+];
+
+String _formatFriendlyDate(BuildContext context, DateTime date) {
+  return '${_kWeekdayNames[date.weekday - 1]}, ${_kMonthNames[date.month - 1]} ${date.day}, ${date.year}';
+}
+
+String _formatFriendlyDateTime(BuildContext context, DateTime dateTime) {
+  final localizations = MaterialLocalizations.of(context);
+  final time = localizations.formatTimeOfDay(
+    TimeOfDay.fromDateTime(dateTime),
+    alwaysUse24HourFormat: false,
+  );
+  return '${_formatFriendlyDate(context, dateTime)} at $time';
+}
+
+String _formatRecurringConflictMessage(
+  BuildContext context,
+  ReservationSeriesConflict conflict,
+) {
+  final date = _parseReservationDateTime(conflict.date);
+  final header =
+      date == null ? conflict.date : _formatFriendlyDate(context, date);
+  final match = RegExp(
+    r'^Conflicts with "(.*)" from ([^ ]+) to ([^.]*)\. Choose a different room or time\.$',
+  ).firstMatch(conflict.reason);
+  if (match == null) {
+    return '$header: ${conflict.reason}';
+  }
+
+  final reservationTitle = match.group(1) ?? 'Existing reservation';
+  final start = _parseReservationDateTime(match.group(2));
+  final end = _parseReservationDateTime(match.group(3));
+
+  if (start == null || end == null) {
+    return '$header: ${conflict.reason}';
+  }
+
+  return '$header: Conflicts with "$reservationTitle" from ${_formatFriendlyDateTime(context, start)} to ${MaterialLocalizations.of(context).formatTimeOfDay(TimeOfDay.fromDateTime(end), alwaysUse24HourFormat: false)}. Choose a different room or time.';
+}
+
+int _compareReservationStartTimes(Reservation a, Reservation b) {
+  final aStart = _parseReservationDateTime(a.startTime);
+  final bStart = _parseReservationDateTime(b.startTime);
+  if (aStart == null && bStart == null) return 0;
+  if (aStart == null) return 1;
+  if (bStart == null) return -1;
+  return aStart.compareTo(bStart);
+}
+
+String _reservationGroupKey(Reservation reservation) {
+  final explicitGroupId = reservation.reservationGroupId?.trim();
+  if (explicitGroupId != null && explicitGroupId.isNotEmpty) {
+    return 'group:$explicitGroupId';
+  }
+  final start = _parseReservationDateTime(reservation.startTime);
+  final end = _parseReservationDateTime(reservation.endTime);
+  return [
+    start?.toIso8601String() ?? reservation.startTime?.trim() ?? '',
+    end?.toIso8601String() ?? reservation.endTime?.trim() ?? '',
+    reservation.title.trim().toLowerCase(),
+    reservation.requesterName.trim().toLowerCase(),
+    reservation.createdByUserId?.toString() ??
+        reservation.createdByName?.trim().toLowerCase() ??
+        '',
+    reservation.notes?.trim().toLowerCase() ?? '',
+    reservation.externalEventId?.trim().toLowerCase() ?? '',
+  ].join('|');
+}
+
+List<String> _roomNamesForReservations(
+  FacilitiesController controller,
+  Iterable<Reservation> reservations, {
+  int maxNames = 3,
+}) {
+  final names = <String>[];
+  for (final reservation in reservations) {
+    final facility = _facilityForReservation(controller, reservation);
+    final roomName = facility?.name ?? 'Room #${reservation.facilityId}';
+    if (!names.contains(roomName)) {
+      names.add(roomName);
+    }
+  }
+  if (names.length <= maxNames) return names;
+  return [
+    ...names.take(maxNames - 1),
+    '${names[maxNames - 1]} +${names.length - maxNames}',
+  ];
+}
+
+class _ReservationCluster {
+  _ReservationCluster(Iterable<Reservation> reservations)
+      : reservations = List<Reservation>.from(reservations)
+          ..sort(_compareReservationStartTimes);
+
+  final List<Reservation> reservations;
+
+  Reservation get representative => reservations.first;
+
+  DateTime? get start => _parseReservationDateTime(representative.startTime);
+
+  DateTime? get end => _parseReservationDateTime(representative.endTime);
+
+  String get key => _reservationGroupKey(representative);
+
+  bool get isMultiRoom => reservations.length > 1;
+
+  bool get hasRecurringSeries =>
+      reservations.any((reservation) => reservation.seriesId != null);
+
+  bool get isConflicted =>
+      reservations.any((reservation) => reservation.isConflicted);
+
+  bool get isPartiallyConflicted =>
+      isConflicted &&
+      reservations.any((reservation) => !reservation.isConflicted);
+
+  bool get createdByRhythm =>
+      reservations.every((reservation) => reservation.createdByRhythm);
+
+  String get title => representative.title;
+
+  String get requesterName => representative.requesterName;
+
+  String? get notes => representative.notes;
+
+  String? get createdByName => representative.createdByName;
+
+  String? get conflictReason => representative.conflictReason;
+
+  List<String> roomNames(FacilitiesController controller) =>
+      _roomNamesForReservations(controller, reservations);
 }
 
 ReservationSeries? _seriesForReservation(
@@ -278,6 +491,58 @@ Facility? _facilityForReservation(
   return null;
 }
 
+_ReservationCluster _reservationClusterForReservation(
+  FacilitiesController controller,
+  Reservation reservation,
+) {
+  final matchingReservations = <Reservation>[];
+  for (final reservations in controller.reservationsByFacility.values) {
+    matchingReservations.addAll(
+      reservations.where(
+        (item) =>
+            _reservationGroupKey(item) == _reservationGroupKey(reservation),
+      ),
+    );
+  }
+  if (matchingReservations.isEmpty) {
+    matchingReservations.add(reservation);
+  }
+  return _ReservationCluster(matchingReservations);
+}
+
+Future<void> _deleteReservationCluster(
+  FacilitiesController controller,
+  Iterable<Reservation> reservations,
+) async {
+  final list = reservations.toList();
+  final groupedReservation = list.cast<Reservation?>().firstWhere(
+        (reservation) =>
+            reservation?.reservationGroupId != null &&
+            reservation!.reservationGroupId!.isNotEmpty,
+        orElse: () => null,
+      );
+  if (groupedReservation != null) {
+    await controller.deleteReservation(
+      groupedReservation.facilityId,
+      groupedReservation.id,
+    );
+    return;
+  }
+  final seenSeries = <String>{};
+  for (final reservation in list) {
+    final seriesId = reservation.seriesId;
+    if (seriesId != null && seriesId.isNotEmpty) {
+      final key = '${reservation.facilityId}:$seriesId';
+      if (seenSeries.add(key)) {
+        await controller.deleteReservationSeries(
+            reservation.facilityId, seriesId);
+      }
+      continue;
+    }
+    await controller.deleteReservation(reservation.facilityId, reservation.id);
+  }
+}
+
 bool _canManageReservation(
     FacilitiesController controller, Reservation reservation) {
   final currentUser = controller.currentUser;
@@ -300,11 +565,9 @@ Future<void> _showReservationDetails(
   );
 }
 
-Future<void> _showEditReservationDialog(
-  BuildContext context,
-  FacilitiesController controller,
-  Reservation reservation,
-) async {
+Future<void> _showEditReservationDialog(BuildContext context,
+    FacilitiesController controller, Reservation reservation,
+    {List<Reservation>? groupReservations}) async {
   final facility = _facilityForReservation(controller, reservation);
   if (facility == null) return;
   await showDialog<bool>(
@@ -314,6 +577,7 @@ Future<void> _showEditReservationDialog(
       facilities: controller.facilities,
       preselectedFacility: facility,
       existingReservation: reservation,
+      existingGroupReservations: groupReservations,
     ),
   );
 }
@@ -339,17 +603,22 @@ Future<void> _showEditSeriesDialog(
   );
 }
 
-Future<void> _deleteReservationWithConfirmation(
-  BuildContext context,
-  FacilitiesController controller,
-  Reservation reservation,
-) async {
+Future<void> _deleteReservationWithConfirmation(BuildContext context,
+    FacilitiesController controller, Reservation reservation,
+    {List<Reservation>? groupReservations}) async {
+  final group = groupReservations == null
+      ? _reservationClusterForReservation(controller, reservation)
+      : _ReservationCluster(groupReservations);
   final confirmed = await showDialog<bool>(
     context: context,
     builder: (context) => AlertDialog(
-      title: const Text('Delete reservation?'),
-      content: const Text(
-        'This will remove this reservation from the room schedule.',
+      title: Text(
+        group.isMultiRoom ? 'Delete reservation group?' : 'Delete reservation?',
+      ),
+      content: Text(
+        group.isMultiRoom
+            ? 'This will remove the linked reservations from every selected room.'
+            : 'This will remove this reservation from the room schedule.',
       ),
       actions: [
         TextButton(
@@ -367,7 +636,11 @@ Future<void> _deleteReservationWithConfirmation(
     ),
   );
   if (confirmed != true) return;
-  await controller.deleteReservation(reservation.facilityId, reservation.id);
+  if (group.isMultiRoom) {
+    await _deleteReservationCluster(controller, group.reservations);
+  } else {
+    await controller.deleteReservation(reservation.facilityId, reservation.id);
+  }
 }
 
 Future<void> _deleteSeriesWithConfirmation(
@@ -602,6 +875,229 @@ class _FacilitiesHeader extends StatelessWidget {
   }
 }
 
+class _FacilityDialog extends StatefulWidget {
+  const _FacilityDialog({
+    required this.controller,
+    this.existingFacility,
+  });
+
+  final FacilitiesController controller;
+  final Facility? existingFacility;
+
+  @override
+  State<_FacilityDialog> createState() => _FacilityDialogState();
+}
+
+class _FacilityDialogState extends State<_FacilityDialog> {
+  static const _newBuildingValue = '__new_building__';
+
+  final _formKey = GlobalKey<FormState>();
+  final _nameController = TextEditingController();
+  final _buildingController = TextEditingController();
+  final _descriptionController = TextEditingController();
+  bool _saving = false;
+  bool _addingNewBuilding = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final existing = widget.existingFacility;
+    if (existing == null) return;
+    _nameController.text = existing.name;
+    _buildingController.text = existing.building ?? '';
+    _descriptionController.text = existing.description ?? '';
+  }
+
+  @override
+  void dispose() {
+    _nameController.dispose();
+    _buildingController.dispose();
+    _descriptionController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isEditing = widget.existingFacility != null;
+    final existingBuildings = widget.controller.buildings;
+    final currentBuilding = _buildingController.text.trim();
+    final buildingOptions = <String>[
+      ...existingBuildings,
+      if (currentBuilding.isNotEmpty &&
+          !existingBuildings.contains(currentBuilding))
+        currentBuilding,
+    ];
+
+    return Dialog(
+      insetPadding: const EdgeInsets.all(24),
+      backgroundColor: Colors.transparent,
+      child: Container(
+        constraints: const BoxConstraints(maxWidth: 520),
+        decoration: BoxDecoration(
+          color: _kSurface,
+          borderRadius: BorderRadius.circular(RhythmTokens.radiusL),
+          border: Border.all(color: _kBorder),
+          boxShadow: RhythmTokens.shadow,
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Form(
+            key: _formKey,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  isEditing ? 'Edit space' : 'Add space',
+                  style: const TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.w700,
+                    color: _kTextPrimary,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  isEditing
+                      ? 'Update the room details used for scheduling and overview filters.'
+                      : 'Create a room or facility so reservations can be scheduled against it.',
+                  style: const TextStyle(
+                    fontSize: 13,
+                    height: 1.45,
+                    color: _kTextSecondary,
+                  ),
+                ),
+                const SizedBox(height: 20),
+                TextFormField(
+                  controller: _nameController,
+                  decoration: _overviewDecoration('Room name *'),
+                  validator: (value) => value == null || value.trim().isEmpty
+                      ? 'Room name is required'
+                      : null,
+                ),
+                const SizedBox(height: 14),
+                DropdownButtonFormField<String>(
+                  initialValue: _addingNewBuilding
+                      ? _newBuildingValue
+                      : (currentBuilding.isEmpty ? null : currentBuilding),
+                  decoration: _overviewDecoration('Building'),
+                  items: [
+                    const DropdownMenuItem<String>(
+                      value: null,
+                      child: Text('No building'),
+                    ),
+                    ...buildingOptions.map(
+                      (building) => DropdownMenuItem<String>(
+                        value: building,
+                        child: Text(building),
+                      ),
+                    ),
+                    const DropdownMenuItem<String>(
+                      value: _newBuildingValue,
+                      child: Text('Add new building'),
+                    ),
+                  ],
+                  onChanged: (value) {
+                    setState(() {
+                      if (value == _newBuildingValue) {
+                        _addingNewBuilding = true;
+                        _buildingController.clear();
+                      } else {
+                        _addingNewBuilding = false;
+                        _buildingController.text = value ?? '';
+                      }
+                    });
+                  },
+                ),
+                if (_addingNewBuilding) ...[
+                  const SizedBox(height: 14),
+                  TextFormField(
+                    controller: _buildingController,
+                    decoration: _overviewDecoration('New building name'),
+                    validator: (value) {
+                      if (!_addingNewBuilding) return null;
+                      return value == null || value.trim().isEmpty
+                          ? 'Building name is required'
+                          : null;
+                    },
+                  ),
+                ],
+                const SizedBox(height: 14),
+                TextFormField(
+                  controller: _descriptionController,
+                  decoration: _overviewDecoration('Description'),
+                  maxLines: 3,
+                ),
+                const SizedBox(height: 20),
+                Row(
+                  children: [
+                    TextButton(
+                      onPressed:
+                          _saving ? null : () => Navigator.of(context).pop(),
+                      child: const Text('Cancel'),
+                    ),
+                    const Spacer(),
+                    FilledButton(
+                      onPressed: _saving ? null : _submit,
+                      child: _saving
+                          ? const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            )
+                          : Text(isEditing ? 'Save changes' : 'Create space'),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _submit() async {
+    if (!(_formKey.currentState?.validate() ?? false)) return;
+    setState(() => _saving = true);
+    try {
+      final name = _nameController.text.trim();
+      final building = _buildingController.text.trim();
+      final description = _descriptionController.text.trim();
+      final existing = widget.existingFacility;
+      if (existing == null) {
+        await widget.controller.createFacility(
+          name: name,
+          building: building,
+          description: description,
+        );
+      } else {
+        await widget.controller.updateFacility(
+          existing.id,
+          name: name,
+          building: building,
+          description: description,
+        );
+      }
+      if (!mounted) return;
+      Navigator.of(context).pop();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(existing == null ? 'Space created' : 'Space updated'),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _saving = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error: $error')),
+      );
+    }
+  }
+}
+
 class _ModeSwitcher extends StatelessWidget {
   const _ModeSwitcher({
     required this.mode,
@@ -677,14 +1173,16 @@ class _FacilitiesOverview extends StatelessWidget {
             .where((facility) => facility.building == selectedBuilding)
             .toList();
     final reservations = controller.overviewReservations;
-    final groupedReservations = <String, Map<int, List<Reservation>>>{};
+    final groupedReservations = <String, Map<String, List<Reservation>>>{};
     for (final reservation in reservations) {
       final start = _parseReservationDateTime(reservation.startTime);
       final key = start == null
           ? 'No Date'
           : '${_formatDateShort(start)}, ${start.year}';
       final roomGroups = groupedReservations.putIfAbsent(key, () => {});
-      roomGroups.putIfAbsent(reservation.facilityId, () => []).add(reservation);
+      roomGroups.putIfAbsent(_reservationGroupKey(reservation), () => []).add(
+            reservation,
+          );
     }
     final setupReservations = reservations
         .where((reservation) => reservation.notes?.trim().isNotEmpty == true)
@@ -695,216 +1193,237 @@ class _FacilitiesOverview extends StatelessWidget {
         .where((reservation) => !reservation.createdByRhythm)
         .toList();
 
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
-      child: Column(
-        children: [
-          Container(
-            padding: const EdgeInsets.all(18),
-            decoration: BoxDecoration(
-              color: _kSurface.withValues(alpha: 0.96),
-              borderRadius: BorderRadius.circular(RhythmTokens.radiusL),
-              border: Border.all(color: _kBorder),
-              boxShadow: RhythmTokens.shadow,
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+    final bodyChildren = <Widget>[
+      Container(
+        padding: const EdgeInsets.all(18),
+        decoration: BoxDecoration(
+          color: _kSurface.withValues(alpha: 0.96),
+          borderRadius: BorderRadius.circular(RhythmTokens.radiusL),
+          border: Border.all(color: _kBorder),
+          boxShadow: RhythmTokens.shadow,
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
               children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            'Facilities overview',
-                            style: TextStyle(
-                              fontSize: 18,
-                              fontWeight: FontWeight.w700,
-                              color: _kTextPrimary,
-                            ),
-                          ),
-                          const SizedBox(height: 4),
-                          Text(
-                            _formatRangeLabel(rangeStart, rangeEnd),
-                            style: const TextStyle(
-                              fontSize: 13,
-                              color: _kTextSecondary,
-                            ),
-                          ),
-                        ],
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'Facilities overview',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w700,
+                          color: _kTextPrimary,
+                        ),
                       ),
-                    ),
-                    Wrap(
-                      spacing: 10,
-                      runSpacing: 10,
-                      children: [
-                        _HeaderPill(
-                          icon: Icons.event_note_outlined,
-                          label:
-                              '${reservations.length} ${reservations.length == 1 ? 'reservation' : 'reservations'}',
+                      const SizedBox(height: 4),
+                      Text(
+                        _formatRangeLabel(rangeStart, rangeEnd),
+                        style: const TextStyle(
+                          fontSize: 13,
+                          color: _kTextSecondary,
                         ),
-                        _HeaderPill(
-                          icon: Icons.warning_amber_outlined,
-                          label:
-                              '${reservations.where((item) => item.isConflicted).length} conflicts',
-                        ),
-                      ],
-                    ),
-                  ],
+                      ),
+                    ],
+                  ),
                 ),
-                const SizedBox(height: 18),
                 Wrap(
-                  spacing: 12,
-                  runSpacing: 12,
-                  crossAxisAlignment: WrapCrossAlignment.center,
+                  spacing: 10,
+                  runSpacing: 10,
                   children: [
-                    SegmentedButton<_OverviewRange>(
-                      segments: const [
-                        ButtonSegment(
-                          value: _OverviewRange.day,
-                          label: Text('Day'),
-                        ),
-                        ButtonSegment(
-                          value: _OverviewRange.week,
-                          label: Text('Week'),
-                        ),
-                        ButtonSegment(
-                          value: _OverviewRange.month,
-                          label: Text('Month'),
-                        ),
-                      ],
-                      selected: {range},
-                      onSelectionChanged: (selection) {
-                        if (selection.isEmpty) return;
-                        onRangeChanged(selection.first);
-                      },
-                      showSelectedIcon: false,
+                    _HeaderPill(
+                      icon: Icons.event_note_outlined,
+                      label:
+                          '${reservations.length} ${reservations.length == 1 ? 'reservation' : 'reservations'}',
                     ),
-                    OutlinedButton.icon(
-                      onPressed: () => onShiftRange(-1),
-                      icon: const Icon(Icons.chevron_left),
-                      label: const Text('Back'),
-                    ),
-                    OutlinedButton.icon(
-                      onPressed: () => onShiftRange(1),
-                      icon: const Icon(Icons.chevron_right),
-                      label: const Text('Forward'),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 14),
-                Wrap(
-                  spacing: 12,
-                  runSpacing: 12,
-                  children: [
-                    SizedBox(
-                      width: 190,
-                      child: DropdownButtonFormField<String?>(
-                        isExpanded: true,
-                        value: selectedBuilding,
-                        decoration: _overviewDecoration('Building'),
-                        dropdownColor: _kSurface,
-                        items: [
-                          const DropdownMenuItem<String?>(
-                            value: null,
-                            child: Text('All buildings'),
-                          ),
-                          ...controller.buildings.map(
-                            (building) => DropdownMenuItem<String?>(
-                              value: building,
-                              child: Text(building),
-                            ),
-                          ),
-                        ],
-                        onChanged: (value) => onBuildingChanged(value),
-                      ),
-                    ),
-                    SizedBox(
-                      width: 220,
-                      child: DropdownButtonFormField<int?>(
-                        isExpanded: true,
-                        value: selectedFacilityId,
-                        decoration: _overviewDecoration('Room'),
-                        dropdownColor: _kSurface,
-                        items: [
-                          const DropdownMenuItem<int?>(
-                            value: null,
-                            child: Text('All rooms'),
-                          ),
-                          ...facilities.map(
-                            (facility) => DropdownMenuItem<int?>(
-                              value: facility.id,
-                              child: Text(facility.name),
-                            ),
-                          ),
-                        ],
-                        onChanged: (value) => onFacilityChanged(value),
-                      ),
-                    ),
-                    SizedBox(
-                      width: 180,
-                      child: _OverviewDateField(
-                        label: 'Start',
-                        value: _formatDatePickerValue(rangeStart),
-                        onTap: onPickStartDate,
-                      ),
-                    ),
-                    SizedBox(
-                      width: 180,
-                      child: _OverviewDateField(
-                        label: 'End',
-                        value: _formatDatePickerValue(rangeEnd),
-                        onTap: onPickEndDate,
-                      ),
+                    _HeaderPill(
+                      icon: Icons.warning_amber_outlined,
+                      label:
+                          '${reservations.where((item) => item.isConflicted).length} conflicts',
                     ),
                   ],
                 ),
               ],
             ),
-          ),
-          const SizedBox(height: 16),
-          _OverviewSignalPanel(
-            controller: controller,
-            reservations: reservations,
-            setupReservations: setupReservations,
-            conflictedReservations: conflictedReservations,
-            externallyManagedReservations: externallyManagedReservations,
-          ),
-          const SizedBox(height: 16),
-          if (controller.overviewErrorMessage != null)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 12),
-              child: ErrorBanner(
-                message: controller.overviewErrorMessage!,
-                onRetry: controller.reloadReservationOverview,
-              ),
+            const SizedBox(height: 18),
+            Wrap(
+              spacing: 12,
+              runSpacing: 12,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              children: [
+                SegmentedButton<_OverviewRange>(
+                  segments: const [
+                    ButtonSegment(
+                      value: _OverviewRange.day,
+                      label: Text('Day'),
+                    ),
+                    ButtonSegment(
+                      value: _OverviewRange.week,
+                      label: Text('Week'),
+                    ),
+                    ButtonSegment(
+                      value: _OverviewRange.month,
+                      label: Text('Month'),
+                    ),
+                  ],
+                  selected: {range},
+                  onSelectionChanged: (selection) {
+                    if (selection.isEmpty) return;
+                    onRangeChanged(selection.first);
+                  },
+                  showSelectedIcon: false,
+                ),
+                OutlinedButton.icon(
+                  onPressed: () => onShiftRange(-1),
+                  icon: const Icon(Icons.chevron_left),
+                  label: const Text('Back'),
+                ),
+                OutlinedButton.icon(
+                  onPressed: () => onShiftRange(1),
+                  icon: const Icon(Icons.chevron_right),
+                  label: const Text('Forward'),
+                ),
+              ],
             ),
-          Expanded(
-            child: controller.isLoadingOverview && reservations.isEmpty
-                ? const _LoadingState()
-                : reservations.isEmpty
-                    ? const _EmptyFacilitiesState(
-                        title: 'No reservations in this range',
-                        body:
-                            'Try another date range, room, or building to review upcoming facility usage.',
-                      )
-                    : ListView(
-                        children: groupedReservations.entries.map((entry) {
-                          return Padding(
-                            padding: const EdgeInsets.only(bottom: 16),
-                            child: _OverviewDayGroup(
-                              title: entry.key,
-                              reservationsByFacility: entry.value,
-                              facilities: controller.facilities,
-                              controller: controller,
-                            ),
-                          );
-                        }).toList(),
+            const SizedBox(height: 14),
+            Wrap(
+              spacing: 12,
+              runSpacing: 12,
+              children: [
+                SizedBox(
+                  width: 190,
+                  child: DropdownButtonFormField<String?>(
+                    isExpanded: true,
+                    value: selectedBuilding,
+                    decoration: _overviewDecoration('Building'),
+                    dropdownColor: _kSurface,
+                    items: [
+                      const DropdownMenuItem<String?>(
+                        value: null,
+                        child: Text('All buildings'),
                       ),
-          ),
-        ],
+                      ...controller.buildings.map(
+                        (building) => DropdownMenuItem<String?>(
+                          value: building,
+                          child: Text(building),
+                        ),
+                      ),
+                    ],
+                    onChanged: (value) => onBuildingChanged(value),
+                  ),
+                ),
+                SizedBox(
+                  width: 220,
+                  child: DropdownButtonFormField<int?>(
+                    isExpanded: true,
+                    value: selectedFacilityId,
+                    decoration: _overviewDecoration('Room'),
+                    dropdownColor: _kSurface,
+                    items: [
+                      const DropdownMenuItem<int?>(
+                        value: null,
+                        child: Text('All rooms'),
+                      ),
+                      ...facilities.map(
+                        (facility) => DropdownMenuItem<int?>(
+                          value: facility.id,
+                          child: Text(facility.name),
+                        ),
+                      ),
+                    ],
+                    onChanged: (value) => onFacilityChanged(value),
+                  ),
+                ),
+                SizedBox(
+                  width: 180,
+                  child: _OverviewDateField(
+                    label: 'Start',
+                    value: _formatDatePickerValue(rangeStart),
+                    onTap: onPickStartDate,
+                  ),
+                ),
+                SizedBox(
+                  width: 180,
+                  child: _OverviewDateField(
+                    label: 'End',
+                    value: _formatDatePickerValue(rangeEnd),
+                    onTap: onPickEndDate,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
       ),
+      const SizedBox(height: 16),
+      _OverviewSignalPanel(
+        controller: controller,
+        reservations: reservations,
+        setupReservations: setupReservations,
+        conflictedReservations: conflictedReservations,
+        externallyManagedReservations: externallyManagedReservations,
+      ),
+      const SizedBox(height: 16),
+      if (controller.overviewErrorMessage != null)
+        Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: ErrorBanner(
+            message: controller.overviewErrorMessage!,
+            onRetry: controller.reloadReservationOverview,
+          ),
+        ),
+    ];
+
+    if (controller.isLoadingOverview && reservations.isEmpty) {
+      bodyChildren.add(
+        const Padding(
+          padding: EdgeInsets.only(top: 24),
+          child: SizedBox(height: 320, child: _LoadingState()),
+        ),
+      );
+    } else if (reservations.isEmpty) {
+      bodyChildren.add(
+        const Padding(
+          padding: EdgeInsets.only(top: 24),
+          child: _EmptyFacilitiesState(
+            title: 'No reservations in this range',
+            body:
+                'Try another date range, room, or building to review upcoming facility usage.',
+          ),
+        ),
+      );
+    } else {
+      bodyChildren.addAll(
+        groupedReservations.entries.map((entry) {
+          final clusters =
+              entry.value.values.map(_ReservationCluster.new).toList()
+                ..sort((a, b) {
+                  final aStart = a.start;
+                  final bStart = b.start;
+                  if (aStart == null && bStart == null) return 0;
+                  if (aStart == null) return 1;
+                  if (bStart == null) return -1;
+                  return aStart.compareTo(bStart);
+                });
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 16),
+            child: _OverviewDayGroup(
+              title: entry.key,
+              clusters: clusters,
+              facilities: controller.facilities,
+              controller: controller,
+            ),
+          );
+        }),
+      );
+    }
+
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
+      children: bodyChildren,
     );
   }
 }
@@ -1001,6 +1520,92 @@ class _RecurringInfoCard extends StatelessWidget {
   }
 }
 
+class _GroupedReservationSummaryDialog extends StatelessWidget {
+  const _GroupedReservationSummaryDialog({
+    required this.title,
+    required this.createdRooms,
+    required this.updatedRooms,
+    required this.removedRooms,
+    required this.conflictMessages,
+  });
+
+  final String title;
+  final List<String> createdRooms;
+  final List<String> updatedRooms;
+  final List<String> removedRooms;
+  final List<String> conflictMessages;
+
+  @override
+  Widget build(BuildContext context) {
+    final hasChanges = createdRooms.isNotEmpty ||
+        updatedRooms.isNotEmpty ||
+        removedRooms.isNotEmpty ||
+        conflictMessages.isNotEmpty;
+    return AlertDialog(
+      title: Text(title),
+      content: SizedBox(
+        width: 440,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (createdRooms.isNotEmpty) ...[
+                Text(
+                  'Created in: ${createdRooms.join(', ')}',
+                ),
+                const SizedBox(height: 8),
+              ],
+              if (updatedRooms.isNotEmpty) ...[
+                Text(
+                  'Updated in: ${updatedRooms.join(', ')}',
+                ),
+                const SizedBox(height: 8),
+              ],
+              if (removedRooms.isNotEmpty) ...[
+                Text(
+                  'Removed from: ${removedRooms.join(', ')}',
+                ),
+                const SizedBox(height: 8),
+              ],
+              if (conflictMessages.isNotEmpty) ...[
+                const Text(
+                  'Conflicts',
+                  style: TextStyle(fontWeight: FontWeight.w700),
+                ),
+                const SizedBox(height: 8),
+                ...conflictMessages.map(
+                  (message) => Padding(
+                    padding: const EdgeInsets.only(bottom: 6),
+                    child: Text(
+                      message,
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: _kTextSecondary,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+              if (!hasChanges)
+                const Text(
+                  'No changes were applied.',
+                  style: TextStyle(fontSize: 12, color: _kTextSecondary),
+                ),
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Close'),
+        ),
+      ],
+    );
+  }
+}
+
 class _RecurringSummaryDialog extends StatelessWidget {
   const _RecurringSummaryDialog({required this.result});
 
@@ -1030,7 +1635,7 @@ class _RecurringSummaryDialog extends StatelessWidget {
                 (conflict) => Padding(
                   padding: const EdgeInsets.only(bottom: 6),
                   child: Text(
-                    '${conflict.date}: ${conflict.reason}',
+                    _formatRecurringConflictMessage(context, conflict),
                     style: const TextStyle(
                       fontSize: 12,
                       color: _kTextSecondary,
@@ -1347,13 +1952,13 @@ class _AttentionReservationRow extends StatelessWidget {
 class _OverviewDayGroup extends StatelessWidget {
   const _OverviewDayGroup({
     required this.title,
-    required this.reservationsByFacility,
+    required this.clusters,
     required this.facilities,
     required this.controller,
   });
 
   final String title;
-  final Map<int, List<Reservation>> reservationsByFacility;
+  final List<_ReservationCluster> clusters;
   final List<Facility> facilities;
   final FacilitiesController controller;
 
@@ -1382,119 +1987,13 @@ class _OverviewDayGroup extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 12),
-          ...reservationsByFacility.entries.map((entry) {
-            final facility = facilitiesById[entry.key];
-            final reservations = entry.value
-              ..sort(
-                  (a, b) => (a.startTime ?? '').compareTo(b.startTime ?? ''));
-            return Padding(
+          ...clusters.map(
+            (cluster) => Padding(
               padding: const EdgeInsets.only(bottom: 14),
-              child: _OverviewRoomSection(
-                facility: facility,
-                reservations: reservations,
+              child: _OverviewReservationClusterRow(
+                cluster: cluster,
                 controller: controller,
-              ),
-            );
-          }),
-        ],
-      ),
-    );
-  }
-}
-
-class _OverviewRoomSection extends StatelessWidget {
-  const _OverviewRoomSection({
-    required this.facility,
-    required this.reservations,
-    required this.controller,
-  });
-
-  final Facility? facility;
-  final List<Reservation> reservations;
-  final FacilitiesController controller;
-
-  @override
-  Widget build(BuildContext context) {
-    final conflictCount =
-        reservations.where((item) => item.isConflicted).length;
-    final setupCount = reservations
-        .where((item) => item.notes?.trim().isNotEmpty == true)
-        .length;
-
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: _kCanvas.withValues(alpha: 0.35),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: _kBorder),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      facility?.name ??
-                          'Room #${reservations.first.facilityId}',
-                      style: const TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w700,
-                        color: _kTextPrimary,
-                      ),
-                    ),
-                    if (facility?.building?.isNotEmpty == true)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 2),
-                        child: Text(
-                          facility!.building!,
-                          style: const TextStyle(
-                            fontSize: 12,
-                            color: _kTextSecondary,
-                          ),
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  _InlineInfoPill(
-                    label:
-                        '${reservations.length} ${reservations.length == 1 ? 'booking' : 'bookings'}',
-                  ),
-                  if (setupCount > 0)
-                    const _InlineInfoPill(
-                      label: 'Setup notes',
-                      tone: _OverviewMetricTone.attention,
-                    ),
-                  if (conflictCount > 0)
-                    _InlineInfoPill(
-                      label:
-                          '$conflictCount ${conflictCount == 1 ? 'conflict' : 'conflicts'}',
-                      tone: _OverviewMetricTone.danger,
-                    ),
-                ],
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          ...reservations.map(
-            (reservation) => Padding(
-              padding: const EdgeInsets.only(bottom: 10),
-              child: _OverviewReservationRow(
-                reservation: reservation,
-                facility: facility,
-                controller: controller,
-                onTap: () =>
-                    _showReservationDetails(context, controller, reservation),
+                facilitiesById: facilitiesById,
               ),
             ),
           ),
@@ -1555,31 +2054,46 @@ class _InlineInfoPill extends StatelessWidget {
   }
 }
 
-class _OverviewReservationRow extends StatelessWidget {
-  const _OverviewReservationRow({
-    required this.reservation,
-    required this.facility,
+class _OverviewReservationClusterRow extends StatelessWidget {
+  const _OverviewReservationClusterRow({
+    required this.cluster,
     required this.controller,
-    required this.onTap,
+    required this.facilitiesById,
   });
 
-  final Reservation reservation;
-  final Facility? facility;
+  final _ReservationCluster cluster;
   final FacilitiesController controller;
-  final VoidCallback onTap;
+  final Map<int, Facility> facilitiesById;
 
   @override
   Widget build(BuildContext context) {
-    final start = _parseReservationDateTime(reservation.startTime);
-    final end = _parseReservationDateTime(reservation.endTime);
-    final currentFacility = facility;
-    final series = _seriesForReservation(controller, reservation);
-    final canManage = _canManageReservation(controller, reservation);
-    final facilityLabel = currentFacility == null
-        ? reservation.requesterName
-        : '${currentFacility.name}${currentFacility.building?.isNotEmpty == true ? ' · ${currentFacility.building}' : ''}';
+    final start = cluster.start;
+    final end = cluster.end;
+    final representative = cluster.representative;
+    final canManage = _canManageReservation(controller, representative);
+    final series = cluster.hasRecurringSeries && !cluster.isMultiRoom
+        ? _seriesForReservation(controller, representative)
+        : null;
+    final roomNames = cluster.roomNames(controller);
+    final roomLabel = roomNames.join(', ');
+    final buildingNames = cluster.reservations
+        .map((reservation) => facilitiesById[reservation.facilityId]?.building)
+        .whereType<String>()
+        .where((building) => building.isNotEmpty)
+        .toSet()
+        .toList()
+      ..sort();
+    final facilityLabel = buildingNames.isEmpty
+        ? roomLabel
+        : '$roomLabel · ${buildingNames.join(', ')}';
+    final conflictCount =
+        cluster.reservations.where((item) => item.isConflicted).length;
+    final noteCount = cluster.reservations
+        .where((item) => item.notes?.trim().isNotEmpty == true)
+        .length;
+
     return InkWell(
-      onTap: onTap,
+      onTap: () => _showReservationDetails(context, controller, representative),
       borderRadius: BorderRadius.circular(16),
       child: Container(
         padding: const EdgeInsets.all(14),
@@ -1614,7 +2128,7 @@ class _OverviewReservationRow extends StatelessWidget {
                     children: [
                       Expanded(
                         child: Text(
-                          reservation.title,
+                          cluster.title,
                           style: const TextStyle(
                             fontSize: 13,
                             fontWeight: FontWeight.w700,
@@ -1622,11 +2136,30 @@ class _OverviewReservationRow extends StatelessWidget {
                           ),
                         ),
                       ),
+                      if (cluster.isMultiRoom) ...[
+                        const SizedBox(width: 8),
+                        _InlineInfoPill(
+                          label: '${cluster.reservations.length} rooms',
+                        ),
+                      ],
                       if (series != null) ...[
                         const SizedBox(width: 8),
                         _SeriesBadge(series: series),
                       ],
-                      if (!reservation.createdByRhythm) ...[
+                      if (cluster.isPartiallyConflicted) ...[
+                        const SizedBox(width: 8),
+                        const _InlineInfoPill(
+                          label: 'Partial conflict',
+                          tone: _OverviewMetricTone.danger,
+                        ),
+                      ] else if (cluster.isConflicted) ...[
+                        const SizedBox(width: 8),
+                        const _InlineInfoPill(
+                          label: 'Conflict',
+                          tone: _OverviewMetricTone.danger,
+                        ),
+                      ],
+                      if (!cluster.createdByRhythm) ...[
                         const SizedBox(width: 8),
                         const _InlineInfoPill(
                           label: 'External',
@@ -1645,26 +2178,25 @@ class _OverviewReservationRow extends StatelessWidget {
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    'Requester: ${reservation.requesterName}',
+                    'Requester: ${cluster.requesterName}',
                     style: const TextStyle(
                       fontSize: 12,
                       color: _kTextSecondary,
                     ),
                   ),
-                  if (reservation.createdByName != null &&
-                      reservation.createdByName != reservation.requesterName)
+                  if (cluster.createdByName != null &&
+                      cluster.createdByName != cluster.requesterName)
                     Padding(
                       padding: const EdgeInsets.only(top: 2),
                       child: Text(
-                        'Booked by ${reservation.createdByName}',
+                        'Booked by ${cluster.createdByName}',
                         style: const TextStyle(
                           fontSize: 12,
                           color: _kTextSecondary,
                         ),
                       ),
                     ),
-                  if (reservation.notes != null &&
-                      reservation.notes!.isNotEmpty)
+                  if (cluster.notes != null && cluster.notes!.isNotEmpty)
                     Padding(
                       padding: const EdgeInsets.only(top: 8),
                       child: Container(
@@ -1676,11 +2208,22 @@ class _OverviewReservationRow extends StatelessWidget {
                           border: Border.all(color: const Color(0xFFF4D6A3)),
                         ),
                         child: Text(
-                          reservation.notes!,
+                          cluster.notes!,
                           style: const TextStyle(
                             fontSize: 12,
                             color: _kTextSecondary,
                           ),
+                        ),
+                      ),
+                    ),
+                  if (cluster.isMultiRoom || noteCount > 1 || conflictCount > 1)
+                    Padding(
+                      padding: const EdgeInsets.only(top: 8),
+                      child: Text(
+                        'Rooms: $roomLabel',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: _kTextSecondary,
                         ),
                       ),
                     ),
@@ -1691,7 +2234,7 @@ class _OverviewReservationRow extends StatelessWidget {
             Column(
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
-                if (reservation.isConflicted)
+                if (cluster.isConflicted)
                   Container(
                     padding:
                         const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
@@ -1700,9 +2243,9 @@ class _OverviewReservationRow extends StatelessWidget {
                       borderRadius: BorderRadius.circular(999),
                       border: Border.all(color: const Color(0xFFF4C7C7)),
                     ),
-                    child: const Text(
-                      'Conflict',
-                      style: TextStyle(
+                    child: Text(
+                      cluster.isPartiallyConflicted ? 'Partial' : 'Conflict',
+                      style: const TextStyle(
                         fontSize: 11,
                         fontWeight: FontWeight.w700,
                         color: Color(0xFFB42318),
@@ -1718,37 +2261,51 @@ class _OverviewReservationRow extends StatelessWidget {
                         await _showReservationDetails(
                           context,
                           controller,
-                          reservation,
+                          representative,
                         );
                         break;
                       case _OverviewAction.edit:
-                        if (series != null) {
+                        if (cluster.isMultiRoom) {
+                          await _showEditReservationDialog(
+                            context,
+                            controller,
+                            representative,
+                            groupReservations: cluster.reservations,
+                          );
+                        } else if (series != null) {
                           await _showEditSeriesDialog(
                             context,
                             controller,
-                            reservation,
+                            representative,
                             series,
                           );
                         } else {
                           await _showEditReservationDialog(
                             context,
                             controller,
-                            reservation,
+                            representative,
                           );
                         }
                         break;
                       case _OverviewAction.delete:
-                        if (series != null) {
+                        if (cluster.isMultiRoom) {
+                          await _deleteReservationWithConfirmation(
+                            context,
+                            controller,
+                            representative,
+                            groupReservations: cluster.reservations,
+                          );
+                        } else if (series != null) {
                           await _deleteSeriesWithConfirmation(
                             context,
                             controller,
-                            reservation,
+                            representative,
                           );
                         } else {
                           await _deleteReservationWithConfirmation(
                             context,
                             controller,
-                            reservation,
+                            representative,
                           );
                         }
                         break;
@@ -1763,16 +2320,22 @@ class _OverviewReservationRow extends StatelessWidget {
                       PopupMenuItem(
                         value: _OverviewAction.edit,
                         child: Text(
-                          series != null ? 'Edit series' : 'Edit reservation',
+                          cluster.isMultiRoom
+                              ? 'Edit reservation group'
+                              : series != null
+                                  ? 'Edit series'
+                                  : 'Edit reservation',
                         ),
                       ),
                     if (canManage)
                       PopupMenuItem(
                         value: _OverviewAction.delete,
                         child: Text(
-                          series != null
-                              ? 'Delete series'
-                              : 'Delete reservation',
+                          cluster.isMultiRoom
+                              ? 'Delete reservation group'
+                              : series != null
+                                  ? 'Delete series'
+                                  : 'Delete reservation',
                         ),
                       ),
                   ],
@@ -1851,26 +2414,86 @@ class _FacilitiesGrid extends StatelessWidget {
       );
     }
 
-    return Padding(
+    return ListView(
       padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
-      child: GridView.builder(
-        gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-          maxCrossAxisExtent: 380,
-          crossAxisSpacing: 16,
-          mainAxisSpacing: 16,
-          childAspectRatio: 1.18,
+      children: [
+        if (controller.isFacilitiesManager) ...[
+          _RoomsManagerBar(controller: controller),
+          const SizedBox(height: 16),
+        ],
+        GridView.builder(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+            maxCrossAxisExtent: 380,
+            crossAxisSpacing: 16,
+            mainAxisSpacing: 16,
+            childAspectRatio: 1.18,
+          ),
+          itemCount: controller.facilities.length,
+          itemBuilder: (context, i) {
+            final facility = controller.facilities[i];
+            final reservations =
+                controller.reservationsByFacility[facility.id] ?? [];
+            return _FacilityCard(
+              facility: facility,
+              reservations: reservations,
+              controller: controller,
+            );
+          },
         ),
-        itemCount: controller.facilities.length,
-        itemBuilder: (context, i) {
-          final facility = controller.facilities[i];
-          final reservations =
-              controller.reservationsByFacility[facility.id] ?? [];
-          return _FacilityCard(
-            facility: facility,
-            reservations: reservations,
-            controller: controller,
-          );
-        },
+      ],
+    );
+  }
+}
+
+class _RoomsManagerBar extends StatelessWidget {
+  const _RoomsManagerBar({required this.controller});
+
+  final FacilitiesController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: _kSurface.withValues(alpha: 0.96),
+        borderRadius: BorderRadius.circular(RhythmTokens.radiusL),
+        border: Border.all(color: _kBorder),
+        boxShadow: RhythmTokens.shadow,
+      ),
+      child: Row(
+        children: [
+          const Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Room management',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                    color: _kTextPrimary,
+                  ),
+                ),
+                SizedBox(height: 4),
+                Text(
+                  'Add, edit, or remove rooms used for Facilities reservations.',
+                  style: TextStyle(fontSize: 12, color: _kTextSecondary),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 16),
+          OutlinedButton.icon(
+            onPressed: () =>
+                (context.findAncestorStateOfType<_FacilitiesViewState>())
+                    ?._showCreateFacilityDialog(context, controller),
+            icon: const Icon(Icons.meeting_room_outlined, size: 18),
+            label: const Text('Add Space'),
+          ),
+        ],
       ),
     );
   }
@@ -1925,6 +2548,55 @@ class _FacilityCard extends StatelessWidget {
                 ),
                 const SizedBox(width: 10),
                 _ReservationBadge(count: reservations.length),
+                if (controller.isFacilitiesManager) ...[
+                  const SizedBox(width: 8),
+                  PopupMenuButton<_FacilityAction>(
+                    onSelected: (value) async {
+                      final viewState = context
+                          .findAncestorStateOfType<_FacilitiesViewState>();
+                      if (viewState == null) return;
+                      switch (value) {
+                        case _FacilityAction.edit:
+                          await viewState._showEditFacilityDialog(
+                            context,
+                            controller,
+                            facility,
+                          );
+                          break;
+                        case _FacilityAction.delete:
+                          await viewState._deleteFacilityWithConfirmation(
+                            context,
+                            controller,
+                            facility,
+                          );
+                          break;
+                      }
+                    },
+                    itemBuilder: (context) => const [
+                      PopupMenuItem(
+                        value: _FacilityAction.edit,
+                        child: Text('Edit space'),
+                      ),
+                      PopupMenuItem(
+                        value: _FacilityAction.delete,
+                        child: Text('Delete space'),
+                      ),
+                    ],
+                    child: Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: _kSurface.withValues(alpha: 0.6),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: _kBorder),
+                      ),
+                      child: const Icon(
+                        Icons.more_horiz,
+                        size: 18,
+                        color: _kTextSecondary,
+                      ),
+                    ),
+                  ),
+                ],
               ],
             ),
             const SizedBox(height: 8),
@@ -2069,6 +2741,8 @@ class _FacilityCard extends StatelessWidget {
     );
   }
 }
+
+enum _FacilityAction { edit, delete }
 
 class _AmbientOrb extends StatelessWidget {
   const _AmbientOrb({required this.color, required this.size});
@@ -2454,10 +3128,18 @@ class _ReservationDetailDialogState extends State<_ReservationDetailDialog> {
     final facility = _facilityForReservation(widget.controller, reservation);
     final start = _parseReservationDateTime(reservation.startTime);
     final end = _parseReservationDateTime(reservation.endTime);
+    final cluster = _reservationClusterForReservation(
+      widget.controller,
+      reservation,
+    );
     final canManage = _canManageReservation(widget.controller, reservation);
+    final roomNames = cluster.roomNames(widget.controller);
+    final isGroup = cluster.isMultiRoom;
+    final hasRecurringSeries = cluster.hasRecurringSeries;
 
     return AlertDialog(
-      title: const Text('Reservation details'),
+      title:
+          Text(isGroup ? 'Reservation group details' : 'Reservation details'),
       content: SizedBox(
         width: 480,
         child: Column(
@@ -2478,6 +3160,13 @@ class _ReservationDetailDialogState extends State<_ReservationDetailDialog> {
                   : '${facility.name}${facility.building?.isNotEmpty == true ? ' · ${facility.building}' : ''}',
               style: const TextStyle(fontSize: 13, color: _kTextSecondary),
             ),
+            if (isGroup) ...[
+              const SizedBox(height: 8),
+              Text(
+                'Rooms: ${roomNames.join(', ')}',
+                style: const TextStyle(fontSize: 13, color: _kTextSecondary),
+              ),
+            ],
             const SizedBox(height: 8),
             if (start != null)
               Text(
@@ -2503,7 +3192,12 @@ class _ReservationDetailDialogState extends State<_ReservationDetailDialog> {
               ),
             ],
             const SizedBox(height: 12),
-            if (reservation.seriesId != null)
+            if (isGroup)
+              _GroupedReservationInfoPanel(
+                controller: widget.controller,
+                reservations: cluster.reservations,
+              )
+            else if (reservation.seriesId != null)
               _series == null && _loadingSeries
                   ? const LinearProgressIndicator(minHeight: 2)
                   : _series != null
@@ -2517,31 +3211,30 @@ class _ReservationDetailDialogState extends State<_ReservationDetailDialog> {
         ),
       ),
       actions: [
-        if (reservation.seriesId == null && canManage)
+        if (canManage)
           TextButton(
             onPressed: _editReservation,
-            child: const Text('Edit reservation'),
+            child: Text(
+              isGroup
+                  ? 'Edit reservation group'
+                  : hasRecurringSeries
+                      ? 'Edit entire series'
+                      : 'Edit reservation',
+            ),
           ),
-        if (reservation.seriesId == null && canManage)
+        if (canManage)
           TextButton(
             onPressed: _deleteReservation,
             style: TextButton.styleFrom(
               foregroundColor: const Color(0xFFB42318),
             ),
-            child: const Text('Delete reservation'),
-          ),
-        if (reservation.seriesId != null && canManage)
-          TextButton(
-            onPressed: _loadingSeries ? null : _editEntireSeries,
-            child: const Text('Edit entire series'),
-          ),
-        if (reservation.seriesId != null && canManage)
-          TextButton(
-            onPressed: _loadingSeries ? null : _deleteEntireSeries,
-            style: TextButton.styleFrom(
-              foregroundColor: const Color(0xFFB42318),
+            child: Text(
+              isGroup
+                  ? 'Delete reservation group'
+                  : hasRecurringSeries
+                      ? 'Delete entire series'
+                      : 'Delete reservation',
             ),
-            child: const Text('Delete entire series'),
           ),
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
@@ -2552,9 +3245,51 @@ class _ReservationDetailDialogState extends State<_ReservationDetailDialog> {
   }
 
   Future<void> _editReservation() async {
-    final facility =
-        _facilityForReservation(widget.controller, widget.reservation);
+    final cluster = _reservationClusterForReservation(
+      widget.controller,
+      widget.reservation,
+    );
+    final facility = _facilityForReservation(
+      widget.controller,
+      widget.reservation,
+    );
     if (facility == null) return;
+    if (cluster.isMultiRoom) {
+      final saved = await showDialog<bool>(
+        context: context,
+        builder: (_) => _ReservationDialog(
+          controller: widget.controller,
+          facilities: widget.controller.facilities,
+          preselectedFacility: facility,
+          existingReservation: widget.reservation,
+          existingGroupReservations: cluster.reservations,
+        ),
+      );
+      if (saved == true && mounted) {
+        Navigator.of(context).pop();
+      }
+      return;
+    }
+    if (widget.reservation.seriesId != null) {
+      final series = _series ??
+          _seriesForReservation(widget.controller, widget.reservation);
+      if (series == null) return;
+      final saved = await showDialog<bool>(
+        context: context,
+        builder: (_) => _ReservationDialog(
+          controller: widget.controller,
+          facilities: widget.controller.facilities,
+          preselectedFacility: facility,
+          existingReservation: widget.reservation,
+          existingSeries: series,
+          isEditingSeries: true,
+        ),
+      );
+      if (saved == true && mounted) {
+        Navigator.of(context).pop();
+      }
+      return;
+    }
     final saved = await showDialog<bool>(
       context: context,
       builder: (_) => _ReservationDialog(
@@ -2570,6 +3305,44 @@ class _ReservationDetailDialogState extends State<_ReservationDetailDialog> {
   }
 
   Future<void> _deleteReservation() async {
+    final cluster = _reservationClusterForReservation(
+      widget.controller,
+      widget.reservation,
+    );
+    if (cluster.isMultiRoom) {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Delete reservation group?'),
+          content: const Text(
+            'This will remove the linked reservations from every selected room.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              style: FilledButton.styleFrom(
+                backgroundColor: const Color(0xFFB42318),
+              ),
+              child: const Text('Delete'),
+            ),
+          ],
+        ),
+      );
+      if (confirmed != true) return;
+      await _deleteReservationCluster(widget.controller, cluster.reservations);
+      if (mounted) {
+        Navigator.of(context).pop();
+      }
+      return;
+    }
+    if (widget.reservation.seriesId != null) {
+      await _deleteEntireSeries();
+      return;
+    }
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -2602,31 +3375,41 @@ class _ReservationDetailDialogState extends State<_ReservationDetailDialog> {
     }
   }
 
-  Future<void> _editEntireSeries() async {
-    final seriesId = widget.reservation.seriesId;
-    if (seriesId == null) return;
-    final series =
-        _series ?? _seriesForReservation(widget.controller, widget.reservation);
-    final facility =
-        _facilityForReservation(widget.controller, widget.reservation);
-    if (series == null || facility == null) return;
-    final saved = await showDialog<bool>(
-      context: context,
-      builder: (_) => _ReservationDialog(
-        controller: widget.controller,
-        facilities: widget.controller.facilities,
-        preselectedFacility: facility,
-        existingReservation: widget.reservation,
-        existingSeries: series,
-        isEditingSeries: true,
-      ),
-    );
-    if (saved == true && mounted) {
-      Navigator.of(context).pop();
-    }
-  }
-
   Future<void> _deleteEntireSeries() async {
+    final cluster = _reservationClusterForReservation(
+      widget.controller,
+      widget.reservation,
+    );
+    if (cluster.isMultiRoom) {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Delete reservation group?'),
+          content: const Text(
+            'This will delete every linked room reservation in the group.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              style: FilledButton.styleFrom(
+                backgroundColor: const Color(0xFFB42318),
+              ),
+              child: const Text('Delete group'),
+            ),
+          ],
+        ),
+      );
+      if (confirmed != true) return;
+      await _deleteReservationCluster(widget.controller, cluster.reservations);
+      if (mounted) {
+        Navigator.of(context).pop();
+      }
+      return;
+    }
     final seriesId = widget.reservation.seriesId;
     if (seriesId == null) return;
     final confirmed = await showDialog<bool>(
@@ -2685,6 +3468,55 @@ class _SeriesInfoPanel extends StatelessWidget {
   }
 }
 
+class _GroupedReservationInfoPanel extends StatelessWidget {
+  const _GroupedReservationInfoPanel({
+    required this.controller,
+    required this.reservations,
+  });
+
+  final FacilitiesController controller;
+  final List<Reservation> reservations;
+
+  @override
+  Widget build(BuildContext context) {
+    final roomNames = _roomNamesForReservations(controller, reservations);
+    final conflicts =
+        reservations.where((reservation) => reservation.isConflicted).length;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: _kCanvas.withValues(alpha: 0.45),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: _kBorder),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Grouped reservation',
+            style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            'Rooms: ${roomNames.join(', ')}',
+            style: const TextStyle(fontSize: 12, color: _kTextSecondary),
+          ),
+          if (conflicts > 0) ...[
+            const SizedBox(height: 4),
+            Text(
+              conflicts == reservations.length
+                  ? 'All grouped rooms are flagged with conflicts.'
+                  : 'Some grouped rooms are flagged with conflicts.',
+              style: const TextStyle(fontSize: 12, color: _kTextSecondary),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Reservation Dialog
 // ---------------------------------------------------------------------------
@@ -2695,6 +3527,7 @@ class _ReservationDialog extends StatefulWidget {
     required this.facilities,
     this.preselectedFacility,
     this.existingReservation,
+    this.existingGroupReservations,
     this.existingSeries,
     this.isEditingSeries = false,
   });
@@ -2703,6 +3536,7 @@ class _ReservationDialog extends StatefulWidget {
   final List<Facility> facilities;
   final Facility? preselectedFacility;
   final Reservation? existingReservation;
+  final List<Reservation>? existingGroupReservations;
   final ReservationSeries? existingSeries;
   final bool isEditingSeries;
 
@@ -2719,7 +3553,7 @@ class _ReservationDialogState extends State<_ReservationDialog> {
   final _endTimeDisplayController = TextEditingController();
   final _notesController = TextEditingController();
 
-  Facility? _selectedFacility;
+  final Set<int> _selectedFacilityIds = {};
   DateTime? _selectedDate;
   TimeOfDay? _selectedStartTime;
   TimeOfDay? _selectedEndTime;
@@ -2730,24 +3564,47 @@ class _ReservationDialogState extends State<_ReservationDialog> {
   bool _saving = false;
 
   bool get _isEditingSingleReservation =>
-      widget.existingReservation != null && !widget.isEditingSeries;
+      widget.existingReservation != null &&
+      !widget.isEditingSeries &&
+      (widget.existingGroupReservations?.length ?? 0) <= 1;
 
-  List<Reservation> get _selectedFacilityReservations =>
-      _selectedFacility == null
-          ? const []
-          : widget.controller.reservationsByFacility[_selectedFacility!.id] ??
-              const [];
+  bool get _isMultiRoomMode =>
+      _selectedFacilityIds.length > 1 ||
+      (widget.existingGroupReservations?.length ?? 0) > 1;
+
+  List<Facility> get _selectedFacilities {
+    if (_selectedFacilityIds.isEmpty) return const [];
+    final facilities = widget.facilities
+        .where((facility) => _selectedFacilityIds.contains(facility.id))
+        .toList()
+      ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+    return facilities;
+  }
+
+  List<Reservation> get _selectedFacilityReservations {
+    if (_selectedFacilityIds.isEmpty) return const [];
+    final reservations = <Reservation>[];
+    for (final facilityId in _selectedFacilityIds) {
+      reservations.addAll(
+        widget.controller.reservationsByFacility[facilityId] ?? const [],
+      );
+    }
+    return reservations;
+  }
 
   List<Reservation> get _reservationsForSelectedDate {
     final selectedDate = _selectedDate;
     if (selectedDate == null) return const [];
     final reservationId = widget.existingReservation?.id;
-    final seriesId = widget.existingSeries?.id;
+    final groupIds = widget.existingGroupReservations
+            ?.map((reservation) => reservation.id)
+            .toSet() ??
+        const <int>{};
     final sameDay = _selectedFacilityReservations.where((reservation) {
       if (reservationId != null && reservation.id == reservationId) {
         return false;
       }
-      if (seriesId != null && reservation.seriesId == seriesId) {
+      if (groupIds.contains(reservation.id)) {
         return false;
       }
       final start = _parseReservationDateTime(reservation.startTime);
@@ -2756,7 +3613,7 @@ class _ReservationDialogState extends State<_ReservationDialog> {
           start.month == selectedDate.month &&
           start.day == selectedDate.day;
     }).toList()
-      ..sort((a, b) => (a.startTime ?? '').compareTo(b.startTime ?? ''));
+      ..sort(_compareReservationStartTimes);
     return sameDay;
   }
 
@@ -2799,8 +3656,17 @@ class _ReservationDialogState extends State<_ReservationDialog> {
   @override
   void initState() {
     super.initState();
-    _selectedFacility = widget.preselectedFacility ??
-        (widget.facilities.isNotEmpty ? widget.facilities.first : null);
+    final existingGroupReservations = widget.existingGroupReservations;
+    if (existingGroupReservations != null &&
+        existingGroupReservations.isNotEmpty) {
+      _selectedFacilityIds.addAll(
+        existingGroupReservations.map((reservation) => reservation.facilityId),
+      );
+    } else if (widget.preselectedFacility != null) {
+      _selectedFacilityIds.add(widget.preselectedFacility!.id);
+    } else if (widget.facilities.isNotEmpty) {
+      _selectedFacilityIds.add(widget.facilities.first.id);
+    }
     final reservation = widget.existingReservation;
     final series = widget.existingSeries;
     _titleController.text = reservation?.title ?? series?.title ?? '';
@@ -2843,6 +3709,25 @@ class _ReservationDialogState extends State<_ReservationDialog> {
         }
       }
     }
+    if (widget.existingGroupReservations != null &&
+        widget.existingGroupReservations!
+            .any((reservation) => reservation.seriesId != null)) {
+      _isRecurring = true;
+      final seriesReservation = widget.existingGroupReservations!.firstWhere(
+        (reservation) => reservation.seriesId != null,
+      );
+      final cachedSeries = _seriesForReservation(
+        widget.controller,
+        seriesReservation,
+      );
+      if (cachedSeries != null) {
+        _recurrenceType =
+            _recurrenceTypeFromApiValue(cachedSeries.recurrenceType);
+        _recurrenceEndDate = cachedSeries.endDate == null
+            ? null
+            : DateTime.tryParse(cachedSeries.endDate!);
+      }
+    }
   }
 
   @override
@@ -2859,6 +3744,17 @@ class _ReservationDialogState extends State<_ReservationDialog> {
   @override
   Widget build(BuildContext context) {
     final isTopLevel = widget.preselectedFacility == null;
+    final selectedRoomCount = _selectedFacilityIds.length;
+    final existingGroupCount = widget.existingGroupReservations?.length ?? 0;
+    final chipLabel = widget.isEditingSeries
+        ? 'Edit series'
+        : _isEditingSingleReservation
+            ? 'Edit booking'
+            : (existingGroupCount > 1 || selectedRoomCount > 1)
+                ? '${selectedRoomCount > 1 ? selectedRoomCount : existingGroupCount} rooms'
+                : isTopLevel
+                    ? 'New booking'
+                    : widget.preselectedFacility!.name;
 
     return Dialog(
       insetPadding: const EdgeInsets.all(24),
@@ -2898,8 +3794,10 @@ class _ReservationDialogState extends State<_ReservationDialog> {
                             const SizedBox(height: 6),
                             Text(
                               isTopLevel
-                                  ? 'Choose a facility and capture the booking details in one pass.'
-                                  : 'Capture the booking details for ${widget.preselectedFacility!.name}.',
+                                  ? 'Choose one or more rooms and capture the booking details in one pass.'
+                                  : _selectedFacilityIds.length > 1
+                                      ? 'Capture the booking details for ${_selectedFacilityIds.length} selected rooms.'
+                                      : 'Capture the booking details for ${widget.preselectedFacility!.name}.',
                               style: const TextStyle(
                                 fontSize: 13,
                                 height: 1.45,
@@ -2921,13 +3819,7 @@ class _ReservationDialogState extends State<_ReservationDialog> {
                           border: Border.all(color: _kBorder),
                         ),
                         child: Text(
-                          widget.isEditingSeries
-                              ? 'Edit series'
-                              : _isEditingSingleReservation
-                                  ? 'Edit booking'
-                                  : isTopLevel
-                                      ? 'New booking'
-                                      : widget.preselectedFacility!.name,
+                          chipLabel,
                           style: const TextStyle(
                             fontSize: 11,
                             fontWeight: FontWeight.w600,
@@ -2938,25 +3830,18 @@ class _ReservationDialogState extends State<_ReservationDialog> {
                     ],
                   ),
                   const SizedBox(height: 20),
-                  if (isTopLevel && widget.facilities.isNotEmpty) ...[
-                    DropdownButtonFormField<Facility>(
-                      value: _selectedFacility,
-                      decoration: _fieldDecoration(context, 'Facility'),
-                      dropdownColor: _kSurface,
-                      items: widget.facilities
-                          .map(
-                            (f) => DropdownMenuItem(
-                              value: f,
-                              child: Text(f.name),
-                            ),
-                          )
-                          .toList(),
-                      onChanged: (v) => setState(() => _selectedFacility = v),
-                      validator: (v) =>
-                          v == null ? 'Please select a facility' : null,
-                    ),
-                    const SizedBox(height: 14),
-                  ],
+                  _RoomSelectionSection(
+                    facilities: widget.facilities,
+                    selectedFacilityIds: _selectedFacilityIds,
+                    enabled: widget.existingReservation == null ||
+                        ((widget.existingGroupReservations?.length ?? 0) > 1),
+                    onChanged: (ids) => setState(() {
+                      _selectedFacilityIds
+                        ..clear()
+                        ..addAll(ids);
+                    }),
+                  ),
+                  const SizedBox(height: 14),
                   TextFormField(
                     controller: _titleController,
                     autofocus: !isTopLevel,
@@ -2984,19 +3869,19 @@ class _ReservationDialogState extends State<_ReservationDialog> {
                         : null,
                   ),
                   const SizedBox(height: 14),
-                  if (_selectedFacility != null)
+                  if (_selectedFacilities.isNotEmpty)
                     FacilitiesAvailabilityPanel(
-                      facility: _selectedFacility!,
+                      controller: widget.controller,
+                      selectedFacilities: _selectedFacilities,
                       selectedDate: _selectedDate,
                       selectedStartTime: _selectedStartTime,
                       selectedEndTime: _selectedEndTime,
-                      dayReservations: _reservationsForSelectedDate,
-                      conflictingReservations: _overlappingReservations,
                       showRecurringHint:
                           (_isRecurring || widget.isEditingSeries) &&
                               !_isEditingSingleReservation,
                     ),
-                  if (_selectedFacility != null) const SizedBox(height: 14),
+                  if (_selectedFacilities.isNotEmpty)
+                    const SizedBox(height: 14),
                   Row(
                     children: [
                       Expanded(
@@ -3206,7 +4091,13 @@ class _ReservationDialogState extends State<_ReservationDialog> {
 
   Future<void> _submit() async {
     if (!(_formKey.currentState?.validate() ?? false)) return;
-    if (_selectedFacility == null) return;
+    final selectedFacilities = _selectedFacilities;
+    if (selectedFacilities.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Select at least one room.')),
+      );
+      return;
+    }
     if (_selectedDate == null ||
         _selectedStartTime == null ||
         _selectedEndTime == null) {
@@ -3255,7 +4146,23 @@ class _ReservationDialogState extends State<_ReservationDialog> {
           currentUser != null && trimmedRequester == currentUser.name
               ? currentUser.id
               : null;
-      final isRecurring = (_isRecurring || widget.isEditingSeries) &&
+      final existingReservations = <Reservation>[
+        if (widget.existingReservation != null) widget.existingReservation!,
+        if (widget.existingGroupReservations != null)
+          ...widget.existingGroupReservations!.where(
+            (reservation) =>
+                widget.existingReservation == null ||
+                reservation.id != widget.existingReservation!.id,
+          ),
+      ];
+      final existingReservationsByFacility = {
+        for (final reservation in existingReservations)
+          reservation.facilityId: reservation,
+      };
+      final isRecurring = (_isRecurring ||
+              widget.isEditingSeries ||
+              existingReservations
+                  .any((reservation) => reservation.seriesId != null)) &&
           !_isEditingSingleReservation;
       final isCustomSeries = _recurrenceType == _RecurrenceType.custom;
       final seriesEndDate = isCustomSeries
@@ -3264,7 +4171,9 @@ class _ReservationDialogState extends State<_ReservationDialog> {
               ? _dateOnly(_recurrenceEndDate!)
               : null;
       final notes = _notesController.text.trim();
-      if (_overlappingReservations.isNotEmpty && !isRecurring) {
+      if (_overlappingReservations.isNotEmpty &&
+          !isRecurring &&
+          !_isMultiRoomMode) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text(
@@ -3275,9 +4184,141 @@ class _ReservationDialogState extends State<_ReservationDialog> {
         setState(() => _saving = false);
         return;
       }
+      final selectedFacilityIds = selectedFacilities.map((f) => f.id).toSet();
+      final createdRooms = <String>[];
+      final updatedRooms = <String>[];
+      final removedRooms = <String>[];
+      final conflictMessages = <String>[];
+
+      if (_isMultiRoomMode || existingReservations.length > 1) {
+        final selectedIds =
+            selectedFacilities.map((facility) => facility.id).toList();
+        final existingIds = existingReservationsByFacility.keys.toSet();
+        if (isRecurring) {
+          final recurringResult =
+              widget.isEditingSeries && widget.existingSeries != null
+                  ? await widget.controller.updateReservationSeries(
+                      selectedFacilities.first.id,
+                      widget.existingSeries!.id,
+                      title: _titleController.text.trim(),
+                      requesterName: trimmedRequester,
+                      requesterUserId: requesterUserId,
+                      facilityIds: selectedIds,
+                      startTime: startAt.toIso8601String(),
+                      endTime: endAt.toIso8601String(),
+                      startDate: _dateOnly(_selectedDate!),
+                      endDate: seriesEndDate,
+                      customDates: isCustomSeries
+                          ? _effectiveCustomDates.map(_dateOnly).toList()
+                          : null,
+                      recurrenceType: _recurrenceTypeApiValue(_recurrenceType),
+                      recurrenceInterval:
+                          _recurrenceType == _RecurrenceType.weekly ? 1 : null,
+                      notes: notes,
+                    )
+                  : await widget.controller.createReservationSeries(
+                      selectedFacilities.first.id,
+                      title: _titleController.text.trim(),
+                      requesterName: trimmedRequester,
+                      requesterUserId: requesterUserId,
+                      facilityIds: selectedIds,
+                      startTime: startAt.toIso8601String(),
+                      endTime: endAt.toIso8601String(),
+                      startDate: _dateOnly(_selectedDate!),
+                      endDate: seriesEndDate!,
+                      customDates: isCustomSeries
+                          ? _effectiveCustomDates.map(_dateOnly).toList()
+                          : null,
+                      recurrenceType: _recurrenceTypeApiValue(_recurrenceType),
+                      recurrenceInterval:
+                          _recurrenceType == _RecurrenceType.weekly ? 1 : null,
+                      notes: notes,
+                    );
+          if (mounted) {
+            navigator.pop(widget.isEditingSeries ? true : null);
+            await showDialog<void>(
+              context: navigator.context,
+              builder: (_) => _RecurringSummaryDialog(result: recurringResult),
+            );
+          }
+          return;
+        }
+
+        final mutationResult = existingReservations.isNotEmpty
+            ? await widget.controller.updateReservation(
+                selectedFacilities.first.id,
+                widget.existingReservation!.id,
+                title: _titleController.text.trim(),
+                requesterName: trimmedRequester,
+                requesterUserId: requesterUserId,
+                facilityIds: selectedIds,
+                startTime: startAt.toIso8601String(),
+                endTime: endAt.toIso8601String(),
+                notes: notes,
+              )
+            : await widget.controller.createReservation(
+                selectedFacilities.first.id,
+                title: _titleController.text.trim(),
+                requesterName: trimmedRequester,
+                requesterUserId: requesterUserId,
+                facilityIds: selectedIds,
+                startTime: startAt.toIso8601String(),
+                endTime: endAt.toIso8601String(),
+                notes: notes,
+              );
+
+        final resultIds = mutationResult.reservations
+            .map((reservation) => reservation.facilityId)
+            .toSet();
+        for (final facility in selectedFacilities) {
+          if (!resultIds.contains(facility.id)) continue;
+          if (existingIds.contains(facility.id)) {
+            updatedRooms.add(facility.name);
+          } else {
+            createdRooms.add(facility.name);
+          }
+        }
+        for (final existing in existingReservations) {
+          if (!selectedFacilityIds.contains(existing.facilityId)) {
+            removedRooms.add(
+              widget.facilities
+                  .firstWhere(
+                    (facility) => facility.id == existing.facilityId,
+                    orElse: () => Facility(
+                      id: existing.facilityId,
+                      name: 'Room #${existing.facilityId}',
+                    ),
+                  )
+                  .name,
+            );
+          }
+        }
+        conflictMessages.addAll(
+          mutationResult.conflicts.map(
+            (conflict) =>
+                '${conflict.facilityName ?? 'Room #${conflict.facilityId ?? '?'}'}: ${conflict.reason}',
+          ),
+        );
+
+        if (mounted) {
+          navigator.pop(existingReservations.isNotEmpty ? true : null);
+          await showDialog<void>(
+            context: navigator.context,
+            builder: (_) => _GroupedReservationSummaryDialog(
+              title: 'Reservation group saved',
+              createdRooms: createdRooms,
+              updatedRooms: updatedRooms,
+              removedRooms: removedRooms,
+              conflictMessages: conflictMessages,
+            ),
+          );
+        }
+        return;
+      }
+
       if (_isEditingSingleReservation) {
         await widget.controller.updateReservation(
-          _selectedFacility!.id,
+          selectedFacilities.first.id,
           widget.existingReservation!.id,
           title: _titleController.text.trim(),
           requesterName: trimmedRequester,
@@ -3287,8 +4328,8 @@ class _ReservationDialogState extends State<_ReservationDialog> {
           notes: notes,
         );
       } else if (widget.isEditingSeries) {
-        await widget.controller.updateReservationSeries(
-          _selectedFacility!.id,
+        final recurringResult = await widget.controller.updateReservationSeries(
+          selectedFacilities.first.id,
           widget.existingSeries!.id,
           title: _titleController.text.trim(),
           requesterName: trimmedRequester,
@@ -3305,9 +4346,17 @@ class _ReservationDialogState extends State<_ReservationDialog> {
               _recurrenceType == _RecurrenceType.weekly ? 1 : null,
           notes: notes,
         );
+        if (mounted) {
+          navigator.pop(true);
+          await showDialog<void>(
+            context: navigator.context,
+            builder: (_) => _RecurringSummaryDialog(result: recurringResult),
+          );
+        }
+        return;
       } else if (isRecurring) {
         final recurringResult = await widget.controller.createReservationSeries(
-          _selectedFacility!.id,
+          selectedFacilities.first.id,
           title: _titleController.text.trim(),
           requesterName: trimmedRequester,
           requesterUserId: requesterUserId,
@@ -3333,7 +4382,7 @@ class _ReservationDialogState extends State<_ReservationDialog> {
         return;
       } else {
         await widget.controller.createReservation(
-          _selectedFacility!.id,
+          selectedFacilities.first.id,
           title: _titleController.text.trim(),
           requesterName: trimmedRequester,
           requesterUserId: requesterUserId,
@@ -3446,6 +4495,7 @@ class _ReservationDialogState extends State<_ReservationDialog> {
     final picked = await showTimePicker(
       context: context,
       initialTime: _selectedStartTime ?? TimeOfDay.now(),
+      initialEntryMode: TimePickerEntryMode.input,
     );
     if (picked == null) return;
     setState(() {
@@ -3461,6 +4511,7 @@ class _ReservationDialogState extends State<_ReservationDialog> {
     final picked = await showTimePicker(
       context: context,
       initialTime: initialTime,
+      initialEntryMode: TimePickerEntryMode.input,
     );
     if (picked == null) return;
     setState(() {
@@ -3497,24 +4548,164 @@ class _ReservationDialogState extends State<_ReservationDialog> {
   }
 }
 
+class _RoomSelectionSection extends StatelessWidget {
+  const _RoomSelectionSection({
+    required this.facilities,
+    required this.selectedFacilityIds,
+    required this.onChanged,
+    this.enabled = true,
+  });
+
+  final List<Facility> facilities;
+  final Set<int> selectedFacilityIds;
+  final ValueChanged<Set<int>> onChanged;
+  final bool enabled;
+
+  @override
+  Widget build(BuildContext context) {
+    if (facilities.isEmpty) {
+      return const Text(
+        'No rooms are available yet.',
+        style: TextStyle(fontSize: 12, color: _kTextSecondary),
+      );
+    }
+
+    final grouped = <String, List<Facility>>{};
+    for (final facility in facilities) {
+      final building = facility.building?.trim();
+      final key = (building == null || building.isEmpty)
+          ? 'Unassigned building'
+          : building;
+      grouped.putIfAbsent(key, () => []).add(facility);
+    }
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: _kCanvas.withValues(alpha: 0.45),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: _kBorder),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Expanded(
+                child: Text(
+                  'Rooms *',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: _kTextPrimary,
+                  ),
+                ),
+              ),
+              Text(
+                '${selectedFacilityIds.length} selected',
+                style: const TextStyle(fontSize: 12, color: _kTextSecondary),
+              ),
+              const SizedBox(width: 8),
+              TextButton(
+                onPressed: enabled
+                    ? () => onChanged(facilities.map((f) => f.id).toSet())
+                    : null,
+                child: const Text('Select all'),
+              ),
+              TextButton(
+                onPressed: enabled ? () => onChanged(<int>{}) : null,
+                child: const Text('Clear'),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          const Text(
+            'Check one room for a normal booking or several rooms for a linked reservation group.',
+            style: TextStyle(fontSize: 12, color: _kTextSecondary),
+          ),
+          const SizedBox(height: 12),
+          ...grouped.entries.map(
+            (entry) => Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: ExpansionTile(
+                initiallyExpanded: grouped.length == 1,
+                tilePadding: EdgeInsets.zero,
+                childrenPadding: const EdgeInsets.only(left: 6, top: 4),
+                title: Text(
+                  entry.key,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: _kTextPrimary,
+                  ),
+                ),
+                subtitle: Text(
+                  '${entry.value.length} ${entry.value.length == 1 ? 'room' : 'rooms'}',
+                  style: const TextStyle(fontSize: 11, color: _kTextSecondary),
+                ),
+                children: [
+                  ...entry.value.map(
+                    (facility) => CheckboxListTile(
+                      value: selectedFacilityIds.contains(facility.id),
+                      onChanged: enabled
+                          ? (checked) {
+                              final next = Set<int>.from(selectedFacilityIds);
+                              if (checked == true) {
+                                next.add(facility.id);
+                              } else {
+                                next.remove(facility.id);
+                              }
+                              onChanged(next);
+                            }
+                          : null,
+                      dense: true,
+                      contentPadding: EdgeInsets.zero,
+                      controlAffinity: ListTileControlAffinity.leading,
+                      title: Text(
+                        facility.name,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: _kTextPrimary,
+                        ),
+                      ),
+                      subtitle: Text(
+                        facility.description?.isNotEmpty == true
+                            ? facility.description!
+                            : 'Add this room to the reservation group',
+                        style: const TextStyle(
+                          fontSize: 11,
+                          color: _kTextSecondary,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class FacilitiesAvailabilityPanel extends StatelessWidget {
   const FacilitiesAvailabilityPanel({
     super.key,
-    required this.facility,
+    required this.controller,
+    required this.selectedFacilities,
     required this.selectedDate,
     required this.selectedStartTime,
     required this.selectedEndTime,
-    required this.dayReservations,
-    required this.conflictingReservations,
     required this.showRecurringHint,
   });
 
-  final Facility facility;
+  final FacilitiesController controller;
+  final List<Facility> selectedFacilities;
   final DateTime? selectedDate;
   final TimeOfDay? selectedStartTime;
   final TimeOfDay? selectedEndTime;
-  final List<Reservation> dayReservations;
-  final List<Reservation> conflictingReservations;
   final bool showRecurringHint;
 
   @override
@@ -3522,7 +4713,23 @@ class FacilitiesAvailabilityPanel extends StatelessWidget {
     final hasSelectedSlot = selectedDate != null &&
         selectedStartTime != null &&
         selectedEndTime != null;
-    final hasConflict = conflictingReservations.isNotEmpty;
+    final roomStatuses = selectedFacilities
+        .map(
+          (facility) => _RoomAvailabilityStatus(
+            facility: facility,
+            dayReservations: _dayReservationsForFacility(facility),
+            conflictingReservations:
+                _conflictingReservationsForFacility(facility),
+          ),
+        )
+        .toList();
+    final hasConflict =
+        roomStatuses.any((status) => status.conflictingReservations.isNotEmpty);
+    final conflictCount = roomStatuses.fold<int>(
+      0,
+      (sum, status) => sum + status.conflictingReservations.length,
+    );
+    final selectedRoomCount = selectedFacilities.length;
 
     return Container(
       width: double.infinity,
@@ -3538,7 +4745,9 @@ class FacilitiesAvailabilityPanel extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Availability for ${facility.name}',
+            selectedRoomCount == 1
+                ? 'Availability for ${selectedFacilities.first.name}'
+                : 'Availability for $selectedRoomCount selected rooms',
             style: const TextStyle(
               fontSize: 13,
               fontWeight: FontWeight.w700,
@@ -3549,7 +4758,9 @@ class FacilitiesAvailabilityPanel extends StatelessWidget {
           Text(
             selectedDate == null
                 ? 'Choose a date to see the room schedule.'
-                : '${_formatDatePickerValue(selectedDate!)} · ${dayReservations.length} existing ${dayReservations.length == 1 ? 'reservation' : 'reservations'}',
+                : selectedRoomCount == 1
+                    ? '${_formatDatePickerValue(selectedDate!)} · ${roomStatuses.first.dayReservations.length} existing ${roomStatuses.first.dayReservations.length == 1 ? 'reservation' : 'reservations'}'
+                    : '${_formatDatePickerValue(selectedDate!)} · $selectedRoomCount rooms selected',
             style: const TextStyle(fontSize: 12, color: _kTextSecondary),
           ),
           if (hasSelectedSlot) ...[
@@ -3570,8 +4781,10 @@ class FacilitiesAvailabilityPanel extends StatelessWidget {
               ),
               child: Text(
                 hasConflict
-                    ? 'Selected time overlaps ${conflictingReservations.length} existing ${conflictingReservations.length == 1 ? 'reservation' : 'reservations'}.'
-                    : 'Selected time is open for this room based on current reservations.',
+                    ? 'Selected time overlaps $conflictCount existing ${conflictCount == 1 ? 'reservation' : 'reservations'}.'
+                    : selectedRoomCount == 1
+                        ? 'Selected time is open for this room based on current reservations.'
+                        : 'Selected time is open for the selected rooms based on current reservations.',
                 style: TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.w600,
@@ -3589,20 +4802,170 @@ class FacilitiesAvailabilityPanel extends StatelessWidget {
               style: TextStyle(fontSize: 12, color: _kTextSecondary),
             ),
           ],
-          if (dayReservations.isNotEmpty) ...[
+          if (roomStatuses.isNotEmpty) ...[
             const SizedBox(height: 12),
-            ...dayReservations.map(
-              (reservation) => Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: _AvailabilityReservationRow(
-                  reservation: reservation,
-                  isConflicting: conflictingReservations.any(
-                    (item) => item.id == reservation.id,
-                  ),
+            ...roomStatuses.map(
+              (status) => Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: _RoomAvailabilitySummary(
+                  status: status,
                 ),
               ),
             ),
           ],
+        ],
+      ),
+    );
+  }
+
+  List<Reservation> _dayReservationsForFacility(Facility facility) {
+    final dateFilter = selectedDate;
+    if (dateFilter == null) return const [];
+    final reservations =
+        controller.reservationsByFacility[facility.id] ?? const [];
+    return reservations.where((reservation) {
+      final start = _parseReservationDateTime(reservation.startTime);
+      return start != null &&
+          start.year == dateFilter.year &&
+          start.month == dateFilter.month &&
+          start.day == dateFilter.day;
+    }).toList()
+      ..sort(_compareReservationStartTimes);
+  }
+
+  List<Reservation> _conflictingReservationsForFacility(Facility facility) {
+    final selectedDate = this.selectedDate;
+    final selectedStartTime = this.selectedStartTime;
+    final selectedEndTime = this.selectedEndTime;
+    if (selectedDate == null ||
+        selectedStartTime == null ||
+        selectedEndTime == null) {
+      return const [];
+    }
+    final selectedStart = DateTime(
+      selectedDate.year,
+      selectedDate.month,
+      selectedDate.day,
+      selectedStartTime.hour,
+      selectedStartTime.minute,
+    );
+    final selectedEnd = DateTime(
+      selectedDate.year,
+      selectedDate.month,
+      selectedDate.day,
+      selectedEndTime.hour,
+      selectedEndTime.minute,
+    );
+    if (!selectedEnd.isAfter(selectedStart)) return const [];
+    return _dayReservationsForFacility(facility).where((reservation) {
+      final start = _parseReservationDateTime(reservation.startTime);
+      final end = _parseReservationDateTime(reservation.endTime);
+      if (start == null || end == null) return false;
+      return start.isBefore(selectedEnd) && end.isAfter(selectedStart);
+    }).toList();
+  }
+}
+
+class _RoomAvailabilityStatus {
+  const _RoomAvailabilityStatus({
+    required this.facility,
+    required this.dayReservations,
+    required this.conflictingReservations,
+  });
+
+  final Facility facility;
+  final List<Reservation> dayReservations;
+  final List<Reservation> conflictingReservations;
+}
+
+class _RoomAvailabilitySummary extends StatelessWidget {
+  const _RoomAvailabilitySummary({
+    required this.status,
+  });
+
+  final _RoomAvailabilityStatus status;
+
+  @override
+  Widget build(BuildContext context) {
+    final facility = status.facility;
+    final reservations = status.dayReservations;
+    final conflicts = status.conflictingReservations;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: _kSurface.withValues(alpha: 0.4),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+            color: conflicts.isNotEmpty ? const Color(0xFFF4C7C7) : _kBorder),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.meeting_room_outlined,
+              size: 16, color: _kTextSecondary),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  facility.name,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: _kTextPrimary,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  facility.building?.isNotEmpty == true
+                      ? facility.building!
+                      : reservations.isEmpty
+                          ? 'No reservations on this date'
+                          : '${reservations.length} reservation${reservations.length == 1 ? '' : 's'} on this date',
+                  style: const TextStyle(
+                    fontSize: 11,
+                    color: _kTextSecondary,
+                  ),
+                ),
+                if (reservations.isNotEmpty) ...[
+                  const SizedBox(height: 6),
+                  ...reservations.map(
+                    (reservation) => Padding(
+                      padding: const EdgeInsets.only(bottom: 4),
+                      child: _AvailabilityReservationRow(
+                        reservation: reservation,
+                        isConflicting: conflicts.any(
+                          (item) => item.id == reservation.id,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          if (conflicts.isNotEmpty)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFDECEC),
+                borderRadius: BorderRadius.circular(999),
+                border: Border.all(color: const Color(0xFFF4C7C7)),
+              ),
+              child: Text(
+                conflicts.length == reservations.length
+                    ? 'Conflict'
+                    : 'Partial',
+                style: const TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w700,
+                  color: Color(0xFFB42318),
+                ),
+              ),
+            ),
         ],
       ),
     );

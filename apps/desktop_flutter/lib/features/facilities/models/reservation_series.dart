@@ -99,9 +99,11 @@ class ReservationSeriesCreationResult {
     required this.series,
     required this.createdReservations,
     required this.conflicts,
+    this.createdGroups = const [],
   });
 
   final ReservationSeries series;
+  final List<String> createdGroups;
   final List<Reservation> createdReservations;
   final List<ReservationSeriesConflict> conflicts;
 
@@ -109,6 +111,13 @@ class ReservationSeriesCreationResult {
     return ReservationSeriesCreationResult(
       series:
           ReservationSeries.fromJson(json['series'] as Map<String, dynamic>),
+      createdGroups: json['createdGroups'] is List
+          ? (json['createdGroups'] as List)
+              .map((item) =>
+                  _asString((item as Map<String, dynamic>)['id']) ?? '')
+              .where((id) => id.isNotEmpty)
+              .toList()
+          : const [],
       createdReservations: json['createdReservations'] is List
           ? (json['createdReservations'] as List)
               .map((item) => Reservation.fromJson(item as Map<String, dynamic>))

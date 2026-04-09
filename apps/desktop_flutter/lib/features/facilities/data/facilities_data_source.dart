@@ -37,6 +37,25 @@ class FacilitiesDataSource {
     return Facility.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
   }
 
+  Future<Facility> updateFacility(
+      int facilityId, Map<String, dynamic> body) async {
+    final response = await http.patch(
+      Uri.parse('$_baseUrl/facilities/$facilityId'),
+      headers: AuthSessionStore.headers(json: true),
+      body: jsonEncode(body),
+    );
+    assertOk(response);
+    return Facility.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
+  }
+
+  Future<void> deleteFacility(int facilityId) async {
+    final response = await http.delete(
+      Uri.parse('$_baseUrl/facilities/$facilityId'),
+      headers: AuthSessionStore.headers(),
+    );
+    assertOk(response);
+  }
+
   Future<List<Reservation>> getReservations(int facilityId) async {
     final response = await http.get(
       Uri.parse('$_baseUrl/facilities/$facilityId/reservations'),
@@ -104,7 +123,7 @@ class FacilitiesDataSource {
     );
   }
 
-  Future<Reservation> createReservation(
+  Future<ReservationMutationResult> createReservation(
       int facilityId, Map<String, dynamic> body) async {
     final response = await http.post(
       Uri.parse('$_baseUrl/facilities/$facilityId/reservations'),
@@ -112,7 +131,7 @@ class FacilitiesDataSource {
       body: jsonEncode(body),
     );
     assertOk(response);
-    return Reservation.fromJson(
+    return ReservationMutationResult.fromJson(
         jsonDecode(response.body) as Map<String, dynamic>);
   }
 
@@ -131,7 +150,7 @@ class FacilitiesDataSource {
     );
   }
 
-  Future<ReservationSeries> updateReservationSeries(
+  Future<ReservationSeriesCreationResult> updateReservationSeries(
     int facilityId,
     String seriesId,
     Map<String, dynamic> body,
@@ -143,14 +162,12 @@ class FacilitiesDataSource {
       body: jsonEncode(body),
     );
     assertOk(response);
-    final json = jsonDecode(response.body) as Map<String, dynamic>;
-    final seriesJson = json['series'];
-    return ReservationSeries.fromJson(
-      seriesJson is Map<String, dynamic> ? seriesJson : json,
+    return ReservationSeriesCreationResult.fromJson(
+      jsonDecode(response.body) as Map<String, dynamic>,
     );
   }
 
-  Future<Reservation> updateReservation(
+  Future<ReservationMutationResult> updateReservation(
     int facilityId,
     int reservationId,
     Map<String, dynamic> body,
@@ -161,7 +178,7 @@ class FacilitiesDataSource {
       body: jsonEncode(body),
     );
     assertOk(response);
-    return Reservation.fromJson(
+    return ReservationMutationResult.fromJson(
         jsonDecode(response.body) as Map<String, dynamic>);
   }
 

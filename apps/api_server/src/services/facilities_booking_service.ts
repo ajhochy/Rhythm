@@ -3,6 +3,7 @@ import { AppError } from '../errors/app_error';
 import type {
   CreateReservationSeriesDto,
   CreateReservationSeriesResult,
+  ReservationGroup,
   Reservation,
   ReservationSeries,
   ReservationSeriesDetail,
@@ -25,6 +26,11 @@ type ResolvedSeriesInput = {
   endDate: string | null;
 };
 
+type ResolvedSeriesFacilities = {
+  anchorFacilityId: number;
+  facilityIds: number[];
+};
+
 export class FacilitiesBookingService {
   private readonly repo = new FacilitiesRepository();
 
@@ -34,6 +40,10 @@ export class FacilitiesBookingService {
     const start = this.parseTime(data.start_time, 'start_time');
     const end = this.parseTime(data.end_time, 'end_time');
     this.assertValidTimeRange(start, end);
+    const facilities = this.resolveSeriesFacilities(
+      data.facility_ids,
+      data.facility_id,
+    );
 
     const resolved = this.resolveSeriesInput(data, {
       title: data.title,
@@ -51,7 +61,7 @@ export class FacilitiesBookingService {
     });
 
     const series = this.repo.createReservationSeries({
-      facility_id: data.facility_id,
+      facility_id: facilities.anchorFacilityId,
       title: resolved.title,
       requester_name: resolved.requesterName,
       requester_user_id: resolved.requesterUserId,
@@ -67,7 +77,7 @@ export class FacilitiesBookingService {
       end_date: resolved.endDate,
     });
 
-    return this.materializeSeries(series, start, end);
+    return this.materializeSeries(series, start, end, facilities.facilityIds);
   }
 
   getReservationSeries(seriesId: string): ReservationSeriesDetail {
@@ -80,6 +90,10 @@ export class FacilitiesBookingService {
   ): CreateReservationSeriesResult {
     const existingSeries = this.repo.findReservationSeriesById(seriesId);
     const existingReservations = this.repo.findReservationsBySeriesId(seriesId);
+    const facilities = this.resolveSeriesFacilities(
+      data.facility_ids,
+      this.resolveExistingSeriesFacilityId(existingReservations, existingSeries.facilityId),
+    );
 
     const start =
       data.start_time != null
@@ -128,6 +142,7 @@ export class FacilitiesBookingService {
 
     let updatedSeries = existingSeries;
     let createdReservations: Reservation[] = [];
+    let createdGroups: ReservationGroup[] = [];
     let conflicts: ReservationSeriesConflict[] = [];
 
     getDb().transaction(() => {
@@ -144,14 +159,21 @@ export class FacilitiesBookingService {
         start_date: resolved.startDate,
         end_date: resolved.endDate,
       });
-      this.repo.deleteReservationsBySeriesId(seriesId);
-      const materialized = this.materializeSeries(updatedSeries, start, end);
+      this.repo.deleteReservationGroupsBySeriesId(seriesId);
+      const materialized = this.materializeSeries(
+        updatedSeries,
+        start,
+        end,
+        facilities.facilityIds,
+      );
       createdReservations = materialized.createdReservations;
+      createdGroups = materialized.createdGroups;
       conflicts = materialized.conflicts;
     })();
 
     return {
       series: updatedSeries,
+      createdGroups,
       createdReservations,
       conflicts,
     };
@@ -162,10 +184,9 @@ export class FacilitiesBookingService {
     deletedReservations: Reservation[];
   } {
     let deletedSeries = this.repo.findReservationSeriesById(seriesId);
-    let deletedReservations: Reservation[] = [];
+    let deletedReservations: Reservation[] = this.repo.findReservationsBySeriesId(seriesId);
 
     getDb().transaction(() => {
-      deletedReservations = this.repo.deleteReservationsBySeriesId(seriesId);
       deletedSeries = this.repo.deleteReservationSeriesById(seriesId);
     })();
 
@@ -179,9 +200,11 @@ export class FacilitiesBookingService {
     series: ReservationSeries,
     start: Date,
     end: Date,
+    facilityIds: number[],
   ): CreateReservationSeriesResult {
     const occurrenceDates = this.computeSeriesDates(series);
     const createdReservations: Reservation[] = [];
+    const createdGroups: ReservationGroup[] = [];
     const conflicts: ReservationSeriesConflict[] = [];
     const durationMs = end.getTime() - start.getTime();
 
@@ -189,18 +212,28 @@ export class FacilitiesBookingService {
       const occurrenceStart = applyUtcDate(start, date);
       const occurrenceEnd = new Date(occurrenceStart.getTime() + durationMs);
       try {
-        createdReservations.push(
-          this.repo.createReservation(series.facilityId, {
-            title: series.title,
-            series_id: series.id,
-            requester_name: series.requesterName,
-            requester_user_id: series.requesterUserId,
-            created_by_user_id: series.createdByUserId,
-            start_time: occurrenceStart.toISOString(),
-            end_time: occurrenceEnd.toISOString(),
-            notes: series.notes,
-          }),
-        );
+        const result = this.repo.createReservationGroup({
+          facility_ids: facilityIds,
+          title: series.title,
+          series_id: series.id,
+          requester_name: series.requesterName,
+          requester_user_id: series.requesterUserId,
+          created_by_user_id: series.createdByUserId,
+          start_time: occurrenceStart.toISOString(),
+          end_time: occurrenceEnd.toISOString(),
+          notes: series.notes,
+          occurrence_date: toDateOnly(date),
+        });
+        createdGroups.push(result.group);
+        createdReservations.push(...result.reservations);
+        for (const conflict of result.conflicts) {
+          conflicts.push({
+            date: toDateOnly(date),
+            facilityId: conflict.facilityId,
+            facilityName: conflict.facilityName,
+            reason: conflict.reason,
+          });
+        }
       } catch (error) {
         if (error instanceof AppError && error.code === 'CONFLICT') {
           conflicts.push({
@@ -215,9 +248,55 @@ export class FacilitiesBookingService {
 
     return {
       series,
+      createdGroups,
       createdReservations,
       conflicts,
     };
+  }
+
+  private resolveSeriesFacilities(
+    facilityIds: number[] | null | undefined,
+    anchorFacilityId: number,
+  ): ResolvedSeriesFacilities {
+    const normalized = this.normalizeFacilityIds([
+      anchorFacilityId,
+      ...(facilityIds ?? []),
+    ]);
+    if (normalized.length === 0) {
+      throw AppError.badRequest('facility_ids is required');
+    }
+    return {
+      anchorFacilityId: normalized[0],
+      facilityIds: normalized,
+    };
+  }
+
+  private resolveExistingSeriesFacilityId(
+    reservations: Reservation[],
+    fallbackFacilityId: number,
+  ): number {
+    if (reservations.length === 0) {
+      return fallbackFacilityId;
+    }
+    const firstGroupId = reservations[0].groupId;
+    const groupReservations =
+      firstGroupId != null
+        ? reservations.filter((reservation) => reservation.groupId === firstGroupId)
+        : reservations;
+    const facilityId = groupReservations[0]?.facilityId ?? fallbackFacilityId;
+    return facilityId;
+  }
+
+  private normalizeFacilityIds(facilityIds: number[]): number[] {
+    const seen = new Set<number>();
+    const normalized: number[] = [];
+    for (const facilityId of facilityIds) {
+      if (!Number.isFinite(facilityId)) continue;
+      if (seen.has(facilityId)) continue;
+      seen.add(facilityId);
+      normalized.push(facilityId);
+    }
+    return normalized;
   }
 
   private resolveSeriesInput(

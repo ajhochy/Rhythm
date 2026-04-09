@@ -22,6 +22,7 @@ describe('FacilitiesBookingService', () => {
   let facilitiesRepo: FacilitiesRepository;
   let service: FacilitiesBookingService;
   let facilityId: number;
+  let secondaryFacilityId: number;
   let userId: number;
 
   beforeEach(() => {
@@ -34,6 +35,7 @@ describe('FacilitiesBookingService', () => {
       email: 'alice@example.com',
     }).id;
     facilityId = facilitiesRepo.create({ name: 'North Room' }).id;
+    secondaryFacilityId = facilitiesRepo.create({ name: 'South Room' }).id;
   });
 
   it('creates weekly recurring reservations and stores series metadata', () => {
@@ -59,6 +61,31 @@ describe('FacilitiesBookingService', () => {
       result.series.id,
       result.series.id,
     ]);
+  });
+
+  it('creates multi-room recurring reservations with a linked group per occurrence', () => {
+    const result = service.createRecurringSeries({
+      facility_id: facilityId,
+      facility_ids: [facilityId, secondaryFacilityId],
+      title: 'Weekly Bible Study',
+      requester_name: 'Alice',
+      requester_user_id: userId,
+      created_by_user_id: userId,
+      start_time: '2026-04-06T18:00:00.000Z',
+      end_time: '2026-04-06T19:00:00.000Z',
+      recurrence_type: 'weekly',
+      recurrence_interval: 1,
+      start_date: '2026-04-06',
+      end_date: '2026-04-20',
+    });
+
+    expect(result.createdGroups).toHaveLength(3);
+    expect(result.createdReservations).toHaveLength(6);
+    const counts = new Map<string, number>();
+    for (const reservation of result.createdReservations) {
+      counts.set(reservation.groupId ?? 'missing', (counts.get(reservation.groupId ?? 'missing') ?? 0) + 1);
+    }
+    expect([...counts.values()]).toEqual([2, 2, 2]);
   });
 
   it('creates biweekly recurring reservations', () => {
@@ -145,6 +172,39 @@ describe('FacilitiesBookingService', () => {
     ).toEqual(['2026-04-08', '2026-04-15']);
     expect(result.conflicts).toHaveLength(1);
     expect(result.conflicts[0].date).toBe('2026-04-10');
+  });
+
+  it('keeps multi-room recurring reservations when only one room conflicts on an occurrence', () => {
+    facilitiesRepo.createReservation(secondaryFacilityId, {
+      title: 'Existing Room Hold',
+      requester_name: 'Alice',
+      requester_user_id: userId,
+      created_by_user_id: userId,
+      start_time: '2026-04-13T18:00:00.000Z',
+      end_time: '2026-04-13T19:00:00.000Z',
+    });
+
+    const result = service.createRecurringSeries({
+      facility_id: facilityId,
+      facility_ids: [facilityId, secondaryFacilityId],
+      title: 'Weekly Bible Study',
+      requester_name: 'Alice',
+      requester_user_id: userId,
+      created_by_user_id: userId,
+      start_time: '2026-04-06T18:00:00.000Z',
+      end_time: '2026-04-06T19:00:00.000Z',
+      recurrence_type: 'weekly',
+      recurrence_interval: 1,
+      start_date: '2026-04-06',
+      end_date: '2026-04-20',
+    });
+
+    expect(result.createdReservations).toHaveLength(5);
+    expect(result.conflicts).toHaveLength(1);
+    expect(result.conflicts[0]).toMatchObject({
+      date: '2026-04-13',
+      facilityId: secondaryFacilityId,
+    });
   });
 
   it('updates a recurring series by regenerating linked occurrences and reporting partial conflicts', () => {

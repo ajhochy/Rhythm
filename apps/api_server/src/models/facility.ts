@@ -29,6 +29,7 @@ export interface Reservation {
   id: number;
   facilityId: number;
   seriesId: string | null;
+  groupId: string | null;
   title: string;
   requesterName: string;
   requesterUserId: number | null;
@@ -44,6 +45,41 @@ export interface Reservation {
   conflictReason: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface ReservationGroup {
+  id: string;
+  seriesId: string | null;
+  title: string;
+  requesterName: string;
+  requesterUserId: number | null;
+  createdByUserId: number | null;
+  notes: string | null;
+  startTime: string;
+  endTime: string;
+  occurrenceDate: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ReservationGroupConflict {
+  facilityId: number;
+  facilityName: string;
+  reason: string;
+}
+
+export interface ReservationGroupDetail {
+  group: ReservationGroup;
+  reservations: Reservation[];
+}
+
+export interface ReservationGroupResult extends ReservationGroupDetail {
+  conflicts: ReservationGroupConflict[];
+}
+
+export interface ReservationGroupOverview extends ReservationGroupDetail {
+  facilities: Facility[];
+  conflictCount: number;
 }
 
 export interface ReservationSeries {
@@ -71,12 +107,14 @@ export interface ReservationSeries {
 export interface CreateReservationDto {
   title: string;
   series_id?: string | null;
+  group_id?: string | null;
   requester_name: string;
   requester_user_id?: number | null;
   created_by_user_id?: number | null;
   start_time: string;
   end_time: string;
   notes?: string | null;
+  facility_ids?: number[] | null;
 }
 
 export interface UpdateReservationDto {
@@ -86,6 +124,7 @@ export interface UpdateReservationDto {
   start_time?: string;
   end_time?: string;
   notes?: string | null;
+  facility_ids?: number[] | null;
   external_event_id?: string | null;
   external_source?: string | null;
   created_by_rhythm?: boolean;
@@ -95,6 +134,7 @@ export interface UpdateReservationDto {
 
 export interface CreateReservationSeriesDto {
   facility_id: number;
+  facility_ids?: number[] | null;
   title: string;
   requester_name: string;
   requester_user_id?: number | null;
@@ -112,11 +152,14 @@ export interface CreateReservationSeriesDto {
 
 export interface ReservationSeriesConflict {
   date: string;
+  facilityId?: number;
+  facilityName?: string;
   reason: string;
 }
 
 export interface CreateReservationSeriesResult {
   series: ReservationSeries;
+  createdGroups: ReservationGroup[];
   createdReservations: Reservation[];
   conflicts: ReservationSeriesConflict[];
 }
@@ -128,6 +171,7 @@ export interface ReservationSeriesDetail {
 
 export interface UpdateReservationSeriesDto {
   title?: string;
+  facility_ids?: number[] | null;
   requester_name?: string;
   requester_user_id?: number | null;
   notes?: string | null;

@@ -15,6 +15,8 @@ class AuthUser {
   final bool isFacilitiesManager;
   final String? photoUrl;
 
+  bool get isAdmin => role == 'admin' || role == 'system';
+
   factory AuthUser.fromJson(Map<String, dynamic> json) {
     return AuthUser(
       id: _asInt(json['id']) ?? 0,

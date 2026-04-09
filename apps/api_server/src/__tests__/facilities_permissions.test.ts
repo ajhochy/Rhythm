@@ -222,6 +222,177 @@ describe('Facilities permissions and schema', () => {
     });
   });
 
+  it('creates multi-room reservation groups and groups the overview by logical event', () => {
+    const controller = new FacilitiesController();
+    const manager = usersRepo.create({
+      name: 'Facilities Manager',
+      email: 'facilities@example.com',
+      isFacilitiesManager: true,
+    });
+    const northRoom = facilitiesRepo.create({
+      name: 'North Room',
+      building: 'North Campus',
+    });
+    const southRoom = facilitiesRepo.create({
+      name: 'South Room',
+      building: 'South Campus',
+    });
+    const req = {
+      params: { id: String(northRoom.id) },
+      query: { grouped: 'true' },
+      body: {
+        title: 'Women\'s Bible Study',
+        facility_ids: [northRoom.id, southRoom.id],
+        requester_name: 'Bible Study Leader',
+        start_time: '2026-04-08T18:00:00.000Z',
+        end_time: '2026-04-08T20:00:00.000Z',
+      },
+      auth: { user: manager },
+    } as never;
+    let statusCode = 200;
+    let createPayload: unknown;
+    const res = {
+      status(code: number) {
+        statusCode = code;
+        return this;
+      },
+      json(value: unknown) {
+        createPayload = value;
+        return this;
+      },
+    } as never;
+    let forwardedError: unknown;
+
+    controller.createReservation(req, res, (error?: unknown) => {
+      forwardedError = error;
+    });
+
+    expect(forwardedError).toBeUndefined();
+    expect(statusCode).toBe(201);
+    expect(createPayload).toMatchObject({
+      group: {
+        title: 'Women\'s Bible Study',
+      },
+      reservations: [
+        expect.objectContaining({
+          facilityId: northRoom.id,
+        }),
+        expect.objectContaining({
+          facilityId: southRoom.id,
+        }),
+      ],
+      conflicts: [],
+    });
+
+    const grouped = facilitiesRepo.findReservationGroups({
+      start: '2026-04-08T00:00:00.000Z',
+      end: '2026-04-08T23:59:59.000Z',
+    });
+    expect(grouped).toHaveLength(1);
+    expect(grouped[0].facilities.map((facility) => facility.name)).toEqual([
+      'North Room',
+      'South Room',
+    ]);
+    expect(grouped[0].reservations).toHaveLength(2);
+  });
+
+  it('updates and deletes a linked reservation group together', () => {
+    const controller = new FacilitiesController();
+    const manager = usersRepo.create({
+      name: 'Facilities Manager',
+      email: 'facilities@example.com',
+      isFacilitiesManager: true,
+    });
+    const northRoom = facilitiesRepo.create({
+      name: 'North Room',
+      building: 'North Campus',
+    });
+    const southRoom = facilitiesRepo.create({
+      name: 'South Room',
+      building: 'South Campus',
+    });
+    const created = facilitiesRepo.createReservationGroup({
+      facility_ids: [northRoom.id, southRoom.id],
+      title: 'Small Group',
+      requester_name: 'Bible Study Leader',
+      requester_user_id: null,
+      created_by_user_id: manager.id,
+      start_time: '2026-04-08T18:00:00.000Z',
+      end_time: '2026-04-08T20:00:00.000Z',
+    });
+
+    const updateReq = {
+      params: { id: String(northRoom.id), reservationId: String(created.reservations[0].id) },
+      body: {
+        title: 'Small Group Updated',
+        start_time: '2026-04-08T18:30:00.000Z',
+        end_time: '2026-04-08T20:30:00.000Z',
+      },
+      auth: { user: manager },
+    } as never;
+    let updateStatus = 200;
+    let updatePayload: unknown;
+    const updateRes = {
+      status(code: number) {
+        updateStatus = code;
+        return this;
+      },
+      json(value: unknown) {
+        updatePayload = value;
+        return this;
+      },
+    } as never;
+    controller.updateReservation(updateReq, updateRes, (error?: unknown) => {
+      if (error) throw error;
+    });
+
+    expect(updateStatus).toBe(200);
+    expect(updatePayload).toMatchObject({
+      reservations: [
+        expect.objectContaining({
+          title: 'Small Group Updated',
+        }),
+        expect.objectContaining({
+          title: 'Small Group Updated',
+        }),
+      ],
+    });
+    expect(
+      facilitiesRepo.findReservationsByFacility(northRoom.id).map((item) => item.title),
+    ).toEqual(['Small Group Updated']);
+    expect(
+      facilitiesRepo.findReservationsByFacility(southRoom.id).map((item) => item.title),
+    ).toEqual(['Small Group Updated']);
+
+    const updatedReservations = (updatePayload as { reservations?: { id: number }[] })
+      .reservations ?? [];
+    const reservationIdToDelete = updatedReservations[0]?.id ?? created.reservations[0].id;
+
+    const deleteReq = {
+      params: { id: String(northRoom.id), reservationId: String(reservationIdToDelete) },
+      auth: { user: manager },
+    } as never;
+    let deleteForwardedError: unknown;
+    const deleteRes = {
+      status() {
+        return this;
+      },
+      json() {
+        return this;
+      },
+      send() {
+        return this;
+      },
+    } as never;
+    controller.deleteReservation(deleteReq, deleteRes, (error?: unknown) => {
+      deleteForwardedError = error;
+    });
+
+    expect(deleteForwardedError).toBeUndefined();
+    expect(facilitiesRepo.findReservationsByFacility(northRoom.id)).toHaveLength(0);
+    expect(facilitiesRepo.findReservationsByFacility(southRoom.id)).toHaveLength(0);
+  });
+
   it('allows creators and managers to mutate recurring series, but blocks other members', () => {
     const controller = new FacilitiesController();
     const bookingService = new FacilitiesBookingService();

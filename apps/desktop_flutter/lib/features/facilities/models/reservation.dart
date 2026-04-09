@@ -4,6 +4,7 @@ class Reservation {
     required this.facilityId,
     required this.title,
     required this.requesterName,
+    this.reservationGroupId,
     this.startTime,
     this.endTime,
     this.notes,
@@ -22,6 +23,7 @@ class Reservation {
 
   final int id;
   final int facilityId;
+  final String? reservationGroupId;
   final String? seriesId;
   final String title;
   final String requesterName;
@@ -46,6 +48,10 @@ class Reservation {
       id: _asInt(json['id']) ?? 0,
       facilityId:
           _asInt(json['facilityId']) ?? _asInt(json['facility_id']) ?? 0,
+      reservationGroupId: _asString(json['reservationGroupId']) ??
+          _asString(json['reservation_group_id']) ??
+          _asString(json['groupId']) ??
+          _asString(json['group_id']),
       seriesId: _asString(json['seriesId']) ?? _asString(json['series_id']),
       title: _asString(json['title']) ?? '',
       requesterName: _asString(json['requesterName']) ??
@@ -76,6 +82,60 @@ class Reservation {
           _asString(json['conflict_reason']),
       createdAt: _asString(json['createdAt']) ?? _asString(json['created_at']),
       updatedAt: _asString(json['updatedAt']) ?? _asString(json['updated_at']),
+    );
+  }
+}
+
+class ReservationGroupConflict {
+  const ReservationGroupConflict({
+    required this.reason,
+    this.facilityId,
+    this.facilityName,
+  });
+
+  final int? facilityId;
+  final String? facilityName;
+  final String reason;
+
+  factory ReservationGroupConflict.fromJson(Map<String, dynamic> json) {
+    return ReservationGroupConflict(
+      facilityId: _asInt(json['facilityId']) ?? _asInt(json['facility_id']),
+      facilityName:
+          _asString(json['facilityName']) ?? _asString(json['facility_name']),
+      reason: _asString(json['reason']) ?? '',
+    );
+  }
+}
+
+class ReservationMutationResult {
+  const ReservationMutationResult({
+    required this.reservations,
+    this.conflicts = const [],
+  });
+
+  final List<Reservation> reservations;
+  final List<ReservationGroupConflict> conflicts;
+
+  bool get isGrouped => reservations.length > 1 || conflicts.isNotEmpty;
+  Reservation? get primaryReservation =>
+      reservations.isEmpty ? null : reservations.first;
+
+  factory ReservationMutationResult.fromJson(Map<String, dynamic> json) {
+    if (json['reservations'] is List) {
+      return ReservationMutationResult(
+        reservations: (json['reservations'] as List)
+            .map((item) => Reservation.fromJson(item as Map<String, dynamic>))
+            .toList(),
+        conflicts: json['conflicts'] is List
+            ? (json['conflicts'] as List)
+                .map((item) => ReservationGroupConflict.fromJson(
+                    item as Map<String, dynamic>))
+                .toList()
+            : const [],
+      );
+    }
+    return ReservationMutationResult(
+      reservations: [Reservation.fromJson(json)],
     );
   }
 }

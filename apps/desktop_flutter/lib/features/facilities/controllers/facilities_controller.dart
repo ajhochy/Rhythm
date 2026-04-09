@@ -88,6 +88,51 @@ class FacilitiesController extends ChangeNotifier {
     return facility;
   }
 
+  Future<Facility> updateFacility(
+    int facilityId, {
+    required String name,
+    String? description,
+    String? location,
+    String? building,
+  }) async {
+    final facility = await _repository.updateFacility(facilityId, {
+      'name': name,
+      if (description != null) 'description': description,
+      if (location != null) 'location': location,
+      if (building != null) 'building': building,
+    });
+    final updated = List<Facility>.from(_facilities);
+    final index = updated.indexWhere((item) => item.id == facilityId);
+    if (index >= 0) {
+      updated[index] = facility;
+    } else {
+      updated.add(facility);
+    }
+    updated
+        .sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+    _facilities = updated;
+    notifyListeners();
+    return facility;
+  }
+
+  Future<void> deleteFacility(int facilityId) async {
+    await _repository.deleteFacility(facilityId);
+    _facilities = _facilities
+        .where((facility) => facility.id != facilityId)
+        .toList()
+      ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+    _reservationsByFacility =
+        Map<int, List<Reservation>>.from(_reservationsByFacility)
+          ..remove(facilityId);
+    _reservationSeriesByFacility =
+        Map<int, List<ReservationSeries>>.from(_reservationSeriesByFacility)
+          ..remove(facilityId);
+    _overviewReservations = _overviewReservations
+        .where((reservation) => reservation.facilityId != facilityId)
+        .toList();
+    notifyListeners();
+  }
+
   Future<void> loadFacilities() async {
     _status = FacilitiesStatus.loading;
     _errorMessage = null;
@@ -150,19 +195,6 @@ class FacilitiesController extends ChangeNotifier {
     }
   }
 
-  Future<void> _refreshFacilityCache(int facilityId) async {
-    final reservations = await _repository.getReservations(facilityId);
-    final series = await _repository.getReservationSeries(facilityId);
-    _reservationsByFacility = {
-      ..._reservationsByFacility,
-      facilityId: reservations,
-    };
-    _reservationSeriesByFacility = {
-      ..._reservationSeriesByFacility,
-      facilityId: series,
-    };
-  }
-
   Future<void> reloadReservationOverview() async {
     final last = _lastOverviewQuery;
     if (last == null) return;
@@ -174,13 +206,14 @@ class FacilitiesController extends ChangeNotifier {
     );
   }
 
-  Future<void> createReservation(
+  Future<ReservationMutationResult> createReservation(
     int facilityId, {
     required String title,
     String? reservedBy,
     String? requesterName,
     int? requesterUserId,
     int? createdByUserId,
+    List<int>? facilityIds,
     String? startTime,
     String? endTime,
     String? notes,
@@ -195,33 +228,27 @@ class FacilitiesController extends ChangeNotifier {
       'requester_name': effectiveRequesterName,
       if (requesterUserId != null) 'requester_user_id': requesterUserId,
       if (createdByUserId != null) 'created_by_user_id': createdByUserId,
+      if (facilityIds != null && facilityIds.isNotEmpty)
+        'facility_ids': facilityIds,
       if (startTime != null && startTime.isNotEmpty) 'start_time': startTime,
       if (endTime != null && endTime.isNotEmpty) 'end_time': endTime,
       if (notes != null && notes.isNotEmpty) 'notes': notes,
     };
 
-    final reservation = await _repository.createReservation(facilityId, body);
-
-    // Update the reservations map for this facility.
-    final updated =
-        List<Reservation>.from(_reservationsByFacility[facilityId] ?? [])
-          ..add(reservation);
-    _reservationsByFacility = {
-      ..._reservationsByFacility,
-      facilityId: updated
-        ..sort((a, b) => (a.startTime ?? '').compareTo(b.startTime ?? '')),
-    };
+    final result = await _repository.createReservation(facilityId, body);
+    await loadFacilities();
     await reloadReservationOverview();
-    notifyListeners();
+    return result;
   }
 
-  Future<void> updateReservation(
+  Future<ReservationMutationResult> updateReservation(
     int facilityId,
     int reservationId, {
     required String title,
     String? reservedBy,
     String? requesterName,
     int? requesterUserId,
+    List<int>? facilityIds,
     String? startTime,
     String? endTime,
     String? notes,
@@ -235,33 +262,21 @@ class FacilitiesController extends ChangeNotifier {
       'title': title,
       'requester_name': effectiveRequesterName,
       if (requesterUserId != null) 'requester_user_id': requesterUserId,
+      if (facilityIds != null && facilityIds.isNotEmpty)
+        'facility_ids': facilityIds,
       if (startTime != null && startTime.isNotEmpty) 'start_time': startTime,
       if (endTime != null && endTime.isNotEmpty) 'end_time': endTime,
       'notes': (notes != null && notes.isNotEmpty) ? notes : null,
     };
 
-    final reservation = await _repository.updateReservation(
+    final result = await _repository.updateReservation(
       facilityId,
       reservationId,
       body,
     );
-
-    final updated = List<Reservation>.from(
-      _reservationsByFacility[facilityId] ?? [],
-    );
-    final index = updated.indexWhere((item) => item.id == reservationId);
-    if (index >= 0) {
-      updated[index] = reservation;
-    } else {
-      updated.add(reservation);
-    }
-    updated.sort((a, b) => (a.startTime ?? '').compareTo(b.startTime ?? ''));
-    _reservationsByFacility = {
-      ..._reservationsByFacility,
-      facilityId: updated,
-    };
+    await loadFacilities();
     await reloadReservationOverview();
-    notifyListeners();
+    return result;
   }
 
   Future<List<ReservationSeries>> loadReservationSeries(int facilityId) async {
@@ -310,6 +325,7 @@ class FacilitiesController extends ChangeNotifier {
     int? recurrenceInterval,
     Map<String, dynamic>? weekdayPattern,
     List<String>? customDates,
+    List<int>? facilityIds,
     required String startTime,
     required String endTime,
     required String startDate,
@@ -325,6 +341,8 @@ class FacilitiesController extends ChangeNotifier {
       if (requesterUserId != null) 'requester_user_id': requesterUserId,
       if (createdByUserId != null) 'created_by_user_id': createdByUserId,
       if (notes != null && notes.isNotEmpty) 'notes': notes,
+      if (facilityIds != null && facilityIds.isNotEmpty)
+        'facility_ids': facilityIds,
       'recurrence_type': recurrenceType,
       if (recurrenceInterval != null) 'recurrence_interval': recurrenceInterval,
       if (weekdayPattern != null) 'weekday_pattern': weekdayPattern,
@@ -335,45 +353,18 @@ class FacilitiesController extends ChangeNotifier {
       if (endDate != null && endDate.isNotEmpty) 'end_date': endDate,
     });
 
-    final existing = List<ReservationSeries>.from(
-      _reservationSeriesByFacility[facilityId] ?? [],
-    )..add(result.series);
-    _reservationSeriesByFacility = {
-      ..._reservationSeriesByFacility,
-      facilityId: existing,
-    };
-    if (result.createdReservations.isNotEmpty) {
-      final updatedReservations =
-          List<Reservation>.from(_reservationsByFacility[facilityId] ?? [])
-            ..addAll(result.createdReservations);
-      updatedReservations.sort(
-        (a, b) => (a.startTime ?? '').compareTo(b.startTime ?? ''),
-      );
-      _reservationsByFacility = {
-        ..._reservationsByFacility,
-        facilityId: updatedReservations,
-      };
-    }
+    await loadFacilities();
     await reloadReservationOverview();
-    notifyListeners();
     return result;
   }
 
   Future<void> deleteReservation(int facilityId, int reservationId) async {
     await _repository.deleteReservation(facilityId, reservationId);
-
-    final updated = List<Reservation>.from(
-      _reservationsByFacility[facilityId] ?? [],
-    )..removeWhere((item) => item.id == reservationId);
-    _reservationsByFacility = {
-      ..._reservationsByFacility,
-      facilityId: updated,
-    };
+    await loadFacilities();
     await reloadReservationOverview();
-    notifyListeners();
   }
 
-  Future<ReservationSeries> updateReservationSeries(
+  Future<ReservationSeriesCreationResult> updateReservationSeries(
     int facilityId,
     String seriesId, {
     required String title,
@@ -385,6 +376,7 @@ class FacilitiesController extends ChangeNotifier {
     int? recurrenceInterval,
     Map<String, dynamic>? weekdayPattern,
     List<String>? customDates,
+    List<int>? facilityIds,
     required String startTime,
     required String endTime,
     required String startDate,
@@ -394,7 +386,7 @@ class FacilitiesController extends ChangeNotifier {
     if (effectiveRequesterName == null || effectiveRequesterName.isEmpty) {
       throw ArgumentError('requesterName is required');
     }
-    final updatedSeries = await _repository.updateReservationSeries(
+    final result = await _repository.updateReservationSeries(
       facilityId,
       seriesId,
       {
@@ -403,6 +395,8 @@ class FacilitiesController extends ChangeNotifier {
         if (requesterUserId != null) 'requester_user_id': requesterUserId,
         if (createdByUserId != null) 'created_by_user_id': createdByUserId,
         if (notes != null && notes.isNotEmpty) 'notes': notes,
+        if (facilityIds != null && facilityIds.isNotEmpty)
+          'facility_ids': facilityIds,
         'recurrence_type': recurrenceType,
         if (recurrenceInterval != null)
           'recurrence_interval': recurrenceInterval,
@@ -414,10 +408,9 @@ class FacilitiesController extends ChangeNotifier {
         if (endDate != null && endDate.isNotEmpty) 'end_date': endDate,
       },
     );
-    await _refreshFacilityCache(facilityId);
+    await loadFacilities();
     await reloadReservationOverview();
-    notifyListeners();
-    return updatedSeries;
+    return result;
   }
 
   Future<void> deleteReservationSeries(
@@ -425,8 +418,7 @@ class FacilitiesController extends ChangeNotifier {
     String seriesId,
   ) async {
     await _repository.deleteReservationSeries(facilityId, seriesId);
-    await _refreshFacilityCache(facilityId);
+    await loadFacilities();
     await reloadReservationOverview();
-    notifyListeners();
   }
 }

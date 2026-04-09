@@ -12,6 +12,28 @@ const usersRepo = new UsersRepository();
 const bookingService = new FacilitiesBookingService();
 
 export class FacilitiesController {
+  private parseFacilityIds(
+    routeFacilityId: number,
+    rawFacilityIds: unknown,
+  ): number[] {
+    const facilityIds = new Set<number>([routeFacilityId]);
+    if (Array.isArray(rawFacilityIds)) {
+      for (const value of rawFacilityIds) {
+        const facilityId =
+          typeof value === 'number'
+            ? value
+            : typeof value === 'string' && value.trim().length > 0
+              ? Number(value)
+              : NaN;
+        if (!Number.isFinite(facilityId)) {
+          throw AppError.badRequest('facility_ids must contain valid numbers');
+        }
+        facilityIds.add(facilityId);
+      }
+    }
+    return [...facilityIds];
+  }
+
   private assertFacilitiesManager(req: Request): void {
     if (req.auth?.user.isFacilitiesManager) return;
     throw AppError.forbidden('Facilities manager access required');
@@ -74,13 +96,23 @@ export class FacilitiesController {
         req.query.building.trim().length > 0
           ? req.query.building.trim()
           : undefined;
+      const grouped =
+        typeof req.query.grouped === 'string' &&
+        ['1', 'true', 'yes'].includes(req.query.grouped.toLowerCase());
       res.json(
-        repo.findReservations({
-          start,
-          end,
-          facilityId,
-          building,
-        }),
+        grouped
+          ? repo.findReservationGroups({
+              start,
+              end,
+              facilityId,
+              building,
+            })
+          : repo.findReservations({
+              start,
+              end,
+              facilityId,
+              building,
+            }),
       );
     } catch (err) {
       next(err);
@@ -167,6 +199,7 @@ export class FacilitiesController {
         notes,
         requester_user_id,
         requester_name,
+        facility_ids,
       } = req.body as Record<string, unknown>;
       if (!title || typeof title !== 'string') {
         throw AppError.badRequest('title is required');
@@ -209,7 +242,13 @@ export class FacilitiesController {
           : requestedName != null && requestedName !== actor.name
             ? null
             : actor;
-      const reservation = repo.createReservation(Number(req.params.id), {
+      const resolvedFacilityIds = this.parseFacilityIds(
+        Number(req.params.id),
+        facility_ids,
+      );
+      const requestedFacilityIdsWereExplicit = facility_ids !== undefined;
+      const reservationGroup = repo.createReservationGroup({
+        facility_ids: resolvedFacilityIds,
         title,
         requester_name: requestedName ?? requester?.name ?? actor.name,
         requester_user_id: requestedUserId ?? requester?.id ?? null,
@@ -218,7 +257,13 @@ export class FacilitiesController {
         end_time,
         notes: notes as string | null | undefined,
       });
-      res.status(201).json(reservation);
+      res.status(201).json(
+        !requestedFacilityIdsWereExplicit &&
+        reservationGroup.reservations.length === 1 &&
+        reservationGroup.conflicts.length === 0
+          ? reservationGroup.reservations[0]
+          : reservationGroup,
+      );
     } catch (err) {
       next(err);
     }
@@ -237,6 +282,7 @@ export class FacilitiesController {
         recurrence_interval,
         custom_dates,
         end_date,
+        facility_ids,
       } = req.body as Record<string, unknown>;
       if (!title || typeof title !== 'string') {
         throw AppError.badRequest('title is required');
@@ -295,6 +341,10 @@ export class FacilitiesController {
       }
       const result = bookingService.createRecurringSeries({
         facility_id: Number(req.params.id),
+        facility_ids: this.parseFacilityIds(
+          Number(req.params.id),
+          facility_ids,
+        ),
         title,
         requester_name: requestedName ?? requester?.name ?? actor.name,
         requester_user_id: requestedUserId ?? requester?.id ?? null,
@@ -339,6 +389,13 @@ export class FacilitiesController {
       }
 
       const body = req.body as Record<string, unknown>;
+      const facilityIds =
+        body.facility_ids !== undefined
+          ? this.parseFacilityIds(
+              Number(req.params.id),
+              body.facility_ids,
+            )
+          : undefined;
       const requestedUserId =
         body.requester_user_id !== undefined
           ? typeof body.requester_user_id === 'number'
@@ -373,6 +430,7 @@ export class FacilitiesController {
             : null;
       const updateBody: UpdateReservationSeriesDto = {
         ...(typeof body.title === 'string' ? { title: body.title } : {}),
+        ...(facilityIds !== undefined ? { facility_ids: facilityIds } : {}),
         ...(typeof body.start_time === 'string' ? { start_time: body.start_time } : {}),
         ...(typeof body.end_time === 'string' ? { end_time: body.end_time } : {}),
         ...(body.notes !== undefined
@@ -450,6 +508,7 @@ export class FacilitiesController {
         notes,
         requester_user_id,
         requester_name,
+        facility_ids,
       } =
         req.body as Record<string, unknown>;
       const actor = req.auth?.user;
@@ -495,7 +554,40 @@ export class FacilitiesController {
               requestedName !== actor.name &&
               requestedName !== existing.requesterName
             ? null
-            : null;
+          : null;
+      const nextFacilityIds =
+        facility_ids !== undefined
+          ? this.parseFacilityIds(Number(req.params.id), facility_ids)
+          : undefined;
+      const explicitFacilitySelection = facility_ids !== undefined;
+      if (existing.groupId != null) {
+        const group = repo.updateReservationGroup(existing.groupId, {
+          ...(typeof title === 'string' ? { title } : {}),
+          ...(typeof start_time === 'string' ? { start_time } : {}),
+          ...(typeof end_time === 'string' ? { end_time } : {}),
+          ...(notes !== undefined ? { notes: (notes as string | null) ?? null } : {}),
+          ...(nextFacilityIds !== undefined ? { facility_ids: nextFacilityIds } : {}),
+          ...(requester_user_id !== undefined
+            ? { requester_user_id: requester?.id ?? null }
+            : {}),
+          ...(requester_name !== undefined || requester != null
+            ? {
+                requester_name:
+                  requester?.name ??
+                  requestedName ??
+                  existing.requesterName,
+              }
+            : {}),
+        });
+        res.json(
+          !explicitFacilitySelection &&
+          group.reservations.length === 1 &&
+          group.conflicts.length === 0
+            ? group.reservations[0]
+            : group,
+        );
+        return;
+      }
       const reservation = repo.updateReservation(
         Number(req.params.id),
         Number(req.params.reservationId),
@@ -504,6 +596,7 @@ export class FacilitiesController {
           ...(typeof start_time === 'string' ? { start_time } : {}),
           ...(typeof end_time === 'string' ? { end_time } : {}),
           ...(notes !== undefined ? { notes: (notes as string | null) ?? null } : {}),
+          ...(nextFacilityIds !== undefined ? { facility_ids: nextFacilityIds } : {}),
           ...(requester_user_id !== undefined
             ? { requester_user_id: requester?.id ?? null }
             : {}),
@@ -527,6 +620,24 @@ export class FacilitiesController {
     try {
       const existing = repo.findReservationById(Number(req.params.reservationId));
       this.assertCanManageReservation(req, existing);
+      if (existing.groupId != null) {
+        const deletedGroup = repo.deleteReservationGroup(existing.groupId);
+        const actor = req.auth?.user;
+        if (
+          actor != null &&
+          deletedGroup.group.requesterUserId != null &&
+          deletedGroup.group.requesterUserId !== actor.id
+        ) {
+          const bot = usersRepo.findOrCreateSystemBot();
+          messagesRepo.sendDirectMessage(
+            bot.id,
+            deletedGroup.group.requesterUserId,
+            `Your facility reservation was deleted by ${actor.name}. Go to Facilities to resubmit a reservation.`,
+          );
+        }
+        res.status(204).send();
+        return;
+      }
       const deletedReservation = repo.deleteReservation(
         Number(req.params.id),
         Number(req.params.reservationId),
