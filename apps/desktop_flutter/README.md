@@ -17,6 +17,34 @@ flutter run -d macos \
 
 For Google Sign-In, the desktop app now expects `GOOGLE_DESKTOP_CLIENT_ID` as a Dart define. The packaged API must trust the same Firebase Apple client ID through `GOOGLE_AUTH_CLIENT_ID`.
 
+## Hosted vs local runtime
+
+Desktop builds can choose between:
+
+- local embedded API mode
+- hosted API mode
+
+Useful Dart defines:
+
+- `RHYTHM_SERVER_URL`
+- `RHYTHM_USE_EMBEDDED_API`
+
+Examples:
+
+```bash
+# Local development
+flutter run -d macos \
+  --dart-define=GOOGLE_DESKTOP_CLIENT_ID=<desktop-google-client-id> \
+  --dart-define=RHYTHM_SERVER_URL=http://localhost:4000 \
+  --dart-define=RHYTHM_USE_EMBEDDED_API=true
+
+# Hosted/shared environment
+flutter run -d macos \
+  --dart-define=GOOGLE_DESKTOP_CLIENT_ID=<desktop-google-client-id> \
+  --dart-define=RHYTHM_SERVER_URL=https://api.vcrcapps.com \
+  --dart-define=RHYTHM_USE_EMBEDDED_API=false
+```
+
 ## Beta Distribution
 - Use the `Desktop Release` GitHub Actions workflow to build downloadable tester artifacts.
 - The app now checks GitHub Releases for updates and can open the latest download from inside the sidebar.

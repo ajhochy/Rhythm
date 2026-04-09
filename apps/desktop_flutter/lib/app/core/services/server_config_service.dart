@@ -3,7 +3,12 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 class ServerConfigService extends ChangeNotifier {
   static const _key = 'server_url';
-  static const defaultUrl = 'http://localhost:4000';
+  static const _definedDefaultUrl = String.fromEnvironment(
+    'RHYTHM_SERVER_URL',
+    defaultValue: 'http://localhost:4000',
+  );
+
+  static String get defaultUrl => _definedDefaultUrl;
 
   String _url = defaultUrl;
   String get url => _url;

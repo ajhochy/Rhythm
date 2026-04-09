@@ -42,6 +42,10 @@ Attach the custom domain:
 
 - `app.vcrcapps.com`
 
+The repo workflow for this path is:
+
+- [`.github/workflows/web_deploy.yml`](../../.github/workflows/web_deploy.yml)
+
 ## API deployment requirements
 
 ### Synology Docker runtime
@@ -63,6 +67,10 @@ The compose file expects:
 - persistent SQLite volume mounted at `/data`
 - API exposed internally on port `4000`
 - Cloudflare tunnel token in `.env.production`
+
+The repo workflow for this path is:
+
+- [`.github/workflows/api_deploy_synology.yml`](../../.github/workflows/api_deploy_synology.yml)
 
 ### Production API environment
 
@@ -121,6 +129,31 @@ Planning Center OAuth redirect URI:
 - desktop can target the hosted API instead of localhost
 - Google login still succeeds
 - integration callback flows complete against the hosted API
+
+Hosted desktop builds should use:
+
+- `RHYTHM_SERVER_URL=https://api.vcrcapps.com`
+- `RHYTHM_USE_EMBEDDED_API=false`
+
+Local development builds should keep:
+
+- `RHYTHM_SERVER_URL=http://localhost:4000`
+- `RHYTHM_USE_EMBEDDED_API=true`
+
+## GitHub Actions secrets and variables
+
+### Secrets
+
+- `CLOUDFLARE_API_TOKEN`
+- `CLOUDFLARE_ACCOUNT_ID`
+- `SYNOLOGY_HOST`
+- `SYNOLOGY_USERNAME`
+- `SYNOLOGY_SSH_KEY`
+- `SYNOLOGY_DEPLOY_PATH`
+
+### Variables
+
+- `CLOUDFLARE_PAGES_PROJECT`
 
 ## Notes
 

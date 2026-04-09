@@ -1,0 +1,48 @@
+name: API Deploy (Synology)
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'apps/api_server/**'
+      - '.github/workflows/api_deploy_synology.yml'
+  workflow_dispatch:
+
+jobs:
+  deploy-api:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: apps/api_server
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: apps/api_server/package-lock.json
+
+      - name: Verify API server
+        run: |
+          npm install
+          npm test
+          npm run build
+
+      - name: Deploy on Synology via SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.SYNOLOGY_HOST }}
+          username: ${{ secrets.SYNOLOGY_USERNAME }}
+          key: ${{ secrets.SYNOLOGY_SSH_KEY }}
+          script: |
+            set -e
+            cd "${{ secrets.SYNOLOGY_DEPLOY_PATH }}"
+            git fetch origin
+            git checkout main
+            git pull --ff-only origin main
+            cd apps/api_server
+            docker compose --env-file .env.production -f docker-compose.synology.yml up -d --build

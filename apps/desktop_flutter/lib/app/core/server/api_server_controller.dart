@@ -8,12 +8,22 @@ class ApiServerController extends ChangeNotifier {
   ApiServerController(this._service);
 
   final ApiServerService _service;
+  static const useEmbeddedServer = bool.fromEnvironment(
+    'RHYTHM_USE_EMBEDDED_API',
+    defaultValue: true,
+  );
   ServerStatus _status = ServerStatus.starting;
 
   ServerStatus get status => _status;
   bool get isReady => _status == ServerStatus.ready;
 
   Future<void> initialize() async {
+    if (!useEmbeddedServer) {
+      _status = ServerStatus.ready;
+      notifyListeners();
+      return;
+    }
+
     _status = ServerStatus.starting;
     notifyListeners();
 
@@ -27,7 +37,9 @@ class ApiServerController extends ChangeNotifier {
 
   @override
   void dispose() {
-    _service.stop();
+    if (useEmbeddedServer) {
+      _service.stop();
+    }
     super.dispose();
   }
 }
