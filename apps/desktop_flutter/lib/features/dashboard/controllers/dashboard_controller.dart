@@ -83,7 +83,7 @@ class DashboardController extends ChangeNotifier {
 
       final now = _now();
       final today = _stripDate(now)!;
-      final weekEnd = today.add(const Duration(days: 7));
+      final weekEnd = _endOfIsoWeek(today);
 
       _openTaskCount = tasks.where((t) => t.status != 'done').length;
       _pastDueTasks = tasks.where((t) => _isPastDue(t, today)).toList()
@@ -256,7 +256,7 @@ class DashboardController extends ChangeNotifier {
   }) {
     if (!includeDone && task.status == 'done') return false;
     final date = _taskPriorityDate(task);
-    return date != null && date.isAfter(today) && date.isBefore(weekEnd);
+    return date != null && date.isAfter(today) && !date.isAfter(weekEnd);
   }
 
   static bool _isUnscheduled(Task task) =>
@@ -314,6 +314,12 @@ class DashboardController extends ChangeNotifier {
   static DateTime? _stripDate(DateTime? value) {
     if (value == null) return null;
     return DateTime(value.year, value.month, value.day);
+  }
+
+  static DateTime _endOfIsoWeek(DateTime date) {
+    final normalized = _stripDate(date)!;
+    final daysUntilSunday = DateTime.daysPerWeek - normalized.weekday;
+    return normalized.add(Duration(days: daysUntilSunday));
   }
 
   Task? _findTaskById(String id) {
