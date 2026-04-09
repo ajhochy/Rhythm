@@ -100,8 +100,8 @@ class ApiServerService {
     // Prefer architecture-matching Homebrew installs first so native modules
     // line up with the user's primary local Node toolchain.
     const preferredCandidates = [
-      '/opt/homebrew/bin/node', // Apple Silicon Homebrew
       '/usr/local/bin/node', // Intel Homebrew / legacy install
+      '/opt/homebrew/bin/node', // Apple Silicon Homebrew
       '/usr/bin/node',
     ];
     for (final path in preferredCandidates) {

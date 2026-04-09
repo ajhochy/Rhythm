@@ -21,8 +21,10 @@ void main() {
   test('DashboardController refreshes recent tasks after toggling done',
       () async {
     final dataSource = _FakeDashboardDataSource();
-    final controller =
-        DashboardController(_FakeDashboardRepository(dataSource));
+    final controller = DashboardController(
+      _FakeDashboardRepository(dataSource),
+      now: () => DateTime(2026, 4, 1),
+    );
 
     await controller.load();
     expect(controller.openTaskCount, 3);

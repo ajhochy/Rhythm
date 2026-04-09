@@ -14,6 +14,7 @@ interface TemplateRow {
   name: string;
   description: string | null;
   anchor_type: string;
+  owner_id: number | null;
   created_at: string;
 }
 
@@ -43,6 +44,7 @@ function rowToTemplate(row: TemplateRow, steps: ProjectTemplateStep[]): ProjectT
     name: row.name,
     description: row.description,
     anchorType: row.anchor_type,
+    ownerId: row.owner_id,
     createdAt: row.created_at,
     steps,
   };
@@ -56,46 +58,79 @@ export class ProjectTemplatesRepository {
     return rows.map(rowToStep);
   }
 
-  findAll(): ProjectTemplate[] {
-    const rows = getDb().prepare('SELECT * FROM project_templates ORDER BY created_at ASC').all() as TemplateRow[];
+  findAll(userId?: number): ProjectTemplate[] {
+    const rows = (userId != null
+      ? getDb()
+          .prepare(
+            `SELECT * FROM project_templates
+             WHERE owner_id = ? OR owner_id IS NULL
+             ORDER BY created_at ASC`,
+          )
+          .all(userId)
+      : getDb()
+          .prepare('SELECT * FROM project_templates ORDER BY created_at ASC')
+          .all()) as TemplateRow[];
     return rows.map((row) => rowToTemplate(row, this.getSteps(row.id)));
   }
 
-  findById(id: string): ProjectTemplate {
-    const row = getDb().prepare('SELECT * FROM project_templates WHERE id = ?').get(id) as TemplateRow | undefined;
+  findById(id: string, userId?: number): ProjectTemplate {
+    const row = (userId != null
+      ? getDb()
+          .prepare(
+            `SELECT * FROM project_templates
+             WHERE id = ? AND (owner_id = ? OR owner_id IS NULL)`,
+          )
+          .get(id, userId)
+      : getDb().prepare('SELECT * FROM project_templates WHERE id = ?').get(id)) as
+      | TemplateRow
+      | undefined;
     if (!row) throw AppError.notFound('ProjectTemplate');
     return rowToTemplate(row, this.getSteps(id));
   }
 
-  findByNameInsensitive(name: string): ProjectTemplate | null {
+  findByNameInsensitive(name: string, userId?: number): ProjectTemplate | null {
     const normalized = name.trim().toLowerCase();
-    const rows = getDb()
-      .prepare('SELECT * FROM project_templates ORDER BY created_at ASC')
-      .all() as TemplateRow[];
+    const rows = this.findAll(userId);
     const match = rows.find(
       (row) => row.name.trim().toLowerCase() === normalized,
     );
-    return match ? rowToTemplate(match, this.getSteps(match.id)) : null;
+    return match ?? null;
   }
 
   create(data: CreateProjectTemplateDto): ProjectTemplate {
     const id = uuidv4();
     const now = new Date().toISOString();
     getDb()
-      .prepare(`INSERT INTO project_templates (id, name, description, anchor_type, created_at) VALUES (?, ?, ?, ?, ?)`)
-      .run(id, data.name, data.description ?? null, data.anchorType ?? 'date', now);
+      .prepare(
+        `INSERT INTO project_templates (id, name, description, anchor_type, owner_id, created_at)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        id,
+        data.name,
+        data.description ?? null,
+        data.anchorType ?? 'date',
+        data.ownerId ?? null,
+        now,
+      );
     return this.findById(id);
   }
 
-  update(id: string, data: UpdateProjectTemplateDto): ProjectTemplate {
-    const existing = this.findById(id);
+  update(id: string, data: UpdateProjectTemplateDto, userId?: number): ProjectTemplate {
+    const existing = this.findById(id, userId);
     getDb()
-      .prepare(`UPDATE project_templates SET name = ?, description = ? WHERE id = ?`)
-      .run(data.name ?? existing.name, data.description !== undefined ? data.description : existing.description, id);
-    return this.findById(id);
+      .prepare(`UPDATE project_templates SET name = ?, description = ?, owner_id = ? WHERE id = ?`)
+      .run(
+        data.name ?? existing.name,
+        data.description !== undefined ? data.description : existing.description,
+        data.ownerId !== undefined ? data.ownerId : existing.ownerId,
+        id,
+      );
+    return this.findById(id, userId);
   }
 
-  delete(id: string): void {
+  delete(id: string, userId?: number): void {
+    this.findById(id, userId);
     const db = getDb();
     db.transaction(() => {
       db.prepare('DELETE FROM project_instances WHERE template_id = ?').run(id);
@@ -104,8 +139,8 @@ export class ProjectTemplatesRepository {
     })();
   }
 
-  addStep(templateId: string, data: CreateStepDto): ProjectTemplateStep {
-    this.findById(templateId); // ensures template exists
+  addStep(templateId: string, data: CreateStepDto, userId?: number): ProjectTemplateStep {
+    this.findById(templateId, userId); // ensures template exists
     const id = uuidv4();
     getDb()
       .prepare(
@@ -117,8 +152,19 @@ export class ProjectTemplatesRepository {
     return rowToStep(row);
   }
 
-  updateStep(stepId: string, data: Partial<CreateStepDto>): ProjectTemplateStep {
-    const row = getDb().prepare('SELECT * FROM project_template_steps WHERE id = ?').get(stepId) as StepRow | undefined;
+  updateStep(stepId: string, data: Partial<CreateStepDto>, userId?: number): ProjectTemplateStep {
+    const row = (userId != null
+      ? getDb()
+          .prepare(
+            `SELECT pts.*
+             FROM project_template_steps pts
+             JOIN project_templates pt ON pt.id = pts.template_id
+             WHERE pts.id = ? AND (pt.owner_id = ? OR pt.owner_id IS NULL)`,
+          )
+          .get(stepId, userId)
+      : getDb()
+          .prepare('SELECT * FROM project_template_steps WHERE id = ?')
+          .get(stepId)) as StepRow | undefined;
     if (!row) throw AppError.notFound('ProjectTemplateStep');
     getDb()
       .prepare(
@@ -135,7 +181,18 @@ export class ProjectTemplatesRepository {
     return rowToStep(updated);
   }
 
-  deleteStep(stepId: string): void {
+  deleteStep(stepId: string, userId?: number): void {
+    if (userId != null) {
+      const visible = getDb()
+        .prepare(
+          `SELECT pts.id
+           FROM project_template_steps pts
+           JOIN project_templates pt ON pt.id = pts.template_id
+           WHERE pts.id = ? AND (pt.owner_id = ? OR pt.owner_id IS NULL)`,
+        )
+        .get(stepId, userId) as { id: string } | undefined;
+      if (!visible) throw AppError.notFound('ProjectTemplateStep');
+    }
     const result = getDb().prepare('DELETE FROM project_template_steps WHERE id = ?').run(stepId);
     if (result.changes === 0) throw AppError.notFound('ProjectTemplateStep');
   }
