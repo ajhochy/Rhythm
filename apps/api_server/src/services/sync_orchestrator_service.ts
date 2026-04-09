@@ -1,11 +1,13 @@
-import { IntegrationAccountsRepository } from '../repositories/integration_accounts_repository';
-import { AutomationEngineService } from './automation_engine_service';
-import { IntegrationsService } from './integrations_service';
-import { RhythmSignalGeneratorService } from './rhythm_signal_generator_service';
-import { logger } from '../utils/logger';
+import { IntegrationAccountsRepository } from "../repositories/integration_accounts_repository";
+import { AutomationSignalsRepository } from "../repositories/automation_signals_repository";
+import { AutomationEngineService } from "./automation_engine_service";
+import { IntegrationsService } from "./integrations_service";
+import { RhythmSignalGeneratorService } from "./rhythm_signal_generator_service";
+import { logger } from "../utils/logger";
 
 export class SyncOrchestratorService {
   private readonly accountsRepo = new IntegrationAccountsRepository();
+  private readonly signalsRepo = new AutomationSignalsRepository();
   private readonly integrationsService = new IntegrationsService();
   private readonly rhythmGenerator = new RhythmSignalGeneratorService();
   private readonly automationEngine = new AutomationEngineService();
@@ -16,12 +18,19 @@ export class SyncOrchestratorService {
         ...this.rhythmGenerator.generateTaskDueSignals(),
         ...this.rhythmGenerator.generateProjectStepDueSignals(),
       ];
-      const evaluation = this.automationEngine.evaluateSignals('rhythm', rhythmSignals);
+      const { changedSignals } =
+        this.signalsRepo.upsertManyDetailed(rhythmSignals);
+      const evaluation = this.automationEngine.evaluateSignals(
+        "rhythm",
+        changedSignals,
+      );
       logger.info(
-        `SyncOrchestrator: Rhythm signals generated ${rhythmSignals.length} signal(s), matched ${evaluation.matchedRules} rule(s)`,
+        `SyncOrchestrator: Rhythm signals generated ${rhythmSignals.length} signal(s), ${changedSignals.length} new/changed, matched ${evaluation.matchedRules} rule(s)`,
       );
     } catch (err) {
-      logger.error(`SyncOrchestrator: Rhythm signal generation failed — ${String(err)}`);
+      logger.error(
+        `SyncOrchestrator: Rhythm signal generation failed — ${String(err)}`,
+      );
     }
 
     const accounts = this.accountsRepo.findAll();
@@ -32,10 +41,11 @@ export class SyncOrchestratorService {
     );
 
     for (const ownerId of ownerIds) {
-      const gcal = this.accountsRepo.findByProvider('google_calendar', ownerId);
+      const gcal = this.accountsRepo.findByProvider("google_calendar", ownerId);
       if (gcal?.accessToken) {
         try {
-          const result = await this.integrationsService.syncGoogleCalendar(ownerId);
+          const result =
+            await this.integrationsService.syncGoogleCalendar(ownerId);
           logger.info(
             `SyncOrchestrator: Google Calendar synced ${result.syncedCount} event(s) for user ${ownerId}`,
           );
@@ -46,7 +56,7 @@ export class SyncOrchestratorService {
         }
       }
 
-      const gmail = this.accountsRepo.findByProvider('gmail', ownerId);
+      const gmail = this.accountsRepo.findByProvider("gmail", ownerId);
       if (gmail?.accessToken) {
         try {
           const result = await this.integrationsService.syncGmail(ownerId);
@@ -60,10 +70,11 @@ export class SyncOrchestratorService {
         }
       }
 
-      const pco = this.accountsRepo.findByProvider('planning_center', ownerId);
+      const pco = this.accountsRepo.findByProvider("planning_center", ownerId);
       if (pco?.accessToken) {
         try {
-          const result = await this.integrationsService.syncPlanningCenter(ownerId);
+          const result =
+            await this.integrationsService.syncPlanningCenter(ownerId);
           logger.info(
             `SyncOrchestrator: Planning Center synced ${result.planCount} plan(s) for user ${ownerId}`,
           );

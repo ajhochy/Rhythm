@@ -1,9 +1,9 @@
-import { v4 as uuidv4 } from 'uuid';
-import { getDb } from '../database/db';
+import { v4 as uuidv4 } from "uuid";
+import { getDb } from "../database/db";
 import type {
   AutomationSignal,
   CreateAutomationSignalDto,
-} from '../models/automation_signal';
+} from "../models/automation_signal";
 
 interface AutomationSignalRow {
   id: string;
@@ -23,8 +23,8 @@ interface AutomationSignalRow {
 function rowToSignal(row: AutomationSignalRow): AutomationSignal {
   return {
     id: row.id,
-    provider: row.provider as AutomationSignal['provider'],
-    signalType: row.signal_type as AutomationSignal['signalType'],
+    provider: row.provider as AutomationSignal["provider"],
+    signalType: row.signal_type as AutomationSignal["signalType"],
     externalId: row.external_id,
     dedupeKey: row.dedupe_key,
     occurredAt: row.occurred_at,
@@ -37,12 +37,36 @@ function rowToSignal(row: AutomationSignalRow): AutomationSignal {
   };
 }
 
+function materiallyMatches(
+  existing: AutomationSignalRow,
+  incoming: CreateAutomationSignalDto,
+): boolean {
+  return (
+    existing.provider === incoming.provider &&
+    existing.signal_type === incoming.signalType &&
+    existing.external_id === incoming.externalId &&
+    existing.occurred_at === (incoming.occurredAt ?? null) &&
+    existing.source_account_id === (incoming.sourceAccountId ?? null) &&
+    existing.source_label === (incoming.sourceLabel ?? null) &&
+    existing.payload_json === JSON.stringify(incoming.payload)
+  );
+}
+
+export interface UpsertAutomationSignalsResult {
+  signals: AutomationSignal[];
+  changedSignals: AutomationSignal[];
+}
+
 export class AutomationSignalsRepository {
-  upsertMany(items: CreateAutomationSignalDto[]): AutomationSignal[] {
-    if (items.length === 0) return [];
+  upsertManyDetailed(
+    items: CreateAutomationSignalDto[],
+  ): UpsertAutomationSignalsResult {
+    if (items.length === 0) {
+      return { signals: [], changedSignals: [] };
+    }
 
     const selectStmt = getDb().prepare(
-      'SELECT * FROM automation_signals WHERE dedupe_key = ? LIMIT 1',
+      "SELECT * FROM automation_signals WHERE dedupe_key = ? LIMIT 1",
     );
     const insertStmt = getDb().prepare(
       `INSERT INTO automation_signals (
@@ -57,6 +81,8 @@ export class AutomationSignalsRepository {
        WHERE id = ?`,
     );
 
+    const changedKeys = new Set<string>();
+
     getDb().transaction(() => {
       for (const item of items) {
         const now = new Date().toISOString();
@@ -64,6 +90,7 @@ export class AutomationSignalsRepository {
           | AutomationSignalRow
           | undefined;
         if (existing) {
+          const materialChange = !materiallyMatches(existing, item);
           updateStmt.run(
             item.provider,
             item.signalType,
@@ -76,6 +103,9 @@ export class AutomationSignalsRepository {
             now,
             existing.id,
           );
+          if (materialChange) {
+            changedKeys.add(item.dedupeKey);
+          }
           continue;
         }
 
@@ -93,15 +123,26 @@ export class AutomationSignalsRepository {
           now,
           now,
         );
+        changedKeys.add(item.dedupeKey);
       }
     })();
 
-    return items.map((item) => this.findByDedupeKey(item.dedupeKey)!);
+    const signals = items.map((item) => this.findByDedupeKey(item.dedupeKey)!);
+    return {
+      signals,
+      changedSignals: signals.filter((signal) =>
+        changedKeys.has(signal.dedupeKey),
+      ),
+    };
+  }
+
+  upsertMany(items: CreateAutomationSignalDto[]): AutomationSignal[] {
+    return this.upsertManyDetailed(items).signals;
   }
 
   findByDedupeKey(dedupeKey: string): AutomationSignal | null {
     const row = getDb()
-      .prepare('SELECT * FROM automation_signals WHERE dedupe_key = ? LIMIT 1')
+      .prepare("SELECT * FROM automation_signals WHERE dedupe_key = ? LIMIT 1")
       .get(dedupeKey) as AutomationSignalRow | undefined;
     return row ? rowToSignal(row) : null;
   }

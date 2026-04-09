@@ -1,24 +1,24 @@
-import { GmailService } from '../integrations/gmail/gmail_service';
-import { GoogleCalendarService } from '../integrations/google_calendar/google_calendar_service';
-import { PlanningCenterService } from '../integrations/planning_center/planning_center_service';
+import { GmailService } from "../integrations/gmail/gmail_service";
+import { GoogleCalendarService } from "../integrations/google_calendar/google_calendar_service";
+import { PlanningCenterService } from "../integrations/planning_center/planning_center_service";
 import type {
   GoogleCalendarOption,
   GoogleCalendarPreferences,
-} from '../models/google_calendar_preferences';
-import type { IntegrationAccount } from '../models/integration_account';
-import type { CreateAutomationSignalDto } from '../models/automation_signal';
-import { AppError } from '../errors/app_error';
-import { AutomationRulesRepository } from '../repositories/automation_rules_repository';
-import { AutomationSignalsRepository } from '../repositories/automation_signals_repository';
-import { CalendarShadowEventsRepository } from '../repositories/calendar_shadow_events_repository';
-import { GmailSignalsRepository } from '../repositories/gmail_signals_repository';
-import { IntegrationAccountsRepository } from '../repositories/integration_accounts_repository';
-import { IntegrationPreferencesRepository } from '../repositories/integration_preferences_repository';
-import { ProjectTemplatesRepository } from '../repositories/project_templates_repository';
-import { AutomationEngineService } from './automation_engine_service';
-import { GoogleOAuthService } from './google_oauth_service';
-import { PlanningCenterOAuthService } from './planning_center_oauth_service';
-import { RhythmSignalGeneratorService } from './rhythm_signal_generator_service';
+} from "../models/google_calendar_preferences";
+import type { IntegrationAccount } from "../models/integration_account";
+import type { CreateAutomationSignalDto } from "../models/automation_signal";
+import { AppError } from "../errors/app_error";
+import { AutomationRulesRepository } from "../repositories/automation_rules_repository";
+import { AutomationSignalsRepository } from "../repositories/automation_signals_repository";
+import { CalendarShadowEventsRepository } from "../repositories/calendar_shadow_events_repository";
+import { GmailSignalsRepository } from "../repositories/gmail_signals_repository";
+import { IntegrationAccountsRepository } from "../repositories/integration_accounts_repository";
+import { IntegrationPreferencesRepository } from "../repositories/integration_preferences_repository";
+import { ProjectTemplatesRepository } from "../repositories/project_templates_repository";
+import { AutomationEngineService } from "./automation_engine_service";
+import { GoogleOAuthService } from "./google_oauth_service";
+import { PlanningCenterOAuthService } from "./planning_center_oauth_service";
+import { RhythmSignalGeneratorService } from "./rhythm_signal_generator_service";
 
 function daysUntil(dateString: string): number {
   const start = new Date();
@@ -48,9 +48,9 @@ export class IntegrationsService {
   private readonly rhythmGenerator = new RhythmSignalGeneratorService();
 
   async syncGoogleCalendar(userId: number) {
-    const account = await this.ensureFreshAccount('google_calendar', userId);
+    const account = await this.ensureFreshAccount("google_calendar", userId);
     if (!account || !account.accessToken) {
-      throw AppError.badRequest('Google Calendar is not connected');
+      throw AppError.badRequest("Google Calendar is not connected");
     }
 
     try {
@@ -58,29 +58,33 @@ export class IntegrationsService {
         await this.googleCalendar.listAccessibleCalendars(account);
       const preferences =
         this.preferencesRepo.getGoogleCalendarPreferences(userId);
-      const selectedCalendarIds =
-        this.resolveSelectedGoogleCalendarIds(preferences, calendarOptions);
+      const selectedCalendarIds = this.resolveSelectedGoogleCalendarIds(
+        preferences,
+        calendarOptions,
+      );
       const calendarNames = new Map(
         calendarOptions.map((calendar) => [calendar.id, calendar.name]),
       );
-      const events = (await this.googleCalendar.listUpcomingEvents(
-        account,
-        selectedCalendarIds,
-      )).map((event) => ({
+      const events = (
+        await this.googleCalendar.listUpcomingEvents(
+          account,
+          selectedCalendarIds,
+        )
+      ).map((event) => ({
         ...event,
         sourceName: calendarNames.get(event.calendarId) ?? event.sourceName,
       }));
       const synced = this.shadowEventsRepo.replaceForOwner(
         userId,
         events.map((event) => ({
-          provider: 'google_calendar' as const,
+          provider: "google_calendar" as const,
           ...event,
         })),
       );
       const syncedAt = new Date().toISOString();
       const automationSignals: CreateAutomationSignalDto[] = [];
       for (const event of events) {
-        const startDate = event.startAt.includes('T')
+        const startDate = event.startAt.includes("T")
           ? event.startAt.slice(0, 10)
           : event.startAt;
         const basePayload = {
@@ -91,43 +95,44 @@ export class IntegrationsService {
           startAt: event.startAt,
           endAt: event.endAt,
           isAllDay: event.isAllDay,
-          eventType: 'default',
+          eventType: "default",
           sourceName: event.sourceName,
           daysUntilStart: daysUntil(`${startDate}T00:00:00Z`),
         };
         automationSignals.push({
-          provider: 'google_calendar',
-          signalType: 'calendar_event_seen',
+          provider: "google_calendar",
+          signalType: "calendar_event_seen",
           externalId: event.externalId,
           dedupeKey: `google_calendar:seen:${event.externalId}`,
           occurredAt: event.startAt,
           syncedAt,
           sourceAccountId: account.id,
-          sourceLabel: account.email ?? account.displayName ?? 'Google Calendar',
+          sourceLabel:
+            account.email ?? account.displayName ?? "Google Calendar",
           payload: basePayload,
         });
         if (basePayload.daysUntilStart <= 0) {
           automationSignals.push({
-            provider: 'google_calendar',
-            signalType: 'calendar_event_today',
+            provider: "google_calendar",
+            signalType: "calendar_event_today",
             externalId: event.externalId,
             dedupeKey: `google_calendar:today:${event.externalId}:${startDate}`,
             occurredAt: event.startAt,
             syncedAt,
             sourceAccountId: account.id,
-            sourceLabel: account.email ?? account.displayName ?? 'Google Calendar',
+            sourceLabel:
+              account.email ?? account.displayName ?? "Google Calendar",
             payload: basePayload,
           });
         }
       }
-      this.signalsRepo.upsertMany(automationSignals);
+      const { changedSignals } =
+        this.signalsRepo.upsertManyDetailed(automationSignals);
       const evaluation = this.automationEngine.evaluateSignals(
-        'google_calendar',
-        this.signalsRepo.listRecent(automationSignals.length + 10).filter(
-          (item) => item.provider === 'google_calendar' && item.syncedAt === syncedAt,
-        ),
+        "google_calendar",
+        changedSignals,
       );
-      this.accountsRepo.markSynced('google_calendar', userId);
+      this.accountsRepo.markSynced("google_calendar", userId);
       return {
         syncedCount: synced.length,
         generatedSignalCount: automationSignals.length,
@@ -136,7 +141,7 @@ export class IntegrationsService {
       };
     } catch (err) {
       this.accountsRepo.markError(
-        'google_calendar',
+        "google_calendar",
         userId,
         err instanceof Error ? err.message : String(err),
       );
@@ -145,9 +150,9 @@ export class IntegrationsService {
   }
 
   async syncGmail(userId: number) {
-    const account = await this.ensureFreshAccount('gmail', userId);
+    const account = await this.ensureFreshAccount("gmail", userId);
     if (!account || !account.accessToken) {
-      throw AppError.badRequest('Gmail is not connected');
+      throw AppError.badRequest("Gmail is not connected");
     }
 
     try {
@@ -160,69 +165,72 @@ export class IntegrationsService {
         })),
       );
       const syncedAt = new Date().toISOString();
-      const automationSignals: CreateAutomationSignalDto[] = signals.flatMap((signal) => {
-        const payload = {
-          fromName: signal.fromName,
-          fromEmail: signal.fromEmail,
-          subject: signal.subject,
-          snippet: signal.snippet,
-          receivedAt: signal.receivedAt,
-          isUnread: signal.isUnread,
-          threadId: signal.threadId,
-          labelIds: signal.isUnread ? ['INBOX', 'UNREAD'] : ['INBOX'],
-        };
-        return [
-          {
-            provider: 'gmail' as const,
-            signalType: 'gmail_message_seen' as const,
-            externalId: signal.externalId,
-            dedupeKey: `gmail:seen:${signal.externalId}`,
-            occurredAt: signal.receivedAt,
-            syncedAt,
-            sourceAccountId: account.id,
-            sourceLabel: account.email ?? account.displayName ?? 'Gmail',
-            payload,
-          },
-          ...(signal.isUnread
-            ? [
-                {
-                  provider: 'gmail' as const,
-                  signalType: 'gmail_unread_message_seen' as const,
-                  externalId: signal.externalId,
-                  dedupeKey: `gmail:unread:${signal.externalId}`,
-                  occurredAt: signal.receivedAt,
-                  syncedAt,
-                  sourceAccountId: account.id,
-                  sourceLabel: account.email ?? account.displayName ?? 'Gmail',
-                  payload,
-                },
-              ]
-            : []),
-          ...(signal.fromEmail
-            ? [
-                {
-                  provider: 'gmail' as const,
-                  signalType: 'gmail_message_from_sender' as const,
-                  externalId: signal.externalId,
-                  dedupeKey: `gmail:sender:${signal.externalId}:${signal.fromEmail.toLowerCase()}`,
-                  occurredAt: signal.receivedAt,
-                  syncedAt,
-                  sourceAccountId: account.id,
-                  sourceLabel: account.email ?? account.displayName ?? 'Gmail',
-                  payload,
-                },
-              ]
-            : []),
-        ];
-      });
-      this.signalsRepo.upsertMany(automationSignals);
-      const evaluation = this.automationEngine.evaluateSignals(
-        'gmail',
-        this.signalsRepo.listRecent(automationSignals.length + 10).filter(
-          (item) => item.provider === 'gmail' && item.syncedAt === syncedAt,
-        ),
+      const automationSignals: CreateAutomationSignalDto[] = signals.flatMap(
+        (signal) => {
+          const payload = {
+            fromName: signal.fromName,
+            fromEmail: signal.fromEmail,
+            subject: signal.subject,
+            snippet: signal.snippet,
+            receivedAt: signal.receivedAt,
+            isUnread: signal.isUnread,
+            threadId: signal.threadId,
+            labelIds: signal.isUnread ? ["INBOX", "UNREAD"] : ["INBOX"],
+          };
+          return [
+            {
+              provider: "gmail" as const,
+              signalType: "gmail_message_seen" as const,
+              externalId: signal.externalId,
+              dedupeKey: `gmail:seen:${signal.externalId}`,
+              occurredAt: signal.receivedAt,
+              syncedAt,
+              sourceAccountId: account.id,
+              sourceLabel: account.email ?? account.displayName ?? "Gmail",
+              payload,
+            },
+            ...(signal.isUnread
+              ? [
+                  {
+                    provider: "gmail" as const,
+                    signalType: "gmail_unread_message_seen" as const,
+                    externalId: signal.externalId,
+                    dedupeKey: `gmail:unread:${signal.externalId}`,
+                    occurredAt: signal.receivedAt,
+                    syncedAt,
+                    sourceAccountId: account.id,
+                    sourceLabel:
+                      account.email ?? account.displayName ?? "Gmail",
+                    payload,
+                  },
+                ]
+              : []),
+            ...(signal.fromEmail
+              ? [
+                  {
+                    provider: "gmail" as const,
+                    signalType: "gmail_message_from_sender" as const,
+                    externalId: signal.externalId,
+                    dedupeKey: `gmail:sender:${signal.externalId}:${signal.fromEmail.toLowerCase()}`,
+                    occurredAt: signal.receivedAt,
+                    syncedAt,
+                    sourceAccountId: account.id,
+                    sourceLabel:
+                      account.email ?? account.displayName ?? "Gmail",
+                    payload,
+                  },
+                ]
+              : []),
+          ];
+        },
       );
-      this.accountsRepo.markSynced('gmail', userId);
+      const { changedSignals } =
+        this.signalsRepo.upsertManyDetailed(automationSignals);
+      const evaluation = this.automationEngine.evaluateSignals(
+        "gmail",
+        changedSignals,
+      );
+      this.accountsRepo.markSynced("gmail", userId);
       return {
         syncedCount: signals.length,
         generatedSignalCount: automationSignals.length,
@@ -232,7 +240,7 @@ export class IntegrationsService {
       };
     } catch (err) {
       this.accountsRepo.markError(
-        'gmail',
+        "gmail",
         userId,
         err instanceof Error ? err.message : String(err),
       );
@@ -245,9 +253,9 @@ export class IntegrationsService {
   }
 
   async syncPlanningCenter(userId: number) {
-    const account = await this.ensureFreshAccount('planning_center', userId);
+    const account = await this.ensureFreshAccount("planning_center", userId);
     if (!account || !account.accessToken) {
-      throw AppError.badRequest('Planning Center is not connected');
+      throw AppError.badRequest("Planning Center is not connected");
     }
 
     try {
@@ -261,14 +269,15 @@ export class IntegrationsService {
       const syncedAt = new Date().toISOString();
       const automationSignals: CreateAutomationSignalDto[] = [
         ...collected.upcomingPlans.map((plan) => ({
-          provider: 'planning_center' as const,
-          signalType: 'plan_upcoming' as const,
+          provider: "planning_center" as const,
+          signalType: "plan_upcoming" as const,
           externalId: plan.planId,
           dedupeKey: `planning_center:plan:${plan.planId}`,
           occurredAt: `${plan.planDate}T00:00:00Z`,
           syncedAt,
           sourceAccountId: account.id,
-          sourceLabel: account.email ?? account.displayName ?? 'Planning Center',
+          sourceLabel:
+            account.email ?? account.displayName ?? "Planning Center",
           payload: {
             title: plan.title,
             serviceTypeName: plan.serviceTypeName,
@@ -280,14 +289,15 @@ export class IntegrationsService {
         ...collected.upcomingPlans
           .filter((plan) => plan.publishedAt != null)
           .map((plan) => ({
-            provider: 'planning_center' as const,
-            signalType: 'plan_published' as const,
+            provider: "planning_center" as const,
+            signalType: "plan_published" as const,
             externalId: plan.planId,
             dedupeKey: `planning_center:published:${plan.planId}`,
             occurredAt: plan.publishedAt!,
             syncedAt,
             sourceAccountId: account.id,
-            sourceLabel: account.email ?? account.displayName ?? 'Planning Center',
+            sourceLabel:
+              account.email ?? account.displayName ?? "Planning Center",
             payload: {
               title: plan.title,
               serviceTypeName: plan.serviceTypeName,
@@ -297,14 +307,15 @@ export class IntegrationsService {
             },
           })),
         ...collected.tasks.map((task) => ({
-          provider: 'planning_center' as const,
+          provider: "planning_center" as const,
           signalType: task.signalType,
           externalId: task.sourceId,
           dedupeKey: task.dedupeKey,
           occurredAt: `${task.planDate}T00:00:00Z`,
           syncedAt,
           sourceAccountId: account.id,
-          sourceLabel: account.email ?? account.displayName ?? 'Planning Center',
+          sourceLabel:
+            account.email ?? account.displayName ?? "Planning Center",
           payload: {
             title: task.title,
             notes: task.notes,
@@ -321,14 +332,15 @@ export class IntegrationsService {
           },
         })),
         ...serviceTypeItems.map((item) => ({
-          provider: 'planning_center' as const,
-          signalType: 'service_item_updated' as const,
+          provider: "planning_center" as const,
+          signalType: "service_item_updated" as const,
           externalId: item.itemId,
           dedupeKey: `planning_center:service_item:${item.itemId}`,
           occurredAt: `${item.planDate}T00:00:00Z`,
           syncedAt,
           sourceAccountId: account.id,
-          sourceLabel: account.email ?? account.displayName ?? 'Planning Center',
+          sourceLabel:
+            account.email ?? account.displayName ?? "Planning Center",
           payload: {
             title: item.title,
             itemType: item.itemType,
@@ -340,14 +352,15 @@ export class IntegrationsService {
           },
         })),
         ...collected.specialProjects.map((project) => ({
-          provider: 'planning_center' as const,
-          signalType: 'special_service_candidate' as const,
+          provider: "planning_center" as const,
+          signalType: "special_service_candidate" as const,
           externalId: project.planId,
           dedupeKey: `planning_center:special:${project.planId}`,
           occurredAt: `${project.anchorDate}T00:00:00Z`,
           syncedAt,
           sourceAccountId: account.id,
-          sourceLabel: account.email ?? account.displayName ?? 'Planning Center',
+          sourceLabel:
+            account.email ?? account.displayName ?? "Planning Center",
           payload: {
             title: project.title,
             name: project.name,
@@ -358,16 +371,14 @@ export class IntegrationsService {
           },
         })),
       ];
-      this.signalsRepo.upsertMany(automationSignals);
+      const { changedSignals } =
+        this.signalsRepo.upsertManyDetailed(automationSignals);
       const evaluation = this.automationEngine.evaluateSignals(
-        'planning_center',
-        this.signalsRepo.listRecent(automationSignals.length + 10).filter(
-          (item) =>
-            item.provider === 'planning_center' && item.syncedAt === syncedAt,
-        ),
+        "planning_center",
+        changedSignals,
       );
 
-      this.accountsRepo.markSynced('planning_center', userId);
+      this.accountsRepo.markSynced("planning_center", userId);
       return {
         planCount: collected.planCount,
         taskSignalCount: collected.tasks.length,
@@ -383,7 +394,7 @@ export class IntegrationsService {
       };
     } catch (err) {
       this.accountsRepo.markError(
-        'planning_center',
+        "planning_center",
         userId,
         err instanceof Error ? err.message : String(err),
       );
@@ -394,16 +405,22 @@ export class IntegrationsService {
   async syncAll(userId: number) {
     const results: Record<string, unknown> = {};
     const errors: Array<{ provider: string; message: string }> = [];
-    const calendarAccount = this.accountsRepo.findByProvider('google_calendar', userId);
-    const gmailAccount = this.accountsRepo.findByProvider('gmail', userId);
-    const planningCenterAccount = this.accountsRepo.findByProvider('planning_center', userId);
+    const calendarAccount = this.accountsRepo.findByProvider(
+      "google_calendar",
+      userId,
+    );
+    const gmailAccount = this.accountsRepo.findByProvider("gmail", userId);
+    const planningCenterAccount = this.accountsRepo.findByProvider(
+      "planning_center",
+      userId,
+    );
 
     if (calendarAccount?.accessToken) {
       try {
         results.googleCalendar = await this.syncGoogleCalendar(userId);
       } catch (err) {
         errors.push({
-          provider: 'google_calendar',
+          provider: "google_calendar",
           message: err instanceof Error ? err.message : String(err),
         });
       }
@@ -413,7 +430,7 @@ export class IntegrationsService {
         results.gmail = await this.syncGmail(userId);
       } catch (err) {
         errors.push({
-          provider: 'gmail',
+          provider: "gmail",
           message: err instanceof Error ? err.message : String(err),
         });
       }
@@ -423,7 +440,7 @@ export class IntegrationsService {
         results.planningCenter = await this.syncPlanningCenter(userId);
       } catch (err) {
         errors.push({
-          provider: 'planning_center',
+          provider: "planning_center",
           message: err instanceof Error ? err.message : String(err),
         });
       }
@@ -438,27 +455,32 @@ export class IntegrationsService {
   async resyncAutomationRule(ruleId: string, userId: number) {
     const rule = this.rulesRepo.findById(ruleId, userId);
     switch (rule.source) {
-      case 'google_calendar':
+      case "google_calendar":
         return {
           source: rule.source,
           result: await this.syncGoogleCalendar(userId),
         };
-      case 'gmail':
+      case "gmail":
         return {
           source: rule.source,
           result: await this.syncGmail(userId),
         };
-      case 'planning_center':
+      case "planning_center":
         return {
           source: rule.source,
           result: await this.syncPlanningCenter(userId),
         };
-      case 'rhythm': {
+      case "rhythm": {
         const rhythmSignals = [
           ...this.rhythmGenerator.generateTaskDueSignals(),
           ...this.rhythmGenerator.generateProjectStepDueSignals(),
         ];
-        const evaluation = this.automationEngine.evaluateSignals('rhythm', rhythmSignals);
+        const { changedSignals } =
+          this.signalsRepo.upsertManyDetailed(rhythmSignals);
+        const evaluation = this.automationEngine.evaluateSignals(
+          "rhythm",
+          changedSignals,
+        );
         return {
           source: rule.source,
           generatedSignalCount: rhythmSignals.length,
@@ -475,19 +497,19 @@ export class IntegrationsService {
   }
 
   private async ensureFreshAccount(
-    provider: 'google_calendar' | 'gmail' | 'planning_center',
+    provider: "google_calendar" | "gmail" | "planning_center",
     userId: number,
   ): Promise<IntegrationAccount | null> {
     const account = this.accountsRepo.findByProvider(provider, userId);
     if (!account) return null;
     if (!this.shouldRefresh(account)) return account;
 
-    if (provider === 'planning_center') {
+    if (provider === "planning_center") {
       return this.planningCenterOAuth.refreshAccessToken(account);
     }
 
     const refreshed = await this.googleOAuth.refreshAccessToken(account);
-    if (provider === 'google_calendar') return refreshed;
+    if (provider === "google_calendar") return refreshed;
     return this.accountsRepo.findByProvider(provider, userId) ?? refreshed;
   }
 
@@ -503,10 +525,13 @@ export class IntegrationsService {
     return this.preferencesRepo.getPlanningCenterTaskPreferences(userId);
   }
 
-  savePlanningCenterTaskPreferences(userId: number, preferences: {
-    teamIds: string[];
-    positionNames: string[];
-  }) {
+  savePlanningCenterTaskPreferences(
+    userId: number,
+    preferences: {
+      teamIds: string[];
+      positionNames: string[];
+    },
+  ) {
     return this.preferencesRepo.savePlanningCenterTaskPreferences(
       userId,
       preferences,
@@ -514,9 +539,9 @@ export class IntegrationsService {
   }
 
   async getPlanningCenterTaskOptions(userId: number) {
-    const account = this.accountsRepo.findByProvider('planning_center', userId);
+    const account = this.accountsRepo.findByProvider("planning_center", userId);
     if (!account || !account.accessToken) {
-      throw AppError.badRequest('Planning Center is not connected');
+      throw AppError.badRequest("Planning Center is not connected");
     }
     return this.planningCenter.collectTaskOptions(account);
   }
@@ -525,13 +550,15 @@ export class IntegrationsService {
     calendars: GoogleCalendarOption[];
     selectedCalendarIds: string[];
   }> {
-    const account = await this.ensureFreshAccount('google_calendar', userId);
+    const account = await this.ensureFreshAccount("google_calendar", userId);
     if (!account || !account.accessToken) {
-      throw AppError.badRequest('Google Calendar is not connected');
+      throw AppError.badRequest("Google Calendar is not connected");
     }
 
-    const calendars = await this.googleCalendar.listAccessibleCalendars(account);
-    const preferences = this.preferencesRepo.getGoogleCalendarPreferences(userId);
+    const calendars =
+      await this.googleCalendar.listAccessibleCalendars(account);
+    const preferences =
+      this.preferencesRepo.getGoogleCalendarPreferences(userId);
     const selectedCalendarIds = this.resolveSelectedGoogleCalendarIds(
       preferences,
       calendars,
@@ -550,12 +577,15 @@ export class IntegrationsService {
     userId: number,
     preferences: GoogleCalendarPreferences,
   ) {
-    return this.preferencesRepo.saveGoogleCalendarPreferences(userId, preferences);
+    return this.preferencesRepo.saveGoogleCalendarPreferences(
+      userId,
+      preferences,
+    );
   }
 
   private resolveSelectedGoogleCalendarIds(
     preferences: GoogleCalendarPreferences | null,
-    calendars: Array<Omit<GoogleCalendarOption, 'isSelected'>>,
+    calendars: Array<Omit<GoogleCalendarOption, "isSelected">>,
   ): string[] {
     if (preferences == null) {
       return calendars.map((calendar) => calendar.id);
@@ -572,56 +602,60 @@ export class IntegrationsService {
 
   private ensureDefaultRules(): void {
     const existing = this.rulesRepo.findAll();
-    const ensure = (name: string, payload: Parameters<AutomationRulesRepository['create']>[0]) => {
-      if (existing.some((rule) => rule.name === name && rule.ownerId == null)) return;
+    const ensure = (
+      name: string,
+      payload: Parameters<AutomationRulesRepository["create"]>[0],
+    ) => {
+      if (existing.some((rule) => rule.name === name && rule.ownerId == null))
+        return;
       this.rulesRepo.create(payload);
     };
 
-    ensure('PCO declined volunteer', {
-      name: 'PCO declined volunteer',
-      source: 'planning_center',
-      triggerKey: 'planning_center.plan_person_declined',
-      actionType: 'create_task',
+    ensure("PCO declined volunteer", {
+      name: "PCO declined volunteer",
+      source: "planning_center",
+      triggerKey: "planning_center.plan_person_declined",
+      actionType: "create_task",
       triggerConfig: { leadDays: 21 },
       actionConfig: {
-        titleTemplate: '{{title}}',
-        notesTemplate: '{{serviceType}} {{position}} {{date}}',
+        titleTemplate: "{{title}}",
+        notesTemplate: "{{serviceType}} {{position}} {{date}}",
       },
       ownerId: null,
     });
-    ensure('PCO open needed position', {
-      name: 'PCO open needed position',
-      source: 'planning_center',
-      triggerKey: 'planning_center.needed_position_open',
-      actionType: 'create_task',
+    ensure("PCO open needed position", {
+      name: "PCO open needed position",
+      source: "planning_center",
+      triggerKey: "planning_center.needed_position_open",
+      actionType: "create_task",
       triggerConfig: { leadDays: 21 },
       actionConfig: {
-        titleTemplate: '{{title}}',
-        notesTemplate: '{{serviceType}} {{position}} {{date}}',
+        titleTemplate: "{{title}}",
+        notesTemplate: "{{serviceType}} {{position}} {{date}}",
       },
       ownerId: null,
     });
-    ensure('PCO unconfirmed volunteer', {
-      name: 'PCO unconfirmed volunteer',
-      source: 'planning_center',
-      triggerKey: 'planning_center.plan_person_unconfirmed',
-      actionType: 'create_task',
+    ensure("PCO unconfirmed volunteer", {
+      name: "PCO unconfirmed volunteer",
+      source: "planning_center",
+      triggerKey: "planning_center.plan_person_unconfirmed",
+      actionType: "create_task",
       triggerConfig: { leadDays: 14 },
       actionConfig: {
-        titleTemplate: '{{title}}',
-        notesTemplate: '{{serviceType}} {{position}} {{date}}',
+        titleTemplate: "{{title}}",
+        notesTemplate: "{{serviceType}} {{position}} {{date}}",
       },
       ownerId: null,
     });
-    ensure('PCO special service project', {
-      name: 'PCO special service project',
-      source: 'planning_center',
-      triggerKey: 'planning_center.special_service_candidate',
-      actionType: 'create_project_from_template',
+    ensure("PCO special service project", {
+      name: "PCO special service project",
+      source: "planning_center",
+      triggerKey: "planning_center.special_service_candidate",
+      actionType: "create_project_from_template",
       triggerConfig: { leadDays: 30 },
       actionConfig: {
         templateName: this.planningCenter.specialServiceTemplateName(),
-        projectNameTemplate: '{{title}}',
+        projectNameTemplate: "{{title}}",
       },
       ownerId: null,
     });

@@ -1,25 +1,25 @@
-import { getDb } from '../database/db';
-import type { AutomationSignal } from '../models/automation_signal';
+import { getDb } from "../database/db";
+import type { AutomationSignal } from "../models/automation_signal";
 
 function makeSignal(
-  signalType: AutomationSignal['signalType'],
+  signalType: AutomationSignal["signalType"],
   externalId: string,
   payload: Record<string, unknown>,
+  occurredAt: string,
 ): AutomationSignal {
-  const now = new Date().toISOString();
   return {
     id: `rhythm:${signalType}:${externalId}`,
-    provider: 'rhythm',
+    provider: "rhythm",
     signalType,
     externalId,
     dedupeKey: `rhythm:${signalType}:${externalId}`,
-    occurredAt: now,
-    syncedAt: now,
+    occurredAt,
+    syncedAt: new Date().toISOString(),
     sourceAccountId: null,
-    sourceLabel: 'Rhythm',
+    sourceLabel: "Rhythm",
     payload,
-    createdAt: now,
-    updatedAt: now,
+    createdAt: occurredAt,
+    updatedAt: occurredAt,
   };
 }
 
@@ -60,18 +60,25 @@ export class RhythmSignalGeneratorService {
     return rows.map((row) => {
       const dueDate = row.due_date!;
       const daysUntilDue = Math.floor(
-        (new Date(`${dueDate}T00:00:00Z`).getTime() - Date.UTC(
-          new Date().getUTCFullYear(),
-          new Date().getUTCMonth(),
-          new Date().getUTCDate(),
-        )) / (1000 * 60 * 60 * 24),
+        (new Date(`${dueDate}T00:00:00Z`).getTime() -
+          Date.UTC(
+            new Date().getUTCFullYear(),
+            new Date().getUTCMonth(),
+            new Date().getUTCDate(),
+          )) /
+          (1000 * 60 * 60 * 24),
       );
-      return makeSignal('task_due', row.id, {
-        title: row.title,
-        dueDate,
-        daysUntilDue,
-        ownerId: row.owner_id,
-      });
+      return makeSignal(
+        "task_due",
+        row.id,
+        {
+          title: row.title,
+          dueDate,
+          daysUntilDue,
+          ownerId: row.owner_id,
+        },
+        `${dueDate}T00:00:00.000Z`,
+      );
     });
   }
 
@@ -97,19 +104,26 @@ export class RhythmSignalGeneratorService {
 
     return rows.map((row) => {
       const daysUntilDue = Math.floor(
-        (new Date(`${row.due_date}T00:00:00Z`).getTime() - Date.UTC(
-          new Date().getUTCFullYear(),
-          new Date().getUTCMonth(),
-          new Date().getUTCDate(),
-        )) / (1000 * 60 * 60 * 24),
+        (new Date(`${row.due_date}T00:00:00Z`).getTime() -
+          Date.UTC(
+            new Date().getUTCFullYear(),
+            new Date().getUTCMonth(),
+            new Date().getUTCDate(),
+          )) /
+          (1000 * 60 * 60 * 24),
       );
-      return makeSignal('project_step_due', row.id, {
-        title: row.title,
-        dueDate: row.due_date,
-        daysUntilDue,
-        instanceId: row.instance_id,
-        instanceName: row.instance_name,
-      });
+      return makeSignal(
+        "project_step_due",
+        row.id,
+        {
+          title: row.title,
+          dueDate: row.due_date,
+          daysUntilDue,
+          instanceId: row.instance_id,
+          instanceName: row.instance_name,
+        },
+        `${row.due_date}T00:00:00.000Z`,
+      );
     });
   }
 }
