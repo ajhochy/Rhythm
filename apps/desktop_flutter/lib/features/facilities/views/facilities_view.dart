@@ -330,7 +330,8 @@ String _recurrenceTypeApiValue(_RecurrenceType type) {
   }
 }
 
-DateTime _startOfDay(DateTime date) => DateTime(date.year, date.month, date.day);
+DateTime _startOfDay(DateTime date) =>
+    DateTime(date.year, date.month, date.day);
 
 DateTime _endOfDay(DateTime date) =>
     DateTime(date.year, date.month, date.day, 23, 59, 59, 999);
@@ -1764,9 +1765,8 @@ class _ReservationDialogState extends State<_ReservationDialog> {
                             hintText: 'Choose a reservation date',
                           ),
                           onTap: _pickDate,
-                          validator: (_) => _selectedDate == null
-                              ? 'Date is required'
-                              : null,
+                          validator: (_) =>
+                              _selectedDate == null ? 'Date is required' : null,
                         ),
                       ),
                     ],
@@ -1870,8 +1870,7 @@ class _ReservationDialogState extends State<_ReservationDialog> {
                         runSpacing: 8,
                         children: [
                           ..._effectiveCustomDates.map((date) {
-                            final isPrimaryDate =
-                                _selectedDate != null &&
+                            final isPrimaryDate = _selectedDate != null &&
                                 date.year == _selectedDate!.year &&
                                 date.month == _selectedDate!.month &&
                                 date.day == _selectedDate!.day;
@@ -1880,7 +1879,8 @@ class _ReservationDialogState extends State<_ReservationDialog> {
                               onDeleted: isPrimaryDate
                                   ? null
                                   : () => setState(
-                                        () => _customRecurrenceDates.removeWhere(
+                                        () =>
+                                            _customRecurrenceDates.removeWhere(
                                           (item) =>
                                               item.year == date.year &&
                                               item.month == date.month &&
@@ -2020,7 +2020,8 @@ class _ReservationDialogState extends State<_ReservationDialog> {
               ? _effectiveCustomDates.map(_dateOnly).toList()
               : null,
           recurrenceType: _recurrenceTypeApiValue(_recurrenceType),
-          recurrenceInterval: _recurrenceType == _RecurrenceType.weekly ? 1 : null,
+          recurrenceInterval:
+              _recurrenceType == _RecurrenceType.weekly ? 1 : null,
           notes: _notesController.text.trim(),
         );
       } else {
@@ -2096,7 +2097,8 @@ class _ReservationDialogState extends State<_ReservationDialog> {
   Future<void> _pickRecurrenceEndDate() async {
     if (_selectedDate == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Choose the first reservation date first.')),
+        const SnackBar(
+            content: Text('Choose the first reservation date first.')),
       );
       return;
     }
@@ -2115,7 +2117,8 @@ class _ReservationDialogState extends State<_ReservationDialog> {
   Future<void> _addCustomDate() async {
     if (_selectedDate == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Choose the first reservation date first.')),
+        const SnackBar(
+            content: Text('Choose the first reservation date first.')),
       );
       return;
     }
@@ -2144,8 +2147,7 @@ class _ReservationDialogState extends State<_ReservationDialog> {
   }
 
   Future<void> _pickEndTime() async {
-    final initialTime =
-        _selectedEndTime ??
+    final initialTime = _selectedEndTime ??
         _selectedStartTime?.replacing(minute: _selectedStartTime!.minute) ??
         TimeOfDay.now();
     final picked = await showTimePicker(

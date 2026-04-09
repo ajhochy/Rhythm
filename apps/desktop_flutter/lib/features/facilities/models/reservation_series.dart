@@ -101,7 +101,8 @@ class ReservationSeriesCreationResult {
 
   factory ReservationSeriesCreationResult.fromJson(Map<String, dynamic> json) {
     return ReservationSeriesCreationResult(
-      series: ReservationSeries.fromJson(json['series'] as Map<String, dynamic>),
+      series:
+          ReservationSeries.fromJson(json['series'] as Map<String, dynamic>),
       createdReservations: json['createdReservations'] is List
           ? (json['createdReservations'] as List)
               .map((item) => Reservation.fromJson(item as Map<String, dynamic>))
