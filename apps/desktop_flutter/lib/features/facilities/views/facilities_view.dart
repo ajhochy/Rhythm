@@ -801,6 +801,7 @@ class _FacilitiesOverview extends StatelessWidget {
                     SizedBox(
                       width: 190,
                       child: DropdownButtonFormField<String?>(
+                        isExpanded: true,
                         value: selectedBuilding,
                         decoration: _overviewDecoration('Building'),
                         dropdownColor: _kSurface,
@@ -822,6 +823,7 @@ class _FacilitiesOverview extends StatelessWidget {
                     SizedBox(
                       width: 220,
                       child: DropdownButtonFormField<int?>(
+                        isExpanded: true,
                         value: selectedFacilityId,
                         decoration: _overviewDecoration('Room'),
                         dropdownColor: _kSurface,
@@ -2983,7 +2985,7 @@ class _ReservationDialogState extends State<_ReservationDialog> {
                   ),
                   const SizedBox(height: 14),
                   if (_selectedFacility != null)
-                    _AvailabilityPanel(
+                    FacilitiesAvailabilityPanel(
                       facility: _selectedFacility!,
                       selectedDate: _selectedDate,
                       selectedStartTime: _selectedStartTime,
@@ -3495,8 +3497,9 @@ class _ReservationDialogState extends State<_ReservationDialog> {
   }
 }
 
-class _AvailabilityPanel extends StatelessWidget {
-  const _AvailabilityPanel({
+class FacilitiesAvailabilityPanel extends StatelessWidget {
+  const FacilitiesAvailabilityPanel({
+    super.key,
     required this.facility,
     required this.selectedDate,
     required this.selectedStartTime,

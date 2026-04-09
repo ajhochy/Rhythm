@@ -75,6 +75,17 @@ base64 -i DeveloperIDApplication.p12 | pbcopy
    - sign/notarize if Apple secrets are configured
    - publish a GitHub release
 
+## Facilities V1 Beta Notes
+
+If the release includes Facilities v1, use the product checklist in [Facilities V1 Rollout Notes](/Users/ajhochhalter/Documents/Rhythm/docs/product/facilities-v1.md) before publishing.
+
+Minimum Facilities-specific release expectations:
+- confirm the beta build opens the Facilities screen on macOS
+- confirm reservation create/edit/delete flows work for a regular user and a facilities manager
+- confirm recurring series create/edit/delete works
+- confirm the manager overview renders and filters correctly
+- note that Google Calendar two-way sync is deferred for this release
+
 ## Tester Download Flow
 
 The release workflow publishes downloadable artifacts to GitHub Releases.
