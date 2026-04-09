@@ -45,6 +45,7 @@ interface NormalizedGmailSignal {
   snippet: string | null;
   receivedAt: string | null;
   isUnread: boolean;
+  labelIds: string[];
 }
 
 function parseFromHeader(value: string | null): {
@@ -131,6 +132,7 @@ export class GmailService {
             ? new Date(Number(detail.internalDate)).toISOString()
             : null,
           isUnread: detail.labelIds?.includes('UNREAD') ?? false,
+          labelIds: detail.labelIds ?? [],
         };
       }),
     );

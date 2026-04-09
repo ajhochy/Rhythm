@@ -29,14 +29,18 @@ function makeMessageListResponse(ids: string[]) {
   };
 }
 
-function makeMessageDetailResponse(id: string, isUnread: boolean) {
+function makeMessageDetailResponse(
+  id: string,
+  isUnread: boolean,
+  labelIds?: string[],
+) {
   return {
     ok: true,
     json: async () => ({
       id,
       threadId: `t-${id}`,
       snippet: `snippet-${id}`,
-      labelIds: isUnread ? ['INBOX', 'UNREAD'] : ['INBOX'],
+      labelIds: labelIds ?? (isUnread ? ['INBOX', 'UNREAD'] : ['INBOX']),
       internalDate: '1700000000000',
       payload: {
         headers: [
@@ -75,6 +79,7 @@ describe('GmailService', () => {
     expect(results).toHaveLength(3);
     expect(results[0].externalId).toBe('m1');
     expect(results[0].isUnread).toBe(true);
+    expect(results[0].labelIds).toEqual(['INBOX', 'UNREAD']);
     expect(results[1].isUnread).toBe(false);
     // fetch was called once for list + 3 for details = 4 total
     expect(vi.mocked(fetch)).toHaveBeenCalledTimes(4);
@@ -93,6 +98,29 @@ describe('GmailService', () => {
     const service = new GmailService();
     const results = await service.listRecentInboxSignals(mockAccount);
     expect(results).toHaveLength(0);
+  });
+
+  it('preserves Gmail user labels in normalized signals', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        const u = url.toString();
+        if (u.includes('/messages?')) {
+          return makeMessageListResponse(['m1']);
+        }
+        return makeMessageDetailResponse('m1', true, [
+          'INBOX',
+          'UNREAD',
+          'Label_123',
+        ]);
+      }),
+    );
+
+    const service = new GmailService();
+    const results = await service.listRecentInboxSignals(mockAccount);
+
+    expect(results).toHaveLength(1);
+    expect(results[0].labelIds).toEqual(['INBOX', 'UNREAD', 'Label_123']);
   });
 
   it('rejects when a message detail fetch fails', async () => {

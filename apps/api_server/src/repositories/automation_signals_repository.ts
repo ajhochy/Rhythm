@@ -37,9 +37,37 @@ function rowToSignal(row: AutomationSignalRow): AutomationSignal {
   };
 }
 
+function materiallyMatches(
+  existing: AutomationSignal,
+  incoming: CreateAutomationSignalDto,
+): boolean {
+  return (
+    existing.provider === incoming.provider &&
+    existing.signalType === incoming.signalType &&
+    existing.externalId === incoming.externalId &&
+    existing.occurredAt === (incoming.occurredAt ?? null) &&
+    existing.sourceAccountId === (incoming.sourceAccountId ?? null) &&
+    existing.sourceLabel === (incoming.sourceLabel ?? null) &&
+    JSON.stringify(existing.payload) === JSON.stringify(incoming.payload)
+  );
+}
+
+interface UpsertAutomationSignalsResult {
+  signals: AutomationSignal[];
+  changedSignals: AutomationSignal[];
+}
+
 export class AutomationSignalsRepository {
   upsertMany(items: CreateAutomationSignalDto[]): AutomationSignal[] {
-    if (items.length === 0) return [];
+    return this.upsertManyDetailed(items).signals;
+  }
+
+  upsertManyDetailed(
+    items: CreateAutomationSignalDto[],
+  ): UpsertAutomationSignalsResult {
+    if (items.length === 0) {
+      return { signals: [], changedSignals: [] };
+    }
 
     const selectStmt = getDb().prepare(
       'SELECT * FROM automation_signals WHERE dedupe_key = ? LIMIT 1',
@@ -57,6 +85,8 @@ export class AutomationSignalsRepository {
        WHERE id = ?`,
     );
 
+    const changedKeys = new Set<string>();
+
     getDb().transaction(() => {
       for (const item of items) {
         const now = new Date().toISOString();
@@ -64,6 +94,7 @@ export class AutomationSignalsRepository {
           | AutomationSignalRow
           | undefined;
         if (existing) {
+          const existingSignal = rowToSignal(existing);
           updateStmt.run(
             item.provider,
             item.signalType,
@@ -76,6 +107,9 @@ export class AutomationSignalsRepository {
             now,
             existing.id,
           );
+          if (!materiallyMatches(existingSignal, item)) {
+            changedKeys.add(item.dedupeKey);
+          }
           continue;
         }
 
@@ -93,10 +127,15 @@ export class AutomationSignalsRepository {
           now,
           now,
         );
+        changedKeys.add(item.dedupeKey);
       }
     })();
 
-    return items.map((item) => this.findByDedupeKey(item.dedupeKey)!);
+    const signals = items.map((item) => this.findByDedupeKey(item.dedupeKey)!);
+    return {
+      signals,
+      changedSignals: signals.filter((signal) => changedKeys.has(signal.dedupeKey)),
+    };
   }
 
   findByDedupeKey(dedupeKey: string): AutomationSignal | null {

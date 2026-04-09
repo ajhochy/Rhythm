@@ -167,7 +167,7 @@ export class IntegrationsService {
           receivedAt: signal.receivedAt,
           isUnread: signal.isUnread,
           threadId: signal.threadId,
-          labelIds: signal.isUnread ? ['INBOX', 'UNREAD'] : ['INBOX'],
+          labelIds: signal.labelIds,
         };
         return [
           {
@@ -213,12 +213,12 @@ export class IntegrationsService {
             : []),
         ];
       });
-      this.signalsRepo.upsertMany(automationSignals);
+      const { changedSignals } = this.signalsRepo.upsertManyDetailed(
+        automationSignals,
+      );
       const evaluation = this.automationEngine.evaluateSignals(
         'gmail',
-        this.signalsRepo.listRecent(automationSignals.length + 10).filter(
-          (item) => item.provider === 'gmail' && item.syncedAt === syncedAt,
-        ),
+        changedSignals.filter((item) => item.provider === 'gmail'),
       );
       this.accountsRepo.markSynced('gmail', userId);
       return {

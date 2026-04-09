@@ -338,6 +338,50 @@ describe('Automation overhaul backend', () => {
     });
   });
 
+  test('upsertManyDetailed ignores syncedAt-only refreshes when reporting changed signals', () => {
+    const repo = new AutomationSignalsRepository();
+
+    const first = repo.upsertManyDetailed([
+      {
+        provider: 'gmail',
+        signalType: 'gmail_message_seen',
+        externalId: 'msg-1',
+        dedupeKey: 'gmail:seen:msg-1',
+        occurredAt: '2026-04-01T16:00:00.000Z',
+        syncedAt: '2026-04-01T17:00:00.000Z',
+        sourceAccountId: 'gmail-account-1',
+        sourceLabel: 'alice@example.com',
+        payload: {
+          subject: 'Invoice',
+          threadId: 'thread-1',
+          labelIds: ['INBOX', 'UNREAD'],
+        },
+      },
+    ]);
+    const second = repo.upsertManyDetailed([
+      {
+        provider: 'gmail',
+        signalType: 'gmail_message_seen',
+        externalId: 'msg-1',
+        dedupeKey: 'gmail:seen:msg-1',
+        occurredAt: '2026-04-01T16:00:00.000Z',
+        syncedAt: '2026-04-01T18:00:00.000Z',
+        sourceAccountId: 'gmail-account-1',
+        sourceLabel: 'alice@example.com',
+        payload: {
+          subject: 'Invoice',
+          threadId: 'thread-1',
+          labelIds: ['INBOX', 'UNREAD'],
+        },
+      },
+    ]);
+
+    expect(first.changedSignals).toHaveLength(1);
+    expect(second.changedSignals).toHaveLength(0);
+    expect(second.signals).toHaveLength(1);
+    expect(second.signals[0]?.id).toBe(first.signals[0]?.id);
+  });
+
   test('preview endpoint returns match metadata and catalog endpoints expose external providers', () => {
     const usersRepo = new UsersRepository();
     const rulesRepo = new AutomationRulesRepository();
