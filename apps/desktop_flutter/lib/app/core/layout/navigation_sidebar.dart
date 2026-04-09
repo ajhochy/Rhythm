@@ -63,13 +63,16 @@ class NavigationSidebar extends StatelessWidget {
                   ? MainAxisAlignment.center
                   : MainAxisAlignment.start,
               children: [
-                const CircleAvatar(
-                  radius: 15,
-                  backgroundColor: RhythmTokens.accentSoft,
-                  child: Icon(
-                    Icons.waves_outlined,
-                    size: 16,
-                    color: RhythmTokens.accent,
+                Container(
+                  width: 30,
+                  height: 30,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    border: Border.all(color: RhythmTokens.borderSoft),
+                    image: const DecorationImage(
+                      image: AssetImage('assets/branding/rhythm_logo.png'),
+                      fit: BoxFit.cover,
+                    ),
                   ),
                 ),
                 if (!collapsed) ...[
