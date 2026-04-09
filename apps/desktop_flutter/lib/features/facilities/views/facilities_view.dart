@@ -300,6 +300,109 @@ Future<void> _showReservationDetails(
   );
 }
 
+Future<void> _showEditReservationDialog(
+  BuildContext context,
+  FacilitiesController controller,
+  Reservation reservation,
+) async {
+  final facility = _facilityForReservation(controller, reservation);
+  if (facility == null) return;
+  await showDialog<bool>(
+    context: context,
+    builder: (_) => _ReservationDialog(
+      controller: controller,
+      facilities: controller.facilities,
+      preselectedFacility: facility,
+      existingReservation: reservation,
+    ),
+  );
+}
+
+Future<void> _showEditSeriesDialog(
+  BuildContext context,
+  FacilitiesController controller,
+  Reservation reservation,
+  ReservationSeries series,
+) async {
+  final facility = _facilityForReservation(controller, reservation);
+  if (facility == null) return;
+  await showDialog<bool>(
+    context: context,
+    builder: (_) => _ReservationDialog(
+      controller: controller,
+      facilities: controller.facilities,
+      preselectedFacility: facility,
+      existingReservation: reservation,
+      existingSeries: series,
+      isEditingSeries: true,
+    ),
+  );
+}
+
+Future<void> _deleteReservationWithConfirmation(
+  BuildContext context,
+  FacilitiesController controller,
+  Reservation reservation,
+) async {
+  final confirmed = await showDialog<bool>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: const Text('Delete reservation?'),
+      content: const Text(
+        'This will remove this reservation from the room schedule.',
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(false),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.of(context).pop(true),
+          style: FilledButton.styleFrom(
+            backgroundColor: const Color(0xFFB42318),
+          ),
+          child: const Text('Delete'),
+        ),
+      ],
+    ),
+  );
+  if (confirmed != true) return;
+  await controller.deleteReservation(reservation.facilityId, reservation.id);
+}
+
+Future<void> _deleteSeriesWithConfirmation(
+  BuildContext context,
+  FacilitiesController controller,
+  Reservation reservation,
+) async {
+  final seriesId = reservation.seriesId;
+  if (seriesId == null) return;
+  final confirmed = await showDialog<bool>(
+    context: context,
+    builder: (context) => AlertDialog(
+      title: const Text('Delete recurring series?'),
+      content: const Text(
+        'This will delete the entire recurring series and all generated reservations.',
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(false),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.of(context).pop(true),
+          style: FilledButton.styleFrom(
+            backgroundColor: const Color(0xFFB42318),
+          ),
+          child: const Text('Delete series'),
+        ),
+      ],
+    ),
+  );
+  if (confirmed != true) return;
+  await controller.deleteReservationSeries(reservation.facilityId, seriesId);
+}
+
 String _formatDateShort(DateTime date) {
   const months = [
     'Jan',
@@ -574,14 +677,23 @@ class _FacilitiesOverview extends StatelessWidget {
             .where((facility) => facility.building == selectedBuilding)
             .toList();
     final reservations = controller.overviewReservations;
-    final groupedReservations = <String, List<Reservation>>{};
+    final groupedReservations = <String, Map<int, List<Reservation>>>{};
     for (final reservation in reservations) {
       final start = _parseReservationDateTime(reservation.startTime);
       final key = start == null
           ? 'No Date'
           : '${_formatDateShort(start)}, ${start.year}';
-      groupedReservations.putIfAbsent(key, () => []).add(reservation);
+      final roomGroups = groupedReservations.putIfAbsent(key, () => {});
+      roomGroups.putIfAbsent(reservation.facilityId, () => []).add(reservation);
     }
+    final setupReservations = reservations
+        .where((reservation) => reservation.notes?.trim().isNotEmpty == true)
+        .toList();
+    final conflictedReservations =
+        reservations.where((reservation) => reservation.isConflicted).toList();
+    final externallyManagedReservations = reservations
+        .where((reservation) => !reservation.createdByRhythm)
+        .toList();
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
@@ -750,6 +862,14 @@ class _FacilitiesOverview extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 16),
+          _OverviewSignalPanel(
+            controller: controller,
+            reservations: reservations,
+            setupReservations: setupReservations,
+            conflictedReservations: conflictedReservations,
+            externallyManagedReservations: externallyManagedReservations,
+          ),
+          const SizedBox(height: 16),
           if (controller.overviewErrorMessage != null)
             Padding(
               padding: const EdgeInsets.only(bottom: 12),
@@ -771,9 +891,9 @@ class _FacilitiesOverview extends StatelessWidget {
                         children: groupedReservations.entries.map((entry) {
                           return Padding(
                             padding: const EdgeInsets.only(bottom: 16),
-                            child: _OverviewGroup(
+                            child: _OverviewDayGroup(
                               title: entry.key,
-                              reservations: entry.value,
+                              reservationsByFacility: entry.value,
                               facilities: controller.facilities,
                               controller: controller,
                             ),
@@ -930,16 +1050,308 @@ class _RecurringSummaryDialog extends StatelessWidget {
   }
 }
 
-class _OverviewGroup extends StatelessWidget {
-  const _OverviewGroup({
-    required this.title,
+class _OverviewSignalPanel extends StatelessWidget {
+  const _OverviewSignalPanel({
+    required this.controller,
     required this.reservations,
+    required this.setupReservations,
+    required this.conflictedReservations,
+    required this.externallyManagedReservations,
+  });
+
+  final FacilitiesController controller;
+  final List<Reservation> reservations;
+  final List<Reservation> setupReservations;
+  final List<Reservation> conflictedReservations;
+  final List<Reservation> externallyManagedReservations;
+
+  @override
+  Widget build(BuildContext context) {
+    final roomsInUse =
+        reservations.map((item) => item.facilityId).toSet().length;
+    final highlightReservations = <Reservation>[
+      ...conflictedReservations.take(3),
+      ...setupReservations
+          .where((reservation) =>
+              !conflictedReservations.any((item) => item.id == reservation.id))
+          .take(3),
+    ];
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Wrap(
+          spacing: 12,
+          runSpacing: 12,
+          children: [
+            _OverviewMetricCard(
+              icon: Icons.meeting_room_outlined,
+              title: 'Rooms in use',
+              value: '$roomsInUse',
+              subtitle: 'Active rooms in this range',
+            ),
+            _OverviewMetricCard(
+              icon: Icons.sticky_note_2_outlined,
+              title: 'Setup notes',
+              value: '${setupReservations.length}',
+              subtitle: 'Reservations with room-prep notes',
+              tone: setupReservations.isEmpty
+                  ? _OverviewMetricTone.neutral
+                  : _OverviewMetricTone.attention,
+            ),
+            _OverviewMetricCard(
+              icon: Icons.warning_amber_outlined,
+              title: 'Conflicts',
+              value: '${conflictedReservations.length}',
+              subtitle: 'Reservations flagged for overlap',
+              tone: conflictedReservations.isEmpty
+                  ? _OverviewMetricTone.neutral
+                  : _OverviewMetricTone.danger,
+            ),
+            _OverviewMetricCard(
+              icon: Icons.sync_outlined,
+              title: 'External changes',
+              value: '${externallyManagedReservations.length}',
+              subtitle: 'Imported from calendar sync',
+              tone: externallyManagedReservations.isEmpty
+                  ? _OverviewMetricTone.neutral
+                  : _OverviewMetricTone.attention,
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(18),
+          decoration: BoxDecoration(
+            color: _kSurface.withValues(alpha: 0.96),
+            borderRadius: BorderRadius.circular(RhythmTokens.radiusL),
+            border: Border.all(color: _kBorder),
+            boxShadow: RhythmTokens.shadow,
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Attention needed',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                  color: _kTextPrimary,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                controller.isFacilitiesManager
+                    ? 'Use this queue to catch conflicts, setup notes, and imported calendar changes quickly.'
+                    : 'High-signal reservations are surfaced here for easier scanning.',
+                style: const TextStyle(
+                  fontSize: 12,
+                  color: _kTextSecondary,
+                  height: 1.4,
+                ),
+              ),
+              const SizedBox(height: 14),
+              if (highlightReservations.isEmpty &&
+                  externallyManagedReservations.isEmpty)
+                const Text(
+                  'No conflicts, setup notes, or imported external changes in this range.',
+                  style: TextStyle(fontSize: 12, color: _kTextSecondary),
+                )
+              else ...[
+                ...highlightReservations.map(
+                  (reservation) => Padding(
+                    padding: const EdgeInsets.only(bottom: 10),
+                    child: _AttentionReservationRow(
+                      controller: controller,
+                      reservation: reservation,
+                    ),
+                  ),
+                ),
+                ...externallyManagedReservations
+                    .where((reservation) => !highlightReservations
+                        .any((item) => item.id == reservation.id))
+                    .take(2)
+                    .map(
+                      (reservation) => Padding(
+                        padding: const EdgeInsets.only(bottom: 10),
+                        child: _AttentionReservationRow(
+                          controller: controller,
+                          reservation: reservation,
+                        ),
+                      ),
+                    ),
+              ],
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+enum _OverviewMetricTone { neutral, attention, danger }
+
+class _OverviewMetricCard extends StatelessWidget {
+  const _OverviewMetricCard({
+    required this.icon,
+    required this.title,
+    required this.value,
+    required this.subtitle,
+    this.tone = _OverviewMetricTone.neutral,
+  });
+
+  final IconData icon;
+  final String title;
+  final String value;
+  final String subtitle;
+  final _OverviewMetricTone tone;
+
+  @override
+  Widget build(BuildContext context) {
+    final Color background;
+    final Color border;
+    final Color accent;
+    switch (tone) {
+      case _OverviewMetricTone.attention:
+        background = const Color(0xFFFFF7E8);
+        border = const Color(0xFFF4D6A3);
+        accent = const Color(0xFFB54708);
+        break;
+      case _OverviewMetricTone.danger:
+        background = const Color(0xFFFDECEC);
+        border = const Color(0xFFF4C7C7);
+        accent = const Color(0xFFB42318);
+        break;
+      case _OverviewMetricTone.neutral:
+        background = _kSurface.withValues(alpha: 0.96);
+        border = _kBorder;
+        accent = RhythmTokens.accent;
+        break;
+    }
+
+    return Container(
+      width: 220,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, color: accent, size: 20),
+          const SizedBox(height: 14),
+          Text(
+            title,
+            style: const TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: _kTextSecondary,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            value,
+            style: const TextStyle(
+              fontSize: 24,
+              fontWeight: FontWeight.w700,
+              color: _kTextPrimary,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            subtitle,
+            style: const TextStyle(
+              fontSize: 11,
+              height: 1.4,
+              color: _kTextSecondary,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _AttentionReservationRow extends StatelessWidget {
+  const _AttentionReservationRow({
+    required this.controller,
+    required this.reservation,
+  });
+
+  final FacilitiesController controller;
+  final Reservation reservation;
+
+  @override
+  Widget build(BuildContext context) {
+    final facility = _facilityForReservation(controller, reservation);
+    final parts = <String>[];
+    if (reservation.isConflicted) {
+      parts.add('Conflict');
+    }
+    if (reservation.notes?.trim().isNotEmpty == true) {
+      parts.add('Setup note');
+    }
+    if (!reservation.createdByRhythm) {
+      parts.add('External change');
+    }
+
+    return InkWell(
+      onTap: () => _showReservationDetails(context, controller, reservation),
+      borderRadius: BorderRadius.circular(14),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: _kCanvas.withValues(alpha: 0.5),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: _kBorder),
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    reservation.title,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w700,
+                      color: _kTextPrimary,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    '${facility?.name ?? 'Room #${reservation.facilityId}'} · ${parts.join(' · ')}',
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: _kTextSecondary,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const Icon(Icons.chevron_right, color: _kTextSecondary),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _OverviewDayGroup extends StatelessWidget {
+  const _OverviewDayGroup({
+    required this.title,
+    required this.reservationsByFacility,
     required this.facilities,
     required this.controller,
   });
 
   final String title;
-  final List<Reservation> reservations;
+  final Map<int, List<Reservation>> reservationsByFacility;
   final List<Facility> facilities;
   final FacilitiesController controller;
 
@@ -968,9 +1380,112 @@ class _OverviewGroup extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 12),
-          ...reservations.map((reservation) {
-            final facility = facilitiesById[reservation.facilityId];
+          ...reservationsByFacility.entries.map((entry) {
+            final facility = facilitiesById[entry.key];
+            final reservations = entry.value
+              ..sort(
+                  (a, b) => (a.startTime ?? '').compareTo(b.startTime ?? ''));
             return Padding(
+              padding: const EdgeInsets.only(bottom: 14),
+              child: _OverviewRoomSection(
+                facility: facility,
+                reservations: reservations,
+                controller: controller,
+              ),
+            );
+          }),
+        ],
+      ),
+    );
+  }
+}
+
+class _OverviewRoomSection extends StatelessWidget {
+  const _OverviewRoomSection({
+    required this.facility,
+    required this.reservations,
+    required this.controller,
+  });
+
+  final Facility? facility;
+  final List<Reservation> reservations;
+  final FacilitiesController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final conflictCount =
+        reservations.where((item) => item.isConflicted).length;
+    final setupCount = reservations
+        .where((item) => item.notes?.trim().isNotEmpty == true)
+        .length;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: _kCanvas.withValues(alpha: 0.35),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: _kBorder),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      facility?.name ??
+                          'Room #${reservations.first.facilityId}',
+                      style: const TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                        color: _kTextPrimary,
+                      ),
+                    ),
+                    if (facility?.building?.isNotEmpty == true)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 2),
+                        child: Text(
+                          facility!.building!,
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: _kTextSecondary,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  _InlineInfoPill(
+                    label:
+                        '${reservations.length} ${reservations.length == 1 ? 'booking' : 'bookings'}',
+                  ),
+                  if (setupCount > 0)
+                    const _InlineInfoPill(
+                      label: 'Setup notes',
+                      tone: _OverviewMetricTone.attention,
+                    ),
+                  if (conflictCount > 0)
+                    _InlineInfoPill(
+                      label:
+                          '$conflictCount ${conflictCount == 1 ? 'conflict' : 'conflicts'}',
+                      tone: _OverviewMetricTone.danger,
+                    ),
+                ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          ...reservations.map(
+            (reservation) => Padding(
               padding: const EdgeInsets.only(bottom: 10),
               child: _OverviewReservationRow(
                 reservation: reservation,
@@ -979,9 +1494,60 @@ class _OverviewGroup extends StatelessWidget {
                 onTap: () =>
                     _showReservationDetails(context, controller, reservation),
               ),
-            );
-          }),
+            ),
+          ),
         ],
+      ),
+    );
+  }
+}
+
+class _InlineInfoPill extends StatelessWidget {
+  const _InlineInfoPill({
+    required this.label,
+    this.tone = _OverviewMetricTone.neutral,
+  });
+
+  final String label;
+  final _OverviewMetricTone tone;
+
+  @override
+  Widget build(BuildContext context) {
+    final Color background;
+    final Color border;
+    final Color foreground;
+    switch (tone) {
+      case _OverviewMetricTone.attention:
+        background = const Color(0xFFFFF7E8);
+        border = const Color(0xFFF4D6A3);
+        foreground = const Color(0xFFB54708);
+        break;
+      case _OverviewMetricTone.danger:
+        background = const Color(0xFFFDECEC);
+        border = const Color(0xFFF4C7C7);
+        foreground = const Color(0xFFB42318);
+        break;
+      case _OverviewMetricTone.neutral:
+        background = _kSurface.withValues(alpha: 0.6);
+        border = _kBorder;
+        foreground = _kTextSecondary;
+        break;
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: border),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w600,
+          color: foreground,
+        ),
       ),
     );
   }
@@ -1006,6 +1572,7 @@ class _OverviewReservationRow extends StatelessWidget {
     final end = _parseReservationDateTime(reservation.endTime);
     final currentFacility = facility;
     final series = _seriesForReservation(controller, reservation);
+    final canManage = _canManageReservation(controller, reservation);
     final facilityLabel = currentFacility == null
         ? reservation.requesterName
         : '${currentFacility.name}${currentFacility.building?.isNotEmpty == true ? ' · ${currentFacility.building}' : ''}';
@@ -1057,6 +1624,13 @@ class _OverviewReservationRow extends StatelessWidget {
                         const SizedBox(width: 8),
                         _SeriesBadge(series: series),
                       ],
+                      if (!reservation.createdByRhythm) ...[
+                        const SizedBox(width: 8),
+                        const _InlineInfoPill(
+                          label: 'External',
+                          tone: _OverviewMetricTone.attention,
+                        ),
+                      ],
                     ],
                   ),
                   const SizedBox(height: 4),
@@ -1091,41 +1665,139 @@ class _OverviewReservationRow extends StatelessWidget {
                       reservation.notes!.isNotEmpty)
                     Padding(
                       padding: const EdgeInsets.only(top: 8),
-                      child: Text(
-                        reservation.notes!,
-                        style: const TextStyle(
-                          fontSize: 12,
-                          color: _kTextSecondary,
+                      child: Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFFF7E8),
+                          borderRadius: BorderRadius.circular(12),
+                          border: Border.all(color: const Color(0xFFF4D6A3)),
+                        ),
+                        child: Text(
+                          reservation.notes!,
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: _kTextSecondary,
+                          ),
                         ),
                       ),
                     ),
                 ],
               ),
             ),
-            if (reservation.isConflicted)
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFFDECEC),
-                  borderRadius: BorderRadius.circular(999),
-                  border: Border.all(color: const Color(0xFFF4C7C7)),
-                ),
-                child: const Text(
-                  'Conflict',
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
-                    color: Color(0xFFB42318),
+            const SizedBox(width: 12),
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                if (reservation.isConflicted)
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFDECEC),
+                      borderRadius: BorderRadius.circular(999),
+                      border: Border.all(color: const Color(0xFFF4C7C7)),
+                    ),
+                    child: const Text(
+                      'Conflict',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w700,
+                        color: Color(0xFFB42318),
+                      ),
+                    ),
+                  ),
+                const SizedBox(height: 8),
+                PopupMenuButton<_OverviewAction>(
+                  tooltip: canManage ? 'Manage reservation' : 'View actions',
+                  onSelected: (value) async {
+                    switch (value) {
+                      case _OverviewAction.open:
+                        await _showReservationDetails(
+                          context,
+                          controller,
+                          reservation,
+                        );
+                        break;
+                      case _OverviewAction.edit:
+                        if (series != null) {
+                          await _showEditSeriesDialog(
+                            context,
+                            controller,
+                            reservation,
+                            series,
+                          );
+                        } else {
+                          await _showEditReservationDialog(
+                            context,
+                            controller,
+                            reservation,
+                          );
+                        }
+                        break;
+                      case _OverviewAction.delete:
+                        if (series != null) {
+                          await _deleteSeriesWithConfirmation(
+                            context,
+                            controller,
+                            reservation,
+                          );
+                        } else {
+                          await _deleteReservationWithConfirmation(
+                            context,
+                            controller,
+                            reservation,
+                          );
+                        }
+                        break;
+                    }
+                  },
+                  itemBuilder: (context) => [
+                    const PopupMenuItem(
+                      value: _OverviewAction.open,
+                      child: Text('Open details'),
+                    ),
+                    if (canManage)
+                      PopupMenuItem(
+                        value: _OverviewAction.edit,
+                        child: Text(
+                          series != null ? 'Edit series' : 'Edit reservation',
+                        ),
+                      ),
+                    if (canManage)
+                      PopupMenuItem(
+                        value: _OverviewAction.delete,
+                        child: Text(
+                          series != null
+                              ? 'Delete series'
+                              : 'Delete reservation',
+                        ),
+                      ),
+                  ],
+                  child: Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: _kSurface.withValues(alpha: 0.6),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: _kBorder),
+                    ),
+                    child: const Icon(
+                      Icons.more_horiz,
+                      size: 18,
+                      color: _kTextSecondary,
+                    ),
                   ),
                 ),
-              ),
+              ],
+            ),
           ],
         ),
       ),
     );
   }
 }
+
+enum _OverviewAction { open, edit, delete }
 
 class _SeriesBadge extends StatelessWidget {
   const _SeriesBadge({required this.series});
