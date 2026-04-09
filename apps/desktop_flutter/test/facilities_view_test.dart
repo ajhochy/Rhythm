@@ -154,8 +154,8 @@ void main() {
         title: 'Morning rehearsal',
         requesterName: 'Jordan',
         createdByUserId: 21,
-        startTime: '2026-04-10T16:00:00.000Z',
-        endTime: '2026-04-10T17:00:00.000Z',
+        startTime: '2026-04-10T09:00:00',
+        endTime: '2026-04-10T10:00:00',
       ),
       Reservation(
         id: 21,
@@ -163,8 +163,8 @@ void main() {
         title: 'Conference setup',
         requesterName: 'Taylor',
         createdByUserId: 22,
-        startTime: '2026-04-10T16:30:00.000Z',
-        endTime: '2026-04-10T17:30:00.000Z',
+        startTime: '2026-04-10T09:30:00',
+        endTime: '2026-04-10T10:30:00',
       ),
     ];
     final repository = _FakeFacilitiesRepository()
