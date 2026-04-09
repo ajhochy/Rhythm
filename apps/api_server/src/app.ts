@@ -1,6 +1,7 @@
 import cors from 'cors';
 import express from 'express';
 
+import { env } from './config/env';
 import { errorHandler } from './middleware/error_handler';
 import { authRouter } from './routes/auth_routes';
 import { automationCatalogRouter } from './routes/automation_catalog_routes';
@@ -19,7 +20,23 @@ import { weeklyPlanRouter } from './routes/weekly_plan_routes';
 export function createApp() {
   const app = express();
 
-  app.use(cors());
+  app.use(
+    cors({
+      origin: (origin, callback) => {
+        if (!origin || env.corsAllowedOrigins.length === 0) {
+          callback(null, true);
+          return;
+        }
+
+        if (env.corsAllowedOrigins.includes(origin)) {
+          callback(null, true);
+          return;
+        }
+
+        callback(new Error(`Origin ${origin} is not allowed by CORS`));
+      },
+    }),
+  );
   app.use(express.json());
 
   app.use('/health', healthRouter);

@@ -66,19 +66,24 @@ void main() async {
   // Create the server controller and kick off startup before runApp so the
   // service object is available immediately. The UI shows a loading screen
   // while the server boots.
-  final serverController = ApiServerController(ApiServerService())
-    ..initialize();
-  final authSessionService =
-      AuthSessionService(AuthDataSource(baseUrl: serverConfigService.url));
+  final serverController = ApiServerController(
+    ApiServerService(),
+    serverUrl: serverConfigService.url,
+  )..initialize();
+  final authSessionService = AuthSessionService(
+    AuthDataSource(baseUrl: serverConfigService.url),
+  );
   final localNotificationService = LocalNotificationService();
   await localNotificationService.initialize();
 
-  runApp(RhythmApp(
-    authSessionService: authSessionService,
-    localNotificationService: localNotificationService,
-    serverController: serverController,
-    serverConfigService: serverConfigService,
-  ));
+  runApp(
+    RhythmApp(
+      authSessionService: authSessionService,
+      localNotificationService: localNotificationService,
+      serverController: serverController,
+      serverConfigService: serverConfigService,
+    ),
+  );
 }
 
 class RhythmApp extends StatelessWidget {
@@ -111,7 +116,8 @@ class RhythmApp extends StatelessWidget {
         ChangeNotifierProvider(
           create: (_) => AutomationRulesController(
             AutomationRulesRepository(
-                AutomationRulesDataSource(baseUrl: baseUrl)),
+              AutomationRulesDataSource(baseUrl: baseUrl),
+            ),
           ),
         ),
         ChangeNotifierProvider(

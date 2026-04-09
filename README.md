@@ -29,6 +29,14 @@ Both frontend and backend follow MVC terminology with thin controllers:
 
 Controllers coordinate request/response and UI intent only. Business rules live in services. Repositories isolate persistence and remote API details.
 
+Rhythm is desktop-first in UX, but server-first for real multi-user operation:
+
+- desktop, web, and mobile should use the same hosted backend in production
+- hosted server/database own collaborative data
+- local embedded server/database flows are for development and isolated testing
+
+See [docs/decisions/0006-server-first-runtime.md](docs/decisions/0006-server-first-runtime.md).
+
 ## Desktop-first rationale
 
 Rhythm starts desktop-first to support high-information planning surfaces:
@@ -51,6 +59,9 @@ cd apps/desktop_flutter
 flutter pub get
 flutter run -d macos
 ```
+
+The desktop app can run with an embedded local API during development. That is a
+developer workflow, not the long-term collaborative production model.
 
 ### API server
 ```bash

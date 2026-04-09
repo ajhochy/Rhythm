@@ -4,6 +4,10 @@ export const env = {
   nodeEnv: process.env.NODE_ENV ?? 'development',
   port: Number(process.env.PORT ?? 4000),
   dbPath: process.env.DB_PATH ?? path.join(process.cwd(), 'rhythm.db'),
+  corsAllowedOrigins: (process.env.CORS_ALLOWED_ORIGINS ?? '')
+    .split(',')
+    .map((value) => value.trim())
+    .filter((value) => value.length > 0),
   googleClientId: process.env.GOOGLE_CLIENT_ID ?? '',
   googleAuthClientId:
     process.env.GOOGLE_AUTH_CLIENT_ID ?? process.env.GOOGLE_CLIENT_ID ?? '',

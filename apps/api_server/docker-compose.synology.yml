@@ -1,0 +1,29 @@
+services:
+  rhythm-api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: rhythm-api
+    restart: unless-stopped
+    ports:
+      - '4000:4000'
+    env_file:
+      - .env.production
+    environment:
+      PORT: '4000'
+      DB_PATH: /data/rhythm.db
+    volumes:
+      - rhythm_api_data:/data
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    container_name: rhythm-cloudflared
+    restart: unless-stopped
+    depends_on:
+      - rhythm-api
+    env_file:
+      - .env.production
+    command: tunnel run
+
+volumes:
+  rhythm_api_data:

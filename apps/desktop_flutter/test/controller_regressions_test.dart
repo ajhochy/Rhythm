@@ -44,6 +44,20 @@ void main() {
     expect(controller.openTaskCount, 2);
   });
 
+  test('DashboardController excludes next-week tasks from this week count',
+      () async {
+    final controller = DashboardController(
+      _FakeDashboardRepository(_FakeDashboardNextWeekDataSource()),
+      now: () => DateTime(2026, 4, 9),
+    );
+
+    await controller.load();
+
+    expect(controller.thisWeekTasksRemainingCount, 0);
+    expect(controller.thisWeekTasksTotalCount, 0);
+    expect(controller.dueThisWeekCount, 0);
+  });
+
   test('MessagesController reloads threads after creating a thread', () async {
     final repository = _FakeMessagesRepository();
     final controller = MessagesController(
@@ -278,6 +292,31 @@ class _FakeDashboardDataSource extends DashboardDataSource {
       createdAt: '2026-03-31T00:00:00.000Z',
       updatedAt: '2026-03-31T00:00:00.000Z',
     );
+  }
+}
+
+class _FakeDashboardNextWeekDataSource extends _FakeDashboardDataSource {
+  @override
+  Future<List<Task>> fetchTasks() async {
+    loadCount += 1;
+    return [
+      Task(
+        id: 'next-week-1',
+        title: 'Next week task one',
+        status: 'open',
+        dueDate: '2026-04-13',
+        createdAt: '2026-04-09T00:00:00.000Z',
+        updatedAt: '2026-04-09T00:00:00.000Z',
+      ),
+      Task(
+        id: 'next-week-2',
+        title: 'Next week task two',
+        status: 'open',
+        dueDate: '2026-04-15',
+        createdAt: '2026-04-09T00:00:00.000Z',
+        updatedAt: '2026-04-09T00:00:00.000Z',
+      ),
+    ];
   }
 }
 

@@ -12,6 +12,11 @@ on:
         required: true
         default: true
         type: boolean
+      use_embedded_api:
+        description: 'Bundle and use the embedded local API instead of the hosted shared API'
+        required: true
+        default: false
+        type: boolean
       release_notes:
         description: 'Optional release notes override'
         required: false
@@ -39,6 +44,8 @@ jobs:
       PCO_APPLICATION_ID: ${{ secrets.PCO_APPLICATION_ID }}
       PCO_SECRET: ${{ secrets.PCO_SECRET }}
       PCO_REDIRECT_URI: ${{ secrets.PCO_REDIRECT_URI }}
+      RHYTHM_SERVER_URL: ${{ inputs.use_embedded_api && 'http://localhost:4000' || 'https://api.vcrcapps.com' }}
+      RHYTHM_USE_EMBEDDED_API: ${{ inputs.use_embedded_api && 'true' || 'false' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -58,6 +65,7 @@ jobs:
           flutter test
 
       - name: Build API server
+        if: ${{ inputs.use_embedded_api }}
         working-directory: apps/api_server
         run: |
           npm install
@@ -71,8 +79,11 @@ jobs:
           --build-name="$RELEASE_VERSION"
           --build-number="${{ github.run_number }}"
           --dart-define=GOOGLE_DESKTOP_CLIENT_ID="$GOOGLE_DESKTOP_CLIENT_ID"
+          --dart-define=RHYTHM_SERVER_URL="$RHYTHM_SERVER_URL"
+          --dart-define=RHYTHM_USE_EMBEDDED_API="$RHYTHM_USE_EMBEDDED_API"
 
       - name: Bundle API server into app
+        if: ${{ inputs.use_embedded_api }}
         working-directory: apps/desktop_flutter
         run: |
           APP="build/macos/Build/Products/Release/Rhythm.app"
@@ -92,6 +103,7 @@ jobs:
             > "$DEST/.env"
 
       - name: Verify bundled API payload
+        if: ${{ inputs.use_embedded_api }}
         working-directory: apps/desktop_flutter
         run: |
           DEST="build/macos/Build/Products/Release/Rhythm.app/Contents/Resources/api_server"

@@ -1784,13 +1784,19 @@ class _SourceChip extends StatelessWidget {
 
 String? _shadowEventLabel(Task task) {
   if (task.isAllDay) return 'All day';
-  final start =
-      task.startsAt == null ? null : DateTime.tryParse(task.startsAt!);
-  final end = task.endsAt == null ? null : DateTime.tryParse(task.endsAt!);
+  final start = parsePlannerEventDateTime(task.startsAt);
+  final end = parsePlannerEventDateTime(task.endsAt);
   if (start == null) return null;
   final startLabel = _formatClockTime(start);
   if (end == null) return startLabel;
   return '$startLabel - ${_formatClockTime(end)}';
+}
+
+DateTime? parsePlannerEventDateTime(String? value) {
+  if (value == null || value.trim().isEmpty) return null;
+  final parsed = DateTime.tryParse(value.trim());
+  if (parsed == null) return null;
+  return parsed.isUtc ? parsed.toLocal() : parsed;
 }
 
 String _formatClockTime(DateTime dateTime) {
