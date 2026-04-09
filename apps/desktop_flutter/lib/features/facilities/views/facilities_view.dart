@@ -283,8 +283,7 @@ bool _canManageReservation(
   final currentUser = controller.currentUser;
   if (controller.isFacilitiesManager) return true;
   if (currentUser == null) return false;
-  return reservation.createdByUserId == currentUser.id ||
-      reservation.requesterUserId == currentUser.id;
+  return reservation.createdByUserId == currentUser.id;
 }
 
 Future<void> _showReservationDetails(
@@ -1844,6 +1843,19 @@ class _ReservationDetailDialogState extends State<_ReservationDetailDialog> {
         ),
       ),
       actions: [
+        if (reservation.seriesId == null && canManage)
+          TextButton(
+            onPressed: _editReservation,
+            child: const Text('Edit reservation'),
+          ),
+        if (reservation.seriesId == null && canManage)
+          TextButton(
+            onPressed: _deleteReservation,
+            style: TextButton.styleFrom(
+              foregroundColor: const Color(0xFFB42318),
+            ),
+            child: const Text('Delete reservation'),
+          ),
         if (reservation.seriesId != null && canManage)
           TextButton(
             onPressed: _loadingSeries ? null : _editEntireSeries,
@@ -1863,6 +1875,57 @@ class _ReservationDetailDialogState extends State<_ReservationDetailDialog> {
         ),
       ],
     );
+  }
+
+  Future<void> _editReservation() async {
+    final facility =
+        _facilityForReservation(widget.controller, widget.reservation);
+    if (facility == null) return;
+    final saved = await showDialog<bool>(
+      context: context,
+      builder: (_) => _ReservationDialog(
+        controller: widget.controller,
+        facilities: widget.controller.facilities,
+        preselectedFacility: facility,
+        existingReservation: widget.reservation,
+      ),
+    );
+    if (saved == true && mounted) {
+      Navigator.of(context).pop();
+    }
+  }
+
+  Future<void> _deleteReservation() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete reservation?'),
+        content: const Text(
+          'This will remove this reservation from the room schedule.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            style: FilledButton.styleFrom(
+              backgroundColor: const Color(0xFFB42318),
+            ),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    await widget.controller.deleteReservation(
+      widget.reservation.facilityId,
+      widget.reservation.id,
+    );
+    if (mounted) {
+      Navigator.of(context).pop();
+    }
   }
 
   Future<void> _editEntireSeries() async {
@@ -1992,6 +2055,73 @@ class _ReservationDialogState extends State<_ReservationDialog> {
   final List<DateTime> _customRecurrenceDates = [];
   bool _saving = false;
 
+  bool get _isEditingSingleReservation =>
+      widget.existingReservation != null && !widget.isEditingSeries;
+
+  List<Reservation> get _selectedFacilityReservations =>
+      _selectedFacility == null
+          ? const []
+          : widget.controller.reservationsByFacility[_selectedFacility!.id] ??
+              const [];
+
+  List<Reservation> get _reservationsForSelectedDate {
+    final selectedDate = _selectedDate;
+    if (selectedDate == null) return const [];
+    final reservationId = widget.existingReservation?.id;
+    final seriesId = widget.existingSeries?.id;
+    final sameDay = _selectedFacilityReservations.where((reservation) {
+      if (reservationId != null && reservation.id == reservationId) {
+        return false;
+      }
+      if (seriesId != null && reservation.seriesId == seriesId) {
+        return false;
+      }
+      final start = _parseReservationDateTime(reservation.startTime);
+      return start != null &&
+          start.year == selectedDate.year &&
+          start.month == selectedDate.month &&
+          start.day == selectedDate.day;
+    }).toList()
+      ..sort((a, b) => (a.startTime ?? '').compareTo(b.startTime ?? ''));
+    return sameDay;
+  }
+
+  List<Reservation> get _overlappingReservations {
+    final selectedDate = _selectedDate;
+    final selectedStartTime = _selectedStartTime;
+    final selectedEndTime = _selectedEndTime;
+    if (selectedDate == null ||
+        selectedStartTime == null ||
+        selectedEndTime == null) {
+      return const [];
+    }
+
+    final selectedStart = DateTime(
+      selectedDate.year,
+      selectedDate.month,
+      selectedDate.day,
+      selectedStartTime.hour,
+      selectedStartTime.minute,
+    );
+    final selectedEnd = DateTime(
+      selectedDate.year,
+      selectedDate.month,
+      selectedDate.day,
+      selectedEndTime.hour,
+      selectedEndTime.minute,
+    );
+    if (!selectedEnd.isAfter(selectedStart)) {
+      return const [];
+    }
+
+    return _reservationsForSelectedDate.where((reservation) {
+      final start = _parseReservationDateTime(reservation.startTime);
+      final end = _parseReservationDateTime(reservation.endTime);
+      if (start == null || end == null) return false;
+      return start.isBefore(selectedEnd) && end.isAfter(selectedStart);
+    }).toList();
+  }
+
   @override
   void initState() {
     super.initState();
@@ -2119,9 +2249,11 @@ class _ReservationDialogState extends State<_ReservationDialog> {
                         child: Text(
                           widget.isEditingSeries
                               ? 'Edit series'
-                              : isTopLevel
-                                  ? 'New booking'
-                                  : widget.preselectedFacility!.name,
+                              : _isEditingSingleReservation
+                                  ? 'Edit booking'
+                                  : isTopLevel
+                                      ? 'New booking'
+                                      : widget.preselectedFacility!.name,
                           style: const TextStyle(
                             fontSize: 11,
                             fontWeight: FontWeight.w600,
@@ -2178,6 +2310,19 @@ class _ReservationDialogState extends State<_ReservationDialog> {
                         : null,
                   ),
                   const SizedBox(height: 14),
+                  if (_selectedFacility != null)
+                    _AvailabilityPanel(
+                      facility: _selectedFacility!,
+                      selectedDate: _selectedDate,
+                      selectedStartTime: _selectedStartTime,
+                      selectedEndTime: _selectedEndTime,
+                      dayReservations: _reservationsForSelectedDate,
+                      conflictingReservations: _overlappingReservations,
+                      showRecurringHint:
+                          (_isRecurring || widget.isEditingSeries) &&
+                              !_isEditingSingleReservation,
+                    ),
+                  if (_selectedFacility != null) const SizedBox(height: 14),
                   Row(
                     children: [
                       Expanded(
@@ -2233,7 +2378,7 @@ class _ReservationDialogState extends State<_ReservationDialog> {
                     ],
                   ),
                   const SizedBox(height: 16),
-                  if (!widget.isEditingSeries)
+                  if (!widget.isEditingSeries && !_isEditingSingleReservation)
                     SwitchListTile.adaptive(
                       value: _isRecurring,
                       contentPadding: EdgeInsets.zero,
@@ -2262,7 +2407,8 @@ class _ReservationDialogState extends State<_ReservationDialog> {
                         });
                       },
                     ),
-                  if (_isRecurring || widget.isEditingSeries) ...[
+                  if ((_isRecurring || widget.isEditingSeries) &&
+                      !_isEditingSingleReservation) ...[
                     const SizedBox(height: 10),
                     Wrap(
                       spacing: 8,
@@ -2285,7 +2431,7 @@ class _ReservationDialogState extends State<_ReservationDialog> {
                     ),
                     const SizedBox(height: 14),
                     if (_recurrenceType == _RecurrenceType.custom) ...[
-                      _RecurringInfoCard(
+                      const _RecurringInfoCard(
                         title: 'Custom dates',
                         body:
                             'The selected reservation date will be included automatically. Add any extra dates for the same event below.',
@@ -2365,9 +2511,13 @@ class _ReservationDialogState extends State<_ReservationDialog> {
                                   color: Colors.white,
                                 ),
                               )
-                            : Text(widget.isEditingSeries
-                                ? 'Save series'
-                                : 'Submit'),
+                            : Text(
+                                widget.isEditingSeries
+                                    ? 'Save series'
+                                    : _isEditingSingleReservation
+                                        ? 'Save changes'
+                                        : 'Submit',
+                              ),
                       ),
                     ],
                   ),
@@ -2431,7 +2581,8 @@ class _ReservationDialogState extends State<_ReservationDialog> {
           currentUser != null && trimmedRequester == currentUser.name
               ? currentUser.id
               : null;
-      final isRecurring = _isRecurring || widget.isEditingSeries;
+      final isRecurring = (_isRecurring || widget.isEditingSeries) &&
+          !_isEditingSingleReservation;
       final isCustomSeries = _recurrenceType == _RecurrenceType.custom;
       final seriesEndDate = isCustomSeries
           ? _dateOnly(_effectiveCustomDates.last)
@@ -2439,7 +2590,29 @@ class _ReservationDialogState extends State<_ReservationDialog> {
               ? _dateOnly(_recurrenceEndDate!)
               : null;
       final notes = _notesController.text.trim();
-      if (widget.isEditingSeries) {
+      if (_overlappingReservations.isNotEmpty && !isRecurring) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'That time overlaps an existing reservation for this room.',
+            ),
+          ),
+        );
+        setState(() => _saving = false);
+        return;
+      }
+      if (_isEditingSingleReservation) {
+        await widget.controller.updateReservation(
+          _selectedFacility!.id,
+          widget.existingReservation!.id,
+          title: _titleController.text.trim(),
+          requesterName: trimmedRequester,
+          requesterUserId: requesterUserId,
+          startTime: startAt.toIso8601String(),
+          endTime: endAt.toIso8601String(),
+          notes: notes,
+        );
+      } else if (widget.isEditingSeries) {
         await widget.controller.updateReservationSeries(
           _selectedFacility!.id,
           widget.existingSeries!.id,
@@ -2496,10 +2669,16 @@ class _ReservationDialogState extends State<_ReservationDialog> {
         );
       }
       if (mounted) {
-        navigator.pop(widget.isEditingSeries ? true : null);
-        if (!widget.isEditingSeries) {
+        navigator.pop(widget.isEditingSeries || _isEditingSingleReservation
+            ? true
+            : null);
+        if (!widget.isEditingSeries && !_isEditingSingleReservation) {
           ScaffoldMessenger.of(navigator.context).showSnackBar(
             const SnackBar(content: Text('Reservation created')),
+          );
+        } else if (_isEditingSingleReservation) {
+          ScaffoldMessenger.of(navigator.context).showSnackBar(
+            const SnackBar(content: Text('Reservation updated')),
           );
         }
       }
@@ -2640,6 +2819,198 @@ class _ReservationDialogState extends State<_ReservationDialog> {
         borderSide: BorderSide(color: primary),
       ),
       contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+    );
+  }
+}
+
+class _AvailabilityPanel extends StatelessWidget {
+  const _AvailabilityPanel({
+    required this.facility,
+    required this.selectedDate,
+    required this.selectedStartTime,
+    required this.selectedEndTime,
+    required this.dayReservations,
+    required this.conflictingReservations,
+    required this.showRecurringHint,
+  });
+
+  final Facility facility;
+  final DateTime? selectedDate;
+  final TimeOfDay? selectedStartTime;
+  final TimeOfDay? selectedEndTime;
+  final List<Reservation> dayReservations;
+  final List<Reservation> conflictingReservations;
+  final bool showRecurringHint;
+
+  @override
+  Widget build(BuildContext context) {
+    final hasSelectedSlot = selectedDate != null &&
+        selectedStartTime != null &&
+        selectedEndTime != null;
+    final hasConflict = conflictingReservations.isNotEmpty;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: _kCanvas.withValues(alpha: 0.45),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: hasConflict ? const Color(0xFFF4C7C7) : _kBorder,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Availability for ${facility.name}',
+            style: const TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+              color: _kTextPrimary,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            selectedDate == null
+                ? 'Choose a date to see the room schedule.'
+                : '${_formatDatePickerValue(selectedDate!)} · ${dayReservations.length} existing ${dayReservations.length == 1 ? 'reservation' : 'reservations'}',
+            style: const TextStyle(fontSize: 12, color: _kTextSecondary),
+          ),
+          if (hasSelectedSlot) ...[
+            const SizedBox(height: 10),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: hasConflict
+                    ? const Color(0xFFFDECEC)
+                    : const Color(0xFFEAF7EF),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: hasConflict
+                      ? const Color(0xFFF4C7C7)
+                      : const Color(0xFFD3EEDC),
+                ),
+              ),
+              child: Text(
+                hasConflict
+                    ? 'Selected time overlaps ${conflictingReservations.length} existing ${conflictingReservations.length == 1 ? 'reservation' : 'reservations'}.'
+                    : 'Selected time is open for this room based on current reservations.',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: hasConflict
+                      ? const Color(0xFFB42318)
+                      : const Color(0xFF15803D),
+                ),
+              ),
+            ),
+          ],
+          if (showRecurringHint) ...[
+            const SizedBox(height: 10),
+            const Text(
+              'Recurring conflicts are checked across the full series when you save. This preview only covers the selected date.',
+              style: TextStyle(fontSize: 12, color: _kTextSecondary),
+            ),
+          ],
+          if (dayReservations.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            ...dayReservations.map(
+              (reservation) => Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: _AvailabilityReservationRow(
+                  reservation: reservation,
+                  isConflicting: conflictingReservations.any(
+                    (item) => item.id == reservation.id,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _AvailabilityReservationRow extends StatelessWidget {
+  const _AvailabilityReservationRow({
+    required this.reservation,
+    required this.isConflicting,
+  });
+
+  final Reservation reservation;
+  final bool isConflicting;
+
+  @override
+  Widget build(BuildContext context) {
+    final start = _parseReservationDateTime(reservation.startTime);
+    final end = _parseReservationDateTime(reservation.endTime);
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: isConflicting
+            ? const Color(0xFFFDECEC)
+            : _kSurface.withValues(alpha: 0.4),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: isConflicting ? const Color(0xFFF4C7C7) : _kBorder,
+        ),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 112,
+            child: Text(
+              start == null
+                  ? 'Time TBD'
+                  : '${_formatTimeOnly(start)}${end != null ? ' - ${_formatTimeOnly(end)}' : ''}',
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                color: isConflicting ? const Color(0xFFB42318) : _kTextPrimary,
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  reservation.title,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: _kTextPrimary,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  reservation.requesterName,
+                  style: const TextStyle(
+                    fontSize: 11,
+                    color: _kTextSecondary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          if (isConflicting)
+            const Text(
+              'Overlap',
+              style: TextStyle(
+                fontSize: 10,
+                fontWeight: FontWeight.w700,
+                color: Color(0xFFB42318),
+              ),
+            ),
+        ],
+      ),
     );
   }
 }
