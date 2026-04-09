@@ -8,6 +8,19 @@ class ApiServerService {
 
   bool get isRunning => _process != null;
 
+  Future<bool> checkHealth(String baseUrl) async {
+    final normalized = baseUrl.trimRight().replaceAll(RegExp(r'/$'), '');
+    if (normalized.isEmpty) return false;
+    try {
+      final response = await http
+          .get(Uri.parse('$normalized/health'))
+          .timeout(const Duration(seconds: 2));
+      return response.statusCode == 200;
+    } catch (_) {
+      return false;
+    }
+  }
+
   /// Finds the node binary, starts the server process, and waits for it to
   /// become healthy. Returns true if the server started successfully.
   Future<bool> start() async {
@@ -31,18 +44,15 @@ class ApiServerService {
 
     final dbPath = _dbPath();
     stdout.writeln(
-        '[ApiServerService] Starting: ${serverInfo.executable} ${serverInfo.args.join(' ')}');
+      '[ApiServerService] Starting: ${serverInfo.executable} ${serverInfo.args.join(' ')}',
+    );
     stdout.writeln('[ApiServerService] DB path: $dbPath');
 
     _process = await Process.start(
       serverInfo.executable,
       serverInfo.args,
       workingDirectory: serverInfo.workingDir,
-      environment: {
-        ...Platform.environment,
-        'PORT': '4000',
-        'DB_PATH': dbPath,
-      },
+      environment: {...Platform.environment, 'PORT': '4000', 'DB_PATH': dbPath},
     );
 
     _process!.stdout
@@ -87,13 +97,7 @@ class ApiServerService {
   }
 
   Future<bool> _isServerReady() async {
-    final uri = Uri.parse('http://localhost:4000/health');
-    try {
-      final response = await http.get(uri).timeout(const Duration(seconds: 1));
-      return response.statusCode == 200;
-    } catch (_) {
-      return false;
-    }
+    return checkHealth('http://localhost:4000');
   }
 
   Future<String?> _findNode() async {

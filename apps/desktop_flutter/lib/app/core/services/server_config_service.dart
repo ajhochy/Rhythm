@@ -3,9 +3,10 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 class ServerConfigService extends ChangeNotifier {
   static const _key = 'server_url';
+  static const _legacyLocalUrl = 'http://localhost:4000';
   static const _definedDefaultUrl = String.fromEnvironment(
     'RHYTHM_SERVER_URL',
-    defaultValue: 'http://localhost:4000',
+    defaultValue: _legacyLocalUrl,
   );
 
   static String get defaultUrl => _definedDefaultUrl;
@@ -15,7 +16,15 @@ class ServerConfigService extends ChangeNotifier {
 
   Future<void> load() async {
     final prefs = await SharedPreferences.getInstance();
-    _url = prefs.getString(_key) ?? defaultUrl;
+    final savedUrl = prefs.getString(_key);
+    final shouldMigrateLegacyLocalhost =
+        savedUrl == _legacyLocalUrl && defaultUrl != _legacyLocalUrl;
+    if (savedUrl == null || shouldMigrateLegacyLocalhost) {
+      _url = defaultUrl;
+      await prefs.setString(_key, _url);
+    } else {
+      _url = savedUrl;
+    }
     notifyListeners();
   }
 
