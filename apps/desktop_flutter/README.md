@@ -15,6 +15,19 @@ flutter run -d macos \
   --dart-define=GOOGLE_DESKTOP_CLIENT_ID=<desktop-google-client-id>
 ```
 
+For the most reliable local launch path during development, use:
+
+```bash
+./tools/dev/launch_desktop_current.sh
+```
+
+That script:
+- starts the API on `localhost:4000` against `~/Library/Application Support/Rhythm/rhythm.db`
+- builds the current macOS debug app
+- launches a fresh copied app bundle at `/private/tmp/Rhythm Current.app`
+
+This avoids Dock icon cache issues and keeps the desktop app pointed at the same runtime database each time.
+
 For Google Sign-In, the desktop app now expects `GOOGLE_DESKTOP_CLIENT_ID` as a Dart define. The packaged API must trust the same Firebase Apple client ID through `GOOGLE_AUTH_CLIENT_ID`.
 
 ## Hosted vs local runtime
