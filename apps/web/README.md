@@ -87,6 +87,19 @@ npm install
 npm run dev
 ```
 
+## API configuration
+
+The web app now reads its API base URL from `VITE_API_BASE_URL`.
+
+- local development default: `http://localhost:4000`
+- hosted target: `https://api.vcrcapps.com`
+
+Create a local env file or set a Pages environment variable when deploying:
+
+```bash
+cp .env.example .env.local
+```
+
 ## Next Milestone
 
 Backend integration via Lovable Cloud (Supabase) — authentication, database tables, and real-time CRUD for all six sections.
