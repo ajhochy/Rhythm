@@ -375,6 +375,7 @@ export class IntegrationsService {
         specialServiceProjectTemplateFound:
           this.templateRepo.findByNameInsensitive(
             this.planningCenter.specialServiceTemplateName(),
+            userId,
           ) != null,
         generatedSignalCount: automationSignals.length,
         matchedRuleCount: evaluation.matchedRules,

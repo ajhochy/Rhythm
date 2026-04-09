@@ -8,6 +8,8 @@ import { SessionsRepository } from '../repositories/sessions_repository';
 import { TasksRepository } from '../repositories/tasks_repository';
 import { UsersRepository } from '../repositories/users_repository';
 import { MessagesRepository } from '../repositories/messages_repository';
+import { ProjectInstancesRepository } from '../repositories/project_instances_repository';
+import { ProjectTemplatesRepository } from '../repositories/project_templates_repository';
 
 function makeDb() {
   const db = new Database(':memory:');
@@ -22,6 +24,8 @@ describe('Auth and ownership flows', () => {
   let sessionsRepo: SessionsRepository;
   let tasksRepo: TasksRepository;
   let messagesRepo: MessagesRepository;
+  let projectTemplatesRepo: ProjectTemplatesRepository;
+  let projectInstancesRepo: ProjectInstancesRepository;
 
   beforeEach(() => {
     const db = makeDb();
@@ -30,6 +34,8 @@ describe('Auth and ownership flows', () => {
     sessionsRepo = new SessionsRepository();
     tasksRepo = new TasksRepository();
     messagesRepo = new MessagesRepository();
+    projectTemplatesRepo = new ProjectTemplatesRepository();
+    projectInstancesRepo = new ProjectInstancesRepository();
   });
 
   it('logs in with a verified Google identity and creates a session', async () => {
@@ -69,6 +75,57 @@ describe('Auth and ownership flows', () => {
     expect(visibleToAlice).toContain('Shared task');
     expect(visibleToAlice).toContain('Alice private task');
     expect(visibleToAlice).not.toContain('Bob private task');
+  });
+
+  it('filters project templates and instances to the current owner plus legacy shared records', () => {
+    const alice = usersRepo.create({ name: 'Alice', email: 'alice@example.com' });
+    const bob = usersRepo.create({ name: 'Bob', email: 'bob@example.com' });
+
+    const sharedTemplate = projectTemplatesRepo.create({ name: 'Shared Template' });
+    const aliceTemplate = projectTemplatesRepo.create({
+      name: 'Alice Template',
+      ownerId: alice.id,
+    });
+    const bobTemplate = projectTemplatesRepo.create({
+      name: 'Bob Template',
+      ownerId: bob.id,
+    });
+
+    projectInstancesRepo.createWithSteps(
+      sharedTemplate.id,
+      '2026-04-10',
+      'Shared Instance',
+      null,
+      [],
+    );
+    projectInstancesRepo.createWithSteps(
+      aliceTemplate.id,
+      '2026-04-11',
+      'Alice Instance',
+      alice.id,
+      [],
+    );
+    projectInstancesRepo.createWithSteps(
+      bobTemplate.id,
+      '2026-04-12',
+      'Bob Instance',
+      bob.id,
+      [],
+    );
+
+    const visibleTemplatesToAlice = projectTemplatesRepo
+      .findAll(alice.id)
+      .map((template) => template.name);
+    expect(visibleTemplatesToAlice).toContain('Shared Template');
+    expect(visibleTemplatesToAlice).toContain('Alice Template');
+    expect(visibleTemplatesToAlice).not.toContain('Bob Template');
+
+    const visibleInstancesToAlice = projectInstancesRepo
+      .findAll(alice.id)
+      .map((instance) => instance.name);
+    expect(visibleInstancesToAlice).toContain('Shared Instance');
+    expect(visibleInstancesToAlice).toContain('Alice Instance');
+    expect(visibleInstancesToAlice).not.toContain('Bob Instance');
   });
 
   it('invalidates the server session on logout', async () => {

@@ -11,9 +11,13 @@ import '../repositories/dashboard_repository.dart';
 enum DashboardStatus { loading, ready, error }
 
 class DashboardController extends ChangeNotifier {
-  DashboardController(this._repository);
+  DashboardController(
+    this._repository, {
+    DateTime Function()? now,
+  }) : _now = now ?? DateTime.now;
 
   final DashboardRepository _repository;
+  final DateTime Function() _now;
 
   DashboardStatus _status = DashboardStatus.loading;
   String? _errorMessage;
@@ -77,7 +81,7 @@ class DashboardController extends ChangeNotifier {
       final rules = results[1] as List<RecurringTaskRule>;
       final threads = results[2] as List<MessageThread>;
 
-      final now = DateTime.now();
+      final now = _now();
       final today = _stripDate(now)!;
       final weekEnd = today.add(const Duration(days: 7));
 

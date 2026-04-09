@@ -9,6 +9,7 @@ interface UserRow {
   google_sub: string | null;
   photo_url: string | null;
   role: string;
+  is_facilities_manager: number;
   created_at: string;
   updated_at: string;
 }
@@ -21,6 +22,7 @@ function rowToUser(row: UserRow): User {
     googleSub: row.google_sub,
     photoUrl: row.photo_url,
     role: row.role,
+    isFacilitiesManager: row.is_facilities_manager === 1,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -61,7 +63,7 @@ export class UsersRepository {
   create(data: CreateUserDto): User {
     const result = getDb()
       .prepare(
-        `INSERT INTO users (name, email, google_sub, photo_url, role) VALUES (?, ?, ?, ?, ?)`,
+        `INSERT INTO users (name, email, google_sub, photo_url, role, is_facilities_manager) VALUES (?, ?, ?, ?, ?, ?)`,
       )
       .run(
         data.name,
@@ -69,6 +71,7 @@ export class UsersRepository {
         data.googleSub ?? null,
         data.photoUrl ?? null,
         data.role ?? 'member',
+        data.isFacilitiesManager ? 1 : 0,
       );
     return this.findById(result.lastInsertRowid as number);
   }
@@ -78,7 +81,7 @@ export class UsersRepository {
     const now = new Date().toISOString();
     getDb()
       .prepare(
-        `UPDATE users SET name = ?, email = ?, google_sub = ?, photo_url = ?, role = ?, updated_at = ? WHERE id = ?`,
+        `UPDATE users SET name = ?, email = ?, google_sub = ?, photo_url = ?, role = ?, is_facilities_manager = ?, updated_at = ? WHERE id = ?`,
       )
       .run(
         data.name ?? existing.name,
@@ -86,6 +89,9 @@ export class UsersRepository {
         data.googleSub ?? existing.googleSub,
         data.photoUrl !== undefined ? data.photoUrl : existing.photoUrl,
         data.role ?? existing.role,
+        data.isFacilitiesManager !== undefined
+            ? (data.isFacilitiesManager ? 1 : 0)
+            : (existing.isFacilitiesManager ? 1 : 0),
         now,
         id,
       );

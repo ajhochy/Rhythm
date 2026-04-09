@@ -21,7 +21,7 @@ The goal: make the Flutter app look like team-weaver (light theme, card-based la
 
 **Current main branch state:**
 - Light theme throughout (white bg, #F8F9FA sidebar, #4F6AF5 primary)
-- Nav order: Dashboard → Tasks → Rhythms → Projects → Weekly Planner → Messages → Facilities → Automations → Integrations
+- Nav order: Dashboard → Weekly Planner → Tasks → Rhythms → Projects → Messages → Facilities → Automations → Integrations
 - All screens live (no more _ComingSoonView placeholders)
 - Server URL configurable in Settings (defaults to localhost:4000)
 - API has users, messaging, and facilities endpoints
@@ -52,17 +52,14 @@ The goal: make the Flutter app look like team-weaver (light theme, card-based la
 - Room database: pre-defined rooms to select from; show conflicts
 - See GitHub issue for full scope
 
-### Phase 3 — Multi-user / auth (major milestone)
+### Phase 3 — Finish per-user ownership (major milestone)
 
-This is the largest remaining work. All current data is shared globally — no concept of "my tasks" vs "everyone's tasks."
+Auth is now in place, but ownership is still incomplete across the domain. Tasks and several integration-backed records are user-scoped; projects are not fully scoped yet, and some legacy shared records still flow through the system.
 
 **Approach:** Google OAuth (all users are from the same Google Workspace org)
 
 Key work items:
-- API: add `owner_id` / `assigned_to` fields to tasks, projects, rhythms
-- API: Google OAuth endpoints (`/auth/google`, `/auth/callback`, `/auth/me`)
-- Flutter: OAuth login screen (Google Sign-In)
-- Flutter: user session persisted via shared_preferences
+- API: finish `owner_id` / `assigned_to` coverage for projects and remaining shared entities
 - Flutter: per-user filtered views (Dashboard shows your tasks, not all tasks)
 - Messages: scoped to conversations between named users
 - Facilities: reservations show who booked them
@@ -103,10 +100,10 @@ Defaults to `http://localhost:4000`. Configurable in Settings screen (persisted 
 | Index | Screen |
 |-------|--------|
 | 0 | Dashboard |
-| 1 | Tasks |
-| 2 | Rhythms |
-| 3 | Projects |
-| 4 | Weekly Planner |
+| 1 | Weekly Planner |
+| 2 | Tasks |
+| 3 | Rhythms |
+| 4 | Projects |
 | 5 | Messages |
 | 6 | Facilities |
 | 7 | Automations |

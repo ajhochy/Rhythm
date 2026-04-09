@@ -15,16 +15,18 @@ export class ProjectGenerationService {
     templateId: string,
     anchorDate: string,
     name?: string | null,
+    userId?: number,
   ): ProjectInstance {
     const normalizedName = name?.trim() || null;
     const existing = this.instanceRepo.findByTemplateAndAnchor(
       templateId,
       anchorDate,
       normalizedName,
+      userId,
     );
     if (existing) return existing;
 
-    const template = this.templateRepo.findById(templateId);
+    const template = this.templateRepo.findById(templateId, userId);
     const anchor = new Date(anchorDate + 'T00:00:00Z');
 
     const steps = template.steps.map((step) => {
@@ -41,6 +43,7 @@ export class ProjectGenerationService {
       templateId,
       anchorDate,
       normalizedName,
+      template.ownerId ?? userId ?? null,
       steps,
     );
   }

@@ -174,9 +174,9 @@ class _ServerFailedView extends StatelessWidget {
 // Normal app content (shown once server is ready)
 // ---------------------------------------------------------------------------
 
-// New order: Dashboard(0), Tasks(1), Rhythms(2), Projects(3),
-//            Weekly Planner(4), Messages(5), Facilities(6),
-//            Automations(7), Integrations(8)
+// Current order: Dashboard(0), Weekly Planner(1), Tasks(2), Rhythms(3),
+//                Projects(4), Messages(5), Facilities(6),
+//                Automations(7), Integrations(8)
 class _AppContent extends StatelessWidget {
   const _AppContent({
     required this.selectedIndex,
