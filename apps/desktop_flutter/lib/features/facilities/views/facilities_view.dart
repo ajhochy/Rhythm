@@ -929,6 +929,10 @@ class _OverviewReservationRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final start = _parseReservationDateTime(reservation.startTime);
     final end = _parseReservationDateTime(reservation.endTime);
+    final currentFacility = facility;
+    final facilityLabel = currentFacility == null
+        ? reservation.requesterName
+        : '${currentFacility.name}${currentFacility.building?.isNotEmpty == true ? ' · ${currentFacility.building}' : ''}';
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
@@ -967,9 +971,7 @@ class _OverviewReservationRow extends StatelessWidget {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  facility == null
-                      ? reservation.requesterName
-                      : '${facility.name}${facility.building?.isNotEmpty == true ? ' · ${facility.building}' : ''}',
+                  facilityLabel,
                   style: const TextStyle(
                     fontSize: 12,
                     color: _kTextSecondary,
