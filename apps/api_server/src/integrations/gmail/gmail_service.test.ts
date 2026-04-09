@@ -1,0 +1,188 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { GmailService } from './gmail_service';
+import type { IntegrationAccount } from '../../models/integration_account';
+
+const mockAccount: IntegrationAccount = {
+  id: 'acc-1',
+  provider: 'gmail',
+  externalAccountId: 'ext-1',
+  email: 'test@example.com',
+  displayName: null,
+  status: 'connected',
+  accessToken: 'tok',
+  refreshToken: null,
+  scope: null,
+  tokenType: null,
+  expiresAt: null,
+  lastSyncedAt: null,
+  errorMessage: null,
+  ownerId: 1,
+  createdAt: new Date().toISOString(),
+  updatedAt: new Date().toISOString(),
+};
+
+function makeMessageListResponse(ids: string[]) {
+  return {
+    ok: true,
+    json: async () => ({ messages: ids.map((id) => ({ id, threadId: `t-${id}` })) }),
+    text: async (): Promise<string> => '',
+  };
+}
+
+function makeMessageDetailResponse(
+  id: string,
+  isUnread: boolean,
+  labelIds?: string[],
+) {
+  return {
+    ok: true,
+    json: async () => ({
+      id,
+      threadId: `t-${id}`,
+      snippet: `snippet-${id}`,
+      labelIds: labelIds ?? (isUnread ? ['INBOX', 'UNREAD'] : ['INBOX']),
+      internalDate: '1700000000000',
+      payload: {
+        headers: [
+          { name: 'From', value: 'Alice <alice@example.com>' },
+          { name: 'Subject', value: `Subject ${id}` },
+        ],
+      },
+    }),
+    text: async () => '',
+  };
+}
+
+describe('GmailService', () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('fetches all message details in parallel', async () => {
+    const fetchOrder: string[] = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        const u = url.toString();
+        if (u.includes('/messages?')) {
+          return makeMessageListResponse(['m1', 'm2', 'm3']);
+        }
+        const id = u.match(/\/messages\/(m\d)/)?.[1] ?? 'unknown';
+        fetchOrder.push(id);
+        return makeMessageDetailResponse(id, id === 'm1');
+      }),
+    );
+
+    const service = new GmailService();
+    const results = await service.listRecentInboxSignals(mockAccount);
+
+    expect(results).toHaveLength(3);
+    expect(results[0].externalId).toBe('m1');
+    expect(results[0].isUnread).toBe(true);
+    expect(results[0].labelIds).toEqual(['INBOX', 'UNREAD']);
+    expect(results[1].isUnread).toBe(false);
+    // fetch was called once for list + 3 for details = 4 total
+    expect(vi.mocked(fetch)).toHaveBeenCalledTimes(4);
+    expect(fetchOrder).toHaveLength(3);
+  });
+
+  it('returns empty array when inbox is empty', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({
+        ok: true,
+        json: async () => ({ messages: [] }),
+        text: async () => '',
+      })),
+    );
+    const service = new GmailService();
+    const results = await service.listRecentInboxSignals(mockAccount);
+    expect(results).toHaveLength(0);
+  });
+
+  it('preserves Gmail user labels in normalized signals', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        const u = url.toString();
+        if (u.includes('/messages?')) {
+          return makeMessageListResponse(['m1']);
+        }
+        return makeMessageDetailResponse('m1', true, [
+          'INBOX',
+          'UNREAD',
+          'Label_123',
+        ]);
+      }),
+    );
+
+    const service = new GmailService();
+    const results = await service.listRecentInboxSignals(mockAccount);
+
+    expect(results).toHaveLength(1);
+    expect(results[0].labelIds).toEqual(['INBOX', 'UNREAD', 'Label_123']);
+  });
+
+  it('rejects when a message detail fetch fails', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        const u = url.toString();
+        if (u.includes('/messages?')) {
+          return makeMessageListResponse(['m1', 'm2']);
+        }
+        const id = u.match(/\/messages\/(m\d)/)?.[1] ?? 'unknown';
+        // m2 detail fetch fails
+        if (id === 'm2') {
+          return { ok: false, text: async (): Promise<string> => 'Not Found' };
+        }
+        return makeMessageDetailResponse(id, false);
+      }),
+    );
+    const service = new GmailService();
+    await expect(service.listRecentInboxSignals(mockAccount)).rejects.toThrow();
+  });
+
+  it('throws when list request fails', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({ ok: false, text: async () => 'Unauthorized' })),
+    );
+    const service = new GmailService();
+    await expect(service.listRecentInboxSignals(mockAccount)).rejects.toThrow(
+      'Gmail sync failed',
+    );
+  });
+
+  describe('listLabels', () => {
+    it('returns sorted user label names filtering out system labels', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => ({
+          ok: true,
+          json: async () => ({
+            labels: [
+              { id: 'INBOX', name: 'INBOX', type: 'system' },
+              { id: 'UNREAD', name: 'UNREAD', type: 'system' },
+              { id: 'Label_1', name: 'newsletters', type: 'user' },
+              { id: 'Label_2', name: 'finance', type: 'user' },
+            ],
+          }),
+          text: async () => '',
+        })),
+      );
+      const service = new GmailService();
+      const labels = await service.listLabels(mockAccount);
+      expect(labels).toEqual(['finance', 'newsletters']);
+    });
+
+    it('throws when labels request fails', async () => {
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => ({ ok: false, text: async () => 'Forbidden' })),
+      );
+      const service = new GmailService();
+      await expect(service.listLabels(mockAccount)).rejects.toThrow('Gmail labels');
+    });
+  });
+});

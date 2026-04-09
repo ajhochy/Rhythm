@@ -20,6 +20,7 @@ class AutomationRulesController extends ChangeNotifier {
   List<AutomationProviderCatalogItem> _providers = [];
   List<IntegrationAccount> _accounts = [];
   PlanningCenterTaskOptions? _planningCenterTaskOptions;
+  List<String> _gmailLabels = [];
   AutomationRulePreview? _selectedPreview;
   AutomationRulesStatus _status = AutomationRulesStatus.idle;
   String? _errorMessage;
@@ -32,6 +33,7 @@ class AutomationRulesController extends ChangeNotifier {
   List<IntegrationAccount> get accounts => _accounts;
   PlanningCenterTaskOptions? get planningCenterTaskOptions =>
       _planningCenterTaskOptions;
+  List<String> get gmailLabels => _gmailLabels;
   AutomationRulePreview? get selectedPreview => _selectedPreview;
   AutomationRulesStatus get status => _status;
   String? get errorMessage => _errorMessage;
@@ -50,6 +52,7 @@ class AutomationRulesController extends ChangeNotifier {
         _repository.getProviders(),
         _repository.getAccounts(),
         _repository.getPlanningCenterTaskOptions(),
+        _repository.getGmailLabels(),
       ]);
       _rules = results[0] as List<AutomationRule>;
       _triggers = results[1] as List<AutomationTriggerCatalogItem>;
@@ -57,6 +60,7 @@ class AutomationRulesController extends ChangeNotifier {
       _providers = results[3] as List<AutomationProviderCatalogItem>;
       _accounts = results[4] as List<IntegrationAccount>;
       _planningCenterTaskOptions = results[5] as PlanningCenterTaskOptions?;
+      _gmailLabels = results[6] as List<String>;
       _status = AutomationRulesStatus.idle;
     } catch (e) {
       _errorMessage = e.toString();

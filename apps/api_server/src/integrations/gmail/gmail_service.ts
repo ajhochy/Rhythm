@@ -26,6 +26,16 @@ interface GmailMessageResponse {
   };
 }
 
+interface GmailLabel {
+  id: string;
+  name: string;
+  type: 'system' | 'user';
+}
+
+interface GmailLabelsResponse {
+  labels?: GmailLabel[];
+}
+
 interface NormalizedGmailSignal {
   externalId: string;
   threadId: string;
@@ -35,6 +45,7 @@ interface NormalizedGmailSignal {
   snippet: string | null;
   receivedAt: string | null;
   isUnread: boolean;
+  labelIds: string[];
 }
 
 function parseFromHeader(value: string | null): {
@@ -85,51 +96,66 @@ export class GmailService {
 
     const listPayload = (await listResponse.json()) as GmailListResponse;
     const messages = listPayload.messages ?? [];
-    const normalized: NormalizedGmailSignal[] = [];
 
-    for (const message of messages) {
-      const detailParams = new URLSearchParams({
-        format: 'metadata',
-      });
-      detailParams.append('metadataHeaders', 'From');
-      detailParams.append('metadataHeaders', 'Subject');
+    const normalized: NormalizedGmailSignal[] = await Promise.all(
+      messages.map(async (message) => {
+        const detailParams = new URLSearchParams({ format: 'metadata' });
+        detailParams.append('metadataHeaders', 'From');
+        detailParams.append('metadataHeaders', 'Subject');
 
-      const detailResponse = await fetch(
-        `https://gmail.googleapis.com/gmail/v1/users/me/messages/${message.id}?${detailParams.toString()}`,
-        {
-          headers: { Authorization: `Bearer ${account.accessToken}` },
-        },
-      );
+        const detailResponse = await fetch(
+          `https://gmail.googleapis.com/gmail/v1/users/me/messages/${message.id}?${detailParams.toString()}`,
+          { headers: { Authorization: `Bearer ${account.accessToken}` } },
+        );
 
-      if (!detailResponse.ok) {
-        const text = await detailResponse.text();
-        throw AppError.badRequest(`Gmail message lookup failed: ${text}`);
-      }
+        if (!detailResponse.ok) {
+          const text = await detailResponse.text();
+          throw AppError.internal(`Gmail message lookup failed: ${text}`);
+        }
 
-      const detail = (await detailResponse.json()) as GmailMessageResponse;
-      const headers = detail.payload?.headers ?? [];
-      const fromHeader =
-        headers.find((header) => header.name.toLowerCase() === 'from')?.value ??
-        null;
-      const subject =
-        headers.find((header) => header.name.toLowerCase() === 'subject')?.value ??
-        null;
-      const { fromName, fromEmail } = parseFromHeader(fromHeader);
+        const detail = (await detailResponse.json()) as GmailMessageResponse;
+        const headers = detail.payload?.headers ?? [];
+        const fromHeader =
+          headers.find((h) => h.name.toLowerCase() === 'from')?.value ?? null;
+        const subject =
+          headers.find((h) => h.name.toLowerCase() === 'subject')?.value ?? null;
+        const { fromName, fromEmail } = parseFromHeader(fromHeader);
 
-      normalized.push({
-        externalId: detail.id,
-        threadId: detail.threadId,
-        fromName,
-        fromEmail,
-        subject,
-        snippet: detail.snippet ?? null,
-        receivedAt: detail.internalDate
-          ? new Date(Number(detail.internalDate)).toISOString()
-          : null,
-        isUnread: detail.labelIds?.includes('UNREAD') ?? false,
-      });
-    }
+        return {
+          externalId: detail.id,
+          threadId: detail.threadId,
+          fromName,
+          fromEmail,
+          subject,
+          snippet: detail.snippet ?? null,
+          receivedAt: detail.internalDate
+            ? new Date(Number(detail.internalDate)).toISOString()
+            : null,
+          isUnread: detail.labelIds?.includes('UNREAD') ?? false,
+          labelIds: detail.labelIds ?? [],
+        };
+      }),
+    );
 
     return normalized;
+  }
+
+  async listLabels(account: IntegrationAccount): Promise<string[]> {
+    if (!account.accessToken) {
+      throw AppError.badRequest('Gmail is not connected');
+    }
+    const response = await fetch(
+      'https://gmail.googleapis.com/gmail/v1/users/me/labels',
+      { headers: { Authorization: `Bearer ${account.accessToken}` } },
+    );
+    if (!response.ok) {
+      const text = await response.text();
+      throw AppError.badRequest(`Gmail labels fetch failed: ${text}`);
+    }
+    const payload = (await response.json()) as GmailLabelsResponse;
+    return (payload.labels ?? [])
+      .filter((label) => label.type === 'user')
+      .map((label) => label.name)
+      .sort();
   }
 }

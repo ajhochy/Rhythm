@@ -93,7 +93,9 @@ class _IntegrationsViewState extends State<IntegrationsView> {
                             children: [
                               _IntegrationCard(
                                 account: _accountFor(
-                                    controller.accounts, 'google_calendar'),
+                                  controller.accounts,
+                                  'google_calendar',
+                                ),
                                 title: 'Google Calendar',
                                 description:
                                     'Read-only calendar timing for shadow events in the planner.',
@@ -111,8 +113,10 @@ class _IntegrationsViewState extends State<IntegrationsView> {
                               ),
                               const SizedBox(height: 16),
                               _IntegrationCard(
-                                account:
-                                    _accountFor(controller.accounts, 'gmail'),
+                                account: _accountFor(
+                                  controller.accounts,
+                                  'gmail',
+                                ),
                                 title: 'Gmail',
                                 description:
                                     'Read-only Gmail metadata for inbox-aware planning.',
@@ -127,7 +131,9 @@ class _IntegrationsViewState extends State<IntegrationsView> {
                               const SizedBox(height: 16),
                               _IntegrationCard(
                                 account: _accountFor(
-                                    controller.accounts, 'planning_center'),
+                                  controller.accounts,
+                                  'planning_center',
+                                ),
                                 title: 'Planning Center',
                                 description:
                                     'Declines and staffing gaps become tasks. Non-Sunday plans can start a named project.',
@@ -162,7 +168,9 @@ class _IntegrationsViewState extends State<IntegrationsView> {
   }
 
   IntegrationAccount? _accountFor(
-      List<IntegrationAccount> accounts, String provider) {
+    List<IntegrationAccount> accounts,
+    String provider,
+  ) {
     for (final account in accounts) {
       if (account.provider == provider) return account;
     }
@@ -290,10 +298,7 @@ class _IntegrationCard extends StatelessWidget {
                       label: account!.displayName!,
                     ),
                   if (account?.email != null)
-                    _MetaPill(
-                      icon: Icons.mail_outline,
-                      label: account!.email!,
-                    ),
+                    _MetaPill(icon: Icons.mail_outline, label: account!.email!),
                 ],
               ),
             ],
@@ -346,18 +351,20 @@ class _IntegrationCard extends StatelessWidget {
                             child: CircularProgressIndicator(strokeWidth: 2),
                           )
                         : const Icon(Icons.download, size: 16),
-                    label: Text(title == 'Gmail'
-                        ? 'Sync Gmail'
-                        : title == 'Planning Center'
-                            ? 'Sync Planning Center'
-                            : 'Sync Calendar'),
+                    label: Text(
+                      title == 'Gmail'
+                          ? 'Sync Gmail'
+                          : title == 'Planning Center'
+                              ? 'Sync Planning Center'
+                              : 'Sync Calendar',
+                    ),
                   ),
                 if (!connected && onConnect == null)
                   Text(
                     'Coming next',
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: _kTextMuted,
-                        ),
+                    style: Theme.of(
+                      context,
+                    ).textTheme.bodySmall?.copyWith(color: _kTextMuted),
                   ),
               ],
             ),
@@ -386,6 +393,16 @@ class _GmailSignalsList extends StatelessWidget {
 
   final List<GmailSignal> signals;
 
+  List<GmailSignal> _dedupedByThread() {
+    final seen = <String>{};
+    final result = <GmailSignal>[];
+    for (final signal in signals) {
+      final key = signal.threadId ?? signal.id;
+      if (seen.add(key)) result.add(signal);
+    }
+    return result;
+  }
+
   @override
   Widget build(BuildContext context) {
     if (signals.isEmpty) {
@@ -397,85 +414,108 @@ class _GmailSignalsList extends StatelessWidget {
       );
     }
 
+    final unreadCount = signals.where((s) => s.isUnread).length;
+    final deduped = _dedupedByThread().take(5).toList();
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          'Recent inbox signals',
-          style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                color: _kTextPrimary,
-                fontWeight: FontWeight.w600,
+        Row(
+          children: [
+            Text(
+              'Recent inbox signals',
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    color: _kTextPrimary,
+                    fontWeight: FontWeight.w600,
+                  ),
+            ),
+            if (unreadCount > 0) ...[
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                decoration: BoxDecoration(
+                  color: _kPrimary,
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: Text(
+                  '$unreadCount unread',
+                  style: const TextStyle(
+                    fontSize: 11,
+                    color: Colors.white,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
               ),
+            ],
+          ],
         ),
         const SizedBox(height: 10),
-        ...signals.take(5).map(
-              (signal) => Padding(
-                padding: const EdgeInsets.only(bottom: 10),
-                child: Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    color: _kSurface.withValues(alpha: 0.78),
-                    borderRadius: BorderRadius.circular(RhythmTokens.radiusM),
-                    border: Border.all(color: _kBorder),
+        ...deduped.map(
+          (signal) => Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child: Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: _kSurface.withValues(alpha: 0.78),
+                borderRadius: BorderRadius.circular(RhythmTokens.radiusM),
+                border: Border.all(color: _kBorder),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    width: 8,
+                    height: 8,
+                    margin: const EdgeInsets.only(top: 6, right: 10),
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: signal.isUnread ? _kPrimary : _kTextMuted,
+                    ),
                   ),
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Container(
-                        width: 8,
-                        height: 8,
-                        margin: const EdgeInsets.only(top: 6, right: 10),
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: signal.isUnread ? _kPrimary : _kTextMuted,
-                        ),
-                      ),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              signal.subject,
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .bodyMedium
-                                  ?.copyWith(
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          signal.subject,
+                          style:
+                              Theme.of(context).textTheme.bodyMedium?.copyWith(
                                     color: _kTextPrimary,
                                     fontWeight: signal.isUnread
                                         ? FontWeight.w700
                                         : FontWeight.w500,
                                   ),
-                            ),
-                            const SizedBox(height: 2),
-                            Text(
-                              signal.fromLabel,
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .bodySmall
-                                  ?.copyWith(color: _kTextSecondary),
-                            ),
-                            if (signal.snippet != null &&
-                                signal.snippet!.trim().isNotEmpty) ...[
-                              const SizedBox(height: 4),
-                              Text(
-                                signal.snippet!,
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                                style: Theme.of(context)
-                                    .textTheme
-                                    .bodySmall
-                                    ?.copyWith(color: _kTextSecondary),
-                              ),
-                            ],
-                          ],
                         ),
-                      ),
-                    ],
+                        const SizedBox(height: 2),
+                        Text(
+                          signal.fromLabel,
+                          style: Theme.of(context)
+                              .textTheme
+                              .bodySmall
+                              ?.copyWith(color: _kTextSecondary),
+                        ),
+                        if (signal.snippet != null &&
+                            signal.snippet!.trim().isNotEmpty) ...[
+                          const SizedBox(height: 4),
+                          Text(
+                            signal.snippet!,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: Theme.of(context)
+                                .textTheme
+                                .bodySmall
+                                ?.copyWith(color: _kTextSecondary),
+                          ),
+                        ],
+                      ],
+                    ),
                   ),
-                ),
+                ],
               ),
             ),
+          ),
+        ),
       ],
     );
   }
@@ -549,9 +589,9 @@ class _GoogleCalendarSelectionSectionState
                   const SizedBox(height: 4),
                   Text(
                     '${_selectedCalendarIds.length} of ${widget.settings.calendars.length} selected for shadow events',
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: _kTextSecondary,
-                        ),
+                    style: Theme.of(
+                      context,
+                    ).textTheme.bodySmall?.copyWith(color: _kTextSecondary),
                   ),
                 ],
               ),
@@ -647,17 +687,19 @@ class _PlanningCenterFiltersSection extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('Task triggers',
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                            color: _kTextPrimary,
-                            fontWeight: FontWeight.w600,
-                          )),
+                  Text(
+                    'Task triggers',
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                          color: _kTextPrimary,
+                          fontWeight: FontWeight.w600,
+                        ),
+                  ),
                   const SizedBox(height: 4),
                   Text(
                     'Teams: $teamSummary · Positions: $positionSummary',
-                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                          color: _kTextSecondary,
-                        ),
+                    style: Theme.of(
+                      context,
+                    ).textTheme.bodySmall?.copyWith(color: _kTextSecondary),
                   ),
                 ],
               ),
@@ -924,9 +966,7 @@ class _AiImportCard extends StatelessWidget {
               onPressed: onImport,
               icon: const Icon(Icons.open_in_new, size: 16),
               label: const Text('Open Import'),
-              style: FilledButton.styleFrom(
-                backgroundColor: _kPrimary,
-              ),
+              style: FilledButton.styleFrom(backgroundColor: _kPrimary),
             ),
           ],
         ),
@@ -1033,10 +1073,7 @@ class _IntegrationsHeader extends StatelessWidget {
 }
 
 class _HeaderPill extends StatelessWidget {
-  const _HeaderPill({
-    required this.icon,
-    required this.label,
-  });
+  const _HeaderPill({required this.icon, required this.label});
 
   final IconData icon;
   final String label;
@@ -1095,10 +1132,7 @@ class _StatusChip extends StatelessWidget {
           Container(
             width: 7,
             height: 7,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: color,
-            ),
+            decoration: BoxDecoration(shape: BoxShape.circle, color: color),
           ),
           const SizedBox(width: 8),
           Text(
@@ -1116,10 +1150,7 @@ class _StatusChip extends StatelessWidget {
 }
 
 class _MetaPill extends StatelessWidget {
-  const _MetaPill({
-    required this.icon,
-    required this.label,
-  });
+  const _MetaPill({required this.icon, required this.label});
 
   final IconData icon;
   final String label;
@@ -1140,10 +1171,7 @@ class _MetaPill extends StatelessWidget {
           const SizedBox(width: 6),
           Text(
             label,
-            style: const TextStyle(
-              fontSize: 12,
-              color: _kTextSecondary,
-            ),
+            style: const TextStyle(fontSize: 12, color: _kTextSecondary),
           ),
         ],
       ),
@@ -1261,10 +1289,7 @@ class _SubtleCallout extends StatelessWidget {
 }
 
 class _AmbientOrb extends StatelessWidget {
-  const _AmbientOrb({
-    required this.color,
-    required this.size,
-  });
+  const _AmbientOrb({required this.color, required this.size});
 
   final Color color;
   final double size;
@@ -1311,10 +1336,9 @@ class _ImportSection extends StatelessWidget {
         const SizedBox(height: 8),
         Text(
           'Bring structured work into Rhythm with the AI import flow.',
-          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: _kTextSecondary,
-                height: 1.4,
-              ),
+          style: Theme.of(
+            context,
+          ).textTheme.bodySmall?.copyWith(color: _kTextSecondary, height: 1.4),
         ),
         const SizedBox(height: 12),
         _AiImportCard(

@@ -175,7 +175,7 @@ export class IntegrationsService {
             receivedAt: signal.receivedAt,
             isUnread: signal.isUnread,
             threadId: signal.threadId,
-            labelIds: signal.isUnread ? ["INBOX", "UNREAD"] : ["INBOX"],
+            labelIds: signal.labelIds,
           };
           return [
             {
@@ -250,6 +250,14 @@ export class IntegrationsService {
 
   listRecentGmailSignals(userId: number) {
     return this.gmailSignalsRepo.listRecent(userId);
+  }
+
+  async listGmailLabels(userId: number): Promise<string[]> {
+    const account = await this.ensureFreshAccount('gmail', userId);
+    if (!account || !account.accessToken) {
+      return [];
+    }
+    return this.gmail.listLabels(account);
   }
 
   async syncPlanningCenter(userId: number) {
