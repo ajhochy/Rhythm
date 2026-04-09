@@ -5,6 +5,7 @@ export interface User {
   googleSub: string | null;
   photoUrl: string | null;
   role: string;
+  isFacilitiesManager: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -15,6 +16,7 @@ export interface CreateUserDto {
   googleSub?: string | null;
   photoUrl?: string | null;
   role?: string;
+  isFacilitiesManager?: boolean;
 }
 
 export interface UpdateUserDto {
@@ -23,4 +25,5 @@ export interface UpdateUserDto {
   googleSub?: string | null;
   photoUrl?: string | null;
   role?: string;
+  isFacilitiesManager?: boolean;
 }

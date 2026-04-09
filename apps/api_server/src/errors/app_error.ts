@@ -24,6 +24,10 @@ export class AppError extends Error {
     return new AppError(409, 'CONFLICT', message);
   }
 
+  static forbidden(message = 'Forbidden'): AppError {
+    return new AppError(403, 'FORBIDDEN', message);
+  }
+
   static internal(message = 'Internal server error'): AppError {
     return new AppError(500, 'INTERNAL_ERROR', message);
   }

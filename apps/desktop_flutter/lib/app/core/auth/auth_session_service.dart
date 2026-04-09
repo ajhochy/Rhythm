@@ -119,6 +119,12 @@ class AuthSessionService extends ChangeNotifier {
     notifyListeners();
   }
 
+  void updateCurrentUser(AuthUser user) {
+    if (_currentUser?.id != user.id) return;
+    _currentUser = user;
+    notifyListeners();
+  }
+
   Future<void> _initializeGoogle() async {
     if (_googleInitialized) return;
     const clientId = String.fromEnvironment('GOOGLE_DESKTOP_CLIENT_ID');

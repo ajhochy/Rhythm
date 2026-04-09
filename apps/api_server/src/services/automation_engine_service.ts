@@ -322,9 +322,12 @@ export class AutomationEngineService {
     const templateId = asString(config.templateId);
     const templateName = asString(config.templateName);
     const template = templateId
-      ? this.templatesRepo.findById(templateId)
+      ? this.templatesRepo.findById(templateId, rule.ownerId ?? undefined)
       : templateName
-        ? this.templatesRepo.findByNameInsensitive(templateName)
+        ? this.templatesRepo.findByNameInsensitive(
+            templateName,
+            rule.ownerId ?? undefined,
+          )
         : null;
     if (template == null) return false;
 
@@ -338,7 +341,12 @@ export class AutomationEngineService {
       interpolate(asString(config.projectNameTemplate), signal) ||
       asString(signal.payload.title) ||
       rule.name;
-    this.projectGeneration.generate(template.id, anchorDate, projectName);
+    this.projectGeneration.generate(
+      template.id,
+      anchorDate,
+      projectName,
+      rule.ownerId ?? undefined,
+    );
     return true;
   }
 }

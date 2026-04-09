@@ -2,9 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../../app/core/auth/auth_session_service.dart';
+import '../../../app/core/auth/auth_user.dart';
 import '../../../app/core/services/server_config_service.dart';
 import '../../../app/core/updates/update_controller.dart';
 import '../../../app/theme/rhythm_tokens.dart';
+import '../controllers/settings_controller.dart';
 
 class SettingsView extends StatefulWidget {
   const SettingsView({super.key});
@@ -16,6 +18,7 @@ class SettingsView extends StatefulWidget {
 class _SettingsViewState extends State<SettingsView> {
   late final TextEditingController _urlController;
   bool _saving = false;
+  bool _loadedPermissionsOnce = false;
 
   @override
   void initState() {
@@ -47,7 +50,17 @@ class _SettingsViewState extends State<SettingsView> {
   Widget build(BuildContext context) {
     final auth = context.watch<AuthSessionService>();
     final updateController = context.watch<UpdateController>();
+    final settingsController = context.watch<SettingsController>();
     final user = auth.currentUser;
+    final canManagePermissions = user?.isAdmin ?? false;
+
+    if (canManagePermissions && !_loadedPermissionsOnce) {
+      _loadedPermissionsOnce = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        context.read<SettingsController>().loadUsers();
+      });
+    }
 
     return Scaffold(
       backgroundColor: RhythmTokens.background,
@@ -145,6 +158,16 @@ class _SettingsViewState extends State<SettingsView> {
                       color: RhythmTokens.textSecondary,
                     ),
                   ),
+                  const SizedBox(height: 6),
+                  Text(
+                    user.isFacilitiesManager
+                        ? 'Facilities manager access enabled'
+                        : 'Facilities manager access disabled',
+                    style: const TextStyle(
+                      fontSize: 13,
+                      color: RhythmTokens.textSecondary,
+                    ),
+                  ),
                   const SizedBox(height: 16),
                   OutlinedButton(
                     onPressed: () async {
@@ -158,6 +181,23 @@ class _SettingsViewState extends State<SettingsView> {
                   ),
                 ],
               ),
+            ),
+            const SizedBox(height: 24),
+          ],
+          if (canManagePermissions) ...[
+            const Text(
+              'USER PERMISSIONS',
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: RhythmTokens.textSecondary,
+                letterSpacing: 0.8,
+              ),
+            ),
+            const SizedBox(height: 12),
+            _UserPermissionsCard(
+              controller: settingsController,
+              onUserUpdated: auth.updateCurrentUser,
             ),
             const SizedBox(height: 24),
           ],
@@ -321,6 +361,230 @@ class _SettingsViewState extends State<SettingsView> {
                 ),
               ],
             ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _UserPermissionsCard extends StatelessWidget {
+  const _UserPermissionsCard({
+    required this.controller,
+    required this.onUserUpdated,
+  });
+
+  final SettingsController controller;
+  final ValueChanged<AuthUser> onUserUpdated;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: RhythmTokens.surfaceStrong,
+        borderRadius: BorderRadius.circular(RhythmTokens.radiusL),
+        border: Border.all(color: RhythmTokens.borderSoft),
+        boxShadow: RhythmTokens.shadow,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Admin controls',
+            style: TextStyle(
+              fontWeight: FontWeight.w600,
+              color: RhythmTokens.textPrimary,
+            ),
+          ),
+          const SizedBox(height: 6),
+          const Text(
+            'Manage which users are admins and which users can manage Facilities.',
+            style: TextStyle(
+              fontSize: 13,
+              color: RhythmTokens.textSecondary,
+            ),
+          ),
+          const SizedBox(height: 16),
+          if (controller.usersStatus == SettingsUsersStatus.loading)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 12),
+              child: Center(child: CircularProgressIndicator()),
+            )
+          else if (controller.usersStatus == SettingsUsersStatus.error)
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  controller.usersErrorMessage ?? 'Could not load users.',
+                  style: const TextStyle(
+                    fontSize: 13,
+                    color: RhythmTokens.danger,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                OutlinedButton(
+                  onPressed: () => controller.loadUsers(force: true),
+                  child: const Text('Retry'),
+                ),
+              ],
+            )
+          else ...[
+            for (final user in controller.users)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 12),
+                child: _UserPermissionRow(
+                  user: user,
+                  saving: controller.isSavingUser(user.id),
+                  onRoleChanged: user.role == 'system'
+                      ? null
+                      : (value) async {
+                          if (value == null || value == user.role) return;
+                          try {
+                            final updated = await controller.updateUser(
+                              user.id,
+                              role: value,
+                            );
+                            onUserUpdated(updated);
+                          } catch (error) {
+                            if (!context.mounted) return;
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(content: Text(error.toString())),
+                            );
+                          }
+                        },
+                  onFacilitiesChanged: user.role == 'system'
+                      ? null
+                      : (value) async {
+                          try {
+                            final updated = await controller.updateUser(
+                              user.id,
+                              isFacilitiesManager: value,
+                            );
+                            onUserUpdated(updated);
+                          } catch (error) {
+                            if (!context.mounted) return;
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(content: Text(error.toString())),
+                            );
+                          }
+                        },
+                ),
+              ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+class _UserPermissionRow extends StatelessWidget {
+  const _UserPermissionRow({
+    required this.user,
+    required this.saving,
+    required this.onRoleChanged,
+    required this.onFacilitiesChanged,
+  });
+
+  final AuthUser user;
+  final bool saving;
+  final ValueChanged<String?>? onRoleChanged;
+  final ValueChanged<bool>? onFacilitiesChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final roleItems = user.role == 'system'
+        ? const [
+            DropdownMenuItem(value: 'system', child: Text('System')),
+          ]
+        : const [
+            DropdownMenuItem(value: 'member', child: Text('Member')),
+            DropdownMenuItem(value: 'admin', child: Text('Admin')),
+          ];
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: RhythmTokens.surface,
+        borderRadius: BorderRadius.circular(RhythmTokens.radiusM),
+        border: Border.all(color: RhythmTokens.borderSoft),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      user.name,
+                      style: const TextStyle(
+                        color: RhythmTokens.textPrimary,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      user.email,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        color: RhythmTokens.textSecondary,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (saving)
+                const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          Wrap(
+            spacing: 16,
+            runSpacing: 12,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              SizedBox(
+                width: 180,
+                child: DropdownButtonFormField<String>(
+                  value: user.role == 'system' ? 'system' : user.role,
+                  decoration: const InputDecoration(
+                    labelText: 'Role',
+                    isDense: true,
+                  ),
+                  items: roleItems,
+                  onChanged: saving ? null : onRoleChanged,
+                ),
+              ),
+              SizedBox(
+                width: 260,
+                child: SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text(
+                    'Facilities manager',
+                    style: TextStyle(
+                      fontSize: 14,
+                      color: RhythmTokens.textPrimary,
+                    ),
+                  ),
+                  subtitle: const Text(
+                    'Can create, edit, and manage rooms in Facilities.',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: RhythmTokens.textSecondary,
+                    ),
+                  ),
+                  value: user.isFacilitiesManager,
+                  onChanged: saving ? null : onFacilitiesChanged,
+                ),
+              ),
+            ],
           ),
         ],
       ),

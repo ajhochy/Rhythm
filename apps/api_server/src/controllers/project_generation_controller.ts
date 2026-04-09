@@ -21,6 +21,7 @@ export class ProjectGenerationController {
         req.params.id,
         anchorDate,
         typeof name === 'string' ? name : null,
+        req.auth?.user.id,
       );
       res.status(201).json(instance);
     } catch (err) {
@@ -28,13 +29,13 @@ export class ProjectGenerationController {
     }
   }
 
-  getAllInstances(_req: Request, res: Response, next: NextFunction) {
+  getAllInstances(req: Request, res: Response, next: NextFunction) {
     try {
-      const { templateId } = _req.query as Record<string, string>;
+      const { templateId } = req.query as Record<string, string>;
       if (templateId) {
-        res.json(instanceRepo.findByTemplateId(templateId));
+        res.json(instanceRepo.findByTemplateId(templateId, req.auth?.user.id));
       } else {
-        res.json(instanceRepo.findAll());
+        res.json(instanceRepo.findAll(req.auth?.user.id));
       }
     } catch (err) {
       next(err);
@@ -54,7 +55,7 @@ export class ProjectGenerationController {
             : typeof notes === 'string'
                 ? (notes.length === 0 ? null : notes)
                 : undefined,
-      });
+      }, req.auth?.user.id);
       res.json(step);
     } catch (err) {
       next(err);
@@ -63,7 +64,7 @@ export class ProjectGenerationController {
 
   deleteInstance(req: Request, res: Response, next: NextFunction) {
     try {
-      instanceRepo.delete(req.params.id);
+      instanceRepo.delete(req.params.id, req.auth?.user.id);
       res.status(204).send();
     } catch (err) {
       next(err);
