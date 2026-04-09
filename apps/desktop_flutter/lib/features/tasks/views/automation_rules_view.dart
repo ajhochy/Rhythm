@@ -133,6 +133,7 @@ class _AutomationRulesViewState extends State<AutomationRulesView> {
         triggerConfig: result.triggerConfig,
         actionConfig: result.actionConfig,
         sourceAccountId: result.sourceAccountId,
+        conditions: result.conditions,
       );
       return;
     }
@@ -145,6 +146,7 @@ class _AutomationRulesViewState extends State<AutomationRulesView> {
       triggerConfig: result.triggerConfig,
       actionConfig: result.actionConfig,
       sourceAccountId: result.sourceAccountId,
+      conditions: result.conditions,
     );
   }
 
@@ -692,6 +694,7 @@ class _AutomationDraft {
     required this.triggerConfig,
     required this.actionConfig,
     this.sourceAccountId,
+    this.conditions,
   });
 
   final String name;
@@ -701,6 +704,7 @@ class _AutomationDraft {
   final Map<String, dynamic>? triggerConfig;
   final Map<String, dynamic>? actionConfig;
   final String? sourceAccountId;
+  final List<AutomationCondition>? conditions;
 }
 
 class _AutomationBuilderDialog extends StatefulWidget {
@@ -736,8 +740,10 @@ class _AutomationBuilderDialogState extends State<_AutomationBuilderDialog> {
   int? _dateWindowDays;
   int? _hoursSinceReceived;
   int? _targetDay;
+  int? _daysBeforeDue;
   bool _allDayOnly = false;
   String? _validationError;
+  late List<_ConditionDraft> _conditions;
 
   @override
   void initState() {
@@ -794,7 +800,16 @@ class _AutomationBuilderDialogState extends State<_AutomationBuilderDialog> {
     _hoursSinceReceived =
         (existing?.triggerConfig?['hoursSinceReceived'] as num?)?.toInt();
     _targetDay = (existing?.actionConfig?['targetDay'] as num?)?.toInt();
+    _daysBeforeDue =
+        (existing?.triggerConfig?['daysBeforeDue'] as num?)?.toInt();
     _allDayOnly = existing?.triggerConfig?['allDayOnly'] == true;
+    _conditions = (existing?.conditions ?? const [])
+        .map((c) => _ConditionDraft(
+              field: c.field,
+              operator: c.operator,
+              value: TextEditingController(text: c.value),
+            ))
+        .toList();
     _syncAccountSelectionWithSource();
     if (existing == null && _nameController.text.trim().isEmpty) {
       _nameController.text = _suggestedName();
@@ -812,6 +827,9 @@ class _AutomationBuilderDialogState extends State<_AutomationBuilderDialog> {
     _messageTemplateController.dispose();
     _templateNameController.dispose();
     _tagController.dispose();
+    for (final c in _conditions) {
+      c.value.dispose();
+    }
     super.dispose();
   }
 
@@ -937,7 +955,10 @@ class _AutomationBuilderDialogState extends State<_AutomationBuilderDialog> {
                 ..._buildTriggerFields(trigger),
               ],
               const SizedBox(height: 18),
-              _stepTitle('3. Action'),
+              _stepTitle('3. Conditions (optional)'),
+              ..._buildConditionsStep(),
+              const SizedBox(height: 18),
+              _stepTitle('4. Action'),
               DropdownButtonFormField<String>(
                 value: _selectedActionType,
                 isExpanded: true,
@@ -961,7 +982,7 @@ class _AutomationBuilderDialogState extends State<_AutomationBuilderDialog> {
               const SizedBox(height: 12),
               ..._buildActionFields(),
               const SizedBox(height: 18),
-              _stepTitle('4. Review'),
+              _stepTitle('5. Review'),
               Container(
                 width: double.infinity,
                 padding: const EdgeInsets.all(12),
@@ -1004,6 +1025,7 @@ class _AutomationBuilderDialogState extends State<_AutomationBuilderDialog> {
                 triggerConfig: _buildTriggerConfig(),
                 actionConfig: _buildActionConfig(),
                 sourceAccountId: _selectedAccountId,
+                conditions: _buildConditions(),
               ),
             );
           },
@@ -1021,7 +1043,159 @@ class _AutomationBuilderDialogState extends State<_AutomationBuilderDialog> {
     ),
   );
 
+  static const List<String> _conditionOperators = [
+    'equals',
+    'not_equals',
+    'contains',
+    'not_contains',
+    'greater_than',
+    'less_than',
+  ];
+
+  static String _operatorLabel(String op) => switch (op) {
+        'equals' => 'equals',
+        'not_equals' => 'does not equal',
+        'contains' => 'contains',
+        'not_contains' => 'does not contain',
+        'greater_than' => 'greater than',
+        'less_than' => 'less than',
+        _ => op,
+      };
+
+  List<String> _conditionFields() {
+    switch (_selectedSource) {
+      case 'gmail':
+        return ['subject', 'fromEmail', 'fromName', 'snippet', 'labelIds'];
+      case 'google_calendar':
+        return ['title', 'description', 'location', 'eventType'];
+      case 'planning_center':
+        return [
+          'title',
+          'serviceTypeName',
+          'teamName',
+          'positionName',
+          'planDate',
+        ];
+      default:
+        return ['title', 'notes'];
+    }
+  }
+
+  List<Widget> _buildConditionsStep() {
+    final fields = _conditionFields();
+    return [
+      if (_conditions.isEmpty)
+        const Text(
+          'No conditions — automation runs for every matched signal.',
+          style: TextStyle(color: RhythmTokens.textSecondary),
+        ),
+      for (int i = 0; i < _conditions.length; i++) ...[
+        if (i > 0) const SizedBox(height: 8),
+        _buildConditionRow(i, fields),
+      ],
+      const SizedBox(height: 8),
+      TextButton.icon(
+        onPressed: () => setState(() {
+          _conditions.add(_ConditionDraft(
+            field: fields.first,
+            operator: 'contains',
+            value: TextEditingController(),
+          ));
+        }),
+        icon: const Icon(Icons.add, size: 16),
+        label: const Text('Add condition'),
+      ),
+    ];
+  }
+
+  Widget _buildConditionRow(int index, List<String> fields) {
+    final condition = _conditions[index];
+    return Row(
+      children: [
+        Expanded(
+          child: DropdownButtonFormField<String>(
+            value: fields.contains(condition.field)
+                ? condition.field
+                : fields.first,
+            decoration: const InputDecoration(
+              labelText: 'Field',
+              border: OutlineInputBorder(),
+              isDense: true,
+            ),
+            items: fields
+                .map((f) => DropdownMenuItem(value: f, child: Text(f)))
+                .toList(),
+            onChanged: (value) =>
+                setState(() => condition.field = value ?? fields.first),
+          ),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: DropdownButtonFormField<String>(
+            value: condition.operator,
+            decoration: const InputDecoration(
+              labelText: 'Operator',
+              border: OutlineInputBorder(),
+              isDense: true,
+            ),
+            items: _conditionOperators
+                .map((op) => DropdownMenuItem(
+                      value: op,
+                      child: Text(_operatorLabel(op)),
+                    ))
+                .toList(),
+            onChanged: (value) =>
+                setState(() => condition.operator = value ?? 'contains'),
+          ),
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: TextField(
+            controller: condition.value,
+            decoration: const InputDecoration(
+              labelText: 'Value',
+              border: OutlineInputBorder(),
+              isDense: true,
+            ),
+          ),
+        ),
+        IconButton(
+          icon: const Icon(Icons.remove_circle_outline, size: 18),
+          color: RhythmTokens.textSecondary,
+          onPressed: () => setState(() {
+            _conditions[index].value.dispose();
+            _conditions.removeAt(index);
+          }),
+        ),
+      ],
+    );
+  }
+
+  List<AutomationCondition>? _buildConditions() {
+    final result = _conditions
+        .where((c) => c.value.text.trim().isNotEmpty)
+        .map((c) => AutomationCondition(
+              field: c.field,
+              operator: c.operator,
+              value: c.value.text.trim(),
+            ))
+        .toList();
+    return result.isEmpty ? null : result;
+  }
+
   List<Widget> _buildTriggerFields(AutomationTriggerCatalogItem trigger) {
+    if (trigger.source == 'rhythm' &&
+        (trigger.key == 'rhythm.task_due' ||
+            trigger.key == 'rhythm.project_step_due')) {
+      return [
+        _IntegerDropdown(
+          label: 'Days before due',
+          value: _daysBeforeDue,
+          options: const [0, 1, 2, 3, 5, 7, 14],
+          onChanged: (value) => setState(() => _daysBeforeDue = value),
+        ),
+      ];
+    }
     if (trigger.source == 'planning_center') {
       final options = widget.controller.planningCenterTaskOptions;
       return [
@@ -1570,6 +1744,7 @@ class _AutomationBuilderDialogState extends State<_AutomationBuilderDialog> {
 
   Map<String, dynamic>? _buildTriggerConfig() {
     final config = <String, dynamic>{};
+    if (_daysBeforeDue != null) config['daysBeforeDue'] = _daysBeforeDue;
     if (_leadDays != null) config['leadDays'] = _leadDays;
     if (_selectedTeamId != null) config['teamId'] = _selectedTeamId;
     if (_selectedPositionName != null) {
@@ -1749,6 +1924,18 @@ class _IntegerDropdown extends StatelessWidget {
       onChanged: onChanged,
     );
   }
+}
+
+class _ConditionDraft {
+  _ConditionDraft({
+    required this.field,
+    required this.operator,
+    required this.value,
+  });
+
+  String field;
+  String operator;
+  final TextEditingController value;
 }
 
 class _TemplateTokenHelp {

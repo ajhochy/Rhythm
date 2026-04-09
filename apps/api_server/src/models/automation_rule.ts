@@ -1,3 +1,17 @@
+export type ConditionOperator =
+  | 'equals'
+  | 'not_equals'
+  | 'contains'
+  | 'not_contains'
+  | 'greater_than'
+  | 'less_than';
+
+export interface Condition {
+  field: string;
+  operator: ConditionOperator;
+  value: string;
+}
+
 export type AutomationActionType =
   | 'create_task'
   | 'create_project_from_template'
@@ -16,10 +30,12 @@ export type AutomationTriggerKey =
   | 'rhythm.task_due'
   | 'rhythm.plan_assembly'
   | 'planning_center.plan_upcoming'
+  | 'planning_center.plan_published'
   | 'planning_center.plan_person_declined'
   | 'planning_center.plan_person_unconfirmed'
   | 'planning_center.needed_position_open'
   | 'planning_center.special_service_candidate'
+  | 'planning_center.service_item_updated'
   | 'google_calendar.event_matching_filter'
   | 'google_calendar.all_day_event'
   | 'gmail.message_matching_filter'
@@ -33,6 +49,7 @@ export interface AutomationRule {
   triggerConfig: Record<string, unknown> | null;
   actionType: AutomationActionType;
   actionConfig: Record<string, unknown> | null;
+  conditions: Condition[] | null;
   enabled: boolean;
   ownerId: number | null;
   sourceAccountId: string | null;
@@ -51,6 +68,7 @@ export interface CreateAutomationRuleDto {
   triggerConfig?: Record<string, unknown>;
   actionType: AutomationActionType;
   actionConfig?: Record<string, unknown>;
+  conditions?: Condition[] | null;
   enabled?: boolean;
   ownerId?: number | null;
   sourceAccountId?: string | null;
@@ -63,6 +81,7 @@ export interface UpdateAutomationRuleDto {
   triggerConfig?: Record<string, unknown> | null;
   actionType?: AutomationActionType;
   actionConfig?: Record<string, unknown> | null;
+  conditions?: Condition[] | null;
   enabled?: boolean;
   ownerId?: number | null;
   sourceAccountId?: string | null;

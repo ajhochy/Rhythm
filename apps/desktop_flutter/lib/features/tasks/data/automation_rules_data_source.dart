@@ -160,6 +160,7 @@ class AutomationRulesDataSource {
     Map<String, dynamic>? actionConfig,
     String? sourceAccountId,
     bool enabled = true,
+    List<AutomationCondition>? conditions,
   }) async {
     final response = await http.post(
       Uri.parse('$_baseUrl/automation-rules'),
@@ -173,6 +174,8 @@ class AutomationRulesDataSource {
         if (actionConfig != null) 'actionConfig': actionConfig,
         if (sourceAccountId != null) 'sourceAccountId': sourceAccountId,
         'enabled': enabled,
+        if (conditions != null && conditions.isNotEmpty)
+          'conditions': conditions.map((c) => c.toJson()).toList(),
       }),
     );
     assertOk(response);
@@ -191,6 +194,7 @@ class AutomationRulesDataSource {
     Map<String, dynamic>? actionConfig,
     String? sourceAccountId,
     bool? enabled,
+    List<AutomationCondition>? conditions,
   }) async {
     final response = await http.patch(
       Uri.parse('$_baseUrl/automation-rules/$id'),
@@ -204,6 +208,7 @@ class AutomationRulesDataSource {
         if (actionConfig != null) 'actionConfig': actionConfig,
         if (sourceAccountId != null) 'sourceAccountId': sourceAccountId,
         if (enabled != null) 'enabled': enabled,
+        'conditions': conditions?.map((c) => c.toJson()).toList() ?? const [],
       }),
     );
     assertOk(response);

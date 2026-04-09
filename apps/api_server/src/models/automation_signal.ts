@@ -1,7 +1,12 @@
 import type { AutomationRuleSource } from './automation_rule';
 
 export type AutomationSignalType =
+  | 'task_due'
+  | 'project_step_due'
+  | 'plan_assembly'
   | 'plan_upcoming'
+  | 'plan_published'
+  | 'service_item_updated'
   | 'needed_position_open'
   | 'team_member_declined'
   | 'team_member_unconfirmed'

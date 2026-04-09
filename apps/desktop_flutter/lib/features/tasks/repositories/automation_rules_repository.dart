@@ -3,6 +3,7 @@ import '../../integrations/models/planning_center_task_options.dart';
 import '../data/automation_rules_data_source.dart';
 import '../models/automation_catalog.dart';
 import '../models/automation_rule.dart';
+import '../models/automation_condition.dart';
 
 class AutomationRulesRepository {
   AutomationRulesRepository(this._dataSource);
@@ -32,16 +33,19 @@ class AutomationRulesRepository {
     Map<String, dynamic>? actionConfig,
     String? sourceAccountId,
     bool enabled = true,
-  }) => _dataSource.create(
-    name: name,
-    source: source,
-    triggerKey: triggerKey,
-    actionType: actionType,
-    triggerConfig: triggerConfig,
-    actionConfig: actionConfig,
-    sourceAccountId: sourceAccountId,
-    enabled: enabled,
-  );
+    List<AutomationCondition>? conditions,
+  }) =>
+      _dataSource.create(
+        name: name,
+        source: source,
+        triggerKey: triggerKey,
+        actionType: actionType,
+        triggerConfig: triggerConfig,
+        actionConfig: actionConfig,
+        sourceAccountId: sourceAccountId,
+        enabled: enabled,
+        conditions: conditions,
+      );
 
   Future<AutomationRule> update(
     String id, {
@@ -53,17 +57,20 @@ class AutomationRulesRepository {
     Map<String, dynamic>? actionConfig,
     String? sourceAccountId,
     bool? enabled,
-  }) => _dataSource.update(
-    id,
-    name: name,
-    source: source,
-    triggerKey: triggerKey,
-    actionType: actionType,
-    triggerConfig: triggerConfig,
-    actionConfig: actionConfig,
-    sourceAccountId: sourceAccountId,
-    enabled: enabled,
-  );
+    List<AutomationCondition>? conditions,
+  }) =>
+      _dataSource.update(
+        id,
+        name: name,
+        source: source,
+        triggerKey: triggerKey,
+        actionType: actionType,
+        triggerConfig: triggerConfig,
+        actionConfig: actionConfig,
+        sourceAccountId: sourceAccountId,
+        enabled: enabled,
+        conditions: conditions,
+      );
 
   Future<void> delete(String id) => _dataSource.delete(id);
   Future<void> resync(String id) => _dataSource.resync(id);

@@ -51,6 +51,7 @@ interface PlanningCenterPlanSignal {
   serviceTypeName: string;
   planDate: string;
   daysUntil: number;
+  publishedAt: string | null;
 }
 
 interface PlanningCenterAutomationSignals {
@@ -71,6 +72,7 @@ interface PlanSummary {
   serviceTypeName: string;
   title: string;
   planDate: string;
+  publishedAt: string | null;
 }
 
 function roleKey(planId: string, positionName: string): string {
@@ -201,6 +203,7 @@ export class PlanningCenterService {
           serviceTypeName: plan.serviceTypeName,
           planDate: plan.planDate,
           daysUntil: planLeadDays,
+          publishedAt: plan.publishedAt,
         });
         const [neededSignals, declineSignals, unconfirmedSignals] = await Promise.all([
           planLeadDays <= env.pcoNeededTaskWindowDays
@@ -258,6 +261,58 @@ export class PlanningCenterService {
     }
 
     return { tasks, specialProjects, upcomingPlans, planCount };
+  }
+
+  async collectServiceItemSignals(
+    account: IntegrationAccount,
+  ): Promise<Array<{
+    itemId: string;
+    title: string;
+    itemType: string;
+    sequence: number;
+    serviceTypeName: string;
+    planId: string;
+    planDate: string;
+    daysUntil: number;
+  }>> {
+    if (!account.accessToken) {
+      throw AppError.badRequest('Planning Center is not connected');
+    }
+    const serviceTypes = await this.fetchServiceTypes(account, {
+      teamIds: [],
+      positionNames: [],
+    });
+    const result: Array<{
+      itemId: string;
+      title: string;
+      itemType: string;
+      sequence: number;
+      serviceTypeName: string;
+      planId: string;
+      planDate: string;
+      daysUntil: number;
+    }> = [];
+
+    for (const serviceType of serviceTypes) {
+      const plans = await this.fetchUpcomingPlans(account, serviceType);
+      for (const plan of plans) {
+        const items = await this.fetchServiceItems(account, serviceType.id, plan.id);
+        for (const item of items) {
+          result.push({
+            itemId: `${plan.id}:${item.id}`,
+            title: item.title,
+            itemType: item.itemType,
+            sequence: item.sequence,
+            serviceTypeName: serviceType.name,
+            planId: plan.id,
+            planDate: plan.planDate,
+            daysUntil: daysUntil(plan.planDate),
+          });
+        }
+      }
+    }
+
+    return result;
   }
 
   specialServiceTemplateName(): string {
@@ -379,12 +434,18 @@ export class PlanningCenterService {
           asString(attrs.dates) ??
           `${serviceType.name} ${planDate}`;
 
+        const publishedAt =
+          asString(attrs.published_at) ??
+          asString(attrs.publish_at) ??
+          null;
+
         return {
           id: resource.id,
           serviceTypeId: serviceType.id,
           serviceTypeName: serviceType.name,
           title,
           planDate,
+          publishedAt,
         };
       })
       .filter((plan): plan is PlanSummary => plan != null);
@@ -564,6 +625,26 @@ export class PlanningCenterService {
     }
 
     return signals;
+  }
+
+  async fetchServiceItems(
+    account: IntegrationAccount,
+    serviceTypeId: string,
+    planId: string,
+  ): Promise<Array<{ id: string; title: string; itemType: string; sequence: number }>> {
+    const payload = await this.getJson(
+      account,
+      `/services/v2/service_types/${serviceTypeId}/plans/${planId}/items?per_page=100`,
+    );
+    return (payload.data ?? []).map((resource) => {
+      const attrs = resource.attributes ?? {};
+      return {
+        id: resource.id,
+        title: asString(attrs.title) ?? asString(attrs.name) ?? 'Service Item',
+        itemType: asString(attrs.item_type) ?? asString(attrs.type) ?? 'song',
+        sequence: (attrs.sequence as number) ?? 0,
+      };
+    });
   }
 
   private async getJson(
