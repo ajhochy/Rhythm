@@ -73,6 +73,13 @@ if [[ -z "${IDENTITY_SHA}" ]]; then
   exit 1
 fi
 
+# Preprocess entitlements: expand $(AppIdentifierPrefix) to the actual team ID
+# prefix. codesign does not expand Xcode build variables, so a literal
+# $(AppIdentifierPrefix) in keychain-access-groups causes AMFI to reject the
+# app at exec time on macOS Sequoia and later.
+PROCESSED_ENTITLEMENTS="$(mktemp -t rhythm-entitlements).plist"
+sed "s/\$(AppIdentifierPrefix)/${APPLE_TEAM_ID}./" "${ENTITLEMENTS_PATH}" > "${PROCESSED_ENTITLEMENTS}"
+
 # Sign nested frameworks and binaries from the inside out with Hardened Runtime.
 # codesign --deep does NOT propagate --options runtime to nested items, so we
 # must sign each one explicitly before signing the top-level bundle.
@@ -87,7 +94,7 @@ done < <(find "${APP_PATH}/Contents" \
   -print0 | sort -rz)
 
 codesign --force --options runtime --timestamp \
-  --entitlements "${ENTITLEMENTS_PATH}" \
+  --entitlements "${PROCESSED_ENTITLEMENTS}" \
   --sign "${IDENTITY_SHA}" \
   "${APP_PATH}"
 
