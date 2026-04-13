@@ -2,8 +2,14 @@ import type { NextFunction, Request, Response } from 'express';
 import { AppError } from '../errors/app_error';
 import { logger } from '../utils/logger';
 
-export function errorHandler(err: unknown, _req: Request, res: Response, _next: NextFunction) {
+export function errorHandler(err: unknown, req: Request, res: Response, _next: NextFunction) {
   if (err instanceof AppError) {
+    logger.error(
+      `Handled ${err.code} ${req.method} ${req.originalUrl} — ${err.message}`,
+      {
+        authUserId: req.auth?.user?.id ?? null,
+      },
+    );
     res.status(err.statusCode).json({ error: { code: err.code, message: err.message } });
     return;
   }
