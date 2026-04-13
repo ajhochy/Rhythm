@@ -8,7 +8,9 @@
 **/.packages
 **/build/
 **/ios/Flutter/.last_build_id
-**/pubspec.lock
+# pubspec.lock is committed for apps to ensure reproducible CI builds.
+# Ignore it only for reusable packages (none in this repo currently).
+# **/pubspec.lock
 
 # Node / TypeScript
 **/node_modules/
