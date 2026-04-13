@@ -76,6 +76,7 @@ jobs:
         working-directory: apps/desktop_flutter
         run: >
           flutter build macos --release
+          --no-codesign
           --build-name="$RELEASE_VERSION"
           --build-number="${{ github.run_number }}"
           --dart-define=GOOGLE_DESKTOP_CLIENT_ID="$GOOGLE_DESKTOP_CLIENT_ID"
