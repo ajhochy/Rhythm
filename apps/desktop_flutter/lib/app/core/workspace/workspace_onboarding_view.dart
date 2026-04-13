@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../auth/auth_session_service.dart';
+import '../services/server_config_service.dart';
 import 'workspace_data_source.dart';
 import 'workspace_repository.dart';
 
@@ -33,11 +34,9 @@ class _WorkspaceOnboardingViewState extends State<WorkspaceOnboardingView> {
       _error = null;
     });
     try {
-      final authService = context.read<AuthSessionService>();
-      // Build a repo pointing at the server URL used by the rest of the app
+      final serverConfig = context.read<ServerConfigService>();
       final repo = WorkspaceRepository(
-        WorkspaceDataSource(
-            baseUrl: authService.sessionToken != null ? null : null),
+        WorkspaceDataSource(baseUrl: serverConfig.url),
       );
       if (_isJoining) {
         final code = _codeController.text.trim().toUpperCase();
@@ -79,14 +78,16 @@ class _WorkspaceOnboardingViewState extends State<WorkspaceOnboardingView> {
               children: [
                 Text(
                   'Welcome to Rhythm',
-                  style: theme.textTheme.headlineSmall
-                      ?.copyWith(fontWeight: FontWeight.bold),
+                  style: theme.textTheme.headlineSmall?.copyWith(
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
                 const SizedBox(height: 8),
                 Text(
                   'Set up your church workspace to get started.',
-                  style: theme.textTheme.bodyMedium
-                      ?.copyWith(color: const Color(0xFF6B7280)),
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: const Color(0xFF6B7280),
+                  ),
                 ),
                 const SizedBox(height: 32),
                 Row(
@@ -95,8 +96,9 @@ class _WorkspaceOnboardingViewState extends State<WorkspaceOnboardingView> {
                       child: OutlinedButton(
                         onPressed: () => setState(() => _isJoining = false),
                         style: OutlinedButton.styleFrom(
-                          backgroundColor:
-                              !_isJoining ? const Color(0xFF4F6AF5) : null,
+                          backgroundColor: !_isJoining
+                              ? const Color(0xFF4F6AF5)
+                              : null,
                           foregroundColor: !_isJoining ? Colors.white : null,
                         ),
                         child: const Text('Create'),
@@ -107,8 +109,9 @@ class _WorkspaceOnboardingViewState extends State<WorkspaceOnboardingView> {
                       child: OutlinedButton(
                         onPressed: () => setState(() => _isJoining = true),
                         style: OutlinedButton.styleFrom(
-                          backgroundColor:
-                              _isJoining ? const Color(0xFF4F6AF5) : null,
+                          backgroundColor: _isJoining
+                              ? const Color(0xFF4F6AF5)
+                              : null,
                           foregroundColor: _isJoining ? Colors.white : null,
                         ),
                         child: const Text('Join'),
@@ -144,8 +147,10 @@ class _WorkspaceOnboardingViewState extends State<WorkspaceOnboardingView> {
                   const SizedBox(height: 8),
                   Text(
                     _error!,
-                    style:
-                        const TextStyle(color: Color(0xFFEF4444), fontSize: 13),
+                    style: const TextStyle(
+                      color: Color(0xFFEF4444),
+                      fontSize: 13,
+                    ),
                   ),
                 ],
                 const SizedBox(height: 16),
@@ -161,10 +166,13 @@ class _WorkspaceOnboardingViewState extends State<WorkspaceOnboardingView> {
                           height: 18,
                           width: 18,
                           child: CircularProgressIndicator(
-                              strokeWidth: 2, color: Colors.white),
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
                         )
                       : Text(
-                          _isJoining ? 'Join Workspace' : 'Create Workspace'),
+                          _isJoining ? 'Join Workspace' : 'Create Workspace',
+                        ),
                 ),
               ],
             ),
