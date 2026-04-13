@@ -91,12 +91,11 @@ codesign --force --options runtime --timestamp \
   --sign "${IDENTITY_SHA}" \
   "${APP_PATH}"
 
-# Recreate ZIP and DMG from the now-signed app. package_macos.sh built these
-# from the unsigned Xcode output; we must rebuild them so the archives contain
-# the properly signed and hardened bundle before notarization.
+# Recreate DMG from the now-signed app. package_macos.sh built it from the
+# unsigned Xcode output; we must rebuild it so the archive contains the
+# properly signed and hardened bundle before notarization.
 APP_DISPLAY_NAME="$(basename "${APP_PATH}" .app)"
 ZIP_PATH="${DMG_PATH%.dmg}.zip"
-ditto -c -k --sequesterRsrc --keepParent "${APP_PATH}" "${ZIP_PATH}"
 hdiutil create \
   -volname "${APP_DISPLAY_NAME}" \
   -srcfolder "${APP_PATH}" \
@@ -135,5 +134,11 @@ fi
 
 xcrun stapler staple "${APP_PATH}"
 xcrun stapler staple "${DMG_PATH}"
+
+# Recreate the ZIP *after* stapling so the embedded .app already carries the
+# notarization ticket. xcrun stapler cannot staple a ZIP directly, but
+# packaging the already-stapled .app means offline Gatekeeper verification
+# works for users who download the ZIP instead of the DMG.
+ditto -c -k --sequesterRsrc --keepParent "${APP_PATH}" "${ZIP_PATH}"
 
 echo "Signed and notarized ${APP_PATH} and ${DMG_PATH}"
