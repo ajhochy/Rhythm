@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 import '../../../app/core/auth/auth_session_store.dart';
 import '../../../app/core/constants/app_constants.dart';
 import '../../../app/core/utils/http_utils.dart';
+import '../../../app/core/utils/json_parsing.dart';
 import '../../integrations/models/integration_account.dart';
 import '../../integrations/models/planning_center_task_options.dart';
 import '../models/automation_catalog.dart';
@@ -22,12 +23,12 @@ class AutomationRulePreview {
 
   factory AutomationRulePreview.fromJson(Map<String, dynamic> json) {
     return AutomationRulePreview(
-      ruleId: json['ruleId'] as String,
-      summary: json['summary'] as String? ?? '',
+      ruleId: asString(json['ruleId']) ?? '',
+      summary: asString(json['summary']) ?? '',
       previewSample: json['previewSample'] as Map<String, dynamic>?,
-      lastMatchedAt: json['lastMatchedAt'] as String?,
-      lastEvaluatedAt: json['lastEvaluatedAt'] as String?,
-      matchCountLastRun: (json['matchCountLastRun'] as num?)?.toInt() ?? 0,
+      lastMatchedAt: asString(json['lastMatchedAt']),
+      lastEvaluatedAt: asString(json['lastEvaluatedAt']),
+      matchCountLastRun: asInt(json['matchCountLastRun']) ?? 0,
     );
   }
 

@@ -1,3 +1,5 @@
+import '../../../app/core/utils/json_parsing.dart';
+
 class Message {
   const Message({
     required this.id,
@@ -15,11 +17,17 @@ class Message {
 
   factory Message.fromJson(Map<String, dynamic> json) {
     return Message(
-      id: json['id'] as int,
-      threadId: json['threadId'] as int,
-      senderName: json['senderName'] as String,
-      content: json['body'] as String,
-      createdAt: DateTime.parse(json['createdAt'] as String),
+      id: asInt(json['id']) ?? 0,
+      threadId: asInt(json['threadId']) ?? 0,
+      senderName: asString(json['senderName']) ?? '',
+      content: asString(json['body']) ?? '',
+      createdAt: _parseApiDateTime(asString(json['createdAt'])),
     );
   }
+}
+
+DateTime _parseApiDateTime(String? value) {
+  final parsed = DateTime.tryParse(value ?? '');
+  if (parsed == null) return DateTime.fromMillisecondsSinceEpoch(0);
+  return parsed.isUtc ? parsed.toLocal() : parsed;
 }

@@ -3,6 +3,7 @@ import 'package:http/http.dart' as http;
 import '../../../app/core/auth/auth_session_store.dart';
 import '../../../app/core/constants/app_constants.dart';
 import '../../../app/core/utils/http_utils.dart';
+import '../../../app/core/utils/json_parsing.dart';
 import '../../tasks/models/task.dart';
 import '../models/weekly_plan.dart';
 
@@ -63,16 +64,16 @@ class WeeklyPlanDataSource {
     final body = jsonDecode(response.body) as Map<String, dynamic>;
     return isProjectStep
         ? Task(
-            id: body['id'] as String,
-            title: body['title'] as String,
-            status: body['status'] as String? ?? 'open',
+            id: asString(body['id']) ?? '',
+            title: asString(body['title']) ?? '',
+            status: asString(body['status']) ?? 'open',
             createdAt: '',
             updatedAt: '',
-            notes: body['notes'] as String?,
-            dueDate: body['dueDate'] as String?,
-            scheduledOrder: body['scheduledOrder'] as int?,
+            notes: asString(body['notes']),
+            dueDate: asString(body['dueDate']),
+            scheduledOrder: asInt(body['scheduledOrder']),
             sourceType: 'project_step',
-            sourceName: body['sourceName'] as String?,
+            sourceName: asString(body['sourceName']),
           )
         : Task.fromJson(body);
   }

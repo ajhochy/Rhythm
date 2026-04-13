@@ -305,7 +305,7 @@ export class FacilitiesRepository {
           new Date().toISOString(),
         ],
       );
-      return this.findReservationByIdAsync(result.rows[0].id);
+      return rowToReservation(result.rows[0]);
     }
     return this.insertReservation(data);
   }

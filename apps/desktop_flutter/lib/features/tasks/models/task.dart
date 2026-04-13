@@ -1,3 +1,5 @@
+import '../../../app/core/utils/json_parsing.dart';
+
 class Task {
   Task({
     required this.id,
@@ -20,22 +22,22 @@ class Task {
 
   factory Task.fromJson(Map<String, dynamic> json) {
     return Task(
-      id: json['id'] as String,
-      title: json['title'] as String,
-      notes: json['notes'] as String?,
-      dueDate: json['dueDate'] as String?,
-      scheduledDate: json['scheduledDate'] as String?,
-      scheduledOrder: json['scheduledOrder'] as int?,
-      locked: (json['locked'] as bool?) ?? false,
-      status: json['status'] as String? ?? 'open',
-      sourceType: json['sourceType'] as String?,
-      sourceId: json['sourceId'] as String?,
-      sourceName: json['sourceName'] as String?,
-      startsAt: json['startsAt'] as String?,
-      endsAt: json['endsAt'] as String?,
-      isAllDay: (json['isAllDay'] as bool?) ?? false,
-      createdAt: json['createdAt'] as String? ?? '',
-      updatedAt: json['updatedAt'] as String? ?? '',
+      id: asString(json['id']) ?? '',
+      title: asString(json['title']) ?? '',
+      notes: asString(json['notes']),
+      dueDate: asString(json['dueDate']),
+      scheduledDate: asString(json['scheduledDate']),
+      scheduledOrder: asInt(json['scheduledOrder']),
+      locked: asBool(json['locked']) ?? false,
+      status: asString(json['status']) ?? 'open',
+      sourceType: asString(json['sourceType']),
+      sourceId: asString(json['sourceId']),
+      sourceName: asString(json['sourceName']),
+      startsAt: asString(json['startsAt']),
+      endsAt: asString(json['endsAt']),
+      isAllDay: asBool(json['isAllDay']) ?? false,
+      createdAt: asString(json['createdAt']) ?? '',
+      updatedAt: asString(json['updatedAt']) ?? '',
     );
   }
 

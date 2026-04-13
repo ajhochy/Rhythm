@@ -1,3 +1,5 @@
+import '../utils/json_parsing.dart';
+
 class AuthUser {
   const AuthUser({
     required this.id,
@@ -32,30 +34,13 @@ class AuthUser {
 }
 
 String? _asString(dynamic value) {
-  return value is String ? value : null;
+  return asString(value);
 }
 
 int? _asInt(dynamic value) {
-  if (value is int) return value;
-  if (value is num) return value.toInt();
-  if (value is String) return int.tryParse(value);
-  return null;
+  return asInt(value);
 }
 
 bool? _asBool(dynamic value) {
-  if (value is bool) return value;
-  if (value is num) return value != 0;
-  if (value is String) {
-    switch (value.toLowerCase()) {
-      case 'true':
-      case '1':
-      case 'yes':
-        return true;
-      case 'false':
-      case '0':
-      case 'no':
-        return false;
-    }
-  }
-  return null;
+  return asBool(value);
 }

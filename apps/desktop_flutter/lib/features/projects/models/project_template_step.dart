@@ -1,3 +1,5 @@
+import '../../../app/core/utils/json_parsing.dart';
+
 class ProjectTemplateStep {
   ProjectTemplateStep({
     required this.id,
@@ -10,12 +12,12 @@ class ProjectTemplateStep {
 
   factory ProjectTemplateStep.fromJson(Map<String, dynamic> json) {
     return ProjectTemplateStep(
-      id: json['id'] as String,
-      templateId: json['templateId'] as String,
-      title: json['title'] as String,
-      offsetDays: json['offsetDays'] as int,
-      offsetDescription: json['offsetDescription'] as String?,
-      sortOrder: json['sortOrder'] as int? ?? 0,
+      id: asString(json['id']) ?? '',
+      templateId: asString(json['templateId']) ?? '',
+      title: asString(json['title']) ?? '',
+      offsetDays: asInt(json['offsetDays']) ?? 0,
+      offsetDescription: asString(json['offsetDescription']),
+      sortOrder: asInt(json['sortOrder']) ?? 0,
     );
   }
 

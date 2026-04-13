@@ -1,3 +1,5 @@
+import '../../../app/core/utils/json_parsing.dart';
+
 class RecurringTaskRuleStep {
   RecurringTaskRuleStep({
     required this.id,
@@ -8,10 +10,10 @@ class RecurringTaskRuleStep {
 
   factory RecurringTaskRuleStep.fromJson(Map<String, dynamic> json) {
     return RecurringTaskRuleStep(
-      id: json['id'] as String,
-      title: json['title'] as String,
-      assigneeId: json['assigneeId'] as int?,
-      assigneeName: json['assigneeName'] as String?,
+      id: asString(json['id']) ?? '',
+      title: asString(json['title']) ?? '',
+      assigneeId: asInt(json['assigneeId']),
+      assigneeName: asString(json['assigneeName']),
     );
   }
 
@@ -41,14 +43,14 @@ class RecurringTaskRuleProgress {
 
   factory RecurringTaskRuleProgress.fromJson(Map<String, dynamic> json) {
     return RecurringTaskRuleProgress(
-      totalCount: json['totalCount'] as int? ?? 0,
-      completedCount: json['completedCount'] as int? ?? 0,
-      remainingCount: json['remainingCount'] as int? ?? 0,
-      personalRemainingCount: json['personalRemainingCount'] as int? ?? 0,
-      waitingOnUserId: json['waitingOnUserId'] as int?,
-      waitingOnUserName: json['waitingOnUserName'] as String?,
-      nextDueDate: json['nextDueDate'] as String?,
-      completionRatio: (json['completionRatio'] as num?)?.toDouble() ?? 0,
+      totalCount: asInt(json['totalCount']) ?? 0,
+      completedCount: asInt(json['completedCount']) ?? 0,
+      remainingCount: asInt(json['remainingCount']) ?? 0,
+      personalRemainingCount: asInt(json['personalRemainingCount']) ?? 0,
+      waitingOnUserId: asInt(json['waitingOnUserId']),
+      waitingOnUserName: asString(json['waitingOnUserName']),
+      nextDueDate: asString(json['nextDueDate']),
+      completionRatio: asDouble(json['completionRatio']) ?? 0,
     );
   }
 
@@ -78,14 +80,14 @@ class RecurringTaskRule {
 
   factory RecurringTaskRule.fromJson(Map<String, dynamic> json) {
     return RecurringTaskRule(
-      id: json['id'] as String,
-      title: json['title'] as String,
-      frequency: json['frequency'] as String,
-      dayOfWeek: json['dayOfWeek'] as int?,
-      dayOfMonth: json['dayOfMonth'] as int?,
-      month: json['month'] as int?,
-      createdAt: json['createdAt'] as String,
-      enabled: (json['enabled'] as bool?) ?? true,
+      id: asString(json['id']) ?? '',
+      title: asString(json['title']) ?? '',
+      frequency: asString(json['frequency']) ?? '',
+      dayOfWeek: asInt(json['dayOfWeek']),
+      dayOfMonth: asInt(json['dayOfMonth']),
+      month: asInt(json['month']),
+      createdAt: asString(json['createdAt']) ?? '',
+      enabled: asBool(json['enabled']) ?? true,
       steps: ((json['steps'] as List<dynamic>?) ?? const [])
           .map((step) => RecurringTaskRuleStep.fromJson(
                 step as Map<String, dynamic>,

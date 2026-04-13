@@ -1,3 +1,5 @@
+import '../../../app/core/utils/json_parsing.dart';
+
 class AutomationCondition {
   const AutomationCondition({
     required this.field,
@@ -11,9 +13,9 @@ class AutomationCondition {
 
   factory AutomationCondition.fromJson(Map<String, dynamic> json) {
     return AutomationCondition(
-      field: json['field'] as String,
-      operator: json['operator'] as String,
-      value: json['value'] as String,
+      field: asString(json['field']) ?? '',
+      operator: asString(json['operator']) ?? '',
+      value: asString(json['value']) ?? '',
     );
   }
 
@@ -71,25 +73,25 @@ class AutomationRule {
   factory AutomationRule.fromJson(Map<String, dynamic> json) {
     final conditionsJson = json['conditions'] as List<dynamic>?;
     return AutomationRule(
-      id: json['id'] as String,
-      name: json['name'] as String,
-      source: json['source'] as String? ?? 'rhythm',
-      triggerKey: (json['triggerKey'] as String?) ??
-          _legacyTriggerKey(json['triggerType'] as String?),
+      id: asString(json['id']) ?? '',
+      name: asString(json['name']) ?? '',
+      source: asString(json['source']) ?? 'rhythm',
+      triggerKey:
+          asString(json['triggerKey']) ?? _legacyTriggerKey(asString(json['triggerType'])),
       triggerConfig: json['triggerConfig'] as Map<String, dynamic>?,
-      actionType: json['actionType'] as String,
+      actionType: asString(json['actionType']) ?? '',
       actionConfig: json['actionConfig'] as Map<String, dynamic>?,
       conditions: conditionsJson
           ?.map((c) => AutomationCondition.fromJson(c as Map<String, dynamic>))
           .toList(),
-      enabled: json['enabled'] as bool? ?? true,
-      sourceAccountId: json['sourceAccountId'] as String?,
-      lastEvaluatedAt: json['lastEvaluatedAt'] as String?,
-      lastMatchedAt: json['lastMatchedAt'] as String?,
-      matchCountLastRun: (json['matchCountLastRun'] as num?)?.toInt() ?? 0,
+      enabled: asBool(json['enabled']) ?? true,
+      sourceAccountId: asString(json['sourceAccountId']),
+      lastEvaluatedAt: asString(json['lastEvaluatedAt']),
+      lastMatchedAt: asString(json['lastMatchedAt']),
+      matchCountLastRun: asInt(json['matchCountLastRun']) ?? 0,
       previewSample: json['previewSample'] as Map<String, dynamic>?,
-      createdAt: json['createdAt'] as String,
-      updatedAt: json['updatedAt'] as String,
+      createdAt: asString(json['createdAt']) ?? '',
+      updatedAt: asString(json['updatedAt']) ?? '',
     );
   }
 
