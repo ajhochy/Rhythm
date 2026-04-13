@@ -576,4 +576,68 @@ export class ProjectInstancesRepository {
     }
     this.delete(instanceId, userId);
   }
+
+  listCollaborators(instanceId: string): Array<{ userId: number; name: string; photoUrl: string | null }> {
+    const rows = getDb()
+      .prepare(
+        `SELECT u.id AS user_id, u.name, u.photo_url
+         FROM project_collaborators pc
+         JOIN users u ON u.id = pc.user_id
+         WHERE pc.project_instance_id = ?`,
+      )
+      .all(instanceId) as Array<{ user_id: number; name: string; photo_url: string | null }>;
+    return rows.map((r) => ({ userId: r.user_id, name: r.name, photoUrl: r.photo_url }));
+  }
+
+  async listCollaboratorsAsync(instanceId: string): Promise<Array<{ userId: number; name: string; photoUrl: string | null }>> {
+    if (env.dbClient === 'postgres') {
+      const result = await getPostgresPool().query<{
+        user_id: number;
+        name: string;
+        photo_url: string | null;
+      }>(
+        `SELECT u.id AS user_id, u.name, u.photo_url
+         FROM project_collaborators pc
+         JOIN users u ON u.id = pc.user_id
+         WHERE pc.project_instance_id = $1`,
+        [instanceId],
+      );
+      return result.rows.map((r) => ({ userId: r.user_id, name: r.name, photoUrl: r.photo_url }));
+    }
+    return this.listCollaborators(instanceId);
+  }
+
+  addCollaborator(instanceId: string, collaboratorUserId: number): void {
+    getDb()
+      .prepare('INSERT OR IGNORE INTO project_collaborators (project_instance_id, user_id) VALUES (?, ?)')
+      .run(instanceId, collaboratorUserId);
+  }
+
+  async addCollaboratorAsync(instanceId: string, collaboratorUserId: number): Promise<void> {
+    if (env.dbClient === 'postgres') {
+      await getPostgresPool().query(
+        'INSERT INTO project_collaborators (project_instance_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+        [instanceId, collaboratorUserId],
+      );
+      return;
+    }
+    this.addCollaborator(instanceId, collaboratorUserId);
+  }
+
+  removeCollaborator(instanceId: string, collaboratorUserId: number): void {
+    getDb()
+      .prepare('DELETE FROM project_collaborators WHERE project_instance_id = ? AND user_id = ?')
+      .run(instanceId, collaboratorUserId);
+  }
+
+  async removeCollaboratorAsync(instanceId: string, collaboratorUserId: number): Promise<void> {
+    if (env.dbClient === 'postgres') {
+      await getPostgresPool().query(
+        'DELETE FROM project_collaborators WHERE project_instance_id = $1 AND user_id = $2',
+        [instanceId, collaboratorUserId],
+      );
+      return;
+    }
+    this.removeCollaborator(instanceId, collaboratorUserId);
+  }
 }
