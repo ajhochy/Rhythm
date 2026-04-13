@@ -7,6 +7,7 @@ export interface MessageThreadParticipant {
 export interface MessageThread {
   id: number;
   title: string;
+  threadType: 'direct' | 'group';
   createdBy: number | null;
   createdAt: string;
   updatedAt: string;
@@ -28,6 +29,8 @@ export interface Message {
 export interface CreateThreadDto {
   createdBy: number;
   participantIds: number[];
+  threadType?: 'direct' | 'group';
+  title?: string;
 }
 
 export interface CreateMessageDto {

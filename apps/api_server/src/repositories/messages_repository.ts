@@ -13,6 +13,7 @@ import { UsersRepository } from './users_repository';
 interface ThreadRow {
   id: number;
   title: string;
+  thread_type: string;
   created_by: number | null;
   created_at: string;
   updated_at: string;
@@ -37,6 +38,7 @@ function rowToThread(row: ThreadSummaryRow): MessageThread {
   return {
     id: row.id,
     title: row.title,
+    threadType: (row.thread_type ?? 'direct') as 'direct' | 'group',
     createdBy: row.created_by,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -268,30 +270,33 @@ export class MessagesRepository {
   }
 
   createThread(data: CreateThreadDto): MessageThread {
+    const threadType = data.threadType ?? 'direct';
     const participantIds = Array.from(
       new Set([data.createdBy, ...data.participantIds]),
     );
-    if (participantIds.length !== 2) {
+    if (threadType === 'direct' && participantIds.length !== 2) {
       throw AppError.badRequest(
         'Direct messages must include exactly one other participant',
       );
     }
 
-    const existingThreadId = this.findExistingDirectThreadId(participantIds);
-    if (existingThreadId != null) {
-      return this.findThreadByIdForUser(existingThreadId, data.createdBy);
+    if (threadType === 'direct') {
+      const existingThreadId = this.findExistingDirectThreadId(participantIds);
+      if (existingThreadId != null) {
+        return this.findThreadByIdForUser(existingThreadId, data.createdBy);
+      }
     }
 
     const participantUsers = participantIds.map((id) => this.usersRepo.findById(id));
-    const title = participantUsers.map((user) => user.name).join(', ');
+    const title = data.title ?? participantUsers.map((user) => user.name).join(', ');
 
     const now = new Date().toISOString();
     const result = getDb()
       .prepare(
-        `INSERT INTO message_threads (title, created_by, created_at, updated_at)
-         VALUES (?, ?, ?, ?)`,
+        `INSERT INTO message_threads (title, thread_type, created_by, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?)`,
       )
-      .run(title, data.createdBy, now, now);
+      .run(title, threadType, data.createdBy, now, now);
 
     const threadId = result.lastInsertRowid as number;
     const insertParticipant = getDb().prepare(
@@ -315,33 +320,36 @@ export class MessagesRepository {
 
   async createThreadAsync(data: CreateThreadDto): Promise<MessageThread> {
     if (env.dbClient === 'postgres') {
+      const threadType = data.threadType ?? 'direct';
       const participantIds = Array.from(
         new Set([data.createdBy, ...data.participantIds]),
       );
-      if (participantIds.length !== 2) {
+      if (threadType === 'direct' && participantIds.length !== 2) {
         throw AppError.badRequest(
           'Direct messages must include exactly one other participant',
         );
       }
 
-      const existingThreadId = await this.findExistingDirectThreadIdAsync(
-        participantIds,
-      );
-      if (existingThreadId != null) {
-        return this.findThreadByIdForUserAsync(existingThreadId, data.createdBy);
+      if (threadType === 'direct') {
+        const existingThreadId = await this.findExistingDirectThreadIdAsync(
+          participantIds,
+        );
+        if (existingThreadId != null) {
+          return this.findThreadByIdForUserAsync(existingThreadId, data.createdBy);
+        }
       }
 
       const participantUsers = await Promise.all(
         participantIds.map((id) => this.usersRepo.findByIdAsync(id)),
       );
-      const title = participantUsers.map((user) => user.name).join(', ');
+      const title = data.title ?? participantUsers.map((user) => user.name).join(', ');
 
       const now = new Date().toISOString();
       const threadResult = await getPostgresPool().query<{ id: number }>(
-        `INSERT INTO message_threads (title, created_by, created_at, updated_at)
-         VALUES ($1, $2, $3, $4)
+        `INSERT INTO message_threads (title, thread_type, created_by, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5)
          RETURNING id`,
-        [title, data.createdBy, now, now],
+        [title, threadType, data.createdBy, now, now],
       );
       const threadId = threadResult.rows[0].id;
 
