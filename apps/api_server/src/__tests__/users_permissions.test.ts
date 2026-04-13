@@ -24,7 +24,7 @@ describe('UsersController permissions', () => {
     usersRepo = new UsersRepository();
   });
 
-  it('prevents non-admins from updating another user permissions', () => {
+  it('prevents non-admins from updating another user permissions', async () => {
     const member = usersRepo.create({
       name: 'Member',
       email: 'member@example.com',
@@ -35,7 +35,7 @@ describe('UsersController permissions', () => {
     });
     let forwardedError: unknown;
 
-    controller.update(
+    await controller.update(
       {
         params: { id: String(target.id) },
         body: { isFacilitiesManager: true },
@@ -54,7 +54,7 @@ describe('UsersController permissions', () => {
     expect(usersRepo.findById(target.id).isFacilitiesManager).toBe(false);
   });
 
-  it('allows admins to update user permissions', () => {
+  it('allows admins to update user permissions', async () => {
     const admin = usersRepo.create({
       name: 'Admin',
       email: 'admin@example.com',
@@ -67,7 +67,7 @@ describe('UsersController permissions', () => {
     let payload: unknown;
     let forwardedError: unknown;
 
-    controller.update(
+    await controller.update(
       {
         params: { id: String(target.id) },
         body: { role: 'admin', isFacilitiesManager: true },

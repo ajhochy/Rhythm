@@ -65,15 +65,15 @@ export class FacilitiesController {
     throw AppError.forbidden('You can only modify series you created');
   }
 
-  getAll(_req: Request, res: Response, next: NextFunction) {
+  async getAll(_req: Request, res: Response, next: NextFunction) {
     try {
-      res.json(repo.findAll());
+      res.json(await repo.findAllAsync());
     } catch (err) {
       next(err);
     }
   }
 
-  getAllReservations(req: Request, res: Response, next: NextFunction) {
+  async getAllReservations(req: Request, res: Response, next: NextFunction) {
     try {
       const facilityIdParam = req.query.facilityId;
       const facilityId =
@@ -101,13 +101,13 @@ export class FacilitiesController {
         ['1', 'true', 'yes'].includes(req.query.grouped.toLowerCase());
       res.json(
         grouped
-          ? repo.findReservationGroups({
+          ? await repo.findReservationGroupsAsync({
               start,
               end,
               facilityId,
               building,
             })
-          : repo.findReservations({
+          : await repo.findReservationsAsync({
               start,
               end,
               facilityId,
@@ -119,14 +119,14 @@ export class FacilitiesController {
     }
   }
 
-  create(req: Request, res: Response, next: NextFunction) {
+  async create(req: Request, res: Response, next: NextFunction) {
     try {
       this.assertFacilitiesManager(req);
       const { name, description, capacity, location } = req.body as Record<string, unknown>;
       if (!name || typeof name !== 'string') {
         throw AppError.badRequest('name is required');
       }
-      const facility = repo.create({
+      const facility = await repo.createAsync({
         name,
         description: description as string | null | undefined,
         capacity: capacity != null ? Number(capacity) : null,
@@ -142,55 +142,64 @@ export class FacilitiesController {
     }
   }
 
-  update(req: Request, res: Response, next: NextFunction) {
+  async update(req: Request, res: Response, next: NextFunction) {
     try {
       this.assertFacilitiesManager(req);
-      const facility = repo.update(Number(req.params.id), req.body as Record<string, unknown>);
+      const facility = await repo.updateAsync(
+        Number(req.params.id),
+        req.body as Record<string, unknown>,
+      );
       res.json(facility);
     } catch (err) {
       next(err);
     }
   }
 
-  remove(req: Request, res: Response, next: NextFunction) {
+  async remove(req: Request, res: Response, next: NextFunction) {
     try {
       this.assertFacilitiesManager(req);
-      repo.delete(Number(req.params.id));
+      await repo.deleteAsync(Number(req.params.id));
       res.status(204).send();
     } catch (err) {
       next(err);
     }
   }
 
-  getReservations(req: Request, res: Response, next: NextFunction) {
+  async getReservations(req: Request, res: Response, next: NextFunction) {
     try {
-      res.json(repo.findReservationsByFacility(Number(req.params.id)));
+      res.json(await repo.findReservationsByFacilityAsync(Number(req.params.id)));
     } catch (err) {
       next(err);
     }
   }
 
-  getReservationSeries(req: Request, res: Response, next: NextFunction) {
+  async getReservationSeries(req: Request, res: Response, next: NextFunction) {
     try {
-      res.json(repo.findReservationSeriesByFacility(Number(req.params.id)));
+      res.json(
+        await repo.findReservationSeriesByFacilityAsync(Number(req.params.id)),
+      );
     } catch (err) {
       next(err);
     }
   }
 
-  getReservationSeriesDetail(req: Request, res: Response, next: NextFunction) {
+  async getReservationSeriesDetail(
+    req: Request,
+    res: Response,
+    next: NextFunction,
+  ) {
     try {
-      const series = repo.findReservationSeriesById(req.params.seriesId);
+      const series = await repo.findReservationSeriesByIdAsync(req.params.seriesId);
       if (series.facilityId !== Number(req.params.id)) {
         throw AppError.notFound('ReservationSeries');
       }
-      res.json(repo.findReservationSeriesDetailById(req.params.seriesId));
+      res.json(await repo.findReservationSeriesDetailByIdAsync(req.params.seriesId));
     } catch (err) {
       next(err);
     }
   }
 
-  createReservation(req: Request, res: Response, next: NextFunction) {
+  async createReservation(req: Request, res: Response, next: NextFunction) {
     try {
       const {
         title,
@@ -238,7 +247,7 @@ export class FacilitiesController {
       }
       const requester =
         requestedUserId != null
-          ? usersRepo.findById(requestedUserId)
+          ? await usersRepo.findByIdAsync(requestedUserId)
           : requestedName != null && requestedName !== actor.name
             ? null
             : actor;
@@ -247,7 +256,7 @@ export class FacilitiesController {
         facility_ids,
       );
       const requestedFacilityIdsWereExplicit = facility_ids !== undefined;
-      const reservationGroup = repo.createReservationGroup({
+      const reservationGroup = await repo.createReservationGroupAsync({
         facility_ids: resolvedFacilityIds,
         title,
         requester_name: requestedName ?? requester?.name ?? actor.name,
@@ -269,7 +278,7 @@ export class FacilitiesController {
     }
   }
 
-  createReservationSeries(req: Request, res: Response, next: NextFunction) {
+  async createReservationSeries(req: Request, res: Response, next: NextFunction) {
     try {
       const {
         title,
@@ -331,7 +340,7 @@ export class FacilitiesController {
       }
       const requester =
         requestedUserId != null
-          ? usersRepo.findById(requestedUserId)
+          ? await usersRepo.findByIdAsync(requestedUserId)
           : requestedName != null && requestedName !== actor.name
             ? null
             : actor;
@@ -339,7 +348,7 @@ export class FacilitiesController {
       if (Number.isNaN(seriesStartTime.getTime())) {
         throw AppError.badRequest('start_time must be a valid ISO timestamp');
       }
-      const result = bookingService.createRecurringSeries({
+      const result = await bookingService.createRecurringSeries({
         facility_id: Number(req.params.id),
         facility_ids: this.parseFacilityIds(
           Number(req.params.id),
@@ -376,9 +385,11 @@ export class FacilitiesController {
     }
   }
 
-  updateReservationSeries(req: Request, res: Response, next: NextFunction) {
+  async updateReservationSeries(req: Request, res: Response, next: NextFunction) {
     try {
-      const existingSeries = repo.findReservationSeriesById(req.params.seriesId);
+      const existingSeries = await repo.findReservationSeriesByIdAsync(
+        req.params.seriesId,
+      );
       if (existingSeries.facilityId !== Number(req.params.id)) {
         throw AppError.notFound('ReservationSeries');
       }
@@ -424,7 +435,7 @@ export class FacilitiesController {
       }
       const requester =
         requestedUserId != null
-          ? usersRepo.findById(requestedUserId)
+          ? await usersRepo.findByIdAsync(requestedUserId)
           : requestedName != null && requestedName !== actor.name
             ? null
             : null;
@@ -473,7 +484,7 @@ export class FacilitiesController {
             ? { end_date: null }
             : {}),
       };
-      const result = bookingService.updateRecurringSeries(
+      const result = await bookingService.updateRecurringSeries(
         req.params.seriesId,
         updateBody,
       );
@@ -483,23 +494,27 @@ export class FacilitiesController {
     }
   }
 
-  deleteReservationSeries(req: Request, res: Response, next: NextFunction) {
+  async deleteReservationSeries(req: Request, res: Response, next: NextFunction) {
     try {
-      const existingSeries = repo.findReservationSeriesById(req.params.seriesId);
+      const existingSeries = await repo.findReservationSeriesByIdAsync(
+        req.params.seriesId,
+      );
       if (existingSeries.facilityId !== Number(req.params.id)) {
         throw AppError.notFound('ReservationSeries');
       }
       this.assertCanManageSeries(req, existingSeries);
-      bookingService.deleteRecurringSeries(req.params.seriesId);
+      await bookingService.deleteRecurringSeries(req.params.seriesId);
       res.status(204).send();
     } catch (err) {
       next(err);
     }
   }
 
-  updateReservation(req: Request, res: Response, next: NextFunction) {
+  async updateReservation(req: Request, res: Response, next: NextFunction) {
     try {
-      const existing = repo.findReservationById(Number(req.params.reservationId));
+      const existing = await repo.findReservationByIdAsync(
+        Number(req.params.reservationId),
+      );
       this.assertCanManageReservation(req, existing);
       const {
         title,
@@ -549,7 +564,7 @@ export class FacilitiesController {
       }
       const requester =
         requestedUserId != null
-          ? usersRepo.findById(requestedUserId)
+          ? await usersRepo.findByIdAsync(requestedUserId)
           : requestedName != null &&
               requestedName !== actor.name &&
               requestedName !== existing.requesterName
@@ -561,7 +576,7 @@ export class FacilitiesController {
           : undefined;
       const explicitFacilitySelection = facility_ids !== undefined;
       if (existing.groupId != null) {
-        const group = repo.updateReservationGroup(existing.groupId, {
+        const group = await repo.updateReservationGroupAsync(existing.groupId, {
           ...(typeof title === 'string' ? { title } : {}),
           ...(typeof start_time === 'string' ? { start_time } : {}),
           ...(typeof end_time === 'string' ? { end_time } : {}),
@@ -588,7 +603,7 @@ export class FacilitiesController {
         );
         return;
       }
-      const reservation = repo.updateReservation(
+      const reservation = await repo.updateReservationAsync(
         Number(req.params.id),
         Number(req.params.reservationId),
         {
@@ -616,20 +631,22 @@ export class FacilitiesController {
     }
   }
 
-  deleteReservation(req: Request, res: Response, next: NextFunction) {
+  async deleteReservation(req: Request, res: Response, next: NextFunction) {
     try {
-      const existing = repo.findReservationById(Number(req.params.reservationId));
+      const existing = await repo.findReservationByIdAsync(
+        Number(req.params.reservationId),
+      );
       this.assertCanManageReservation(req, existing);
       if (existing.groupId != null) {
-        const deletedGroup = repo.deleteReservationGroup(existing.groupId);
+        const deletedGroup = await repo.deleteReservationGroupAsync(existing.groupId);
         const actor = req.auth?.user;
         if (
           actor != null &&
           deletedGroup.group.requesterUserId != null &&
           deletedGroup.group.requesterUserId !== actor.id
         ) {
-          const bot = usersRepo.findOrCreateSystemBot();
-          messagesRepo.sendDirectMessage(
+          const bot = await usersRepo.findOrCreateSystemBotAsync();
+          await messagesRepo.sendDirectMessageAsync(
             bot.id,
             deletedGroup.group.requesterUserId,
             `Your facility reservation was deleted by ${actor.name}. Go to Facilities to resubmit a reservation.`,
@@ -638,7 +655,7 @@ export class FacilitiesController {
         res.status(204).send();
         return;
       }
-      const deletedReservation = repo.deleteReservation(
+      const deletedReservation = await repo.deleteReservationAsync(
         Number(req.params.id),
         Number(req.params.reservationId),
       );
@@ -648,8 +665,8 @@ export class FacilitiesController {
         deletedReservation.requesterUserId != null &&
         deletedReservation.requesterUserId !== actor.id
       ) {
-        const bot = usersRepo.findOrCreateSystemBot();
-        messagesRepo.sendDirectMessage(
+        const bot = await usersRepo.findOrCreateSystemBotAsync();
+        await messagesRepo.sendDirectMessageAsync(
           bot.id,
           deletedReservation.requesterUserId,
           `Your facility reservation was deleted by ${actor.name}. Go to Facilities to resubmit a reservation.`,

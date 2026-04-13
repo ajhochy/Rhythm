@@ -17,7 +17,7 @@ async function main() {
 
   const port = Number(process.env.PORT ?? 4000);
 
-  initDb();
+  await initDb();
   logger.info('Database initialized');
 
   startRecurrenceGenerationJob();

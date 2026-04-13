@@ -15,23 +15,23 @@ export class UsersController {
     }
   }
 
-  getAll(_req: Request, res: Response, next: NextFunction) {
+  async getAll(_req: Request, res: Response, next: NextFunction) {
     try {
-      res.json(repo.findAll());
+      res.json(await repo.findAllAsync());
     } catch (err) {
       next(err);
     }
   }
 
-  getById(req: Request, res: Response, next: NextFunction) {
+  async getById(req: Request, res: Response, next: NextFunction) {
     try {
-      res.json(repo.findById(Number(req.params.id)));
+      res.json(await repo.findByIdAsync(Number(req.params.id)));
     } catch (err) {
       next(err);
     }
   }
 
-  create(req: Request, res: Response, next: NextFunction) {
+  async create(req: Request, res: Response, next: NextFunction) {
     try {
       this.requireAdmin(req);
       const { name, email, role, isFacilitiesManager } =
@@ -42,7 +42,7 @@ export class UsersController {
       if (!email || typeof email !== 'string') {
         throw AppError.badRequest('email is required');
       }
-      const user = repo.create({
+      const user = await repo.createAsync({
         name,
         email,
         role: role as string | undefined,
@@ -57,12 +57,12 @@ export class UsersController {
     }
   }
 
-  update(req: Request, res: Response, next: NextFunction) {
+  async update(req: Request, res: Response, next: NextFunction) {
     try {
       this.requireAdmin(req);
       const { name, email, role, googleSub, photoUrl, isFacilitiesManager } =
         req.body as Record<string, unknown>;
-      const user = repo.update(Number(req.params.id), {
+      const user = await repo.updateAsync(Number(req.params.id), {
         ...(typeof name === 'string' ? { name } : {}),
         ...(typeof email === 'string' ? { email } : {}),
         ...(typeof role === 'string' ? { role } : {}),

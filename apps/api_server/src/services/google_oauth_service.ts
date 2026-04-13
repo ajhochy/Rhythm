@@ -63,7 +63,7 @@ export class GoogleOAuthService {
       ? new Date(Date.now() + tokens.expires_in * 1000).toISOString()
       : null;
 
-    this.accountsRepo.upsertGoogleAccount({
+    await this.accountsRepo.upsertGoogleAccountAsync({
       ownerId,
       externalAccountId: profile.sub,
       email: profile.email ?? null,
@@ -89,7 +89,7 @@ export class GoogleOAuthService {
       ? new Date(Date.now() + tokens.expires_in * 1000).toISOString()
       : account.expiresAt;
 
-    this.accountsRepo.upsertGoogleAccount({
+    await this.accountsRepo.upsertGoogleAccountAsync({
       ownerId: account.ownerId!,
       externalAccountId: account.externalAccountId,
       email: account.email,
@@ -101,10 +101,10 @@ export class GoogleOAuthService {
       expiresAt,
     });
 
-    return this.accountsRepo.findByProvider(
+    return (await this.accountsRepo.findByProviderAsync(
       account.provider,
       account.ownerId ?? undefined,
-    ) ?? account;
+    )) ?? account;
   }
 
   private assertConfigured(): void {

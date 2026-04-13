@@ -18,23 +18,33 @@ const DEFAULT_LOOKAHEAD_WEEKS = 8;
 const VALID_FREQUENCIES = ['weekly', 'monthly', 'annual'] as const;
 
 export class RecurringRulesController {
-  getAll(req: Request, res: Response, next: NextFunction) {
+  async getAll(req: Request, res: Response, next: NextFunction) {
     try {
-      res.json(this.decorateRules(repo.findAll(req.auth?.user.id), req.auth?.user.id));
+      res.json(
+        await this.decorateRules(
+          await repo.findAllAsync(req.auth?.user.id),
+          req.auth?.user.id,
+        ),
+      );
     } catch (err) {
       next(err);
     }
   }
 
-  getById(req: Request, res: Response, next: NextFunction) {
+  async getById(req: Request, res: Response, next: NextFunction) {
     try {
-      res.json(this.decorateRule(repo.findById(req.params.id, req.auth?.user.id), req.auth?.user.id));
+      res.json(
+        await this.decorateRule(
+          await repo.findByIdAsync(req.params.id, req.auth?.user.id),
+          req.auth?.user.id,
+        ),
+      );
     } catch (err) {
       next(err);
     }
   }
 
-  create(req: Request, res: Response, next: NextFunction) {
+  async create(req: Request, res: Response, next: NextFunction) {
     try {
       const { title, frequency, dayOfWeek, dayOfMonth, month, steps } = req.body as Record<string, unknown>;
 
@@ -43,7 +53,7 @@ export class RecurringRulesController {
         throw AppError.badRequest('frequency must be weekly, monthly, or annual');
       }
 
-      const rule = repo.create({
+      const rule = await repo.createAsync({
         title,
         frequency: frequency as 'weekly' | 'monthly' | 'annual',
         dayOfWeek: dayOfWeek as number ?? null,
@@ -59,49 +69,56 @@ export class RecurringRulesController {
       const from = new Date();
       const to = new Date();
       to.setUTCDate(to.getUTCDate() + weeks * 7);
-      recurrenceService.generateInstances(rule, from, to);
+      await recurrenceService.generateInstances(rule, from, to);
 
-      res.status(201).json(this.decorateRule(rule, req.auth?.user.id));
+      res.status(201).json(await this.decorateRule(rule, req.auth?.user.id));
     } catch (err) {
       next(err);
     }
   }
 
-  update(req: Request, res: Response, next: NextFunction) {
+  async update(req: Request, res: Response, next: NextFunction) {
     try {
       const body = req.body as Record<string, unknown>;
-      const rule = repo.update(req.params.id, body, req.auth?.user.id);
-      tasksRepo.deleteFutureOpenBySourceId('recurring_rule', rule.id);
+      const rule = await repo.updateAsync(req.params.id, body, req.auth?.user.id);
+      await tasksRepo.deleteFutureOpenBySourceIdAsync('recurring_rule', rule.id);
       if (rule.enabled) {
         const weeks = parseInt(process.env.RECURRENCE_LOOKAHEAD_WEEKS ?? '', 10);
         const lookahead = isNaN(weeks) ? DEFAULT_LOOKAHEAD_WEEKS : weeks;
         const from = new Date();
         const to = new Date();
         to.setUTCDate(to.getUTCDate() + lookahead * 7);
-        recurrenceService.generateInstances(rule, from, to);
+        await recurrenceService.generateInstances(rule, from, to);
       }
-      res.json(this.decorateRule(rule, req.auth?.user.id));
+      res.json(await this.decorateRule(rule, req.auth?.user.id));
     } catch (err) {
       next(err);
     }
   }
 
-  remove(req: Request, res: Response, next: NextFunction) {
+  async remove(req: Request, res: Response, next: NextFunction) {
     try {
-      repo.delete(req.params.id, req.auth?.user.id);
+      await repo.deleteAsync(req.params.id, req.auth?.user.id);
       res.status(204).send();
     } catch (err) {
       next(err);
     }
   }
 
-  private decorateRules(rules: RecurringTaskRule[], currentUserId?: number) {
-    return rules.map((rule) => this.decorateRule(rule, currentUserId));
+  private async decorateRules(
+    rules: RecurringTaskRule[],
+    currentUserId?: number,
+  ) {
+    return Promise.all(
+      rules.map((rule) => this.decorateRule(rule, currentUserId)),
+    );
   }
 
-  private decorateRule(rule: RecurringTaskRule, currentUserId?: number) {
-    const visibleTasks = tasksRepo.findAll();
-    const usersById = new Map(usersRepo.findAll().map((user) => [user.id, user]));
+  private async decorateRule(rule: RecurringTaskRule, currentUserId?: number) {
+    const visibleTasks = await tasksRepo.findAllAsync();
+    const usersById = new Map(
+      (await usersRepo.findAllAsync()).map((user) => [user.id, user]),
+    );
     const matchingTasks = visibleTasks.filter((task) => this.matchesRule(task, rule.id));
     const orderedTasks = [...matchingTasks].sort((a, b) => {
       const aOrder = this.taskOrder(a);

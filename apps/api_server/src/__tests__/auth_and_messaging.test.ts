@@ -58,9 +58,9 @@ describe('Auth and ownership flows', () => {
     expect(session.user.email).toBe('alice@example.com');
     expect(session.user.googleSub).toBe('google-sub-1');
     expect(session.user.photoUrl).toBe('https://example.com/alice.png');
-    expect(authService.getUserForSessionToken(session.sessionToken)?.id).toBe(
-      session.user.id,
-    );
+    expect(
+      (await authService.getUserForSessionToken(session.sessionToken))?.id,
+    ).toBe(session.user.id);
   });
 
   it('filters tasks to the current owner plus legacy shared records', () => {
@@ -143,13 +143,13 @@ describe('Auth and ownership flows', () => {
     );
 
     const session = await authService.loginWithGoogleIdToken('fake-id-token');
-    expect(authService.getUserForSessionToken(session.sessionToken)?.email).toBe(
-      'alice@example.com',
-    );
+    expect(
+      (await authService.getUserForSessionToken(session.sessionToken))?.email,
+    ).toBe('alice@example.com');
 
-    authService.logout(session.sessionToken);
+    await authService.logout(session.sessionToken);
 
-    expect(authService.getUserForSessionToken(session.sessionToken)).toBeNull();
+    expect(await authService.getUserForSessionToken(session.sessionToken)).toBeNull();
   });
 
   it('tracks unread messages until the thread is marked read', () => {

@@ -50,7 +50,7 @@ describe("AutomationRulesController", () => {
     }) as NextFunction;
   });
 
-  it("persists conditions on create and update", () => {
+  it("persists conditions on create and update", async () => {
     const user = usersRepo.create({
       name: "Alice",
       email: "alice@example.com",
@@ -76,7 +76,7 @@ describe("AutomationRulesController", () => {
     } as Request;
     const { res: createRes, state: createState } = makeResponse();
 
-    controller.create(createReq, createRes, next);
+    await controller.create(createReq, createRes, next);
 
     expect(nextCalledWith).toBeUndefined();
     expect(createState.statusCode).toBe(201);
@@ -106,7 +106,7 @@ describe("AutomationRulesController", () => {
     } as unknown as Request;
     const { res: updateRes, state: updateState } = makeResponse();
 
-    controller.update(updateReq, updateRes, next);
+    await controller.update(updateReq, updateRes, next);
 
     expect(nextCalledWith).toBeUndefined();
     expect(updateState.statusCode).toBe(200);

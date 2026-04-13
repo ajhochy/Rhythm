@@ -47,4 +47,41 @@ export class ProjectGenerationService {
       steps,
     );
   }
+
+  async generateAsync(
+    templateId: string,
+    anchorDate: string,
+    name?: string | null,
+    userId?: number,
+  ): Promise<ProjectInstance> {
+    const normalizedName = name?.trim() || null;
+    const existing = await this.instanceRepo.findByTemplateAndAnchorAsync(
+      templateId,
+      anchorDate,
+      normalizedName,
+      userId,
+    );
+    if (existing) return existing;
+
+    const template = await this.templateRepo.findByIdAsync(templateId, userId);
+    const anchor = new Date(anchorDate + 'T00:00:00Z');
+
+    const steps = template.steps.map((step) => {
+      const dueDate = new Date(anchor);
+      dueDate.setUTCDate(dueDate.getUTCDate() + step.offsetDays);
+      return {
+        stepId: step.id,
+        title: step.title,
+        dueDate: dueDate.toISOString().split('T')[0],
+      };
+    });
+
+    return this.instanceRepo.createWithStepsAsync(
+      templateId,
+      anchorDate,
+      normalizedName,
+      template.ownerId ?? userId ?? null,
+      steps,
+    );
+  }
 }

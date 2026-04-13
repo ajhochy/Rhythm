@@ -15,7 +15,7 @@ export class WeeklyPlanController {
   private readonly signalsRepo = new AutomationSignalsRepository();
   private readonly automationEngine = new AutomationEngineService();
 
-  getPlan(req: Request, res: Response, next: NextFunction): void {
+  async getPlan(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const weekLabel =
         (req.query.week as string | undefined) ?? currentWeekLabel();
@@ -24,7 +24,7 @@ export class WeeklyPlanController {
           "Invalid week format. Use YYYY-WNN (e.g. 2026-W13).",
         );
       }
-      const plan = this.service.assemblePlan(weekLabel, req.auth?.user.id);
+      const plan = await this.service.assemblePlan(weekLabel, req.auth?.user.id);
       const assemblySignal: AutomationSignal = {
         id: `rhythm:plan_assembly:${weekLabel}`,
         provider: "rhythm",
@@ -44,7 +44,7 @@ export class WeeklyPlanController {
         createdAt: `${plan.weekStart}T00:00:00.000Z`,
         updatedAt: `${plan.weekStart}T00:00:00.000Z`,
       };
-      const { changedSignals } = this.signalsRepo.upsertManyDetailed([
+      const { changedSignals } = await this.signalsRepo.upsertManyDetailedAsync([
         {
           provider: assemblySignal.provider,
           signalType: assemblySignal.signalType,
@@ -57,21 +57,21 @@ export class WeeklyPlanController {
           payload: assemblySignal.payload,
         },
       ]);
-      this.automationEngine.evaluateSignals("rhythm", changedSignals);
+      await this.automationEngine.evaluateSignals("rhythm", changedSignals);
       res.json(plan);
     } catch (err) {
       next(err);
     }
   }
 
-  scheduleTask(req: Request, res: Response, next: NextFunction): void {
+  async scheduleTask(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const { id } = req.params;
       const { scheduledDate, locked } = req.body as {
         scheduledDate?: string;
         locked?: boolean;
       };
-      const updated = this.tasksRepo.update(
+      const updated = await this.tasksRepo.updateAsync(
         id,
         { scheduledDate, locked },
         req.auth?.user.id,

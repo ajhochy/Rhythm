@@ -1,5 +1,6 @@
+import { env } from '../config/env';
 import { v4 as uuidv4 } from 'uuid';
-import { getDb } from '../database/db';
+import { getDb, getPostgresPool } from '../database/db';
 import { AppError } from '../errors/app_error';
 import type {
   CreateProjectTemplateDto,
@@ -51,11 +52,44 @@ function rowToTemplate(row: TemplateRow, steps: ProjectTemplateStep[]): ProjectT
 }
 
 export class ProjectTemplatesRepository {
+  private async getStepsAsync(templateId: string): Promise<ProjectTemplateStep[]> {
+    if (env.dbClient === 'postgres') {
+      const result = await getPostgresPool().query<StepRow>(
+        'SELECT * FROM project_template_steps WHERE template_id = $1 ORDER BY sort_order ASC',
+        [templateId],
+      );
+      return result.rows.map(rowToStep);
+    }
+    return this.getSteps(templateId);
+  }
+
   private getSteps(templateId: string): ProjectTemplateStep[] {
     const rows = getDb()
       .prepare('SELECT * FROM project_template_steps WHERE template_id = ? ORDER BY sort_order ASC')
       .all(templateId) as StepRow[];
     return rows.map(rowToStep);
+  }
+
+  async findAllAsync(userId?: number): Promise<ProjectTemplate[]> {
+    if (env.dbClient === 'postgres') {
+      const result =
+        userId != null
+          ? await getPostgresPool().query<TemplateRow>(
+              `SELECT * FROM project_templates
+               WHERE owner_id = $1 OR owner_id IS NULL
+               ORDER BY created_at ASC`,
+              [userId],
+            )
+          : await getPostgresPool().query<TemplateRow>(
+              'SELECT * FROM project_templates ORDER BY created_at ASC',
+            );
+      return Promise.all(
+        result.rows.map(async (row) =>
+          rowToTemplate(row, await this.getStepsAsync(row.id)),
+        ),
+      );
+    }
+    return this.findAll(userId);
   }
 
   findAll(userId?: number): ProjectTemplate[] {
@@ -73,6 +107,26 @@ export class ProjectTemplatesRepository {
     return rows.map((row) => rowToTemplate(row, this.getSteps(row.id)));
   }
 
+  async findByIdAsync(id: string, userId?: number): Promise<ProjectTemplate> {
+    if (env.dbClient === 'postgres') {
+      const result =
+        userId != null
+          ? await getPostgresPool().query<TemplateRow>(
+              `SELECT * FROM project_templates
+               WHERE id = $1 AND (owner_id = $2 OR owner_id IS NULL)`,
+              [id, userId],
+            )
+          : await getPostgresPool().query<TemplateRow>(
+              'SELECT * FROM project_templates WHERE id = $1',
+              [id],
+            );
+      const row = result.rows[0];
+      if (!row) throw AppError.notFound('ProjectTemplate');
+      return rowToTemplate(row, await this.getStepsAsync(id));
+    }
+    return this.findById(id, userId);
+  }
+
   findById(id: string, userId?: number): ProjectTemplate {
     const row = (userId != null
       ? getDb()
@@ -88,6 +142,18 @@ export class ProjectTemplatesRepository {
     return rowToTemplate(row, this.getSteps(id));
   }
 
+  async findByNameInsensitiveAsync(
+    name: string,
+    userId?: number,
+  ): Promise<ProjectTemplate | null> {
+    const normalized = name.trim().toLowerCase();
+    const rows = await this.findAllAsync(userId);
+    const match = rows.find(
+      (row) => row.name.trim().toLowerCase() === normalized,
+    );
+    return match ?? null;
+  }
+
   findByNameInsensitive(name: string, userId?: number): ProjectTemplate | null {
     const normalized = name.trim().toLowerCase();
     const rows = this.findAll(userId);
@@ -95,6 +161,27 @@ export class ProjectTemplatesRepository {
       (row) => row.name.trim().toLowerCase() === normalized,
     );
     return match ?? null;
+  }
+
+  async createAsync(data: CreateProjectTemplateDto): Promise<ProjectTemplate> {
+    if (env.dbClient === 'postgres') {
+      const id = uuidv4();
+      const now = new Date().toISOString();
+      await getPostgresPool().query(
+        `INSERT INTO project_templates (id, name, description, anchor_type, owner_id, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [
+          id,
+          data.name,
+          data.description ?? null,
+          data.anchorType ?? 'date',
+          data.ownerId ?? null,
+          now,
+        ],
+      );
+      return this.findByIdAsync(id);
+    }
+    return this.create(data);
   }
 
   create(data: CreateProjectTemplateDto): ProjectTemplate {
@@ -116,6 +203,27 @@ export class ProjectTemplatesRepository {
     return this.findById(id);
   }
 
+  async updateAsync(
+    id: string,
+    data: UpdateProjectTemplateDto,
+    userId?: number,
+  ): Promise<ProjectTemplate> {
+    if (env.dbClient === 'postgres') {
+      const existing = await this.findByIdAsync(id, userId);
+      await getPostgresPool().query(
+        `UPDATE project_templates SET name = $1, description = $2, owner_id = $3 WHERE id = $4`,
+        [
+          data.name ?? existing.name,
+          data.description !== undefined ? data.description : existing.description,
+          data.ownerId !== undefined ? data.ownerId : existing.ownerId,
+          id,
+        ],
+      );
+      return this.findByIdAsync(id, userId);
+    }
+    return this.update(id, data, userId);
+  }
+
   update(id: string, data: UpdateProjectTemplateDto, userId?: number): ProjectTemplate {
     const existing = this.findById(id, userId);
     getDb()
@@ -129,6 +237,35 @@ export class ProjectTemplatesRepository {
     return this.findById(id, userId);
   }
 
+  async deleteAsync(id: string, userId?: number): Promise<void> {
+    if (env.dbClient === 'postgres') {
+      await this.findByIdAsync(id, userId);
+      if (userId != null) {
+        await getPostgresPool().query(
+          'DELETE FROM project_instances WHERE template_id = $1 AND (owner_id = $2 OR owner_id IS NULL)',
+          [id, userId],
+        );
+        const result = await getPostgresPool().query(
+          'DELETE FROM project_templates WHERE id = $1 AND (owner_id = $2 OR owner_id IS NULL)',
+          [id, userId],
+        );
+        if (result.rowCount === 0) throw AppError.notFound('ProjectTemplate');
+        return;
+      }
+      await getPostgresPool().query(
+        'DELETE FROM project_instances WHERE template_id = $1',
+        [id],
+      );
+      const result = await getPostgresPool().query(
+        'DELETE FROM project_templates WHERE id = $1',
+        [id],
+      );
+      if (result.rowCount === 0) throw AppError.notFound('ProjectTemplate');
+      return;
+    }
+    this.delete(id, userId);
+  }
+
   delete(id: string, userId?: number): void {
     this.findById(id, userId);
     const db = getDb();
@@ -137,6 +274,32 @@ export class ProjectTemplatesRepository {
       const result = db.prepare('DELETE FROM project_templates WHERE id = ?').run(id);
       if (result.changes === 0) throw AppError.notFound('ProjectTemplate');
     })();
+  }
+
+  async addStepAsync(
+    templateId: string,
+    data: CreateStepDto,
+    userId?: number,
+  ): Promise<ProjectTemplateStep> {
+    if (env.dbClient === 'postgres') {
+      await this.findByIdAsync(templateId, userId);
+      const id = uuidv4();
+      const result = await getPostgresPool().query<StepRow>(
+        `INSERT INTO project_template_steps (id, template_id, title, offset_days, offset_description, sort_order)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         RETURNING *`,
+        [
+          id,
+          templateId,
+          data.title,
+          data.offsetDays,
+          data.offsetDescription ?? null,
+          data.sortOrder ?? 0,
+        ],
+      );
+      return rowToStep(result.rows[0]);
+    }
+    return this.addStep(templateId, data, userId);
   }
 
   addStep(templateId: string, data: CreateStepDto, userId?: number): ProjectTemplateStep {
@@ -181,6 +344,45 @@ export class ProjectTemplatesRepository {
     return rowToStep(updated);
   }
 
+  async updateStepAsync(
+    stepId: string,
+    data: Partial<CreateStepDto>,
+    userId?: number,
+  ): Promise<ProjectTemplateStep> {
+    if (env.dbClient === 'postgres') {
+      const result =
+        userId != null
+          ? await getPostgresPool().query<StepRow>(
+              `SELECT pts.*
+               FROM project_template_steps pts
+               JOIN project_templates pt ON pt.id = pts.template_id
+               WHERE pts.id = $1 AND (pt.owner_id = $2 OR pt.owner_id IS NULL)`,
+              [stepId, userId],
+            )
+          : await getPostgresPool().query<StepRow>(
+              'SELECT * FROM project_template_steps WHERE id = $1',
+              [stepId],
+            );
+      const row = result.rows[0];
+      if (!row) throw AppError.notFound('ProjectTemplateStep');
+      const updated = await getPostgresPool().query<StepRow>(
+        `UPDATE project_template_steps
+         SET title = $1, offset_days = $2, offset_description = $3, sort_order = $4
+         WHERE id = $5
+         RETURNING *`,
+        [
+          data.title ?? row.title,
+          data.offsetDays ?? row.offset_days,
+          data.offsetDescription !== undefined ? data.offsetDescription : row.offset_description,
+          data.sortOrder ?? row.sort_order,
+          stepId,
+        ],
+      );
+      return rowToStep(updated.rows[0]);
+    }
+    return this.updateStep(stepId, data, userId);
+  }
+
   deleteStep(stepId: string, userId?: number): void {
     if (userId != null) {
       const visible = getDb()
@@ -195,5 +397,29 @@ export class ProjectTemplatesRepository {
     }
     const result = getDb().prepare('DELETE FROM project_template_steps WHERE id = ?').run(stepId);
     if (result.changes === 0) throw AppError.notFound('ProjectTemplateStep');
+  }
+
+  async deleteStepAsync(stepId: string, userId?: number): Promise<void> {
+    if (env.dbClient === 'postgres') {
+      if (userId != null) {
+        const visible = await getPostgresPool().query<{ id: string }>(
+          `SELECT pts.id
+           FROM project_template_steps pts
+           JOIN project_templates pt ON pt.id = pts.template_id
+           WHERE pts.id = $1 AND (pt.owner_id = $2 OR pt.owner_id IS NULL)`,
+          [stepId, userId],
+        );
+        if (visible.rows.length === 0) {
+          throw AppError.notFound('ProjectTemplateStep');
+        }
+      }
+      const result = await getPostgresPool().query(
+        'DELETE FROM project_template_steps WHERE id = $1',
+        [stepId],
+      );
+      if (result.rowCount === 0) throw AppError.notFound('ProjectTemplateStep');
+      return;
+    }
+    this.deleteStep(stepId, userId);
   }
 }

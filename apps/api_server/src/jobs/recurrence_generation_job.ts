@@ -15,9 +15,11 @@ function getCronSchedule(): string {
   return process.env.RECURRENCE_CRON_SCHEDULE ?? DEFAULT_CRON_SCHEDULE;
 }
 
-function runGeneration(): void {
+async function runGeneration(): Promise<void> {
   try {
-    const rules = new RecurringTaskRulesRepository().findAll().filter((r) => r.enabled);
+    const rules = (await new RecurringTaskRulesRepository().findAllAsync()).filter(
+      (r) => r.enabled,
+    );
     if (rules.length === 0) return;
 
     const service = new RecurrenceService();
@@ -27,7 +29,7 @@ function runGeneration(): void {
 
     let total = 0;
     for (const rule of rules) {
-      const created = service.generateInstances(rule, from, to);
+      const created = await service.generateInstances(rule, from, to);
       total += created.length;
     }
 
@@ -39,13 +41,13 @@ function runGeneration(): void {
 
 export function startRecurrenceGenerationJob(): void {
   // Run immediately on startup
-  runGeneration();
+  void runGeneration();
 
   // Schedule recurring runs
   const schedule = getCronSchedule();
   cron.schedule(schedule, () => {
     logger.info('RecurrenceGenerationJob: running scheduled generation');
-    runGeneration();
+    void runGeneration();
   });
 
   logger.info(`RecurrenceGenerationJob: scheduled with cron "${schedule}", lookahead ${getLookaheadWeeks()} weeks`);

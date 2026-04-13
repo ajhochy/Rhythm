@@ -53,7 +53,7 @@ describe('Recurring rules and recurrence generation', () => {
     expect(reloaded.steps[1].assigneeId).toBe(assigneeId);
   });
 
-  it('generates one task per step per recurrence date and preserves legacy rules', () => {
+  it('generates one task per step per recurrence date and preserves legacy rules', async () => {
     const stepRule = rulesRepo.create({
       title: 'Weekly workflow',
       frequency: 'weekly',
@@ -75,8 +75,8 @@ describe('Recurring rules and recurrence generation', () => {
     const from = new Date('2026-03-23T00:00:00.000Z');
     const to = new Date('2026-03-23T23:59:59.999Z');
 
-    service.generateInstances(stepRule, from, to);
-    service.generateInstances(legacyRule, from, to);
+    await service.generateInstances(stepRule, from, to);
+    await service.generateInstances(legacyRule, from, to);
 
     const generated = tasksRepo.findAll().filter((task) => task.sourceType === 'recurring_rule');
     expect(generated).toHaveLength(3);

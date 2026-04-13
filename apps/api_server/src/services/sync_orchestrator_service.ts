@@ -15,12 +15,12 @@ export class SyncOrchestratorService {
   async runSync(): Promise<void> {
     try {
       const rhythmSignals = [
-        ...this.rhythmGenerator.generateTaskDueSignals(),
-        ...this.rhythmGenerator.generateProjectStepDueSignals(),
+        ...(await this.rhythmGenerator.generateTaskDueSignalsAsync()),
+        ...(await this.rhythmGenerator.generateProjectStepDueSignalsAsync()),
       ];
       const { changedSignals } =
-        this.signalsRepo.upsertManyDetailed(rhythmSignals);
-      const evaluation = this.automationEngine.evaluateSignals(
+        await this.signalsRepo.upsertManyDetailedAsync(rhythmSignals);
+      const evaluation = await this.automationEngine.evaluateSignals(
         "rhythm",
         changedSignals,
       );
@@ -33,7 +33,7 @@ export class SyncOrchestratorService {
       );
     }
 
-    const accounts = this.accountsRepo.findAll();
+    const accounts = await this.accountsRepo.findAllAsync();
     const ownerIds = new Set(
       accounts
         .map((account) => account.ownerId)
@@ -41,7 +41,10 @@ export class SyncOrchestratorService {
     );
 
     for (const ownerId of ownerIds) {
-      const gcal = this.accountsRepo.findByProvider("google_calendar", ownerId);
+      const gcal = await this.accountsRepo.findByProviderAsync(
+        "google_calendar",
+        ownerId,
+      );
       if (gcal?.accessToken) {
         try {
           const result =
@@ -56,7 +59,10 @@ export class SyncOrchestratorService {
         }
       }
 
-      const gmail = this.accountsRepo.findByProvider("gmail", ownerId);
+      const gmail = await this.accountsRepo.findByProviderAsync(
+        "gmail",
+        ownerId,
+      );
       if (gmail?.accessToken) {
         try {
           const result = await this.integrationsService.syncGmail(ownerId);
@@ -70,7 +76,10 @@ export class SyncOrchestratorService {
         }
       }
 
-      const pco = this.accountsRepo.findByProvider("planning_center", ownerId);
+      const pco = await this.accountsRepo.findByProviderAsync(
+        "planning_center",
+        ownerId,
+      );
       if (pco?.accessToken) {
         try {
           const result =

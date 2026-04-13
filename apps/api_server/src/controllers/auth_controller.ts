@@ -25,7 +25,7 @@ export class AuthController {
     }
   }
 
-  me(req: Request, res: Response, next: NextFunction) {
+  async me(req: Request, res: Response, next: NextFunction) {
     try {
       if (!req.auth) throw AppError.badRequest('Missing auth context');
       res.json(req.auth.user);
@@ -34,30 +34,34 @@ export class AuthController {
     }
   }
 
-  logout(req: Request, res: Response, next: NextFunction) {
+  async logout(req: Request, res: Response, next: NextFunction) {
     try {
       if (!req.auth) throw AppError.badRequest('Missing auth context');
-      authService.logout(req.auth.sessionToken);
+      await authService.logout(req.auth.sessionToken);
       res.status(204).send();
     } catch (err) {
       next(err);
     }
   }
 
-  beginGoogleOAuth(_req: Request, res: Response, next: NextFunction) {
+  async beginGoogleOAuth(
+    _req: Request,
+    res: Response,
+    next: NextFunction,
+  ) {
     try {
       const { sessionToken } = _req.query as Record<string, string>;
       const user = sessionToken
-        ? authService.getUserForSessionToken(sessionToken)
+        ? await authService.getUserForSessionToken(sessionToken)
         : null;
       if (!sessionToken || !user) {
         throw AppError.unauthorized('Valid sessionToken is required');
       }
-      const existingCalendar = integrationAccountsRepo.findByProvider(
+      const existingCalendar = await integrationAccountsRepo.findByProviderAsync(
         'google_calendar',
         user.id,
       );
-      const existingGmail = integrationAccountsRepo.findByProvider(
+      const existingGmail = await integrationAccountsRepo.findByProviderAsync(
         'gmail',
         user.id,
       );
@@ -84,7 +88,7 @@ export class AuthController {
       const { code, error, state } = req.query as Record<string, string>;
       if (error) throw AppError.badRequest(`Google OAuth failed: ${error}`);
       if (!code) throw AppError.badRequest('Missing Google OAuth code');
-      const user = state ? authService.getUserForSessionToken(state) : null;
+      const user = state ? await authService.getUserForSessionToken(state) : null;
       if (!state || !user) {
         throw AppError.unauthorized('Missing integration auth session');
       }
@@ -102,7 +106,7 @@ export class AuthController {
     }
   }
 
-  beginPlanningCenterOAuth(
+  async beginPlanningCenterOAuth(
     req: Request,
     res: Response,
     next: NextFunction,
@@ -110,7 +114,7 @@ export class AuthController {
     try {
       const { sessionToken } = req.query as Record<string, string>;
       const user = sessionToken
-        ? authService.getUserForSessionToken(sessionToken)
+        ? await authService.getUserForSessionToken(sessionToken)
         : null;
       if (!sessionToken || !user) {
         throw AppError.unauthorized('Valid sessionToken is required');
@@ -134,7 +138,7 @@ export class AuthController {
       if (!code) {
         throw AppError.badRequest('Missing Planning Center OAuth code');
       }
-      const user = state ? authService.getUserForSessionToken(state) : null;
+      const user = state ? await authService.getUserForSessionToken(state) : null;
       if (!state || !user) {
         throw AppError.unauthorized('Missing integration auth session');
       }

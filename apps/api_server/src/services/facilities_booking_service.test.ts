@@ -38,8 +38,8 @@ describe('FacilitiesBookingService', () => {
     secondaryFacilityId = facilitiesRepo.create({ name: 'South Room' }).id;
   });
 
-  it('creates weekly recurring reservations and stores series metadata', () => {
-    const result = service.createRecurringSeries({
+  it('creates weekly recurring reservations and stores series metadata', async () => {
+    const result = await service.createRecurringSeries({
       facility_id: facilityId,
       title: 'Weekly Prayer',
       requester_name: 'Alice',
@@ -63,8 +63,8 @@ describe('FacilitiesBookingService', () => {
     ]);
   });
 
-  it('creates multi-room recurring reservations with a linked group per occurrence', () => {
-    const result = service.createRecurringSeries({
+  it('creates multi-room recurring reservations with a linked group per occurrence', async () => {
+    const result = await service.createRecurringSeries({
       facility_id: facilityId,
       facility_ids: [facilityId, secondaryFacilityId],
       title: 'Weekly Bible Study',
@@ -88,8 +88,8 @@ describe('FacilitiesBookingService', () => {
     expect([...counts.values()]).toEqual([2, 2, 2]);
   });
 
-  it('creates biweekly recurring reservations', () => {
-    const result = service.createRecurringSeries({
+  it('creates biweekly recurring reservations', async () => {
+    const result = await service.createRecurringSeries({
       facility_id: facilityId,
       title: 'Biweekly Team Dinner',
       requester_name: 'Alice',
@@ -114,8 +114,8 @@ describe('FacilitiesBookingService', () => {
     ]);
   });
 
-  it('creates monthly reservations using the same weekday pattern', () => {
-    const result = service.createRecurringSeries({
+  it('creates monthly reservations using the same weekday pattern', async () => {
+    const result = await service.createRecurringSeries({
       facility_id: facilityId,
       title: 'Monthly Leadership Breakfast',
       requester_name: 'Alice',
@@ -135,7 +135,7 @@ describe('FacilitiesBookingService', () => {
     ).toEqual(['2026-04-14', '2026-05-12', '2026-06-09']);
   });
 
-  it('creates custom-date series and reports conflicts per occurrence', () => {
+  it('creates custom-date series and reports conflicts per occurrence', async () => {
     facilitiesRepo.createReservation(facilityId, {
       title: 'Existing Event',
       requester_name: 'Alice',
@@ -145,7 +145,7 @@ describe('FacilitiesBookingService', () => {
       end_time: '2026-04-10T19:00:00.000Z',
     });
 
-    const result = service.createRecurringSeries({
+    const result = await service.createRecurringSeries({
       facility_id: facilityId,
       title: 'Special Gatherings',
       requester_name: 'Alice',
@@ -174,7 +174,7 @@ describe('FacilitiesBookingService', () => {
     expect(result.conflicts[0].date).toBe('2026-04-10');
   });
 
-  it('keeps multi-room recurring reservations when only one room conflicts on an occurrence', () => {
+  it('keeps multi-room recurring reservations when only one room conflicts on an occurrence', async () => {
     facilitiesRepo.createReservation(secondaryFacilityId, {
       title: 'Existing Room Hold',
       requester_name: 'Alice',
@@ -184,7 +184,7 @@ describe('FacilitiesBookingService', () => {
       end_time: '2026-04-13T19:00:00.000Z',
     });
 
-    const result = service.createRecurringSeries({
+    const result = await service.createRecurringSeries({
       facility_id: facilityId,
       facility_ids: [facilityId, secondaryFacilityId],
       title: 'Weekly Bible Study',
@@ -207,8 +207,8 @@ describe('FacilitiesBookingService', () => {
     });
   });
 
-  it('updates a recurring series by regenerating linked occurrences and reporting partial conflicts', () => {
-    const created = service.createRecurringSeries({
+  it('updates a recurring series by regenerating linked occurrences and reporting partial conflicts', async () => {
+    const created = await service.createRecurringSeries({
       facility_id: facilityId,
       title: 'Weekly Prayer',
       requester_name: 'Alice',
@@ -231,7 +231,7 @@ describe('FacilitiesBookingService', () => {
       end_time: '2026-04-13T21:00:00.000Z',
     });
 
-    const result = service.updateRecurringSeries(created.series.id, {
+    const result = await service.updateRecurringSeries(created.series.id, {
       title: 'Weekly Prayer Updated',
       requester_name: 'Alice',
       requester_user_id: userId,
@@ -256,8 +256,8 @@ describe('FacilitiesBookingService', () => {
     ).toEqual(['2026-04-06', '2026-04-20']);
   });
 
-  it('deletes a recurring series and its linked reservations', () => {
-    const created = service.createRecurringSeries({
+  it('deletes a recurring series and its linked reservations', async () => {
+    const created = await service.createRecurringSeries({
       facility_id: facilityId,
       title: 'Recurring Lunch',
       requester_name: 'Alice',
@@ -280,7 +280,7 @@ describe('FacilitiesBookingService', () => {
       end_time: '2026-04-08T19:00:00.000Z',
     });
 
-    const deleted = service.deleteRecurringSeries(created.series.id);
+    const deleted = await service.deleteRecurringSeries(created.series.id);
 
     expect(deleted.series.id).toBe(created.series.id);
     expect(deleted.deletedReservations).toHaveLength(3);

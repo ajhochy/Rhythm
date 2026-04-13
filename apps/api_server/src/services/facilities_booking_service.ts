@@ -1,4 +1,3 @@
-import { getDb } from '../database/db';
 import { AppError } from '../errors/app_error';
 import type {
   CreateReservationSeriesDto,
@@ -34,9 +33,9 @@ type ResolvedSeriesFacilities = {
 export class FacilitiesBookingService {
   private readonly repo = new FacilitiesRepository();
 
-  createRecurringSeries(
+  async createRecurringSeries(
     data: CreateReservationSeriesDto,
-  ): CreateReservationSeriesResult {
+  ): Promise<CreateReservationSeriesResult> {
     const start = this.parseTime(data.start_time, 'start_time');
     const end = this.parseTime(data.end_time, 'end_time');
     this.assertValidTimeRange(start, end);
@@ -60,7 +59,7 @@ export class FacilitiesBookingService {
       endDate: data.end_date ?? null,
     });
 
-    const series = this.repo.createReservationSeries({
+    const series = await this.repo.createReservationSeriesAsync({
       facility_id: facilities.anchorFacilityId,
       title: resolved.title,
       requester_name: resolved.requesterName,
@@ -80,16 +79,16 @@ export class FacilitiesBookingService {
     return this.materializeSeries(series, start, end, facilities.facilityIds);
   }
 
-  getReservationSeries(seriesId: string): ReservationSeriesDetail {
-    return this.repo.findReservationSeriesDetailById(seriesId);
+  async getReservationSeries(seriesId: string): Promise<ReservationSeriesDetail> {
+    return this.repo.findReservationSeriesDetailByIdAsync(seriesId);
   }
 
-  updateRecurringSeries(
+  async updateRecurringSeries(
     seriesId: string,
     data: UpdateReservationSeriesDto,
-  ): CreateReservationSeriesResult {
-    const existingSeries = this.repo.findReservationSeriesById(seriesId);
-    const existingReservations = this.repo.findReservationsBySeriesId(seriesId);
+  ): Promise<CreateReservationSeriesResult> {
+    const existingSeries = await this.repo.findReservationSeriesByIdAsync(seriesId);
+    const existingReservations = await this.repo.findReservationsBySeriesIdAsync(seriesId);
     const facilities = this.resolveSeriesFacilities(
       data.facility_ids,
       this.resolveExistingSeriesFacilityId(existingReservations, existingSeries.facilityId),
@@ -145,31 +144,29 @@ export class FacilitiesBookingService {
     let createdGroups: ReservationGroup[] = [];
     let conflicts: ReservationSeriesConflict[] = [];
 
-    getDb().transaction(() => {
-      updatedSeries = this.repo.updateReservationSeries(seriesId, {
-        title: resolved.title,
-        requester_name: resolved.requesterName,
-        requester_user_id: resolved.requesterUserId,
-        created_by_user_id: resolved.createdByUserId,
-        notes: resolved.notes,
-        recurrence_type: resolved.recurrenceType,
-        recurrence_interval: resolved.recurrenceInterval,
-        weekday_pattern: resolved.weekdayPattern,
-        custom_dates: resolved.customDates,
-        start_date: resolved.startDate,
-        end_date: resolved.endDate,
-      });
-      this.repo.deleteReservationGroupsBySeriesId(seriesId);
-      const materialized = this.materializeSeries(
-        updatedSeries,
-        start,
-        end,
-        facilities.facilityIds,
-      );
-      createdReservations = materialized.createdReservations;
-      createdGroups = materialized.createdGroups;
-      conflicts = materialized.conflicts;
-    })();
+    updatedSeries = await this.repo.updateReservationSeriesAsync(seriesId, {
+      title: resolved.title,
+      requester_name: resolved.requesterName,
+      requester_user_id: resolved.requesterUserId,
+      created_by_user_id: resolved.createdByUserId,
+      notes: resolved.notes,
+      recurrence_type: resolved.recurrenceType,
+      recurrence_interval: resolved.recurrenceInterval,
+      weekday_pattern: resolved.weekdayPattern,
+      custom_dates: resolved.customDates,
+      start_date: resolved.startDate,
+      end_date: resolved.endDate,
+    });
+    await this.repo.deleteReservationGroupsBySeriesIdAsync(seriesId);
+    const materialized = await this.materializeSeries(
+      updatedSeries,
+      start,
+      end,
+      facilities.facilityIds,
+    );
+    createdReservations = materialized.createdReservations;
+    createdGroups = materialized.createdGroups;
+    conflicts = materialized.conflicts;
 
     return {
       series: updatedSeries,
@@ -179,16 +176,13 @@ export class FacilitiesBookingService {
     };
   }
 
-  deleteRecurringSeries(seriesId: string): {
+  async deleteRecurringSeries(seriesId: string): Promise<{
     series: ReservationSeries;
     deletedReservations: Reservation[];
-  } {
-    let deletedSeries = this.repo.findReservationSeriesById(seriesId);
-    let deletedReservations: Reservation[] = this.repo.findReservationsBySeriesId(seriesId);
-
-    getDb().transaction(() => {
-      deletedSeries = this.repo.deleteReservationSeriesById(seriesId);
-    })();
+  }> {
+    const deletedReservations: Reservation[] =
+      await this.repo.findReservationsBySeriesIdAsync(seriesId);
+    const deletedSeries = await this.repo.deleteReservationSeriesByIdAsync(seriesId);
 
     return {
       series: deletedSeries,
@@ -196,12 +190,12 @@ export class FacilitiesBookingService {
     };
   }
 
-  private materializeSeries(
+  private async materializeSeries(
     series: ReservationSeries,
     start: Date,
     end: Date,
     facilityIds: number[],
-  ): CreateReservationSeriesResult {
+  ): Promise<CreateReservationSeriesResult> {
     const occurrenceDates = this.computeSeriesDates(series);
     const createdReservations: Reservation[] = [];
     const createdGroups: ReservationGroup[] = [];
@@ -212,7 +206,7 @@ export class FacilitiesBookingService {
       const occurrenceStart = applyUtcDate(start, date);
       const occurrenceEnd = new Date(occurrenceStart.getTime() + durationMs);
       try {
-        const result = this.repo.createReservationGroup({
+        const result = await this.repo.createReservationGroupAsync({
           facility_ids: facilityIds,
           title: series.title,
           series_id: series.id,

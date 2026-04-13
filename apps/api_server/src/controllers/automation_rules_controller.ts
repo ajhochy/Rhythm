@@ -96,25 +96,25 @@ function buildPreviewSummary(
 }
 
 export class AutomationRulesController {
-  getAll(req: Request, res: Response, next: NextFunction) {
+  async getAll(req: Request, res: Response, next: NextFunction) {
     try {
-      res.json(repo.findAll(req.auth?.user.id));
+      res.json(await repo.findAllAsync(req.auth?.user.id));
     } catch (err) {
       next(err);
     }
   }
 
-  getById(req: Request, res: Response, next: NextFunction) {
+  async getById(req: Request, res: Response, next: NextFunction) {
     try {
-      res.json(repo.findById(req.params.id, req.auth?.user.id));
+      res.json(await repo.findByIdAsync(req.params.id, req.auth?.user.id));
     } catch (err) {
       next(err);
     }
   }
 
-  getPreview(req: Request, res: Response, next: NextFunction) {
+  async getPreview(req: Request, res: Response, next: NextFunction) {
     try {
-      const rule = repo.findById(req.params.id, req.auth?.user.id);
+      const rule = await repo.findByIdAsync(req.params.id, req.auth?.user.id);
       res.json({
         ruleId: rule.id,
         previewSample: rule.previewSample,
@@ -128,7 +128,7 @@ export class AutomationRulesController {
     }
   }
 
-  create(req: Request, res: Response, next: NextFunction) {
+  async create(req: Request, res: Response, next: NextFunction) {
     try {
       const {
         name,
@@ -159,7 +159,7 @@ export class AutomationRulesController {
         throw AppError.badRequest("actionType is invalid");
       }
 
-      const rule = repo.create({
+      const rule = await repo.createAsync({
         name,
         source: source as never,
         triggerKey: triggerKey as never,
@@ -185,7 +185,7 @@ export class AutomationRulesController {
     }
   }
 
-  update(req: Request, res: Response, next: NextFunction) {
+  async update(req: Request, res: Response, next: NextFunction) {
     try {
       const body = req.body as Record<string, unknown>;
       if (
@@ -203,7 +203,7 @@ export class AutomationRulesController {
       ) {
         throw AppError.badRequest("actionType is invalid");
       }
-      const rule = repo.update(
+      const rule = await repo.updateAsync(
         req.params.id,
         {
           name: typeof body.name === "string" ? body.name : undefined,
@@ -248,9 +248,9 @@ export class AutomationRulesController {
     }
   }
 
-  remove(req: Request, res: Response, next: NextFunction) {
+  async remove(req: Request, res: Response, next: NextFunction) {
     try {
-      repo.delete(req.params.id, req.auth?.user.id);
+      await repo.deleteAsync(req.params.id, req.auth?.user.id);
       res.status(204).send();
     } catch (err) {
       next(err);

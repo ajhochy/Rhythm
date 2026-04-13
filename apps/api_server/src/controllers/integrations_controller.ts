@@ -54,9 +54,9 @@ function toAccountDto(
 }
 
 export class IntegrationsController {
-  getAccounts(req: Request, res: Response, next: NextFunction) {
+  async getAccounts(req: Request, res: Response, next: NextFunction) {
     try {
-      const existing = repo.findAll(req.auth!.user.id);
+      const existing = await repo.findAllAsync(req.auth!.user.id);
       const byProvider = new Map(existing.map((account) => [account.provider, account]));
 
       res.json([
@@ -85,9 +85,9 @@ export class IntegrationsController {
     }
   }
 
-  getGmailSignals(req: Request, res: Response, next: NextFunction) {
+  async getGmailSignals(req: Request, res: Response, next: NextFunction) {
     try {
-      res.json(service.listRecentGmailSignals(req.auth!.user.id));
+      res.json(await service.listRecentGmailSignals(req.auth!.user.id));
     } catch (err) {
       next(err);
     }
@@ -117,13 +117,13 @@ export class IntegrationsController {
     }
   }
 
-  getPlanningCenterTaskPreferences(
+  async getPlanningCenterTaskPreferences(
     req: Request,
     res: Response,
     next: NextFunction,
   ) {
     try {
-      res.json(service.getPlanningCenterTaskPreferences(req.auth!.user.id));
+      res.json(await service.getPlanningCenterTaskPreferences(req.auth!.user.id));
     } catch (err) {
       next(err);
     }
@@ -141,7 +141,7 @@ export class IntegrationsController {
     }
   }
 
-  saveGoogleCalendarPreferences(
+  async saveGoogleCalendarPreferences(
     req: Request,
     res: Response,
     next: NextFunction,
@@ -149,7 +149,7 @@ export class IntegrationsController {
     try {
       const { selectedCalendarIds } = req.body as Record<string, unknown>;
       res.json(
-        service.saveGoogleCalendarPreferences(req.auth!.user.id, {
+        await service.saveGoogleCalendarPreferences(req.auth!.user.id, {
           selectedCalendarIds: Array.isArray(selectedCalendarIds)
             ? selectedCalendarIds.filter(
                 (value): value is string => typeof value === 'string',
@@ -162,7 +162,7 @@ export class IntegrationsController {
     }
   }
 
-  savePlanningCenterTaskPreferences(
+  async savePlanningCenterTaskPreferences(
     req: Request,
     res: Response,
     next: NextFunction,
@@ -173,7 +173,7 @@ export class IntegrationsController {
         unknown
       >;
       res.json(
-        service.savePlanningCenterTaskPreferences(req.auth!.user.id, {
+        await service.savePlanningCenterTaskPreferences(req.auth!.user.id, {
           teamIds: Array.isArray(teamIds)
             ? teamIds.filter(
                 (value): value is string => typeof value === 'string',

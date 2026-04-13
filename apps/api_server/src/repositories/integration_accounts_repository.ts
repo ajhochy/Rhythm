@@ -1,5 +1,6 @@
+import { env } from '../config/env';
 import { v4 as uuidv4 } from 'uuid';
-import { getDb } from '../database/db';
+import { getDb, getPostgresPool } from '../database/db';
 import type {
   IntegrationAccount,
   IntegrationProvider,
@@ -46,6 +47,21 @@ function rowToAccount(row: IntegrationAccountRow): IntegrationAccount {
 }
 
 export class IntegrationAccountsRepository {
+  async findAllAsync(ownerId?: number): Promise<IntegrationAccount[]> {
+    if (env.dbClient === 'postgres') {
+      const result = ownerId == null
+        ? await getPostgresPool().query<IntegrationAccountRow>(
+            'SELECT * FROM integration_accounts ORDER BY provider ASC, created_at ASC',
+          )
+        : await getPostgresPool().query<IntegrationAccountRow>(
+            'SELECT * FROM integration_accounts WHERE owner_id = $1 ORDER BY provider ASC, created_at ASC',
+            [ownerId],
+          );
+      return result.rows.map(rowToAccount);
+    }
+    return this.findAll(ownerId);
+  }
+
   findAll(ownerId?: number): IntegrationAccount[] {
     const rows = getDb()
       .prepare(
@@ -55,6 +71,26 @@ export class IntegrationAccountsRepository {
       )
       .all(...(ownerId == null ? [] : [ownerId])) as IntegrationAccountRow[];
     return rows.map(rowToAccount);
+  }
+
+  async findByProviderAsync(
+    provider: IntegrationProvider,
+    ownerId?: number,
+  ): Promise<IntegrationAccount | null> {
+    if (env.dbClient === 'postgres') {
+      const result = ownerId == null
+        ? await getPostgresPool().query<IntegrationAccountRow>(
+            'SELECT * FROM integration_accounts WHERE provider = $1 LIMIT 1',
+            [provider],
+          )
+        : await getPostgresPool().query<IntegrationAccountRow>(
+            'SELECT * FROM integration_accounts WHERE provider = $1 AND owner_id = $2 LIMIT 1',
+            [provider, ownerId],
+          );
+      const row = result.rows[0];
+      return row ? rowToAccount(row) : null;
+    }
+    return this.findByProvider(provider, ownerId);
   }
 
   findByProvider(
@@ -73,6 +109,20 @@ export class IntegrationAccountsRepository {
     return row ? rowToAccount(row) : null;
   }
 
+  async markSyncedAsync(provider: IntegrationProvider, ownerId: number): Promise<void> {
+    if (env.dbClient === 'postgres') {
+      const now = new Date().toISOString();
+      await getPostgresPool().query(
+        `UPDATE integration_accounts
+         SET last_synced_at = $1, error_message = NULL, status = 'connected', updated_at = $2
+         WHERE provider = $3 AND owner_id = $4`,
+        [now, now, provider, ownerId],
+      );
+      return;
+    }
+    this.markSynced(provider, ownerId);
+  }
+
   markSynced(provider: IntegrationProvider, ownerId: number): void {
     getDb()
       .prepare(
@@ -83,6 +133,23 @@ export class IntegrationAccountsRepository {
       .run(new Date().toISOString(), new Date().toISOString(), provider, ownerId);
   }
 
+  async markErrorAsync(
+    provider: IntegrationProvider,
+    ownerId: number,
+    message: string,
+  ): Promise<void> {
+    if (env.dbClient === 'postgres') {
+      await getPostgresPool().query(
+        `UPDATE integration_accounts
+         SET status = 'error', error_message = $1, updated_at = $2
+         WHERE provider = $3 AND owner_id = $4`,
+        [message, new Date().toISOString(), provider, ownerId],
+      );
+      return;
+    }
+    this.markError(provider, ownerId, message);
+  }
+
   markError(provider: IntegrationProvider, ownerId: number, message: string): void {
     getDb()
       .prepare(
@@ -91,6 +158,79 @@ export class IntegrationAccountsRepository {
          WHERE provider = ? AND owner_id = ?`,
       )
       .run(message, new Date().toISOString(), provider, ownerId);
+  }
+
+  async upsertGoogleAccountAsync(data: {
+    ownerId: number;
+    externalAccountId: string;
+    email: string | null;
+    displayName: string | null;
+    accessToken: string;
+    refreshToken: string | null;
+    scope: string | null;
+    tokenType: string | null;
+    expiresAt: string | null;
+  }): Promise<IntegrationAccount[]> {
+    if (env.dbClient === 'postgres') {
+      const now = new Date().toISOString();
+      const providers: IntegrationProvider[] = ['google_calendar', 'gmail'];
+      for (const provider of providers) {
+        const existing = await this.findByProviderAsync(provider, data.ownerId);
+        if (existing) {
+          await getPostgresPool().query(
+            `UPDATE integration_accounts
+             SET external_account_id = $1, email = $2, display_name = $3, status = $4,
+                 access_token = $5, refresh_token = $6, scope = $7, token_type = $8,
+                 expires_at = $9, error_message = NULL, updated_at = $10
+             WHERE id = $11`,
+            [
+              data.externalAccountId,
+              data.email,
+              data.displayName,
+              'connected',
+              data.accessToken,
+              data.refreshToken ?? existing.refreshToken,
+              data.scope,
+              data.tokenType,
+              data.expiresAt,
+              now,
+              existing.id,
+            ],
+          );
+        } else {
+          await getPostgresPool().query(
+            `INSERT INTO integration_accounts (
+              id, owner_id, provider, external_account_id, email, display_name, status,
+              access_token, refresh_token, scope, token_type, expires_at,
+              last_synced_at, error_message, created_at, updated_at
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`,
+            [
+              uuidv4(),
+              data.ownerId,
+              provider,
+              data.externalAccountId,
+              data.email,
+              data.displayName,
+              'connected',
+              data.accessToken,
+              data.refreshToken,
+              data.scope,
+              data.tokenType,
+              data.expiresAt,
+              null,
+              null,
+              now,
+              now,
+            ],
+          );
+        }
+      }
+      const accounts = await Promise.all(
+        providers.map((provider) => this.findByProviderAsync(provider, data.ownerId)),
+      );
+      return accounts.filter((account): account is IntegrationAccount => account != null);
+    }
+    return this.upsertGoogleAccount(data);
   }
 
   upsertGoogleAccount(data: {
@@ -167,6 +307,74 @@ export class IntegrationAccountsRepository {
     return accounts.filter(
       (account): account is IntegrationAccount => account != null,
     );
+  }
+
+  async upsertPlanningCenterAccountAsync(data: {
+    ownerId: number;
+    externalAccountId: string;
+    email: string | null;
+    displayName: string | null;
+    accessToken: string;
+    refreshToken: string | null;
+    scope: string | null;
+    tokenType: string | null;
+    expiresAt: string | null;
+  }): Promise<IntegrationAccount> {
+    if (env.dbClient === 'postgres') {
+      const now = new Date().toISOString();
+      const provider: IntegrationProvider = 'planning_center';
+      const existing = await this.findByProviderAsync(provider, data.ownerId);
+      if (existing) {
+        await getPostgresPool().query(
+          `UPDATE integration_accounts
+           SET external_account_id = $1, email = $2, display_name = $3, status = $4,
+               access_token = $5, refresh_token = $6, scope = $7, token_type = $8,
+               expires_at = $9, error_message = NULL, updated_at = $10
+           WHERE id = $11`,
+          [
+            data.externalAccountId,
+            data.email,
+            data.displayName,
+            'connected',
+            data.accessToken,
+            data.refreshToken ?? existing.refreshToken,
+            data.scope,
+            data.tokenType,
+            data.expiresAt,
+            now,
+            existing.id,
+          ],
+        );
+      } else {
+        await getPostgresPool().query(
+          `INSERT INTO integration_accounts (
+              id, owner_id, provider, external_account_id, email, display_name, status,
+              access_token, refresh_token, scope, token_type, expires_at,
+              last_synced_at, error_message, created_at, updated_at
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)`,
+          [
+            uuidv4(),
+            data.ownerId,
+            provider,
+            data.externalAccountId,
+            data.email,
+            data.displayName,
+            'connected',
+            data.accessToken,
+            data.refreshToken,
+            data.scope,
+            data.tokenType,
+            data.expiresAt,
+            null,
+            null,
+            now,
+            now,
+          ],
+        );
+      }
+      return (await this.findByProviderAsync(provider, data.ownerId))!;
+    }
+    return this.upsertPlanningCenterAccount(data);
   }
 
   upsertPlanningCenterAccount(data: {

@@ -1,4 +1,3 @@
-import { getDb } from '../database/db';
 import type { RecurringTaskRule } from '../models/recurring_task_rule';
 import type { Task } from '../models/task';
 import { TasksRepository } from '../repositories/tasks_repository';
@@ -10,7 +9,11 @@ export class RecurrenceService {
    * Generate concrete task instances for a recurring rule within [from, to].
    * Idempotent: skips dates where a task with matching source_type/source_id/due_date already exists.
    */
-  generateInstances(rule: RecurringTaskRule, from: Date, to: Date): Task[] {
+  async generateInstances(
+    rule: RecurringTaskRule,
+    from: Date,
+    to: Date,
+  ): Promise<Task[]> {
     const dates = this.computeDates(rule, from, to);
     const created: Task[] = [];
     const hasWorkflowSteps = rule.steps.length > 0;
@@ -21,14 +24,16 @@ export class RecurrenceService {
         ? rule.steps
         : [{ id: rule.id, title: rule.title, assigneeId: rule.ownerId }];
 
-      steps.forEach((step, index) => {
+      for (const [index, step] of steps.entries()) {
         const sourceId = hasWorkflowSteps ? `${rule.id}:${step.id}` : rule.id;
-        const existing = getDb()
-          .prepare('SELECT id FROM tasks WHERE source_type = ? AND source_id = ? AND due_date = ?')
-          .get('recurring_rule', sourceId, dateStr);
+        const existing = await this.tasksRepo.findBySourceAndDueDateAsync(
+          'recurring_rule',
+          sourceId,
+          dateStr,
+        );
 
         if (!existing) {
-          const task = this.tasksRepo.create({
+          const task = await this.tasksRepo.createAsync({
             title: step.title,
             dueDate: dateStr,
             status: 'open',
@@ -39,7 +44,7 @@ export class RecurrenceService {
           });
           created.push(task);
         }
-      });
+      }
     }
 
     return created;

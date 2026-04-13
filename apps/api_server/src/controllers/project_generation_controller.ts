@@ -7,7 +7,7 @@ const service = new ProjectGenerationService();
 const instanceRepo = new ProjectInstancesRepository();
 
 export class ProjectGenerationController {
-  generate(req: Request, res: Response, next: NextFunction) {
+  async generate(req: Request, res: Response, next: NextFunction) {
     try {
       const { anchorDate, name } = req.body as Record<string, unknown>;
       if (!anchorDate || typeof anchorDate !== 'string') {
@@ -17,7 +17,7 @@ export class ProjectGenerationController {
         throw AppError.badRequest('anchorDate must be in YYYY-MM-DD format');
       }
 
-      const instance = service.generate(
+      const instance = await service.generateAsync(
         req.params.id,
         anchorDate,
         typeof name === 'string' ? name : null,
@@ -29,42 +29,52 @@ export class ProjectGenerationController {
     }
   }
 
-  getAllInstances(req: Request, res: Response, next: NextFunction) {
+  async getAllInstances(req: Request, res: Response, next: NextFunction) {
     try {
       const { templateId } = req.query as Record<string, string>;
       if (templateId) {
-        res.json(instanceRepo.findByTemplateId(templateId, req.auth?.user.id));
+        res.json(
+          await instanceRepo.findByTemplateIdAsync(
+            templateId,
+            req.auth?.user.id,
+          ),
+        );
       } else {
-        res.json(instanceRepo.findAll(req.auth?.user.id));
+        res.json(await instanceRepo.findAllAsync(req.auth?.user.id));
       }
     } catch (err) {
       next(err);
     }
   }
 
-  updateInstanceStep(req: Request, res: Response, next: NextFunction) {
+  async updateInstanceStep(req: Request, res: Response, next: NextFunction) {
     try {
       const { stepId } = req.params;
       const { title, dueDate, status, notes } = req.body as Record<string, unknown>;
-      const step = instanceRepo.updateStep(stepId, {
-        title: typeof title === 'string' ? title : undefined,
-        dueDate: typeof dueDate === 'string' ? dueDate : undefined,
-        status: typeof status === 'string' ? status : undefined,
-        notes: notes === null
-            ? null
-            : typeof notes === 'string'
+      const step = await instanceRepo.updateStepAsync(
+        stepId,
+        {
+          title: typeof title === 'string' ? title : undefined,
+          dueDate: typeof dueDate === 'string' ? dueDate : undefined,
+          status: typeof status === 'string' ? status : undefined,
+          notes:
+            notes === null
+              ? null
+              : typeof notes === 'string'
                 ? (notes.length === 0 ? null : notes)
                 : undefined,
-      }, req.auth?.user.id);
+        },
+        req.auth?.user.id,
+      );
       res.json(step);
     } catch (err) {
       next(err);
     }
   }
 
-  deleteInstance(req: Request, res: Response, next: NextFunction) {
+  async deleteInstance(req: Request, res: Response, next: NextFunction) {
     try {
-      instanceRepo.delete(req.params.id, req.auth?.user.id);
+      await instanceRepo.deleteAsync(req.params.id, req.auth?.user.id);
       res.status(204).send();
     } catch (err) {
       next(err);

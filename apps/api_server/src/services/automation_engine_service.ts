@@ -84,11 +84,11 @@ export class AutomationEngineService {
   private readonly templatesRepo = new ProjectTemplatesRepository();
   private readonly projectGeneration = new ProjectGenerationService();
 
-  evaluateSignals(
+  async evaluateSignals(
     source: AutomationRule['source'],
     signals: AutomationSignal[],
-  ): EvaluationResult {
-    const rules = this.rulesRepo.findEnabledBySource(source);
+  ): Promise<EvaluationResult> {
+    const rules = await this.rulesRepo.findEnabledBySourceAsync(source);
     const matchesByRuleId: Record<string, number> = {};
     let matchedRules = 0;
     let executedActions = 0;
@@ -98,7 +98,7 @@ export class AutomationEngineService {
         (signal) => this.matchesRule(rule, signal) && this.evaluateConditions(rule.conditions, signal),
       );
       const preview = matchingSignals[0]?.payload ?? null;
-      this.rulesRepo.updateEvaluation(rule.id, {
+      await this.rulesRepo.updateEvaluationAsync(rule.id, {
         lastEvaluatedAt: new Date().toISOString(),
         lastMatchedAt: matchingSignals[0] ? new Date().toISOString() : null,
         matchCountLastRun: matchingSignals.length,
@@ -110,7 +110,7 @@ export class AutomationEngineService {
       matchesByRuleId[rule.id] = matchingSignals.length;
 
       for (const signal of matchingSignals) {
-        if (this.executeAction(rule, signal)) {
+        if (await this.executeAction(rule, signal)) {
           executedActions += 1;
         }
       }
@@ -305,16 +305,19 @@ export class AutomationEngineService {
     }
   }
 
-  private executeAction(rule: AutomationRule, signal: AutomationSignal): boolean {
+  private async executeAction(
+    rule: AutomationRule,
+    signal: AutomationSignal,
+  ): Promise<boolean> {
     switch (rule.actionType) {
       case 'create_task':
-        this.createTaskFromSignal(rule, signal, false);
+        await this.createTaskFromSignal(rule, signal, false);
         return true;
       case 'tag_task':
-        this.createTaskFromSignal(rule, signal, true);
+        await this.createTaskFromSignal(rule, signal, true);
         return true;
       case 'auto_schedule':
-        this.createTaskFromSignal(rule, signal, false, true);
+        await this.createTaskFromSignal(rule, signal, false, true);
         return true;
       case 'send_notification':
         return this.sendNotification(rule, signal);
@@ -325,12 +328,12 @@ export class AutomationEngineService {
     }
   }
 
-  private createTaskFromSignal(
+  private async createTaskFromSignal(
     rule: AutomationRule,
     signal: AutomationSignal,
     includeTag: boolean,
     autoSchedule = false,
-  ): void {
+  ): Promise<void> {
     const config = rule.actionConfig ?? {};
     const dueBase =
       asString(signal.payload.planDate) ??
@@ -358,7 +361,7 @@ export class AutomationEngineService {
       ? scheduleToTargetDay(dueDate, asNumber(config.targetDay) ?? 1)
       : null;
 
-    this.tasksRepo.upsertExternalTask({
+    await this.tasksRepo.upsertExternalTaskAsync({
       title,
       notes,
       dueDate,
@@ -369,25 +372,34 @@ export class AutomationEngineService {
     });
   }
 
-  private sendNotification(rule: AutomationRule, signal: AutomationSignal): boolean {
+  private async sendNotification(
+    rule: AutomationRule,
+    signal: AutomationSignal,
+  ): Promise<boolean> {
     if (rule.ownerId == null) return false;
-    const bot = this.usersRepo.findOrCreateSystemBot();
+    const bot = await this.usersRepo.findOrCreateSystemBotAsync();
     const config = rule.actionConfig ?? {};
     const message =
       interpolate(asString(config.messageTemplate), signal) ||
       `${rule.name} matched ${asString(signal.payload.title) ?? asString(signal.payload.subject) ?? signal.signalType}.`;
-    this.messagesRepo.sendDirectMessage(bot.id, rule.ownerId, message);
+    await this.messagesRepo.sendDirectMessageAsync(bot.id, rule.ownerId, message);
     return true;
   }
 
-  private createProject(rule: AutomationRule, signal: AutomationSignal): boolean {
+  private async createProject(
+    rule: AutomationRule,
+    signal: AutomationSignal,
+  ): Promise<boolean> {
     const config = rule.actionConfig ?? {};
     const templateId = asString(config.templateId);
     const templateName = asString(config.templateName);
     const template = templateId
-      ? this.templatesRepo.findById(templateId, rule.ownerId ?? undefined)
+      ? await this.templatesRepo.findByIdAsync(
+          templateId,
+          rule.ownerId ?? undefined,
+        )
       : templateName
-        ? this.templatesRepo.findByNameInsensitive(
+        ? await this.templatesRepo.findByNameInsensitiveAsync(
             templateName,
             rule.ownerId ?? undefined,
           )
@@ -404,7 +416,7 @@ export class AutomationEngineService {
       interpolate(asString(config.projectNameTemplate), signal) ||
       asString(signal.payload.title) ||
       rule.name;
-    this.projectGeneration.generate(
+    await this.projectGeneration.generateAsync(
       template.id,
       anchorDate,
       projectName,

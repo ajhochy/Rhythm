@@ -19,25 +19,25 @@ export class AuthService {
     const identity = await this.googleIdentityService.verifyIdToken(
       googleIdToken,
     );
-    const user = this.usersRepo.upsertGoogleUser({
+    const user = await this.usersRepo.upsertGoogleUserAsync({
       googleSub: identity.sub,
       email: identity.email,
       name: identity.name,
       photoUrl: identity.picture ?? null,
     });
-    const session = this.sessionsRepo.create(user.id);
+    const session = await this.sessionsRepo.createAsync(user.id);
     return {
       sessionToken: session.token,
       user,
     };
   }
 
-  getUserForSessionToken(token: string): User | null {
-    return this.sessionsRepo.findUserByToken(token);
+  async getUserForSessionToken(token: string): Promise<User | null> {
+    return this.sessionsRepo.findUserByTokenAsync(token);
   }
 
-  logout(token: string): void {
-    this.sessionsRepo.delete(token);
+  async logout(token: string): Promise<void> {
+    await this.sessionsRepo.deleteAsync(token);
   }
 }
 

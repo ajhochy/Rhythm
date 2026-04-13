@@ -1,5 +1,6 @@
+import { env } from '../config/env';
 import { v4 as uuidv4 } from 'uuid';
-import { getDb } from '../database/db';
+import { getDb, getPostgresPool } from '../database/db';
 import { AppError } from '../errors/app_error';
 import type {
   CreateRecurringTaskRuleDto,
@@ -16,12 +17,14 @@ interface RuleRow {
   day_of_month: number | null;
   month: number | null;
   steps_json: string | null;
-  enabled: number;
+  enabled: number | boolean;
   owner_id: number | null;
   created_at: string;
 }
 
 function rowToRule(row: RuleRow): RecurringTaskRule {
+  const enabled =
+    typeof row.enabled === 'boolean' ? row.enabled : row.enabled === 1;
   return {
     id: row.id,
     title: row.title,
@@ -29,7 +32,7 @@ function rowToRule(row: RuleRow): RecurringTaskRule {
     dayOfWeek: row.day_of_week,
     dayOfMonth: row.day_of_month,
     month: row.month,
-    enabled: row.enabled === 1,
+    enabled,
     ownerId: row.owner_id,
     steps: parseSteps(row.steps_json),
     createdAt: row.created_at,
@@ -83,6 +86,24 @@ function serializeSteps(steps?: RecurringTaskRuleStep[]): string {
 }
 
 export class RecurringTaskRulesRepository {
+  async findAllAsync(userId?: number): Promise<RecurringTaskRule[]> {
+    if (env.dbClient === 'postgres') {
+      const result =
+        userId != null
+          ? await getPostgresPool().query<RuleRow>(
+              `SELECT * FROM recurring_task_rules
+               WHERE owner_id = $1 OR owner_id IS NULL
+               ORDER BY created_at ASC`,
+              [userId],
+            )
+          : await getPostgresPool().query<RuleRow>(
+              'SELECT * FROM recurring_task_rules ORDER BY created_at ASC',
+            );
+      return result.rows.map(rowToRule);
+    }
+    return this.findAll(userId);
+  }
+
   findAll(userId?: number): RecurringTaskRule[] {
     if (userId != null) {
       const rows = getDb()
@@ -100,6 +121,26 @@ export class RecurringTaskRulesRepository {
     return rows.map(rowToRule);
   }
 
+  async findByIdAsync(id: string, userId?: number): Promise<RecurringTaskRule> {
+    if (env.dbClient === 'postgres') {
+      const result =
+        userId != null
+          ? await getPostgresPool().query<RuleRow>(
+              `SELECT * FROM recurring_task_rules
+               WHERE id = $1 AND (owner_id = $2 OR owner_id IS NULL)`,
+              [id, userId],
+            )
+          : await getPostgresPool().query<RuleRow>(
+              'SELECT * FROM recurring_task_rules WHERE id = $1',
+              [id],
+            );
+      const row = result.rows[0];
+      if (!row) throw AppError.notFound('RecurringTaskRule');
+      return rowToRule(row);
+    }
+    return this.findById(id, userId);
+  }
+
   findById(id: string, userId?: number): RecurringTaskRule {
     const row = (userId != null
       ? getDb()
@@ -113,6 +154,33 @@ export class RecurringTaskRulesRepository {
           .get(id)) as RuleRow | undefined;
     if (!row) throw AppError.notFound('RecurringTaskRule');
     return rowToRule(row);
+  }
+
+  async createAsync(
+    data: CreateRecurringTaskRuleDto,
+  ): Promise<RecurringTaskRule> {
+    if (env.dbClient === 'postgres') {
+      const id = uuidv4();
+      const now = new Date().toISOString();
+      await getPostgresPool().query(
+        `INSERT INTO recurring_task_rules (id, title, frequency, day_of_week, day_of_month, month, steps_json, enabled, owner_id, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+        [
+          id,
+          data.title,
+          data.frequency,
+          data.dayOfWeek ?? null,
+          data.dayOfMonth ?? null,
+          data.month ?? null,
+          serializeSteps(data.steps),
+          data.enabled !== false,
+          data.ownerId ?? null,
+          now,
+        ],
+      );
+      return this.findByIdAsync(id);
+    }
+    return this.create(data);
   }
 
   create(data: CreateRecurringTaskRuleDto): RecurringTaskRule {
@@ -137,6 +205,35 @@ export class RecurringTaskRulesRepository {
         now,
       );
     return this.findById(id);
+  }
+
+  async updateAsync(
+    id: string,
+    data: UpdateRecurringTaskRuleDto,
+    userId?: number,
+  ): Promise<RecurringTaskRule> {
+    if (env.dbClient === 'postgres') {
+      const existing = await this.findByIdAsync(id, userId);
+      const steps = data.steps !== undefined ? data.steps : existing.steps;
+      await getPostgresPool().query(
+        `UPDATE recurring_task_rules
+         SET title = $1, frequency = $2, day_of_week = $3, day_of_month = $4, month = $5, steps_json = $6, enabled = $7, owner_id = $8
+         WHERE id = $9`,
+        [
+          data.title ?? existing.title,
+          data.frequency ?? existing.frequency,
+          data.dayOfWeek !== undefined ? data.dayOfWeek : existing.dayOfWeek,
+          data.dayOfMonth !== undefined ? data.dayOfMonth : existing.dayOfMonth,
+          data.month !== undefined ? data.month : existing.month,
+          serializeSteps(steps),
+          data.enabled !== undefined ? data.enabled : existing.enabled,
+          data.ownerId !== undefined ? data.ownerId : existing.ownerId,
+          id,
+        ],
+      );
+      return this.findByIdAsync(id, userId);
+    }
+    return this.update(id, data, userId);
   }
 
   update(
@@ -166,6 +263,19 @@ export class RecurringTaskRulesRepository {
         id,
       );
     return this.findById(id, userId);
+  }
+
+  async deleteAsync(id: string, userId?: number): Promise<void> {
+    if (env.dbClient === 'postgres') {
+      await this.findByIdAsync(id, userId);
+      const result = await getPostgresPool().query(
+        'DELETE FROM recurring_task_rules WHERE id = $1',
+        [id],
+      );
+      if (result.rowCount === 0) throw AppError.notFound('RecurringTaskRule');
+      return;
+    }
+    this.delete(id, userId);
   }
 
   delete(id: string, userId?: number): void {

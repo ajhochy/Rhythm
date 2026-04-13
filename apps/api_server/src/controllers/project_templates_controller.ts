@@ -5,29 +5,29 @@ import { ProjectTemplatesRepository } from '../repositories/project_templates_re
 const repo = new ProjectTemplatesRepository();
 
 export class ProjectTemplatesController {
-  getAll(req: Request, res: Response, next: NextFunction) {
+  async getAll(req: Request, res: Response, next: NextFunction) {
     try {
-      res.json(repo.findAll(req.auth?.user.id));
+      res.json(await repo.findAllAsync(req.auth?.user.id));
     } catch (err) {
       next(err);
     }
   }
 
-  getById(req: Request, res: Response, next: NextFunction) {
+  async getById(req: Request, res: Response, next: NextFunction) {
     try {
-      res.json(repo.findById(req.params.id, req.auth?.user.id));
+      res.json(await repo.findByIdAsync(req.params.id, req.auth?.user.id));
     } catch (err) {
       next(err);
     }
   }
 
-  create(req: Request, res: Response, next: NextFunction) {
+  async create(req: Request, res: Response, next: NextFunction) {
     try {
       const { name, description, anchorType } = req.body as Record<string, unknown>;
       if (!name || typeof name !== 'string') {
         throw AppError.badRequest('name is required');
       }
-      const template = repo.create({
+      const template = await repo.createAsync({
         name,
         description: description as string ?? null,
         anchorType: anchorType as string,
@@ -39,10 +39,10 @@ export class ProjectTemplatesController {
     }
   }
 
-  update(req: Request, res: Response, next: NextFunction) {
+  async update(req: Request, res: Response, next: NextFunction) {
     try {
       const { name, description } = req.body as Record<string, unknown>;
-      const template = repo.update(
+      const template = await repo.updateAsync(
         req.params.id,
         {
           ...(typeof name === 'string' ? { name } : {}),
@@ -58,21 +58,21 @@ export class ProjectTemplatesController {
     }
   }
 
-  remove(req: Request, res: Response, next: NextFunction) {
+  async remove(req: Request, res: Response, next: NextFunction) {
     try {
-      repo.delete(req.params.id, req.auth?.user.id);
+      await repo.deleteAsync(req.params.id, req.auth?.user.id);
       res.status(204).send();
     } catch (err) {
       next(err);
     }
   }
 
-  addStep(req: Request, res: Response, next: NextFunction) {
+  async addStep(req: Request, res: Response, next: NextFunction) {
     try {
       const { title, offsetDays, offsetDescription, sortOrder } = req.body as Record<string, unknown>;
       if (!title || typeof title !== 'string') throw AppError.badRequest('title is required');
       if (offsetDays === undefined || typeof offsetDays !== 'number') throw AppError.badRequest('offsetDays (number) is required');
-      const step = repo.addStep(
+      const step = await repo.addStepAsync(
         req.params.id,
         {
           title,
@@ -88,9 +88,9 @@ export class ProjectTemplatesController {
     }
   }
 
-  updateStep(req: Request, res: Response, next: NextFunction) {
+  async updateStep(req: Request, res: Response, next: NextFunction) {
     try {
-      const step = repo.updateStep(
+      const step = await repo.updateStepAsync(
         req.params.stepId,
         req.body as Record<string, unknown>,
         req.auth?.user.id,
@@ -101,9 +101,9 @@ export class ProjectTemplatesController {
     }
   }
 
-  removeStep(req: Request, res: Response, next: NextFunction) {
+  async removeStep(req: Request, res: Response, next: NextFunction) {
     try {
-      repo.deleteStep(req.params.stepId, req.auth?.user.id);
+      await repo.deleteStepAsync(req.params.stepId, req.auth?.user.id);
       res.status(204).send();
     } catch (err) {
       next(err);

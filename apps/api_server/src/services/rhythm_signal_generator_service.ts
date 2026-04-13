@@ -1,4 +1,5 @@
-import { getDb } from "../database/db";
+import { env } from "../config/env";
+import { getDb, getPostgresPool } from "../database/db";
 import type { AutomationSignal } from "../models/automation_signal";
 
 function makeSignal(
@@ -39,6 +40,52 @@ interface StepRow {
 }
 
 export class RhythmSignalGeneratorService {
+  async generateTaskDueSignalsAsync(
+    lookaheadDays = 7,
+  ): Promise<AutomationSignal[]> {
+    if (env.dbClient === "postgres") {
+      const today = new Date();
+      const cutoff = new Date(today);
+      cutoff.setUTCDate(cutoff.getUTCDate() + lookaheadDays);
+      const todayStr = today.toISOString().slice(0, 10);
+      const cutoffStr = cutoff.toISOString().slice(0, 10);
+
+      const result = await getPostgresPool().query<TaskRow>(
+        `SELECT id, title, due_date, owner_id
+         FROM tasks
+         WHERE status = 'open'
+           AND due_date IS NOT NULL
+           AND due_date >= $1
+           AND due_date <= $2`,
+        [todayStr, cutoffStr],
+      );
+      return result.rows.map((row) => {
+        const dueDate = row.due_date!;
+        const daysUntilDue = Math.floor(
+          (new Date(`${dueDate}T00:00:00Z`).getTime() -
+            Date.UTC(
+              new Date().getUTCFullYear(),
+              new Date().getUTCMonth(),
+              new Date().getUTCDate(),
+            )) /
+            (1000 * 60 * 60 * 24),
+        );
+        return makeSignal(
+          "task_due",
+          row.id,
+          {
+            title: row.title,
+            dueDate,
+            daysUntilDue,
+            ownerId: row.owner_id,
+          },
+          `${dueDate}T00:00:00.000Z`,
+        );
+      });
+    }
+    return this.generateTaskDueSignals(lookaheadDays);
+  }
+
   generateTaskDueSignals(lookaheadDays = 7): AutomationSignal[] {
     const today = new Date();
     const cutoff = new Date(today);
@@ -80,6 +127,55 @@ export class RhythmSignalGeneratorService {
         `${dueDate}T00:00:00.000Z`,
       );
     });
+  }
+
+  async generateProjectStepDueSignalsAsync(
+    lookaheadDays = 7,
+  ): Promise<AutomationSignal[]> {
+    if (env.dbClient === "postgres") {
+      const today = new Date();
+      const cutoff = new Date(today);
+      cutoff.setUTCDate(cutoff.getUTCDate() + lookaheadDays);
+      const todayStr = today.toISOString().slice(0, 10);
+      const cutoffStr = cutoff.toISOString().slice(0, 10);
+
+      const result = await getPostgresPool().query<StepRow>(
+        `SELECT pis.id, pis.title, pis.due_date, pis.instance_id,
+                COALESCE(pi.name, pt.name) AS instance_name
+         FROM project_instance_steps pis
+         JOIN project_instances pi ON pis.instance_id = pi.id
+         JOIN project_templates pt ON pi.template_id = pt.id
+         WHERE pis.status = 'open'
+           AND pis.due_date >= $1
+           AND pis.due_date <= $2`,
+        [todayStr, cutoffStr],
+      );
+
+      return result.rows.map((row) => {
+        const daysUntilDue = Math.floor(
+          (new Date(`${row.due_date}T00:00:00Z`).getTime() -
+            Date.UTC(
+              new Date().getUTCFullYear(),
+              new Date().getUTCMonth(),
+              new Date().getUTCDate(),
+            )) /
+            (1000 * 60 * 60 * 24),
+        );
+        return makeSignal(
+          "project_step_due",
+          row.id,
+          {
+            title: row.title,
+            dueDate: row.due_date,
+            daysUntilDue,
+            instanceId: row.instance_id,
+            instanceName: row.instance_name,
+          },
+          `${row.due_date}T00:00:00.000Z`,
+        );
+      });
+    }
+    return this.generateProjectStepDueSignals(lookaheadDays);
   }
 
   generateProjectStepDueSignals(lookaheadDays = 7): AutomationSignal[] {

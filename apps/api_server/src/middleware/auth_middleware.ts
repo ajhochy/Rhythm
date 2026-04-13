@@ -18,11 +18,11 @@ declare global {
   }
 }
 
-export function requireAuth(
+export async function requireAuth(
   req: Request,
   _res: Response,
   next: NextFunction,
-): void {
+): Promise<void> {
   try {
     const header = req.header('Authorization') ?? '';
     const match = header.match(/^Bearer\s+(.+)$/i);
@@ -31,7 +31,7 @@ export function requireAuth(
     }
 
     const sessionToken = match[1].trim();
-    const user = authService.getUserForSessionToken(sessionToken);
+    const user = await authService.getUserForSessionToken(sessionToken);
     if (!user) {
       throw AppError.unauthorized('Invalid session token');
     }

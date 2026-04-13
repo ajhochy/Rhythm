@@ -29,7 +29,9 @@ For the Synology + Cloudflare deployment track:
 
 Relevant production settings:
 
+- `DB_CLIENT=sqlite` today, with `postgres` config now recognized during startup for connection validation ahead of the repository cutover
 - `DB_PATH=/data/rhythm.db`
+- `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `DB_SSL` for the future Postgres runtime
 - `CORS_ALLOWED_ORIGINS=<hosted client origins>`
 - `GOOGLE_REDIRECT_URI=https://api.vcrcapps.com/auth/google/callback`
 - `PCO_REDIRECT_URI=https://api.vcrcapps.com/auth/planning-center/callback`

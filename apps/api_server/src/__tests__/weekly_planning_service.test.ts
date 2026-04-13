@@ -76,8 +76,8 @@ describe('WeeklyPlanningService.assemblePlan', () => {
     ownerId = usersRepo.create({ name: 'Alice', email: 'alice@example.com' }).id;
   });
 
-  it('returns the correct week label and 7 days', () => {
-    const plan = service.assemblePlan(WEEK);
+  it('returns the correct week label and 7 days', async () => {
+    const plan = await service.assemblePlan(WEEK);
     expect(plan.weekLabel).toBe(WEEK);
     expect(plan.weekStart).toBe('2026-03-23');
     expect(plan.days).toHaveLength(7);
@@ -85,17 +85,17 @@ describe('WeeklyPlanningService.assemblePlan', () => {
     expect(plan.days[6].date).toBe('2026-03-29');
   });
 
-  it('places a task with due_date into the correct day', () => {
+  it('places a task with due_date into the correct day', async () => {
     tasksRepo.create({ title: 'Mon task', dueDate: '2026-03-23' });
-    const plan = service.assemblePlan(WEEK);
+    const plan = await service.assemblePlan(WEEK);
     const monday = plan.days.find((d) => d.date === '2026-03-23')!;
     expect(monday.tasks).toHaveLength(1);
     expect(monday.tasks[0].title).toBe('Mon task');
   });
 
-  it('places a task with scheduled_date (overriding due_date) into the correct day', () => {
+  it('places a task with scheduled_date (overriding due_date) into the correct day', async () => {
     tasksRepo.create({ title: 'Scheduled task', dueDate: '2026-03-24', scheduledDate: '2026-03-25' });
-    const plan = service.assemblePlan(WEEK);
+    const plan = await service.assemblePlan(WEEK);
     const tue = plan.days.find((d) => d.date === '2026-03-24')!;
     const wed = plan.days.find((d) => d.date === '2026-03-25')!;
     expect(tue.tasks).toHaveLength(0);
@@ -103,30 +103,30 @@ describe('WeeklyPlanningService.assemblePlan', () => {
     expect(wed.tasks[0].title).toBe('Scheduled task');
   });
 
-  it('excludes tasks outside the week window', () => {
+  it('excludes tasks outside the week window', async () => {
     tasksRepo.create({ title: 'Next week task', dueDate: '2026-03-30' });
     tasksRepo.create({ title: 'Last week task', dueDate: '2026-03-22' });
-    const plan = service.assemblePlan(WEEK);
+    const plan = await service.assemblePlan(WEEK);
     const allDayTasks = plan.days.flatMap((d) => d.tasks);
     expect(allDayTasks).toHaveLength(0);
   });
 
-  it('puts tasks with no date into the backlog', () => {
+  it('puts tasks with no date into the backlog', async () => {
     tasksRepo.create({ title: 'Backlog task' });
-    const plan = service.assemblePlan(WEEK);
+    const plan = await service.assemblePlan(WEEK);
     expect(plan.backlog.some((t) => t.title === 'Backlog task')).toBe(true);
     const allDayTasks = plan.days.flatMap((d) => d.tasks);
     expect(allDayTasks).toHaveLength(0);
   });
 
-  it('excludes done tasks from backlog', () => {
+  it('excludes done tasks from backlog', async () => {
     const task = tasksRepo.create({ title: 'Done backlog task' });
     tasksRepo.update(task.id, { status: 'done' });
-    const plan = service.assemblePlan(WEEK);
+    const plan = await service.assemblePlan(WEEK);
     expect(plan.backlog.some((t) => t.title === 'Done backlog task')).toBe(false);
   });
 
-  it('places calendar shadow events into the correct day', () => {
+  it('places calendar shadow events into the correct day', async () => {
     shadowRepo.replaceForOwner(ownerId, [
       {
         provider: 'google_calendar',
@@ -141,7 +141,7 @@ describe('WeeklyPlanningService.assemblePlan', () => {
         isAllDay: false,
       },
     ]);
-    const plan = service.assemblePlan(WEEK, ownerId);
+    const plan = await service.assemblePlan(WEEK, ownerId);
     const tue = plan.days.find((d) => d.date === '2026-03-24')!;
     expect(tue.tasks).toHaveLength(1);
     expect(tue.tasks[0].title).toBe('Team standup');
@@ -149,19 +149,19 @@ describe('WeeklyPlanningService.assemblePlan', () => {
     expect(tue.tasks[0].locked).toBe(true);
   });
 
-  it('handles multiple tasks across different days', () => {
+  it('handles multiple tasks across different days', async () => {
     tasksRepo.create({ title: 'Mon', dueDate: '2026-03-23' });
     tasksRepo.create({ title: 'Wed', dueDate: '2026-03-25' });
     tasksRepo.create({ title: 'Fri', dueDate: '2026-03-27' });
-    const plan = service.assemblePlan(WEEK);
+    const plan = await service.assemblePlan(WEEK);
     expect(plan.days.find((d) => d.date === '2026-03-23')!.tasks).toHaveLength(1);
     expect(plan.days.find((d) => d.date === '2026-03-25')!.tasks).toHaveLength(1);
     expect(plan.days.find((d) => d.date === '2026-03-27')!.tasks).toHaveLength(1);
     expect(plan.days.find((d) => d.date === '2026-03-24')!.tasks).toHaveLength(0);
   });
 
-  it('returns empty days and empty backlog for an empty DB', () => {
-    const plan = service.assemblePlan(WEEK);
+  it('returns empty days and empty backlog for an empty DB', async () => {
+    const plan = await service.assemblePlan(WEEK);
     expect(plan.days.every((d) => d.tasks.length === 0)).toBe(true);
     expect(plan.backlog).toHaveLength(0);
   });

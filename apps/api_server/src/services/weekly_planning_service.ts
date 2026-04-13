@@ -1,5 +1,6 @@
-import { getDb } from '../database/db';
 import { CalendarShadowEventsRepository } from '../repositories/calendar_shadow_events_repository';
+import { ProjectInstancesRepository } from '../repositories/project_instances_repository';
+import { TasksRepository } from '../repositories/tasks_repository';
 import type { Task } from '../models/task';
 
 export interface WeeklyPlanDay {
@@ -12,34 +13,6 @@ export interface WeeklyPlan {
   weekStart: string;
   days: WeeklyPlanDay[];
   backlog: Task[];
-}
-
-interface ProjectStepRow {
-  id: string;
-  title: string;
-  due_date: string | null;
-  status: string;
-  notes: string | null;
-  instance_id: string;
-  template_id: string;
-  instance_name: string | null;
-}
-
-interface TaskRow {
-  id: string;
-  title: string;
-  notes: string | null;
-  due_date: string | null;
-  scheduled_date: string | null;
-  scheduled_order: number | null;
-  locked: number;
-  status: string;
-  source_type: string | null;
-  source_id: string | null;
-  source_name?: string | null;
-  owner_id: number | null;
-  created_at: string;
-  updated_at: string;
 }
 
 /** Parse a YYYY-WNN label into the Monday UTC date for that ISO week. */
@@ -77,15 +50,16 @@ function isoDate(date: Date): string {
 
 export class WeeklyPlanningService {
   private readonly shadowEventsRepo = new CalendarShadowEventsRepository();
+  private readonly tasksRepo = new TasksRepository();
+  private readonly projectInstancesRepo = new ProjectInstancesRepository();
 
-  assemblePlan(weekLabel: string, userId?: number): WeeklyPlan {
+  async assemblePlan(weekLabel: string, userId?: number): Promise<WeeklyPlan> {
     const weekStart = parseWeekLabel(weekLabel);
     const weekEnd = new Date(weekStart);
     weekEnd.setUTCDate(weekStart.getUTCDate() + 6);
 
     const startStr = isoDate(weekStart);
     const endStr = isoDate(weekEnd);
-    const db = getDb();
 
     // Build day buckets Mon–Sun
     const days: WeeklyPlanDay[] = Array.from({ length: 7 }, (_, i) => {
@@ -95,102 +69,29 @@ export class WeeklyPlanningService {
     });
     const dayMap = new Map(days.map((d) => [d.date, d]));
 
-    // 1+2: tasks (one-off and recurring instances) with due_date or scheduled_date in week
-    const taskSelect = `
-      SELECT
-        tasks.*,
-        CASE
-          WHEN tasks.source_type = 'project_step' THEN COALESCE(pi.name, pt.name)
-          WHEN tasks.source_type = 'recurring_rule' THEN rr.title
-          ELSE NULL
-        END AS source_name
-      FROM tasks
-      LEFT JOIN project_instances pi
-        ON tasks.source_type = 'project_step'
-       AND tasks.source_id = pi.id
-      LEFT JOIN project_templates pt
-        ON pi.template_id = pt.id
-      LEFT JOIN recurring_task_rules rr
-        ON tasks.source_type = 'recurring_rule'
-       AND (tasks.source_id = rr.id OR tasks.source_id LIKE rr.id || ':%')
-    `;
-    const taskRows =
-      userId != null
-        ? (db
-            .prepare(
-              `${taskSelect}
-               WHERE (tasks.owner_id = ? OR tasks.owner_id IS NULL)
-                 AND (tasks.due_date BETWEEN ? AND ? OR tasks.scheduled_date BETWEEN ? AND ?)
-               ORDER BY tasks.due_date ASC, tasks.created_at ASC`,
-            )
-            .all(userId, startStr, endStr, startStr, endStr) as TaskRow[])
-        : (db
-            .prepare(
-              `${taskSelect}
-               WHERE (tasks.due_date BETWEEN ? AND ? OR tasks.scheduled_date BETWEEN ? AND ?)
-               ORDER BY tasks.due_date ASC, tasks.created_at ASC`,
-            )
-            .all(startStr, endStr, startStr, endStr) as TaskRow[]);
+    const weekTasks = await this.tasksRepo.findByWeekAsync(startStr, endStr, userId);
 
-    for (const row of taskRows) {
-      const dateKey = row.scheduled_date ?? row.due_date;
+    for (const task of weekTasks) {
+      const dateKey = task.scheduledDate ?? task.dueDate;
       if (!dateKey) continue;
       const day = dayMap.get(dateKey);
       if (!day) continue;
-      day.tasks.push({
-        id: row.id,
-        title: row.title,
-        dueDate: row.due_date,
-        scheduledDate: row.scheduled_date ?? null,
-        scheduledOrder: row.scheduled_order ?? null,
-        notes: row.notes ?? null,
-        locked: row.locked === 1,
-        status: row.status as Task['status'],
-        sourceType: row.source_type,
-        sourceId: row.source_id,
-        sourceName: row.source_name ?? null,
-        ownerId: row.owner_id,
-        createdAt: row.created_at,
-        updatedAt: row.updated_at,
-      });
+      day.tasks.push(task);
     }
 
-    // 3: project instance steps due in the week
-    const stepRows = db
-      .prepare(
-        `SELECT pis.id, pis.title, pis.due_date, pis.status, pis.notes, pis.instance_id,
-                pi.template_id, pi.name as instance_name
-         FROM project_instance_steps pis
-         JOIN project_instances pi ON pi.id = pis.instance_id
-         WHERE pis.due_date BETWEEN ? AND ? AND pis.due_date IS NOT NULL AND pis.due_date != ''
-         ORDER BY pis.due_date ASC`,
-      )
-      .all(startStr, endStr) as ProjectStepRow[];
+    const dueProjectSteps = await this.projectInstancesRepo.findPlannerStepsDueInRangeAsync(
+      startStr,
+      endStr,
+    );
 
-    for (const row of stepRows) {
-      if (!row.due_date) continue;
-      const day = dayMap.get(row.due_date);
+    for (const task of dueProjectSteps) {
+      if (!task.dueDate) continue;
+      const day = dayMap.get(task.dueDate);
       if (!day) continue;
-      day.tasks.push({
-        id: row.id,
-        title: row.title,
-        notes: row.notes ?? null,
-        dueDate: row.due_date,
-        scheduledDate: null,
-        scheduledOrder: null,
-        locked: false,
-        status: row.status as Task['status'],
-        sourceType: 'project_step',
-        sourceId: row.instance_id,
-        sourceName: row.instance_name ?? null,
-        ownerId: null,
-        createdAt: '',
-        updatedAt: '',
-      });
+      day.tasks.push(task);
     }
 
-    // 4: calendar shadow events
-    const shadowEvents = this.shadowEventsRepo.findByRange(
+    const shadowEvents = await this.shadowEventsRepo.findByRangeAsync(
       `${startStr}T00:00:00.000Z`,
       `${endStr}T23:59:59.999Z`,
       userId,
@@ -236,122 +137,14 @@ export class WeeklyPlanningService {
       });
     }
 
-    // 5: backlog — open tasks with no due/scheduled date, plus carryover from before this week
-    const backlogRows =
-      userId != null
-        ? (db
-            .prepare(
-              `${taskSelect}
-               WHERE tasks.status = 'open'
-                 AND (
-                   (tasks.due_date IS NULL AND tasks.scheduled_date IS NULL)
-                   OR tasks.due_date < ?
-                   OR tasks.scheduled_date < ?
-                 )
-                 AND (tasks.owner_id = ? OR tasks.owner_id IS NULL)
-               ORDER BY
-                 CASE
-                   WHEN tasks.scheduled_date IS NOT NULL THEN tasks.scheduled_date
-                   ELSE tasks.due_date
-                 END ASC,
-                 tasks.created_at ASC`,
-            )
-            .all(startStr, startStr, userId) as TaskRow[])
-        : (db
-            .prepare(
-              `${taskSelect}
-               WHERE tasks.status = 'open'
-                 AND (
-                   (tasks.due_date IS NULL AND tasks.scheduled_date IS NULL)
-                   OR tasks.due_date < ?
-                   OR tasks.scheduled_date < ?
-                 )
-               ORDER BY
-                 CASE
-                   WHEN tasks.scheduled_date IS NOT NULL THEN tasks.scheduled_date
-                   ELSE tasks.due_date
-                 END ASC,
-                 tasks.created_at ASC`,
-            )
-            .all(startStr, startStr) as TaskRow[]);
-    const backlog: Task[] = backlogRows.map((row) => ({
-      id: row.id,
-      title: row.title,
-      notes: row.notes ?? null,
-      dueDate: row.due_date ?? null,
-      scheduledDate: row.scheduled_date ?? null,
-      scheduledOrder: row.scheduled_order ?? null,
-      locked: row.locked === 1,
-      status: row.status as Task['status'],
-      sourceType: row.source_type,
-      sourceId: row.source_id,
-      sourceName: row.source_name ?? null,
-      ownerId: row.owner_id,
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
-    }));
-
-    const unscheduledProjectSteps = db
-      .prepare(
-        `SELECT pis.id, pis.title, pis.due_date, pis.status, pis.notes, pis.instance_id,
-                pi.template_id, pi.name as instance_name
-         FROM project_instance_steps pis
-         JOIN project_instances pi ON pi.id = pis.instance_id
-         WHERE pis.status = 'open' AND (pis.due_date IS NULL OR pis.due_date = '')
-         ORDER BY pi.created_at ASC, pis.title ASC`,
-      )
-      .all() as ProjectStepRow[];
+    const backlog = await this.tasksRepo.findBacklogAsync(startStr, userId);
 
     backlog.push(
-      ...unscheduledProjectSteps.map((row) => ({
-        id: row.id,
-        title: row.title,
-        notes: row.notes ?? null,
-        dueDate: null,
-        scheduledDate: null,
-        scheduledOrder: null,
-        locked: false,
-        status: row.status as Task['status'],
-        sourceType: 'project_step',
-        sourceId: row.instance_id,
-        sourceName: row.instance_name ?? null,
-        ownerId: null,
-        createdAt: '',
-        updatedAt: '',
-      })),
+      ...(await this.projectInstancesRepo.findPlannerOpenStepsWithoutDueDateAsync()),
     );
 
-    const carryoverProjectSteps = db
-      .prepare(
-        `SELECT pis.id, pis.title, pis.due_date, pis.status, pis.notes, pis.instance_id,
-                pi.template_id, pi.name as instance_name
-         FROM project_instance_steps pis
-         JOIN project_instances pi ON pi.id = pis.instance_id
-         WHERE pis.status = 'open'
-           AND pis.due_date IS NOT NULL
-           AND pis.due_date != ''
-           AND pis.due_date < ?
-         ORDER BY pis.due_date ASC, pi.created_at ASC`,
-      )
-      .all(startStr) as ProjectStepRow[];
-
     backlog.push(
-      ...carryoverProjectSteps.map((row) => ({
-        id: row.id,
-        title: row.title,
-        notes: row.notes ?? null,
-        dueDate: row.due_date ?? null,
-        scheduledDate: null,
-        scheduledOrder: null,
-        locked: false,
-        status: row.status as Task['status'],
-        sourceType: 'project_step',
-        sourceId: row.instance_id,
-        sourceName: row.instance_name ?? null,
-        ownerId: null,
-        createdAt: '',
-        updatedAt: '',
-      })),
+      ...(await this.projectInstancesRepo.findPlannerOpenStepsBeforeDateAsync(startStr)),
     );
 
     for (const day of days) {

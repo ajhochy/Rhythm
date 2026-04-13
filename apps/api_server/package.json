@@ -8,14 +8,17 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/server.js",
     "lint": "echo 'TODO: add eslint'",
-    "test": "vitest run"
+    "test": "vitest run",
+    "migrate:sqlite-to-postgres": "tsx src/database/migrate_sqlite_to_postgres.ts"
   },
   "dependencies": {
+    "@types/pg": "^8.20.0",
     "better-sqlite3": "^12.8.0",
     "cors": "^2.8.5",
     "dotenv": "^17.3.1",
     "express": "^4.19.2",
     "node-cron": "^3.0.3",
+    "pg": "^8.20.0",
     "uuid": "^13.0.0"
   },
   "devDependencies": {

@@ -57,7 +57,7 @@ export class IntegrationsService {
       const calendarOptions =
         await this.googleCalendar.listAccessibleCalendars(account);
       const preferences =
-        this.preferencesRepo.getGoogleCalendarPreferences(userId);
+        await this.preferencesRepo.getGoogleCalendarPreferencesAsync(userId);
       const selectedCalendarIds = this.resolveSelectedGoogleCalendarIds(
         preferences,
         calendarOptions,
@@ -74,7 +74,7 @@ export class IntegrationsService {
         ...event,
         sourceName: calendarNames.get(event.calendarId) ?? event.sourceName,
       }));
-      const synced = this.shadowEventsRepo.replaceForOwner(
+      const synced = await this.shadowEventsRepo.replaceForOwnerAsync(
         userId,
         events.map((event) => ({
           provider: "google_calendar" as const,
@@ -127,12 +127,12 @@ export class IntegrationsService {
         }
       }
       const { changedSignals } =
-        this.signalsRepo.upsertManyDetailed(automationSignals);
-      const evaluation = this.automationEngine.evaluateSignals(
+        await this.signalsRepo.upsertManyDetailedAsync(automationSignals);
+      const evaluation = await this.automationEngine.evaluateSignals(
         "google_calendar",
         changedSignals,
       );
-      this.accountsRepo.markSynced("google_calendar", userId);
+      await this.accountsRepo.markSyncedAsync("google_calendar", userId);
       return {
         syncedCount: synced.length,
         generatedSignalCount: automationSignals.length,
@@ -140,7 +140,7 @@ export class IntegrationsService {
         executedActionCount: evaluation.executedActions,
       };
     } catch (err) {
-      this.accountsRepo.markError(
+      await this.accountsRepo.markErrorAsync(
         "google_calendar",
         userId,
         err instanceof Error ? err.message : String(err),
@@ -157,7 +157,7 @@ export class IntegrationsService {
 
     try {
       const signals = await this.gmail.listRecentInboxSignals(account);
-      this.gmailSignalsRepo.replaceForOwner(
+      await this.gmailSignalsRepo.replaceForOwnerAsync(
         userId,
         signals.map((signal) => ({
           ownerId: userId,
@@ -225,21 +225,21 @@ export class IntegrationsService {
         },
       );
       const { changedSignals } =
-        this.signalsRepo.upsertManyDetailed(automationSignals);
-      const evaluation = this.automationEngine.evaluateSignals(
+        await this.signalsRepo.upsertManyDetailedAsync(automationSignals);
+      const evaluation = await this.automationEngine.evaluateSignals(
         "gmail",
         changedSignals,
       );
-      this.accountsRepo.markSynced("gmail", userId);
+      await this.accountsRepo.markSyncedAsync("gmail", userId);
       return {
         syncedCount: signals.length,
         generatedSignalCount: automationSignals.length,
         matchedRuleCount: evaluation.matchedRules,
         executedActionCount: evaluation.executedActions,
-        signals: this.gmailSignalsRepo.listRecent(userId),
+        signals: await this.gmailSignalsRepo.listRecentAsync(userId),
       };
     } catch (err) {
-      this.accountsRepo.markError(
+      await this.accountsRepo.markErrorAsync(
         "gmail",
         userId,
         err instanceof Error ? err.message : String(err),
@@ -249,7 +249,7 @@ export class IntegrationsService {
   }
 
   listRecentGmailSignals(userId: number) {
-    return this.gmailSignalsRepo.listRecent(userId);
+    return this.gmailSignalsRepo.listRecentAsync(userId);
   }
 
   async listGmailLabels(userId: number): Promise<string[]> {
@@ -267,9 +267,9 @@ export class IntegrationsService {
     }
 
     try {
-      this.ensureDefaultRules();
+      await this.ensureDefaultRules();
       const preferences =
-        this.preferencesRepo.getPlanningCenterTaskPreferences(userId);
+        await this.preferencesRepo.getPlanningCenterTaskPreferencesAsync(userId);
       const [collected, serviceTypeItems] = await Promise.all([
         this.planningCenter.collectAutomationSignals(account, preferences),
         this.planningCenter.collectServiceItemSignals(account),
@@ -380,28 +380,28 @@ export class IntegrationsService {
         })),
       ];
       const { changedSignals } =
-        this.signalsRepo.upsertManyDetailed(automationSignals);
-      const evaluation = this.automationEngine.evaluateSignals(
+        await this.signalsRepo.upsertManyDetailedAsync(automationSignals);
+      const evaluation = await this.automationEngine.evaluateSignals(
         "planning_center",
         changedSignals,
       );
 
-      this.accountsRepo.markSynced("planning_center", userId);
+      await this.accountsRepo.markSyncedAsync("planning_center", userId);
       return {
         planCount: collected.planCount,
         taskSignalCount: collected.tasks.length,
         specialServiceEligibleCount: collected.specialProjects.length,
         specialServiceProjectTemplateFound:
-          this.templateRepo.findByNameInsensitive(
+          (await this.templateRepo.findByNameInsensitiveAsync(
             this.planningCenter.specialServiceTemplateName(),
             userId,
-          ) != null,
+          )) != null,
         generatedSignalCount: automationSignals.length,
         matchedRuleCount: evaluation.matchedRules,
         executedActionCount: evaluation.executedActions,
       };
     } catch (err) {
-      this.accountsRepo.markError(
+      await this.accountsRepo.markErrorAsync(
         "planning_center",
         userId,
         err instanceof Error ? err.message : String(err),
@@ -413,12 +413,12 @@ export class IntegrationsService {
   async syncAll(userId: number) {
     const results: Record<string, unknown> = {};
     const errors: Array<{ provider: string; message: string }> = [];
-    const calendarAccount = this.accountsRepo.findByProvider(
+    const calendarAccount = await this.accountsRepo.findByProviderAsync(
       "google_calendar",
       userId,
     );
-    const gmailAccount = this.accountsRepo.findByProvider("gmail", userId);
-    const planningCenterAccount = this.accountsRepo.findByProvider(
+    const gmailAccount = await this.accountsRepo.findByProviderAsync("gmail", userId);
+    const planningCenterAccount = await this.accountsRepo.findByProviderAsync(
       "planning_center",
       userId,
     );
@@ -461,7 +461,7 @@ export class IntegrationsService {
   }
 
   async resyncAutomationRule(ruleId: string, userId: number) {
-    const rule = this.rulesRepo.findById(ruleId, userId);
+    const rule = await this.rulesRepo.findByIdAsync(ruleId, userId);
     switch (rule.source) {
       case "google_calendar":
         return {
@@ -480,12 +480,12 @@ export class IntegrationsService {
         };
       case "rhythm": {
         const rhythmSignals = [
-          ...this.rhythmGenerator.generateTaskDueSignals(),
-          ...this.rhythmGenerator.generateProjectStepDueSignals(),
+          ...(await this.rhythmGenerator.generateTaskDueSignalsAsync()),
+          ...(await this.rhythmGenerator.generateProjectStepDueSignalsAsync()),
         ];
         const { changedSignals } =
-          this.signalsRepo.upsertManyDetailed(rhythmSignals);
-        const evaluation = this.automationEngine.evaluateSignals(
+          await this.signalsRepo.upsertManyDetailedAsync(rhythmSignals);
+        const evaluation = await this.automationEngine.evaluateSignals(
           "rhythm",
           changedSignals,
         );
@@ -508,7 +508,7 @@ export class IntegrationsService {
     provider: "google_calendar" | "gmail" | "planning_center",
     userId: number,
   ): Promise<IntegrationAccount | null> {
-    const account = this.accountsRepo.findByProvider(provider, userId);
+    const account = await this.accountsRepo.findByProviderAsync(provider, userId);
     if (!account) return null;
     if (!this.shouldRefresh(account)) return account;
 
@@ -518,7 +518,7 @@ export class IntegrationsService {
 
     const refreshed = await this.googleOAuth.refreshAccessToken(account);
     if (provider === "google_calendar") return refreshed;
-    return this.accountsRepo.findByProvider(provider, userId) ?? refreshed;
+    return (await this.accountsRepo.findByProviderAsync(provider, userId)) ?? refreshed;
   }
 
   private shouldRefresh(account: IntegrationAccount): boolean {
@@ -530,7 +530,7 @@ export class IntegrationsService {
   }
 
   getPlanningCenterTaskPreferences(userId: number) {
-    return this.preferencesRepo.getPlanningCenterTaskPreferences(userId);
+    return this.preferencesRepo.getPlanningCenterTaskPreferencesAsync(userId);
   }
 
   savePlanningCenterTaskPreferences(
@@ -540,14 +540,17 @@ export class IntegrationsService {
       positionNames: string[];
     },
   ) {
-    return this.preferencesRepo.savePlanningCenterTaskPreferences(
+    return this.preferencesRepo.savePlanningCenterTaskPreferencesAsync(
       userId,
       preferences,
     );
   }
 
   async getPlanningCenterTaskOptions(userId: number) {
-    const account = this.accountsRepo.findByProvider("planning_center", userId);
+    const account = await this.accountsRepo.findByProviderAsync(
+      "planning_center",
+      userId,
+    );
     if (!account || !account.accessToken) {
       throw AppError.badRequest("Planning Center is not connected");
     }
@@ -566,7 +569,7 @@ export class IntegrationsService {
     const calendars =
       await this.googleCalendar.listAccessibleCalendars(account);
     const preferences =
-      this.preferencesRepo.getGoogleCalendarPreferences(userId);
+      await this.preferencesRepo.getGoogleCalendarPreferencesAsync(userId);
     const selectedCalendarIds = this.resolveSelectedGoogleCalendarIds(
       preferences,
       calendars,
@@ -585,7 +588,7 @@ export class IntegrationsService {
     userId: number,
     preferences: GoogleCalendarPreferences,
   ) {
-    return this.preferencesRepo.saveGoogleCalendarPreferences(
+    return this.preferencesRepo.saveGoogleCalendarPreferencesAsync(
       userId,
       preferences,
     );
@@ -608,18 +611,18 @@ export class IntegrationsService {
     return selected;
   }
 
-  private ensureDefaultRules(): void {
-    const existing = this.rulesRepo.findAll();
+  private async ensureDefaultRules(): Promise<void> {
+    const existing = await this.rulesRepo.findAllAsync();
     const ensure = (
       name: string,
       payload: Parameters<AutomationRulesRepository["create"]>[0],
     ) => {
       if (existing.some((rule) => rule.name === name && rule.ownerId == null))
         return;
-      this.rulesRepo.create(payload);
+      return this.rulesRepo.createAsync(payload);
     };
 
-    ensure("PCO declined volunteer", {
+    await ensure("PCO declined volunteer", {
       name: "PCO declined volunteer",
       source: "planning_center",
       triggerKey: "planning_center.plan_person_declined",
@@ -631,7 +634,7 @@ export class IntegrationsService {
       },
       ownerId: null,
     });
-    ensure("PCO open needed position", {
+    await ensure("PCO open needed position", {
       name: "PCO open needed position",
       source: "planning_center",
       triggerKey: "planning_center.needed_position_open",
@@ -643,7 +646,7 @@ export class IntegrationsService {
       },
       ownerId: null,
     });
-    ensure("PCO unconfirmed volunteer", {
+    await ensure("PCO unconfirmed volunteer", {
       name: "PCO unconfirmed volunteer",
       source: "planning_center",
       triggerKey: "planning_center.plan_person_unconfirmed",
@@ -655,7 +658,7 @@ export class IntegrationsService {
       },
       ownerId: null,
     });
-    ensure("PCO special service project", {
+    await ensure("PCO special service project", {
       name: "PCO special service project",
       source: "planning_center",
       triggerKey: "planning_center.special_service_candidate",

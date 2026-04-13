@@ -47,7 +47,7 @@ export class PlanningCenterOAuthService {
       ? new Date(Date.now() + tokens.expires_in * 1000).toISOString()
       : null;
 
-    this.accountsRepo.upsertPlanningCenterAccount({
+    await this.accountsRepo.upsertPlanningCenterAccountAsync({
       ownerId,
       externalAccountId: profile.sub,
       email: profile.email ?? null,
@@ -73,7 +73,7 @@ export class PlanningCenterOAuthService {
       ? new Date(Date.now() + tokens.expires_in * 1000).toISOString()
       : account.expiresAt;
 
-    this.accountsRepo.upsertPlanningCenterAccount({
+    await this.accountsRepo.upsertPlanningCenterAccountAsync({
       ownerId: account.ownerId!,
       externalAccountId: account.externalAccountId,
       email: account.email,
@@ -85,10 +85,10 @@ export class PlanningCenterOAuthService {
       expiresAt,
     });
 
-    return this.accountsRepo.findByProvider(
+    return (await this.accountsRepo.findByProviderAsync(
       account.provider,
       account.ownerId ?? undefined,
-    ) ?? account;
+    )) ?? account;
   }
 
   private assertConfigured(): void {

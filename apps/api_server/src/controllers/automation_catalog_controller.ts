@@ -6,9 +6,11 @@ const service = new AutomationCatalogService();
 const accountsRepo = new IntegrationAccountsRepository();
 
 export class AutomationCatalogController {
-  getTriggers(_req: Request, res: Response, next: NextFunction) {
+  async getTriggers(_req: Request, res: Response, next: NextFunction) {
     try {
-      res.json(service.getTriggersForAccounts(accountsRepo.findAll()));
+      res.json(
+        service.getTriggersForAccounts(await accountsRepo.findAllAsync()),
+      );
     } catch (err) {
       next(err);
     }
@@ -22,9 +24,11 @@ export class AutomationCatalogController {
     }
   }
 
-  getProviders(_req: Request, res: Response, next: NextFunction) {
+  async getProviders(_req: Request, res: Response, next: NextFunction) {
     try {
-      res.json(service.getProvidersForAccounts(accountsRepo.findAll()));
+      res.json(
+        service.getProvidersForAccounts(await accountsRepo.findAllAsync()),
+      );
     } catch (err) {
       next(err);
     }

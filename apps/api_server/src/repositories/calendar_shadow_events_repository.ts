@@ -1,5 +1,6 @@
+import { env } from '../config/env';
 import { v4 as uuidv4 } from 'uuid';
-import { getDb } from '../database/db';
+import { getDb, getPostgresPool } from '../database/db';
 import type { CalendarShadowEvent } from '../models/calendar_shadow_event';
 
 interface CalendarShadowEventRow {
@@ -20,6 +21,9 @@ interface CalendarShadowEventRow {
 }
 
 function rowToEvent(row: CalendarShadowEventRow): CalendarShadowEvent {
+  const isAllDay =
+    typeof row.is_all_day === 'boolean' ? row.is_all_day : row.is_all_day === 1;
+
   return {
     id: row.id,
     ownerId: row.owner_id,
@@ -32,13 +36,40 @@ function rowToEvent(row: CalendarShadowEventRow): CalendarShadowEvent {
     location: row.location,
     startAt: row.start_at,
     endAt: row.end_at,
-    isAllDay: row.is_all_day === 1,
+    isAllDay,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
 }
 
 export class CalendarShadowEventsRepository {
+  async findByRangeAsync(
+    startAt: string,
+    endAt: string,
+    ownerId?: number,
+  ): Promise<CalendarShadowEvent[]> {
+    if (env.dbClient === 'postgres') {
+      const result =
+        ownerId != null
+          ? await getPostgresPool().query<CalendarShadowEventRow>(
+              `SELECT * FROM calendar_shadow_events
+               WHERE owner_id = $1
+                 AND start_at BETWEEN $2 AND $3
+               ORDER BY start_at ASC`,
+              [ownerId, startAt, endAt],
+            )
+          : await getPostgresPool().query<CalendarShadowEventRow>(
+              `SELECT * FROM calendar_shadow_events
+               WHERE start_at BETWEEN $1 AND $2
+               ORDER BY start_at ASC`,
+              [startAt, endAt],
+            );
+      return result.rows.map(rowToEvent);
+    }
+
+    return this.findByRange(startAt, endAt, ownerId);
+  }
+
   replaceForOwner(
     ownerId: number,
     events: Array<{
@@ -121,5 +152,58 @@ export class CalendarShadowEventsRepository {
             )
             .all(startAt, endAt)) as CalendarShadowEventRow[]);
     return rows.map(rowToEvent);
+  }
+
+  async replaceForOwnerAsync(
+    ownerId: number,
+    events: Array<{
+      provider: 'google_calendar';
+      externalId: string;
+      calendarId: string;
+      sourceName: string | null;
+      title: string;
+      description: string | null;
+      location: string | null;
+      startAt: string;
+      endAt: string | null;
+      isAllDay: boolean;
+    }>,
+  ): Promise<CalendarShadowEvent[]> {
+    if (env.dbClient === 'postgres') {
+      const now = new Date().toISOString();
+      await getPostgresPool().query(
+        'DELETE FROM calendar_shadow_events WHERE owner_id = $1',
+        [ownerId],
+      );
+
+      for (const event of events) {
+        await getPostgresPool().query(
+          `INSERT INTO calendar_shadow_events (
+            id, owner_id, provider, external_id, calendar_id, source_name, title,
+            description, location, start_at, end_at, is_all_day, created_at, updated_at
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
+          [
+            uuidv4(),
+            ownerId,
+            event.provider,
+            event.externalId,
+            event.calendarId,
+            event.sourceName,
+            event.title,
+            event.description,
+            event.location,
+            event.startAt,
+            event.endAt,
+            event.isAllDay,
+            now,
+            now,
+          ],
+        );
+      }
+
+      return this.findByRangeAsync('0000-01-01T00:00:00Z', '9999-12-31T23:59:59Z', ownerId);
+    }
+
+    return this.replaceForOwner(ownerId, events);
   }
 }

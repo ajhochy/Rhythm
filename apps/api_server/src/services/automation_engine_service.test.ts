@@ -30,7 +30,7 @@ describe("Automation overhaul backend", () => {
     vi.useRealTimers();
   });
 
-  test("creates a follow-up task from a matching unread Gmail signal", () => {
+  test("creates a follow-up task from a matching unread Gmail signal", async () => {
     const usersRepo = new UsersRepository();
     const rulesRepo = new AutomationRulesRepository();
     const tasksRepo = new TasksRepository();
@@ -96,7 +96,7 @@ describe("Automation overhaul backend", () => {
       updatedAt: occurredAt,
     };
 
-    const result = engine.evaluateSignals("gmail", [signal]);
+    const result = await engine.evaluateSignals("gmail", [signal]);
 
     expect(result.matchedRules).toBe(1);
     expect(result.executedActions).toBe(1);
@@ -120,7 +120,7 @@ describe("Automation overhaul backend", () => {
     expect(updatedRule.lastMatchedAt).not.toBeNull();
   });
 
-  test("collapses matching Gmail messages in the same thread into one task", () => {
+  test("collapses matching Gmail messages in the same thread into one task", async () => {
     const usersRepo = new UsersRepository();
     const rulesRepo = new AutomationRulesRepository();
     const tasksRepo = new TasksRepository();
@@ -200,7 +200,7 @@ describe("Automation overhaul backend", () => {
       },
     ];
 
-    const result = engine.evaluateSignals("gmail", signals);
+    const result = await engine.evaluateSignals("gmail", signals);
 
     expect(result.matchedRules).toBe(1);
     expect(result.executedActions).toBe(2);
@@ -210,7 +210,7 @@ describe("Automation overhaul backend", () => {
     expect(tasks[0]?.sourceId).toBe(`${rule.id}:gmail-thread:thread-shared`);
   });
 
-  test("creates a project from a Planning Center special service signal", () => {
+  test("creates a project from a Planning Center special service signal", async () => {
     const templatesRepo = new ProjectTemplatesRepository();
     const instancesRepo = new ProjectInstancesRepository();
     const rulesRepo = new AutomationRulesRepository();
@@ -276,7 +276,7 @@ describe("Automation overhaul backend", () => {
       updatedAt: "2026-04-01T17:00:00.000Z",
     };
 
-    const result = engine.evaluateSignals("planning_center", [signal]);
+    const result = await engine.evaluateSignals("planning_center", [signal]);
 
     expect(result.matchedRules).toBe(1);
     expect(result.executedActions).toBe(1);
@@ -387,7 +387,7 @@ describe("Automation overhaul backend", () => {
     });
   });
 
-  test("preview endpoint returns match metadata and catalog endpoints expose external providers", () => {
+  test("preview endpoint returns match metadata and catalog endpoints expose external providers", async () => {
     const usersRepo = new UsersRepository();
     const rulesRepo = new AutomationRulesRepository();
     const accountsRepo = new IntegrationAccountsRepository();
@@ -429,7 +429,7 @@ describe("Automation overhaul backend", () => {
     });
 
     const previewRes = createMockResponse();
-    previewController.getPreview(
+    await previewController.getPreview(
       {
         params: { id: rule.id },
         auth: { user: owner },
@@ -452,7 +452,7 @@ describe("Automation overhaul backend", () => {
     });
 
     const providersRes = createMockResponse();
-    catalogController.getProviders(
+    await catalogController.getProviders(
       {} as never,
       providersRes as never,
       (err?: unknown) => {

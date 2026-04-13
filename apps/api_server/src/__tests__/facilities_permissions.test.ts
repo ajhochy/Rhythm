@@ -173,7 +173,7 @@ describe('Facilities permissions and schema', () => {
     ]);
   });
 
-  it('allows a facilities manager to create a reservation on behalf of another person by name', () => {
+  it('allows a facilities manager to create a reservation on behalf of another person by name', async () => {
     const controller = new FacilitiesController();
     const manager = usersRepo.create({
       name: 'Facilities Manager',
@@ -208,7 +208,7 @@ describe('Facilities permissions and schema', () => {
     } as never;
     let forwardedError: unknown;
 
-    controller.createReservation(req, res, (error?: unknown) => {
+    await controller.createReservation(req, res, (error?: unknown) => {
       forwardedError = error;
     });
 
@@ -222,7 +222,7 @@ describe('Facilities permissions and schema', () => {
     });
   });
 
-  it('creates multi-room reservation groups and groups the overview by logical event', () => {
+  it('creates multi-room reservation groups and groups the overview by logical event', async () => {
     const controller = new FacilitiesController();
     const manager = usersRepo.create({
       name: 'Facilities Manager',
@@ -263,7 +263,7 @@ describe('Facilities permissions and schema', () => {
     } as never;
     let forwardedError: unknown;
 
-    controller.createReservation(req, res, (error?: unknown) => {
+    await controller.createReservation(req, res, (error?: unknown) => {
       forwardedError = error;
     });
 
@@ -296,7 +296,7 @@ describe('Facilities permissions and schema', () => {
     expect(grouped[0].reservations).toHaveLength(2);
   });
 
-  it('updates and deletes a linked reservation group together', () => {
+  it('updates and deletes a linked reservation group together', async () => {
     const controller = new FacilitiesController();
     const manager = usersRepo.create({
       name: 'Facilities Manager',
@@ -342,7 +342,7 @@ describe('Facilities permissions and schema', () => {
         return this;
       },
     } as never;
-    controller.updateReservation(updateReq, updateRes, (error?: unknown) => {
+    await controller.updateReservation(updateReq, updateRes, (error?: unknown) => {
       if (error) throw error;
     });
 
@@ -384,7 +384,7 @@ describe('Facilities permissions and schema', () => {
         return this;
       },
     } as never;
-    controller.deleteReservation(deleteReq, deleteRes, (error?: unknown) => {
+    await controller.deleteReservation(deleteReq, deleteRes, (error?: unknown) => {
       deleteForwardedError = error;
     });
 
@@ -393,7 +393,7 @@ describe('Facilities permissions and schema', () => {
     expect(facilitiesRepo.findReservationsByFacility(southRoom.id)).toHaveLength(0);
   });
 
-  it('allows creators and managers to mutate recurring series, but blocks other members', () => {
+  it('allows creators and managers to mutate recurring series, but blocks other members', async () => {
     const controller = new FacilitiesController();
     const bookingService = new FacilitiesBookingService();
     const creator = usersRepo.create({
@@ -408,7 +408,7 @@ describe('Facilities permissions and schema', () => {
       name: 'North Room',
       building: 'North Campus',
     });
-    const created = bookingService.createRecurringSeries({
+    const created = await bookingService.createRecurringSeries({
       facility_id: facility.id,
       title: 'Monthly Leadership Meeting',
       requester_name: creator.name,
@@ -445,7 +445,7 @@ describe('Facilities permissions and schema', () => {
         return this;
       },
     } as never;
-    controller.updateReservationSeries(updateReq, updateRes, (error?: unknown) => {
+    await controller.updateReservationSeries(updateReq, updateRes, (error?: unknown) => {
       if (error) throw error;
     });
 
@@ -473,7 +473,7 @@ describe('Facilities permissions and schema', () => {
       },
     } as never;
 
-    controller.deleteReservationSeries(deleteReq, deleteRes, (error?: unknown) => {
+    await controller.deleteReservationSeries(deleteReq, deleteRes, (error?: unknown) => {
       forwardedError = error;
     });
 
