@@ -13,6 +13,8 @@ class WorkspaceMember {
   final String role;
   final String joinedAt;
 
+  bool get isAdmin => role == 'admin';
+
   factory WorkspaceMember.fromJson(Map<String, dynamic> json) {
     return WorkspaceMember(
       userId: (json['userId'] as num).toInt(),

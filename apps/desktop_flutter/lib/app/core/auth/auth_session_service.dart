@@ -36,8 +36,10 @@ class AuthSessionService extends ChangeNotifier {
   AuthStatus get status => _status;
   AuthUser? get currentUser => _currentUser;
   WorkspaceInfo? get currentWorkspace => _currentWorkspace;
+  WorkspaceInfo? get workspace => _currentWorkspace;
   String? get workspaceRole => _workspaceRole;
   bool get hasWorkspace => _currentWorkspace != null;
+  bool get isWorkspaceAdmin => _workspaceRole == 'admin';
   String? get errorMessage => _errorMessage;
   bool get isAuthenticated => _status == AuthStatus.authenticated;
   String? get sessionToken => _sessionToken;

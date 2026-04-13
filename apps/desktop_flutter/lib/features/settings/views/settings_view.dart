@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../../../app/core/auth/auth_session_service.dart';
 import '../../../app/core/auth/auth_user.dart';
 import '../../../app/core/services/server_config_service.dart';
 import '../../../app/core/updates/update_controller.dart';
+import '../../../app/core/workspace/workspace_controller.dart';
+import '../../../app/core/workspace/workspace_models.dart';
 import '../../../app/theme/rhythm_tokens.dart';
 import '../controllers/settings_controller.dart';
 
@@ -201,6 +204,7 @@ class _SettingsViewState extends State<SettingsView> {
             ),
             const SizedBox(height: 24),
           ],
+          const _WorkspaceSectionWidget(),
           const Text(
             'UPDATES',
             style: TextStyle(
@@ -588,6 +592,179 @@ class _UserPermissionRow extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _WorkspaceSectionWidget extends StatefulWidget {
+  const _WorkspaceSectionWidget();
+
+  @override
+  State<_WorkspaceSectionWidget> createState() =>
+      _WorkspaceSectionWidgetState();
+}
+
+class _WorkspaceSectionWidgetState extends State<_WorkspaceSectionWidget> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      context.read<WorkspaceController>().loadMembers();
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final auth = context.watch<AuthSessionService>();
+    final controller = context.watch<WorkspaceController>();
+    final workspace = auth.workspace;
+    if (workspace == null) return const SizedBox.shrink();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'WORKSPACE',
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+            color: RhythmTokens.textSecondary,
+            letterSpacing: 0.8,
+          ),
+        ),
+        const SizedBox(height: 12),
+        Container(
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: RhythmTokens.surfaceStrong,
+            borderRadius: BorderRadius.circular(RhythmTokens.radiusL),
+            border: Border.all(color: RhythmTokens.borderSoft),
+            boxShadow: RhythmTokens.shadow,
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                workspace.name,
+                style: const TextStyle(
+                  fontWeight: FontWeight.w600,
+                  fontSize: 16,
+                  color: RhythmTokens.textPrimary,
+                ),
+              ),
+              if (auth.isWorkspaceAdmin && workspace.joinCode != null) ...[
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    const Text('Join code: '),
+                    Text(
+                      workspace.joinCode!,
+                      style: const TextStyle(
+                          fontFamily: 'monospace', fontWeight: FontWeight.bold),
+                    ),
+                    const SizedBox(width: 4),
+                    IconButton(
+                      icon: const Icon(Icons.copy, size: 16),
+                      tooltip: 'Copy join code',
+                      onPressed: () {
+                        Clipboard.setData(
+                            ClipboardData(text: workspace.joinCode!));
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('Join code copied')),
+                        );
+                      },
+                    ),
+                    TextButton(
+                      onPressed: () async {
+                        final newCode = await context
+                            .read<WorkspaceController>()
+                            .regenerateJoinCode();
+                        if (mounted) {
+                          await context
+                              .read<AuthSessionService>()
+                              .refreshFromServer();
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text('New code: $newCode')),
+                          );
+                        }
+                      },
+                      child: const Text('Regenerate'),
+                    ),
+                  ],
+                ),
+              ],
+              const SizedBox(height: 16),
+              const Text(
+                'Members',
+                style: TextStyle(
+                    fontWeight: FontWeight.w600,
+                    color: RhythmTokens.textSecondary,
+                    fontSize: 13),
+              ),
+              const SizedBox(height: 8),
+              if (controller.status == WorkspaceStatus.loading)
+                const CircularProgressIndicator()
+              else
+                ...controller.members.map(
+                  (member) => _MemberTile(
+                    member: member,
+                    isCurrentUserAdmin: auth.isWorkspaceAdmin,
+                  ),
+                ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 24),
+      ],
+    );
+  }
+}
+
+class _MemberTile extends StatelessWidget {
+  const _MemberTile({
+    required this.member,
+    required this.isCurrentUserAdmin,
+  });
+
+  final WorkspaceMember member;
+  final bool isCurrentUserAdmin;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListTile(
+      contentPadding: EdgeInsets.zero,
+      leading: CircleAvatar(
+        child: Text(member.name[0].toUpperCase()),
+      ),
+      title: Text(member.name),
+      subtitle: Text(member.email),
+      trailing: isCurrentUserAdmin
+          ? PopupMenuButton<String>(
+              itemBuilder: (_) => [
+                PopupMenuItem(
+                  value: member.isAdmin ? 'make_staff' : 'make_admin',
+                  child: Text(member.isAdmin ? 'Make Staff' : 'Make Admin'),
+                ),
+                const PopupMenuItem(
+                    value: 'remove', child: Text('Remove member')),
+              ],
+              onSelected: (action) async {
+                final ctrl = context.read<WorkspaceController>();
+                if (action == 'make_staff') {
+                  await ctrl.updateMemberRole(member.userId, 'staff');
+                } else if (action == 'make_admin') {
+                  await ctrl.updateMemberRole(member.userId, 'admin');
+                } else if (action == 'remove') {
+                  await ctrl.removeMember(member.userId);
+                }
+              },
+            )
+          : Text(
+              member.role,
+              style: const TextStyle(
+                  color: RhythmTokens.textSecondary, fontSize: 12),
+            ),
     );
   }
 }
