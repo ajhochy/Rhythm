@@ -6,6 +6,7 @@ import '../constants/app_constants.dart';
 import '../utils/http_utils.dart';
 import 'auth_session_store.dart';
 import 'auth_user.dart';
+import 'workspace_info.dart';
 
 class AuthLoginResponse {
   const AuthLoginResponse({
@@ -15,6 +16,18 @@ class AuthLoginResponse {
 
   final String sessionToken;
   final AuthUser user;
+}
+
+class MeResponse {
+  const MeResponse({
+    required this.user,
+    this.workspace,
+    this.workspaceRole,
+  });
+
+  final AuthUser user;
+  final WorkspaceInfo? workspace;
+  final String? workspaceRole;
 }
 
 class AuthDataSource {
@@ -37,14 +50,20 @@ class AuthDataSource {
     );
   }
 
-  Future<AuthUser> me(String sessionToken) async {
+  Future<MeResponse> me(String sessionToken) async {
     AuthSessionStore.setSessionToken(sessionToken);
     final response = await http.get(
       Uri.parse('$_baseUrl/auth/me'),
       headers: AuthSessionStore.headers(),
     );
     assertOk(response);
-    return AuthUser.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
+    final json = jsonDecode(response.body) as Map<String, dynamic>;
+    final workspaceJson = json['workspace'] as Map<String, dynamic>?;
+    return MeResponse(
+      user: AuthUser.fromJson(json['user'] as Map<String, dynamic>),
+      workspace: workspaceJson != null ? WorkspaceInfo.fromJson(workspaceJson) : null,
+      workspaceRole: json['workspaceRole'] as String?,
+    );
   }
 
   Future<void> logout() async {
