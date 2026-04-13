@@ -267,7 +267,7 @@ export class IntegrationsService {
     }
 
     try {
-      await this.ensureDefaultRules();
+      await this.removeLegacyPlanningCenterDefaultRules();
       const preferences =
         await this.preferencesRepo.getPlanningCenterTaskPreferencesAsync(userId);
       const [collected, serviceTypeItems] = await Promise.all([
@@ -611,64 +611,40 @@ export class IntegrationsService {
     return selected;
   }
 
-  private async ensureDefaultRules(): Promise<void> {
-    const existing = await this.rulesRepo.findAllAsync();
-    const ensure = (
-      name: string,
-      payload: Parameters<AutomationRulesRepository["create"]>[0],
-    ) => {
-      if (existing.some((rule) => rule.name === name && rule.ownerId == null))
-        return;
-      return this.rulesRepo.createAsync(payload);
-    };
+  private async removeLegacyPlanningCenterDefaultRules(): Promise<void> {
+    const legacyRules = (await this.rulesRepo.findAllAsync()).filter(
+      (rule) =>
+        rule.ownerId == null &&
+        (
+          (
+            rule.name === "PCO declined volunteer" &&
+            rule.source === "planning_center" &&
+            rule.triggerKey === "planning_center.plan_person_declined" &&
+            rule.actionType === "create_task"
+          ) ||
+          (
+            rule.name === "PCO open needed position" &&
+            rule.source === "planning_center" &&
+            rule.triggerKey === "planning_center.needed_position_open" &&
+            rule.actionType === "create_task"
+          ) ||
+          (
+            rule.name === "PCO unconfirmed volunteer" &&
+            rule.source === "planning_center" &&
+            rule.triggerKey === "planning_center.plan_person_unconfirmed" &&
+            rule.actionType === "create_task"
+          ) ||
+          (
+            rule.name === "PCO special service project" &&
+            rule.source === "planning_center" &&
+            rule.triggerKey === "planning_center.special_service_candidate" &&
+            rule.actionType === "create_project_from_template"
+          )
+        ),
+    );
 
-    await ensure("PCO declined volunteer", {
-      name: "PCO declined volunteer",
-      source: "planning_center",
-      triggerKey: "planning_center.plan_person_declined",
-      actionType: "create_task",
-      triggerConfig: { leadDays: 21 },
-      actionConfig: {
-        titleTemplate: "{{title}}",
-        notesTemplate: "{{serviceType}} {{position}} {{date}}",
-      },
-      ownerId: null,
-    });
-    await ensure("PCO open needed position", {
-      name: "PCO open needed position",
-      source: "planning_center",
-      triggerKey: "planning_center.needed_position_open",
-      actionType: "create_task",
-      triggerConfig: { leadDays: 21 },
-      actionConfig: {
-        titleTemplate: "{{title}}",
-        notesTemplate: "{{serviceType}} {{position}} {{date}}",
-      },
-      ownerId: null,
-    });
-    await ensure("PCO unconfirmed volunteer", {
-      name: "PCO unconfirmed volunteer",
-      source: "planning_center",
-      triggerKey: "planning_center.plan_person_unconfirmed",
-      actionType: "create_task",
-      triggerConfig: { leadDays: 14 },
-      actionConfig: {
-        titleTemplate: "{{title}}",
-        notesTemplate: "{{serviceType}} {{position}} {{date}}",
-      },
-      ownerId: null,
-    });
-    await ensure("PCO special service project", {
-      name: "PCO special service project",
-      source: "planning_center",
-      triggerKey: "planning_center.special_service_candidate",
-      actionType: "create_project_from_template",
-      triggerConfig: { leadDays: 30 },
-      actionConfig: {
-        templateName: this.planningCenter.specialServiceTemplateName(),
-        projectNameTemplate: "{{title}}",
-      },
-      ownerId: null,
-    });
+    for (const rule of legacyRules) {
+      await this.rulesRepo.deleteAsync(rule.id);
+    }
   }
 }
