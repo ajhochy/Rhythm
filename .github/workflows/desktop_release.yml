@@ -72,16 +72,25 @@ jobs:
           npm run build
           npm prune --omit=dev
 
-      - name: Build macOS release
+      - name: Configure macOS release build
         working-directory: apps/desktop_flutter
         run: >
-          flutter build macos --release
-          --no-codesign
+          flutter build macos --release --config-only
           --build-name="$RELEASE_VERSION"
           --build-number="${{ github.run_number }}"
           --dart-define=GOOGLE_DESKTOP_CLIENT_ID="$GOOGLE_DESKTOP_CLIENT_ID"
           --dart-define=RHYTHM_SERVER_URL="$RHYTHM_SERVER_URL"
           --dart-define=RHYTHM_USE_EMBEDDED_API="$RHYTHM_USE_EMBEDDED_API"
+
+      - name: Build macOS release
+        working-directory: apps/desktop_flutter/macos
+        run: >
+          xcodebuild -workspace Runner.xcworkspace -scheme Runner
+          -configuration Release
+          CODE_SIGNING_ALLOWED=NO
+          CODE_SIGNING_REQUIRED=NO
+          CODE_SIGN_IDENTITY=""
+          build
 
       - name: Bundle API server into app
         if: ${{ inputs.use_embedded_api }}
