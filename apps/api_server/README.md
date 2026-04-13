@@ -24,7 +24,8 @@ For the Synology + Cloudflare deployment track:
 - use [`Dockerfile`](./Dockerfile)
 - use [`docker-compose.synology.yml`](./docker-compose.synology.yml)
 - start from [`.env.production.example`](./.env.production.example)
-- the GitHub workflow [`.github/workflows/api_deploy_synology.yml`](/Users/ajhochhalter/Documents/Rhythm/.github/workflows/api_deploy_synology.yml) now publishes the API image to GHCR and deploys by pull on Synology
+- the GitHub workflow [`.github/workflows/api_deploy_synology.yml`](/Users/ajhochhalter/Documents/Rhythm/.github/workflows/api_deploy_synology.yml) now publishes the API image to GHCR
+- Synology deployment is a manual `docker compose pull && docker compose up -d` step against that image
 
 Relevant production settings:
 

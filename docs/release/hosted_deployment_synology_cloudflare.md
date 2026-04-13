@@ -11,16 +11,17 @@ defined in [0006: Server-first Runtime for Collaboration and Mobile](../decision
   - exposed through Cloudflare Tunnel
 
 The previous web client under `apps/web` has been retired. A replacement web
-client can be deployed later, but it is not part of the current hosted rollout.
+client can be deployed later, but it is not part of the current hosted rollout
+or acceptance criteria for this deployment.
 
-## Repo artifacts added for this deployment path
+## Repo artifacts for this deployment path
 
 - API containerization:
   - [`apps/api_server/Dockerfile`](../../apps/api_server/Dockerfile)
   - [`apps/api_server/.dockerignore`](../../apps/api_server/.dockerignore)
   - [`apps/api_server/docker-compose.synology.yml`](../../apps/api_server/docker-compose.synology.yml)
   - [`apps/api_server/.env.production.example`](../../apps/api_server/.env.production.example)
-- GitHub Actions deploy workflow:
+- GitHub Actions image publish workflow:
   - [`.github/workflows/api_deploy_synology.yml`](../../.github/workflows/api_deploy_synology.yml)
 
 ## API deployment requirements
@@ -43,9 +44,15 @@ echo '<ghcr-read-token>' | docker login ghcr.io -u '<github-username>' --passwor
 ```bash
 cd apps/api_server
 export RHYTHM_API_IMAGE=ghcr.io/ajhochy/rhythm-api:main
-docker compose -f docker-compose.synology.yml pull
-docker compose -f docker-compose.synology.yml up -d
+docker compose --env-file .env.production -f docker-compose.synology.yml pull
+docker compose --env-file .env.production -f docker-compose.synology.yml up -d
 ```
+
+Routine updates are now:
+
+1. push to `main`
+2. let GitHub publish the new `ghcr.io/ajhochy/rhythm-api:main` image
+3. run the two `docker compose` commands above on the Synology host
 
 The compose file expects:
 
@@ -116,21 +123,22 @@ Local development builds should keep:
 - `RHYTHM_SERVER_URL=http://localhost:4000`
 - `RHYTHM_USE_EMBEDDED_API=true`
 
-## GitHub Actions secrets and variables
+## GitHub Actions and credentials
 
-### Secrets
+The GitHub workflow verifies the API, builds the container image, and publishes
+it to GHCR. It does not SSH into Synology or perform remote deploys.
 
-- `SYNOLOGY_HOST`
-- `SYNOLOGY_USERNAME`
-- `SYNOLOGY_SSH_KEY`
-- `SYNOLOGY_DEPLOY_PATH`
-- `GHCR_USERNAME`
-- `GHCR_READ_TOKEN`
+GitHub-side requirement:
+
+- package publish permission for the workflow `GITHUB_TOKEN`
+
+Synology-side requirement:
+
+- a one-time `docker login ghcr.io` with a token that can read the package
 
 ## Notes
 
 - The current production-ready deployment path still assumes SQLite.
 - `#64` is the follow-up issue for moving to a hosted production database.
-- The GitHub workflow now publishes the API image to GHCR and deploys by pull,
-  so Synology no longer needs to build the API container locally for routine
-  updates.
+- The GitHub workflow publishes the API image to GHCR; Synology deployment is a
+  manual `docker compose pull && up -d` step.
