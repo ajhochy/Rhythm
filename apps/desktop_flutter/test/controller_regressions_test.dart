@@ -353,7 +353,7 @@ class _FakeMessagesRepository extends MessagesRepository {
 
   @override
   Future<MessageThread> createThread(List<int> participantIds,
-      {String? title}) async {
+      {String? title, String threadType = 'direct'}) async {
     final thread = MessageThread(
       id: 22,
       title: title ?? 'Bob',

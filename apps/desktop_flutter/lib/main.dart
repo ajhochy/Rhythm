@@ -43,6 +43,9 @@ import 'features/settings/repositories/settings_repository.dart';
 import 'features/weekly_planner/controllers/weekly_planner_controller.dart';
 import 'features/weekly_planner/data/weekly_plan_data_source.dart';
 import 'features/weekly_planner/repositories/weekly_plan_repository.dart';
+import 'app/core/workspace/workspace_controller.dart';
+import 'app/core/workspace/workspace_data_source.dart';
+import 'app/core/workspace/workspace_repository.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -162,6 +165,11 @@ class RhythmApp extends StatelessWidget {
         ChangeNotifierProvider(
           create: (_) => SettingsController(
             SettingsRepository(SettingsDataSource(baseUrl: baseUrl)),
+          ),
+        ),
+        ChangeNotifierProvider(
+          create: (_) => WorkspaceController(
+            WorkspaceRepository(WorkspaceDataSource(baseUrl: baseUrl)),
           ),
         ),
       ],

@@ -3,8 +3,11 @@ import 'package:provider/provider.dart';
 import '../../../app/core/formatters/date_formatters.dart';
 import '../../../app/core/tasks/task_visual_style.dart';
 import '../../../app/core/widgets/error_banner.dart';
+import '../../../app/core/workspace/workspace_controller.dart';
 import '../../../app/theme/rhythm_tokens.dart';
+import '../../../shared/widgets/collaborators_row.dart';
 import '../controllers/tasks_controller.dart';
+import '../data/collaborators_data_source.dart';
 import '../models/task.dart';
 // ignore_for_file: use_build_context_synchronously
 
@@ -439,6 +442,39 @@ class _TasksViewState extends State<TasksView> {
                         fontSize: 13,
                         height: 1.45,
                       ).copyWith(color: visualStyle.mutedText),
+                    ),
+                  ],
+                  if (task.isShared) ...[
+                    const SizedBox(height: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: const Color(0x144F6AF5),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: const Text('shared',
+                          style: TextStyle(
+                              fontSize: 11, color: Color(0xFF4F6AF5))),
+                    ),
+                  ],
+                  if (task.ownerId != null) ...[
+                    const SizedBox(height: 8),
+                    CollaboratorsRow(
+                      collaborators: task.collaborators,
+                      ownerId: task.ownerId!,
+                      workspaceMembers:
+                          context.read<WorkspaceController>().members,
+                      onAdd: (userId) async {
+                        final ds = CollaboratorsDataSource();
+                        await ds.addToTask(task.id, userId);
+                        await controller.load();
+                      },
+                      onRemove: (userId) async {
+                        final ds = CollaboratorsDataSource();
+                        await ds.removeFromTask(task.id, userId);
+                        await controller.load();
+                      },
                     ),
                   ],
                 ],

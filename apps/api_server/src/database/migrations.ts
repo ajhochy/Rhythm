@@ -635,4 +635,52 @@ export function runMigrations(db: Database.Database): void {
     END
     WHERE trigger_key IS NULL
   `);
+
+  // Phase 7: workspaces, collaborators, messaging identity
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS workspaces (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      join_code TEXT NOT NULL UNIQUE,
+      created_by INTEGER REFERENCES users(id),
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS workspace_members (
+      workspace_id INTEGER NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      role TEXT NOT NULL DEFAULT 'staff',
+      joined_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (workspace_id, user_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS task_collaborators (
+      task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      added_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (task_id, user_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS project_collaborators (
+      project_instance_id TEXT NOT NULL REFERENCES project_instances(id) ON DELETE CASCADE,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      added_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (project_instance_id, user_id)
+    );
+  `);
+
+  const taskColsP7 = (db.pragma('table_info(tasks)') as { name: string }[]).map((c) => c.name);
+  if (!taskColsP7.includes('workspace_id')) {
+    db.exec(`ALTER TABLE tasks ADD COLUMN workspace_id INTEGER REFERENCES workspaces(id)`);
+  }
+
+  const msgColsP7 = (db.pragma('table_info(messages)') as { name: string }[]).map((c) => c.name);
+  if (!msgColsP7.includes('sender_photo_url')) {
+    db.exec(`ALTER TABLE messages ADD COLUMN sender_photo_url TEXT`);
+  }
+
+  const threadColsP7 = (db.pragma('table_info(message_threads)') as { name: string }[]).map((c) => c.name);
+  if (!threadColsP7.includes('thread_type')) {
+    db.exec(`ALTER TABLE message_threads ADD COLUMN thread_type TEXT NOT NULL DEFAULT 'direct'`);
+  }
 }

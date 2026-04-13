@@ -11,3 +11,6 @@ tasksRouter.get('/:id', controller.getById.bind(controller));
 tasksRouter.post('/', controller.create.bind(controller));
 tasksRouter.patch('/:id', controller.update.bind(controller));
 tasksRouter.delete('/:id', controller.remove.bind(controller));
+tasksRouter.get('/:id/collaborators', controller.getCollaborators.bind(controller));
+tasksRouter.post('/:id/collaborators', controller.addCollaborator.bind(controller));
+tasksRouter.delete('/:id/collaborators/:userId', controller.removeCollaborator.bind(controller));

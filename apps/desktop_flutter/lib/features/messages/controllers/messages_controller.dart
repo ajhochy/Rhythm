@@ -113,11 +113,13 @@ class MessagesController extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> createThread(List<int> participantIds, {String? title}) async {
+  Future<void> createThread(List<int> participantIds,
+      {String? title, String threadType = 'direct'}) async {
     try {
       final thread = await _repository.createThread(
         participantIds,
         title: title,
+        threadType: threadType,
       );
       await loadThreads(silent: true);
       _status = MessagesStatus.idle;
@@ -215,6 +217,8 @@ class MessagesController extends ChangeNotifier {
                 lastMessage: thread.lastMessage,
                 updatedAt: thread.updatedAt,
                 unreadCount: 0,
+                participants: thread.participants,
+                threadType: thread.threadType,
               )
             : thread)
         .toList();
@@ -230,6 +234,8 @@ class MessagesController extends ChangeNotifier {
       lastMessage: latestMessage,
       updatedAt: DateTime.now(),
       unreadCount: 0,
+      participants: thread.participants,
+      threadType: thread.threadType,
     );
     _threads = [
       updated,

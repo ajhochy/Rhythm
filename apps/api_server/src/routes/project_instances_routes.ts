@@ -10,3 +10,6 @@ projectInstancesRouter.use(requireAuth);
 projectInstancesRouter.get('/', controller.getAllInstances.bind(controller));
 projectInstancesRouter.patch('/steps/:stepId', controller.updateInstanceStep.bind(controller));
 projectInstancesRouter.delete('/:id', controller.deleteInstance.bind(controller));
+projectInstancesRouter.get('/:id/collaborators', controller.getCollaborators.bind(controller));
+projectInstancesRouter.post('/:id/collaborators', controller.addCollaborator.bind(controller));
+projectInstancesRouter.delete('/:id/collaborators/:userId', controller.removeCollaborator.bind(controller));

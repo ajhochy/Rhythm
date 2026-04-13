@@ -1,6 +1,7 @@
 import type { NextFunction, Request, Response } from 'express';
 import { AppError } from '../errors/app_error';
 import { IntegrationAccountsRepository } from '../repositories/integration_accounts_repository';
+import { WorkspaceRepository } from '../repositories/workspace_repository';
 import { AuthService } from '../services/auth_service';
 import { GoogleOAuthService } from '../services/google_oauth_service';
 import { PlanningCenterOAuthService } from '../services/planning_center_oauth_service';
@@ -9,6 +10,7 @@ const googleOAuth = new GoogleOAuthService();
 const planningCenterOAuth = new PlanningCenterOAuthService();
 const authService = new AuthService();
 const integrationAccountsRepo = new IntegrationAccountsRepository();
+const workspaceRepo = new WorkspaceRepository();
 
 export class AuthController {
   async googleLogin(req: Request, res: Response, next: NextFunction) {
@@ -28,7 +30,20 @@ export class AuthController {
   async me(req: Request, res: Response, next: NextFunction) {
     try {
       if (!req.auth) throw AppError.badRequest('Missing auth context');
-      res.json(req.auth.user);
+      const user = req.auth.user;
+      const wsWithRole = await workspaceRepo.findForUserAsync(user.id);
+      const workspace = wsWithRole
+        ? {
+            id: wsWithRole.id,
+            name: wsWithRole.name,
+            ...(wsWithRole.role === 'admin' ? { joinCode: wsWithRole.joinCode } : {}),
+          }
+        : null;
+      res.json({
+        user,
+        workspace,
+        workspaceRole: wsWithRole?.role ?? null,
+      });
     } catch (err) {
       next(err);
     }

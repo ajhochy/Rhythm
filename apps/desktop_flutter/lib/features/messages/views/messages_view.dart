@@ -162,9 +162,9 @@ class _ThreadListPanel extends StatelessWidget {
     showDialog<void>(
       context: context,
       builder: (_) => _NewThreadDialog(
-        onCreated: (participantIds, title) => context
+        onCreated: (participantIds, title, threadType) => context
             .read<MessagesController>()
-            .createThread(participantIds, title: title),
+            .createThread(participantIds, title: title, threadType: threadType),
       ),
     );
   }
@@ -596,7 +596,9 @@ class _MessagePanelState extends State<_MessagePanel> {
                                     BorderRadius.circular(RhythmTokens.radiusS),
                               ),
                               child: Text(
-                                'Direct',
+                                controller.selectedThread?.isGroup == true
+                                    ? 'Group'
+                                    : 'Direct',
                                 style: TextStyle(
                                   fontSize: 11,
                                   fontWeight: FontWeight.w700,
@@ -988,8 +990,8 @@ class _ReplyArea extends StatelessWidget {
 class _NewThreadDialog extends StatefulWidget {
   const _NewThreadDialog({required this.onCreated});
 
-  final Future<void> Function(List<int> participantIds, String? title)
-      onCreated;
+  final Future<void> Function(
+      List<int> participantIds, String? title, String threadType) onCreated;
 
   @override
   State<_NewThreadDialog> createState() => _NewThreadDialogState();
@@ -998,6 +1000,15 @@ class _NewThreadDialog extends StatefulWidget {
 class _NewThreadDialogState extends State<_NewThreadDialog> {
   final _titleController = TextEditingController();
   final Set<int> _selectedUserIds = <int>{};
+  String _threadType = 'direct';
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      context.read<MessagesController>().loadUsers();
+    });
+  }
 
   @override
   void dispose() {
@@ -1005,12 +1016,22 @@ class _NewThreadDialogState extends State<_NewThreadDialog> {
     super.dispose();
   }
 
+  bool get _isGroup => _threadType == 'group';
+
+  bool get _canSubmit {
+    if (_selectedUserIds.isEmpty) return false;
+    if (_isGroup && _titleController.text.trim().isEmpty) return false;
+    if (!_isGroup && _selectedUserIds.length != 1) return false;
+    return true;
+  }
+
   Future<void> _submit() async {
-    if (_selectedUserIds.isEmpty) return;
+    if (!_canSubmit) return;
     final title = _titleController.text.trim();
     await widget.onCreated(
       _selectedUserIds.toList()..sort(),
       title.isEmpty ? null : title,
+      _threadType,
     );
     if (!mounted) return;
     Navigator.of(context).pop();
@@ -1027,9 +1048,9 @@ class _NewThreadDialogState extends State<_NewThreadDialog> {
         borderRadius: BorderRadius.circular(RhythmTokens.radiusL),
         side: const BorderSide(color: _kBorder),
       ),
-      title: const Text(
-        'New Direct Message',
-        style: TextStyle(
+      title: Text(
+        _isGroup ? 'New Group Thread' : 'New Direct Message',
+        style: const TextStyle(
           fontSize: 17,
           fontWeight: FontWeight.w700,
           color: _kTextPrimary,
@@ -1039,14 +1060,54 @@ class _NewThreadDialogState extends State<_NewThreadDialog> {
         width: 420,
         child: Column(
           mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // Thread type toggle
+            Container(
+              decoration: BoxDecoration(
+                color: _kSurfaceMuted,
+                borderRadius: BorderRadius.circular(RhythmTokens.radiusS),
+                border: Border.all(color: _kDivider),
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: _TypeToggleButton(
+                      label: 'Direct',
+                      selected: !_isGroup,
+                      onTap: () => setState(() {
+                        _threadType = 'direct';
+                        // keep only first selection if switching to direct
+                        if (_selectedUserIds.length > 1) {
+                          final first = _selectedUserIds.first;
+                          _selectedUserIds
+                            ..clear()
+                            ..add(first);
+                        }
+                      }),
+                    ),
+                  ),
+                  Expanded(
+                    child: _TypeToggleButton(
+                      label: 'Group',
+                      selected: _isGroup,
+                      onTap: () => setState(() => _threadType = 'group'),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 12),
             TextField(
               controller: _titleController,
-              autofocus: true,
+              autofocus: !_isGroup,
               style: const TextStyle(fontSize: 14, color: _kTextPrimary),
               decoration: InputDecoration(
-                labelText: 'Optional title',
-                hintText: 'Defaults to participant names',
+                labelText:
+                    _isGroup ? 'Group name (required)' : 'Optional title',
+                hintText: _isGroup
+                    ? 'e.g. Worship Team'
+                    : 'Defaults to participant name',
                 filled: true,
                 fillColor: _kSurfaceMuted,
                 border: OutlineInputBorder(
@@ -1058,9 +1119,21 @@ class _NewThreadDialogState extends State<_NewThreadDialog> {
                   borderSide: const BorderSide(color: _kPrimary),
                 ),
               ),
+              onChanged: (_) => setState(() {}),
               onSubmitted: (_) => _submit(),
             ),
             const SizedBox(height: 12),
+            if (!_isGroup)
+              Text(
+                'Select one person',
+                style: TextStyle(fontSize: 11, color: _kTextMuted),
+              )
+            else
+              Text(
+                'Select participants (2 or more)',
+                style: TextStyle(fontSize: 11, color: _kTextMuted),
+              ),
+            const SizedBox(height: 6),
             if (users.isEmpty)
               const Padding(
                 padding: EdgeInsets.symmetric(vertical: 16),
@@ -1071,7 +1144,7 @@ class _NewThreadDialogState extends State<_NewThreadDialog> {
               )
             else
               SizedBox(
-                height: 220,
+                height: 200,
                 child: ListView.builder(
                   itemCount: users.length,
                   itemBuilder: (context, index) {
@@ -1095,6 +1168,7 @@ class _NewThreadDialogState extends State<_NewThreadDialog> {
                       onChanged: (value) {
                         setState(() {
                           if (value == true) {
+                            if (!_isGroup) _selectedUserIds.clear();
                             _selectedUserIds.add(user.id);
                           } else {
                             _selectedUserIds.remove(user.id);
@@ -1117,19 +1191,47 @@ class _NewThreadDialogState extends State<_NewThreadDialog> {
           ),
         ),
         FilledButton(
-          onPressed: _selectedUserIds.isEmpty ? null : _submit,
+          onPressed: _canSubmit ? _submit : null,
           style: FilledButton.styleFrom(backgroundColor: _kPrimary),
           child: const Text('Create', style: TextStyle(color: Colors.white)),
         ),
       ],
     );
   }
+}
+
+class _TypeToggleButton extends StatelessWidget {
+  const _TypeToggleButton({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
 
   @override
-  void initState() {
-    super.initState();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<MessagesController>().loadUsers();
-    });
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 140),
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        decoration: BoxDecoration(
+          color: selected ? _kPrimary : Colors.transparent,
+          borderRadius: BorderRadius.circular(RhythmTokens.radiusS),
+        ),
+        alignment: Alignment.center,
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+            color: selected ? Colors.white : _kTextSecondary,
+          ),
+        ),
+      ),
+    );
   }
 }

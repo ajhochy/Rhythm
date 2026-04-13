@@ -1,4 +1,5 @@
 import '../../../app/core/utils/json_parsing.dart';
+import 'task_collaborator.dart';
 
 class Task {
   Task({
@@ -18,6 +19,9 @@ class Task {
     this.startsAt,
     this.endsAt,
     this.isAllDay = false,
+    this.ownerId,
+    this.isShared = false,
+    this.collaborators = const [],
   });
 
   factory Task.fromJson(Map<String, dynamic> json) {
@@ -36,6 +40,12 @@ class Task {
       startsAt: asString(json['startsAt']),
       endsAt: asString(json['endsAt']),
       isAllDay: asBool(json['isAllDay']) ?? false,
+      ownerId: asInt(json['ownerId']),
+      isShared: asBool(json['isShared']) ?? false,
+      collaborators: ((json['collaborators'] as List<dynamic>?) ?? const [])
+          .map(
+              (item) => TaskCollaborator.fromJson(item as Map<String, dynamic>))
+          .toList(),
       createdAt: asString(json['createdAt']) ?? '',
       updatedAt: asString(json['updatedAt']) ?? '',
     );
@@ -55,6 +65,9 @@ class Task {
   final String? startsAt;
   final String? endsAt;
   final bool isAllDay;
+  final int? ownerId;
+  final bool isShared;
+  final List<TaskCollaborator> collaborators;
   final String createdAt;
   final String updatedAt;
 

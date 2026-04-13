@@ -28,6 +28,7 @@ class MessageThread {
     required this.updatedAt,
     required this.unreadCount,
     this.participants = const [],
+    this.threadType = 'direct',
   });
 
   final int id;
@@ -36,6 +37,9 @@ class MessageThread {
   final DateTime updatedAt;
   final int unreadCount;
   final List<MessageThreadParticipant> participants;
+  final String threadType;
+
+  bool get isGroup => threadType == 'group';
 
   factory MessageThread.fromJson(Map<String, dynamic> json) {
     return MessageThread(
@@ -48,6 +52,7 @@ class MessageThread {
           .map((item) =>
               MessageThreadParticipant.fromJson(item as Map<String, dynamic>))
           .toList(),
+      threadType: asString(json['threadType']) ?? 'direct',
     );
   }
 

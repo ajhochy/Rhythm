@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'auth_data_source.dart';
 import 'auth_session_store.dart';
 import 'auth_user.dart';
+import 'workspace_info.dart';
 
 enum AuthStatus {
   checking,
@@ -25,6 +26,8 @@ class AuthSessionService extends ChangeNotifier {
 
   AuthStatus _status = AuthStatus.checking;
   AuthUser? _currentUser;
+  WorkspaceInfo? _currentWorkspace;
+  String? _workspaceRole;
   String? _errorMessage;
   String? _sessionToken;
   bool _restoreAttempted = false;
@@ -32,6 +35,11 @@ class AuthSessionService extends ChangeNotifier {
 
   AuthStatus get status => _status;
   AuthUser? get currentUser => _currentUser;
+  WorkspaceInfo? get currentWorkspace => _currentWorkspace;
+  WorkspaceInfo? get workspace => _currentWorkspace;
+  String? get workspaceRole => _workspaceRole;
+  bool get hasWorkspace => _currentWorkspace != null;
+  bool get isWorkspaceAdmin => _workspaceRole == 'admin';
   String? get errorMessage => _errorMessage;
   bool get isAuthenticated => _status == AuthStatus.authenticated;
   String? get sessionToken => _sessionToken;
@@ -54,9 +62,11 @@ class AuthSessionService extends ChangeNotifier {
     }
 
     try {
-      final user = await _dataSource.me(storedToken);
+      final meResponse = await _dataSource.me(storedToken);
       _sessionToken = storedToken;
-      _currentUser = user;
+      _currentUser = meResponse.user;
+      _currentWorkspace = meResponse.workspace;
+      _workspaceRole = meResponse.workspaceRole;
       AuthSessionStore.setSessionToken(storedToken);
       _errorMessage = null;
       _status = AuthStatus.authenticated;
@@ -134,9 +144,30 @@ class AuthSessionService extends ChangeNotifier {
     _googleInitialized = true;
   }
 
+  void refreshWorkspace(WorkspaceInfo? workspace, String? role) {
+    _currentWorkspace = workspace;
+    _workspaceRole = role;
+    notifyListeners();
+  }
+
+  Future<void> refreshFromServer() async {
+    if (_sessionToken == null) return;
+    try {
+      final meResponse = await _dataSource.me(_sessionToken!);
+      _currentUser = meResponse.user;
+      _currentWorkspace = meResponse.workspace;
+      _workspaceRole = meResponse.workspaceRole;
+      notifyListeners();
+    } catch (_) {
+      // Silently fail — caller can handle if needed
+    }
+  }
+
   Future<void> _clearLocalSession() async {
     _sessionToken = null;
     _currentUser = null;
+    _currentWorkspace = null;
+    _workspaceRole = null;
     AuthSessionStore.setSessionToken(null);
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_sessionTokenKey);

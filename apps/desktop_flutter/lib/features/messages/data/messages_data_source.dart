@@ -40,12 +40,13 @@ class MessagesDataSource {
   }
 
   Future<MessageThread> createThread(List<int> participantIds,
-      {String? title}) async {
+      {String? title, String threadType = 'direct'}) async {
     final response = await http.post(
       Uri.parse('$_baseUrl/message-threads'),
       headers: AuthSessionStore.headers(json: true),
       body: jsonEncode({
         'participantIds': participantIds,
+        'threadType': threadType,
         if (title != null && title.trim().isNotEmpty) 'title': title.trim(),
       }),
     );

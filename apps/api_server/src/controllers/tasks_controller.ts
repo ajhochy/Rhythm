@@ -61,4 +61,38 @@ export class TasksController {
       next(err);
     }
   }
+
+  async getCollaborators(req: Request, res: Response, next: NextFunction) {
+    try {
+      res.json(await repo.listCollaboratorsAsync(req.params.id));
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async addCollaborator(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId } = req.body as Record<string, unknown>;
+      if (!userId || typeof userId !== 'number') {
+        throw AppError.badRequest('userId is required and must be a number');
+      }
+      await repo.addCollaboratorAsync(req.params.id, userId);
+      res.status(201).json(await repo.listCollaboratorsAsync(req.params.id));
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async removeCollaborator(req: Request, res: Response, next: NextFunction) {
+    try {
+      const collaboratorUserId = Number(req.params.userId);
+      if (isNaN(collaboratorUserId)) {
+        throw AppError.badRequest('Invalid userId');
+      }
+      await repo.removeCollaboratorAsync(req.params.id, collaboratorUserId);
+      res.status(204).send();
+    } catch (err) {
+      next(err);
+    }
+  }
 }

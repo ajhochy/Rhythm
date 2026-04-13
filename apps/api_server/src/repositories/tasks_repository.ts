@@ -17,6 +17,8 @@ interface TaskRow {
   source_id: string | null;
   source_name: string | null;
   owner_id: number | null;
+  workspace_id?: number | null;
+  is_shared?: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -38,6 +40,8 @@ function rowToTask(row: TaskRow): Task {
     sourceId: row.source_id,
     sourceName: row.source_name ?? null,
     ownerId: row.owner_id,
+    workspaceId: row.workspace_id ?? null,
+    isShared: Boolean(row.is_shared),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -68,10 +72,24 @@ export class TasksRepository {
       const result =
         userId != null
           ? await getPostgresPool().query<TaskRow>(
-              `${TASK_SELECT}
-               WHERE tasks.owner_id = $1 OR tasks.owner_id IS NULL
+              `SELECT tasks.*,
+                CASE
+                  WHEN tasks.source_type = 'project_step' THEN COALESCE(pi.name, pt.name)
+                  WHEN tasks.source_type = 'recurring_rule' THEN rr.title
+                  ELSE NULL
+                END AS source_name,
+                CASE WHEN tasks.owner_id != $1 THEN 1 ELSE 0 END AS is_shared
+               FROM tasks
+               LEFT JOIN project_instances pi
+                 ON tasks.source_type = 'project_step' AND tasks.source_id = pi.id
+               LEFT JOIN project_templates pt ON pi.template_id = pt.id
+               LEFT JOIN recurring_task_rules rr
+                 ON tasks.source_type = 'recurring_rule'
+                AND (tasks.source_id = rr.id OR tasks.source_id LIKE rr.id || ':%')
+               LEFT JOIN task_collaborators tc ON tc.task_id = tasks.id AND tc.user_id = $2
+               WHERE tasks.owner_id = $3 OR tasks.owner_id IS NULL OR tc.user_id IS NOT NULL
                ORDER BY tasks.due_date ASC, tasks.scheduled_order ASC, tasks.created_at ASC`,
-              [userId],
+              [userId, userId, userId],
             )
           : await getPostgresPool().query<TaskRow>(
               `${TASK_SELECT}
@@ -87,11 +105,25 @@ export class TasksRepository {
     if (userId != null) {
       const rows = getDb()
         .prepare(
-          `${TASK_SELECT}
-           WHERE tasks.owner_id = ? OR tasks.owner_id IS NULL
+          `SELECT tasks.*,
+            CASE
+              WHEN tasks.source_type = 'project_step' THEN COALESCE(pi.name, pt.name)
+              WHEN tasks.source_type = 'recurring_rule' THEN rr.title
+              ELSE NULL
+            END AS source_name,
+            CASE WHEN tasks.owner_id != ? THEN 1 ELSE 0 END AS is_shared
+           FROM tasks
+           LEFT JOIN project_instances pi
+             ON tasks.source_type = 'project_step' AND tasks.source_id = pi.id
+           LEFT JOIN project_templates pt ON pi.template_id = pt.id
+           LEFT JOIN recurring_task_rules rr
+             ON tasks.source_type = 'recurring_rule'
+            AND (tasks.source_id = rr.id OR tasks.source_id LIKE rr.id || ':%')
+           LEFT JOIN task_collaborators tc ON tc.task_id = tasks.id AND tc.user_id = ?
+           WHERE tasks.owner_id = ? OR tasks.owner_id IS NULL OR tc.user_id IS NOT NULL
            ORDER BY tasks.due_date ASC, tasks.scheduled_order ASC, tasks.created_at ASC`,
         )
-        .all(userId) as TaskRow[];
+        .all(userId, userId, userId) as TaskRow[];
       return rows.map(rowToTask);
     }
     const rows = getDb()
@@ -658,5 +690,69 @@ export class TasksRepository {
     this.findById(id, userId);
     const result = getDb().prepare('DELETE FROM tasks WHERE id = ?').run(id);
     if (result.changes === 0) throw AppError.notFound('Task');
+  }
+
+  listCollaborators(taskId: string): Array<{ userId: number; name: string; photoUrl: string | null }> {
+    const rows = getDb()
+      .prepare(
+        `SELECT u.id AS user_id, u.name, u.photo_url
+         FROM task_collaborators tc
+         JOIN users u ON u.id = tc.user_id
+         WHERE tc.task_id = ?`,
+      )
+      .all(taskId) as Array<{ user_id: number; name: string; photo_url: string | null }>;
+    return rows.map((r) => ({ userId: r.user_id, name: r.name, photoUrl: r.photo_url }));
+  }
+
+  async listCollaboratorsAsync(taskId: string): Promise<Array<{ userId: number; name: string; photoUrl: string | null }>> {
+    if (env.dbClient === 'postgres') {
+      const result = await getPostgresPool().query<{
+        user_id: number;
+        name: string;
+        photo_url: string | null;
+      }>(
+        `SELECT u.id AS user_id, u.name, u.photo_url
+         FROM task_collaborators tc
+         JOIN users u ON u.id = tc.user_id
+         WHERE tc.task_id = $1`,
+        [taskId],
+      );
+      return result.rows.map((r) => ({ userId: r.user_id, name: r.name, photoUrl: r.photo_url }));
+    }
+    return this.listCollaborators(taskId);
+  }
+
+  addCollaborator(taskId: string, collaboratorUserId: number): void {
+    getDb()
+      .prepare('INSERT OR IGNORE INTO task_collaborators (task_id, user_id) VALUES (?, ?)')
+      .run(taskId, collaboratorUserId);
+  }
+
+  async addCollaboratorAsync(taskId: string, collaboratorUserId: number): Promise<void> {
+    if (env.dbClient === 'postgres') {
+      await getPostgresPool().query(
+        'INSERT INTO task_collaborators (task_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+        [taskId, collaboratorUserId],
+      );
+      return;
+    }
+    this.addCollaborator(taskId, collaboratorUserId);
+  }
+
+  removeCollaborator(taskId: string, collaboratorUserId: number): void {
+    getDb()
+      .prepare('DELETE FROM task_collaborators WHERE task_id = ? AND user_id = ?')
+      .run(taskId, collaboratorUserId);
+  }
+
+  async removeCollaboratorAsync(taskId: string, collaboratorUserId: number): Promise<void> {
+    if (env.dbClient === 'postgres') {
+      await getPostgresPool().query(
+        'DELETE FROM task_collaborators WHERE task_id = $1 AND user_id = $2',
+        [taskId, collaboratorUserId],
+      );
+      return;
+    }
+    this.removeCollaborator(taskId, collaboratorUserId);
   }
 }

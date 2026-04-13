@@ -14,6 +14,8 @@ export interface Task {
   endsAt?: string | null;
   isAllDay?: boolean;
   ownerId: number | null;
+  workspaceId?: number | null;
+  isShared?: boolean;
   createdAt: string;
   updatedAt: string;
 }

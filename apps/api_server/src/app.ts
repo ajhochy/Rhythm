@@ -16,6 +16,7 @@ import { recurringRulesRouter } from './routes/recurring_rules_routes';
 import { tasksRouter } from './routes/tasks_routes';
 import { usersRouter } from './routes/users_routes';
 import { weeklyPlanRouter } from './routes/weekly_plan_routes';
+import { workspaceRouter } from './routes/workspace_routes';
 
 export function createApp() {
   const app = express();
@@ -52,6 +53,7 @@ export function createApp() {
   app.use('/users', usersRouter);
   app.use('/message-threads', messagesRouter);
   app.use('/facilities', facilitiesRouter);
+  app.use('/workspaces', workspaceRouter);
 
   app.use(errorHandler);
 

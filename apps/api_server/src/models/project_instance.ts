@@ -15,6 +15,7 @@ export interface ProjectInstance {
   anchorDate: string;
   status: string;
   ownerId: number | null;
+  isShared?: boolean;
   createdAt: string;
   steps: ProjectInstanceStep[];
 }
