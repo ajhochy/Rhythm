@@ -45,8 +45,7 @@ class CollaboratorsDataSource {
   Future<List<TaskCollaborator>> fetchForProject(
       String projectInstanceId) async {
     final response = await http.get(
-      Uri.parse(
-          '$_baseUrl/project-instances/$projectInstanceId/collaborators'),
+      Uri.parse('$_baseUrl/project-instances/$projectInstanceId/collaborators'),
       headers: AuthSessionStore.headers(),
     );
     assertOk(response);
@@ -58,16 +57,14 @@ class CollaboratorsDataSource {
 
   Future<void> addToProject(String projectInstanceId, int userId) async {
     final response = await http.post(
-      Uri.parse(
-          '$_baseUrl/project-instances/$projectInstanceId/collaborators'),
+      Uri.parse('$_baseUrl/project-instances/$projectInstanceId/collaborators'),
       headers: AuthSessionStore.headers(json: true),
       body: jsonEncode({'userId': userId}),
     );
     assertOk(response);
   }
 
-  Future<void> removeFromProject(
-      String projectInstanceId, int userId) async {
+  Future<void> removeFromProject(String projectInstanceId, int userId) async {
     final response = await http.delete(
       Uri.parse(
           '$_baseUrl/project-instances/$projectInstanceId/collaborators/$userId'),

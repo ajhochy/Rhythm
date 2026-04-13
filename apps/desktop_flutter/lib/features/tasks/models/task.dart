@@ -43,8 +43,8 @@ class Task {
       ownerId: asInt(json['ownerId']),
       isShared: asBool(json['isShared']) ?? false,
       collaborators: ((json['collaborators'] as List<dynamic>?) ?? const [])
-          .map((item) =>
-              TaskCollaborator.fromJson(item as Map<String, dynamic>))
+          .map(
+              (item) => TaskCollaborator.fromJson(item as Map<String, dynamic>))
           .toList(),
       createdAt: asString(json['createdAt']) ?? '',
       updatedAt: asString(json['updatedAt']) ?? '',

@@ -7,6 +7,8 @@ class Message {
     required this.senderName,
     required this.content,
     required this.createdAt,
+    this.senderId,
+    this.senderPhotoUrl,
   });
 
   final int id;
@@ -14,6 +16,8 @@ class Message {
   final String senderName;
   final String content;
   final DateTime createdAt;
+  final int? senderId;
+  final String? senderPhotoUrl;
 
   factory Message.fromJson(Map<String, dynamic> json) {
     return Message(
@@ -22,6 +26,8 @@ class Message {
       senderName: asString(json['senderName']) ?? '',
       content: asString(json['body']) ?? '',
       createdAt: _parseApiDateTime(asString(json['createdAt'])),
+      senderId: asInt(json['senderId']),
+      senderPhotoUrl: asString(json['senderPhotoUrl']),
     );
   }
 }

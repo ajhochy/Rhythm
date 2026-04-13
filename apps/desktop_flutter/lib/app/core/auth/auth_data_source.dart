@@ -61,7 +61,8 @@ class AuthDataSource {
     final workspaceJson = json['workspace'] as Map<String, dynamic>?;
     return MeResponse(
       user: AuthUser.fromJson(json['user'] as Map<String, dynamic>),
-      workspace: workspaceJson != null ? WorkspaceInfo.fromJson(workspaceJson) : null,
+      workspace:
+          workspaceJson != null ? WorkspaceInfo.fromJson(workspaceJson) : null,
       workspaceRole: json['workspaceRole'] as String?,
     );
   }

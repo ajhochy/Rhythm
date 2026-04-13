@@ -21,7 +21,8 @@ class WorkspaceDataSource {
       body: jsonEncode({'name': name}),
     );
     assertOk(response);
-    return WorkspaceInfo.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
+    return WorkspaceInfo.fromJson(
+        jsonDecode(response.body) as Map<String, dynamic>);
   }
 
   Future<WorkspaceInfo> join(String joinCode) async {
@@ -31,7 +32,8 @@ class WorkspaceDataSource {
       body: jsonEncode({'joinCode': joinCode}),
     );
     assertOk(response);
-    return WorkspaceInfo.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
+    return WorkspaceInfo.fromJson(
+        jsonDecode(response.body) as Map<String, dynamic>);
   }
 
   Future<List<WorkspaceMember>> listMembers() async {

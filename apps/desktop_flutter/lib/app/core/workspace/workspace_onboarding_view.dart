@@ -36,7 +36,8 @@ class _WorkspaceOnboardingViewState extends State<WorkspaceOnboardingView> {
       final authService = context.read<AuthSessionService>();
       // Build a repo pointing at the server URL used by the rest of the app
       final repo = WorkspaceRepository(
-        WorkspaceDataSource(baseUrl: authService.sessionToken != null ? null : null),
+        WorkspaceDataSource(
+            baseUrl: authService.sessionToken != null ? null : null),
       );
       if (_isJoining) {
         final code = _codeController.text.trim().toUpperCase();
@@ -55,7 +56,10 @@ class _WorkspaceOnboardingViewState extends State<WorkspaceOnboardingView> {
         _error = e.toString().replaceFirst('Exception: ', '');
       });
     } finally {
-      if (mounted) setState(() { _loading = false; });
+      if (mounted)
+        setState(() {
+          _loading = false;
+        });
     }
   }
 
@@ -93,8 +97,7 @@ class _WorkspaceOnboardingViewState extends State<WorkspaceOnboardingView> {
                         style: OutlinedButton.styleFrom(
                           backgroundColor:
                               !_isJoining ? const Color(0xFF4F6AF5) : null,
-                          foregroundColor:
-                              !_isJoining ? Colors.white : null,
+                          foregroundColor: !_isJoining ? Colors.white : null,
                         ),
                         child: const Text('Create'),
                       ),
@@ -106,8 +109,7 @@ class _WorkspaceOnboardingViewState extends State<WorkspaceOnboardingView> {
                         style: OutlinedButton.styleFrom(
                           backgroundColor:
                               _isJoining ? const Color(0xFF4F6AF5) : null,
-                          foregroundColor:
-                              _isJoining ? Colors.white : null,
+                          foregroundColor: _isJoining ? Colors.white : null,
                         ),
                         child: const Text('Join'),
                       ),
@@ -142,8 +144,8 @@ class _WorkspaceOnboardingViewState extends State<WorkspaceOnboardingView> {
                   const SizedBox(height: 8),
                   Text(
                     _error!,
-                    style: const TextStyle(
-                        color: Color(0xFFEF4444), fontSize: 13),
+                    style:
+                        const TextStyle(color: Color(0xFFEF4444), fontSize: 13),
                   ),
                 ],
                 const SizedBox(height: 16),
@@ -161,7 +163,8 @@ class _WorkspaceOnboardingViewState extends State<WorkspaceOnboardingView> {
                           child: CircularProgressIndicator(
                               strokeWidth: 2, color: Colors.white),
                         )
-                      : Text(_isJoining ? 'Join Workspace' : 'Create Workspace'),
+                      : Text(
+                          _isJoining ? 'Join Workspace' : 'Create Workspace'),
                 ),
               ],
             ),

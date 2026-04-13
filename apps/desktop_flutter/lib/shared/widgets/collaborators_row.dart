@@ -38,13 +38,11 @@ class CollaboratorsRow extends StatelessWidget {
             child: GestureDetector(
               onLongPress: isOwner ? () => onRemove(c.userId) : null,
               child: Tooltip(
-                message:
-                    '${c.name}${isOwner ? ' (long-press to remove)' : ''}',
+                message: '${c.name}${isOwner ? ' (long-press to remove)' : ''}',
                 child: CircleAvatar(
                   radius: 14,
-                  backgroundImage: c.photoUrl != null
-                      ? NetworkImage(c.photoUrl!)
-                      : null,
+                  backgroundImage:
+                      c.photoUrl != null ? NetworkImage(c.photoUrl!) : null,
                   child: c.photoUrl == null
                       ? Text(c.name[0].toUpperCase(),
                           style: const TextStyle(fontSize: 11))
@@ -60,8 +58,7 @@ class CollaboratorsRow extends StatelessWidget {
             tooltip: 'Add collaborator',
             onPressed: () => _showPeoplePicker(context),
             padding: EdgeInsets.zero,
-            constraints:
-                const BoxConstraints(minWidth: 28, minHeight: 28),
+            constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
           ),
       ],
     );
@@ -69,8 +66,9 @@ class CollaboratorsRow extends StatelessWidget {
 
   Future<void> _showPeoplePicker(BuildContext context) async {
     final alreadyAdded = {ownerId, ...collaborators.map((c) => c.userId)};
-    final candidates =
-        workspaceMembers.where((m) => !alreadyAdded.contains(m.userId)).toList();
+    final candidates = workspaceMembers
+        .where((m) => !alreadyAdded.contains(m.userId))
+        .toList();
 
     if (candidates.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(

@@ -1095,21 +1095,16 @@ class _InstanceCard extends StatelessWidget {
               child: CollaboratorsRow(
                 collaborators: instance.collaborators,
                 ownerId: instance.ownerId!,
-                workspaceMembers:
-                    context.read<WorkspaceController>().members,
+                workspaceMembers: context.read<WorkspaceController>().members,
                 onAdd: (userId) async {
                   final ds = CollaboratorsDataSource();
                   await ds.addToProject(instance.id, userId);
-                  await context
-                      .read<ProjectTemplateController>()
-                      .load();
+                  await context.read<ProjectTemplateController>().load();
                 },
                 onRemove: (userId) async {
                   final ds = CollaboratorsDataSource();
                   await ds.removeFromProject(instance.id, userId);
-                  await context
-                      .read<ProjectTemplateController>()
-                      .load();
+                  await context.read<ProjectTemplateController>().load();
                 },
               ),
             ),
