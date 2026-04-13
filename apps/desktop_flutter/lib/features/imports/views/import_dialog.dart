@@ -78,6 +78,10 @@ Definitions:
 - tasks = one-off tasks
 - rhythms = recurring rules
 - projects = project templates, not active project instances
+- For tasks, include only user-entered fields Rhythm should import directly.
+- Do NOT include database/internal fields such as: id, ownerId, status, sourceType, sourceId, createdAt, updatedAt, completedAt.
+- For task dates, use plain YYYY-MM-DD strings only. Do not use timestamps.
+- If a section has no items, return an empty array for it.
 
 Example:
 {
