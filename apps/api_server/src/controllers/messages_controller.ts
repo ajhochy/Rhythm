@@ -15,13 +15,22 @@ export class MessagesController {
 
   async createThread(req: Request, res: Response, next: NextFunction) {
     try {
-      const { participantIds } = req.body as Record<string, unknown>;
+      const {
+        participantIds,
+        threadType,
+        title,
+      } = req.body as Record<string, unknown>;
       if (!Array.isArray(participantIds) || participantIds.length === 0) {
         throw AppError.badRequest('participantIds is required');
       }
       const thread = await repo.createThreadAsync({
         createdBy: req.auth!.user.id,
         participantIds: participantIds.map((value) => Number(value)),
+        threadType:
+          threadType === 'group' || threadType === 'direct'
+            ? threadType
+            : undefined,
+        title: typeof title === 'string' && title.trim() ? title.trim() : undefined,
       });
       res.status(201).json(thread);
     } catch (err) {
