@@ -24,10 +24,11 @@ For the Synology + Cloudflare deployment track:
 - use [`Dockerfile`](./Dockerfile)
 - use [`docker-compose.synology.yml`](./docker-compose.synology.yml)
 - start from [`.env.production.example`](./.env.production.example)
+- the GitHub workflow [`.github/workflows/api_deploy_synology.yml`](/Users/ajhochhalter/Documents/Rhythm/.github/workflows/api_deploy_synology.yml) now publishes the API image to GHCR and deploys by pull on Synology
 
 Relevant production settings:
 
 - `DB_PATH=/data/rhythm.db`
-- `CORS_ALLOWED_ORIGINS=https://app.vcrcapps.com`
+- `CORS_ALLOWED_ORIGINS=<hosted client origins>`
 - `GOOGLE_REDIRECT_URI=https://api.vcrcapps.com/auth/google/callback`
 - `PCO_REDIRECT_URI=https://api.vcrcapps.com/auth/planning-center/callback`

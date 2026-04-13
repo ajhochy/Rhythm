@@ -3,11 +3,16 @@ import 'package:rhythm_desktop/features/weekly_planner/views/weekly_planner_view
 
 void main() {
   test('parsePlannerEventDateTime converts UTC timestamps to local time', () {
-    final parsed = parsePlannerEventDateTime('2026-04-09T16:20:00.000Z');
+    const raw = '2026-04-09T16:20:00.000Z';
+    final parsed = parsePlannerEventDateTime(raw);
+    final expected = DateTime.parse(raw).toLocal();
 
     expect(parsed, isNotNull);
     expect(parsed!.isUtc, isFalse);
-    expect(parsed.hour, 9);
-    expect(parsed.minute, 20);
+    expect(parsed.year, expected.year);
+    expect(parsed.month, expected.month);
+    expect(parsed.day, expected.day);
+    expect(parsed.hour, expected.hour);
+    expect(parsed.minute, expected.minute);
   });
 }

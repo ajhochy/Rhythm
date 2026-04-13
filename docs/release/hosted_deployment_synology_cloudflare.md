@@ -5,46 +5,23 @@ defined in [0006: Server-first Runtime for Collaboration and Mobile](../decision
 
 ## Target topology
 
-- `app.vcrcapps.com`
-  - hosted web frontend
-  - recommended target: Cloudflare Pages
 - `api.vcrcapps.com`
   - hosted API
   - recommended runtime: Synology Docker container
   - exposed through Cloudflare Tunnel
 
+The previous web client under `apps/web` has been retired. A replacement web
+client can be deployed later, but it is not part of the current hosted rollout.
+
 ## Repo artifacts added for this deployment path
 
-- Web env-based API configuration:
-  - [`apps/web/src/lib/api.ts`](../../apps/web/src/lib/api.ts)
-  - [`apps/web/.env.example`](../../apps/web/.env.example)
 - API containerization:
   - [`apps/api_server/Dockerfile`](../../apps/api_server/Dockerfile)
   - [`apps/api_server/.dockerignore`](../../apps/api_server/.dockerignore)
   - [`apps/api_server/docker-compose.synology.yml`](../../apps/api_server/docker-compose.synology.yml)
   - [`apps/api_server/.env.production.example`](../../apps/api_server/.env.production.example)
-
-## Web deployment requirements
-
-### Cloudflare Pages
-
-Configure the web app with:
-
-- project root: `apps/web`
-- build command: `npm install && npm run build`
-- output directory: `dist`
-
-Set the Pages environment variable:
-
-- `VITE_API_BASE_URL=https://api.vcrcapps.com`
-
-Attach the custom domain:
-
-- `app.vcrcapps.com`
-
-The repo workflow for this path is:
-
-- [`.github/workflows/web_deploy.yml`](../../.github/workflows/web_deploy.yml)
+- GitHub Actions deploy workflow:
+  - [`.github/workflows/api_deploy_synology.yml`](../../.github/workflows/api_deploy_synology.yml)
 
 ## API deployment requirements
 
@@ -52,14 +29,22 @@ The repo workflow for this path is:
 
 Suggested deployment path:
 
-1. Copy or pull the repo to the Synology.
+1. Copy or pull the repo to the Synology once so the compose file and env file exist there.
 2. In `apps/api_server`, create `.env.production` from `.env.production.example`.
 3. Fill in the real OAuth, Planning Center, and Cloudflare values.
-4. Start the API and tunnel:
+4. Log in to GHCR on the Synology host:
+
+```bash
+echo '<ghcr-read-token>' | docker login ghcr.io -u '<github-username>' --password-stdin
+```
+
+5. Pull and start the API and tunnel:
 
 ```bash
 cd apps/api_server
-docker compose -f docker-compose.synology.yml up -d --build
+export RHYTHM_API_IMAGE=ghcr.io/ajhochy/rhythm-api:main
+docker compose -f docker-compose.synology.yml pull
+docker compose -f docker-compose.synology.yml up -d
 ```
 
 The compose file expects:
@@ -67,10 +52,7 @@ The compose file expects:
 - persistent SQLite volume mounted at `/data`
 - API exposed internally on port `4000`
 - Cloudflare tunnel token in `.env.production`
-
-The repo workflow for this path is:
-
-- [`.github/workflows/api_deploy_synology.yml`](../../.github/workflows/api_deploy_synology.yml)
+- API image available in GHCR
 
 ### Production API environment
 
@@ -79,7 +61,7 @@ Minimum required variables:
 - `NODE_ENV=production`
 - `PORT=4000`
 - `DB_PATH=/data/rhythm.db`
-- `CORS_ALLOWED_ORIGINS=https://app.vcrcapps.com`
+- `CORS_ALLOWED_ORIGINS=<hosted client origins>`
 - `GOOGLE_CLIENT_ID`
 - `GOOGLE_CLIENT_SECRET`
 - `GOOGLE_REDIRECT_URI=https://api.vcrcapps.com/auth/google/callback`
@@ -93,9 +75,8 @@ Minimum required variables:
 
 ### DNS / routing
 
-Use these public hostnames:
+Use this public hostname:
 
-- `app.vcrcapps.com`
 - `api.vcrcapps.com`
 
 For the API, the public hostname should route through Cloudflare Tunnel to the
@@ -112,11 +93,6 @@ Planning Center OAuth redirect URI:
 - `https://api.vcrcapps.com/auth/planning-center/callback`
 
 ## Validation checklist
-
-### Web
-
-- `app.vcrcapps.com` loads successfully
-- network requests target `https://api.vcrcapps.com`
 
 ### API
 
@@ -144,21 +120,17 @@ Local development builds should keep:
 
 ### Secrets
 
-- `CLOUDFLARE_API_TOKEN`
-- `CLOUDFLARE_ACCOUNT_ID`
 - `SYNOLOGY_HOST`
 - `SYNOLOGY_USERNAME`
 - `SYNOLOGY_SSH_KEY`
 - `SYNOLOGY_DEPLOY_PATH`
-
-### Variables
-
-- `CLOUDFLARE_PAGES_PROJECT`
+- `GHCR_USERNAME`
+- `GHCR_READ_TOKEN`
 
 ## Notes
 
 - The current production-ready deployment path still assumes SQLite.
 - `#64` is the follow-up issue for moving to a hosted production database.
-- This document does not automate Cloudflare Pages or Synology deploys by
-  itself; it defines the expected runtime inputs and repo artifacts needed to do
-  so.
+- The GitHub workflow now publishes the API image to GHCR and deploys by pull,
+  so Synology no longer needs to build the API container locally for routine
+  updates.

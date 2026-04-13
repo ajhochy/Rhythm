@@ -64,8 +64,7 @@ class _AppShellState extends State<AppShell> with WindowListener {
     final serverStatus = context.watch<ApiServerController>().status;
     final authStatus = context.watch<AuthSessionService>().status;
     final messagesController = context.read<MessagesController>();
-    final enableMessagePolling =
-        serverStatus == ServerStatus.ready &&
+    final enableMessagePolling = serverStatus == ServerStatus.ready &&
         authStatus == AuthStatus.authenticated;
     final isMessagesScreenActive = enableMessagePolling && _selectedIndex == 5;
 
@@ -78,27 +77,27 @@ class _AppShellState extends State<AppShell> with WindowListener {
     return switch (serverStatus) {
       ServerStatus.starting => const _ServerLoadingView(),
       ServerStatus.failed => _ServerFailedView(
-        onRetry: () => context.read<ApiServerController>().retry(),
-        errorMessage: context.watch<ApiServerController>().errorMessage,
-      ),
-      ServerStatus.ready => _AuthGate(
-        child: _AppContent(
-          selectedIndex: _selectedIndex,
-          sidebarCollapsed: _sidebarCollapsed,
-          onToggleSidebarCollapsed: () {
-            setState(() => _sidebarCollapsed = !_sidebarCollapsed);
-          },
-          onItemSelected: (i) {
-            setState(() => _selectedIndex = i);
-            if (i == 0) {
-              WidgetsBinding.instance.addPostFrameCallback((_) {
-                if (!mounted) return;
-                context.read<DashboardController>().refresh();
-              });
-            }
-          },
+          onRetry: () => context.read<ApiServerController>().retry(),
+          errorMessage: context.watch<ApiServerController>().errorMessage,
         ),
-      ),
+      ServerStatus.ready => _AuthGate(
+          child: _AppContent(
+            selectedIndex: _selectedIndex,
+            sidebarCollapsed: _sidebarCollapsed,
+            onToggleSidebarCollapsed: () {
+              setState(() => _sidebarCollapsed = !_sidebarCollapsed);
+            },
+            onItemSelected: (i) {
+              setState(() => _selectedIndex = i);
+              if (i == 0) {
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  if (!mounted) return;
+                  context.read<DashboardController>().refresh();
+                });
+              }
+            },
+          ),
+        ),
     };
   }
 }
@@ -516,16 +515,15 @@ class _AuthGateState extends State<_AuthGate> {
 
     return switch (auth.status) {
       AuthStatus.checking || AuthStatus.signingIn => const _AuthLoadingView(),
-      AuthStatus.authenticated =>
-        _googleAccessReady
-            ? widget.child
-            : _GooglePermissionsGate(
-                syncing: _syncingGoogleAccess,
-                launching: _launchAttempted,
-                errorMessage: _googleAccessError,
-                onContinue: _beginGoogleAccessSetup,
-                onRefresh: _checkGoogleAccess,
-              ),
+      AuthStatus.authenticated => _googleAccessReady
+          ? widget.child
+          : _GooglePermissionsGate(
+              syncing: _syncingGoogleAccess,
+              launching: _launchAttempted,
+              errorMessage: _googleAccessError,
+              onContinue: _beginGoogleAccessSetup,
+              onRefresh: _checkGoogleAccess,
+            ),
       AuthStatus.unauthenticated => const _LoginView(),
     };
   }
@@ -562,15 +560,13 @@ class _AuthGateState extends State<_AuthGate> {
     final accounts = integrations.accounts;
     final calendarAccount = _accountFor(accounts, 'google_calendar');
     final gmailAccount = _accountFor(accounts, 'gmail');
-    final calendarReady =
-        calendarAccount != null &&
+    final calendarReady = calendarAccount != null &&
         calendarAccount.connected == true &&
         calendarAccount.scope?.contains(
               'https://www.googleapis.com/auth/calendar.readonly',
             ) ==
             true;
-    final gmailReady =
-        gmailAccount != null &&
+    final gmailReady = gmailAccount != null &&
         gmailAccount.connected == true &&
         gmailAccount.scope?.contains(
               'https://www.googleapis.com/auth/gmail.metadata',
@@ -742,8 +738,8 @@ class _GooglePermissionsGate extends StatelessWidget {
                             syncing
                                 ? 'Google permissions granted. Syncing Gmail and Calendar now...'
                                 : launching
-                                ? 'Waiting for Google permissions to complete in your browser...'
-                                : 'A browser window will open for one-time Google consent.',
+                                    ? 'Waiting for Google permissions to complete in your browser...'
+                                    : 'A browser window will open for one-time Google consent.',
                           ),
                         ),
                       ],
@@ -803,9 +799,9 @@ class _LoginView extends StatelessWidget {
               Text(
                 'Sign in to Rhythm',
                 style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                  color: const Color(0xFF111827),
-                  fontWeight: FontWeight.w700,
-                ),
+                      color: const Color(0xFF111827),
+                      fontWeight: FontWeight.w700,
+                    ),
               ),
               const SizedBox(height: 12),
               const Text(
@@ -822,9 +818,8 @@ class _LoginView extends StatelessWidget {
                 child: FilledButton.icon(
                   onPressed: auth.status == AuthStatus.signingIn
                       ? null
-                      : () => context
-                            .read<AuthSessionService>()
-                            .signInWithGoogle(),
+                      : () =>
+                          context.read<AuthSessionService>().signInWithGoogle(),
                   icon: const Icon(Icons.login),
                   label: const Text('Continue with Google'),
                 ),

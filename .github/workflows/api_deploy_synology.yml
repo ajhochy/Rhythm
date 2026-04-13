@@ -14,9 +14,12 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      packages: write
     defaults:
       run:
         working-directory: apps/api_server
+    env:
+      RHYTHM_API_IMAGE: ghcr.io/${{ github.repository_owner }}/rhythm-api
     steps:
       - uses: actions/checkout@v4
 
@@ -28,9 +31,37 @@ jobs:
 
       - name: Verify API server
         run: |
-          npm install
+          npm install --workspaces=false
           npm test
           npm run build
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.RHYTHM_API_IMAGE }}
+          tags: |
+            type=raw,value=main
+            type=sha,format=short
+
+      - name: Build and push API image
+        uses: docker/build-push-action@v6
+        with:
+          context: apps/api_server
+          file: apps/api_server/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
 
       - name: Deploy on Synology via SSH
         uses: appleboy/ssh-action@v1.2.0
@@ -45,4 +76,7 @@ jobs:
             git checkout main
             git pull --ff-only origin main
             cd apps/api_server
-            docker compose --env-file .env.production -f docker-compose.synology.yml up -d --build
+            echo "${{ secrets.GHCR_READ_TOKEN }}" | docker login ghcr.io -u "${{ secrets.GHCR_USERNAME }}" --password-stdin
+            export RHYTHM_API_IMAGE=${{ env.RHYTHM_API_IMAGE }}:main
+            docker compose --env-file .env.production -f docker-compose.synology.yml pull
+            docker compose --env-file .env.production -f docker-compose.synology.yml up -d

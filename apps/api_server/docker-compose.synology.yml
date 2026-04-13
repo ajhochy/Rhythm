@@ -1,8 +1,6 @@
 services:
   rhythm-api:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    image: ${RHYTHM_API_IMAGE:-ghcr.io/ajhochy/rhythm-api:main}
     container_name: rhythm-api
     restart: unless-stopped
     ports:
