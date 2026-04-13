@@ -20,6 +20,8 @@ client can be deployed later, but it is not part of the current hosted rollout.
   - [`apps/api_server/.dockerignore`](../../apps/api_server/.dockerignore)
   - [`apps/api_server/docker-compose.synology.yml`](../../apps/api_server/docker-compose.synology.yml)
   - [`apps/api_server/.env.production.example`](../../apps/api_server/.env.production.example)
+- GitHub Actions deploy workflow:
+  - [`.github/workflows/api_deploy_synology.yml`](../../.github/workflows/api_deploy_synology.yml)
 
 ## API deployment requirements
 
@@ -27,14 +29,22 @@ client can be deployed later, but it is not part of the current hosted rollout.
 
 Suggested deployment path:
 
-1. Copy or pull the repo to the Synology.
+1. Copy or pull the repo to the Synology once so the compose file and env file exist there.
 2. In `apps/api_server`, create `.env.production` from `.env.production.example`.
 3. Fill in the real OAuth, Planning Center, and Cloudflare values.
-4. Start the API and tunnel:
+4. Log in to GHCR on the Synology host:
+
+```bash
+echo '<ghcr-read-token>' | docker login ghcr.io -u '<github-username>' --password-stdin
+```
+
+5. Pull and start the API and tunnel:
 
 ```bash
 cd apps/api_server
-docker compose -f docker-compose.synology.yml up -d --build
+export RHYTHM_API_IMAGE=ghcr.io/ajhochy/rhythm-api:main
+docker compose -f docker-compose.synology.yml pull
+docker compose -f docker-compose.synology.yml up -d
 ```
 
 The compose file expects:
@@ -42,10 +52,7 @@ The compose file expects:
 - persistent SQLite volume mounted at `/data`
 - API exposed internally on port `4000`
 - Cloudflare tunnel token in `.env.production`
-
-The repo workflow for this path is:
-
-- [`.github/workflows/api_deploy_synology.yml`](../../.github/workflows/api_deploy_synology.yml)
+- API image available in GHCR
 
 ### Production API environment
 
@@ -113,16 +120,17 @@ Local development builds should keep:
 
 ### Secrets
 
-- `CLOUDFLARE_API_TOKEN`
-- `CLOUDFLARE_ACCOUNT_ID`
 - `SYNOLOGY_HOST`
 - `SYNOLOGY_USERNAME`
 - `SYNOLOGY_SSH_KEY`
 - `SYNOLOGY_DEPLOY_PATH`
+- `GHCR_USERNAME`
+- `GHCR_READ_TOKEN`
 
 ## Notes
 
 - The current production-ready deployment path still assumes SQLite.
 - `#64` is the follow-up issue for moving to a hosted production database.
-- This document does not automate Synology deploys by itself; it defines the
-  expected runtime inputs and repo artifacts needed to do so.
+- The GitHub workflow now publishes the API image to GHCR and deploys by pull,
+  so Synology no longer needs to build the API container locally for routine
+  updates.
