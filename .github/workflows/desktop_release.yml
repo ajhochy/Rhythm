@@ -137,7 +137,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: rhythm-macos-${{ inputs.version }}
-          path: dist/*
+          path: apps/desktop_flutter/dist/*
 
       - name: Publish GitHub release
         uses: softprops/action-gh-release@v2
