@@ -3,7 +3,6 @@ import '../../integrations/models/planning_center_task_options.dart';
 import '../data/automation_rules_data_source.dart';
 import '../models/automation_catalog.dart';
 import '../models/automation_rule.dart';
-import '../models/automation_condition.dart';
 
 class AutomationRulesRepository {
   AutomationRulesRepository(this._dataSource);
