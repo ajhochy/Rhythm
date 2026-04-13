@@ -62,21 +62,3 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-
-      - name: Deploy on Synology via SSH
-        uses: appleboy/ssh-action@v1.2.0
-        with:
-          host: ${{ secrets.SYNOLOGY_HOST }}
-          username: ${{ secrets.SYNOLOGY_USERNAME }}
-          key: ${{ secrets.SYNOLOGY_SSH_KEY }}
-          script: |
-            set -e
-            cd "${{ secrets.SYNOLOGY_DEPLOY_PATH }}"
-            git fetch origin
-            git checkout main
-            git pull --ff-only origin main
-            cd apps/api_server
-            echo "${{ secrets.GHCR_READ_TOKEN }}" | docker login ghcr.io -u "${{ secrets.GHCR_USERNAME }}" --password-stdin
-            export RHYTHM_API_IMAGE=${{ env.RHYTHM_API_IMAGE }}:main
-            docker compose --env-file .env.production -f docker-compose.synology.yml pull
-            docker compose --env-file .env.production -f docker-compose.synology.yml up -d
