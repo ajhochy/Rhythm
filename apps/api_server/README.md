@@ -28,6 +28,6 @@ For the Synology + Cloudflare deployment track:
 Relevant production settings:
 
 - `DB_PATH=/data/rhythm.db`
-- `CORS_ALLOWED_ORIGINS=https://app.vcrcapps.com`
+- `CORS_ALLOWED_ORIGINS=<hosted client origins>`
 - `GOOGLE_REDIRECT_URI=https://api.vcrcapps.com/auth/google/callback`
 - `PCO_REDIRECT_URI=https://api.vcrcapps.com/auth/planning-center/callback`
