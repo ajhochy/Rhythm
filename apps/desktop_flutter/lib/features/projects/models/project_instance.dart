@@ -1,3 +1,5 @@
+import '../../tasks/models/task_collaborator.dart';
+
 class ProjectInstanceStep {
   ProjectInstanceStep({
     required this.id,
@@ -39,6 +41,8 @@ class ProjectInstance {
     required this.status,
     required this.createdAt,
     required this.steps,
+    this.ownerId,
+    this.collaborators = const [],
   });
 
   factory ProjectInstance.fromJson(Map<String, dynamic> json) {
@@ -53,6 +57,11 @@ class ProjectInstance {
       status: json['status'] as String? ?? 'active',
       createdAt: json['createdAt'] as String,
       steps: stepList,
+      ownerId: json['ownerId'] as int?,
+      collaborators: ((json['collaborators'] as List<dynamic>?) ?? const [])
+          .map((item) =>
+              TaskCollaborator.fromJson(item as Map<String, dynamic>))
+          .toList(),
     );
   }
 
@@ -63,4 +72,6 @@ class ProjectInstance {
   final String status;
   final String createdAt;
   final List<ProjectInstanceStep> steps;
+  final int? ownerId;
+  final List<TaskCollaborator> collaborators;
 }

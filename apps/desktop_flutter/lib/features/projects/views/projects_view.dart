@@ -11,6 +11,9 @@ import '../models/project_template.dart';
 import '../models/project_template_step.dart';
 import '../services/project_generation_service.dart';
 import '../../../app/core/services/server_config_service.dart';
+import '../../../app/core/workspace/workspace_controller.dart';
+import '../../../shared/widgets/collaborators_row.dart';
+import '../../tasks/data/collaborators_data_source.dart';
 
 class ProjectsView extends StatefulWidget {
   const ProjectsView({super.key});
@@ -1085,12 +1088,36 @@ class _InstanceCard extends StatelessWidget {
           tooltip: 'Delete active project',
           onPressed: () => onDeleteInstance(instance.id),
         ),
-        children: visibleSteps
-            .map((step) => _InstanceStepTile(
-                  step: step,
-                  onUpdateStep: onUpdateStep,
-                ))
-            .toList(),
+        children: [
+          if (instance.ownerId != null)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(8, 4, 8, 4),
+              child: CollaboratorsRow(
+                collaborators: instance.collaborators,
+                ownerId: instance.ownerId!,
+                workspaceMembers:
+                    context.read<WorkspaceController>().members,
+                onAdd: (userId) async {
+                  final ds = CollaboratorsDataSource();
+                  await ds.addToProject(instance.id, userId);
+                  await context
+                      .read<ProjectTemplateController>()
+                      .load();
+                },
+                onRemove: (userId) async {
+                  final ds = CollaboratorsDataSource();
+                  await ds.removeFromProject(instance.id, userId);
+                  await context
+                      .read<ProjectTemplateController>()
+                      .load();
+                },
+              ),
+            ),
+          ...visibleSteps.map((step) => _InstanceStepTile(
+                step: step,
+                onUpdateStep: onUpdateStep,
+              )),
+        ],
       ),
     );
   }
