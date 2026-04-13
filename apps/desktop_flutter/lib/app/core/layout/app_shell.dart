@@ -21,6 +21,7 @@ import '../../../features/tasks/views/tasks_view.dart';
 import '../../../features/weekly_planner/views/weekly_planner_view.dart';
 import '../server/api_server_controller.dart';
 import '../auth/auth_session_service.dart';
+import '../workspace/workspace_onboarding_view.dart';
 import '../updates/update_controller.dart';
 import '../constants/app_constants.dart';
 import 'navigation_sidebar.dart';
@@ -516,7 +517,7 @@ class _AuthGateState extends State<_AuthGate> {
     return switch (auth.status) {
       AuthStatus.checking || AuthStatus.signingIn => const _AuthLoadingView(),
       AuthStatus.authenticated => _googleAccessReady
-          ? widget.child
+          ? (auth.hasWorkspace ? widget.child : const WorkspaceOnboardingView())
           : _GooglePermissionsGate(
               syncing: _syncingGoogleAccess,
               launching: _launchAttempted,

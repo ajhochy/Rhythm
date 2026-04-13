@@ -148,6 +148,19 @@ class AuthSessionService extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> refreshFromServer() async {
+    if (_sessionToken == null) return;
+    try {
+      final meResponse = await _dataSource.me(_sessionToken!);
+      _currentUser = meResponse.user;
+      _currentWorkspace = meResponse.workspace;
+      _workspaceRole = meResponse.workspaceRole;
+      notifyListeners();
+    } catch (_) {
+      // Silently fail — caller can handle if needed
+    }
+  }
+
   Future<void> _clearLocalSession() async {
     _sessionToken = null;
     _currentUser = null;
