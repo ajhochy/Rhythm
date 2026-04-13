@@ -76,8 +76,8 @@ class AutomationRule {
       id: asString(json['id']) ?? '',
       name: asString(json['name']) ?? '',
       source: asString(json['source']) ?? 'rhythm',
-      triggerKey:
-          asString(json['triggerKey']) ?? _legacyTriggerKey(asString(json['triggerType'])),
+      triggerKey: asString(json['triggerKey']) ??
+          _legacyTriggerKey(asString(json['triggerType'])),
       triggerConfig: json['triggerConfig'] as Map<String, dynamic>?,
       actionType: asString(json['actionType']) ?? '',
       actionConfig: json['actionConfig'] as Map<String, dynamic>?,
