@@ -65,7 +65,7 @@
 - Modify: `apps/api_server/src/database/migrations.ts`
 - Modify: `apps/api_server/src/database/postgres_bootstrap.ts`
 
-- [ ] **Step 1: Add new tables to SQLite migrations**
+- [x] **Step 1: Add new tables to SQLite migrations**
 
 At the end of `runMigrations` in `migrations.ts`, add:
 
@@ -119,7 +119,7 @@ At the end of `runMigrations` in `migrations.ts`, add:
   }
 ```
 
-- [ ] **Step 2: Add same tables to Postgres bootstrap**
+- [x] **Step 2: Add same tables to Postgres bootstrap**
 
 In `postgres_bootstrap.ts`, inside `runPostgresBootstrap`, add after existing `CREATE TABLE IF NOT EXISTS` blocks:
 
@@ -161,14 +161,14 @@ In `postgres_bootstrap.ts`, inside `runPostgresBootstrap`, add after existing `C
   await pool.query(`ALTER TABLE message_threads ADD COLUMN IF NOT EXISTS thread_type TEXT NOT NULL DEFAULT 'direct'`);
 ```
 
-- [ ] **Step 3: Verify migrations run cleanly**
+- [x] **Step 3: Verify migrations run cleanly**
 
 ```bash
 cd apps/api_server && npm test
 ```
 Expected: all existing tests pass, no migration errors.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add apps/api_server/src/database/migrations.ts apps/api_server/src/database/postgres_bootstrap.ts
@@ -184,7 +184,7 @@ git commit -m "feat: add workspace, collaborator, and messaging schema migration
 - Create: `apps/api_server/src/repositories/workspace_repository.ts`
 - Create: `apps/api_server/src/__tests__/workspace.test.ts`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Create `apps/api_server/src/__tests__/workspace.test.ts`:
 
@@ -276,14 +276,14 @@ describe('WorkspaceRepository', () => {
 });
 ```
 
-- [ ] **Step 2: Run tests to confirm they fail**
+- [x] **Step 2: Run tests to confirm they fail**
 
 ```bash
 cd apps/api_server && npm test -- workspace
 ```
 Expected: FAIL — `WorkspaceRepository` not found.
 
-- [ ] **Step 3: Create workspace model**
+- [x] **Step 3: Create workspace model**
 
 Create `apps/api_server/src/models/workspace.ts`:
 
@@ -315,7 +315,7 @@ export interface CreateWorkspaceDto {
 }
 ```
 
-- [ ] **Step 4: Create workspace repository**
+- [x] **Step 4: Create workspace repository**
 
 Create `apps/api_server/src/repositories/workspace_repository.ts`:
 
@@ -582,14 +582,14 @@ export class WorkspaceRepository {
 }
 ```
 
-- [ ] **Step 5: Run tests**
+- [x] **Step 5: Run tests**
 
 ```bash
 cd apps/api_server && npm test -- workspace
 ```
 Expected: all workspace tests PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add apps/api_server/src/models/workspace.ts apps/api_server/src/repositories/workspace_repository.ts apps/api_server/src/__tests__/workspace.test.ts
@@ -605,7 +605,7 @@ git commit -m "feat: add workspace model, repository, and tests"
 - Create: `apps/api_server/src/routes/workspace_routes.ts`
 - Modify: `apps/api_server/src/app.ts`
 
-- [ ] **Step 1: Create workspace controller**
+- [x] **Step 1: Create workspace controller**
 
 Create `apps/api_server/src/controllers/workspace_controller.ts`:
 
@@ -699,7 +699,7 @@ export class WorkspaceController {
 }
 ```
 
-- [ ] **Step 2: Check AppError has a `forbidden` method**
+- [x] **Step 2: Check AppError has a `forbidden` method**
 
 ```bash
 grep -n "forbidden\|static " apps/api_server/src/errors/app_error.ts | head -20
@@ -713,7 +713,7 @@ static forbidden(message = 'Forbidden'): AppError {
 }
 ```
 
-- [ ] **Step 3: Create workspace routes**
+- [x] **Step 3: Create workspace routes**
 
 Create `apps/api_server/src/routes/workspace_routes.ts`:
 
@@ -735,7 +735,7 @@ workspaceRouter.delete('/me/members/:userId', controller.removeMember.bind(contr
 workspaceRouter.post('/me/join-code/regenerate', controller.regenerateJoinCode.bind(controller));
 ```
 
-- [ ] **Step 4: Register workspace router in app.ts**
+- [x] **Step 4: Register workspace router in app.ts**
 
 In `apps/api_server/src/app.ts`, add the import and route:
 
@@ -747,14 +747,14 @@ import { workspaceRouter } from './routes/workspace_routes';
 app.use('/workspaces', workspaceRouter);
 ```
 
-- [ ] **Step 5: Run all tests**
+- [x] **Step 5: Run all tests**
 
 ```bash
 cd apps/api_server && npm test
 ```
 Expected: all tests PASS.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add apps/api_server/src/controllers/workspace_controller.ts apps/api_server/src/routes/workspace_routes.ts apps/api_server/src/app.ts apps/api_server/src/errors/app_error.ts
@@ -768,7 +768,7 @@ git commit -m "feat: add workspace API endpoints"
 **Files:**
 - Modify: `apps/api_server/src/controllers/auth_controller.ts`
 
-- [ ] **Step 1: Write a failing test**
+- [x] **Step 1: Write a failing test**
 
 In `apps/api_server/src/__tests__/workspace.test.ts`, add:
 
@@ -800,14 +800,14 @@ it('/auth/me includes workspace and workspaceRole when user has a workspace', as
 });
 ```
 
-- [ ] **Step 2: Run to confirm it passes (it's testing the repo, not the controller)**
+- [x] **Step 2: Run to confirm it passes (it's testing the repo, not the controller)**
 
 ```bash
 cd apps/api_server && npm test -- workspace
 ```
 Expected: PASS.
 
-- [ ] **Step 3: Update auth_controller.ts `me` handler**
+- [x] **Step 3: Update auth_controller.ts `me` handler**
 
 Replace the existing `me` method in `apps/api_server/src/controllers/auth_controller.ts`:
 
@@ -842,14 +842,14 @@ async me(req: Request, res: Response, next: NextFunction) {
 }
 ```
 
-- [ ] **Step 4: Run all tests**
+- [x] **Step 4: Run all tests**
 
 ```bash
 cd apps/api_server && npm test
 ```
 Expected: all tests PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/api_server/src/controllers/auth_controller.ts
@@ -867,7 +867,7 @@ git commit -m "feat: enrich /auth/me with workspace context and role"
 - Modify: `apps/api_server/src/routes/tasks_routes.ts`
 - Modify: `apps/api_server/src/__tests__/workspace.test.ts`
 
-- [ ] **Step 1: Write failing tests for task collaborators**
+- [x] **Step 1: Write failing tests for task collaborators**
 
 Add to `apps/api_server/src/__tests__/workspace.test.ts`:
 
@@ -903,14 +903,14 @@ it('removing a collaborator removes the task from their list', () => {
 });
 ```
 
-- [ ] **Step 2: Run to confirm failure**
+- [x] **Step 2: Run to confirm failure**
 
 ```bash
 cd apps/api_server && npm test -- workspace
 ```
 Expected: FAIL — `addCollaborator` not a function.
 
-- [ ] **Step 3: Update Task model**
+- [x] **Step 3: Update Task model**
 
 In `apps/api_server/src/models/task.ts`, add fields:
 
@@ -932,7 +932,7 @@ export interface CreateTaskDto {
 }
 ```
 
-- [ ] **Step 4: Add collaborator methods to TasksRepository**
+- [x] **Step 4: Add collaborator methods to TasksRepository**
 
 In `apps/api_server/src/repositories/tasks_repository.ts`:
 
@@ -1029,14 +1029,14 @@ async listCollaboratorsAsync(taskId: string): Promise<Array<{ userId: number; na
 }
 ```
 
-- [ ] **Step 5: Run tests**
+- [x] **Step 5: Run tests**
 
 ```bash
 cd apps/api_server && npm test -- workspace
 ```
 Expected: task collaborator tests PASS.
 
-- [ ] **Step 6: Add collaborator handlers to tasks controller**
+- [x] **Step 6: Add collaborator handlers to tasks controller**
 
 In `apps/api_server/src/controllers/tasks_controller.ts`, add three methods to `TasksController`:
 
@@ -1071,7 +1071,7 @@ async removeCollaborator(req: Request, res: Response, next: NextFunction) {
 }
 ```
 
-- [ ] **Step 7: Add collaborator routes**
+- [x] **Step 7: Add collaborator routes**
 
 In `apps/api_server/src/routes/tasks_routes.ts`, add after existing routes:
 
@@ -1081,14 +1081,14 @@ tasksRouter.post('/:id/collaborators', controller.addCollaborator.bind(controlle
 tasksRouter.delete('/:id/collaborators/:userId', controller.removeCollaborator.bind(controller));
 ```
 
-- [ ] **Step 8: Run all tests**
+- [x] **Step 8: Run all tests**
 
 ```bash
 cd apps/api_server && npm test
 ```
 Expected: all tests PASS.
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```bash
 git add apps/api_server/src/models/task.ts apps/api_server/src/repositories/tasks_repository.ts apps/api_server/src/controllers/tasks_controller.ts apps/api_server/src/routes/tasks_routes.ts apps/api_server/src/__tests__/workspace.test.ts
@@ -1103,7 +1103,7 @@ git commit -m "feat: add task collaborators API"
 - Modify: `apps/api_server/src/repositories/project_instances_repository.ts`
 - Modify: `apps/api_server/src/routes/project_instances_routes.ts`
 
-- [ ] **Step 1: Add collaborator methods to ProjectInstancesRepository**
+- [x] **Step 1: Add collaborator methods to ProjectInstancesRepository**
 
 In `apps/api_server/src/repositories/project_instances_repository.ts`, add at the end of the class (same pattern as tasks):
 
@@ -1174,7 +1174,7 @@ async listCollaboratorsAsync(projectInstanceId: string): Promise<Array<{ userId:
 }
 ```
 
-- [ ] **Step 2: Add routes**
+- [x] **Step 2: Add routes**
 
 In `apps/api_server/src/routes/project_instances_routes.ts`, find the file and add after existing instance routes (keep the existing /:id/steps routes):
 
@@ -1188,7 +1188,7 @@ projectInstancesRouter.post('/:id/collaborators', controller.addCollaborator.bin
 projectInstancesRouter.delete('/:id/collaborators/:userId', controller.removeCollaborator.bind(controller));
 ```
 
-- [ ] **Step 3: Add controller handlers**
+- [x] **Step 3: Add controller handlers**
 
 In `apps/api_server/src/controllers/project_instances_controller.ts`, add:
 
@@ -1223,14 +1223,14 @@ async removeCollaborator(req: Request, res: Response, next: NextFunction) {
 }
 ```
 
-- [ ] **Step 4: Run all tests**
+- [x] **Step 4: Run all tests**
 
 ```bash
 cd apps/api_server && npm test
 ```
 Expected: all tests PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add apps/api_server/src/repositories/project_instances_repository.ts apps/api_server/src/controllers/project_instances_controller.ts apps/api_server/src/routes/project_instances_routes.ts
@@ -1246,7 +1246,7 @@ git commit -m "feat: add project instance collaborators API"
 - Modify: `apps/api_server/src/repositories/messages_repository.ts`
 - Modify: `apps/api_server/src/controllers/messages_controller.ts`
 
-- [ ] **Step 1: Write failing tests**
+- [x] **Step 1: Write failing tests**
 
 Add to `apps/api_server/src/__tests__/workspace.test.ts`:
 
@@ -1286,14 +1286,14 @@ it('messages include senderPhotoUrl from user record', () => {
 });
 ```
 
-- [ ] **Step 2: Run to confirm failure**
+- [x] **Step 2: Run to confirm failure**
 
 ```bash
 cd apps/api_server && npm test -- workspace
 ```
 Expected: FAIL — `threadType` not accepted, group participant count fails.
 
-- [ ] **Step 3: Update message model**
+- [x] **Step 3: Update message model**
 
 In `apps/api_server/src/models/message.ts`:
 
@@ -1315,7 +1315,7 @@ export interface CreateThreadDto {
 }
 ```
 
-- [ ] **Step 4: Update MessagesRepository**
+- [x] **Step 4: Update MessagesRepository**
 
 In `apps/api_server/src/repositories/messages_repository.ts`:
 
@@ -1422,7 +1422,7 @@ findMessagesByThread(threadId: number, userId: number): Message[] {
 
 Apply the same join to `findMessagesByThreadAsync`.
 
-- [ ] **Step 5: Update messages controller to accept threadType**
+- [x] **Step 5: Update messages controller to accept threadType**
 
 In `apps/api_server/src/controllers/messages_controller.ts`, update `createThread`:
 
@@ -1446,14 +1446,14 @@ async createThread(req: Request, res: Response, next: NextFunction) {
 }
 ```
 
-- [ ] **Step 6: Run all tests**
+- [x] **Step 6: Run all tests**
 
 ```bash
 cd apps/api_server && npm test
 ```
 Expected: all tests PASS.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add apps/api_server/src/models/message.ts apps/api_server/src/repositories/messages_repository.ts apps/api_server/src/controllers/messages_controller.ts apps/api_server/src/__tests__/workspace.test.ts
@@ -1470,7 +1470,7 @@ git commit -m "feat: support group message threads and real sender identity"
 - Modify: `apps/desktop_flutter/lib/app/core/auth/auth_data_source.dart`
 - Modify: `apps/desktop_flutter/lib/app/core/auth/auth_session_service.dart`
 
-- [ ] **Step 1: Write failing test**
+- [x] **Step 1: Write failing test**
 
 Create `apps/desktop_flutter/test/workspace_test.dart`:
 
@@ -1523,14 +1523,14 @@ void main() {
 }
 ```
 
-- [ ] **Step 2: Run to confirm failure**
+- [x] **Step 2: Run to confirm failure**
 
 ```bash
 cd apps/desktop_flutter && flutter test test/workspace_test.dart
 ```
 Expected: FAIL — `workspace_models.dart` not found.
 
-- [ ] **Step 3: Create workspace models**
+- [x] **Step 3: Create workspace models**
 
 Create `apps/desktop_flutter/lib/app/core/workspace/workspace_models.dart`:
 
@@ -1611,14 +1611,14 @@ class MeResponse {
 }
 ```
 
-- [ ] **Step 4: Run test**
+- [x] **Step 4: Run test**
 
 ```bash
 cd apps/desktop_flutter && flutter test test/workspace_test.dart
 ```
 Expected: PASS.
 
-- [ ] **Step 5: Update AuthDataSource.me() to return MeResponse**
+- [x] **Step 5: Update AuthDataSource.me() to return MeResponse**
 
 In `apps/desktop_flutter/lib/app/core/auth/auth_data_source.dart`:
 
@@ -1638,7 +1638,7 @@ Future<MeResponse> me(String sessionToken) async {
 }
 ```
 
-- [ ] **Step 6: Update AuthSessionService to store workspace context**
+- [x] **Step 6: Update AuthSessionService to store workspace context**
 
 In `apps/desktop_flutter/lib/app/core/auth/auth_session_service.dart`:
 
@@ -1675,14 +1675,14 @@ Future<void> refreshWorkspace() async {
 }
 ```
 
-- [ ] **Step 7: Run all Flutter tests**
+- [x] **Step 7: Run all Flutter tests**
 
 ```bash
 cd apps/desktop_flutter && flutter test
 ```
 Expected: all tests PASS (some may need updated imports — fix any that break due to `me()` return type change).
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add apps/desktop_flutter/lib/app/core/workspace/workspace_models.dart apps/desktop_flutter/lib/app/core/auth/auth_data_source.dart apps/desktop_flutter/lib/app/core/auth/auth_session_service.dart apps/desktop_flutter/test/workspace_test.dart
@@ -1698,7 +1698,7 @@ git commit -m "feat: add workspace models and enrich auth session with workspace
 - Create: `apps/desktop_flutter/lib/app/core/workspace/workspace_repository.dart`
 - Create: `apps/desktop_flutter/lib/app/core/workspace/workspace_controller.dart`
 
-- [ ] **Step 1: Create workspace data source**
+- [x] **Step 1: Create workspace data source**
 
 Create `apps/desktop_flutter/lib/app/core/workspace/workspace_data_source.dart`:
 
@@ -1777,7 +1777,7 @@ class WorkspaceDataSource {
 }
 ```
 
-- [ ] **Step 2: Create workspace repository**
+- [x] **Step 2: Create workspace repository**
 
 Create `apps/desktop_flutter/lib/app/core/workspace/workspace_repository.dart`:
 
@@ -1800,7 +1800,7 @@ class WorkspaceRepository {
 }
 ```
 
-- [ ] **Step 3: Create workspace controller**
+- [x] **Step 3: Create workspace controller**
 
 Create `apps/desktop_flutter/lib/app/core/workspace/workspace_controller.dart`:
 
@@ -1853,7 +1853,7 @@ class WorkspaceController extends ChangeNotifier {
 }
 ```
 
-- [ ] **Step 4: Wire WorkspaceController into main.dart**
+- [x] **Step 4: Wire WorkspaceController into main.dart**
 
 In `apps/desktop_flutter/lib/main.dart`, add the WorkspaceController provider alongside existing providers:
 
@@ -1871,14 +1871,14 @@ ChangeNotifierProvider(
 ),
 ```
 
-- [ ] **Step 5: Run Flutter tests and analyze**
+- [x] **Step 5: Run Flutter tests and analyze**
 
 ```bash
 cd apps/desktop_flutter && flutter test && flutter analyze --no-fatal-infos
 ```
 Expected: tests PASS, no analysis errors.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add apps/desktop_flutter/lib/app/core/workspace/ apps/desktop_flutter/lib/main.dart
@@ -1893,7 +1893,7 @@ git commit -m "feat: add workspace data source, repository, and controller"
 - Create: `apps/desktop_flutter/lib/app/core/workspace/workspace_onboarding_view.dart`
 - Modify: `apps/desktop_flutter/lib/app/core/layout/app_shell.dart`
 
-- [ ] **Step 1: Create WorkspaceOnboardingView**
+- [x] **Step 1: Create WorkspaceOnboardingView**
 
 Create `apps/desktop_flutter/lib/app/core/workspace/workspace_onboarding_view.dart`:
 
@@ -2057,7 +2057,7 @@ class _WorkspaceOnboardingViewState extends State<WorkspaceOnboardingView> {
 }
 ```
 
-- [ ] **Step 2: Gate AppShell on workspace membership**
+- [x] **Step 2: Gate AppShell on workspace membership**
 
 In `apps/desktop_flutter/lib/app/core/layout/app_shell.dart`, find the section that handles `AuthStatus.authenticated` (where the main app UI is shown) and add a workspace check.
 
@@ -2078,14 +2078,14 @@ if (authService.isAuthenticated && !authService.hasWorkspace) {
 
 The exact placement depends on where authentication state is checked in `app_shell.dart`. Read the file if needed and insert the workspace gate immediately after the `AuthStatus.authenticated` branch is confirmed and before the main scaffold is returned.
 
-- [ ] **Step 3: Run Flutter analyze**
+- [x] **Step 3: Run Flutter analyze**
 
 ```bash
 cd apps/desktop_flutter && flutter analyze --no-fatal-infos
 ```
 Expected: no errors.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add apps/desktop_flutter/lib/app/core/workspace/workspace_onboarding_view.dart apps/desktop_flutter/lib/app/core/layout/app_shell.dart
@@ -2099,13 +2099,13 @@ git commit -m "feat: add workspace onboarding view and app shell gate"
 **Files:**
 - Modify: `apps/desktop_flutter/lib/features/settings/views/settings_view.dart`
 
-- [ ] **Step 1: Read current settings view structure**
+- [x] **Step 1: Read current settings view structure**
 
 ```bash
 head -60 apps/desktop_flutter/lib/features/settings/views/settings_view.dart
 ```
 
-- [ ] **Step 2: Add workspace section to settings**
+- [x] **Step 2: Add workspace section to settings**
 
 Add a workspace management section to `settings_view.dart`. Insert after existing settings content:
 
@@ -2238,14 +2238,14 @@ class _MemberTile extends StatelessWidget {
 }
 ```
 
-- [ ] **Step 3: Run Flutter analyze**
+- [x] **Step 3: Run Flutter analyze**
 
 ```bash
 cd apps/desktop_flutter && flutter analyze --no-fatal-infos
 ```
 Expected: no errors.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add apps/desktop_flutter/lib/features/settings/views/settings_view.dart
@@ -2263,7 +2263,7 @@ git commit -m "feat: add workspace management section to settings"
 - Modify: `apps/desktop_flutter/lib/features/tasks/models/task.dart`
 - Modify: `apps/desktop_flutter/lib/features/tasks/views/tasks_view.dart`
 
-- [ ] **Step 1: Create TaskCollaborator model**
+- [x] **Step 1: Create TaskCollaborator model**
 
 Create `apps/desktop_flutter/lib/features/tasks/models/task_collaborator.dart`:
 
@@ -2291,7 +2291,7 @@ class TaskCollaborator {
 }
 ```
 
-- [ ] **Step 2: Add isShared + collaborators to Task model**
+- [x] **Step 2: Add isShared + collaborators to Task model**
 
 In `apps/desktop_flutter/lib/features/tasks/models/task.dart`, add fields and update `fromJson`:
 
@@ -2315,7 +2315,7 @@ Add import at top of task.dart:
 import 'task_collaborator.dart';
 ```
 
-- [ ] **Step 3: Create collaborators data source**
+- [x] **Step 3: Create collaborators data source**
 
 Create `apps/desktop_flutter/lib/features/tasks/data/collaborators_data_source.dart`:
 
@@ -2393,7 +2393,7 @@ class CollaboratorsDataSource {
 }
 ```
 
-- [ ] **Step 4: Create shared CollaboratorsRow widget**
+- [x] **Step 4: Create shared CollaboratorsRow widget**
 
 Create `apps/desktop_flutter/lib/shared/widgets/collaborators_row.dart`:
 
@@ -2502,7 +2502,7 @@ class CollaboratorsRow extends StatelessWidget {
 }
 ```
 
-- [ ] **Step 5: Wire CollaboratorsRow into TasksView**
+- [x] **Step 5: Wire CollaboratorsRow into TasksView**
 
 In `apps/desktop_flutter/lib/features/tasks/views/tasks_view.dart`, find the task card/list item widget and add the collaborator row. The exact location depends on the current card structure — read the file and find where task properties like `task.dueDate` are displayed, then add after them:
 
@@ -2545,14 +2545,14 @@ if (task.isShared)
   ),
 ```
 
-- [ ] **Step 6: Run flutter analyze**
+- [x] **Step 6: Run flutter analyze**
 
 ```bash
 cd apps/desktop_flutter && flutter analyze --no-fatal-infos
 ```
 Fix any import or type errors.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add apps/desktop_flutter/lib/features/tasks/models/task_collaborator.dart apps/desktop_flutter/lib/features/tasks/models/task.dart apps/desktop_flutter/lib/features/tasks/data/collaborators_data_source.dart apps/desktop_flutter/lib/shared/widgets/collaborators_row.dart apps/desktop_flutter/lib/features/tasks/views/tasks_view.dart
@@ -2566,13 +2566,13 @@ git commit -m "feat: add task collaborators UI"
 **Files:**
 - Modify: `apps/desktop_flutter/lib/features/projects/views/projects_view.dart`
 
-- [ ] **Step 1: Read projects view structure**
+- [x] **Step 1: Read projects view structure**
 
 ```bash
 head -80 apps/desktop_flutter/lib/features/projects/views/projects_view.dart
 ```
 
-- [ ] **Step 2: Wire CollaboratorsRow into project instance detail**
+- [x] **Step 2: Wire CollaboratorsRow into project instance detail**
 
 In `apps/desktop_flutter/lib/features/projects/views/projects_view.dart`, find the project instance card/detail widget and add the collaborator row using the same `CollaboratorsRow` widget:
 
@@ -2619,13 +2619,13 @@ collaborators: ((json['collaborators'] as List<dynamic>?) ?? const [])
     .toList(),
 ```
 
-- [ ] **Step 3: Run flutter analyze**
+- [x] **Step 3: Run flutter analyze**
 
 ```bash
 cd apps/desktop_flutter && flutter analyze --no-fatal-infos
 ```
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add apps/desktop_flutter/lib/features/projects/ 
@@ -2641,7 +2641,7 @@ git commit -m "feat: add project instance collaborators UI"
 - Modify: `apps/desktop_flutter/lib/features/messages/models/message_thread.dart`
 - Modify: `apps/desktop_flutter/lib/features/messages/views/messages_view.dart`
 
-- [ ] **Step 1: Update Message model**
+- [x] **Step 1: Update Message model**
 
 In `apps/desktop_flutter/lib/features/messages/models/message.dart`, add `senderId` and `senderPhotoUrl`:
 
@@ -2679,7 +2679,7 @@ class Message {
 }
 ```
 
-- [ ] **Step 2: Update MessageThread model**
+- [x] **Step 2: Update MessageThread model**
 
 In `apps/desktop_flutter/lib/features/messages/models/message_thread.dart`, add `threadType`:
 
@@ -2709,7 +2709,7 @@ class MessageThread {
 }
 ```
 
-- [ ] **Step 3: Update MessagesView**
+- [x] **Step 3: Update MessagesView**
 
 In `apps/desktop_flutter/lib/features/messages/views/messages_view.dart`, make these changes:
 
@@ -2832,27 +2832,27 @@ Future<void> _showNewMessageDialog(BuildContext context) async {
 
 4. **MessagesController** — update `createThread` to accept `threadType`. Find `apps/desktop_flutter/lib/features/messages/controllers/messages_controller.dart` and update the `createThread` method signature and data source call to pass `threadType`. Also update the messages data source (`apps/desktop_flutter/lib/features/messages/data/messages_data_source.dart`) to include `threadType` in the POST body.
 
-- [ ] **Step 4: Run flutter analyze**
+- [x] **Step 4: Run flutter analyze**
 
 ```bash
 cd apps/desktop_flutter && flutter analyze --no-fatal-infos
 ```
 Fix any import errors.
 
-- [ ] **Step 5: Run all Flutter tests**
+- [x] **Step 5: Run all Flutter tests**
 
 ```bash
 cd apps/desktop_flutter && flutter test
 ```
 Expected: all tests PASS.
 
-- [ ] **Step 6: Format and final check**
+- [x] **Step 6: Format and final check**
 
 ```bash
 cd apps/desktop_flutter && dart format . && flutter analyze --no-fatal-infos
 ```
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add apps/desktop_flutter/lib/features/messages/
