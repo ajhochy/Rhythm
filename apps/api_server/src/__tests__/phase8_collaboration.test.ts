@@ -90,7 +90,7 @@ describe('Phase 8 collaboration APIs', () => {
       },
       body: JSON.stringify({ userId: collaborator.id }),
     });
-    expect(addResponse.status).toBe(204);
+    expect(addResponse.status).toBe(200);
 
     const collaboratorListResponse = await fetch(`${baseUrl}/recurring-rules`, {
       headers: collaboratorHeaders,
