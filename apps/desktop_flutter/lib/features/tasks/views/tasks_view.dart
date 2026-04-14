@@ -444,20 +444,6 @@ class _TasksViewState extends State<TasksView> {
                       ).copyWith(color: visualStyle.mutedText),
                     ),
                   ],
-                  if (task.isShared) ...[
-                    const SizedBox(height: 8),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 6, vertical: 2),
-                      decoration: BoxDecoration(
-                        color: const Color(0x144F6AF5),
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                      child: const Text('shared',
-                          style: TextStyle(
-                              fontSize: 11, color: Color(0xFF4F6AF5))),
-                    ),
-                  ],
                   if (task.ownerId != null) ...[
                     const SizedBox(height: 8),
                     CollaboratorsRow(
