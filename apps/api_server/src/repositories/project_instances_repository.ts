@@ -23,6 +23,8 @@ interface InstanceStepRow {
   due_date: string;
   status: string;
   notes: string | null;
+  assignee_id: number | null;
+  assignee_name: string | null;
 }
 
 function rowToStep(row: InstanceStepRow): ProjectInstanceStep {
@@ -34,6 +36,8 @@ function rowToStep(row: InstanceStepRow): ProjectInstanceStep {
     dueDate: row.due_date,
     status: row.status as ProjectInstanceStep['status'],
     notes: row.notes ?? null,
+    assigneeId: row.assignee_id ?? null,
+    assigneeName: row.assignee_name ?? null,
   };
 }
 
@@ -91,7 +95,11 @@ export class ProjectInstancesRepository {
   private async getStepsAsync(instanceId: string): Promise<ProjectInstanceStep[]> {
     if (env.dbClient === 'postgres') {
       const result = await getPostgresPool().query<InstanceStepRow>(
-        'SELECT * FROM project_instance_steps WHERE instance_id = $1 ORDER BY due_date ASC',
+        `SELECT pis.*, u.name AS assignee_name
+         FROM project_instance_steps pis
+         LEFT JOIN users u ON u.id = pis.assignee_id
+         WHERE pis.instance_id = $1
+         ORDER BY pis.due_date ASC`,
         [instanceId],
       );
       return result.rows.map(rowToStep);
@@ -183,9 +191,30 @@ export class ProjectInstancesRepository {
 
   private getSteps(instanceId: string): ProjectInstanceStep[] {
     const rows = getDb()
-      .prepare('SELECT * FROM project_instance_steps WHERE instance_id = ? ORDER BY due_date ASC')
+      .prepare(
+        `SELECT pis.*, u.name AS assignee_name
+         FROM project_instance_steps pis
+         LEFT JOIN users u ON u.id = pis.assignee_id
+         WHERE pis.instance_id = ?
+         ORDER BY pis.due_date ASC`,
+      )
       .all(instanceId) as InstanceStepRow[];
     return rows.map(rowToStep);
+  }
+
+  private getTemplateStepAssignees(templateId: string): Map<string, number | null> {
+    const rows = getDb()
+      .prepare('SELECT id, assignee_id FROM project_template_steps WHERE template_id = ?')
+      .all(templateId) as Array<{ id: string; assignee_id: number | null }>;
+    return new Map(rows.map((row) => [row.id, row.assignee_id ?? null]));
+  }
+
+  private async getTemplateStepAssigneesAsync(templateId: string): Promise<Map<string, number | null>> {
+    const result = await getPostgresPool().query<{ id: string; assignee_id: number | null }>(
+      'SELECT id, assignee_id FROM project_template_steps WHERE template_id = $1',
+      [templateId],
+    );
+    return new Map(result.rows.map((row) => [row.id, row.assignee_id ?? null]));
   }
 
   private refreshInstanceStatus(instanceId: string): void {
@@ -377,17 +406,18 @@ export class ProjectInstancesRepository {
     anchorDate: string,
     name: string | null,
     ownerId: number | null,
-    steps: Array<{ stepId: string; title: string; dueDate: string }>,
+    steps: Array<{ stepId: string; title: string; dueDate: string; assigneeId?: number | null }>,
   ): ProjectInstance {
     const instanceId = uuidv4();
     const now = new Date().toISOString();
+    const templateAssignees = this.getTemplateStepAssignees(templateId);
 
     const db = getDb();
     const insertInstance = db.prepare(
       `INSERT INTO project_instances (id, template_id, name, anchor_date, status, owner_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
     );
     const insertStep = db.prepare(
-      `INSERT INTO project_instance_steps (id, instance_id, step_id, title, due_date, status) VALUES (?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO project_instance_steps (id, instance_id, step_id, title, due_date, status, assignee_id) VALUES (?, ?, ?, ?, ?, ?, ?)`,
     );
 
     db.transaction(() => {
@@ -401,7 +431,15 @@ export class ProjectInstancesRepository {
         now,
       );
       for (const step of steps) {
-        insertStep.run(uuidv4(), instanceId, step.stepId, step.title, step.dueDate, 'open');
+        insertStep.run(
+          uuidv4(),
+          instanceId,
+          step.stepId,
+          step.title,
+          step.dueDate,
+          'open',
+          step.assigneeId !== undefined ? step.assigneeId : (templateAssignees.get(step.stepId) ?? null),
+        );
       }
     })();
 
@@ -413,11 +451,12 @@ export class ProjectInstancesRepository {
     anchorDate: string,
     name: string | null,
     ownerId: number | null,
-    steps: Array<{ stepId: string; title: string; dueDate: string }>,
+    steps: Array<{ stepId: string; title: string; dueDate: string; assigneeId?: number | null }>,
   ): Promise<ProjectInstance> {
     if (env.dbClient === 'postgres') {
       const instanceId = uuidv4();
       const now = new Date().toISOString();
+      const templateAssignees = await this.getTemplateStepAssigneesAsync(templateId);
       await getPostgresPool().query(
         `INSERT INTO project_instances (id, template_id, name, anchor_date, status, owner_id, created_at)
          VALUES ($1, $2, $3, $4, $5, $6, $7)`,
@@ -425,9 +464,17 @@ export class ProjectInstancesRepository {
       );
       for (const step of steps) {
         await getPostgresPool().query(
-          `INSERT INTO project_instance_steps (id, instance_id, step_id, title, due_date, status)
-           VALUES ($1, $2, $3, $4, $5, $6)`,
-          [uuidv4(), instanceId, step.stepId, step.title, step.dueDate, 'open'],
+          `INSERT INTO project_instance_steps (id, instance_id, step_id, title, due_date, status, assignee_id)
+           VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+          [
+            uuidv4(),
+            instanceId,
+            step.stepId,
+            step.title,
+            step.dueDate,
+            'open',
+            step.assigneeId !== undefined ? step.assigneeId : (templateAssignees.get(step.stepId) ?? null),
+          ],
         );
       }
       return this.findByIdAsync(instanceId);
@@ -437,81 +484,104 @@ export class ProjectInstancesRepository {
 
   updateStep(
     stepId: string,
-    data: { title?: string; dueDate?: string; status?: string; notes?: string | null },
+    data: { title?: string; dueDate?: string; status?: string; notes?: string | null; assigneeId?: number | null },
     userId?: number,
   ): ProjectInstanceStep {
     const row = (userId != null
       ? getDb()
           .prepare(
-            `SELECT pis.*
+            `SELECT pis.*, u.name AS assignee_name
              FROM project_instance_steps pis
              JOIN project_instances pi ON pi.id = pis.instance_id
+             LEFT JOIN users u ON u.id = pis.assignee_id
              WHERE pis.id = ? AND (pi.owner_id = ? OR pi.owner_id IS NULL)`,
           )
           .get(stepId, userId)
       : getDb()
-          .prepare('SELECT * FROM project_instance_steps WHERE id = ?')
+          .prepare(
+            `SELECT pis.*, u.name AS assignee_name
+             FROM project_instance_steps pis
+             LEFT JOIN users u ON u.id = pis.assignee_id
+             WHERE pis.id = ?`,
+          )
           .get(stepId)) as InstanceStepRow | undefined;
     if (!row) throw AppError.notFound('ProjectInstanceStep');
 
     getDb()
       .prepare(
-        `UPDATE project_instance_steps SET title = ?, due_date = ?, status = ?, notes = ? WHERE id = ?`,
+        `UPDATE project_instance_steps SET title = ?, due_date = ?, status = ?, notes = ?, assignee_id = ? WHERE id = ?`,
       )
       .run(
         data.title ?? row.title,
         data.dueDate ?? row.due_date,
         data.status ?? row.status,
         data.notes !== undefined ? data.notes : row.notes,
+        data.assigneeId !== undefined ? data.assigneeId : row.assignee_id,
         stepId,
       );
 
     this.refreshInstanceStatus(row.instance_id);
 
     const updated = getDb()
-      .prepare('SELECT * FROM project_instance_steps WHERE id = ?')
+      .prepare(
+        `SELECT pis.*, u.name AS assignee_name
+         FROM project_instance_steps pis
+         LEFT JOIN users u ON u.id = pis.assignee_id
+         WHERE pis.id = ?`,
+      )
       .get(stepId) as InstanceStepRow;
     return rowToStep(updated);
   }
 
   async updateStepAsync(
     stepId: string,
-    data: { title?: string; dueDate?: string; status?: string; notes?: string | null },
+    data: { title?: string; dueDate?: string; status?: string; notes?: string | null; assigneeId?: number | null },
     userId?: number,
   ): Promise<ProjectInstanceStep> {
     if (env.dbClient === 'postgres') {
       const result =
         userId != null
           ? await getPostgresPool().query<InstanceStepRow>(
-              `SELECT pis.*
+              `SELECT pis.*, u.name AS assignee_name
                FROM project_instance_steps pis
                JOIN project_instances pi ON pi.id = pis.instance_id
+               LEFT JOIN users u ON u.id = pis.assignee_id
                WHERE pis.id = $1 AND (pi.owner_id = $2 OR pi.owner_id IS NULL)`,
               [stepId, userId],
             )
           : await getPostgresPool().query<InstanceStepRow>(
-              'SELECT * FROM project_instance_steps WHERE id = $1',
+              `SELECT pis.*, u.name AS assignee_name
+               FROM project_instance_steps pis
+               LEFT JOIN users u ON u.id = pis.assignee_id
+               WHERE pis.id = $1`,
               [stepId],
             );
       const row = result.rows[0];
       if (!row) throw AppError.notFound('ProjectInstanceStep');
 
-      const updatedResult = await getPostgresPool().query<InstanceStepRow>(
+      await getPostgresPool().query(
         `UPDATE project_instance_steps
-         SET title = $1, due_date = $2, status = $3, notes = $4
-         WHERE id = $5
-         RETURNING *`,
+         SET title = $1, due_date = $2, status = $3, notes = $4, assignee_id = $5
+         WHERE id = $6`,
         [
           data.title ?? row.title,
           data.dueDate ?? row.due_date,
           data.status ?? row.status,
           data.notes !== undefined ? data.notes : row.notes,
+          data.assigneeId !== undefined ? data.assigneeId : row.assignee_id,
           stepId,
         ],
       );
 
       await this.refreshInstanceStatusAsync(row.instance_id);
-      return rowToStep(updatedResult.rows[0]);
+      const refreshed = await getPostgresPool().query<InstanceStepRow>(
+        `SELECT pis.*, u.name AS assignee_name
+         FROM project_instance_steps pis
+         LEFT JOIN users u ON u.id = pis.assignee_id
+         WHERE pis.id = $1`,
+        [stepId],
+      );
+      return rowToStep(refreshed.rows[0]);
     }
     return this.updateStep(stepId, data, userId);
   }

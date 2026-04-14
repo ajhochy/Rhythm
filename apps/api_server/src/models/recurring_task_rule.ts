@@ -5,6 +5,13 @@ export interface RecurringTaskRuleStep {
   assigneeName?: string | null;
 }
 
+export interface RhythmCollaborator {
+  userId: number;
+  name: string;
+  email: string;
+  photoUrl: string | null;
+}
+
 export interface RecurringTaskRuleProgress {
   totalCount: number;
   completedCount: number;
@@ -26,6 +33,7 @@ export interface RecurringTaskRule {
   enabled: boolean;
   ownerId: number | null;
   steps: RecurringTaskRuleStep[];
+  collaborators: RhythmCollaborator[];
   progress?: RecurringTaskRuleProgress;
   createdAt: string;
 }

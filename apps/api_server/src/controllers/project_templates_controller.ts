@@ -69,7 +69,7 @@ export class ProjectTemplatesController {
 
   async addStep(req: Request, res: Response, next: NextFunction) {
     try {
-      const { title, offsetDays, offsetDescription, sortOrder } = req.body as Record<string, unknown>;
+      const { title, offsetDays, offsetDescription, sortOrder, assigneeId } = req.body as Record<string, unknown>;
       if (!title || typeof title !== 'string') throw AppError.badRequest('title is required');
       if (offsetDays === undefined || typeof offsetDays !== 'number') throw AppError.badRequest('offsetDays (number) is required');
       const step = await repo.addStepAsync(
@@ -79,6 +79,12 @@ export class ProjectTemplatesController {
           offsetDays,
           offsetDescription: offsetDescription as string ?? null,
           sortOrder: sortOrder as number,
+          assigneeId:
+            assigneeId === null
+              ? null
+              : typeof assigneeId === 'number'
+                ? assigneeId
+                : undefined,
         },
         req.auth?.user.id,
       );

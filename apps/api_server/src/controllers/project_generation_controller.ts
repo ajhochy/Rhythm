@@ -50,7 +50,7 @@ export class ProjectGenerationController {
   async updateInstanceStep(req: Request, res: Response, next: NextFunction) {
     try {
       const { stepId } = req.params;
-      const { title, dueDate, status, notes } = req.body as Record<string, unknown>;
+      const { title, dueDate, status, notes, assigneeId } = req.body as Record<string, unknown>;
       const step = await instanceRepo.updateStepAsync(
         stepId,
         {
@@ -62,6 +62,12 @@ export class ProjectGenerationController {
               ? null
               : typeof notes === 'string'
                 ? (notes.length === 0 ? null : notes)
+                : undefined,
+          assigneeId:
+            assigneeId === null
+              ? null
+              : typeof assigneeId === 'number'
+                ? assigneeId
                 : undefined,
         },
         req.auth?.user.id,

@@ -5,7 +5,11 @@ import { RecurrenceService } from '../services/recurrence_service';
 import { TasksRepository } from '../repositories/tasks_repository';
 import { UsersRepository } from '../repositories/users_repository';
 import { v4 as uuidv4 } from 'uuid';
-import type { RecurringTaskRule, RecurringTaskRuleStep, RecurringTaskRuleProgress } from '../models/recurring_task_rule';
+import type {
+  RecurringTaskRule,
+  RecurringTaskRuleProgress,
+  RecurringTaskRuleStep,
+} from '../models/recurring_task_rule';
 import type { Task } from '../models/task';
 
 const repo = new RecurringTaskRulesRepository();
@@ -105,6 +109,40 @@ export class RecurringRulesController {
     }
   }
 
+  async getCollaborators(req: Request, res: Response, next: NextFunction) {
+    try {
+      res.json(await repo.listCollaboratorsAsync(req.params.id));
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async addCollaborator(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { userId } = req.body as Record<string, unknown>;
+      if (!userId || typeof userId !== 'number') {
+        throw AppError.badRequest('userId is required and must be a number');
+      }
+      await repo.addCollaboratorAsync(req.params.id, userId);
+      res.status(204).send();
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async removeCollaborator(req: Request, res: Response, next: NextFunction) {
+    try {
+      const collaboratorUserId = Number(req.params.userId);
+      if (isNaN(collaboratorUserId)) {
+        throw AppError.badRequest('Invalid userId');
+      }
+      await repo.removeCollaboratorAsync(req.params.id, collaboratorUserId);
+      res.status(204).send();
+    } catch (err) {
+      next(err);
+    }
+  }
+
   private async decorateRules(
     rules: RecurringTaskRule[],
     currentUserId?: number,
@@ -115,10 +153,12 @@ export class RecurringRulesController {
   }
 
   private async decorateRule(rule: RecurringTaskRule, currentUserId?: number) {
-    const visibleTasks = await tasksRepo.findAllAsync();
-    const usersById = new Map(
-      (await usersRepo.findAllAsync()).map((user) => [user.id, user]),
-    );
+    const [visibleTasks, users, collaborators] = await Promise.all([
+      tasksRepo.findAllAsync(),
+      usersRepo.findAllAsync(),
+      repo.listCollaboratorsAsync(rule.id),
+    ]);
+    const usersById = new Map(users.map((user) => [user.id, user]));
     const matchingTasks = visibleTasks.filter((task) => this.matchesRule(task, rule.id));
     const orderedTasks = [...matchingTasks].sort((a, b) => {
       const aOrder = this.taskOrder(a);
@@ -152,6 +192,7 @@ export class RecurringRulesController {
     return {
       ...rule,
       steps: rule.steps.map((step) => this.decorateStep(step, usersById)),
+      collaborators,
       progress,
     };
   }

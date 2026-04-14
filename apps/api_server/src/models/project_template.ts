@@ -5,6 +5,8 @@ export interface ProjectTemplateStep {
   offsetDays: number;
   offsetDescription: string | null;
   sortOrder: number;
+  assigneeId: number | null;
+  assigneeName: string | null;
 }
 
 export interface ProjectTemplate {
@@ -35,4 +37,5 @@ export interface CreateStepDto {
   offsetDays: number;
   offsetDescription?: string | null;
   sortOrder?: number;
+  assigneeId?: number | null;
 }

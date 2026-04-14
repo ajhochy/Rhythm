@@ -5,6 +5,7 @@ import { AppError } from '../errors/app_error';
 import type {
   CreateRecurringTaskRuleDto,
   RecurringTaskRule,
+  RhythmCollaborator,
   RecurringTaskRuleStep,
   UpdateRecurringTaskRuleDto,
 } from '../models/recurring_task_rule';
@@ -35,7 +36,24 @@ function rowToRule(row: RuleRow): RecurringTaskRule {
     enabled,
     ownerId: row.owner_id,
     steps: parseSteps(row.steps_json),
+    collaborators: [],
     createdAt: row.created_at,
+  };
+}
+
+interface RhythmCollaboratorRow {
+  user_id: number;
+  name: string;
+  email: string;
+  photo_url: string | null;
+}
+
+function rowToCollaborator(row: RhythmCollaboratorRow): RhythmCollaborator {
+  return {
+    userId: row.user_id,
+    name: row.name,
+    email: row.email,
+    photoUrl: row.photo_url,
   };
 }
 
@@ -91,9 +109,15 @@ export class RecurringTaskRulesRepository {
       const result =
         userId != null
           ? await getPostgresPool().query<RuleRow>(
-              `SELECT * FROM recurring_task_rules
-               WHERE owner_id = $1 OR owner_id IS NULL
-               ORDER BY created_at ASC`,
+              `SELECT recurring_task_rules.*
+               FROM recurring_task_rules
+               LEFT JOIN rhythm_collaborators rc
+                 ON rc.rhythm_id = recurring_task_rules.id
+                AND rc.user_id = $1
+               WHERE recurring_task_rules.owner_id = $1
+                  OR recurring_task_rules.owner_id IS NULL
+                  OR rc.user_id IS NOT NULL
+               ORDER BY recurring_task_rules.created_at ASC`,
               [userId],
             )
           : await getPostgresPool().query<RuleRow>(
@@ -108,11 +132,17 @@ export class RecurringTaskRulesRepository {
     if (userId != null) {
       const rows = getDb()
         .prepare(
-          `SELECT * FROM recurring_task_rules
-           WHERE owner_id = ? OR owner_id IS NULL
-           ORDER BY created_at ASC`,
+          `SELECT recurring_task_rules.*
+           FROM recurring_task_rules
+           LEFT JOIN rhythm_collaborators rc
+             ON rc.rhythm_id = recurring_task_rules.id
+            AND rc.user_id = ?
+           WHERE recurring_task_rules.owner_id = ?
+              OR recurring_task_rules.owner_id IS NULL
+              OR rc.user_id IS NOT NULL
+           ORDER BY recurring_task_rules.created_at ASC`,
         )
-        .all(userId) as RuleRow[];
+        .all(userId, userId) as RuleRow[];
       return rows.map(rowToRule);
     }
     const rows = getDb()
@@ -126,8 +156,17 @@ export class RecurringTaskRulesRepository {
       const result =
         userId != null
           ? await getPostgresPool().query<RuleRow>(
-              `SELECT * FROM recurring_task_rules
-               WHERE id = $1 AND (owner_id = $2 OR owner_id IS NULL)`,
+              `SELECT recurring_task_rules.*
+               FROM recurring_task_rules
+               LEFT JOIN rhythm_collaborators rc
+                 ON rc.rhythm_id = recurring_task_rules.id
+                AND rc.user_id = $2
+               WHERE recurring_task_rules.id = $1
+                 AND (
+                   recurring_task_rules.owner_id = $2
+                   OR recurring_task_rules.owner_id IS NULL
+                   OR rc.user_id IS NOT NULL
+                 )`,
               [id, userId],
             )
           : await getPostgresPool().query<RuleRow>(
@@ -145,10 +184,19 @@ export class RecurringTaskRulesRepository {
     const row = (userId != null
       ? getDb()
           .prepare(
-            `SELECT * FROM recurring_task_rules
-             WHERE id = ? AND (owner_id = ? OR owner_id IS NULL)`,
+            `SELECT recurring_task_rules.*
+             FROM recurring_task_rules
+             LEFT JOIN rhythm_collaborators rc
+               ON rc.rhythm_id = recurring_task_rules.id
+              AND rc.user_id = ?
+             WHERE recurring_task_rules.id = ?
+               AND (
+                 recurring_task_rules.owner_id = ?
+                 OR recurring_task_rules.owner_id IS NULL
+                 OR rc.user_id IS NOT NULL
+               )`,
           )
-          .get(id, userId)
+          .get(userId, id, userId)
       : getDb()
           .prepare('SELECT * FROM recurring_task_rules WHERE id = ?')
           .get(id)) as RuleRow | undefined;
@@ -282,5 +330,67 @@ export class RecurringTaskRulesRepository {
     this.findById(id, userId);
     const result = getDb().prepare('DELETE FROM recurring_task_rules WHERE id = ?').run(id);
     if (result.changes === 0) throw AppError.notFound('RecurringTaskRule');
+  }
+
+  listCollaborators(rhythmId: string): RhythmCollaborator[] {
+    const rows = getDb()
+      .prepare(
+        `SELECT u.id AS user_id, u.name, u.email, u.photo_url
+         FROM rhythm_collaborators rc
+         JOIN users u ON u.id = rc.user_id
+         WHERE rc.rhythm_id = ?
+         ORDER BY rc.added_at ASC`,
+      )
+      .all(rhythmId) as RhythmCollaboratorRow[];
+    return rows.map(rowToCollaborator);
+  }
+
+  async listCollaboratorsAsync(rhythmId: string): Promise<RhythmCollaborator[]> {
+    if (env.dbClient === 'postgres') {
+      const result = await getPostgresPool().query<RhythmCollaboratorRow>(
+        `SELECT u.id AS user_id, u.name, u.email, u.photo_url
+         FROM rhythm_collaborators rc
+         JOIN users u ON u.id = rc.user_id
+         WHERE rc.rhythm_id = $1
+         ORDER BY rc.added_at ASC`,
+        [rhythmId],
+      );
+      return result.rows.map(rowToCollaborator);
+    }
+    return this.listCollaborators(rhythmId);
+  }
+
+  addCollaborator(rhythmId: string, collaboratorUserId: number): void {
+    getDb()
+      .prepare('INSERT OR IGNORE INTO rhythm_collaborators (rhythm_id, user_id) VALUES (?, ?)')
+      .run(rhythmId, collaboratorUserId);
+  }
+
+  async addCollaboratorAsync(rhythmId: string, collaboratorUserId: number): Promise<void> {
+    if (env.dbClient === 'postgres') {
+      await getPostgresPool().query(
+        'INSERT INTO rhythm_collaborators (rhythm_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+        [rhythmId, collaboratorUserId],
+      );
+      return;
+    }
+    this.addCollaborator(rhythmId, collaboratorUserId);
+  }
+
+  removeCollaborator(rhythmId: string, collaboratorUserId: number): void {
+    getDb()
+      .prepare('DELETE FROM rhythm_collaborators WHERE rhythm_id = ? AND user_id = ?')
+      .run(rhythmId, collaboratorUserId);
+  }
+
+  async removeCollaboratorAsync(rhythmId: string, collaboratorUserId: number): Promise<void> {
+    if (env.dbClient === 'postgres') {
+      await getPostgresPool().query(
+        'DELETE FROM rhythm_collaborators WHERE rhythm_id = $1 AND user_id = $2',
+        [rhythmId, collaboratorUserId],
+      );
+      return;
+    }
+    this.removeCollaborator(rhythmId, collaboratorUserId);
   }
 }

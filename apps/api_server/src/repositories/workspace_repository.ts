@@ -17,6 +17,9 @@ function generateJoinCode(): string {
   return code;
 }
 
+const UTC_TEXT_NOW =
+  `to_char(timezone('utc', now()), 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`;
+
 interface WorkspaceRow {
   id: number;
   name: string;
@@ -141,6 +144,28 @@ export class WorkspaceRepository {
       return rowToWorkspace(ws);
     }
     return this.joinByCode(joinCode, userId);
+  }
+
+  addMemberDirect(workspaceId: number, userId: number): void {
+    getDb()
+      .prepare(
+        `INSERT OR IGNORE INTO workspace_members (workspace_id, user_id, role, joined_at)
+         VALUES (?, ?, 'staff', datetime('now'))`,
+      )
+      .run(workspaceId, userId);
+  }
+
+  async addMemberDirectAsync(workspaceId: number, userId: number): Promise<void> {
+    if (env.dbClient === 'postgres') {
+      await getPostgresPool().query(
+        `INSERT INTO workspace_members (workspace_id, user_id, role, joined_at)
+         VALUES ($1, $2, 'staff', ${UTC_TEXT_NOW})
+         ON CONFLICT (workspace_id, user_id) DO NOTHING`,
+        [workspaceId, userId],
+      );
+      return;
+    }
+    this.addMemberDirect(workspaceId, userId);
   }
 
   findForUser(userId: number): WorkspaceWithRole | null {

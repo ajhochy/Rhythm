@@ -6,6 +6,8 @@ export interface ProjectInstanceStep {
   dueDate: string;
   status: 'open' | 'done';
   notes: string | null;
+  assigneeId: number | null;
+  assigneeName: string | null;
 }
 
 export interface ProjectInstance {

@@ -26,6 +26,8 @@ interface StepRow {
   offset_days: number;
   offset_description: string | null;
   sort_order: number;
+  assignee_id: number | null;
+  assignee_name: string | null;
 }
 
 function rowToStep(row: StepRow): ProjectTemplateStep {
@@ -36,6 +38,8 @@ function rowToStep(row: StepRow): ProjectTemplateStep {
     offsetDays: row.offset_days,
     offsetDescription: row.offset_description,
     sortOrder: row.sort_order,
+    assigneeId: row.assignee_id ?? null,
+    assigneeName: row.assignee_name ?? null,
   };
 }
 
@@ -55,7 +59,11 @@ export class ProjectTemplatesRepository {
   private async getStepsAsync(templateId: string): Promise<ProjectTemplateStep[]> {
     if (env.dbClient === 'postgres') {
       const result = await getPostgresPool().query<StepRow>(
-        'SELECT * FROM project_template_steps WHERE template_id = $1 ORDER BY sort_order ASC',
+        `SELECT pts.*, u.name AS assignee_name
+         FROM project_template_steps pts
+         LEFT JOIN users u ON u.id = pts.assignee_id
+         WHERE pts.template_id = $1
+         ORDER BY pts.sort_order ASC`,
         [templateId],
       );
       return result.rows.map(rowToStep);
@@ -65,7 +73,13 @@ export class ProjectTemplatesRepository {
 
   private getSteps(templateId: string): ProjectTemplateStep[] {
     const rows = getDb()
-      .prepare('SELECT * FROM project_template_steps WHERE template_id = ? ORDER BY sort_order ASC')
+      .prepare(
+        `SELECT pts.*, u.name AS assignee_name
+         FROM project_template_steps pts
+         LEFT JOIN users u ON u.id = pts.assignee_id
+         WHERE pts.template_id = ?
+         ORDER BY pts.sort_order ASC`,
+      )
       .all(templateId) as StepRow[];
     return rows.map(rowToStep);
   }
@@ -284,10 +298,9 @@ export class ProjectTemplatesRepository {
     if (env.dbClient === 'postgres') {
       await this.findByIdAsync(templateId, userId);
       const id = uuidv4();
-      const result = await getPostgresPool().query<StepRow>(
-        `INSERT INTO project_template_steps (id, template_id, title, offset_days, offset_description, sort_order)
-         VALUES ($1, $2, $3, $4, $5, $6)
-         RETURNING *`,
+      await getPostgresPool().query(
+        `INSERT INTO project_template_steps (id, template_id, title, offset_days, offset_description, sort_order, assignee_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
         [
           id,
           templateId,
@@ -295,9 +308,17 @@ export class ProjectTemplatesRepository {
           data.offsetDays,
           data.offsetDescription ?? null,
           data.sortOrder ?? 0,
+          data.assigneeId ?? null,
         ],
       );
-      return rowToStep(result.rows[0]);
+      const step = await getPostgresPool().query<StepRow>(
+        `SELECT pts.*, u.name AS assignee_name
+         FROM project_template_steps pts
+         LEFT JOIN users u ON u.id = pts.assignee_id
+         WHERE pts.id = $1`,
+        [id],
+      );
+      return rowToStep(step.rows[0]);
     }
     return this.addStep(templateId, data, userId);
   }
@@ -307,11 +328,26 @@ export class ProjectTemplatesRepository {
     const id = uuidv4();
     getDb()
       .prepare(
-        `INSERT INTO project_template_steps (id, template_id, title, offset_days, offset_description, sort_order)
-         VALUES (?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO project_template_steps (id, template_id, title, offset_days, offset_description, sort_order, assignee_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`,
       )
-      .run(id, templateId, data.title, data.offsetDays, data.offsetDescription ?? null, data.sortOrder ?? 0);
-    const row = getDb().prepare('SELECT * FROM project_template_steps WHERE id = ?').get(id) as StepRow;
+      .run(
+        id,
+        templateId,
+        data.title,
+        data.offsetDays,
+        data.offsetDescription ?? null,
+        data.sortOrder ?? 0,
+        data.assigneeId ?? null,
+      );
+    const row = getDb()
+      .prepare(
+        `SELECT pts.*, u.name AS assignee_name
+         FROM project_template_steps pts
+         LEFT JOIN users u ON u.id = pts.assignee_id
+         WHERE pts.id = ?`,
+      )
+      .get(id) as StepRow;
     return rowToStep(row);
   }
 
@@ -319,28 +355,44 @@ export class ProjectTemplatesRepository {
     const row = (userId != null
       ? getDb()
           .prepare(
-            `SELECT pts.*
+            `SELECT pts.*, u.name AS assignee_name
              FROM project_template_steps pts
              JOIN project_templates pt ON pt.id = pts.template_id
+             LEFT JOIN users u ON u.id = pts.assignee_id
              WHERE pts.id = ? AND (pt.owner_id = ? OR pt.owner_id IS NULL)`,
           )
           .get(stepId, userId)
       : getDb()
-          .prepare('SELECT * FROM project_template_steps WHERE id = ?')
+          .prepare(
+            `SELECT pts.*, u.name AS assignee_name
+             FROM project_template_steps pts
+             LEFT JOIN users u ON u.id = pts.assignee_id
+             WHERE pts.id = ?`,
+          )
           .get(stepId)) as StepRow | undefined;
     if (!row) throw AppError.notFound('ProjectTemplateStep');
     getDb()
       .prepare(
-        `UPDATE project_template_steps SET title = ?, offset_days = ?, offset_description = ?, sort_order = ? WHERE id = ?`,
+        `UPDATE project_template_steps
+         SET title = ?, offset_days = ?, offset_description = ?, sort_order = ?, assignee_id = ?
+         WHERE id = ?`,
       )
       .run(
         data.title ?? row.title,
         data.offsetDays ?? row.offset_days,
         data.offsetDescription !== undefined ? data.offsetDescription : row.offset_description,
         data.sortOrder ?? row.sort_order,
+        data.assigneeId !== undefined ? data.assigneeId : row.assignee_id,
         stepId,
       );
-    const updated = getDb().prepare('SELECT * FROM project_template_steps WHERE id = ?').get(stepId) as StepRow;
+    const updated = getDb()
+      .prepare(
+        `SELECT pts.*, u.name AS assignee_name
+         FROM project_template_steps pts
+         LEFT JOIN users u ON u.id = pts.assignee_id
+         WHERE pts.id = ?`,
+      )
+      .get(stepId) as StepRow;
     return rowToStep(updated);
   }
 
@@ -353,32 +405,43 @@ export class ProjectTemplatesRepository {
       const result =
         userId != null
           ? await getPostgresPool().query<StepRow>(
-              `SELECT pts.*
+              `SELECT pts.*, u.name AS assignee_name
                FROM project_template_steps pts
                JOIN project_templates pt ON pt.id = pts.template_id
+               LEFT JOIN users u ON u.id = pts.assignee_id
                WHERE pts.id = $1 AND (pt.owner_id = $2 OR pt.owner_id IS NULL)`,
               [stepId, userId],
             )
           : await getPostgresPool().query<StepRow>(
-              'SELECT * FROM project_template_steps WHERE id = $1',
+              `SELECT pts.*, u.name AS assignee_name
+               FROM project_template_steps pts
+               LEFT JOIN users u ON u.id = pts.assignee_id
+               WHERE pts.id = $1`,
               [stepId],
             );
       const row = result.rows[0];
       if (!row) throw AppError.notFound('ProjectTemplateStep');
-      const updated = await getPostgresPool().query<StepRow>(
+      await getPostgresPool().query(
         `UPDATE project_template_steps
-         SET title = $1, offset_days = $2, offset_description = $3, sort_order = $4
-         WHERE id = $5
-         RETURNING *`,
+         SET title = $1, offset_days = $2, offset_description = $3, sort_order = $4, assignee_id = $5
+         WHERE id = $6`,
         [
           data.title ?? row.title,
           data.offsetDays ?? row.offset_days,
           data.offsetDescription !== undefined ? data.offsetDescription : row.offset_description,
           data.sortOrder ?? row.sort_order,
+          data.assigneeId !== undefined ? data.assigneeId : row.assignee_id,
           stepId,
         ],
       );
-      return rowToStep(updated.rows[0]);
+      const refreshed = await getPostgresPool().query<StepRow>(
+        `SELECT pts.*, u.name AS assignee_name
+         FROM project_template_steps pts
+         LEFT JOIN users u ON u.id = pts.assignee_id
+         WHERE pts.id = $1`,
+        [stepId],
+      );
+      return rowToStep(refreshed.rows[0]);
     }
     return this.updateStep(stepId, data, userId);
   }

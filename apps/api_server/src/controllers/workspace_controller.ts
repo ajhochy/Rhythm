@@ -29,6 +29,22 @@ export class WorkspaceController {
     }
   }
 
+  async addMemberDirect(req: Request, res: Response, next: NextFunction) {
+    try {
+      const ws = await repo.findForUserAsync(req.auth!.user.id);
+      if (!ws || ws.role !== 'admin') throw AppError.forbidden('Admin only');
+      const { userId } = req.body as Record<string, unknown>;
+      if (typeof userId !== 'number') {
+        throw AppError.badRequest('userId is required and must be a number');
+      }
+      await repo.addMemberDirectAsync(ws.id, userId);
+      const members = await repo.listMembersAsync(ws.id);
+      res.json(members);
+    } catch (err) {
+      next(err);
+    }
+  }
+
   async getMe(req: Request, res: Response, next: NextFunction) {
     try {
       const ws = await repo.findForUserAsync(req.auth!.user.id);

@@ -36,6 +36,7 @@ export class ProjectGenerationService {
         stepId: step.id,
         title: step.title,
         dueDate: dueDate.toISOString().split('T')[0],
+        assigneeId: step.assigneeId ?? null,
       };
     });
 
@@ -73,6 +74,7 @@ export class ProjectGenerationService {
         stepId: step.id,
         title: step.title,
         dueDate: dueDate.toISOString().split('T')[0],
+        assigneeId: step.assigneeId ?? null,
       };
     });
 

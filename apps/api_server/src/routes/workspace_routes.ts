@@ -10,6 +10,7 @@ workspaceRouter.post('/', controller.create.bind(controller));
 workspaceRouter.post('/join', controller.join.bind(controller));
 workspaceRouter.get('/me', controller.getMe.bind(controller));
 workspaceRouter.get('/me/members', controller.listMembers.bind(controller));
+workspaceRouter.post('/me/members/add', controller.addMemberDirect.bind(controller));
 workspaceRouter.patch('/me/members/:userId', controller.updateMemberRole.bind(controller));
 workspaceRouter.delete('/me/members/:userId', controller.removeMember.bind(controller));
 workspaceRouter.post('/me/join-code/regenerate', controller.regenerateJoinCode.bind(controller));
