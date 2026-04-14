@@ -210,6 +210,9 @@ export class ProjectInstancesRepository {
   }
 
   private async getTemplateStepAssigneesAsync(templateId: string): Promise<Map<string, number | null>> {
+    if (env.dbClient !== 'postgres') {
+      return Promise.resolve(this.getTemplateStepAssignees(templateId));
+    }
     const result = await getPostgresPool().query<{ id: string; assignee_id: number | null }>(
       'SELECT id, assignee_id FROM project_template_steps WHERE template_id = $1',
       [templateId],

@@ -119,12 +119,14 @@ export class RecurringRulesController {
 
   async addCollaborator(req: Request, res: Response, next: NextFunction) {
     try {
+      const rule = await repo.findByIdAsync(req.params.id);
+      if (rule.ownerId !== req.auth?.user.id) throw AppError.forbidden('Only the rhythm owner can manage collaborators');
       const { userId } = req.body as Record<string, unknown>;
       if (!userId || typeof userId !== 'number') {
         throw AppError.badRequest('userId is required and must be a number');
       }
       await repo.addCollaboratorAsync(req.params.id, userId);
-      res.status(204).send();
+      res.json(await repo.listCollaboratorsAsync(req.params.id));
     } catch (err) {
       next(err);
     }
@@ -132,6 +134,8 @@ export class RecurringRulesController {
 
   async removeCollaborator(req: Request, res: Response, next: NextFunction) {
     try {
+      const rule = await repo.findByIdAsync(req.params.id);
+      if (rule.ownerId !== req.auth?.user.id) throw AppError.forbidden('Only the rhythm owner can manage collaborators');
       const collaboratorUserId = Number(req.params.userId);
       if (isNaN(collaboratorUserId)) {
         throw AppError.badRequest('Invalid userId');
