@@ -127,12 +127,11 @@ void main() {
     controller.setPollingEnabled(false);
   });
 
-  test('RhythmsController loads users and forwards workflow steps', () async {
+  test('RhythmsController loads rules and forwards workflow steps', () async {
     final repository = _FakeRhythmsRepository();
     final controller = RhythmsController(repository);
 
     await controller.load();
-    expect(controller.users, hasLength(2));
     expect(controller.rules, hasLength(1));
     expect(controller.rules.first.steps, hasLength(2));
 

@@ -1,5 +1,28 @@
 import '../../../app/core/utils/json_parsing.dart';
 
+class RhythmCollaborator {
+  RhythmCollaborator({
+    required this.userId,
+    required this.name,
+    this.email,
+    this.photoUrl,
+  });
+
+  factory RhythmCollaborator.fromJson(Map<String, dynamic> json) {
+    return RhythmCollaborator(
+      userId: asInt(json['userId']) ?? 0,
+      name: asString(json['name']) ?? '',
+      email: asString(json['email']),
+      photoUrl: asString(json['photoUrl']),
+    );
+  }
+
+  final int userId;
+  final String name;
+  final String? email;
+  final String? photoUrl;
+}
+
 class RecurringTaskRuleStep {
   RecurringTaskRuleStep({
     required this.id,
@@ -70,11 +93,13 @@ class RecurringTaskRule {
     required this.title,
     required this.frequency,
     required this.createdAt,
+    this.ownerId,
     this.dayOfWeek,
     this.dayOfMonth,
     this.month,
     this.enabled = true,
     this.steps = const [],
+    this.collaborators = const [],
     this.progress,
   });
 
@@ -86,11 +111,17 @@ class RecurringTaskRule {
       dayOfWeek: asInt(json['dayOfWeek']),
       dayOfMonth: asInt(json['dayOfMonth']),
       month: asInt(json['month']),
+      ownerId: asInt(json['ownerId']),
       createdAt: asString(json['createdAt']) ?? '',
       enabled: asBool(json['enabled']) ?? true,
       steps: ((json['steps'] as List<dynamic>?) ?? const [])
           .map((step) => RecurringTaskRuleStep.fromJson(
                 step as Map<String, dynamic>,
+              ))
+          .toList(),
+      collaborators: ((json['collaborators'] as List<dynamic>?) ?? const [])
+          .map((item) => RhythmCollaborator.fromJson(
+                item as Map<String, dynamic>,
               ))
           .toList(),
       progress: json['progress'] is Map<String, dynamic>
@@ -104,25 +135,34 @@ class RecurringTaskRule {
   final String id;
   final String title;
   final String frequency; // 'weekly' | 'monthly' | 'annual'
+  final int? ownerId;
   final int? dayOfWeek; // 0=Sun..6=Sat (weekly)
   final int? dayOfMonth; // 1-31 (monthly / annual)
   final int? month; // 1-12 (annual)
   final bool enabled;
   final String createdAt;
   final List<RecurringTaskRuleStep> steps;
+  final List<RhythmCollaborator> collaborators;
   final RecurringTaskRuleProgress? progress;
 
-  RecurringTaskRule copyWith({bool? enabled}) {
+  RecurringTaskRule copyWith({
+    bool? enabled,
+    List<RecurringTaskRuleStep>? steps,
+    List<RhythmCollaborator>? collaborators,
+    int? ownerId,
+  }) {
     return RecurringTaskRule(
       id: id,
       title: title,
       frequency: frequency,
+      ownerId: ownerId ?? this.ownerId,
       dayOfWeek: dayOfWeek,
       dayOfMonth: dayOfMonth,
       month: month,
       createdAt: createdAt,
       enabled: enabled ?? this.enabled,
-      steps: steps,
+      steps: steps ?? this.steps,
+      collaborators: collaborators ?? this.collaborators,
       progress: progress,
     );
   }

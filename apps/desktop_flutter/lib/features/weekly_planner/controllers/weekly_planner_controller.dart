@@ -1,15 +1,17 @@
 import 'package:flutter/foundation.dart';
 import '../../tasks/models/task.dart';
+import '../../tasks/repositories/tasks_repository.dart';
 import '../models/weekly_plan.dart';
 import '../repositories/weekly_plan_repository.dart';
 
 enum WeeklyPlannerStatus { idle, loading, error }
 
 class WeeklyPlannerController extends ChangeNotifier {
-  WeeklyPlannerController(this._repository)
+  WeeklyPlannerController(this._repository, this._tasksRepository)
       : _currentWeekLabel = _todayWeekLabel();
 
   final WeeklyPlanRepository _repository;
+  final TasksRepository _tasksRepository;
 
   WeeklyPlan? _plan;
   WeeklyPlannerStatus _status = WeeklyPlannerStatus.idle;
@@ -116,7 +118,9 @@ class WeeklyPlannerController extends ChangeNotifier {
       {String? notes,
       String? dueDate,
       String? scheduledDate,
-      int? scheduledOrder}) async {
+      int? scheduledOrder,
+      int? ownerId,
+      bool ownerChanged = false}) async {
     try {
       await _repository.updateTask(task.id,
           notes: notes,
@@ -124,6 +128,13 @@ class WeeklyPlannerController extends ChangeNotifier {
           scheduledDate: scheduledDate,
           scheduledOrder: scheduledOrder,
           sourceType: task.sourceType);
+      if (ownerChanged) {
+        await _tasksRepository.update(
+          task.id,
+          ownerId: ownerId,
+          includeOwnerId: true,
+        );
+      }
       await load();
     } catch (e) {
       _errorMessage = e.toString();
@@ -150,9 +161,9 @@ class WeeklyPlannerController extends ChangeNotifier {
     }
   }
 
-  Future<void> createTask(String title, {String? dueDate}) async {
+  Future<void> createTask(String title, {String? dueDate, int? ownerId}) async {
     try {
-      await _repository.createTask(title, dueDate: dueDate);
+      await _tasksRepository.create(title, dueDate: dueDate, ownerId: ownerId);
       await load();
     } catch (e) {
       _errorMessage = e.toString();

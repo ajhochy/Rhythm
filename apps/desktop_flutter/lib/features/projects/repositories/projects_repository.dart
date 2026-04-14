@@ -20,6 +20,7 @@ class ProjectsRepository {
     required int offsetDays,
     String? offsetDescription,
     int? sortOrder,
+    int? assigneeId,
   }) =>
       _dataSource.addStep(
         templateId,
@@ -27,6 +28,7 @@ class ProjectsRepository {
         offsetDays: offsetDays,
         offsetDescription: offsetDescription,
         sortOrder: sortOrder,
+        assigneeId: assigneeId,
       );
 
   Future<ProjectTemplate> update(String id,
@@ -34,11 +36,15 @@ class ProjectsRepository {
       _dataSource.update(id, name: name, description: description);
 
   Future<ProjectTemplateStep> updateStep(String templateId, String stepId,
-          {String? title, int? offsetDays, String? offsetDescription}) =>
+          {String? title,
+          int? offsetDays,
+          String? offsetDescription,
+          int? assigneeId}) =>
       _dataSource.updateStep(templateId, stepId,
           title: title,
           offsetDays: offsetDays,
-          offsetDescription: offsetDescription);
+          offsetDescription: offsetDescription,
+          assigneeId: assigneeId);
 
   Future<void> deleteStep(String templateId, String stepId) =>
       _dataSource.deleteStep(templateId, stepId);
