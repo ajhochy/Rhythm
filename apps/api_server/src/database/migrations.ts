@@ -683,4 +683,24 @@ export function runMigrations(db: Database.Database): void {
   if (!threadColsP7.includes('thread_type')) {
     db.exec(`ALTER TABLE message_threads ADD COLUMN thread_type TEXT NOT NULL DEFAULT 'direct'`);
   }
+
+  // Phase 8: step assignees + rhythm collaborators
+  const templateStepCols = (db.pragma('table_info(project_template_steps)') as { name: string }[]).map((c) => c.name);
+  if (!templateStepCols.includes('assignee_id')) {
+    db.exec(`ALTER TABLE project_template_steps ADD COLUMN assignee_id INTEGER REFERENCES users(id) ON DELETE SET NULL`);
+  }
+
+  const instanceStepCols = (db.pragma('table_info(project_instance_steps)') as { name: string }[]).map((c) => c.name);
+  if (!instanceStepCols.includes('assignee_id')) {
+    db.exec(`ALTER TABLE project_instance_steps ADD COLUMN assignee_id INTEGER REFERENCES users(id) ON DELETE SET NULL`);
+  }
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS rhythm_collaborators (
+      rhythm_id TEXT NOT NULL REFERENCES recurring_task_rules(id) ON DELETE CASCADE,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      added_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (rhythm_id, user_id)
+    );
+  `);
 }

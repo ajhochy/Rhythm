@@ -404,4 +404,16 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
   await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS workspace_id INTEGER REFERENCES workspaces(id)`);
   await pool.query(`ALTER TABLE messages ADD COLUMN IF NOT EXISTS sender_photo_url TEXT`);
   await pool.query(`ALTER TABLE message_threads ADD COLUMN IF NOT EXISTS thread_type TEXT NOT NULL DEFAULT 'direct'`);
+
+  // Phase 8: step assignees + rhythm collaborators
+  await pool.query(`ALTER TABLE project_template_steps ADD COLUMN IF NOT EXISTS assignee_id INTEGER REFERENCES users(id) ON DELETE SET NULL`);
+  await pool.query(`ALTER TABLE project_instance_steps ADD COLUMN IF NOT EXISTS assignee_id INTEGER REFERENCES users(id) ON DELETE SET NULL`);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS rhythm_collaborators (
+      rhythm_id TEXT NOT NULL REFERENCES recurring_task_rules(id) ON DELETE CASCADE,
+      user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      added_at TEXT NOT NULL DEFAULT (${UTC_TEXT_NOW}),
+      PRIMARY KEY (rhythm_id, user_id)
+    )
+  `);
 }
