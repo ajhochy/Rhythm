@@ -32,7 +32,7 @@ Edit `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS):
   "mcpServers": {
     "rhythm": {
       "command": "npx",
-      "args": ["-y", "@rhythm/mcp-server"],
+      "args": ["-y", "@ajhochy/rhythm-mcp-server"],
       "env": {
         "RHYTHM_API_URL": "https://api.vcrc.com",
         "RHYTHM_API_TOKEN": "paste-your-session-token-here"
@@ -53,7 +53,7 @@ Add to `~/.claude/settings.json` (global) or `.claude/settings.json` (per-projec
   "mcpServers": {
     "rhythm": {
       "command": "npx",
-      "args": ["-y", "@rhythm/mcp-server"],
+      "args": ["-y", "@ajhochy/rhythm-mcp-server"],
       "env": {
         "RHYTHM_API_URL": "https://api.vcrc.com",
         "RHYTHM_API_TOKEN": "paste-your-session-token-here"

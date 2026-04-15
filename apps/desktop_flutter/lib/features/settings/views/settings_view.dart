@@ -664,7 +664,7 @@ class _ClaudeIntegrationSectionState
               ),
               const SizedBox(height: 6),
               const Text(
-                'Use this token to connect Claude Desktop or Claude Code to your Rhythm workspace via the @rhythm/mcp-server package.',
+                'Use this token to connect Claude Desktop or Claude Code to your Rhythm workspace via the @ajhochy/rhythm-mcp-server package.',
                 style: TextStyle(
                   fontSize: 13,
                   color: RhythmTokens.textSecondary,
@@ -779,7 +779,7 @@ class _ClaudeIntegrationSectionState
                     '  "mcpServers": {\n'
                     '    "rhythm": {\n'
                     '      "command": "npx",\n'
-                    '      "args": ["-y", "@rhythm/mcp-server"],\n'
+                    '      "args": ["-y", "@ajhochy/rhythm-mcp-server"],\n'
                     '      "env": {\n'
                     '        "RHYTHM_API_URL": "${serverConfig.url}",\n'
                     '        "RHYTHM_API_TOKEN": "${_tokenVisible ? token : "••••••••"}"\n'
