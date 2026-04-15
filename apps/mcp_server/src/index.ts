@@ -3,6 +3,12 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 
 import { registerPingTool } from './tools/ping.js';
+import { registerTaskTools } from './tools/tasks.js';
+import { registerProjectTools } from './tools/projects.js';
+import { registerRhythmTools } from './tools/rhythms.js';
+import { registerMessageTools } from './tools/messages.js';
+import { registerFacilityTools } from './tools/facilities.js';
+import { registerDashboardTools } from './tools/dashboard.js';
 
 const RHYTHM_API_URL = process.env.RHYTHM_API_URL ?? 'https://api.vcrc.com';
 const RHYTHM_API_TOKEN = process.env.RHYTHM_API_TOKEN ?? '';
@@ -22,6 +28,12 @@ const server = new McpServer({
 
 // Register all tools
 registerPingTool(server, RHYTHM_API_URL, RHYTHM_API_TOKEN);
+registerTaskTools(server, RHYTHM_API_URL, RHYTHM_API_TOKEN);
+registerProjectTools(server, RHYTHM_API_URL, RHYTHM_API_TOKEN);
+registerRhythmTools(server, RHYTHM_API_URL, RHYTHM_API_TOKEN);
+registerMessageTools(server, RHYTHM_API_URL, RHYTHM_API_TOKEN);
+registerFacilityTools(server, RHYTHM_API_URL, RHYTHM_API_TOKEN);
+registerDashboardTools(server, RHYTHM_API_URL, RHYTHM_API_TOKEN);
 
 // Connect over stdio (Claude Desktop / Claude Code MCP transport)
 const transport = new StdioServerTransport();
