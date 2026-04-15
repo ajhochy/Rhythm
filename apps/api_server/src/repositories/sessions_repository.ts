@@ -74,7 +74,7 @@ export class SessionsRepository {
       const result = await getPostgresPool().query<SessionRow>(
         `SELECT * FROM sessions
          WHERE token = $1
-           AND (expires_at IS NULL OR expires_at > NOW())`,
+           AND (expires_at IS NULL OR expires_at::timestamptz > NOW())`,
         [token],
       );
       const row = result.rows[0];
