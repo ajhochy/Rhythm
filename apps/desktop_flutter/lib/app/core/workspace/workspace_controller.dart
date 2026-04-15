@@ -31,6 +31,20 @@ class WorkspaceController extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> addMemberDirect(int userId) async {
+    try {
+      _members = await _repository.addMemberDirect(userId);
+      _errorMessage = null;
+      _status = WorkspaceStatus.idle;
+      notifyListeners();
+    } catch (e) {
+      _errorMessage = e.toString();
+      _status = WorkspaceStatus.error;
+      notifyListeners();
+      rethrow;
+    }
+  }
+
   Future<void> updateMemberRole(int userId, String role) async {
     await _repository.updateMemberRole(userId, role);
     await loadMembers();

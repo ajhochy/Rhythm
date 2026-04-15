@@ -832,6 +832,148 @@ class _WorkspaceSectionWidgetState extends State<_WorkspaceSectionWidget> {
     });
   }
 
+  Future<void> _showAddMemberDialog(BuildContext context) async {
+    final auth = context.read<AuthSessionService>();
+    if (!auth.isWorkspaceAdmin) return;
+
+    final workspaceController = context.read<WorkspaceController>();
+    final settingsController = context.read<SettingsController>();
+
+    if (workspaceController.status == WorkspaceStatus.idle &&
+        workspaceController.members.isEmpty) {
+      await workspaceController.loadMembers();
+    }
+    if (settingsController.usersStatus != SettingsUsersStatus.ready ||
+        settingsController.users.isEmpty) {
+      await settingsController.loadUsers(force: true);
+    }
+
+    if (!context.mounted) return;
+    final messenger = ScaffoldMessenger.of(context);
+
+    final queryController = TextEditingController();
+    int? selectedUserId;
+
+    try {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) {
+          return StatefulBuilder(
+            builder: (dialogContext, setDialogState) {
+              final existingIds = workspaceController.members
+                  .map((member) => member.userId)
+                  .toSet();
+              final query = queryController.text.trim().toLowerCase();
+              final candidates = settingsController.users.where((user) {
+                if (user.role == 'system') return false;
+                if (existingIds.contains(user.id)) return false;
+                if (query.isEmpty) return true;
+                final haystack = '${user.name} ${user.email}'.toLowerCase();
+                return haystack.contains(query);
+              }).toList();
+
+              return AlertDialog(
+                title: const Text('Add workspace member'),
+                content: SizedBox(
+                  width: 420,
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      TextField(
+                        controller: queryController,
+                        autofocus: true,
+                        decoration: const InputDecoration(
+                          hintText: 'Search users by name or email',
+                          isDense: true,
+                        ),
+                        onChanged: (_) {
+                          setDialogState(() {
+                            selectedUserId = null;
+                          });
+                        },
+                      ),
+                      const SizedBox(height: 12),
+                      ConstrainedBox(
+                        constraints: const BoxConstraints(maxHeight: 320),
+                        child: candidates.isEmpty
+                            ? const Center(
+                                child: Padding(
+                                  padding: EdgeInsets.symmetric(vertical: 16),
+                                  child: Text(
+                                    'No matching registered users found.',
+                                    style: TextStyle(
+                                      fontSize: 13,
+                                      color: RhythmTokens.textSecondary,
+                                    ),
+                                    textAlign: TextAlign.center,
+                                  ),
+                                ),
+                              )
+                            : ListView.separated(
+                                shrinkWrap: true,
+                                itemCount: candidates.length,
+                                separatorBuilder: (_, __) =>
+                                    const SizedBox(height: 8),
+                                itemBuilder: (_, index) {
+                                  final user = candidates[index];
+                                  return RadioListTile<int>(
+                                    value: user.id,
+                                    groupValue: selectedUserId,
+                                    dense: true,
+                                    contentPadding: EdgeInsets.zero,
+                                    title: Text(
+                                      user.name,
+                                      style: const TextStyle(
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    ),
+                                    subtitle: Text(user.email),
+                                    onChanged: (value) {
+                                      setDialogState(() {
+                                        selectedUserId = value;
+                                      });
+                                    },
+                                  );
+                                },
+                              ),
+                      ),
+                    ],
+                  ),
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.of(dialogContext).pop(false),
+                    child: const Text('Cancel'),
+                  ),
+                  FilledButton(
+                    onPressed: selectedUserId == null
+                        ? null
+                        : () => Navigator.of(dialogContext).pop(true),
+                    child: const Text('Add'),
+                  ),
+                ],
+              );
+            },
+          );
+        },
+      );
+
+      if (confirmed == true && selectedUserId != null && context.mounted) {
+        await workspaceController.addMemberDirect(selectedUserId!);
+        if (!context.mounted) return;
+        messenger.showSnackBar(
+          const SnackBar(content: Text('Member added')),
+        );
+      }
+    } catch (error) {
+      if (!context.mounted) return;
+      messenger.showSnackBar(SnackBar(content: Text(error.toString())));
+    } finally {
+      queryController.dispose();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final auth = context.watch<AuthSessionService>();
@@ -930,6 +1072,14 @@ class _WorkspaceSectionWidgetState extends State<_WorkspaceSectionWidget> {
                     isCurrentUserAdmin: auth.isWorkspaceAdmin,
                   ),
                 ),
+              if (auth.isWorkspaceAdmin) ...[
+                const SizedBox(height: 12),
+                OutlinedButton.icon(
+                  onPressed: () => _showAddMemberDialog(context),
+                  icon: const Icon(Icons.person_add_outlined, size: 16),
+                  label: const Text('Add member'),
+                ),
+              ],
             ],
           ),
         ),

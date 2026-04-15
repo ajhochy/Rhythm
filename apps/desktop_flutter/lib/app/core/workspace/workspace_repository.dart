@@ -10,6 +10,8 @@ class WorkspaceRepository {
   Future<WorkspaceInfo> create(String name) => _dataSource.create(name);
   Future<WorkspaceInfo> join(String joinCode) => _dataSource.join(joinCode);
   Future<List<WorkspaceMember>> listMembers() => _dataSource.listMembers();
+  Future<List<WorkspaceMember>> addMemberDirect(int userId) =>
+      _dataSource.addMemberDirect(userId);
   Future<void> updateMemberRole(int userId, String role) =>
       _dataSource.updateMemberRole(userId, role);
   Future<void> removeMember(int userId) => _dataSource.removeMember(userId);

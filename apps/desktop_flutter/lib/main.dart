@@ -136,6 +136,7 @@ class RhythmApp extends StatelessWidget {
         ChangeNotifierProvider(
           create: (_) => WeeklyPlannerController(
             WeeklyPlanRepository(WeeklyPlanDataSource(baseUrl: baseUrl)),
+            TasksRepository(TasksLocalDataSource(baseUrl: baseUrl)),
           ),
         ),
         ChangeNotifierProvider(

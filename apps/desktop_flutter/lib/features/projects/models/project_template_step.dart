@@ -8,6 +8,8 @@ class ProjectTemplateStep {
     required this.offsetDays,
     required this.sortOrder,
     this.offsetDescription,
+    this.assigneeId,
+    this.assigneeName,
   });
 
   factory ProjectTemplateStep.fromJson(Map<String, dynamic> json) {
@@ -18,6 +20,8 @@ class ProjectTemplateStep {
       offsetDays: asInt(json['offsetDays']) ?? 0,
       offsetDescription: asString(json['offsetDescription']),
       sortOrder: asInt(json['sortOrder']) ?? 0,
+      assigneeId: asInt(json['assigneeId']),
+      assigneeName: asString(json['assigneeName']),
     );
   }
 
@@ -27,4 +31,6 @@ class ProjectTemplateStep {
   final int offsetDays;
   final String? offsetDescription;
   final int sortOrder;
+  final int? assigneeId;
+  final String? assigneeName;
 }

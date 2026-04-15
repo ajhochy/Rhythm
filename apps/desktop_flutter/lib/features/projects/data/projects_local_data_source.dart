@@ -46,6 +46,7 @@ class ProjectsLocalDataSource {
     required int offsetDays,
     String? offsetDescription,
     int? sortOrder,
+    int? assigneeId,
   }) async {
     final response = await http.post(
       Uri.parse('$_baseUrl/project-templates/$templateId/steps'),
@@ -55,6 +56,7 @@ class ProjectsLocalDataSource {
         'offsetDays': offsetDays,
         if (offsetDescription != null) 'offsetDescription': offsetDescription,
         if (sortOrder != null) 'sortOrder': sortOrder,
+        'assigneeId': assigneeId,
       }),
     );
     assertOk(response);
@@ -83,6 +85,7 @@ class ProjectsLocalDataSource {
     String? title,
     int? offsetDays,
     String? offsetDescription,
+    int? assigneeId,
   }) async {
     final response = await http.patch(
       Uri.parse('$_baseUrl/project-templates/$templateId/steps/$stepId'),
@@ -91,6 +94,7 @@ class ProjectsLocalDataSource {
         if (title != null) 'title': title,
         if (offsetDays != null) 'offsetDays': offsetDays,
         if (offsetDescription != null) 'offsetDescription': offsetDescription,
+        'assigneeId': assigneeId,
       }),
     );
     assertOk(response);

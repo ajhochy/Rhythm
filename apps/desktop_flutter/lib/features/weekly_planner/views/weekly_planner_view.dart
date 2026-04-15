@@ -4,10 +4,15 @@ import 'package:provider/provider.dart';
 import '../../../app/core/formatters/date_formatters.dart';
 import '../../../app/core/tasks/task_visual_style.dart';
 import '../../../app/core/widgets/error_banner.dart';
+import '../../../app/core/workspace/workspace_controller.dart';
+import '../../../app/core/workspace/workspace_models.dart';
 import '../../../app/theme/rhythm_tokens.dart';
+import '../../../shared/widgets/collaborators_row.dart';
+import '../../../shared/widgets/workspace_member_picker.dart';
 import '../../tasks/models/task.dart';
 import '../controllers/weekly_planner_controller.dart';
 import '../models/weekly_plan.dart';
+import '../../tasks/data/collaborators_data_source.dart';
 
 const _kCanvas = RhythmTokens.background;
 const _kCanvasAccent = RhythmTokens.backgroundAccent;
@@ -37,6 +42,7 @@ class _WeeklyPlannerViewState extends State<WeeklyPlannerView> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<WeeklyPlannerController>().load();
+      context.read<WorkspaceController>().loadMembers();
     });
   }
 
@@ -659,48 +665,67 @@ class _BacklogPane extends StatelessWidget {
 
   Future<void> _showAddBacklogTaskDialog(BuildContext context) async {
     final ctrl = TextEditingController();
+    final workspaceMembers = context.read<WorkspaceController>().members;
+    int? ownerId;
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: _kSurface,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(RhythmTokens.radiusL),
-        ),
-        title: const Text('Add unscheduled task'),
-        content: TextField(
-          controller: ctrl,
-          autofocus: true,
-          decoration: InputDecoration(
-            hintText: 'Task title',
-            filled: true,
-            fillColor: _kSurfaceMuted,
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(RhythmTokens.radiusS),
-              borderSide: const BorderSide(color: _kBorder),
-            ),
-            enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(RhythmTokens.radiusS),
-              borderSide: const BorderSide(color: _kBorder),
-            ),
-            focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(RhythmTokens.radiusS),
-              borderSide: const BorderSide(color: _kPrimary),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setState) => AlertDialog(
+          backgroundColor: _kSurface,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(RhythmTokens.radiusL),
+          ),
+          title: const Text('Add unscheduled task'),
+          content: SizedBox(
+            width: 380,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                TextField(
+                  controller: ctrl,
+                  autofocus: true,
+                  decoration: InputDecoration(
+                    hintText: 'Task title',
+                    filled: true,
+                    fillColor: _kSurfaceMuted,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(RhythmTokens.radiusS),
+                      borderSide: const BorderSide(color: _kBorder),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(RhythmTokens.radiusS),
+                      borderSide: const BorderSide(color: _kBorder),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(RhythmTokens.radiusS),
+                      borderSide: const BorderSide(color: _kPrimary),
+                    ),
+                  ),
+                  onSubmitted: (_) => Navigator.pop(ctx, true),
+                ),
+                const SizedBox(height: 12),
+                _TaskOwnerPickerField(
+                  workspaceMembers: workspaceMembers,
+                  selectedUserId: ownerId,
+                  onChanged: (value) => setState(() => ownerId = value),
+                ),
+              ],
             ),
           ),
-          onSubmitted: (_) => Navigator.pop(ctx, true),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('Cancel')),
+            FilledButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text('Add')),
+          ],
         ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Cancel')),
-          FilledButton(
-              onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('Add')),
-        ],
       ),
     );
     if (confirmed == true && ctrl.text.trim().isNotEmpty) {
-      await controller.createTask(ctrl.text.trim());
+      await controller.createTask(ctrl.text.trim(), ownerId: ownerId);
     }
   }
 }
@@ -1005,49 +1030,68 @@ class _DayColumnState extends State<_DayColumn> {
 
   Future<void> _showAddTaskDialog(BuildContext context) async {
     final ctrl = TextEditingController();
+    final workspaceMembers = context.read<WorkspaceController>().members;
+    int? ownerId;
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: _kSurface,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(RhythmTokens.radiusL),
-        ),
-        title: Text('Add task for ${widget.dayName}'),
-        content: TextField(
-          controller: ctrl,
-          autofocus: true,
-          decoration: InputDecoration(
-            hintText: 'Task title',
-            filled: true,
-            fillColor: _kSurfaceMuted,
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(RhythmTokens.radiusS),
-              borderSide: const BorderSide(color: _kBorder),
-            ),
-            enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(RhythmTokens.radiusS),
-              borderSide: const BorderSide(color: _kBorder),
-            ),
-            focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(RhythmTokens.radiusS),
-              borderSide: const BorderSide(color: _kPrimary),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setState) => AlertDialog(
+          backgroundColor: _kSurface,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(RhythmTokens.radiusL),
+          ),
+          title: Text('Add task for ${widget.dayName}'),
+          content: SizedBox(
+            width: 380,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                TextField(
+                  controller: ctrl,
+                  autofocus: true,
+                  decoration: InputDecoration(
+                    hintText: 'Task title',
+                    filled: true,
+                    fillColor: _kSurfaceMuted,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(RhythmTokens.radiusS),
+                      borderSide: const BorderSide(color: _kBorder),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(RhythmTokens.radiusS),
+                      borderSide: const BorderSide(color: _kBorder),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(RhythmTokens.radiusS),
+                      borderSide: const BorderSide(color: _kPrimary),
+                    ),
+                  ),
+                  onSubmitted: (_) => Navigator.pop(ctx, true),
+                ),
+                const SizedBox(height: 12),
+                _TaskOwnerPickerField(
+                  workspaceMembers: workspaceMembers,
+                  selectedUserId: ownerId,
+                  onChanged: (value) => setState(() => ownerId = value),
+                ),
+              ],
             ),
           ),
-          onSubmitted: (_) => Navigator.pop(ctx, true),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('Cancel')),
+            FilledButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text('Add')),
+          ],
         ),
-        actions: [
-          TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Cancel')),
-          FilledButton(
-              onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('Add')),
-        ],
       ),
     );
     if (confirmed == true && ctrl.text.trim().isNotEmpty) {
       await widget.controller
-          .createTask(ctrl.text.trim(), dueDate: widget.date);
+          .createTask(ctrl.text.trim(), dueDate: widget.date, ownerId: ownerId);
     }
   }
 }
@@ -1287,7 +1331,9 @@ class _DetailPaneState extends State<_DetailPane> {
   bool _saving = false;
   String? _dueDate;
   String? _scheduledDate;
+  int? _ownerId;
   bool _datesDirty = false;
+  bool _ownerDirty = false;
 
   @override
   void initState() {
@@ -1305,6 +1351,7 @@ class _DetailPaneState extends State<_DetailPane> {
         oldWidget.task.notes != widget.task.notes ||
         oldWidget.task.dueDate != widget.task.dueDate ||
         oldWidget.task.scheduledDate != widget.task.scheduledDate ||
+        oldWidget.task.ownerId != widget.task.ownerId ||
         oldWidget.task.status != widget.task.status) {
       _syncFromTask();
     }
@@ -1320,8 +1367,10 @@ class _DetailPaneState extends State<_DetailPane> {
     _notesCtrl.text = widget.task.notes ?? '';
     _dueDate = widget.task.dueDate;
     _scheduledDate = widget.task.scheduledDate;
+    _ownerId = widget.task.ownerId;
     _notesDirty = false;
     _datesDirty = false;
+    _ownerDirty = false;
   }
 
   Future<void> _saveDetailChanges() async {
@@ -1335,11 +1384,14 @@ class _DetailPaneState extends State<_DetailPane> {
           : _datesDirty
               ? (_scheduledDate ?? '')
               : null,
+      ownerId: _ownerId,
+      ownerChanged: _ownerDirty,
     );
     setState(() {
       _saving = false;
       _notesDirty = false;
       _datesDirty = false;
+      _ownerDirty = false;
     });
   }
 
@@ -1390,6 +1442,7 @@ class _DetailPaneState extends State<_DetailPane> {
     final isDone = task.status == 'done';
     final isShadowEvent = task.sourceType == 'calendar_shadow_event';
     final timeLabel = _shadowEventLabel(task);
+    final workspaceMembers = context.watch<WorkspaceController>().members;
     return Container(
       decoration: BoxDecoration(
         color: _kSurfaceMuted,
@@ -1484,6 +1537,14 @@ class _DetailPaneState extends State<_DetailPane> {
                           widget.controller.toggleTaskDone(task, isDone),
                     ),
                   const SizedBox(height: 14),
+                  if (!isShadowEvent && task.sourceType != 'project_step') ...[
+                    _editableOwnerRow(context, workspaceMembers),
+                    if (task.ownerId != null) ...[
+                      const SizedBox(height: 10),
+                      _collaboratorsSection(context, task, workspaceMembers),
+                    ],
+                    const SizedBox(height: 14),
+                  ],
                   if (!isShadowEvent)
                     _editableDateRow(
                       context,
@@ -1567,7 +1628,8 @@ class _DetailPaneState extends State<_DetailPane> {
                       maxLines: 8,
                     ),
                   const SizedBox(height: 10),
-                  if (!isShadowEvent && (_notesDirty || _datesDirty))
+                  if (!isShadowEvent &&
+                      (_notesDirty || _datesDirty || _ownerDirty))
                     Row(
                       children: [
                         FilledButton.tonal(
@@ -1590,8 +1652,10 @@ class _DetailPaneState extends State<_DetailPane> {
                                     _notesCtrl.text = widget.task.notes ?? '';
                                     _dueDate = widget.task.dueDate;
                                     _scheduledDate = widget.task.scheduledDate;
+                                    _ownerId = widget.task.ownerId;
                                     _notesDirty = false;
                                     _datesDirty = false;
+                                    _ownerDirty = false;
                                   }),
                           child: const Text('Discard'),
                         ),
@@ -1717,6 +1781,141 @@ class _DetailPaneState extends State<_DetailPane> {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _editableOwnerRow(
+    BuildContext context,
+    List<WorkspaceMember> workspaceMembers,
+  ) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 76,
+            child: Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Text(
+                'Owner',
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                      color: _kTextSecondary,
+                      fontWeight: FontWeight.w600,
+                    ),
+              ),
+            ),
+          ),
+          Expanded(
+            child: WorkspaceMemberPicker(
+              workspaceMembers: workspaceMembers,
+              selectedUserId: _ownerId,
+              onChanged: (value) {
+                setState(() {
+                  _ownerId = value;
+                  _ownerDirty = _ownerId != widget.task.ownerId;
+                });
+              },
+              label: 'Select owner',
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _collaboratorsSection(
+    BuildContext context,
+    Task task,
+    List<WorkspaceMember> workspaceMembers,
+  ) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 76,
+            child: Padding(
+              padding: const EdgeInsets.only(top: 8),
+              child: Text(
+                'Collaborators',
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                      color: _kTextSecondary,
+                      fontWeight: FontWeight.w600,
+                    ),
+              ),
+            ),
+          ),
+          Expanded(
+            child: CollaboratorsRow(
+              collaborators: task.collaborators,
+              ownerId: task.ownerId!,
+              workspaceMembers: workspaceMembers,
+              onAdd: (userId) async {
+                final dataSource = CollaboratorsDataSource();
+                await dataSource.addToTask(task.id, userId);
+                await widget.controller.load();
+              },
+              onRemove: (userId) async {
+                final dataSource = CollaboratorsDataSource();
+                await dataSource.removeFromTask(task.id, userId);
+                await widget.controller.load();
+              },
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _TaskOwnerPickerField extends StatelessWidget {
+  const _TaskOwnerPickerField({
+    required this.workspaceMembers,
+    required this.selectedUserId,
+    required this.onChanged,
+  });
+
+  final List<WorkspaceMember> workspaceMembers;
+  final int? selectedUserId;
+  final ValueChanged<int?> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          width: 76,
+          child: Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Text(
+              'Owner',
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    color: _kTextSecondary,
+                    fontWeight: FontWeight.w600,
+                  ),
+            ),
+          ),
+        ),
+        Expanded(
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            decoration: BoxDecoration(
+              color: _kSurface,
+              borderRadius: BorderRadius.circular(RhythmTokens.radiusS),
+              border: Border.all(color: _kBorder),
+            ),
+            child: WorkspaceMemberPicker(
+              workspaceMembers: workspaceMembers,
+              selectedUserId: selectedUserId,
+              onChanged: onChanged,
+              label: 'Select owner',
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

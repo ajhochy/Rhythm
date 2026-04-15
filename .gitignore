@@ -30,3 +30,17 @@ npm-debug.log*
 # Logs
 *.log
 coverage/
+
+# Local runtime data
+rhythm.db
+rhythm.db-shm
+rhythm.db-wal
+db-backups/
+
+# Local scratch/output artifacts
+tmp/
+output/
+.superpowers/
+
+# Local planning scratch docs
+docs/superpowers/plans/

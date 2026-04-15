@@ -48,6 +48,19 @@ class WorkspaceDataSource {
         .toList();
   }
 
+  Future<List<WorkspaceMember>> addMemberDirect(int userId) async {
+    final response = await http.post(
+      Uri.parse('$_baseUrl/workspaces/me/members/add'),
+      headers: AuthSessionStore.headers(json: true),
+      body: jsonEncode({'userId': userId}),
+    );
+    assertOk(response);
+    final list = jsonDecode(response.body) as List<dynamic>;
+    return list
+        .map((item) => WorkspaceMember.fromJson(item as Map<String, dynamic>))
+        .toList();
+  }
+
   Future<void> updateMemberRole(int userId, String role) async {
     final response = await http.patch(
       Uri.parse('$_baseUrl/workspaces/me/members/$userId'),

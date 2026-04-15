@@ -1,3 +1,4 @@
+import '../../../app/core/utils/json_parsing.dart';
 import '../../tasks/models/task_collaborator.dart';
 
 class ProjectInstanceStep {
@@ -9,17 +10,21 @@ class ProjectInstanceStep {
     required this.dueDate,
     required this.status,
     this.notes,
+    this.assigneeId,
+    this.assigneeName,
   });
 
   factory ProjectInstanceStep.fromJson(Map<String, dynamic> json) {
     return ProjectInstanceStep(
-      id: json['id'] as String,
-      instanceId: json['instanceId'] as String,
-      stepId: json['stepId'] as String,
-      title: json['title'] as String,
-      dueDate: json['dueDate'] as String,
-      status: json['status'] as String? ?? 'open',
-      notes: json['notes'] as String?,
+      id: asString(json['id']) ?? '',
+      instanceId: asString(json['instanceId']) ?? '',
+      stepId: asString(json['stepId']) ?? '',
+      title: asString(json['title']) ?? '',
+      dueDate: asString(json['dueDate']) ?? '',
+      status: asString(json['status']) ?? 'open',
+      notes: asString(json['notes']),
+      assigneeId: asInt(json['assigneeId']),
+      assigneeName: asString(json['assigneeName']),
     );
   }
 
@@ -30,6 +35,8 @@ class ProjectInstanceStep {
   final String dueDate;
   final String status;
   final String? notes;
+  final int? assigneeId;
+  final String? assigneeName;
 }
 
 class ProjectInstance {

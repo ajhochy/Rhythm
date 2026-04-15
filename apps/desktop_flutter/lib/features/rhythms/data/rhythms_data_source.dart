@@ -96,4 +96,21 @@ class RhythmsDataSource {
     );
     assertOk(response);
   }
+
+  Future<void> addCollaborator(String ruleId, int userId) async {
+    final response = await http.post(
+      Uri.parse('$_baseUrl/recurring-rules/$ruleId/collaborators'),
+      headers: AuthSessionStore.headers(json: true),
+      body: jsonEncode({'userId': userId}),
+    );
+    assertOk(response);
+  }
+
+  Future<void> removeCollaborator(String ruleId, int userId) async {
+    final response = await http.delete(
+      Uri.parse('$_baseUrl/recurring-rules/$ruleId/collaborators/$userId'),
+      headers: AuthSessionStore.headers(),
+    );
+    assertOk(response);
+  }
 }

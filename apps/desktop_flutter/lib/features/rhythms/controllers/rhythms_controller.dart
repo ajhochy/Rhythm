@@ -1,5 +1,4 @@
 import 'package:flutter/foundation.dart';
-import '../../../app/core/auth/auth_user.dart';
 import '../../../features/tasks/models/recurring_task_rule.dart';
 import '../repositories/rhythms_repository.dart';
 
@@ -11,12 +10,10 @@ class RhythmsController extends ChangeNotifier {
   final RhythmsRepository _repository;
 
   List<RecurringTaskRule> _rules = [];
-  List<AuthUser> _users = [];
   RhythmsStatus _status = RhythmsStatus.idle;
   String? _errorMessage;
 
   List<RecurringTaskRule> get rules => _rules;
-  List<AuthUser> get users => _users;
   RhythmsStatus get status => _status;
   String? get errorMessage => _errorMessage;
 
@@ -26,12 +23,7 @@ class RhythmsController extends ChangeNotifier {
     notifyListeners();
 
     try {
-      final results = await Future.wait([
-        _repository.getAll(),
-        _repository.getUsers(),
-      ]);
-      _rules = results[0] as List<RecurringTaskRule>;
-      _users = results[1] as List<AuthUser>;
+      _rules = await _repository.getAll();
       _status = RhythmsStatus.idle;
     } catch (e) {
       _errorMessage = e.toString();

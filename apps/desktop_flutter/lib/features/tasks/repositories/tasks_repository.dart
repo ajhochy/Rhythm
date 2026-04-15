@@ -8,13 +8,25 @@ class TasksRepository {
 
   Future<List<Task>> getAll() => _dataSource.fetchAll();
 
-  Future<Task> create(String title, {String? notes, String? dueDate}) =>
-      _dataSource.create(title, notes: notes, dueDate: dueDate);
+  Future<Task> create(String title,
+          {String? notes, String? dueDate, int? ownerId}) =>
+      _dataSource.create(title,
+          notes: notes, dueDate: dueDate, ownerId: ownerId);
 
   Future<Task> update(String id,
-          {String? title, String? notes, String? dueDate, String? status}) =>
+          {String? title,
+          String? notes,
+          String? dueDate,
+          String? status,
+          int? ownerId,
+          bool includeOwnerId = false}) =>
       _dataSource.update(id,
-          title: title, notes: notes, dueDate: dueDate, status: status);
+          title: title,
+          notes: notes,
+          dueDate: dueDate,
+          status: status,
+          ownerId: ownerId,
+          includeOwnerId: includeOwnerId);
 
   Future<void> delete(String id) => _dataSource.delete(id);
 }

@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
 import '../../../app/core/formatters/date_formatters.dart';
+import '../../../app/core/auth/auth_session_service.dart';
 import '../../../app/core/auth/auth_session_store.dart';
 import '../controllers/project_template_controller.dart';
 import '../models/project_instance.dart';
@@ -13,6 +14,7 @@ import '../services/project_generation_service.dart';
 import '../../../app/core/services/server_config_service.dart';
 import '../../../app/core/workspace/workspace_controller.dart';
 import '../../../shared/widgets/collaborators_row.dart';
+import '../../../shared/widgets/workspace_member_picker.dart';
 import '../../tasks/data/collaborators_data_source.dart';
 
 class ProjectsView extends StatefulWidget {
@@ -34,6 +36,7 @@ class _ProjectsViewState extends State<ProjectsView> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<ProjectTemplateController>().load();
+      context.read<WorkspaceController>().loadMembers();
     });
   }
 
@@ -241,13 +244,18 @@ class _ProjectsViewState extends State<ProjectsView> {
   }
 
   Future<void> _updateActiveProjectStep(ProjectInstanceStep step,
-      {String? title, String? dueDate, String? status, String? notes}) async {
+      {String? title,
+      String? dueDate,
+      String? status,
+      String? notes,
+      int? assigneeId}) async {
     try {
       final body = <String, dynamic>{
         if (title != null) 'title': title,
         if (dueDate != null) 'dueDate': dueDate,
         if (status != null) 'status': status,
         if (notes != null) 'notes': notes.isEmpty ? null : notes,
+        'assigneeId': assigneeId,
       };
       final response = await http.patch(
         Uri.parse(
@@ -544,13 +552,18 @@ class _TemplateDetailState extends State<_TemplateDetail>
   }
 
   Future<void> _updateStep(ProjectInstanceStep step,
-      {String? title, String? dueDate, String? status, String? notes}) async {
+      {String? title,
+      String? dueDate,
+      String? status,
+      String? notes,
+      int? assigneeId}) async {
     try {
       final body = <String, dynamic>{
         if (title != null) 'title': title,
         if (dueDate != null) 'dueDate': dueDate,
         if (status != null) 'status': status,
         if (notes != null) 'notes': notes.isEmpty ? null : notes,
+        'assigneeId': assigneeId,
       };
       final response = await http.patch(
         Uri.parse(
@@ -895,7 +908,8 @@ class _InstancesPanel extends StatelessWidget {
       {String? title,
       String? dueDate,
       String? status,
-      String? notes}) onUpdateStep;
+      String? notes,
+      int? assigneeId}) onUpdateStep;
   final Future<void> Function(String instanceId) onDeleteInstance;
   final Map<String, String> templateNames;
 
@@ -936,6 +950,7 @@ class _InstancesPanel extends StatelessWidget {
       ),
       child: _InstancesList(
         instances: instances,
+        onRefresh: onRefresh,
         onUpdateStep: onUpdateStep,
         onDeleteInstance: onDeleteInstance,
         templateNames: templateNames,
@@ -947,16 +962,19 @@ class _InstancesPanel extends StatelessWidget {
 class _InstancesList extends StatefulWidget {
   const _InstancesList({
     required this.instances,
+    required this.onRefresh,
     required this.onUpdateStep,
     required this.onDeleteInstance,
     this.templateNames = const {},
   });
   final List<ProjectInstance> instances;
+  final VoidCallback onRefresh;
   final Future<void> Function(ProjectInstanceStep step,
       {String? title,
       String? dueDate,
       String? status,
-      String? notes}) onUpdateStep;
+      String? notes,
+      int? assigneeId}) onUpdateStep;
   final Future<void> Function(String instanceId) onDeleteInstance;
   final Map<String, String> templateNames;
 
@@ -1019,6 +1037,7 @@ class _InstancesListState extends State<_InstancesList> {
                   itemCount: visibleInstances.length,
                   itemBuilder: (ctx, i) => _InstanceCard(
                     instance: visibleInstances[i],
+                    onRefresh: widget.onRefresh,
                     onUpdateStep: widget.onUpdateStep,
                     onDeleteInstance: widget.onDeleteInstance,
                     showCompleted: _showCompleted,
@@ -1035,17 +1054,20 @@ class _InstancesListState extends State<_InstancesList> {
 class _InstanceCard extends StatelessWidget {
   const _InstanceCard({
     required this.instance,
+    required this.onRefresh,
     required this.onUpdateStep,
     required this.onDeleteInstance,
     required this.showCompleted,
     this.templateName,
   });
   final ProjectInstance instance;
+  final VoidCallback onRefresh;
   final Future<void> Function(ProjectInstanceStep step,
       {String? title,
       String? dueDate,
       String? status,
-      String? notes}) onUpdateStep;
+      String? notes,
+      int? assigneeId}) onUpdateStep;
   final Future<void> Function(String instanceId) onDeleteInstance;
   final bool showCompleted;
   final String? templateName;
@@ -1053,6 +1075,8 @@ class _InstanceCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
+    final canReassign =
+        AuthSessionService.instance.currentUser?.id == instance.ownerId;
     final visibleSteps = showCompleted
         ? instance.steps
         : instance.steps.where((step) => step.status != 'done').toList();
@@ -1099,18 +1123,19 @@ class _InstanceCard extends StatelessWidget {
                 onAdd: (userId) async {
                   final ds = CollaboratorsDataSource();
                   await ds.addToProject(instance.id, userId);
-                  await context.read<ProjectTemplateController>().load();
+                  onRefresh();
                 },
                 onRemove: (userId) async {
                   final ds = CollaboratorsDataSource();
                   await ds.removeFromProject(instance.id, userId);
-                  await context.read<ProjectTemplateController>().load();
+                  onRefresh();
                 },
               ),
             ),
           ...visibleSteps.map((step) => _InstanceStepTile(
                 step: step,
                 onUpdateStep: onUpdateStep,
+                canReassign: canReassign,
               )),
         ],
       ),
@@ -1119,13 +1144,19 @@ class _InstanceCard extends StatelessWidget {
 }
 
 class _InstanceStepTile extends StatelessWidget {
-  const _InstanceStepTile({required this.step, required this.onUpdateStep});
+  const _InstanceStepTile({
+    required this.step,
+    required this.onUpdateStep,
+    required this.canReassign,
+  });
   final ProjectInstanceStep step;
   final Future<void> Function(ProjectInstanceStep step,
       {String? title,
       String? dueDate,
       String? status,
-      String? notes}) onUpdateStep;
+      String? notes,
+      int? assigneeId}) onUpdateStep;
+  final bool canReassign;
 
   @override
   Widget build(BuildContext context) {
@@ -1140,8 +1171,11 @@ class _InstanceStepTile extends StatelessWidget {
       child: ListTile(
         leading: Checkbox(
           value: isDone,
-          onChanged: (_) =>
-              onUpdateStep(step, status: isDone ? 'open' : 'done'),
+          onChanged: (_) => onUpdateStep(
+            step,
+            status: isDone ? 'open' : 'done',
+            assigneeId: step.assigneeId,
+          ),
           visualDensity: VisualDensity.compact,
           materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
         ),
@@ -1162,6 +1196,12 @@ class _InstanceStepTile extends StatelessWidget {
                     color: colorScheme.onSurfaceVariant,
                   ),
             ),
+            Text(
+              'Assignee: ${step.assigneeName ?? 'Unassigned'}',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: colorScheme.onSurfaceVariant,
+                  ),
+            ),
             if (step.notes != null && step.notes!.isNotEmpty)
               Text(
                 step.notes!,
@@ -1175,8 +1215,11 @@ class _InstanceStepTile extends StatelessWidget {
           icon: const Icon(Icons.edit_outlined, size: 16),
           onPressed: () => showDialog<void>(
             context: context,
-            builder: (_) =>
-                _EditInstanceStepDialog(step: step, onSave: onUpdateStep),
+            builder: (_) => _EditInstanceStepDialog(
+              step: step,
+              onSave: onUpdateStep,
+              canEditAssignee: canReassign,
+            ),
           ),
         ),
       ),
@@ -1185,10 +1228,19 @@ class _InstanceStepTile extends StatelessWidget {
 }
 
 class _EditInstanceStepDialog extends StatefulWidget {
-  const _EditInstanceStepDialog({required this.step, required this.onSave});
+  const _EditInstanceStepDialog({
+    required this.step,
+    required this.onSave,
+    required this.canEditAssignee,
+  });
   final ProjectInstanceStep step;
   final Future<void> Function(ProjectInstanceStep step,
-      {String? title, String? dueDate, String? status, String? notes}) onSave;
+      {String? title,
+      String? dueDate,
+      String? status,
+      String? notes,
+      int? assigneeId}) onSave;
+  final bool canEditAssignee;
 
   @override
   State<_EditInstanceStepDialog> createState() =>
@@ -1199,6 +1251,7 @@ class _EditInstanceStepDialogState extends State<_EditInstanceStepDialog> {
   late final TextEditingController _titleCtrl;
   late final TextEditingController _dueDateCtrl;
   late final TextEditingController _notesCtrl;
+  int? _assigneeId;
   bool _saving = false;
 
   @override
@@ -1207,6 +1260,7 @@ class _EditInstanceStepDialogState extends State<_EditInstanceStepDialog> {
     _titleCtrl = TextEditingController(text: widget.step.title);
     _dueDateCtrl = TextEditingController(text: widget.step.dueDate);
     _notesCtrl = TextEditingController(text: widget.step.notes ?? '');
+    _assigneeId = widget.step.assigneeId;
   }
 
   @override
@@ -1240,6 +1294,54 @@ class _EditInstanceStepDialogState extends State<_EditInstanceStepDialog> {
                   border: OutlineInputBorder()),
             ),
             const SizedBox(height: 12),
+            if (widget.canEditAssignee) ...[
+              Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  'Assignee',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        fontWeight: FontWeight.w600,
+                      ),
+                ),
+              ),
+              const SizedBox(height: 6),
+              Container(
+                width: double.infinity,
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                decoration: BoxDecoration(
+                  border: Border.all(
+                    color: Theme.of(context).colorScheme.outlineVariant,
+                  ),
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Builder(
+                  builder: (context) {
+                    final members =
+                        context.watch<WorkspaceController>().members;
+                    final selectedId = _assigneeId != null &&
+                            members.any((m) => m.userId == _assigneeId)
+                        ? _assigneeId
+                        : null;
+                    return WorkspaceMemberPicker(
+                      workspaceMembers: members,
+                      selectedUserId: selectedId,
+                      onChanged: (value) => setState(() => _assigneeId = value),
+                    );
+                  },
+                ),
+              ),
+              const SizedBox(height: 12),
+            ] else ...[
+              Text(
+                'Assignee: ${widget.step.assigneeName ?? 'Unassigned'}',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+              ),
+              const SizedBox(height: 12),
+            ],
             TextField(
               controller: _notesCtrl,
               decoration: const InputDecoration(
@@ -1277,6 +1379,7 @@ class _EditInstanceStepDialogState extends State<_EditInstanceStepDialog> {
       dueDate:
           _dueDateCtrl.text.trim().isEmpty ? null : _dueDateCtrl.text.trim(),
       notes: _notesCtrl.text.trim(),
+      assigneeId: _assigneeId,
     );
     if (mounted) Navigator.pop(context);
   }
@@ -1320,9 +1423,19 @@ class _StepTile extends StatelessWidget {
           step.title,
           style: const TextStyle(fontWeight: FontWeight.w500),
         ),
-        subtitle: Text(
-          offsetLabel,
-          style: TextStyle(color: colorScheme.onSurfaceVariant),
+        subtitle: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              offsetLabel,
+              style: TextStyle(color: colorScheme.onSurfaceVariant),
+            ),
+            if (step.assigneeName != null)
+              Text(
+                'Assignee: ${step.assigneeName}',
+                style: TextStyle(color: colorScheme.onSurfaceVariant),
+              ),
+          ],
         ),
         trailing: Row(
           mainAxisSize: MainAxisSize.min,
@@ -1481,6 +1594,7 @@ class _EditStepDialogState extends State<_EditStepDialog> {
   late final TextEditingController _titleController;
   late final TextEditingController _offsetController;
   late final TextEditingController _descController;
+  int? _assigneeId;
   bool _saving = false;
 
   @override
@@ -1491,6 +1605,7 @@ class _EditStepDialogState extends State<_EditStepDialog> {
         TextEditingController(text: widget.step.offsetDays.toString());
     _descController =
         TextEditingController(text: widget.step.offsetDescription ?? '');
+    _assigneeId = widget.step.assigneeId;
   }
 
   @override
@@ -1527,6 +1642,42 @@ class _EditStepDialogState extends State<_EditStepDialog> {
               inputFormatters: [
                 FilteringTextInputFormatter.allow(RegExp(r'[-\d]'))
               ],
+            ),
+            const SizedBox(height: 12),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                'Assignee',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      fontWeight: FontWeight.w600,
+                    ),
+              ),
+            ),
+            const SizedBox(height: 6),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                border: Border.all(
+                  color: Theme.of(context).colorScheme.outlineVariant,
+                ),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Builder(
+                builder: (context) {
+                  final members = context.watch<WorkspaceController>().members;
+                  final selectedId = _assigneeId != null &&
+                          members.any((m) => m.userId == _assigneeId)
+                      ? _assigneeId
+                      : null;
+                  return WorkspaceMemberPicker(
+                    workspaceMembers: members,
+                    selectedUserId: selectedId,
+                    onChanged: (value) => setState(() => _assigneeId = value),
+                  );
+                },
+              ),
             ),
             const SizedBox(height: 12),
             TextField(
@@ -1570,6 +1721,7 @@ class _EditStepDialogState extends State<_EditStepDialog> {
       offsetDescription: _descController.text.trim().isEmpty
           ? null
           : _descController.text.trim(),
+      assigneeId: _assigneeId,
     );
     if (mounted) Navigator.pop(context);
   }
@@ -1662,6 +1814,7 @@ class _AddStepDialogState extends State<_AddStepDialog> {
   final _titleController = TextEditingController();
   final _descController = TextEditingController();
   final _offsetController = TextEditingController(text: '0');
+  int? _assigneeId;
   bool _saving = false;
 
   @override
@@ -1698,6 +1851,42 @@ class _AddStepDialogState extends State<_AddStepDialog> {
               inputFormatters: [
                 FilteringTextInputFormatter.allow(RegExp(r'[-\d]'))
               ],
+            ),
+            const SizedBox(height: 12),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                'Assignee',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      fontWeight: FontWeight.w600,
+                    ),
+              ),
+            ),
+            const SizedBox(height: 6),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              decoration: BoxDecoration(
+                border: Border.all(
+                  color: Theme.of(context).colorScheme.outlineVariant,
+                ),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: Builder(
+                builder: (context) {
+                  final members = context.watch<WorkspaceController>().members;
+                  final selectedId = _assigneeId != null &&
+                          members.any((m) => m.userId == _assigneeId)
+                      ? _assigneeId
+                      : null;
+                  return WorkspaceMemberPicker(
+                    workspaceMembers: members,
+                    selectedUserId: selectedId,
+                    onChanged: (value) => setState(() => _assigneeId = value),
+                  );
+                },
+              ),
             ),
             const SizedBox(height: 12),
             TextField(
@@ -1740,6 +1929,7 @@ class _AddStepDialogState extends State<_AddStepDialog> {
           ? null
           : _descController.text.trim(),
       sortOrder: widget.template.steps.length,
+      assigneeId: _assigneeId,
     );
     if (mounted) Navigator.pop(context);
   }

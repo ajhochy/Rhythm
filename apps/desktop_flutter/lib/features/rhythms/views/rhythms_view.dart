@@ -1,13 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
-import '../../../app/core/auth/auth_user.dart';
+import '../../../app/core/auth/auth_session_service.dart';
 import '../../../app/core/formatters/date_formatters.dart';
 import '../../../app/core/widgets/error_banner.dart';
+import '../../../app/core/workspace/workspace_controller.dart';
+import '../../../app/core/workspace/workspace_models.dart';
 import '../../../app/theme/rhythm_tokens.dart';
 import '../controllers/rhythms_controller.dart';
+import '../data/rhythms_data_source.dart';
 import '../../../features/tasks/models/recurring_task_rule.dart';
 import '../../../features/tasks/services/recurrence_service.dart';
+import '../../../shared/widgets/workspace_member_picker.dart';
 
 const _kCanvas = RhythmTokens.background;
 const _kCanvasAccent = RhythmTokens.backgroundAccent;
@@ -30,11 +34,14 @@ class RhythmsView extends StatefulWidget {
 }
 
 class _RhythmsViewState extends State<RhythmsView> {
+  final RhythmsDataSource _dataSource = RhythmsDataSource();
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<RhythmsController>().load();
+      context.read<WorkspaceController>().loadMembers();
     });
   }
 
@@ -75,6 +82,7 @@ class _RhythmsViewState extends State<RhythmsView> {
                   Expanded(
                     child: _RulesList(
                       controller: controller,
+                      dataSource: _dataSource,
                       onCreate: () => _showCreateDialog(context, controller),
                     ),
                   ),
@@ -163,8 +171,13 @@ class _Header extends StatelessWidget {
 }
 
 class _RulesList extends StatelessWidget {
-  const _RulesList({required this.controller, required this.onCreate});
+  const _RulesList({
+    required this.controller,
+    required this.dataSource,
+    required this.onCreate,
+  });
   final RhythmsController controller;
+  final RhythmsDataSource dataSource;
   final VoidCallback onCreate;
 
   @override
@@ -184,6 +197,7 @@ class _RulesList extends StatelessWidget {
       itemBuilder: (context, i) => _RuleTile(
         rule: controller.rules[i],
         controller: controller,
+        dataSource: dataSource,
         onDelete: () => controller.deleteRule(controller.rules[i].id),
       ),
     );
@@ -191,11 +205,16 @@ class _RulesList extends StatelessWidget {
 }
 
 class _RuleTile extends StatefulWidget {
-  const _RuleTile(
-      {required this.rule, required this.onDelete, required this.controller});
+  const _RuleTile({
+    required this.rule,
+    required this.onDelete,
+    required this.controller,
+    required this.dataSource,
+  });
   final RecurringTaskRule rule;
   final VoidCallback onDelete;
   final RhythmsController controller;
+  final RhythmsDataSource dataSource;
 
   @override
   State<_RuleTile> createState() => _RuleTileState();
@@ -207,6 +226,9 @@ class _RuleTileState extends State<_RuleTile> {
   @override
   Widget build(BuildContext context) {
     final dimmed = !widget.rule.enabled;
+    final currentUserId = AuthSessionService.instance.currentUser?.id;
+    final isOwner =
+        widget.rule.ownerId != null && widget.rule.ownerId == currentUserId;
     final previewDates = RecurrenceService()
         .previewNextDates(widget.rule, DateTime.now(), count: 3)
         .map(
@@ -292,6 +314,15 @@ class _RuleTileState extends State<_RuleTile> {
                 ),
               ],
             ),
+            if (widget.rule.collaborators.isNotEmpty || isOwner) ...[
+              const SizedBox(height: 12),
+              _RhythmCollaboratorsRow(
+                rule: widget.rule,
+                isOwner: isOwner,
+                dataSource: widget.dataSource,
+                onChanged: () => widget.controller.load(),
+              ),
+            ],
             const SizedBox(height: 14),
             Wrap(
               spacing: 8,
@@ -545,6 +576,167 @@ class _ProgressStrip extends StatelessWidget {
         ),
       ],
     );
+  }
+}
+
+class _RhythmCollaboratorsRow extends StatelessWidget {
+  const _RhythmCollaboratorsRow({
+    required this.rule,
+    required this.isOwner,
+    required this.dataSource,
+    required this.onChanged,
+  });
+
+  final RecurringTaskRule rule;
+  final bool isOwner;
+  final RhythmsDataSource dataSource;
+  final VoidCallback onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final workspaceMembers = context.watch<WorkspaceController>().members;
+    final collaboratorIds = rule.collaborators.map((c) => c.userId).toSet();
+    final currentUserId = AuthSessionService.instance.currentUser?.id;
+    final candidates = workspaceMembers
+        .where(
+          (member) =>
+              member.userId != rule.ownerId &&
+              !collaboratorIds.contains(member.userId) &&
+              member.userId != currentUserId,
+        )
+        .toList();
+
+    if (rule.collaborators.isEmpty && !isOwner) {
+      return const SizedBox.shrink();
+    }
+
+    return Row(
+      children: [
+        Expanded(
+          child: Wrap(
+            spacing: 6,
+            runSpacing: 6,
+            children: [
+              ...rule.collaborators.map(
+                (collaborator) => Tooltip(
+                  message:
+                      '${collaborator.name}${isOwner ? ' (long-press to remove)' : ''}',
+                  child: GestureDetector(
+                    onLongPress: isOwner
+                        ? () => _confirmRemoveCollaborator(
+                              context,
+                              collaborator,
+                            )
+                        : null,
+                    child: CircleAvatar(
+                      radius: 13,
+                      backgroundImage: collaborator.photoUrl != null
+                          ? NetworkImage(collaborator.photoUrl!)
+                          : null,
+                      backgroundColor: _kPrimarySoft,
+                      child: collaborator.photoUrl == null
+                          ? Text(
+                              _initialFor(collaborator.name),
+                              style: const TextStyle(
+                                fontSize: 10,
+                                color: _kPrimary,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            )
+                          : null,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        if (isOwner)
+          IconButton(
+            icon: const Icon(Icons.person_add_outlined, size: 18),
+            tooltip: 'Add collaborator',
+            onPressed: () => _showAddCollaboratorDialog(context, candidates),
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+          ),
+      ],
+    );
+  }
+
+  Future<void> _confirmRemoveCollaborator(
+    BuildContext context,
+    RhythmCollaborator collaborator,
+  ) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Remove collaborator'),
+        content: Text('Remove ${collaborator.name} from this rhythm?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Remove'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    await dataSource.removeCollaborator(rule.id, collaborator.userId);
+    onChanged();
+  }
+
+  Future<void> _showAddCollaboratorDialog(
+    BuildContext context,
+    List<WorkspaceMember> candidates,
+  ) async {
+    if (candidates.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No other workspace members to add')),
+      );
+      return;
+    }
+
+    final selectedUserId = await showDialog<int>(
+      context: context,
+      builder: (ctx) {
+        var selectedId = candidates.first.userId;
+        return StatefulBuilder(
+          builder: (ctx, setState) => AlertDialog(
+            title: const Text('Add collaborator'),
+            content: SizedBox(
+              width: 360,
+              child: WorkspaceMemberPicker(
+                workspaceMembers: candidates,
+                selectedUserId: selectedId,
+                allowNone: false,
+                onChanged: (value) {
+                  if (value == null) return;
+                  setState(() => selectedId = value);
+                },
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(ctx, selectedId),
+                child: const Text('Add'),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+
+    if (selectedUserId == null) return;
+    await dataSource.addCollaborator(rule.id, selectedUserId);
+    onChanged();
   }
 }
 
@@ -861,7 +1053,6 @@ class _CreateRuleDialogState extends State<_CreateRuleDialog> {
                     for (var i = 0; i < _steps.length; i++) ...[
                       _StepEditorRow(
                         step: _steps[i],
-                        users: widget.controller.users,
                         onAssigneeChanged: (value) =>
                             setState(() => _steps[i].assigneeId = value),
                         onRemove: () {
@@ -1124,7 +1315,6 @@ class _EditRuleDialogState extends State<_EditRuleDialog> {
                     for (var i = 0; i < _steps.length; i++) ...[
                       _StepEditorRow(
                         step: _steps[i],
-                        users: widget.controller.users,
                         onAssigneeChanged: (value) =>
                             setState(() => _steps[i].assigneeId = value),
                         onRemove: () {
@@ -1187,16 +1377,20 @@ class _EditRuleDialogState extends State<_EditRuleDialog> {
   }
 }
 
+String _initialFor(String value) {
+  final trimmed = value.trim();
+  if (trimmed.isEmpty) return '?';
+  return trimmed[0].toUpperCase();
+}
+
 class _StepEditorRow extends StatelessWidget {
   const _StepEditorRow({
     required this.step,
-    required this.users,
     required this.onAssigneeChanged,
     required this.onRemove,
   });
 
   final _StepEditorModel step;
-  final List<AuthUser> users;
   final ValueChanged<int?> onAssigneeChanged;
   final VoidCallback onRemove;
 
@@ -1239,24 +1433,9 @@ class _StepEditorRow extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 12),
-          DropdownButtonFormField<int?>(
-            value: step.assigneeId,
-            decoration: const InputDecoration(
-              labelText: 'Assign to',
-              border: OutlineInputBorder(),
-            ),
-            items: [
-              const DropdownMenuItem<int?>(
-                value: null,
-                child: Text('Unassigned'),
-              ),
-              ...users.map(
-                (user) => DropdownMenuItem<int?>(
-                  value: user.id,
-                  child: Text(user.name),
-                ),
-              ),
-            ],
+          WorkspaceMemberPicker(
+            workspaceMembers: context.watch<WorkspaceController>().members,
+            selectedUserId: step.assigneeId,
             onChanged: onAssigneeChanged,
           ),
         ],

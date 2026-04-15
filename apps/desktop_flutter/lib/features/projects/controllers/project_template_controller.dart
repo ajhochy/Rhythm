@@ -71,12 +71,16 @@ class ProjectTemplateController extends ChangeNotifier {
   }
 
   Future<void> updateStep(String templateId, String stepId,
-      {String? title, int? offsetDays, String? offsetDescription}) async {
+      {String? title,
+      int? offsetDays,
+      String? offsetDescription,
+      int? assigneeId}) async {
     try {
       await _repository.updateStep(templateId, stepId,
           title: title,
           offsetDays: offsetDays,
-          offsetDescription: offsetDescription);
+          offsetDescription: offsetDescription,
+          assigneeId: assigneeId);
       await load();
     } catch (e) {
       _errorMessage = e.toString();
@@ -102,6 +106,7 @@ class ProjectTemplateController extends ChangeNotifier {
     required int offsetDays,
     String? offsetDescription,
     int? sortOrder,
+    int? assigneeId,
   }) async {
     try {
       await _repository.addStep(
@@ -110,6 +115,7 @@ class ProjectTemplateController extends ChangeNotifier {
         offsetDays: offsetDays,
         offsetDescription: offsetDescription,
         sortOrder: sortOrder,
+        assigneeId: assigneeId,
       );
       // Reload to get updated template with new step
       await load();
