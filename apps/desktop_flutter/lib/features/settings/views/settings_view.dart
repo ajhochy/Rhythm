@@ -664,7 +664,9 @@ class _ClaudeIntegrationSectionState
               ),
               const SizedBox(height: 6),
               const Text(
-                'Use this token to connect Claude Desktop or Claude Code to your Rhythm workspace via the @ajhochy/rhythm-mcp-server package.',
+                'Use this token to connect Claude Desktop or Claude Code to '
+                'your Rhythm workspace via the @ajhochy/rhythm-mcp-server '
+                'package.',
                 style: TextStyle(
                   fontSize: 13,
                   color: RhythmTokens.textSecondary,
