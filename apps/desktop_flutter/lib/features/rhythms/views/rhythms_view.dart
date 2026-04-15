@@ -272,7 +272,9 @@ class _RuleTileState extends State<_RuleTile> {
                           Expanded(
                             child: Text(
                               widget.rule.title,
-                              style: Theme.of(context).textTheme.titleMedium
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .titleMedium
                                   ?.copyWith(
                                     color: dimmed ? _kTextMuted : _kTextPrimary,
                                     fontWeight: FontWeight.w700,
@@ -391,7 +393,9 @@ class _RuleTileState extends State<_RuleTile> {
                             const SizedBox(width: 6),
                             Text(
                               'Workflow steps',
-                              style: Theme.of(context).textTheme.labelMedium
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .labelMedium
                                   ?.copyWith(
                                     color: _kTextSecondary,
                                     fontWeight: FontWeight.w600,
@@ -428,7 +432,9 @@ class _RuleTileState extends State<_RuleTile> {
                           const SizedBox(width: 6),
                           Text(
                             'Next occurrences',
-                            style: Theme.of(context).textTheme.labelMedium
+                            style: Theme.of(context)
+                                .textTheme
+                                .labelMedium
                                 ?.copyWith(
                                   color: _kTextSecondary,
                                   fontWeight: FontWeight.w600,
@@ -454,7 +460,9 @@ class _RuleTileState extends State<_RuleTile> {
                                 ),
                                 child: Text(
                                   DateFormatters.fullDate(date, fallback: date),
-                                  style: Theme.of(context).textTheme.labelSmall
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .labelSmall
                                       ?.copyWith(
                                         color: _kTextSecondary,
                                         fontWeight: FontWeight.w600,
@@ -618,7 +626,7 @@ class _RhythmCollaboratorsRow extends StatelessWidget {
                   child: GestureDetector(
                     onLongPress: isOwner
                         ? () =>
-                              _confirmRemoveCollaborator(context, collaborator)
+                            _confirmRemoveCollaborator(context, collaborator)
                         : null,
                     child: CircleAvatar(
                       radius: 13,
@@ -759,9 +767,9 @@ class _InlineMetric extends StatelessWidget {
           Text(
             label,
             style: Theme.of(context).textTheme.labelSmall?.copyWith(
-              color: _kTextMuted,
-              fontWeight: FontWeight.w600,
-            ),
+                  color: _kTextMuted,
+                  fontWeight: FontWeight.w600,
+                ),
           ),
           const SizedBox(height: 2),
           Text(
@@ -769,9 +777,9 @@ class _InlineMetric extends StatelessWidget {
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: Theme.of(context).textTheme.labelLarge?.copyWith(
-              color: color,
-              fontWeight: FontWeight.w700,
-            ),
+                  color: color,
+                  fontWeight: FontWeight.w700,
+                ),
           ),
         ],
       ),
@@ -830,9 +838,9 @@ class _WorkflowStepTile extends StatelessWidget {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                    color: isLocked ? _kTextMuted : _kTextPrimary,
-                    fontWeight: FontWeight.w700,
-                  ),
+                        color: isLocked ? _kTextMuted : _kTextPrimary,
+                        fontWeight: FontWeight.w700,
+                      ),
                 ),
                 const SizedBox(height: 2),
                 Text(
@@ -858,7 +866,7 @@ class _WorkflowStepTile extends StatelessWidget {
 
 class _StepEditorModel {
   _StepEditorModel({required this.id, String? title, this.assigneeId})
-    : titleController = TextEditingController(text: title ?? '');
+      : titleController = TextEditingController(text: title ?? '');
 
   final String id;
   final TextEditingController titleController;
@@ -1034,37 +1042,6 @@ class _CreateRuleDialogState extends State<_CreateRuleDialog> {
                   context,
                 ).textTheme.bodySmall?.copyWith(color: _kTextMuted),
               ),
-              if (_steps.length > 1) ...[
-                const SizedBox(height: 10),
-                Row(
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            'Sequential steps',
-                            style: TextStyle(
-                              fontSize: 13,
-                              fontWeight: FontWeight.w500,
-                              color: _kTextPrimary,
-                            ),
-                          ),
-                          const SizedBox(height: 2),
-                          const Text(
-                            'Each step unlocks only after the previous one is completed.',
-                            style: TextStyle(fontSize: 11, color: _kTextMuted),
-                          ),
-                        ],
-                      ),
-                    ),
-                    Switch(
-                      value: _sequential,
-                      onChanged: (v) => setState(() => _sequential = v),
-                    ),
-                  ],
-                ),
-              ],
               const SizedBox(height: 12),
               if (_steps.isEmpty)
                 Container(
@@ -1099,6 +1076,37 @@ class _CreateRuleDialogState extends State<_CreateRuleDialog> {
                     ],
                   ],
                 ),
+              if (_steps.length > 1) ...[
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Sequential steps',
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w500,
+                              color: _kTextPrimary,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          const Text(
+                            'Each step unlocks only after the previous one is completed.',
+                            style: TextStyle(fontSize: 11, color: _kTextMuted),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Switch(
+                      value: _sequential,
+                      onChanged: (v) => setState(() => _sequential = v),
+                    ),
+                  ],
+                ),
+              ],
             ],
           ),
         ),
@@ -1329,37 +1337,6 @@ class _EditRuleDialogState extends State<_EditRuleDialog> {
                   context,
                 ).textTheme.bodySmall?.copyWith(color: _kTextMuted),
               ),
-              if (_steps.length > 1) ...[
-                const SizedBox(height: 10),
-                Row(
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            'Sequential steps',
-                            style: TextStyle(
-                              fontSize: 13,
-                              fontWeight: FontWeight.w500,
-                              color: _kTextPrimary,
-                            ),
-                          ),
-                          const SizedBox(height: 2),
-                          const Text(
-                            'Each step unlocks only after the previous one is completed.',
-                            style: TextStyle(fontSize: 11, color: _kTextMuted),
-                          ),
-                        ],
-                      ),
-                    ),
-                    Switch(
-                      value: _sequential,
-                      onChanged: (v) => setState(() => _sequential = v),
-                    ),
-                  ],
-                ),
-              ],
               const SizedBox(height: 12),
               if (_steps.isEmpty)
                 Container(
@@ -1394,6 +1371,37 @@ class _EditRuleDialogState extends State<_EditRuleDialog> {
                     ],
                   ],
                 ),
+              if (_steps.length > 1) ...[
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Sequential steps',
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w500,
+                              color: _kTextPrimary,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          const Text(
+                            'Each step unlocks only after the previous one is completed.',
+                            style: TextStyle(fontSize: 11, color: _kTextMuted),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Switch(
+                      value: _sequential,
+                      onChanged: (v) => setState(() => _sequential = v),
+                    ),
+                  ],
+                ),
+              ],
             ],
           ),
         ),
@@ -1569,10 +1577,10 @@ class _EmptyState extends StatelessWidget {
               'No recurring rules yet',
               textAlign: TextAlign.center,
               style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                color: _kTextPrimary,
-                fontWeight: FontWeight.w700,
-                letterSpacing: -0.2,
-              ),
+                    color: _kTextPrimary,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: -0.2,
+                  ),
             ),
             const SizedBox(height: 8),
             Text(
@@ -1628,9 +1636,9 @@ class _StatusChip extends StatelessWidget {
       child: Text(
         label,
         style: Theme.of(context).textTheme.labelSmall?.copyWith(
-          color: foreground,
-          fontWeight: FontWeight.w700,
-        ),
+              color: foreground,
+              fontWeight: FontWeight.w700,
+            ),
       ),
     );
   }
