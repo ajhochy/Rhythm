@@ -62,3 +62,23 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+
+      - name: Manual server update required
+        run: |
+          echo "============================================================"
+          echo "  Image pushed to GHCR. Server update is MANUAL."
+          echo ""
+          echo "  SSH into the Synology and run:"
+          echo ""
+          echo "    docker pull ghcr.io/${{ github.repository_owner }}/rhythm-api:main"
+          echo "    docker compose -f /path/to/docker-compose.yml up -d --no-deps rhythm-api"
+          echo ""
+          echo "  Or, if running the container directly:"
+          echo ""
+          echo "    docker pull ghcr.io/${{ github.repository_owner }}/rhythm-api:main"
+          echo "    docker stop rhythm-api && docker rm rhythm-api"
+          echo "    docker run -d --name rhythm-api --restart unless-stopped \\"
+          echo "      -p 4000:4000 \\"
+          echo "      --env-file /path/to/.env \\"
+          echo "      ghcr.io/${{ github.repository_owner }}/rhythm-api:main"
+          echo "============================================================"
