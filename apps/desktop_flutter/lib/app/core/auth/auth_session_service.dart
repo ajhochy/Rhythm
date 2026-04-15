@@ -137,10 +137,9 @@ class AuthSessionService extends ChangeNotifier {
 
   Future<void> _initializeGoogle() async {
     if (_googleInitialized) return;
-    const clientId = String.fromEnvironment('GOOGLE_DESKTOP_CLIENT_ID');
-    await GoogleSignIn.instance.initialize(
-      clientId: clientId.isEmpty ? null : clientId,
-    );
+    // On macOS, GoogleSignIn reads from Info.plist's GIDClientID.
+    // The clientId parameter is primarily for Android.
+    await GoogleSignIn.instance.initialize();
     _googleInitialized = true;
   }
 
