@@ -204,6 +204,8 @@ class _SettingsViewState extends State<SettingsView> {
             ),
             const SizedBox(height: 24),
           ],
+          const _ClaudeIntegrationSection(),
+          const SizedBox(height: 24),
           const _WorkspaceSectionWidget(),
           const Text(
             'UPDATES',
@@ -595,6 +597,222 @@ class _UserPermissionRow extends StatelessWidget {
     );
   }
 }
+
+// ---------------------------------------------------------------------------
+// Claude / MCP integration
+// ---------------------------------------------------------------------------
+
+class _ClaudeIntegrationSection extends StatefulWidget {
+  const _ClaudeIntegrationSection();
+
+  @override
+  State<_ClaudeIntegrationSection> createState() =>
+      _ClaudeIntegrationSectionState();
+}
+
+class _ClaudeIntegrationSectionState
+    extends State<_ClaudeIntegrationSection> {
+  bool _tokenVisible = false;
+  bool _copied = false;
+
+  void _copyToken(String token) {
+    Clipboard.setData(ClipboardData(text: token));
+    setState(() => _copied = true);
+    Future.delayed(const Duration(seconds: 2), () {
+      if (mounted) setState(() => _copied = false);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final auth = context.watch<AuthSessionService>();
+    final serverConfig = context.watch<ServerConfigService>();
+    final token = auth.sessionToken;
+    final isAuthenticated = auth.isAuthenticated && token != null;
+    final isCloudUrl = serverConfig.url.contains('api.vcrc.com');
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'CLAUDE INTEGRATION',
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+            color: RhythmTokens.textSecondary,
+            letterSpacing: 0.8,
+          ),
+        ),
+        const SizedBox(height: 12),
+        Container(
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: RhythmTokens.surfaceStrong,
+            borderRadius: BorderRadius.circular(RhythmTokens.radiusL),
+            border: Border.all(color: RhythmTokens.borderSoft),
+            boxShadow: RhythmTokens.shadow,
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'MCP Server Token',
+                style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  color: RhythmTokens.textPrimary,
+                ),
+              ),
+              const SizedBox(height: 6),
+              const Text(
+                'Use this token to connect Claude Desktop or Claude Code to your Rhythm workspace via the @rhythm/mcp-server package.',
+                style: TextStyle(
+                  fontSize: 13,
+                  color: RhythmTokens.textSecondary,
+                ),
+              ),
+              const SizedBox(height: 16),
+              if (!isAuthenticated) ...[
+                const Text(
+                  'Sign in to generate a token.',
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: RhythmTokens.textMuted,
+                  ),
+                ),
+              ] else if (!isCloudUrl) ...[
+                Row(
+                  children: [
+                    const Icon(Icons.info_outline,
+                        size: 16, color: RhythmTokens.accentWarm),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Your API Server is set to ${serverConfig.url}. Switch to api.vcrc.com to get a cloud token for Claude.',
+                        style: const TextStyle(
+                          fontSize: 13,
+                          color: RhythmTokens.textSecondary,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ] else ...[
+                // Token display row
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 12, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: RhythmTokens.surfaceMuted,
+                    borderRadius:
+                        BorderRadius.circular(RhythmTokens.radiusS),
+                    border: Border.all(color: RhythmTokens.border),
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          _tokenVisible
+                              ? token
+                              : '•' * 40,
+                          style: const TextStyle(
+                            fontFamily: 'monospace',
+                            fontSize: 12,
+                            color: RhythmTokens.textPrimary,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      IconButton(
+                        icon: Icon(
+                          _tokenVisible
+                              ? Icons.visibility_off_outlined
+                              : Icons.visibility_outlined,
+                          size: 18,
+                          color: RhythmTokens.textSecondary,
+                        ),
+                        tooltip: _tokenVisible ? 'Hide token' : 'Show token',
+                        onPressed: () =>
+                            setState(() => _tokenVisible = !_tokenVisible),
+                        padding: EdgeInsets.zero,
+                        constraints: const BoxConstraints(),
+                      ),
+                      const SizedBox(width: 8),
+                      FilledButton.icon(
+                        onPressed: () => _copyToken(token),
+                        icon: Icon(
+                          _copied ? Icons.check : Icons.copy,
+                          size: 16,
+                        ),
+                        label: Text(_copied ? 'Copied!' : 'Copy'),
+                        style: FilledButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 14, vertical: 10),
+                          backgroundColor: _copied
+                              ? RhythmTokens.success
+                              : RhythmTokens.accent,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 16),
+                const Text(
+                  'Claude Desktop config (~/.claude/claude_desktop_config.json):',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: RhythmTokens.textSecondary,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF1E293B),
+                    borderRadius:
+                        BorderRadius.circular(RhythmTokens.radiusS),
+                  ),
+                  child: SelectableText(
+                    '{\n'
+                    '  "mcpServers": {\n'
+                    '    "rhythm": {\n'
+                    '      "command": "npx",\n'
+                    '      "args": ["-y", "@rhythm/mcp-server"],\n'
+                    '      "env": {\n'
+                    '        "RHYTHM_API_URL": "${serverConfig.url}",\n'
+                    '        "RHYTHM_API_TOKEN": "${_tokenVisible ? token : "••••••••"}"\n'
+                    '      }\n'
+                    '    }\n'
+                    '  }\n'
+                    '}',
+                    style: const TextStyle(
+                      fontFamily: 'monospace',
+                      fontSize: 12,
+                      color: Color(0xFF94A3B8),
+                      height: 1.6,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Token is valid for 1 year. Sign out and back in to rotate it.',
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: RhythmTokens.textMuted,
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
 
 class _WorkspaceSectionWidget extends StatefulWidget {
   const _WorkspaceSectionWidget();
