@@ -11,8 +11,11 @@ import type {
   RecurringTaskRuleStep,
 } from '../models/recurring_task_rule';
 import type { Task } from '../models/task';
+import { NotificationsRepository } from '../repositories/notifications_repository';
+import { NotificationService } from '../services/notification_service';
 
 const repo = new RecurringTaskRulesRepository();
+const notifService = new NotificationService(new NotificationsRepository());
 const recurrenceService = new RecurrenceService();
 const tasksRepo = new TasksRepository();
 const usersRepo = new UsersRepository();
@@ -119,13 +122,23 @@ export class RecurringRulesController {
 
   async addCollaborator(req: Request, res: Response, next: NextFunction) {
     try {
+      const actorId = req.auth?.user.id;
       const rule = await repo.findByIdAsync(req.params.id);
-      if (rule.ownerId !== req.auth?.user.id) throw AppError.forbidden('Only the rhythm owner can manage collaborators');
+      if (rule.ownerId !== actorId) throw AppError.forbidden('Only the rhythm owner can manage collaborators');
       const { userId } = req.body as Record<string, unknown>;
       if (!userId || typeof userId !== 'number') {
         throw AppError.badRequest('userId is required and must be a number');
       }
       await repo.addCollaboratorAsync(req.params.id, userId);
+      if (actorId != null) {
+        await notifService.notifyCollaboratorAddedAsync(
+          'rhythm',
+          req.params.id,
+          rule.title,
+          userId,
+          actorId,
+        );
+      }
       res.json(await repo.listCollaboratorsAsync(req.params.id));
     } catch (err) {
       next(err);

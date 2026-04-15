@@ -1,8 +1,11 @@
 import type { NextFunction, Request, Response } from 'express';
 import { AppError } from '../errors/app_error';
 import { TasksRepository } from '../repositories/tasks_repository';
+import { NotificationsRepository } from '../repositories/notifications_repository';
+import { NotificationService } from '../services/notification_service';
 
 const repo = new TasksRepository();
+const notifService = new NotificationService(new NotificationsRepository());
 
 export class TasksController {
   async getAll(req: Request, res: Response, next: NextFunction) {
@@ -42,12 +45,55 @@ export class TasksController {
 
   async update(req: Request, res: Response, next: NextFunction) {
     try {
-      const task = await repo.updateAsync(
+      const actorId = req.auth?.user.id;
+      const existing = await repo.findByIdAsync(req.params.id, actorId);
+      const updated = await repo.updateAsync(
         req.params.id,
         req.body as Record<string, unknown>,
-        req.auth?.user.id,
+        actorId,
       );
-      res.json(task);
+
+      const data = req.body as Record<string, unknown>;
+
+      // Notify on assignment
+      if (
+        data.ownerId !== undefined &&
+        updated.ownerId != null &&
+        updated.ownerId !== existing.ownerId &&
+        actorId != null
+      ) {
+        await notifService.notifyTaskAssignedAsync(
+          updated.id,
+          updated.title,
+          updated.ownerId,
+          actorId,
+        );
+      }
+
+      // Notify collaborators on task completion
+      if (
+        data.status === 'done' &&
+        existing.status !== 'done' &&
+        actorId != null
+      ) {
+        const collaborators = await repo.listCollaboratorsAsync(updated.id);
+        const collaboratorIds = collaborators.map((c) => c.userId);
+        if (updated.ownerId != null && !collaboratorIds.includes(updated.ownerId)) {
+          collaboratorIds.push(updated.ownerId);
+        }
+        if (collaboratorIds.length > 0) {
+          await notifService.notifyStepCompletedAsync(
+            'task',
+            updated.id,
+            updated.title,
+            updated.title,
+            collaboratorIds,
+            actorId,
+          );
+        }
+      }
+
+      res.json(updated);
     } catch (err) {
       next(err);
     }
@@ -77,6 +123,17 @@ export class TasksController {
         throw AppError.badRequest('userId is required and must be a number');
       }
       await repo.addCollaboratorAsync(req.params.id, userId);
+      const actorId = req.auth?.user.id;
+      if (actorId != null) {
+        const task = await repo.findByIdAsync(req.params.id, actorId);
+        await notifService.notifyCollaboratorAddedAsync(
+          'task',
+          req.params.id,
+          task.title,
+          userId,
+          actorId,
+        );
+      }
       res.status(201).json(await repo.listCollaboratorsAsync(req.params.id));
     } catch (err) {
       next(err);

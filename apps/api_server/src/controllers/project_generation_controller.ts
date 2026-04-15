@@ -2,9 +2,12 @@ import type { NextFunction, Request, Response } from 'express';
 import { AppError } from '../errors/app_error';
 import { ProjectInstancesRepository } from '../repositories/project_instances_repository';
 import { ProjectGenerationService } from '../services/project_generation_service';
+import { NotificationsRepository } from '../repositories/notifications_repository';
+import { NotificationService } from '../services/notification_service';
 
 const service = new ProjectGenerationService();
 const instanceRepo = new ProjectInstancesRepository();
+const notifService = new NotificationService(new NotificationsRepository());
 
 export class ProjectGenerationController {
   async generate(req: Request, res: Response, next: NextFunction) {
@@ -49,6 +52,7 @@ export class ProjectGenerationController {
 
   async updateInstanceStep(req: Request, res: Response, next: NextFunction) {
     try {
+      const actorId = req.auth?.user.id;
       const { stepId } = req.params;
       const { title, dueDate, status, notes, assigneeId } = req.body as Record<string, unknown>;
       const step = await instanceRepo.updateStepAsync(
@@ -70,8 +74,29 @@ export class ProjectGenerationController {
                 ? assigneeId
                 : undefined,
         },
-        req.auth?.user.id,
+        actorId,
       );
+
+      // Notify on step completion
+      if (status === 'done' && actorId != null) {
+        const collaborators = await instanceRepo.listCollaboratorsAsync(req.params.id);
+        const collaboratorIds = collaborators.map((c) => c.userId);
+        const instance = await instanceRepo.findByIdAsync(req.params.id, actorId);
+        if (instance.ownerId != null && !collaboratorIds.includes(instance.ownerId)) {
+          collaboratorIds.push(instance.ownerId);
+        }
+        if (collaboratorIds.length > 0) {
+          await notifService.notifyStepCompletedAsync(
+            'project',
+            req.params.id,
+            instance.name ?? 'Project',
+            step.title,
+            collaboratorIds,
+            actorId,
+          );
+        }
+      }
+
       res.json(step);
     } catch (err) {
       next(err);
@@ -102,6 +127,17 @@ export class ProjectGenerationController {
         throw AppError.badRequest('userId is required and must be a number');
       }
       await instanceRepo.addCollaboratorAsync(req.params.id, userId);
+      const actorId = req.auth?.user.id;
+      if (actorId != null) {
+        const instance = await instanceRepo.findByIdAsync(req.params.id, actorId);
+        await notifService.notifyCollaboratorAddedAsync(
+          'project',
+          req.params.id,
+          instance.name ?? 'Project',
+          userId,
+          actorId,
+        );
+      }
       res.status(201).json(await instanceRepo.listCollaboratorsAsync(req.params.id));
     } catch (err) {
       next(err);
