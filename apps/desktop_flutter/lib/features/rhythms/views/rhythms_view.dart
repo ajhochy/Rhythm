@@ -1022,6 +1022,18 @@ class _CreateRuleDialogState extends State<_CreateRuleDialog> {
                       ),
                     ),
                   ),
+                  if (_steps.length > 1) ...[
+                    const Text(
+                      'Sequential',
+                      style: TextStyle(fontSize: 12, color: _kTextSecondary),
+                    ),
+                    const SizedBox(width: 4),
+                    Switch(
+                      value: _sequential,
+                      onChanged: (v) => setState(() => _sequential = v),
+                    ),
+                    const SizedBox(width: 4),
+                  ],
                   TextButton.icon(
                     onPressed: () {
                       setState(() {
@@ -1076,37 +1088,6 @@ class _CreateRuleDialogState extends State<_CreateRuleDialog> {
                     ],
                   ],
                 ),
-              if (_steps.length > 1) ...[
-                const SizedBox(height: 16),
-                Row(
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            'Sequential steps',
-                            style: TextStyle(
-                              fontSize: 13,
-                              fontWeight: FontWeight.w500,
-                              color: _kTextPrimary,
-                            ),
-                          ),
-                          const SizedBox(height: 2),
-                          const Text(
-                            'Each step unlocks only after the previous one is completed.',
-                            style: TextStyle(fontSize: 11, color: _kTextMuted),
-                          ),
-                        ],
-                      ),
-                    ),
-                    Switch(
-                      value: _sequential,
-                      onChanged: (v) => setState(() => _sequential = v),
-                    ),
-                  ],
-                ),
-              ],
             ],
           ),
         ),
@@ -1317,6 +1298,18 @@ class _EditRuleDialogState extends State<_EditRuleDialog> {
                       ),
                     ),
                   ),
+                  if (_steps.length > 1) ...[
+                    const Text(
+                      'Sequential',
+                      style: TextStyle(fontSize: 12, color: _kTextSecondary),
+                    ),
+                    const SizedBox(width: 4),
+                    Switch(
+                      value: _sequential,
+                      onChanged: (v) => setState(() => _sequential = v),
+                    ),
+                    const SizedBox(width: 4),
+                  ],
                   TextButton.icon(
                     onPressed: () {
                       setState(() {
@@ -1371,37 +1364,6 @@ class _EditRuleDialogState extends State<_EditRuleDialog> {
                     ],
                   ],
                 ),
-              if (_steps.length > 1) ...[
-                const SizedBox(height: 16),
-                Row(
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            'Sequential steps',
-                            style: TextStyle(
-                              fontSize: 13,
-                              fontWeight: FontWeight.w500,
-                              color: _kTextPrimary,
-                            ),
-                          ),
-                          const SizedBox(height: 2),
-                          const Text(
-                            'Each step unlocks only after the previous one is completed.',
-                            style: TextStyle(fontSize: 11, color: _kTextMuted),
-                          ),
-                        ],
-                      ),
-                    ),
-                    Switch(
-                      value: _sequential,
-                      onChanged: (v) => setState(() => _sequential = v),
-                    ),
-                  ],
-                ),
-              ],
             ],
           ),
         ),
