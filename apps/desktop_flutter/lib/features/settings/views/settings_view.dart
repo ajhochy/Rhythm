@@ -610,8 +610,7 @@ class _ClaudeIntegrationSection extends StatefulWidget {
       _ClaudeIntegrationSectionState();
 }
 
-class _ClaudeIntegrationSectionState
-    extends State<_ClaudeIntegrationSection> {
+class _ClaudeIntegrationSectionState extends State<_ClaudeIntegrationSection> {
   bool _tokenVisible = false;
   bool _copied = false;
 
@@ -701,21 +700,18 @@ class _ClaudeIntegrationSectionState
               ] else ...[
                 // Token display row
                 Container(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 12, vertical: 10),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                   decoration: BoxDecoration(
                     color: RhythmTokens.surfaceMuted,
-                    borderRadius:
-                        BorderRadius.circular(RhythmTokens.radiusS),
+                    borderRadius: BorderRadius.circular(RhythmTokens.radiusS),
                     border: Border.all(color: RhythmTokens.border),
                   ),
                   child: Row(
                     children: [
                       Expanded(
                         child: Text(
-                          _tokenVisible
-                              ? token
-                              : '•' * 40,
+                          _tokenVisible ? token : '•' * 40,
                           style: const TextStyle(
                             fontFamily: 'monospace',
                             fontSize: 12,
@@ -773,8 +769,7 @@ class _ClaudeIntegrationSectionState
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
                     color: const Color(0xFF1E293B),
-                    borderRadius:
-                        BorderRadius.circular(RhythmTokens.radiusS),
+                    borderRadius: BorderRadius.circular(RhythmTokens.radiusS),
                   ),
                   child: SelectableText(
                     '{\n'
