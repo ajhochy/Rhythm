@@ -28,41 +28,53 @@ function rowToSession(row: SessionRow): Session {
   };
 }
 
+const DEFAULT_SESSION_EXPIRY_DAYS = 365;
+
+function addDays(days: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() + days);
+  return d.toISOString();
+}
+
 export class SessionsRepository {
   private readonly usersRepo = new UsersRepository();
 
-  async createAsync(userId: number): Promise<Session> {
+  async createAsync(userId: number, expiresInDays = DEFAULT_SESSION_EXPIRY_DAYS): Promise<Session> {
     if (env.dbClient === 'postgres') {
       const token = randomUUID();
       const now = new Date().toISOString();
+      const expiresAt = addDays(expiresInDays);
       const result = await getPostgresPool().query<SessionRow>(
         `INSERT INTO sessions (token, user_id, created_at, expires_at)
-         VALUES ($1, $2, $3, NULL)
+         VALUES ($1, $2, $3, $4)
          RETURNING *`,
-        [token, userId, now],
+        [token, userId, now, expiresAt],
       );
       return rowToSession(result.rows[0]);
     }
 
-    return this.create(userId);
+    return this.create(userId, expiresInDays);
   }
 
-  create(userId: number): Session {
+  create(userId: number, expiresInDays = DEFAULT_SESSION_EXPIRY_DAYS): Session {
     const token = randomUUID();
     const now = new Date().toISOString();
+    const expiresAt = addDays(expiresInDays);
     getDb()
       .prepare(
         `INSERT INTO sessions (token, user_id, created_at, expires_at)
-         VALUES (?, ?, ?, NULL)`,
+         VALUES (?, ?, ?, ?)`,
       )
-      .run(token, userId, now);
+      .run(token, userId, now, expiresAt);
     return this.findByToken(token)!;
   }
 
   async findByTokenAsync(token: string): Promise<Session | null> {
     if (env.dbClient === 'postgres') {
       const result = await getPostgresPool().query<SessionRow>(
-        'SELECT * FROM sessions WHERE token = $1',
+        `SELECT * FROM sessions
+         WHERE token = $1
+           AND (expires_at IS NULL OR expires_at > NOW())`,
         [token],
       );
       const row = result.rows[0];
@@ -74,7 +86,11 @@ export class SessionsRepository {
 
   findByToken(token: string): Session | null {
     const row = getDb()
-      .prepare('SELECT * FROM sessions WHERE token = ?')
+      .prepare(
+        `SELECT * FROM sessions
+         WHERE token = ?
+           AND (expires_at IS NULL OR expires_at > datetime('now'))`,
+      )
       .get(token) as SessionRow | undefined;
     return row ? rowToSession(row) : null;
   }
