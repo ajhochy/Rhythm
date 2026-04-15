@@ -14,7 +14,11 @@ class AppDelegate: FlutterAppDelegate {
 
   override func application(_ application: NSApplication, open urls: [URL]) {
     for url in urls {
-      GIDSignIn.sharedInstance.handle(url)
+      _ = GIDSignIn.sharedInstance.handle(url)
     }
+  }
+
+  override func application(_ application: NSApplication, open url: URL, options: [NSOpeningOptions : Any] = [:]) -> Bool {
+    return GIDSignIn.sharedInstance.handle(url)
   }
 }
