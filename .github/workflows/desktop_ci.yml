@@ -27,6 +27,9 @@ jobs:
         run: >
           flutter build macos --debug --config-only
           --dart-define=GOOGLE_DESKTOP_CLIENT_ID="$GOOGLE_DESKTOP_CLIENT_ID"
+      - name: Install CocoaPods dependencies
+        working-directory: apps/desktop_flutter/macos
+        run: pod install
       - name: Build macOS debug app
         working-directory: apps/desktop_flutter/macos
         run: >
