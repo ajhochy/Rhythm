@@ -1,16 +1,15 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { apiGet, apiPost, toolResult, toolError } from '../api_client.js';
+import { registerTool } from './_tool.js';
 
 export function registerMessageTools(server: McpServer, apiUrl: string, apiToken: string) {
-  // rhythm_list_message_threads
-  server.tool(
-    'rhythm_list_message_threads',
+  registerTool(server, 'rhythm_list_message_threads',
     'List message threads. Optionally filter to only threads with unread messages.',
     {
       unread_only: z.boolean().optional().describe('If true, return only threads with unread messages.'),
     },
-    async ({ unread_only }) => {
+    async ({ unread_only }: { unread_only?: boolean }) => {
       try {
         const qs = unread_only ? '?unread=true' : '';
         const threads = await apiGet<unknown[]>(apiUrl, apiToken, `/message-threads${qs}`);
@@ -21,16 +20,14 @@ export function registerMessageTools(server: McpServer, apiUrl: string, apiToken
     },
   );
 
-  // rhythm_create_message_thread
-  server.tool(
-    'rhythm_create_message_thread',
+  registerTool(server, 'rhythm_create_message_thread',
     "Create a new message thread.",
     {
       title: z.string().describe('Thread title.'),
       participant_ids: z.array(z.number().int()).optional().describe('User IDs to include as participants.'),
       thread_type: z.enum(['direct', 'group']).optional().describe("Thread type: 'direct' or 'group'. Defaults to 'group'."),
     },
-    async ({ title, participant_ids, thread_type }) => {
+    async ({ title, participant_ids, thread_type }: { title: string; participant_ids?: number[]; thread_type?: string }) => {
       try {
         const thread = await apiPost<unknown>(apiUrl, apiToken, '/message-threads', {
           title,
@@ -44,15 +41,13 @@ export function registerMessageTools(server: McpServer, apiUrl: string, apiToken
     },
   );
 
-  // rhythm_send_message
-  server.tool(
-    'rhythm_send_message',
+  registerTool(server, 'rhythm_send_message',
     'Send a message to an existing thread.',
     {
       thread_id: z.number().int().describe('Thread ID to send the message to.'),
       body: z.string().describe('Message text.'),
     },
-    async ({ thread_id, body }) => {
+    async ({ thread_id, body }: { thread_id: number; body: string }) => {
       try {
         const message = await apiPost<unknown>(apiUrl, apiToken, `/message-threads/${thread_id}/messages`, { body });
         return toolResult(JSON.stringify(message, null, 2));

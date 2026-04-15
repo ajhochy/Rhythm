@@ -1,11 +1,10 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { apiGet, apiPost, toolResult, toolError } from '../api_client.js';
+import { registerTool } from './_tool.js';
 
 export function registerFacilityTools(server: McpServer, apiUrl: string, apiToken: string) {
-  // rhythm_list_facilities
-  server.tool(
-    'rhythm_list_facilities',
+  registerTool(server, 'rhythm_list_facilities',
     'List all facilities.',
     {},
     async () => {
@@ -18,9 +17,7 @@ export function registerFacilityTools(server: McpServer, apiUrl: string, apiToke
     },
   );
 
-  // rhythm_create_reservation
-  server.tool(
-    'rhythm_create_reservation',
+  registerTool(server, 'rhythm_create_reservation',
     'Reserve a facility for a specific time window.',
     {
       facility_id: z.number().int().describe('Facility ID (integer) to reserve.'),
@@ -30,7 +27,7 @@ export function registerFacilityTools(server: McpServer, apiUrl: string, apiToke
       end_time: z.string().describe('End time in ISO 8601 format (e.g. "2026-04-19T12:00:00").'),
       notes: z.string().optional().describe('Optional notes.'),
     },
-    async ({ facility_id, title, requester_name, start_time, end_time, notes }) => {
+    async ({ facility_id, title, requester_name, start_time, end_time, notes }: { facility_id: number; title: string; requester_name: string; start_time: string; end_time: string; notes?: string }) => {
       try {
         const reservation = await apiPost<unknown>(apiUrl, apiToken, `/facilities/${facility_id}/reservations`, {
           title,

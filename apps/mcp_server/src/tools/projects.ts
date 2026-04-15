@@ -1,11 +1,10 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { apiGet, apiPost, apiPatch, toolResult, toolError } from '../api_client.js';
+import { registerTool } from './_tool.js';
 
 export function registerProjectTools(server: McpServer, apiUrl: string, apiToken: string) {
-  // rhythm_list_project_templates
-  server.tool(
-    'rhythm_list_project_templates',
+  registerTool(server, 'rhythm_list_project_templates',
     'List all project templates, including their steps.',
     {},
     async () => {
@@ -18,15 +17,13 @@ export function registerProjectTools(server: McpServer, apiUrl: string, apiToken
     },
   );
 
-  // rhythm_create_project_template
-  server.tool(
-    'rhythm_create_project_template',
+  registerTool(server, 'rhythm_create_project_template',
     'Create a new project template (e.g. "Sunday Service Prep").',
     {
       name: z.string().describe('Template name.'),
       description: z.string().optional().describe('Optional description.'),
     },
-    async ({ name, description }) => {
+    async ({ name, description }: { name: string; description?: string }) => {
       try {
         const template = await apiPost<unknown>(apiUrl, apiToken, '/project-templates', {
           name,
@@ -39,9 +36,7 @@ export function registerProjectTools(server: McpServer, apiUrl: string, apiToken
     },
   );
 
-  // rhythm_add_project_step
-  server.tool(
-    'rhythm_add_project_step',
+  registerTool(server, 'rhythm_add_project_step',
     'Add a step to a project template.',
     {
       template_id: z.string().describe('Project template ID.'),
@@ -50,7 +45,7 @@ export function registerProjectTools(server: McpServer, apiUrl: string, apiToken
       offset_description: z.string().optional().describe('Human-readable timing label (e.g. "2 weeks before").'),
       sort_order: z.number().int().optional().describe('Display order (0-based).'),
     },
-    async ({ template_id, title, offset_days, offset_description, sort_order }) => {
+    async ({ template_id, title, offset_days, offset_description, sort_order }: { template_id: string; title: string; offset_days: number; offset_description?: string; sort_order?: number }) => {
       try {
         const step = await apiPost<unknown>(apiUrl, apiToken, `/project-templates/${template_id}/steps`, {
           title,
@@ -65,16 +60,14 @@ export function registerProjectTools(server: McpServer, apiUrl: string, apiToken
     },
   );
 
-  // rhythm_create_project_instance
-  server.tool(
-    'rhythm_create_project_instance',
+  registerTool(server, 'rhythm_create_project_instance',
     'Instantiate a template as an active project with an anchor date.',
     {
       template_id: z.string().describe('Project template ID to instantiate.'),
       anchor_date: z.string().describe('Key event date in YYYY-MM-DD format.'),
       name: z.string().optional().describe('Custom name for this instance (defaults to template name).'),
     },
-    async ({ template_id, anchor_date, name }) => {
+    async ({ template_id, anchor_date, name }: { template_id: string; anchor_date: string; name?: string }) => {
       try {
         const instance = await apiPost<unknown>(apiUrl, apiToken, '/project-instances', {
           templateId: template_id,
@@ -88,14 +81,12 @@ export function registerProjectTools(server: McpServer, apiUrl: string, apiToken
     },
   );
 
-  // rhythm_list_project_instances
-  server.tool(
-    'rhythm_list_project_instances',
-    'List active projects with step progress. Defaults to active projects.',
+  registerTool(server, 'rhythm_list_project_instances',
+    "List active projects with step progress. Defaults to active projects.",
     {
       status: z.enum(['active', 'completed', 'all']).optional().describe("Filter by status. Defaults to 'active'."),
     },
-    async ({ status = 'active' }) => {
+    async ({ status = 'active' }: { status?: string }) => {
       try {
         const qs = status !== 'all' ? `?status=${status}` : '';
         const instances = await apiGet<unknown[]>(apiUrl, apiToken, `/project-instances${qs}`);
@@ -106,9 +97,7 @@ export function registerProjectTools(server: McpServer, apiUrl: string, apiToken
     },
   );
 
-  // rhythm_update_project_step
-  server.tool(
-    'rhythm_update_project_step',
+  registerTool(server, 'rhythm_update_project_step',
     'Mark a project step as done or update its notes.',
     {
       instance_id: z.string().describe('Project instance ID.'),
@@ -116,7 +105,7 @@ export function registerProjectTools(server: McpServer, apiUrl: string, apiToken
       status: z.enum(['open', 'done']).optional().describe('New status for the step.'),
       notes: z.string().nullable().optional().describe('Notes about the step, or null to clear.'),
     },
-    async ({ instance_id, step_id, status, notes }) => {
+    async ({ instance_id, step_id, status, notes }: { instance_id: string; step_id: string; status?: string; notes?: string | null }) => {
       try {
         const body: Record<string, unknown> = {};
         if (status !== undefined) body.status = status;

@@ -1,18 +1,17 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { apiGet, apiPost, apiPatch, apiDelete, toolResult, toolError } from '../api_client.js';
+import { registerTool } from './_tool.js';
 
 export function registerTaskTools(server: McpServer, apiUrl: string, apiToken: string) {
-  // rhythm_list_tasks
-  server.tool(
-    'rhythm_list_tasks',
+  registerTool(server, 'rhythm_list_tasks',
     'List tasks with optional filters. Returns open tasks by default.',
     {
       status: z.enum(['open', 'done', 'all']).optional().describe("Filter by status. Defaults to 'open'."),
       due_before: z.string().optional().describe('Return tasks due on or before this ISO 8601 date (YYYY-MM-DD).'),
       search: z.string().optional().describe('Case-insensitive substring match against task title.'),
     },
-    async ({ status = 'open', due_before, search }) => {
+    async ({ status = 'open', due_before, search }: { status?: string; due_before?: string; search?: string }) => {
       try {
         const params = new URLSearchParams();
         if (status !== 'all') params.set('status', status);
@@ -27,16 +26,14 @@ export function registerTaskTools(server: McpServer, apiUrl: string, apiToken: s
     },
   );
 
-  // rhythm_create_task
-  server.tool(
-    'rhythm_create_task',
+  registerTool(server, 'rhythm_create_task',
     'Create a new task.',
     {
       title: z.string().describe('Task title.'),
       notes: z.string().optional().describe('Optional notes or description.'),
       due_date: z.string().optional().describe('Due date in YYYY-MM-DD format.'),
     },
-    async ({ title, notes, due_date }) => {
+    async ({ title, notes, due_date }: { title: string; notes?: string; due_date?: string }) => {
       try {
         const task = await apiPost<unknown>(apiUrl, apiToken, '/tasks', {
           title,
@@ -50,18 +47,16 @@ export function registerTaskTools(server: McpServer, apiUrl: string, apiToken: s
     },
   );
 
-  // rhythm_update_task
-  server.tool(
-    'rhythm_update_task',
+  registerTool(server, 'rhythm_update_task',
     'Update one or more fields of an existing task.',
     {
       id: z.string().describe('Task ID.'),
       title: z.string().optional().describe('New title.'),
       notes: z.string().optional().describe('New notes.'),
-      due_date: z.string().nullable().optional().describe("New due date (YYYY-MM-DD) or null to clear it."),
+      due_date: z.string().nullable().optional().describe('New due date (YYYY-MM-DD) or null to clear it.'),
       status: z.enum(['open', 'done']).optional().describe('New status.'),
     },
-    async ({ id, title, notes, due_date, status }) => {
+    async ({ id, title, notes, due_date, status }: { id: string; title?: string; notes?: string; due_date?: string | null; status?: string }) => {
       try {
         const body: Record<string, unknown> = {};
         if (title !== undefined) body.title = title;
@@ -76,31 +71,27 @@ export function registerTaskTools(server: McpServer, apiUrl: string, apiToken: s
     },
   );
 
-  // rhythm_complete_task
-  server.tool(
-    'rhythm_complete_task',
-    "Mark a task as done.",
+  registerTool(server, 'rhythm_complete_task',
+    'Mark a task as done.',
     {
       id: z.string().describe('Task ID to mark as done.'),
     },
-    async ({ id }) => {
+    async ({ id }: { id: string }) => {
       try {
         const task = await apiPatch<{ title?: string }>(apiUrl, apiToken, `/tasks/${id}`, { status: 'done' });
-        return toolResult(`Task marked as done: ${(task as { title?: string }).title ?? id}`);
+        return toolResult(`Task marked as done: ${task.title ?? id}`);
       } catch (err) {
         return toolError(err);
       }
     },
   );
 
-  // rhythm_delete_task
-  server.tool(
-    'rhythm_delete_task',
+  registerTool(server, 'rhythm_delete_task',
     'Permanently delete a task.',
     {
       id: z.string().describe('Task ID to delete.'),
     },
-    async ({ id }) => {
+    async ({ id }: { id: string }) => {
       try {
         await apiDelete(apiUrl, apiToken, `/tasks/${id}`);
         return toolResult(`Task ${id} deleted.`);
