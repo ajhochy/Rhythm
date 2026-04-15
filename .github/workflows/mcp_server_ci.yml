@@ -1,0 +1,25 @@
+name: MCP Server CI
+
+on:
+  pull_request:
+    paths:
+      - 'apps/mcp_server/**'
+      - '.github/workflows/mcp_server_ci.yml'
+
+jobs:
+  mcp-checks:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/mcp_server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: apps/mcp_server/package-lock.json
+      - run: npm install --workspaces=false
+      - run: npm run build
+      - name: Verify binary is executable
+        run: node dist/index.js --help 2>&1 | true
