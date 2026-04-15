@@ -57,13 +57,14 @@ class FacilitiesController extends ChangeNotifier {
   }
 
   bool get isFacilitiesManager => currentUser?.isFacilitiesManager ?? false;
-  List<String> get buildings => _facilities
-      .map((facility) => facility.building?.trim())
-      .whereType<String>()
-      .where((building) => building.isNotEmpty)
-      .toSet()
-      .toList()
-    ..sort();
+  List<String> get buildings =>
+      _facilities
+          .map((facility) => facility.building?.trim())
+          .whereType<String>()
+          .where((building) => building.isNotEmpty)
+          .toSet()
+          .toList()
+        ..sort();
 
   Future<Facility> createFacility({
     required String name,
@@ -108,8 +109,9 @@ class FacilitiesController extends ChangeNotifier {
     } else {
       updated.add(facility);
     }
-    updated
-        .sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+    updated.sort(
+      (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
+    );
     _facilities = updated;
     notifyListeners();
     return facility;
@@ -117,16 +119,17 @@ class FacilitiesController extends ChangeNotifier {
 
   Future<void> deleteFacility(int facilityId) async {
     await _repository.deleteFacility(facilityId);
-    _facilities = _facilities
-        .where((facility) => facility.id != facilityId)
-        .toList()
-      ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
-    _reservationsByFacility =
-        Map<int, List<Reservation>>.from(_reservationsByFacility)
-          ..remove(facilityId);
-    _reservationSeriesByFacility =
-        Map<int, List<ReservationSeries>>.from(_reservationSeriesByFacility)
-          ..remove(facilityId);
+    _facilities =
+        _facilities.where((facility) => facility.id != facilityId).toList()
+          ..sort(
+            (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
+          );
+    _reservationsByFacility = Map<int, List<Reservation>>.from(
+      _reservationsByFacility,
+    )..remove(facilityId);
+    _reservationSeriesByFacility = Map<int, List<ReservationSeries>>.from(
+      _reservationSeriesByFacility,
+    )..remove(facilityId);
     _overviewReservations = _overviewReservations
         .where((reservation) => reservation.facilityId != facilityId)
         .toList();
@@ -386,37 +389,31 @@ class FacilitiesController extends ChangeNotifier {
     if (effectiveRequesterName == null || effectiveRequesterName.isEmpty) {
       throw ArgumentError('requesterName is required');
     }
-    final result = await _repository.updateReservationSeries(
-      facilityId,
-      seriesId,
-      {
-        'title': title,
-        'requester_name': effectiveRequesterName,
-        if (requesterUserId != null) 'requester_user_id': requesterUserId,
-        if (createdByUserId != null) 'created_by_user_id': createdByUserId,
-        if (notes != null && notes.isNotEmpty) 'notes': notes,
-        if (facilityIds != null && facilityIds.isNotEmpty)
-          'facility_ids': facilityIds,
-        'recurrence_type': recurrenceType,
-        if (recurrenceInterval != null)
-          'recurrence_interval': recurrenceInterval,
-        if (weekdayPattern != null) 'weekday_pattern': weekdayPattern,
-        if (customDates != null) 'custom_dates': customDates,
-        'start_time': startTime,
-        'end_time': endTime,
-        'start_date': startDate,
-        if (endDate != null && endDate.isNotEmpty) 'end_date': endDate,
-      },
-    );
+    final result = await _repository
+        .updateReservationSeries(facilityId, seriesId, {
+          'title': title,
+          'requester_name': effectiveRequesterName,
+          if (requesterUserId != null) 'requester_user_id': requesterUserId,
+          if (createdByUserId != null) 'created_by_user_id': createdByUserId,
+          if (notes != null && notes.isNotEmpty) 'notes': notes,
+          if (facilityIds != null && facilityIds.isNotEmpty)
+            'facility_ids': facilityIds,
+          'recurrence_type': recurrenceType,
+          if (recurrenceInterval != null)
+            'recurrence_interval': recurrenceInterval,
+          if (weekdayPattern != null) 'weekday_pattern': weekdayPattern,
+          if (customDates != null) 'custom_dates': customDates,
+          'start_time': startTime,
+          'end_time': endTime,
+          'start_date': startDate,
+          if (endDate != null && endDate.isNotEmpty) 'end_date': endDate,
+        });
     await loadFacilities();
     await reloadReservationOverview();
     return result;
   }
 
-  Future<void> deleteReservationSeries(
-    int facilityId,
-    String seriesId,
-  ) async {
+  Future<void> deleteReservationSeries(int facilityId, String seriesId) async {
     await _repository.deleteReservationSeries(facilityId, seriesId);
     await loadFacilities();
     await reloadReservationOverview();

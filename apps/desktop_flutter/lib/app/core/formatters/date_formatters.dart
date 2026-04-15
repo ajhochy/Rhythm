@@ -50,8 +50,9 @@ class DateFormatters {
     final current = today == null
         ? DateTime.now()
         : DateTime(today.year, today.month, today.day);
-    return comparisonDate
-        .isBefore(DateTime(current.year, current.month, current.day));
+    return comparisonDate.isBefore(
+      DateTime(current.year, current.month, current.day),
+    );
   }
 
   static bool isDueToday({

@@ -33,6 +33,7 @@ export class RecurrenceService {
         );
 
         if (!existing) {
+          const locked = rule.sequential && hasWorkflowSteps && index > 0;
           const task = await this.tasksRepo.createAsync({
             title: step.title,
             dueDate: dateStr,
@@ -41,6 +42,7 @@ export class RecurrenceService {
             sourceId,
             ownerId: step.assigneeId ?? rule.ownerId,
             scheduledOrder: hasWorkflowSteps ? (index + 1) * 10000 : null,
+            locked,
           });
           created.push(task);
         }

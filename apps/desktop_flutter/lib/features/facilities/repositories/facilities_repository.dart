@@ -27,13 +27,12 @@ class FacilitiesRepository {
     String? end,
     int? facilityId,
     String? building,
-  }) =>
-      _dataSource.getReservationOverview(
-        start: start,
-        end: end,
-        facilityId: facilityId,
-        building: building,
-      );
+  }) => _dataSource.getReservationOverview(
+    start: start,
+    end: end,
+    facilityId: facilityId,
+    building: building,
+  );
 
   Future<List<ReservationSeries>> getReservationSeries(int facilityId) =>
       _dataSource.getReservationSeries(facilityId);
@@ -41,32 +40,29 @@ class FacilitiesRepository {
   Future<ReservationSeries> getReservationSeriesDetail(
     int facilityId,
     String seriesId,
-  ) =>
-      _dataSource.getReservationSeriesDetail(facilityId, seriesId);
+  ) => _dataSource.getReservationSeriesDetail(facilityId, seriesId);
 
   Future<ReservationMutationResult> createReservation(
-          int facilityId, Map<String, dynamic> body) =>
-      _dataSource.createReservation(facilityId, body);
+    int facilityId,
+    Map<String, dynamic> body,
+  ) => _dataSource.createReservation(facilityId, body);
 
   Future<ReservationSeriesCreationResult> createReservationSeries(
     int facilityId,
     Map<String, dynamic> body,
-  ) =>
-      _dataSource.createReservationSeries(facilityId, body);
+  ) => _dataSource.createReservationSeries(facilityId, body);
 
   Future<ReservationSeriesCreationResult> updateReservationSeries(
     int facilityId,
     String seriesId,
     Map<String, dynamic> body,
-  ) =>
-      _dataSource.updateReservationSeries(facilityId, seriesId, body);
+  ) => _dataSource.updateReservationSeries(facilityId, seriesId, body);
 
   Future<ReservationMutationResult> updateReservation(
     int facilityId,
     int reservationId,
     Map<String, dynamic> body,
-  ) =>
-      _dataSource.updateReservation(facilityId, reservationId, body);
+  ) => _dataSource.updateReservation(facilityId, reservationId, body);
 
   Future<void> deleteReservation(int facilityId, int reservationId) =>
       _dataSource.deleteReservation(facilityId, reservationId);

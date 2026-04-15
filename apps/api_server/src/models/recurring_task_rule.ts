@@ -31,6 +31,7 @@ export interface RecurringTaskRule {
   dayOfMonth: number | null;
   month: number | null;
   enabled: boolean;
+  sequential: boolean;
   ownerId: number | null;
   steps: RecurringTaskRuleStep[];
   collaborators: RhythmCollaborator[];
@@ -45,6 +46,7 @@ export interface CreateRecurringTaskRuleDto {
   dayOfMonth?: number | null;
   month?: number | null;
   enabled?: boolean;
+  sequential?: boolean;
   ownerId?: number | null;
   steps?: RecurringTaskRuleStep[];
 }
@@ -56,6 +58,7 @@ export interface UpdateRecurringTaskRuleDto {
   dayOfMonth?: number | null;
   month?: number | null;
   enabled?: boolean;
+  sequential?: boolean;
   ownerId?: number | null;
   steps?: RecurringTaskRuleStep[];
 }

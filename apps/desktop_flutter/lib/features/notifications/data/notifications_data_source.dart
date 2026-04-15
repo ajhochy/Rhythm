@@ -7,7 +7,7 @@ import '../models/app_notification.dart';
 
 class NotificationsDataSource {
   NotificationsDataSource({String? baseUrl})
-      : _baseUrl = baseUrl ?? AppConstants.apiBaseUrl;
+    : _baseUrl = baseUrl ?? AppConstants.apiBaseUrl;
 
   final String _baseUrl;
 

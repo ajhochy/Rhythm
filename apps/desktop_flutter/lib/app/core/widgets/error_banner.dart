@@ -3,11 +3,7 @@ import 'package:flutter/material.dart';
 /// A consistent error banner used across all views.
 /// Shows a red-tinted message strip with an optional retry button.
 class ErrorBanner extends StatelessWidget {
-  const ErrorBanner({
-    super.key,
-    required this.message,
-    this.onRetry,
-  });
+  const ErrorBanner({super.key, required this.message, this.onRetry});
 
   final String message;
   final VoidCallback? onRetry;
@@ -38,8 +34,10 @@ class ErrorBanner extends StatelessWidget {
               onPressed: onRetry,
               style: TextButton.styleFrom(
                 foregroundColor: const Color(0xFFDC2626),
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 6,
+                ),
               ),
               child: const Text('Retry'),
             ),

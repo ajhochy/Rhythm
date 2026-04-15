@@ -18,45 +18,49 @@ import 'package:rhythm_desktop/features/tasks/models/recurring_task_rule.dart';
 import 'package:rhythm_desktop/features/tasks/models/task.dart';
 
 void main() {
-  test('DashboardController refreshes recent tasks after toggling done',
-      () async {
-    final dataSource = _FakeDashboardDataSource();
-    final controller = DashboardController(
-      _FakeDashboardRepository(dataSource),
-      now: () => DateTime(2026, 4, 1),
-    );
+  test(
+    'DashboardController refreshes recent tasks after toggling done',
+    () async {
+      final dataSource = _FakeDashboardDataSource();
+      final controller = DashboardController(
+        _FakeDashboardRepository(dataSource),
+        now: () => DateTime(2026, 4, 1),
+      );
 
-    await controller.load();
-    expect(controller.openTaskCount, 3);
-    expect(controller.dueThisWeekCount, 1);
-    expect(controller.activeRhythms, hasLength(1));
-    expect(controller.activeRhythms.first.title, 'Weekly Rhythm');
-    expect(controller.activeRhythms.first.completedCount, 1);
-    expect(controller.activeRhythms.first.totalCount, 2);
-    expect(controller.activeProjects, hasLength(1));
-    expect(controller.activeProjects.first.title, 'Project Alpha');
-    expect(controller.activeProjects.first.completedCount, 1);
-    expect(controller.activeProjects.first.totalCount, 2);
+      await controller.load();
+      expect(controller.openTaskCount, 3);
+      expect(controller.dueThisWeekCount, 1);
+      expect(controller.activeRhythms, hasLength(1));
+      expect(controller.activeRhythms.first.title, 'Weekly Rhythm');
+      expect(controller.activeRhythms.first.completedCount, 1);
+      expect(controller.activeRhythms.first.totalCount, 2);
+      expect(controller.activeProjects, hasLength(1));
+      expect(controller.activeProjects.first.title, 'Project Alpha');
+      expect(controller.activeProjects.first.completedCount, 1);
+      expect(controller.activeProjects.first.totalCount, 2);
 
-    await controller.toggleTaskDone('2');
+      await controller.toggleTaskDone('2');
 
-    expect(dataSource.loadCount, 2);
-    expect(controller.openTaskCount, 2);
-  });
+      expect(dataSource.loadCount, 2);
+      expect(controller.openTaskCount, 2);
+    },
+  );
 
-  test('DashboardController excludes next-week tasks from this week count',
-      () async {
-    final controller = DashboardController(
-      _FakeDashboardRepository(_FakeDashboardNextWeekDataSource()),
-      now: () => DateTime(2026, 4, 9),
-    );
+  test(
+    'DashboardController excludes next-week tasks from this week count',
+    () async {
+      final controller = DashboardController(
+        _FakeDashboardRepository(_FakeDashboardNextWeekDataSource()),
+        now: () => DateTime(2026, 4, 9),
+      );
 
-    await controller.load();
+      await controller.load();
 
-    expect(controller.thisWeekTasksRemainingCount, 0);
-    expect(controller.thisWeekTasksTotalCount, 0);
-    expect(controller.dueThisWeekCount, 0);
-  });
+      expect(controller.thisWeekTasksRemainingCount, 0);
+      expect(controller.thisWeekTasksTotalCount, 0);
+      expect(controller.dueThisWeekCount, 0);
+    },
+  );
 
   test('MessagesController reloads threads after creating a thread', () async {
     final repository = _FakeMessagesRepository();
@@ -76,56 +80,57 @@ void main() {
   });
 
   test(
-      'MessagesController polls threads globally and current thread while visible',
-      () async {
-    final repository = _FakeMessagesRepository();
-    final controller = MessagesController(
-      repository,
-      notifications: _FakeLocalNotificationService(),
-      pollInterval: const Duration(milliseconds: 10),
-    );
+    'MessagesController polls threads globally and current thread while visible',
+    () async {
+      final repository = _FakeMessagesRepository();
+      final controller = MessagesController(
+        repository,
+        notifications: _FakeLocalNotificationService(),
+        pollInterval: const Duration(milliseconds: 10),
+      );
 
-    await controller.loadThreads();
-    await controller.selectThread(11);
-    repository.getThreadsCallCount = 0;
-    repository.getMessagesCallCount = 0;
-    repository.markReadCallCount = 0;
+      await controller.loadThreads();
+      await controller.selectThread(11);
+      repository.getThreadsCallCount = 0;
+      repository.getMessagesCallCount = 0;
+      repository.markReadCallCount = 0;
 
-    controller.setPollingEnabled(true);
-    await Future<void>.delayed(const Duration(milliseconds: 25));
-    final hiddenThreadCalls = repository.getThreadsCallCount;
+      controller.setPollingEnabled(true);
+      await Future<void>.delayed(const Duration(milliseconds: 25));
+      final hiddenThreadCalls = repository.getThreadsCallCount;
 
-    expect(hiddenThreadCalls, greaterThanOrEqualTo(2));
-    expect(repository.getMessagesCallCount, 0);
-    expect(repository.markReadCallCount, 0);
+      expect(hiddenThreadCalls, greaterThanOrEqualTo(2));
+      expect(repository.getMessagesCallCount, 0);
+      expect(repository.markReadCallCount, 0);
 
-    controller.setScreenActive(true);
-    repository.messageFixtures = [
-      Message(
-        id: 1,
-        threadId: 11,
-        senderName: 'Alice',
-        content: 'Hello',
-        createdAt: DateTime.parse('2026-03-31T01:00:00.000Z'),
-      ),
-      Message(
-        id: 2,
-        threadId: 11,
-        senderName: 'Bob',
-        content: 'Reply',
-        createdAt: DateTime.parse('2026-03-31T01:01:00.000Z'),
-      ),
-    ];
-    await Future<void>.delayed(const Duration(milliseconds: 25));
+      controller.setScreenActive(true);
+      repository.messageFixtures = [
+        Message(
+          id: 1,
+          threadId: 11,
+          senderName: 'Alice',
+          content: 'Hello',
+          createdAt: DateTime.parse('2026-03-31T01:00:00.000Z'),
+        ),
+        Message(
+          id: 2,
+          threadId: 11,
+          senderName: 'Bob',
+          content: 'Reply',
+          createdAt: DateTime.parse('2026-03-31T01:01:00.000Z'),
+        ),
+      ];
+      await Future<void>.delayed(const Duration(milliseconds: 25));
 
-    expect(repository.getThreadsCallCount, greaterThan(hiddenThreadCalls));
-    expect(repository.getMessagesCallCount, greaterThanOrEqualTo(1));
-    expect(repository.markReadCallCount, greaterThanOrEqualTo(1));
-    expect(controller.incomingNotice, isNotNull);
-    expect(controller.incomingNotice?.senderName, 'Bob');
+      expect(repository.getThreadsCallCount, greaterThan(hiddenThreadCalls));
+      expect(repository.getMessagesCallCount, greaterThanOrEqualTo(1));
+      expect(repository.markReadCallCount, greaterThanOrEqualTo(1));
+      expect(controller.incomingNotice, isNotNull);
+      expect(controller.incomingNotice?.senderName, 'Bob');
 
-    controller.setPollingEnabled(false);
-  });
+      controller.setPollingEnabled(false);
+    },
+  );
 
   test('RhythmsController loads rules and forwards workflow steps', () async {
     final repository = _FakeRhythmsRepository();
@@ -139,9 +144,7 @@ void main() {
       title: 'New rhythm',
       frequency: 'weekly',
       dayOfWeek: 1,
-      steps: [
-        RecurringTaskRuleStep(id: 'prep', title: 'Prep', assigneeId: 2),
-      ],
+      steps: [RecurringTaskRuleStep(id: 'prep', title: 'Prep', assigneeId: 2)],
     );
 
     expect(repository.lastCreateSteps, hasLength(1));
@@ -223,60 +226,60 @@ class _FakeDashboardDataSource extends DashboardDataSource {
 
   @override
   Future<List<RecurringTaskRule>> fetchRecurringRules() async => [
-        RecurringTaskRule(
-          id: 'rule-1',
-          title: 'Weekly Rhythm',
-          frequency: 'weekly',
-          dayOfWeek: 1,
-          dayOfMonth: null,
-          month: null,
-          enabled: true,
-          createdAt: '2026-03-29T00:00:00.000Z',
-        ),
-      ];
+    RecurringTaskRule(
+      id: 'rule-1',
+      title: 'Weekly Rhythm',
+      frequency: 'weekly',
+      dayOfWeek: 1,
+      dayOfMonth: null,
+      month: null,
+      enabled: true,
+      createdAt: '2026-03-29T00:00:00.000Z',
+    ),
+  ];
 
   @override
   Future<List<ProjectTemplate>> fetchProjectTemplates() async => [
-        ProjectTemplate(
-          id: 'template-1',
-          name: 'Project Alpha',
-          anchorType: 'date',
-          createdAt: '2026-03-29T00:00:00.000Z',
-          steps: const [],
-        ),
-      ];
+    ProjectTemplate(
+      id: 'template-1',
+      name: 'Project Alpha',
+      anchorType: 'date',
+      createdAt: '2026-03-29T00:00:00.000Z',
+      steps: const [],
+    ),
+  ];
 
   @override
   Future<List<ProjectInstance>> fetchProjectInstances() async => [
-        ProjectInstance(
-          id: 'project-1',
-          templateId: 'template-1',
-          name: 'Project Alpha',
-          anchorDate: '2026-03-31',
-          status: 'active',
-          createdAt: '2026-03-31T00:00:00.000Z',
-          steps: [
-            ProjectInstanceStep(
-              id: 'step-1',
-              instanceId: 'project-1',
-              stepId: 'template-step-1',
-              title: 'Step one',
-              dueDate: '2026-04-01',
-              status: 'done',
-              notes: null,
-            ),
-            ProjectInstanceStep(
-              id: 'step-2',
-              instanceId: 'project-1',
-              stepId: 'template-step-2',
-              title: 'Step two',
-              dueDate: '2026-04-03',
-              status: 'open',
-              notes: null,
-            ),
-          ],
+    ProjectInstance(
+      id: 'project-1',
+      templateId: 'template-1',
+      name: 'Project Alpha',
+      anchorDate: '2026-03-31',
+      status: 'active',
+      createdAt: '2026-03-31T00:00:00.000Z',
+      steps: [
+        ProjectInstanceStep(
+          id: 'step-1',
+          instanceId: 'project-1',
+          stepId: 'template-step-1',
+          title: 'Step one',
+          dueDate: '2026-04-01',
+          status: 'done',
+          notes: null,
         ),
-      ];
+        ProjectInstanceStep(
+          id: 'step-2',
+          instanceId: 'project-1',
+          stepId: 'template-step-2',
+          title: 'Step two',
+          dueDate: '2026-04-03',
+          status: 'open',
+          notes: null,
+        ),
+      ],
+    ),
+  ];
 
   @override
   Future<List<MessageThread>> fetchMessageThreads() async => const [];
@@ -325,7 +328,7 @@ class _FakeDashboardRepository extends DashboardRepository {
 
 class _FakeMessagesRepository extends MessagesRepository {
   _FakeMessagesRepository()
-      : super(MessagesDataSource(baseUrl: 'http://example.invalid'));
+    : super(MessagesDataSource(baseUrl: 'http://example.invalid'));
 
   int getThreadsCallCount = 0;
   int getMessagesCallCount = 0;
@@ -347,12 +350,15 @@ class _FakeMessagesRepository extends MessagesRepository {
 
   @override
   Future<List<AuthUser>> getUsers() async => const [
-        AuthUser(id: 2, name: 'Bob', email: 'bob@example.com', role: 'member'),
-      ];
+    AuthUser(id: 2, name: 'Bob', email: 'bob@example.com', role: 'member'),
+  ];
 
   @override
-  Future<MessageThread> createThread(List<int> participantIds,
-      {String? title, String threadType = 'direct'}) async {
+  Future<MessageThread> createThread(
+    List<int> participantIds, {
+    String? title,
+    String threadType = 'direct',
+  }) async {
     final thread = MessageThread(
       id: 22,
       title: title ?? 'Bob',
@@ -413,10 +419,9 @@ class _FakeRhythmsRepository extends RhythmsRepository {
 
   @override
   Future<List<AuthUser>> getUsers() async => const [
-        AuthUser(
-            id: 1, name: 'Alice', email: 'alice@example.com', role: 'member'),
-        AuthUser(id: 2, name: 'Bob', email: 'bob@example.com', role: 'member'),
-      ];
+    AuthUser(id: 1, name: 'Alice', email: 'alice@example.com', role: 'member'),
+    AuthUser(id: 2, name: 'Bob', email: 'bob@example.com', role: 'member'),
+  ];
 
   @override
   Future<RecurringTaskRule> create({
@@ -425,6 +430,7 @@ class _FakeRhythmsRepository extends RhythmsRepository {
     int? dayOfWeek,
     int? dayOfMonth,
     int? month,
+    bool? sequential,
     List<RecurringTaskRuleStep>? steps,
   }) async {
     lastCreateSteps = List.of(steps ?? const []);
@@ -452,6 +458,7 @@ class _FakeRhythmsRepository extends RhythmsRepository {
     int? dayOfMonth,
     int? month,
     bool? enabled,
+    bool? sequential,
     List<RecurringTaskRuleStep>? steps,
   }) async {
     lastUpdateSteps = List.of(steps ?? const []);

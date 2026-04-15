@@ -5,17 +5,11 @@ class AppError implements Exception {
   final String? code;
   final int? statusCode;
 
-  factory AppError.notFound(String resource) => AppError(
-        '$resource not found',
-        code: 'NOT_FOUND',
-        statusCode: 404,
-      );
+  factory AppError.notFound(String resource) =>
+      AppError('$resource not found', code: 'NOT_FOUND', statusCode: 404);
 
-  factory AppError.badRequest(String message) => AppError(
-        message,
-        code: 'BAD_REQUEST',
-        statusCode: 400,
-      );
+  factory AppError.badRequest(String message) =>
+      AppError(message, code: 'BAD_REQUEST', statusCode: 400);
 
   @override
   String toString() => message;

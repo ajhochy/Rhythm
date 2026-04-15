@@ -8,7 +8,7 @@ enum WeeklyPlannerStatus { idle, loading, error }
 
 class WeeklyPlannerController extends ChangeNotifier {
   WeeklyPlannerController(this._repository, this._tasksRepository)
-      : _currentWeekLabel = _todayWeekLabel();
+    : _currentWeekLabel = _todayWeekLabel();
 
   final WeeklyPlanRepository _repository;
   final TasksRepository _tasksRepository;
@@ -82,17 +82,25 @@ class WeeklyPlannerController extends ChangeNotifier {
     try {
       final scheduledOrder = _defaultScheduledOrderForDate(date);
       if (task.sourceType == 'project_step') {
-        await _repository.updateTask(task.id,
-            dueDate: date, sourceType: task.sourceType);
+        await _repository.updateTask(
+          task.id,
+          dueDate: date,
+          sourceType: task.sourceType,
+        );
       } else if (task.dueDate == null && task.scheduledDate == null) {
-        await _repository.updateTask(task.id,
-            dueDate: date,
-            scheduledDate: date,
-            scheduledOrder: scheduledOrder,
-            sourceType: task.sourceType);
+        await _repository.updateTask(
+          task.id,
+          dueDate: date,
+          scheduledDate: date,
+          scheduledOrder: scheduledOrder,
+          sourceType: task.sourceType,
+        );
       } else {
-        await _repository.scheduleTask(task.id, date,
-            scheduledOrder: scheduledOrder);
+        await _repository.scheduleTask(
+          task.id,
+          date,
+          scheduledOrder: scheduledOrder,
+        );
       }
       await load();
     } catch (e) {
@@ -104,8 +112,11 @@ class WeeklyPlannerController extends ChangeNotifier {
 
   Future<void> toggleTaskDone(Task task, bool currentlyDone) async {
     try {
-      await _repository.updateTask(task.id,
-          status: currentlyDone ? 'open' : 'done', sourceType: task.sourceType);
+      await _repository.updateTask(
+        task.id,
+        status: currentlyDone ? 'open' : 'done',
+        sourceType: task.sourceType,
+      );
       await load();
     } catch (e) {
       _errorMessage = e.toString();
@@ -114,20 +125,24 @@ class WeeklyPlannerController extends ChangeNotifier {
     }
   }
 
-  Future<void> updateTask(Task task,
-      {String? notes,
-      String? dueDate,
-      String? scheduledDate,
-      int? scheduledOrder,
-      int? ownerId,
-      bool ownerChanged = false}) async {
+  Future<void> updateTask(
+    Task task, {
+    String? notes,
+    String? dueDate,
+    String? scheduledDate,
+    int? scheduledOrder,
+    int? ownerId,
+    bool ownerChanged = false,
+  }) async {
     try {
-      await _repository.updateTask(task.id,
-          notes: notes,
-          dueDate: dueDate,
-          scheduledDate: scheduledDate,
-          scheduledOrder: scheduledOrder,
-          sourceType: task.sourceType);
+      await _repository.updateTask(
+        task.id,
+        notes: notes,
+        dueDate: dueDate,
+        scheduledDate: scheduledDate,
+        scheduledOrder: scheduledOrder,
+        sourceType: task.sourceType,
+      );
       if (ownerChanged) {
         await _tasksRepository.update(
           task.id,
@@ -144,13 +159,19 @@ class WeeklyPlannerController extends ChangeNotifier {
   }
 
   Future<void> bulkToggleSelectedTasks(
-      List<Task> tasks, String targetStatus) async {
+    List<Task> tasks,
+    String targetStatus,
+  ) async {
     try {
-      final selected =
-          tasks.where((task) => _selectedTaskIds.contains(task.id));
+      final selected = tasks.where(
+        (task) => _selectedTaskIds.contains(task.id),
+      );
       for (final task in selected) {
-        await _repository.updateTask(task.id,
-            status: targetStatus, sourceType: task.sourceType);
+        await _repository.updateTask(
+          task.id,
+          status: targetStatus,
+          sourceType: task.sourceType,
+        );
       }
       _selectedTaskIds.clear();
       await load();
@@ -185,9 +206,7 @@ class WeeklyPlannerController extends ChangeNotifier {
     final date = task.scheduledDate ?? task.dueDate;
     final plan = _plan;
     if (date == null || plan == null) return;
-    final sameDay = [
-      ...plan.tasksForDate(date),
-    ]..sort(_compareVisualOrder);
+    final sameDay = [...plan.tasksForDate(date)]..sort(_compareVisualOrder);
     final currentIndex = sameDay.indexWhere((item) => item.id == task.id);
     if (currentIndex == -1) return;
     final targetIndex = earlier ? currentIndex - 1 : currentIndex + 1;
@@ -206,16 +225,11 @@ class WeeklyPlannerController extends ChangeNotifier {
 
     final nextOrder = ((beforeOrder + afterOrder) / 2).round();
 
-    await updateTask(
-      task,
-      scheduledOrder: nextOrder,
-    );
+    await updateTask(task, scheduledOrder: nextOrder);
   }
 
   int _defaultScheduledOrderForDate(String date) {
-    final dayTasks = [
-      ...?_plan?.tasksForDate(date),
-    ];
+    final dayTasks = [...?_plan?.tasksForDate(date)];
     if (dayTasks.isEmpty) return 10000000;
     final maxOrder = dayTasks
         .map(_visualOrderForTask)

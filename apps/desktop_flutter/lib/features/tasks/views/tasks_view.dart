@@ -52,7 +52,8 @@ class _TasksViewState extends State<TasksView> {
     );
     if (picked != null) {
       setState(
-          () => _selectedDueDate = picked.toIso8601String().substring(0, 10));
+        () => _selectedDueDate = picked.toIso8601String().substring(0, 10),
+      );
     }
   }
 
@@ -61,10 +62,10 @@ class _TasksViewState extends State<TasksView> {
     if (title.isEmpty) return;
     final notes = _notesController.text.trim();
     await context.read<TasksController>().createTask(
-          title,
-          notes: notes.isEmpty ? null : notes,
-          dueDate: _selectedDueDate,
-        );
+      title,
+      notes: notes.isEmpty ? null : notes,
+      dueDate: _selectedDueDate,
+    );
     _titleController.clear();
     _notesController.clear();
     setState(() => _selectedDueDate = null);
@@ -137,7 +138,10 @@ class _TasksViewState extends State<TasksView> {
   }
 
   Widget _buildHeader(
-      BuildContext context, TasksController controller, int visibleCount) {
+    BuildContext context,
+    TasksController controller,
+    int visibleCount,
+  ) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(24, 10, 24, 6),
       child: Container(
@@ -162,12 +166,12 @@ class _TasksViewState extends State<TasksView> {
                     children: [
                       Text(
                         'Tasks',
-                        style:
-                            Theme.of(context).textTheme.titleMedium?.copyWith(
-                                  color: RhythmTokens.textPrimary,
-                                  fontWeight: FontWeight.w700,
-                                  letterSpacing: -0.3,
-                                ),
+                        style: Theme.of(context).textTheme.titleMedium
+                            ?.copyWith(
+                              color: RhythmTokens.textPrimary,
+                              fontWeight: FontWeight.w700,
+                              letterSpacing: -0.3,
+                            ),
                       ),
                       _CompactFilterChip(
                         label: 'Completed',
@@ -205,20 +209,25 @@ class _TasksViewState extends State<TasksView> {
                         vertical: 10,
                       ),
                       border: OutlineInputBorder(
-                        borderRadius:
-                            BorderRadius.circular(RhythmTokens.radiusM),
-                        borderSide:
-                            const BorderSide(color: RhythmTokens.borderSoft),
+                        borderRadius: BorderRadius.circular(
+                          RhythmTokens.radiusM,
+                        ),
+                        borderSide: const BorderSide(
+                          color: RhythmTokens.borderSoft,
+                        ),
                       ),
                       enabledBorder: OutlineInputBorder(
-                        borderRadius:
-                            BorderRadius.circular(RhythmTokens.radiusM),
-                        borderSide:
-                            const BorderSide(color: RhythmTokens.borderSoft),
+                        borderRadius: BorderRadius.circular(
+                          RhythmTokens.radiusM,
+                        ),
+                        borderSide: const BorderSide(
+                          color: RhythmTokens.borderSoft,
+                        ),
                       ),
                       focusedBorder: OutlineInputBorder(
-                        borderRadius:
-                            BorderRadius.circular(RhythmTokens.radiusM),
+                        borderRadius: BorderRadius.circular(
+                          RhythmTokens.radiusM,
+                        ),
                         borderSide: const BorderSide(
                           color: RhythmTokens.accent,
                           width: 1.2,
@@ -240,7 +249,9 @@ class _TasksViewState extends State<TasksView> {
   }
 
   Widget _buildTaskListSliver(
-      TasksController controller, List<Task> visibleTasks) {
+    TasksController controller,
+    List<Task> visibleTasks,
+  ) {
     if (controller.status == TasksStatus.loading && controller.tasks.isEmpty) {
       return const SliverFillRemaining(
         hasScrollBody: false,
@@ -261,8 +272,8 @@ class _TasksViewState extends State<TasksView> {
           message: controller.tasks.isEmpty
               ? 'Create a task above and it will settle into this workspace.'
               : _showCompleted
-                  ? 'All tasks are already hidden by the current filter.'
-                  : 'Completed tasks are hidden right now. Turn them back on to review finished work.',
+              ? 'All tasks are already hidden by the current filter.'
+              : 'Completed tasks are hidden right now. Turn them back on to review finished work.',
           icon: controller.tasks.isEmpty
               ? Icons.task_alt_outlined
               : Icons.checklist_outlined,
@@ -449,8 +460,9 @@ class _TasksViewState extends State<TasksView> {
                     CollaboratorsRow(
                       collaborators: task.collaborators,
                       ownerId: task.ownerId!,
-                      workspaceMembers:
-                          context.read<WorkspaceController>().members,
+                      workspaceMembers: context
+                          .read<WorkspaceController>()
+                          .members,
                       onAdd: (userId) async {
                         final ds = CollaboratorsDataSource();
                         await ds.addToTask(task.id, userId);
@@ -504,7 +516,8 @@ class _TasksViewState extends State<TasksView> {
           FilledButton(
             onPressed: () => Navigator.pop(ctx, true),
             style: FilledButton.styleFrom(
-                backgroundColor: Theme.of(context).colorScheme.error),
+              backgroundColor: Theme.of(context).colorScheme.error,
+            ),
             child: const Text('Delete'),
           ),
         ],
@@ -561,21 +574,27 @@ class _TasksViewState extends State<TasksView> {
                 onPressed: _pickDate,
                 style: OutlinedButton.styleFrom(
                   visualDensity: VisualDensity.compact,
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
+                  ),
                   minimumSize: Size.zero,
                 ),
                 icon: const Icon(Icons.calendar_today, size: 16),
-                label: Text(_selectedDueDate == null
-                    ? 'Due date'
-                    : DateFormatters.fullDate(_selectedDueDate)),
+                label: Text(
+                  _selectedDueDate == null
+                      ? 'Due date'
+                      : DateFormatters.fullDate(_selectedDueDate),
+                ),
               ),
               FilledButton.icon(
                 onPressed: _submitCreate,
                 style: FilledButton.styleFrom(
                   visualDensity: VisualDensity.compact,
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 8,
+                  ),
                   minimumSize: Size.zero,
                 ),
                 icon: const Icon(Icons.add, size: 16),
@@ -717,7 +736,8 @@ class _TaskMetaPill extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
       decoration: BoxDecoration(
-        color: backgroundColor ??
+        color:
+            backgroundColor ??
             (color ?? RhythmTokens.textSecondary).withValues(alpha: 0.08),
         borderRadius: BorderRadius.circular(RhythmTokens.radiusS),
         border: Border.all(
@@ -758,13 +778,13 @@ String _sourceLabel(Task task) {
 }
 
 IconData _sourceIcon(String sourceType) => switch (sourceType) {
-      'automation_rule' => Icons.auto_awesome,
-      'planning_center_signal' => Icons.groups_2_outlined,
-      'calendar_shadow_event' => Icons.event_available_outlined,
-      'project_step' => Icons.folder_open_outlined,
-      'recurring_rule' => Icons.repeat,
-      _ => Icons.link,
-    };
+  'automation_rule' => Icons.auto_awesome,
+  'planning_center_signal' => Icons.groups_2_outlined,
+  'calendar_shadow_event' => Icons.event_available_outlined,
+  'project_step' => Icons.folder_open_outlined,
+  'recurring_rule' => Icons.repeat,
+  _ => Icons.link,
+};
 
 String? _projectTitle(Task task) {
   final sourceName = task.sourceName?.trim();
@@ -790,7 +810,10 @@ class _StickyBarDelegate extends SliverPersistentHeaderDelegate {
 
   @override
   Widget build(
-      BuildContext context, double shrinkOffset, bool overlapsContent) {
+    BuildContext context,
+    double shrinkOffset,
+    bool overlapsContent,
+  ) {
     return Container(
       color: RhythmTokens.background,
       padding: const EdgeInsets.fromLTRB(24, 0, 24, 4),
@@ -860,14 +883,18 @@ class _EditTaskDialogState extends State<_EditTaskDialog> {
             TextField(
               controller: _titleController,
               decoration: const InputDecoration(
-                  labelText: 'Title', border: OutlineInputBorder()),
+                labelText: 'Title',
+                border: OutlineInputBorder(),
+              ),
               autofocus: true,
             ),
             const SizedBox(height: 12),
             TextField(
               controller: _notesController,
               decoration: const InputDecoration(
-                  labelText: 'Notes (optional)', border: OutlineInputBorder()),
+                labelText: 'Notes (optional)',
+                border: OutlineInputBorder(),
+              ),
               minLines: 2,
               maxLines: 5,
             ),
@@ -877,9 +904,11 @@ class _EditTaskDialogState extends State<_EditTaskDialog> {
                 OutlinedButton.icon(
                   onPressed: _pickDate,
                   icon: const Icon(Icons.calendar_today, size: 16),
-                  label: Text(_dueDate == null
-                      ? 'Set due date'
-                      : DateFormatters.fullDate(_dueDate)),
+                  label: Text(
+                    _dueDate == null
+                        ? 'Set due date'
+                        : DateFormatters.fullDate(_dueDate),
+                  ),
                 ),
                 if (_dueDate != null) ...[
                   const SizedBox(width: 8),
@@ -895,15 +924,17 @@ class _EditTaskDialogState extends State<_EditTaskDialog> {
       ),
       actions: [
         TextButton(
-            onPressed: _saving ? null : () => Navigator.pop(context),
-            child: const Text('Cancel')),
+          onPressed: _saving ? null : () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
         FilledButton(
           onPressed: _saving ? null : _save,
           child: _saving
               ? const SizedBox(
                   width: 16,
                   height: 16,
-                  child: CircularProgressIndicator(strokeWidth: 2))
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
               : const Text('Save'),
         ),
       ],

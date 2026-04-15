@@ -31,9 +31,8 @@ class GoogleCalendarSettings {
     return GoogleCalendarSettings(
       calendars: (json['calendars'] as List<dynamic>? ?? const [])
           .map(
-            (item) => GoogleCalendarOption.fromJson(
-              item as Map<String, dynamic>,
-            ),
+            (item) =>
+                GoogleCalendarOption.fromJson(item as Map<String, dynamic>),
           )
           .toList(),
       selectedCalendarIds:

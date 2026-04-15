@@ -71,7 +71,8 @@ class _IntegrationsViewState extends State<IntegrationsView> {
                   _IntegrationsHeader(
                     connectedCount: connectedCount,
                     totalCount: controller.accounts.length,
-                    syncing: controller.syncingAll ||
+                    syncing:
+                        controller.syncingAll ||
                         controller.status == IntegrationsStatus.loading,
                     onSyncAll: controller.syncAll,
                   ),
@@ -85,7 +86,8 @@ class _IntegrationsViewState extends State<IntegrationsView> {
                       ),
                     ),
                   Expanded(
-                    child: controller.status == IntegrationsStatus.loading &&
+                    child:
+                        controller.status == IntegrationsStatus.loading &&
                             controller.accounts.isEmpty
                         ? const _LoadingState()
                         : ListView(
@@ -228,18 +230,18 @@ class _IntegrationCard extends StatelessWidget {
     final statusColor = hasError
         ? _kDanger
         : connected
-            ? _kSuccess
-            : _kTextSecondary;
+        ? _kSuccess
+        : _kTextSecondary;
     final statusLabel = hasError
         ? 'Needs attention'
         : connected
-            ? 'Connected'
-            : 'Not connected';
+        ? 'Connected'
+        : 'Not connected';
     final statusBackground = hasError
         ? _kDanger.withValues(alpha: 0.12)
         : connected
-            ? _kSuccess.withValues(alpha: 0.12)
-            : _kSurfaceMuted;
+        ? _kSuccess.withValues(alpha: 0.12)
+        : _kSurfaceMuted;
 
     return Container(
       decoration: BoxDecoration(
@@ -263,17 +265,17 @@ class _IntegrationCard extends StatelessWidget {
                       Text(
                         title,
                         style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                              color: _kTextPrimary,
-                              fontWeight: FontWeight.w700,
-                            ),
+                          color: _kTextPrimary,
+                          fontWeight: FontWeight.w700,
+                        ),
                       ),
                       const SizedBox(height: 6),
                       Text(
                         description,
                         style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                              color: _kTextSecondary,
-                              height: 1.45,
-                            ),
+                          color: _kTextSecondary,
+                          height: 1.45,
+                        ),
                       ),
                     ],
                   ),
@@ -321,9 +323,9 @@ class _IntegrationCard extends StatelessWidget {
                       child: Text(
                         account!.errorMessage!,
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              color: _kDanger,
-                              height: 1.4,
-                            ),
+                          color: _kDanger,
+                          height: 1.4,
+                        ),
                       ),
                     ),
                   ],
@@ -355,8 +357,8 @@ class _IntegrationCard extends StatelessWidget {
                       title == 'Gmail'
                           ? 'Sync Gmail'
                           : title == 'Planning Center'
-                              ? 'Sync Planning Center'
-                              : 'Sync Calendar',
+                          ? 'Sync Planning Center'
+                          : 'Sync Calendar',
                     ),
                   ),
                 if (!connected && onConnect == null)
@@ -425,9 +427,9 @@ class _GmailSignalsList extends StatelessWidget {
             Text(
               'Recent inbox signals',
               style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    color: _kTextPrimary,
-                    fontWeight: FontWeight.w600,
-                  ),
+                color: _kTextPrimary,
+                fontWeight: FontWeight.w600,
+              ),
             ),
             if (unreadCount > 0) ...[
               const SizedBox(width: 8),
@@ -479,20 +481,18 @@ class _GmailSignalsList extends StatelessWidget {
                       children: [
                         Text(
                           signal.subject,
-                          style:
-                              Theme.of(context).textTheme.bodyMedium?.copyWith(
-                                    color: _kTextPrimary,
-                                    fontWeight: signal.isUnread
-                                        ? FontWeight.w700
-                                        : FontWeight.w500,
-                                  ),
+                          style: Theme.of(context).textTheme.bodyMedium
+                              ?.copyWith(
+                                color: _kTextPrimary,
+                                fontWeight: signal.isUnread
+                                    ? FontWeight.w700
+                                    : FontWeight.w500,
+                              ),
                         ),
                         const SizedBox(height: 2),
                         Text(
                           signal.fromLabel,
-                          style: Theme.of(context)
-                              .textTheme
-                              .bodySmall
+                          style: Theme.of(context).textTheme.bodySmall
                               ?.copyWith(color: _kTextSecondary),
                         ),
                         if (signal.snippet != null &&
@@ -502,9 +502,7 @@ class _GmailSignalsList extends StatelessWidget {
                             signal.snippet!,
                             maxLines: 2,
                             overflow: TextOverflow.ellipsis,
-                            style: Theme.of(context)
-                                .textTheme
-                                .bodySmall
+                            style: Theme.of(context).textTheme.bodySmall
                                 ?.copyWith(color: _kTextSecondary),
                           ),
                         ],
@@ -582,9 +580,9 @@ class _GoogleCalendarSelectionSectionState
                   Text(
                     'Calendar sources',
                     style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                          color: _kTextPrimary,
-                          fontWeight: FontWeight.w600,
-                        ),
+                      color: _kTextPrimary,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                   const SizedBox(height: 4),
                   Text(
@@ -601,19 +599,19 @@ class _GoogleCalendarSelectionSectionState
               onPressed: widget.saving
                   ? null
                   : () => setState(() {
-                        _selectedCalendarIds = {
-                          for (final calendar in widget.settings.calendars)
-                            calendar.id,
-                        };
-                      }),
+                      _selectedCalendarIds = {
+                        for (final calendar in widget.settings.calendars)
+                          calendar.id,
+                      };
+                    }),
               child: const Text('All'),
             ),
             TextButton(
               onPressed: widget.saving
                   ? null
                   : () => setState(() {
-                        _selectedCalendarIds.clear();
-                      }),
+                      _selectedCalendarIds.clear();
+                    }),
               child: const Text('None'),
             ),
             const SizedBox(width: 8),
@@ -641,10 +639,10 @@ class _GoogleCalendarSelectionSectionState
             onChanged: widget.saving
                 ? null
                 : (_) => setState(() {
-                      if (!_selectedCalendarIds.remove(calendar.id)) {
-                        _selectedCalendarIds.add(calendar.id);
-                      }
-                    }),
+                    if (!_selectedCalendarIds.remove(calendar.id)) {
+                      _selectedCalendarIds.add(calendar.id);
+                    }
+                  }),
             title: Text(calendar.name),
             subtitle: calendar.isPrimary ? const Text('Primary') : null,
             controlAffinity: ListTileControlAffinity.leading,
@@ -690,9 +688,9 @@ class _PlanningCenterFiltersSection extends StatelessWidget {
                   Text(
                     'Task triggers',
                     style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                          color: _kTextPrimary,
-                          fontWeight: FontWeight.w600,
-                        ),
+                      color: _kTextPrimary,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                   const SizedBox(height: 4),
                   Text(
@@ -842,22 +840,24 @@ class _PlanningCenterTaskFiltersDialogState
 
   List<String> _availablePositions() {
     if (_teamIds.isEmpty) {
-      final values = widget.options.positionsByTeamId.values
-          .expand<String>((items) => items)
-          .toSet()
-          .toList()
-        ..sort();
+      final values =
+          widget.options.positionsByTeamId.values
+              .expand<String>((items) => items)
+              .toSet()
+              .toList()
+            ..sort();
       return values;
     }
 
-    final values = _teamIds
-        .expand<String>(
-          (teamId) =>
-              widget.options.positionsByTeamId[teamId] ?? const <String>[],
-        )
-        .toSet()
-        .toList()
-      ..sort();
+    final values =
+        _teamIds
+            .expand<String>(
+              (teamId) =>
+                  widget.options.positionsByTeamId[teamId] ?? const <String>[],
+            )
+            .toSet()
+            .toList()
+          ..sort();
     return values;
   }
 
@@ -1207,18 +1207,18 @@ class _LoadingState extends StatelessWidget {
             Text(
               'Loading integrations',
               style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    color: _kTextPrimary,
-                    fontWeight: FontWeight.w600,
-                  ),
+                color: _kTextPrimary,
+                fontWeight: FontWeight.w600,
+              ),
             ),
             const SizedBox(height: 6),
             Text(
               'Checking connection status, sync settings, and import tools.',
               textAlign: TextAlign.center,
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: _kTextSecondary,
-                    height: 1.4,
-                  ),
+                color: _kTextSecondary,
+                height: 1.4,
+              ),
             ),
           ],
         ),
@@ -1267,17 +1267,17 @@ class _SubtleCallout extends StatelessWidget {
                 Text(
                   title,
                   style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                        color: _kTextPrimary,
-                        fontWeight: FontWeight.w600,
-                      ),
+                    color: _kTextPrimary,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
                 const SizedBox(height: 4),
                 Text(
                   body,
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: _kTextSecondary,
-                        height: 1.45,
-                      ),
+                    color: _kTextSecondary,
+                    height: 1.45,
+                  ),
                 ),
               ],
             ),

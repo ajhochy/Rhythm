@@ -41,11 +41,14 @@ class CollaboratorsRow extends StatelessWidget {
                 message: '${c.name}${isOwner ? ' (long-press to remove)' : ''}',
                 child: CircleAvatar(
                   radius: 14,
-                  backgroundImage:
-                      c.photoUrl != null ? NetworkImage(c.photoUrl!) : null,
+                  backgroundImage: c.photoUrl != null
+                      ? NetworkImage(c.photoUrl!)
+                      : null,
                   child: c.photoUrl == null
-                      ? Text(c.name[0].toUpperCase(),
-                          style: const TextStyle(fontSize: 11))
+                      ? Text(
+                          c.name[0].toUpperCase(),
+                          style: const TextStyle(fontSize: 11),
+                        )
                       : null,
                 ),
               ),
@@ -89,8 +92,10 @@ class CollaboratorsRow extends StatelessWidget {
                   children: [
                     CircleAvatar(
                       radius: 14,
-                      child: Text(m.name[0].toUpperCase(),
-                          style: const TextStyle(fontSize: 11)),
+                      child: Text(
+                        m.name[0].toUpperCase(),
+                        style: const TextStyle(fontSize: 11),
+                      ),
                     ),
                     const SizedBox(width: 8),
                     Text(m.name),

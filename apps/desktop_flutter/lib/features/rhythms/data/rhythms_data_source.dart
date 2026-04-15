@@ -8,7 +8,7 @@ import '../../../features/tasks/models/recurring_task_rule.dart';
 
 class RhythmsDataSource {
   RhythmsDataSource({String? baseUrl})
-      : _baseUrl = baseUrl ?? AppConstants.apiBaseUrl;
+    : _baseUrl = baseUrl ?? AppConstants.apiBaseUrl;
 
   final String _baseUrl;
 
@@ -42,6 +42,7 @@ class RhythmsDataSource {
     int? dayOfWeek,
     int? dayOfMonth,
     int? month,
+    bool? sequential,
     List<RecurringTaskRuleStep>? steps,
   }) async {
     final response = await http.post(
@@ -53,12 +54,14 @@ class RhythmsDataSource {
         if (dayOfWeek != null) 'dayOfWeek': dayOfWeek,
         if (dayOfMonth != null) 'dayOfMonth': dayOfMonth,
         if (month != null) 'month': month,
+        if (sequential != null) 'sequential': sequential,
         if (steps != null) 'steps': steps.map((step) => step.toJson()).toList(),
       }),
     );
     assertOk(response);
     return RecurringTaskRule.fromJson(
-        jsonDecode(response.body) as Map<String, dynamic>);
+      jsonDecode(response.body) as Map<String, dynamic>,
+    );
   }
 
   Future<RecurringTaskRule> update(
@@ -69,6 +72,7 @@ class RhythmsDataSource {
     int? dayOfMonth,
     int? month,
     bool? enabled,
+    bool? sequential,
     List<RecurringTaskRuleStep>? steps,
   }) async {
     final response = await http.patch(
@@ -81,12 +85,14 @@ class RhythmsDataSource {
         if (dayOfMonth != null) 'dayOfMonth': dayOfMonth,
         if (month != null) 'month': month,
         if (enabled != null) 'enabled': enabled,
+        if (sequential != null) 'sequential': sequential,
         if (steps != null) 'steps': steps.map((step) => step.toJson()).toList(),
       }),
     );
     assertOk(response);
     return RecurringTaskRule.fromJson(
-        jsonDecode(response.body) as Map<String, dynamic>);
+      jsonDecode(response.body) as Map<String, dynamic>,
+    );
   }
 
   Future<void> delete(String id) async {

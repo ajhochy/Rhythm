@@ -49,8 +49,10 @@ class MessageThread {
       updatedAt: _parseApiDateTime(asString(json['updatedAt'])),
       unreadCount: asInt(json['unreadCount']) ?? 0,
       participants: ((json['participants'] as List<dynamic>?) ?? const [])
-          .map((item) =>
-              MessageThreadParticipant.fromJson(item as Map<String, dynamic>))
+          .map(
+            (item) =>
+                MessageThreadParticipant.fromJson(item as Map<String, dynamic>),
+          )
           .toList(),
       threadType: asString(json['threadType']) ?? 'direct',
     );

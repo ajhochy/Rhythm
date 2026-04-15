@@ -67,7 +67,8 @@ class ProjectInstance {
       ownerId: json['ownerId'] as int?,
       collaborators: ((json['collaborators'] as List<dynamic>?) ?? const [])
           .map(
-              (item) => TaskCollaborator.fromJson(item as Map<String, dynamic>))
+            (item) => TaskCollaborator.fromJson(item as Map<String, dynamic>),
+          )
           .toList(),
     );
   }

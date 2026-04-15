@@ -20,7 +20,7 @@ class PlanningCenterTaskPreferences {
   final List<String> positionNames;
 
   Map<String, dynamic> toJson() => {
-        'teamIds': teamIds,
-        'positionNames': positionNames,
-      };
+    'teamIds': teamIds,
+    'positionNames': positionNames,
+  };
 }

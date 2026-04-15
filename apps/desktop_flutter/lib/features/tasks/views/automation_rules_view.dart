@@ -62,8 +62,9 @@ class _AutomationRulesViewState extends State<AutomationRulesView> {
                 providerCount: controller.accounts
                     .where((account) => account.connected)
                     .length,
-                enabledCount:
-                    controller.rules.where((rule) => rule.enabled).length,
+                enabledCount: controller.rules
+                    .where((rule) => rule.enabled)
+                    .length,
                 latestSync: _latestSync(controller.accounts),
                 onCreate: () => _openBuilder(context, controller),
               ),
@@ -74,25 +75,26 @@ class _AutomationRulesViewState extends State<AutomationRulesView> {
                   onRetry: controller.load,
                 ),
               Expanded(
-                child: controller.status == AutomationRulesStatus.loading &&
+                child:
+                    controller.status == AutomationRulesStatus.loading &&
                         controller.rules.isEmpty
                     ? const Center(child: CircularProgressIndicator())
                     : controller.rules.isEmpty
-                        ? _EmptyState(
-                            onCreate: () => _openBuilder(context, controller),
-                          )
-                        : ListView(
-                            padding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
-                            children: orderedEntries
-                                .map(
-                                  (entry) => _RuleGroup(
-                                    source: entry.key,
-                                    rules: entry.value,
-                                    controller: controller,
-                                  ),
-                                )
-                                .toList(),
-                          ),
+                    ? _EmptyState(
+                        onCreate: () => _openBuilder(context, controller),
+                      )
+                    : ListView(
+                        padding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
+                        children: orderedEntries
+                            .map(
+                              (entry) => _RuleGroup(
+                                source: entry.key,
+                                rules: entry.value,
+                                controller: controller,
+                              ),
+                            )
+                            .toList(),
+                      ),
               ),
             ],
           ),
@@ -102,11 +104,12 @@ class _AutomationRulesViewState extends State<AutomationRulesView> {
   }
 
   String? _latestSync(List<IntegrationAccount> accounts) {
-    final values = accounts
-        .map((account) => account.lastSyncedAt)
-        .whereType<String>()
-        .toList()
-      ..sort();
+    final values =
+        accounts
+            .map((account) => account.lastSyncedAt)
+            .whereType<String>()
+            .toList()
+          ..sort();
     return values.isEmpty ? null : values.last;
   }
 
@@ -440,7 +443,8 @@ class _RuleCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final accountLabel = account?.accountLabel ??
+    final accountLabel =
+        account?.accountLabel ??
         account?.providerDisplayName ??
         _labelForSource(rule.source);
     return Card(
@@ -491,8 +495,8 @@ class _RuleCard extends StatelessWidget {
                           label: account?.connected == true
                               ? 'Connected'
                               : rule.source == 'rhythm'
-                                  ? 'Internal'
-                                  : 'Disconnected',
+                              ? 'Internal'
+                              : 'Disconnected',
                         ),
                         _MetaChip(
                           icon: Icons.bolt_outlined,
@@ -574,7 +578,8 @@ class _AutomationPreviewDialog extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final summary = preview?.summary ??
+    final summary =
+        preview?.summary ??
         'No preview summary is available yet for this automation.';
     final sample = preview?.previewSample ?? rule.previewSample;
     return AlertDialog(
@@ -785,25 +790,27 @@ class _AutomationBuilderDialogState extends State<_AutomationBuilderDialog> {
         existing?.actionType ?? widget.controller.actions.firstOrNull?.key;
     _selectedAccountId = existing?.sourceAccountId;
     _selectedTeamId = existing?.triggerConfig?['teamId']?.toString();
-    _selectedPositionName =
-        existing?.triggerConfig?['positionName']?.toString();
+    _selectedPositionName = existing?.triggerConfig?['positionName']
+        ?.toString();
     _selectedEventType = existing?.triggerConfig?['eventType']?.toString();
     _selectedLabel = existing?.triggerConfig?['label']?.toString();
     _leadDays = (existing?.triggerConfig?['leadDays'] as num?)?.toInt();
-    _dateWindowDays =
-        (existing?.triggerConfig?['dateWindowDays'] as num?)?.toInt();
+    _dateWindowDays = (existing?.triggerConfig?['dateWindowDays'] as num?)
+        ?.toInt();
     _hoursSinceReceived =
         (existing?.triggerConfig?['hoursSinceReceived'] as num?)?.toInt();
     _targetDay = (existing?.actionConfig?['targetDay'] as num?)?.toInt();
-    _daysBeforeDue =
-        (existing?.triggerConfig?['daysBeforeDue'] as num?)?.toInt();
+    _daysBeforeDue = (existing?.triggerConfig?['daysBeforeDue'] as num?)
+        ?.toInt();
     _allDayOnly = existing?.triggerConfig?['allDayOnly'] == true;
     _conditions = (existing?.conditions ?? const [])
-        .map((c) => _ConditionDraft(
-              field: c.field,
-              operator: c.operator,
-              value: TextEditingController(text: c.value),
-            ))
+        .map(
+          (c) => _ConditionDraft(
+            field: c.field,
+            operator: c.operator,
+            value: TextEditingController(text: c.value),
+          ),
+        )
         .toList();
     _syncAccountSelectionWithSource();
     if (existing == null && _nameController.text.trim().isEmpty) {
@@ -835,8 +842,9 @@ class _AutomationBuilderDialogState extends State<_AutomationBuilderDialog> {
         .toList();
     _selectedTriggerKey ??= triggers.firstOrNull?.key;
     _selectedActionType ??= widget.controller.actions.firstOrNull?.key;
-    final trigger =
-        triggers.where((item) => item.key == _selectedTriggerKey).firstOrNull;
+    final trigger = triggers
+        .where((item) => item.key == _selectedTriggerKey)
+        .firstOrNull;
 
     return AlertDialog(
       title: Text(
@@ -1030,12 +1038,12 @@ class _AutomationBuilderDialogState extends State<_AutomationBuilderDialog> {
   }
 
   Widget _stepTitle(String text) => Padding(
-        padding: const EdgeInsets.only(bottom: 8),
-        child: Text(
-          text,
-          style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
-        ),
-      );
+    padding: const EdgeInsets.only(bottom: 8),
+    child: Text(
+      text,
+      style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
+    ),
+  );
 
   static const List<String> _conditionOperators = [
     'equals',
@@ -1047,14 +1055,14 @@ class _AutomationBuilderDialogState extends State<_AutomationBuilderDialog> {
   ];
 
   static String _operatorLabel(String op) => switch (op) {
-        'equals' => 'equals',
-        'not_equals' => 'does not equal',
-        'contains' => 'contains',
-        'not_contains' => 'does not contain',
-        'greater_than' => 'greater than',
-        'less_than' => 'less than',
-        _ => op,
-      };
+    'equals' => 'equals',
+    'not_equals' => 'does not equal',
+    'contains' => 'contains',
+    'not_contains' => 'does not contain',
+    'greater_than' => 'greater than',
+    'less_than' => 'less than',
+    _ => op,
+  };
 
   List<String> _conditionFields() {
     switch (_selectedSource) {
@@ -1090,11 +1098,13 @@ class _AutomationBuilderDialogState extends State<_AutomationBuilderDialog> {
       const SizedBox(height: 8),
       TextButton.icon(
         onPressed: () => setState(() {
-          _conditions.add(_ConditionDraft(
-            field: fields.first,
-            operator: 'contains',
-            value: TextEditingController(),
-          ));
+          _conditions.add(
+            _ConditionDraft(
+              field: fields.first,
+              operator: 'contains',
+              value: TextEditingController(),
+            ),
+          );
         }),
         icon: const Icon(Icons.add, size: 16),
         label: const Text('Add condition'),
@@ -1133,10 +1143,12 @@ class _AutomationBuilderDialogState extends State<_AutomationBuilderDialog> {
               isDense: true,
             ),
             items: _conditionOperators
-                .map((op) => DropdownMenuItem(
-                      value: op,
-                      child: Text(_operatorLabel(op)),
-                    ))
+                .map(
+                  (op) => DropdownMenuItem(
+                    value: op,
+                    child: Text(_operatorLabel(op)),
+                  ),
+                )
                 .toList(),
             onChanged: (value) =>
                 setState(() => condition.operator = value ?? 'contains'),
@@ -1168,11 +1180,13 @@ class _AutomationBuilderDialogState extends State<_AutomationBuilderDialog> {
   List<AutomationCondition>? _buildConditions() {
     final result = _conditions
         .where((c) => c.value.text.trim().isNotEmpty)
-        .map((c) => AutomationCondition(
-              field: c.field,
-              operator: c.operator,
-              value: c.value.text.trim(),
-            ))
+        .map(
+          (c) => AutomationCondition(
+            field: c.field,
+            operator: c.operator,
+            value: c.value.text.trim(),
+          ),
+        )
         .toList();
     return result.isEmpty ? null : result;
   }
@@ -1786,7 +1800,8 @@ class _AutomationBuilderDialogState extends State<_AutomationBuilderDialog> {
 
   String _reviewSummary(AutomationTriggerCatalogItem? trigger) {
     final triggerLabel = trigger?.label ?? _selectedTriggerKey ?? 'Trigger';
-    final actionLabel = widget.controller.actions
+    final actionLabel =
+        widget.controller.actions
             .where((item) => item.key == _selectedActionType)
             .firstOrNull
             ?.label ??
@@ -1794,10 +1809,10 @@ class _AutomationBuilderDialogState extends State<_AutomationBuilderDialog> {
     final accountLabel = _selectedAccountId == null
         ? (_selectedSource == 'rhythm' ? 'Rhythm' : 'default connected account')
         : widget.controller.accounts
-                .where((item) => item.id == _selectedAccountId)
-                .firstOrNull
-                ?.accountLabel ??
-            'selected account';
+                  .where((item) => item.id == _selectedAccountId)
+                  .firstOrNull
+                  ?.accountLabel ??
+              'selected account';
     final filters = _buildTriggerConfig();
     final filterSummary = filters == null || filters.isEmpty
         ? 'with no extra filters'
@@ -1946,11 +1961,11 @@ class _TemplateExample {
 }
 
 String _labelForSource(String? source) => switch (source) {
-      'planning_center' => 'Planning Center',
-      'google_calendar' => 'Google Calendar',
-      'gmail' => 'Gmail',
-      _ => 'Rhythm',
-    };
+  'planning_center' => 'Planning Center',
+  'google_calendar' => 'Google Calendar',
+  'gmail' => 'Gmail',
+  _ => 'Rhythm',
+};
 
 String _formatStamp(String value) {
   final parsed = DateTime.tryParse(value);

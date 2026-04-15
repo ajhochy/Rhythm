@@ -1,7 +1,7 @@
 export interface Notification {
   id: number;
   recipientUserId: number;
-  type: 'task_assigned' | 'collaborator_added' | 'step_completed' | 'step_due';
+  type: 'task_assigned' | 'collaborator_added' | 'step_completed' | 'step_due' | 'rhythm_step_unlocked';
   entityType: 'task' | 'rhythm' | 'project';
   entityId: string;
   message: string;

@@ -9,7 +9,7 @@ import '../models/task_collaborator.dart';
 
 class CollaboratorsDataSource {
   CollaboratorsDataSource({String? baseUrl})
-      : _baseUrl = baseUrl ?? AppConstants.apiBaseUrl;
+    : _baseUrl = baseUrl ?? AppConstants.apiBaseUrl;
 
   final String _baseUrl;
 
@@ -43,7 +43,8 @@ class CollaboratorsDataSource {
   }
 
   Future<List<TaskCollaborator>> fetchForProject(
-      String projectInstanceId) async {
+    String projectInstanceId,
+  ) async {
     final response = await http.get(
       Uri.parse('$_baseUrl/project-instances/$projectInstanceId/collaborators'),
       headers: AuthSessionStore.headers(),
@@ -67,7 +68,8 @@ class CollaboratorsDataSource {
   Future<void> removeFromProject(String projectInstanceId, int userId) async {
     final response = await http.delete(
       Uri.parse(
-          '$_baseUrl/project-instances/$projectInstanceId/collaborators/$userId'),
+        '$_baseUrl/project-instances/$projectInstanceId/collaborators/$userId',
+      ),
       headers: AuthSessionStore.headers(),
     );
     assertOk(response);

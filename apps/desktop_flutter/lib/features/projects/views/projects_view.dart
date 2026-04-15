@@ -47,11 +47,7 @@ class _ProjectsViewState extends State<ProjectsView> {
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [
-            Color(0xFFF7F4EF),
-            Color(0xFFFDFBF7),
-            Color(0xFFF6F1EA),
-          ],
+          colors: [Color(0xFFF7F4EF), Color(0xFFFDFBF7), Color(0xFFF6F1EA)],
           stops: [0.0, 0.5, 1.0],
         ),
       ),
@@ -88,9 +84,7 @@ class _ProjectsViewState extends State<ProjectsView> {
                         children: [
                           Text(
                             'Projects',
-                            style: Theme.of(context)
-                                .textTheme
-                                .headlineSmall
+                            style: Theme.of(context).textTheme.headlineSmall
                                 ?.copyWith(
                                   fontWeight: FontWeight.w600,
                                   letterSpacing: -0.5,
@@ -99,13 +93,11 @@ class _ProjectsViewState extends State<ProjectsView> {
                           const SizedBox(height: 4),
                           Text(
                             'Templates on the left, live work on the right.',
-                            style: Theme.of(context)
-                                .textTheme
-                                .bodyMedium
+                            style: Theme.of(context).textTheme.bodyMedium
                                 ?.copyWith(
-                                  color: Theme.of(context)
-                                      .colorScheme
-                                      .onSurfaceVariant,
+                                  color: Theme.of(
+                                    context,
+                                  ).colorScheme.onSurfaceVariant,
                                   height: 1.4,
                                 ),
                           ),
@@ -139,8 +131,9 @@ class _ProjectsViewState extends State<ProjectsView> {
                           ButtonSegment<bool>(
                             value: true,
                             label: Text('Active Projects'),
-                            icon:
-                                Icon(Icons.playlist_add_check_circle_outlined),
+                            icon: Icon(
+                              Icons.playlist_add_check_circle_outlined,
+                            ),
                           ),
                         ],
                         selected: {_showActiveProjects},
@@ -216,7 +209,8 @@ class _ProjectsViewState extends State<ProjectsView> {
     try {
       final response = await http.get(
         Uri.parse(
-            '${context.read<ServerConfigService>().url}/project-instances'),
+          '${context.read<ServerConfigService>().url}/project-instances',
+        ),
         headers: AuthSessionStore.headers(),
       );
       if (response.statusCode >= 400) {
@@ -226,10 +220,11 @@ class _ProjectsViewState extends State<ProjectsView> {
         });
         return;
       }
-      final list = (jsonDecode(response.body) as List<dynamic>)
-          .map((e) => ProjectInstance.fromJson(e as Map<String, dynamic>))
-          .toList()
-        ..sort((a, b) => a.anchorDate.compareTo(b.anchorDate));
+      final list =
+          (jsonDecode(response.body) as List<dynamic>)
+              .map((e) => ProjectInstance.fromJson(e as Map<String, dynamic>))
+              .toList()
+            ..sort((a, b) => a.anchorDate.compareTo(b.anchorDate));
       setState(() {
         _activeInstances = list;
         _activeInstancesLoaded = true;
@@ -243,12 +238,14 @@ class _ProjectsViewState extends State<ProjectsView> {
     }
   }
 
-  Future<void> _updateActiveProjectStep(ProjectInstanceStep step,
-      {String? title,
-      String? dueDate,
-      String? status,
-      String? notes,
-      int? assigneeId}) async {
+  Future<void> _updateActiveProjectStep(
+    ProjectInstanceStep step, {
+    String? title,
+    String? dueDate,
+    String? status,
+    String? notes,
+    int? assigneeId,
+  }) async {
     try {
       final body = <String, dynamic>{
         if (title != null) 'title': title,
@@ -259,7 +256,8 @@ class _ProjectsViewState extends State<ProjectsView> {
       };
       final response = await http.patch(
         Uri.parse(
-            '${context.read<ServerConfigService>().url}/project-instances/steps/${step.id}'),
+          '${context.read<ServerConfigService>().url}/project-instances/steps/${step.id}',
+        ),
         headers: AuthSessionStore.headers(json: true),
         body: jsonEncode(body),
       );
@@ -273,7 +271,8 @@ class _ProjectsViewState extends State<ProjectsView> {
     try {
       final response = await http.delete(
         Uri.parse(
-            '${context.read<ServerConfigService>().url}/project-instances/$instanceId'),
+          '${context.read<ServerConfigService>().url}/project-instances/$instanceId',
+        ),
         headers: AuthSessionStore.headers(),
       );
       if (response.statusCode < 400) {
@@ -288,10 +287,11 @@ class _ProjectsViewState extends State<ProjectsView> {
 // ---------------------------------------------------------------------------
 
 class _TemplateList extends StatelessWidget {
-  const _TemplateList(
-      {required this.controller,
-      required this.selected,
-      required this.onSelect});
+  const _TemplateList({
+    required this.controller,
+    required this.selected,
+    required this.onSelect,
+  });
   final ProjectTemplateController controller;
   final ProjectTemplate? selected;
   final ValueChanged<ProjectTemplate> onSelect;
@@ -325,17 +325,15 @@ class _TemplateList extends StatelessWidget {
                     children: [
                       Text(
                         'Project Templates',
-                        style:
-                            Theme.of(context).textTheme.titleMedium?.copyWith(
-                                  fontWeight: FontWeight.w600,
-                                ),
+                        style: Theme.of(context).textTheme.titleMedium
+                            ?.copyWith(fontWeight: FontWeight.w600),
                       ),
                       const SizedBox(height: 2),
                       Text(
                         'Select one to inspect or edit its steps.',
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              color: colorScheme.onSurfaceVariant,
-                            ),
+                          color: colorScheme.onSurfaceVariant,
+                        ),
                       ),
                     ],
                   ),
@@ -354,10 +352,7 @@ class _TemplateList extends StatelessWidget {
               padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
               child: Text(
                 controller.errorMessage!,
-                style: TextStyle(
-                  color: colorScheme.error,
-                  fontSize: 12,
-                ),
+                style: TextStyle(color: colorScheme.error, fontSize: 12),
               ),
             ),
           if (controller.status == ProjectsStatus.loading &&
@@ -367,7 +362,9 @@ class _TemplateList extends StatelessWidget {
               child: LinearProgressIndicator(minHeight: 2),
             ),
           SizedBox(
-              height: 1, child: Container(color: colorScheme.outlineVariant)),
+            height: 1,
+            child: Container(color: colorScheme.outlineVariant),
+          ),
           const SizedBox(height: 12),
           Expanded(
             child: controller.templates.isEmpty
@@ -420,14 +417,13 @@ class _TemplateList extends StatelessWidget {
                           ),
                           title: Text(
                             t.name,
-                            style: const TextStyle(
-                              fontWeight: FontWeight.w600,
-                            ),
+                            style: const TextStyle(fontWeight: FontWeight.w600),
                           ),
                           subtitle: Text(
                             '${t.steps.length} step${t.steps.length == 1 ? '' : 's'}',
-                            style:
-                                TextStyle(color: colorScheme.onSurfaceVariant),
+                            style: TextStyle(
+                              color: colorScheme.onSurfaceVariant,
+                            ),
                           ),
                           onTap: () => onSelect(t),
                           trailing: IconButton(
@@ -446,15 +442,20 @@ class _TemplateList extends StatelessWidget {
   }
 
   Future<void> _showCreateDialog(
-      BuildContext context, ProjectTemplateController controller) async {
+    BuildContext context,
+    ProjectTemplateController controller,
+  ) async {
     await showDialog<void>(
       context: context,
       builder: (_) => _CreateTemplateDialog(controller: controller),
     );
   }
 
-  Future<void> _confirmDelete(BuildContext context,
-      ProjectTemplateController controller, ProjectTemplate t) async {
+  Future<void> _confirmDelete(
+    BuildContext context,
+    ProjectTemplateController controller,
+    ProjectTemplate t,
+  ) async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -462,12 +463,14 @@ class _TemplateList extends StatelessWidget {
         content: Text('Delete "${t.name}"?'),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Cancel')),
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
           FilledButton(
             onPressed: () => Navigator.pop(ctx, true),
             style: FilledButton.styleFrom(
-                backgroundColor: Theme.of(context).colorScheme.error),
+              backgroundColor: Theme.of(context).colorScheme.error,
+            ),
             child: const Text('Delete'),
           ),
         ],
@@ -531,7 +534,8 @@ class _TemplateDetailState extends State<_TemplateDetail>
     try {
       final response = await http.get(
         Uri.parse(
-            '${context.read<ServerConfigService>().url}/project-instances?templateId=${widget.template.id}'),
+          '${context.read<ServerConfigService>().url}/project-instances?templateId=${widget.template.id}',
+        ),
         headers: AuthSessionStore.headers(),
       );
       if (response.statusCode >= 400) {
@@ -551,12 +555,14 @@ class _TemplateDetailState extends State<_TemplateDetail>
     }
   }
 
-  Future<void> _updateStep(ProjectInstanceStep step,
-      {String? title,
-      String? dueDate,
-      String? status,
-      String? notes,
-      int? assigneeId}) async {
+  Future<void> _updateStep(
+    ProjectInstanceStep step, {
+    String? title,
+    String? dueDate,
+    String? status,
+    String? notes,
+    int? assigneeId,
+  }) async {
     try {
       final body = <String, dynamic>{
         if (title != null) 'title': title,
@@ -567,7 +573,8 @@ class _TemplateDetailState extends State<_TemplateDetail>
       };
       final response = await http.patch(
         Uri.parse(
-            '${context.read<ServerConfigService>().url}/project-instances/steps/${step.id}'),
+          '${context.read<ServerConfigService>().url}/project-instances/steps/${step.id}',
+        ),
         headers: AuthSessionStore.headers(json: true),
         body: jsonEncode(body),
       );
@@ -581,7 +588,8 @@ class _TemplateDetailState extends State<_TemplateDetail>
     try {
       final response = await http.delete(
         Uri.parse(
-            '${context.read<ServerConfigService>().url}/project-instances/$instanceId'),
+          '${context.read<ServerConfigService>().url}/project-instances/$instanceId',
+        ),
         headers: AuthSessionStore.headers(),
       );
       if (response.statusCode < 400) {
@@ -623,11 +631,11 @@ class _TemplateDetailState extends State<_TemplateDetail>
                     children: [
                       Text(
                         widget.template.name,
-                        style:
-                            Theme.of(context).textTheme.headlineSmall?.copyWith(
-                                  fontWeight: FontWeight.w600,
-                                  letterSpacing: -0.4,
-                                ),
+                        style: Theme.of(context).textTheme.headlineSmall
+                            ?.copyWith(
+                              fontWeight: FontWeight.w600,
+                              letterSpacing: -0.4,
+                            ),
                       ),
                       if (widget.template.description != null &&
                           widget.template.description!.isNotEmpty)
@@ -635,9 +643,7 @@ class _TemplateDetailState extends State<_TemplateDetail>
                           padding: const EdgeInsets.only(top: 6),
                           child: Text(
                             widget.template.description!,
-                            style: Theme.of(context)
-                                .textTheme
-                                .bodyMedium
+                            style: Theme.of(context).textTheme.bodyMedium
                                 ?.copyWith(
                                   color: colorScheme.onSurfaceVariant,
                                   height: 1.4,
@@ -648,8 +654,8 @@ class _TemplateDetailState extends State<_TemplateDetail>
                       Text(
                         'Anchor type: ${widget.template.anchorType}',
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              color: colorScheme.onSurfaceVariant,
-                            ),
+                          color: colorScheme.onSurfaceVariant,
+                        ),
                       ),
                     ],
                   ),
@@ -707,9 +713,7 @@ class _TemplateDetailState extends State<_TemplateDetail>
                         children: [
                           Text(
                             'Steps',
-                            style: Theme.of(context)
-                                .textTheme
-                                .titleMedium
+                            style: Theme.of(context).textTheme.titleMedium
                                 ?.copyWith(fontWeight: FontWeight.w600),
                           ),
                           const Spacer(),
@@ -730,8 +734,12 @@ class _TemplateDetailState extends State<_TemplateDetail>
                                   'Add a step to map the work that belongs in this template.',
                             )
                           : ListView.separated(
-                              padding:
-                                  const EdgeInsets.fromLTRB(24, 16, 24, 24),
+                              padding: const EdgeInsets.fromLTRB(
+                                24,
+                                16,
+                                24,
+                                24,
+                              ),
                               itemCount: sortedSteps.length,
                               separatorBuilder: (_, __) =>
                                   const SizedBox(height: 10),
@@ -764,7 +772,9 @@ class _TemplateDetailState extends State<_TemplateDetail>
     await showDialog<void>(
       context: context,
       builder: (_) => _AddStepDialog(
-          template: widget.template, controller: widget.controller),
+        template: widget.template,
+        controller: widget.controller,
+      ),
     );
   }
 
@@ -772,7 +782,9 @@ class _TemplateDetailState extends State<_TemplateDetail>
     await showDialog<void>(
       context: context,
       builder: (_) => _EditTemplateDialog(
-          template: widget.template, controller: widget.controller),
+        template: widget.template,
+        controller: widget.controller,
+      ),
     );
   }
 
@@ -824,25 +836,22 @@ class _EmptyPanelState extends StatelessWidget {
               Text(
                 title,
                 textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w600,
-                    ),
+                style: Theme.of(
+                  context,
+                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
               ),
               const SizedBox(height: 8),
               Text(
                 message,
                 textAlign: TextAlign.center,
                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: colorScheme.onSurfaceVariant,
-                      height: 1.4,
-                    ),
+                  color: colorScheme.onSurfaceVariant,
+                  height: 1.4,
+                ),
               ),
               if (actionLabel != null && onAction != null) ...[
                 const SizedBox(height: 16),
-                OutlinedButton(
-                  onPressed: onAction,
-                  child: Text(actionLabel!),
-                ),
+                OutlinedButton(onPressed: onAction, child: Text(actionLabel!)),
               ],
             ],
           ),
@@ -880,11 +889,7 @@ class _EmptyDetailState extends StatelessWidget {
         ],
       ),
       child: SizedBox.expand(
-        child: _EmptyPanelState(
-          icon: icon,
-          title: title,
-          message: message,
-        ),
+        child: _EmptyPanelState(icon: icon, title: title, message: message),
       ),
     );
   }
@@ -904,12 +909,15 @@ class _InstancesPanel extends StatelessWidget {
   final bool loaded;
   final String? error;
   final VoidCallback onRefresh;
-  final Future<void> Function(ProjectInstanceStep step,
-      {String? title,
-      String? dueDate,
-      String? status,
-      String? notes,
-      int? assigneeId}) onUpdateStep;
+  final Future<void> Function(
+    ProjectInstanceStep step, {
+    String? title,
+    String? dueDate,
+    String? status,
+    String? notes,
+    int? assigneeId,
+  })
+  onUpdateStep;
   final Future<void> Function(String instanceId) onDeleteInstance;
   final Map<String, String> templateNames;
 
@@ -969,12 +977,15 @@ class _InstancesList extends StatefulWidget {
   });
   final List<ProjectInstance> instances;
   final VoidCallback onRefresh;
-  final Future<void> Function(ProjectInstanceStep step,
-      {String? title,
-      String? dueDate,
-      String? status,
-      String? notes,
-      int? assigneeId}) onUpdateStep;
+  final Future<void> Function(
+    ProjectInstanceStep step, {
+    String? title,
+    String? dueDate,
+    String? status,
+    String? notes,
+    int? assigneeId,
+  })
+  onUpdateStep;
   final Future<void> Function(String instanceId) onDeleteInstance;
   final Map<String, String> templateNames;
 
@@ -990,10 +1001,12 @@ class _InstancesListState extends State<_InstancesList> {
     final visibleInstances = _showCompleted
         ? widget.instances
         : widget.instances
-            .where((instance) =>
-                instance.status != 'done' &&
-                instance.steps.any((step) => step.status != 'done'))
-            .toList();
+              .where(
+                (instance) =>
+                    instance.status != 'done' &&
+                    instance.steps.any((step) => step.status != 'done'),
+              )
+              .toList();
 
     return Column(
       children: [
@@ -1003,9 +1016,9 @@ class _InstancesListState extends State<_InstancesList> {
             children: [
               Text(
                 'Active Projects',
-                style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w600,
-                    ),
+                style: Theme.of(
+                  context,
+                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
               ),
               const Spacer(),
               TextButton.icon(
@@ -1015,8 +1028,9 @@ class _InstancesListState extends State<_InstancesList> {
                   _showCompleted ? Icons.visibility_off : Icons.visibility,
                   size: 16,
                 ),
-                label:
-                    Text(_showCompleted ? 'Hide completed' : 'Show completed'),
+                label: Text(
+                  _showCompleted ? 'Hide completed' : 'Show completed',
+                ),
               ),
             ],
           ),
@@ -1062,12 +1076,15 @@ class _InstanceCard extends StatelessWidget {
   });
   final ProjectInstance instance;
   final VoidCallback onRefresh;
-  final Future<void> Function(ProjectInstanceStep step,
-      {String? title,
-      String? dueDate,
-      String? status,
-      String? notes,
-      int? assigneeId}) onUpdateStep;
+  final Future<void> Function(
+    ProjectInstanceStep step, {
+    String? title,
+    String? dueDate,
+    String? status,
+    String? notes,
+    int? assigneeId,
+  })
+  onUpdateStep;
   final Future<void> Function(String instanceId) onDeleteInstance;
   final bool showCompleted;
   final String? templateName;
@@ -1097,15 +1114,15 @@ class _InstanceCard extends StatelessWidget {
         childrenPadding: const EdgeInsets.fromLTRB(8, 0, 8, 10),
         title: Text(
           title,
-          style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                fontWeight: FontWeight.w600,
-              ),
+          style: Theme.of(
+            context,
+          ).textTheme.titleSmall?.copyWith(fontWeight: FontWeight.w600),
         ),
         subtitle: Text(
           '${templateName?.isNotEmpty == true ? '${templateName!} · ' : ''}Anchor ${DateFormatters.fullDate(instance.anchorDate, fallback: instance.anchorDate)} · ${visibleSteps.length} visible · ${instance.steps.length} total · ${instance.status}',
-          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: colorScheme.onSurfaceVariant,
-              ),
+          style: Theme.of(
+            context,
+          ).textTheme.bodySmall?.copyWith(color: colorScheme.onSurfaceVariant),
         ),
         trailing: IconButton(
           icon: const Icon(Icons.delete_outline, size: 18),
@@ -1132,11 +1149,13 @@ class _InstanceCard extends StatelessWidget {
                 },
               ),
             ),
-          ...visibleSteps.map((step) => _InstanceStepTile(
-                step: step,
-                onUpdateStep: onUpdateStep,
-                canReassign: canReassign,
-              )),
+          ...visibleSteps.map(
+            (step) => _InstanceStepTile(
+              step: step,
+              onUpdateStep: onUpdateStep,
+              canReassign: canReassign,
+            ),
+          ),
         ],
       ),
     );
@@ -1150,12 +1169,15 @@ class _InstanceStepTile extends StatelessWidget {
     required this.canReassign,
   });
   final ProjectInstanceStep step;
-  final Future<void> Function(ProjectInstanceStep step,
-      {String? title,
-      String? dueDate,
-      String? status,
-      String? notes,
-      int? assigneeId}) onUpdateStep;
+  final Future<void> Function(
+    ProjectInstanceStep step, {
+    String? title,
+    String? dueDate,
+    String? status,
+    String? notes,
+    int? assigneeId,
+  })
+  onUpdateStep;
   final bool canReassign;
 
   @override
@@ -1193,21 +1215,21 @@ class _InstanceStepTile extends StatelessWidget {
             Text(
               'Due: ${DateFormatters.fullDate(step.dueDate, fallback: step.dueDate)}',
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: colorScheme.onSurfaceVariant,
-                  ),
+                color: colorScheme.onSurfaceVariant,
+              ),
             ),
             Text(
               'Assignee: ${step.assigneeName ?? 'Unassigned'}',
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: colorScheme.onSurfaceVariant,
-                  ),
+                color: colorScheme.onSurfaceVariant,
+              ),
             ),
             if (step.notes != null && step.notes!.isNotEmpty)
               Text(
                 step.notes!,
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: colorScheme.onSurfaceVariant,
-                    ),
+                  color: colorScheme.onSurfaceVariant,
+                ),
               ),
           ],
         ),
@@ -1234,12 +1256,15 @@ class _EditInstanceStepDialog extends StatefulWidget {
     required this.canEditAssignee,
   });
   final ProjectInstanceStep step;
-  final Future<void> Function(ProjectInstanceStep step,
-      {String? title,
-      String? dueDate,
-      String? status,
-      String? notes,
-      int? assigneeId}) onSave;
+  final Future<void> Function(
+    ProjectInstanceStep step, {
+    String? title,
+    String? dueDate,
+    String? status,
+    String? notes,
+    int? assigneeId,
+  })
+  onSave;
   final bool canEditAssignee;
 
   @override
@@ -1283,15 +1308,18 @@ class _EditInstanceStepDialogState extends State<_EditInstanceStepDialog> {
             TextField(
               controller: _titleCtrl,
               decoration: const InputDecoration(
-                  labelText: 'Title', border: OutlineInputBorder()),
+                labelText: 'Title',
+                border: OutlineInputBorder(),
+              ),
               autofocus: true,
             ),
             const SizedBox(height: 12),
             TextField(
               controller: _dueDateCtrl,
               decoration: const InputDecoration(
-                  labelText: 'Due date (YYYY-MM-DD)',
-                  border: OutlineInputBorder()),
+                labelText: 'Due date (YYYY-MM-DD)',
+                border: OutlineInputBorder(),
+              ),
             ),
             const SizedBox(height: 12),
             if (widget.canEditAssignee) ...[
@@ -1300,16 +1328,18 @@ class _EditInstanceStepDialogState extends State<_EditInstanceStepDialog> {
                 child: Text(
                   'Assignee',
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: Theme.of(context).colorScheme.onSurfaceVariant,
-                        fontWeight: FontWeight.w600,
-                      ),
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ),
               const SizedBox(height: 6),
               Container(
                 width: double.infinity,
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 10,
+                ),
                 decoration: BoxDecoration(
                   border: Border.all(
                     color: Theme.of(context).colorScheme.outlineVariant,
@@ -1318,9 +1348,11 @@ class _EditInstanceStepDialogState extends State<_EditInstanceStepDialog> {
                 ),
                 child: Builder(
                   builder: (context) {
-                    final members =
-                        context.watch<WorkspaceController>().members;
-                    final selectedId = _assigneeId != null &&
+                    final members = context
+                        .watch<WorkspaceController>()
+                        .members;
+                    final selectedId =
+                        _assigneeId != null &&
                             members.any((m) => m.userId == _assigneeId)
                         ? _assigneeId
                         : null;
@@ -1337,15 +1369,17 @@ class _EditInstanceStepDialogState extends State<_EditInstanceStepDialog> {
               Text(
                 'Assignee: ${widget.step.assigneeName ?? 'Unassigned'}',
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: Theme.of(context).colorScheme.onSurfaceVariant,
-                    ),
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
               ),
               const SizedBox(height: 12),
             ],
             TextField(
               controller: _notesCtrl,
               decoration: const InputDecoration(
-                  labelText: 'Notes (optional)', border: OutlineInputBorder()),
+                labelText: 'Notes (optional)',
+                border: OutlineInputBorder(),
+              ),
               minLines: 2,
               maxLines: 4,
             ),
@@ -1354,15 +1388,17 @@ class _EditInstanceStepDialogState extends State<_EditInstanceStepDialog> {
       ),
       actions: [
         TextButton(
-            onPressed: _saving ? null : () => Navigator.pop(context),
-            child: const Text('Cancel')),
+          onPressed: _saving ? null : () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
         FilledButton(
           onPressed: _saving ? null : _save,
           child: _saving
               ? const SizedBox(
                   width: 16,
                   height: 16,
-                  child: CircularProgressIndicator(strokeWidth: 2))
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
               : const Text('Save'),
         ),
       ],
@@ -1376,8 +1412,9 @@ class _EditInstanceStepDialogState extends State<_EditInstanceStepDialog> {
     await widget.onSave(
       widget.step,
       title: title,
-      dueDate:
-          _dueDateCtrl.text.trim().isEmpty ? null : _dueDateCtrl.text.trim(),
+      dueDate: _dueDateCtrl.text.trim().isEmpty
+          ? null
+          : _dueDateCtrl.text.trim(),
       notes: _notesCtrl.text.trim(),
       assigneeId: _assigneeId,
     );
@@ -1386,8 +1423,11 @@ class _EditInstanceStepDialogState extends State<_EditInstanceStepDialog> {
 }
 
 class _StepTile extends StatelessWidget {
-  const _StepTile(
-      {required this.step, required this.template, required this.controller});
+  const _StepTile({
+    required this.step,
+    required this.template,
+    required this.controller,
+  });
   final ProjectTemplateStep step;
   final ProjectTemplate template;
   final ProjectTemplateController controller;
@@ -1395,12 +1435,13 @@ class _StepTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
-    final offsetLabel = step.offsetDescription ??
+    final offsetLabel =
+        step.offsetDescription ??
         (step.offsetDays == 0
             ? 'On anchor date'
             : step.offsetDays > 0
-                ? '+${step.offsetDays} days'
-                : '${step.offsetDays} days');
+            ? '+${step.offsetDays} days'
+            : '${step.offsetDays} days');
 
     return Card(
       elevation: 0,
@@ -1415,8 +1456,10 @@ class _StepTile extends StatelessWidget {
           backgroundColor: colorScheme.primaryContainer,
           child: Text(
             step.sortOrder.toString(),
-            style:
-                TextStyle(fontSize: 12, color: colorScheme.onPrimaryContainer),
+            style: TextStyle(
+              fontSize: 12,
+              color: colorScheme.onPrimaryContainer,
+            ),
           ),
         ),
         title: Text(
@@ -1440,11 +1483,12 @@ class _StepTile extends StatelessWidget {
         trailing: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text('Offset: ${step.offsetDays}d',
-                style: Theme.of(context)
-                    .textTheme
-                    .bodySmall
-                    ?.copyWith(color: colorScheme.onSurfaceVariant)),
+            Text(
+              'Offset: ${step.offsetDays}d',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: colorScheme.onSurfaceVariant,
+              ),
+            ),
             const SizedBox(width: 4),
             IconButton(
               icon: const Icon(Icons.edit_outlined, size: 16),
@@ -1452,7 +1496,10 @@ class _StepTile extends StatelessWidget {
               onPressed: () => showDialog<void>(
                 context: context,
                 builder: (_) => _EditStepDialog(
-                    step: step, template: template, controller: controller),
+                  step: step,
+                  template: template,
+                  controller: controller,
+                ),
               ),
             ),
             IconButton(
@@ -1474,12 +1521,14 @@ class _StepTile extends StatelessWidget {
         content: Text('Delete step "${step.title}"?'),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Cancel')),
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
           FilledButton(
             onPressed: () => Navigator.pop(ctx, true),
             style: FilledButton.styleFrom(
-                backgroundColor: Theme.of(context).colorScheme.error),
+              backgroundColor: Theme.of(context).colorScheme.error,
+            ),
             child: const Text('Delete'),
           ),
         ],
@@ -1511,8 +1560,9 @@ class _EditTemplateDialogState extends State<_EditTemplateDialog> {
   void initState() {
     super.initState();
     _nameController = TextEditingController(text: widget.template.name);
-    _descController =
-        TextEditingController(text: widget.template.description ?? '');
+    _descController = TextEditingController(
+      text: widget.template.description ?? '',
+    );
   }
 
   @override
@@ -1534,30 +1584,35 @@ class _EditTemplateDialogState extends State<_EditTemplateDialog> {
             TextField(
               controller: _nameController,
               decoration: const InputDecoration(
-                  labelText: 'Name', border: OutlineInputBorder()),
+                labelText: 'Name',
+                border: OutlineInputBorder(),
+              ),
               autofocus: true,
             ),
             const SizedBox(height: 12),
             TextField(
               controller: _descController,
               decoration: const InputDecoration(
-                  labelText: 'Description (optional)',
-                  border: OutlineInputBorder()),
+                labelText: 'Description (optional)',
+                border: OutlineInputBorder(),
+              ),
             ),
           ],
         ),
       ),
       actions: [
         TextButton(
-            onPressed: _saving ? null : () => Navigator.pop(context),
-            child: const Text('Cancel')),
+          onPressed: _saving ? null : () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
         FilledButton(
           onPressed: _saving ? null : _save,
           child: _saving
               ? const SizedBox(
                   width: 16,
                   height: 16,
-                  child: CircularProgressIndicator(strokeWidth: 2))
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
               : const Text('Save'),
         ),
       ],
@@ -1580,8 +1635,11 @@ class _EditTemplateDialogState extends State<_EditTemplateDialog> {
 }
 
 class _EditStepDialog extends StatefulWidget {
-  const _EditStepDialog(
-      {required this.step, required this.template, required this.controller});
+  const _EditStepDialog({
+    required this.step,
+    required this.template,
+    required this.controller,
+  });
   final ProjectTemplateStep step;
   final ProjectTemplate template;
   final ProjectTemplateController controller;
@@ -1601,10 +1659,12 @@ class _EditStepDialogState extends State<_EditStepDialog> {
   void initState() {
     super.initState();
     _titleController = TextEditingController(text: widget.step.title);
-    _offsetController =
-        TextEditingController(text: widget.step.offsetDays.toString());
-    _descController =
-        TextEditingController(text: widget.step.offsetDescription ?? '');
+    _offsetController = TextEditingController(
+      text: widget.step.offsetDays.toString(),
+    );
+    _descController = TextEditingController(
+      text: widget.step.offsetDescription ?? '',
+    );
     _assigneeId = widget.step.assigneeId;
   }
 
@@ -1628,7 +1688,9 @@ class _EditStepDialogState extends State<_EditStepDialog> {
             TextField(
               controller: _titleController,
               decoration: const InputDecoration(
-                  labelText: 'Step title', border: OutlineInputBorder()),
+                labelText: 'Step title',
+                border: OutlineInputBorder(),
+              ),
               autofocus: true,
             ),
             const SizedBox(height: 12),
@@ -1640,7 +1702,7 @@ class _EditStepDialogState extends State<_EditStepDialog> {
               ),
               keyboardType: const TextInputType.numberWithOptions(signed: true),
               inputFormatters: [
-                FilteringTextInputFormatter.allow(RegExp(r'[-\d]'))
+                FilteringTextInputFormatter.allow(RegExp(r'[-\d]')),
               ],
             ),
             const SizedBox(height: 12),
@@ -1649,9 +1711,9 @@ class _EditStepDialogState extends State<_EditStepDialog> {
               child: Text(
                 'Assignee',
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: Theme.of(context).colorScheme.onSurfaceVariant,
-                      fontWeight: FontWeight.w600,
-                    ),
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
             ),
             const SizedBox(height: 6),
@@ -1667,7 +1729,8 @@ class _EditStepDialogState extends State<_EditStepDialog> {
               child: Builder(
                 builder: (context) {
                   final members = context.watch<WorkspaceController>().members;
-                  final selectedId = _assigneeId != null &&
+                  final selectedId =
+                      _assigneeId != null &&
                           members.any((m) => m.userId == _assigneeId)
                       ? _assigneeId
                       : null;
@@ -1692,15 +1755,17 @@ class _EditStepDialogState extends State<_EditStepDialog> {
       ),
       actions: [
         TextButton(
-            onPressed: _saving ? null : () => Navigator.pop(context),
-            child: const Text('Cancel')),
+          onPressed: _saving ? null : () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
         FilledButton(
           onPressed: _saving ? null : _save,
           child: _saving
               ? const SizedBox(
                   width: 16,
                   height: 16,
-                  child: CircularProgressIndicator(strokeWidth: 2))
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
               : const Text('Save'),
         ),
       ],
@@ -1759,30 +1824,35 @@ class _CreateTemplateDialogState extends State<_CreateTemplateDialog> {
             TextField(
               controller: _nameController,
               decoration: const InputDecoration(
-                  labelText: 'Name', border: OutlineInputBorder()),
+                labelText: 'Name',
+                border: OutlineInputBorder(),
+              ),
               autofocus: true,
             ),
             const SizedBox(height: 12),
             TextField(
               controller: _descController,
               decoration: const InputDecoration(
-                  labelText: 'Description (optional)',
-                  border: OutlineInputBorder()),
+                labelText: 'Description (optional)',
+                border: OutlineInputBorder(),
+              ),
             ),
           ],
         ),
       ),
       actions: [
         TextButton(
-            onPressed: _saving ? null : () => Navigator.pop(context),
-            child: const Text('Cancel')),
+          onPressed: _saving ? null : () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
         FilledButton(
           onPressed: _saving ? null : _save,
           child: _saving
               ? const SizedBox(
                   width: 16,
                   height: 16,
-                  child: CircularProgressIndicator(strokeWidth: 2))
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
               : const Text('Create'),
         ),
       ],
@@ -1793,10 +1863,12 @@ class _CreateTemplateDialogState extends State<_CreateTemplateDialog> {
     final name = _nameController.text.trim();
     if (name.isEmpty) return;
     setState(() => _saving = true);
-    await widget.controller.createTemplate(name,
-        description: _descController.text.trim().isEmpty
-            ? null
-            : _descController.text.trim());
+    await widget.controller.createTemplate(
+      name,
+      description: _descController.text.trim().isEmpty
+          ? null
+          : _descController.text.trim(),
+    );
     if (mounted) Navigator.pop(context);
   }
 }
@@ -1837,7 +1909,9 @@ class _AddStepDialogState extends State<_AddStepDialog> {
             TextField(
               controller: _titleController,
               decoration: const InputDecoration(
-                  labelText: 'Step title', border: OutlineInputBorder()),
+                labelText: 'Step title',
+                border: OutlineInputBorder(),
+              ),
               autofocus: true,
             ),
             const SizedBox(height: 12),
@@ -1849,7 +1923,7 @@ class _AddStepDialogState extends State<_AddStepDialog> {
               ),
               keyboardType: const TextInputType.numberWithOptions(signed: true),
               inputFormatters: [
-                FilteringTextInputFormatter.allow(RegExp(r'[-\d]'))
+                FilteringTextInputFormatter.allow(RegExp(r'[-\d]')),
               ],
             ),
             const SizedBox(height: 12),
@@ -1858,9 +1932,9 @@ class _AddStepDialogState extends State<_AddStepDialog> {
               child: Text(
                 'Assignee',
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: Theme.of(context).colorScheme.onSurfaceVariant,
-                      fontWeight: FontWeight.w600,
-                    ),
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
             ),
             const SizedBox(height: 6),
@@ -1876,7 +1950,8 @@ class _AddStepDialogState extends State<_AddStepDialog> {
               child: Builder(
                 builder: (context) {
                   final members = context.watch<WorkspaceController>().members;
-                  final selectedId = _assigneeId != null &&
+                  final selectedId =
+                      _assigneeId != null &&
                           members.any((m) => m.userId == _assigneeId)
                       ? _assigneeId
                       : null;
@@ -1901,15 +1976,17 @@ class _AddStepDialogState extends State<_AddStepDialog> {
       ),
       actions: [
         TextButton(
-            onPressed: _saving ? null : () => Navigator.pop(context),
-            child: const Text('Cancel')),
+          onPressed: _saving ? null : () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
         FilledButton(
           onPressed: _saving ? null : _save,
           child: _saving
               ? const SizedBox(
                   width: 16,
                   height: 16,
-                  child: CircularProgressIndicator(strokeWidth: 2))
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
               : const Text('Add'),
         ),
       ],
@@ -1965,8 +2042,10 @@ class _GenerateInstanceDialogState extends State<_GenerateInstanceDialog> {
 
   List<ResolvedStep> get _preview {
     if (_anchorDate == null) return [];
-    return ProjectGenerationService()
-        .previewSteps(widget.template, _anchorDate!);
+    return ProjectGenerationService().previewSteps(
+      widget.template,
+      _anchorDate!,
+    );
   }
 
   @override
@@ -1988,21 +2067,25 @@ class _GenerateInstanceDialogState extends State<_GenerateInstanceDialog> {
       actions: _result != null
           ? [
               FilledButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: const Text('Close'))
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Close'),
+              ),
             ]
           : [
               TextButton(
-                  onPressed: _generating ? null : () => Navigator.pop(context),
-                  child: const Text('Cancel')),
+                onPressed: _generating ? null : () => Navigator.pop(context),
+                child: const Text('Cancel'),
+              ),
               FilledButton(
-                onPressed:
-                    _anchorDate == null || _generating ? null : _generate,
+                onPressed: _anchorDate == null || _generating
+                    ? null
+                    : _generate,
                 child: _generating
                     ? const SizedBox(
                         width: 16,
                         height: 16,
-                        child: CircularProgressIndicator(strokeWidth: 2))
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
                     : const Text('Start Project'),
               ),
             ],
@@ -2032,7 +2115,8 @@ class _GenerateInstanceDialogState extends State<_GenerateInstanceDialog> {
     try {
       final response = await http.post(
         Uri.parse(
-            '${context.read<ServerConfigService>().url}/project-templates/${widget.template.id}/generate'),
+          '${context.read<ServerConfigService>().url}/project-templates/${widget.template.id}/generate',
+        ),
         headers: AuthSessionStore.headers(json: true),
         body: jsonEncode({
           'anchorDate': dateStr,
@@ -2044,14 +2128,15 @@ class _GenerateInstanceDialogState extends State<_GenerateInstanceDialog> {
         final body = jsonDecode(response.body) as Map<String, dynamic>?;
         final msg =
             (body?['error'] as Map<String, dynamic>?)?['message'] as String? ??
-                'Generation failed';
+            'Generation failed';
         setState(() {
           _error = msg;
           _generating = false;
         });
       } else {
         final instance = ProjectInstance.fromJson(
-            jsonDecode(response.body) as Map<String, dynamic>);
+          jsonDecode(response.body) as Map<String, dynamic>,
+        );
         setState(() {
           _result = instance;
           _generating = false;
@@ -2067,12 +2152,13 @@ class _GenerateInstanceDialogState extends State<_GenerateInstanceDialog> {
 }
 
 class _FormView extends StatelessWidget {
-  const _FormView(
-      {required this.nameController,
-      required this.anchorDate,
-      required this.preview,
-      required this.error,
-      required this.onPickDate});
+  const _FormView({
+    required this.nameController,
+    required this.anchorDate,
+    required this.preview,
+    required this.error,
+    required this.onPickDate,
+  });
   final TextEditingController nameController;
   final DateTime? anchorDate;
   final List<ResolvedStep> preview;
@@ -2092,9 +2178,9 @@ class _FormView extends StatelessWidget {
         Text(
           'Give this project run a unique name if you want to use the same template more than once.',
           style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: Theme.of(context).colorScheme.onSurfaceVariant,
-                height: 1.4,
-              ),
+            color: Theme.of(context).colorScheme.onSurfaceVariant,
+            height: 1.4,
+          ),
         ),
         const SizedBox(height: 12),
         TextField(
@@ -2118,8 +2204,10 @@ class _FormView extends StatelessWidget {
         ],
         if (preview.isNotEmpty) ...[
           const SizedBox(height: 16),
-          Text('Preview of resolved dates:',
-              style: Theme.of(context).textTheme.labelLarge),
+          Text(
+            'Preview of resolved dates:',
+            style: Theme.of(context).textTheme.labelLarge,
+          ),
           const SizedBox(height: 8),
           ...preview.map((rs) {
             final d = rs.dueDate;
@@ -2131,8 +2219,10 @@ class _FormView extends StatelessWidget {
                   const Icon(Icons.arrow_right, size: 16, color: Colors.grey),
                   const SizedBox(width: 4),
                   Expanded(child: Text(rs.step.title)),
-                  Text(ds,
-                      style: const TextStyle(color: Colors.grey, fontSize: 12)),
+                  Text(
+                    ds,
+                    style: const TextStyle(color: Colors.grey, fontSize: 12),
+                  ),
                 ],
               ),
             );
@@ -2155,8 +2245,10 @@ class _SuccessView extends StatelessWidget {
       children: [
         Row(
           children: [
-            Icon(Icons.check_circle,
-                color: Theme.of(context).colorScheme.primary),
+            Icon(
+              Icons.check_circle,
+              color: Theme.of(context).colorScheme.primary,
+            ),
             const SizedBox(width: 8),
             const Text('Project started successfully!'),
           ],
@@ -2167,23 +2259,31 @@ class _SuccessView extends StatelessWidget {
           const SizedBox(height: 8),
         ],
         Text(
-            'Anchor: ${DateFormatters.fullDate(instance.anchorDate, fallback: instance.anchorDate)}',
-            style: Theme.of(context).textTheme.bodySmall),
+          'Anchor: ${DateFormatters.fullDate(instance.anchorDate, fallback: instance.anchorDate)}',
+          style: Theme.of(context).textTheme.bodySmall,
+        ),
         const SizedBox(height: 8),
-        ...instance.steps.map((s) => Padding(
-              padding: const EdgeInsets.symmetric(vertical: 2),
-              child: Row(
-                children: [
-                  const Icon(Icons.task_alt, size: 14, color: Colors.grey),
-                  const SizedBox(width: 6),
-                  Expanded(
-                      child: Text(s.title,
-                          style: Theme.of(context).textTheme.bodySmall)),
-                  Text(DateFormatters.fullDate(s.dueDate, fallback: s.dueDate),
-                      style: const TextStyle(color: Colors.grey, fontSize: 11)),
-                ],
-              ),
-            )),
+        ...instance.steps.map(
+          (s) => Padding(
+            padding: const EdgeInsets.symmetric(vertical: 2),
+            child: Row(
+              children: [
+                const Icon(Icons.task_alt, size: 14, color: Colors.grey),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    s.title,
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ),
+                Text(
+                  DateFormatters.fullDate(s.dueDate, fallback: s.dueDate),
+                  style: const TextStyle(color: Colors.grey, fontSize: 11),
+                ),
+              ],
+            ),
+          ),
+        ),
       ],
     );
   }

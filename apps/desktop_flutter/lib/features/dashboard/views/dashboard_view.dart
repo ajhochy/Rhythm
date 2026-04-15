@@ -71,19 +71,19 @@ class _DashboardViewState extends State<DashboardView> {
           builder: (context, controller, _) {
             return switch (controller.status) {
               DashboardStatus.loading => const Center(
-                  child: CircularProgressIndicator(color: _kPrimary),
-                ),
+                child: CircularProgressIndicator(color: _kPrimary),
+              ),
               DashboardStatus.error => _ErrorView(
-                  message: controller.errorMessage ?? 'Unknown error',
-                  onRetry: controller.refresh,
-                ),
+                message: controller.errorMessage ?? 'Unknown error',
+                onRetry: controller.refresh,
+              ),
               DashboardStatus.ready => _DashboardBody(
-                  controller: controller,
-                  openWeeklyPlanner: widget.openWeeklyPlanner,
-                  openRhythms: widget.openRhythms,
-                  openProjects: widget.openProjects,
-                  openMessages: widget.openMessages,
-                ),
+                controller: controller,
+                openWeeklyPlanner: widget.openWeeklyPlanner,
+                openRhythms: widget.openRhythms,
+                openProjects: widget.openProjects,
+                openMessages: widget.openMessages,
+              ),
             };
           },
         ),
@@ -110,8 +110,10 @@ class _ErrorView extends StatelessWidget {
         children: [
           const Icon(Icons.error_outline, size: 40, color: Color(0xFFEF4444)),
           const SizedBox(height: 12),
-          Text(message,
-              style: const TextStyle(color: _kTextSecondary, fontSize: 14)),
+          Text(
+            message,
+            style: const TextStyle(color: _kTextSecondary, fontSize: 14),
+          ),
           const SizedBox(height: 16),
           FilledButton(onPressed: onRetry, child: const Text('Retry')),
         ],
@@ -162,7 +164,8 @@ class _DashboardBodyState extends State<_DashboardBody> {
     );
     if (picked != null) {
       setState(
-          () => _selectedDueDate = picked.toIso8601String().substring(0, 10));
+        () => _selectedDueDate = picked.toIso8601String().substring(0, 10),
+      );
     }
   }
 
@@ -224,10 +227,10 @@ class _DashboardBodyState extends State<_DashboardBody> {
               Text(
                 'Dashboard',
                 style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                      color: _kTextPrimary,
-                      fontWeight: FontWeight.w600,
-                      letterSpacing: -0.4,
-                    ),
+                  color: _kTextPrimary,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: -0.4,
+                ),
               ),
               const SizedBox(height: 4),
               const Text(
@@ -259,11 +262,7 @@ class _DashboardBodyState extends State<_DashboardBody> {
         borderRadius: BorderRadius.circular(28),
         border: Border.all(color: const Color(0xFFE8E0D7)),
         boxShadow: const [
-          BoxShadow(
-            color: _kShadow,
-            blurRadius: 30,
-            offset: Offset(0, 18),
-          ),
+          BoxShadow(color: _kShadow, blurRadius: 30, offset: Offset(0, 18)),
         ],
       ),
       child: Padding(
@@ -314,10 +313,10 @@ class _DashboardBodyState extends State<_DashboardBody> {
                 Text(
                   'Move the week forward.',
                   style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                        color: _kTextPrimary,
-                        fontWeight: FontWeight.w700,
-                        letterSpacing: -0.6,
-                      ),
+                    color: _kTextPrimary,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: -0.6,
+                  ),
                 ),
                 const SizedBox(height: 6),
                 const Text(
@@ -538,11 +537,7 @@ class _DashboardBodyState extends State<_DashboardBody> {
           borderRadius: BorderRadius.circular(24),
           border: Border.all(color: _kCardBorder),
           boxShadow: const [
-            BoxShadow(
-              color: _kShadow,
-              blurRadius: 28,
-              offset: Offset(0, 14),
-            ),
+            BoxShadow(color: _kShadow, blurRadius: 28, offset: Offset(0, 14)),
           ],
         ),
         child: Row(
@@ -564,15 +559,14 @@ class _DashboardBodyState extends State<_DashboardBody> {
             OutlinedButton.icon(
               onPressed: _pickDate,
               icon: const Icon(Icons.calendar_today, size: 16),
-              label: Text(_selectedDueDate == null
-                  ? 'Due date'
-                  : DateFormatters.fullDate(_selectedDueDate)),
+              label: Text(
+                _selectedDueDate == null
+                    ? 'Due date'
+                    : DateFormatters.fullDate(_selectedDueDate),
+              ),
             ),
             const SizedBox(width: 10),
-            FilledButton(
-              onPressed: _submitTask,
-              child: const Text('Add Task'),
-            ),
+            FilledButton(onPressed: _submitTask, child: const Text('Add Task')),
           ],
         ),
       ),
@@ -727,9 +721,7 @@ class _HeroAction extends StatelessWidget {
         backgroundColor: const Color(0xFFF7F3EE),
         foregroundColor: _kTextPrimary,
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(14),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
       ),
     );
   }
@@ -761,10 +753,7 @@ class _MiniStatChip extends StatelessWidget {
           Container(
             width: 10,
             height: 10,
-            decoration: BoxDecoration(
-              color: accent,
-              shape: BoxShape.circle,
-            ),
+            decoration: BoxDecoration(color: accent, shape: BoxShape.circle),
           ),
           const SizedBox(width: 10),
           Expanded(
@@ -824,10 +813,7 @@ class _ProgressDialCard extends StatelessWidget {
       title: title,
       accent: accent,
       onTap: onTap,
-      trailing: TextButton(
-        onPressed: onTap,
-        child: Text(openText),
-      ),
+      trailing: TextButton(onPressed: onTap, child: Text(openText)),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -955,10 +941,7 @@ class _UnreadOverviewCard extends StatelessWidget {
               padding: EdgeInsets.symmetric(vertical: 8),
               child: Text(
                 'You are caught up.',
-                style: TextStyle(
-                  color: _kTextSecondary,
-                  fontSize: 13,
-                ),
+                style: TextStyle(color: _kTextSecondary, fontSize: 13),
               ),
             )
           : Column(
@@ -1021,9 +1004,14 @@ class _TaskListCard extends StatelessWidget {
       child: visible.isEmpty
           ? Padding(
               padding: const EdgeInsets.symmetric(vertical: 12),
-              child: Text(emptyLabel,
-                  style: const TextStyle(
-                      color: _kTextSecondary, fontSize: 13, height: 1.4)),
+              child: Text(
+                emptyLabel,
+                style: const TextStyle(
+                  color: _kTextSecondary,
+                  fontSize: 13,
+                  height: 1.4,
+                ),
+              ),
             )
           : Column(
               children: [
@@ -1042,7 +1030,9 @@ class _TaskListCard extends StatelessWidget {
                       child: Text(
                         '+${items.length - visible.length} more',
                         style: const TextStyle(
-                            color: _kTextSecondary, fontSize: 12),
+                          color: _kTextSecondary,
+                          fontSize: 12,
+                        ),
                       ),
                     ),
                   ),
@@ -1097,9 +1087,14 @@ class _ProgressPreviewCard<T extends DashboardProgressItem>
       child: visible.isEmpty
           ? Padding(
               padding: const EdgeInsets.symmetric(vertical: 18),
-              child: Text(emptyLabel,
-                  style: const TextStyle(
-                      color: _kTextSecondary, fontSize: 13, height: 1.4)),
+              child: Text(
+                emptyLabel,
+                style: const TextStyle(
+                  color: _kTextSecondary,
+                  fontSize: 13,
+                  height: 1.4,
+                ),
+              ),
             )
           : Column(
               children: [
@@ -1117,7 +1112,9 @@ class _ProgressPreviewCard<T extends DashboardProgressItem>
                       child: Text(
                         '+${items.length - visible.length} more',
                         style: const TextStyle(
-                            color: _kTextSecondary, fontSize: 12),
+                          color: _kTextSecondary,
+                          fontSize: 12,
+                        ),
                       ),
                     ),
                   ),
@@ -1169,9 +1166,14 @@ class _MessagePreviewCard extends StatelessWidget {
       child: visible.isEmpty
           ? Padding(
               padding: const EdgeInsets.symmetric(vertical: 18),
-              child: Text(emptyLabel,
-                  style: const TextStyle(
-                      color: _kTextSecondary, fontSize: 13, height: 1.4)),
+              child: Text(
+                emptyLabel,
+                style: const TextStyle(
+                  color: _kTextSecondary,
+                  fontSize: 13,
+                  height: 1.4,
+                ),
+              ),
             )
           : Column(
               children: [
@@ -1189,7 +1191,9 @@ class _MessagePreviewCard extends StatelessWidget {
                       child: Text(
                         '+${items.length - visible.length} more',
                         style: const TextStyle(
-                            color: _kTextSecondary, fontSize: 12),
+                          color: _kTextSecondary,
+                          fontSize: 12,
+                        ),
                       ),
                     ),
                   ),
@@ -1232,13 +1236,13 @@ String _taskSourceLabel(Task task) {
 }
 
 Color _taskSourceColor(Task task) => switch (task.sourceType) {
-      'recurring_rule' => _kRhythmAccent,
-      'project_step' => _kProjectAccent,
-      'calendar_shadow_event' => _kMessageAccent,
-      'planning_center_signal' => const Color(0xFFD97706),
-      'automation_rule' => const Color(0xFF8B5CF6),
-      _ => _kTextSecondary,
-    };
+  'recurring_rule' => _kRhythmAccent,
+  'project_step' => _kProjectAccent,
+  'calendar_shadow_event' => _kMessageAccent,
+  'planning_center_signal' => const Color(0xFFD97706),
+  'automation_rule' => const Color(0xFF8B5CF6),
+  _ => _kTextSecondary,
+};
 
 class _DashboardPreviewShell extends StatelessWidget {
   const _DashboardPreviewShell({
@@ -1270,11 +1274,7 @@ class _DashboardPreviewShell extends StatelessWidget {
             color: _kSurface,
             border: Border.all(color: _kCardBorder),
             boxShadow: const [
-              BoxShadow(
-                color: _kShadow,
-                blurRadius: 28,
-                offset: Offset(0, 14),
-              ),
+              BoxShadow(color: _kShadow, blurRadius: 28, offset: Offset(0, 14)),
             ],
           ),
           child: Column(
@@ -1362,8 +1362,8 @@ class _TaskPreviewRow extends StatelessWidget {
                 color: task.status == 'done'
                     ? _kCardBorder
                     : showPastDue && _isPastDue(task)
-                        ? _kDanger
-                        : visualStyle.accent,
+                    ? _kDanger
+                    : visualStyle.accent,
                 borderRadius: BorderRadius.circular(999),
               ),
             ),
@@ -1562,10 +1562,7 @@ class _UnreadMessagePreviewRow extends StatelessWidget {
               width: 4,
               height: 30,
               margin: const EdgeInsets.only(top: 1),
-              decoration: BoxDecoration(
-                color: accent,
-                shape: BoxShape.circle,
-              ),
+              decoration: BoxDecoration(color: accent, shape: BoxShape.circle),
             ),
             const SizedBox(width: 12),
             Expanded(
@@ -1586,7 +1583,9 @@ class _UnreadMessagePreviewRow extends StatelessWidget {
                       ),
                       Container(
                         padding: const EdgeInsets.symmetric(
-                            horizontal: 8, vertical: 3),
+                          horizontal: 8,
+                          vertical: 3,
+                        ),
                         decoration: BoxDecoration(
                           color: const Color(0xFFF1ECFF),
                           borderRadius: BorderRadius.circular(999),
@@ -1607,8 +1606,10 @@ class _UnreadMessagePreviewRow extends StatelessWidget {
                     preview.preview,
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
-                    style:
-                        const TextStyle(fontSize: 12, color: _kTextSecondary),
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: _kTextSecondary,
+                    ),
                   ),
                   const SizedBox(height: 2),
                   Text(

@@ -11,10 +11,8 @@ import '../repositories/dashboard_repository.dart';
 enum DashboardStatus { loading, ready, error }
 
 class DashboardController extends ChangeNotifier {
-  DashboardController(
-    this._repository, {
-    DateTime Function()? now,
-  }) : _now = now ?? DateTime.now;
+  DashboardController(this._repository, {DateTime Function()? now})
+    : _now = now ?? DateTime.now;
 
   final DashboardRepository _repository;
   final DateTime Function() _now;
@@ -90,10 +88,9 @@ class DashboardController extends ChangeNotifier {
         ..sort(_compareTasks);
       _todayTasks = tasks.where((t) => _isDueToday(t, today)).toList()
         ..sort(_compareTasks);
-      _thisWeekTasks = tasks
-          .where((t) => _isDueThisWeek(t, today, weekEnd))
-          .toList()
-        ..sort(_compareTasks);
+      _thisWeekTasks =
+          tasks.where((t) => _isDueThisWeek(t, today, weekEnd)).toList()
+            ..sort(_compareTasks);
       _unscheduledTasks = tasks.where(_isUnscheduled).toList()
         ..sort((a, b) => b.id.compareTo(a.id));
       _pastDueTaskCount = _pastDueTasks.length;
@@ -104,7 +101,8 @@ class DashboardController extends ChangeNotifier {
       _thisWeekTasksRemainingCount = _thisWeekTasks.length;
       _thisWeekTasksTotalCount = tasks
           .where(
-              (task) => _isDueThisWeek(task, today, weekEnd, includeDone: true))
+            (task) => _isDueThisWeek(task, today, weekEnd, includeDone: true),
+          )
           .length;
       _unscheduledTaskCount = _unscheduledTasks.length;
       _dueThisWeekCount = _thisWeekTasksRemainingCount;
@@ -162,14 +160,17 @@ class DashboardController extends ChangeNotifier {
     final summaries = <DashboardRhythmProgress>[];
     for (final rule in rules) {
       if (!rule.enabled) continue;
-      final ruleTasks = tasks
-          .where((task) =>
-              task.sourceType == 'recurring_rule' &&
-              task.sourceId != null &&
-              (task.sourceId == rule.id ||
-                  task.sourceId!.startsWith('${rule.id}:')))
-          .toList()
-        ..sort(_compareTasks);
+      final ruleTasks =
+          tasks
+              .where(
+                (task) =>
+                    task.sourceType == 'recurring_rule' &&
+                    task.sourceId != null &&
+                    (task.sourceId == rule.id ||
+                        task.sourceId!.startsWith('${rule.id}:')),
+              )
+              .toList()
+            ..sort(_compareTasks);
       final completed = ruleTasks.where((task) => task.status == 'done').length;
       summaries.add(
         DashboardRhythmProgress(
@@ -197,8 +198,9 @@ class DashboardController extends ChangeNotifier {
     for (final instance in instances) {
       if (instance.status == 'done') continue;
       final sortedSteps = [...instance.steps]..sort(_compareProjectSteps);
-      final completed =
-          sortedSteps.where((step) => step.status == 'done').length;
+      final completed = sortedSteps
+          .where((step) => step.status == 'done')
+          .length;
       final template = templatesById[instance.templateId];
       final title = instance.name?.trim().isNotEmpty == true
           ? instance.name!.trim()
@@ -238,8 +240,11 @@ class DashboardController extends ChangeNotifier {
     return date != null && date.isBefore(today);
   }
 
-  static bool _isDueToday(Task task, DateTime today,
-      {bool includeDone = false}) {
+  static bool _isDueToday(
+    Task task,
+    DateTime today, {
+    bool includeDone = false,
+  }) {
     if (!includeDone && task.status == 'done') return false;
     final date = _taskPriorityDate(task);
     return date != null &&
@@ -273,7 +278,7 @@ class DashboardController extends ChangeNotifier {
       final templates = results[0] as List<ProjectTemplate>;
       final projectInstances = results[1] as List<ProjectInstance>;
       final templatesById = {
-        for (final template in templates) template.id: template
+        for (final template in templates) template.id: template,
       };
       return _buildProjectSummaries(projectInstances, templatesById);
     } catch (_) {
@@ -294,7 +299,9 @@ class DashboardController extends ChangeNotifier {
   }
 
   static int _compareProjectSteps(
-      ProjectInstanceStep a, ProjectInstanceStep b) {
+    ProjectInstanceStep a,
+    ProjectInstanceStep b,
+  ) {
     final aDate = DateTime.tryParse(a.dueDate) ?? DateTime(9999);
     final bDate = DateTime.tryParse(b.dueDate) ?? DateTime(9999);
     final compare = aDate.compareTo(bDate);

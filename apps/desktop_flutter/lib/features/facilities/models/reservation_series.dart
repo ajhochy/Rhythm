@@ -45,7 +45,8 @@ class ReservationSeries {
       facilityId:
           _asInt(json['facilityId']) ?? _asInt(json['facility_id']) ?? 0,
       title: _asString(json['title']) ?? '',
-      requesterName: _asString(json['requesterName']) ??
+      requesterName:
+          _asString(json['requesterName']) ??
           _asString(json['requester_name']) ??
           '',
       startTime: _asString(json['startTime']) ?? _asString(json['start_time']),
@@ -55,17 +56,20 @@ class ReservationSeries {
       createdByUserId:
           _asInt(json['createdByUserId']) ?? _asInt(json['created_by_user_id']),
       notes: _asString(json['notes']),
-      recurrenceType: _asString(json['recurrenceType']) ??
+      recurrenceType:
+          _asString(json['recurrenceType']) ??
           _asString(json['recurrence_type']) ??
           'weekly',
-      recurrenceInterval: _asInt(json['recurrenceInterval']) ??
+      recurrenceInterval:
+          _asInt(json['recurrenceInterval']) ??
           _asInt(json['recurrence_interval']),
       weekdayPattern: json['weekdayPattern'] is Map<String, dynamic>
           ? json['weekdayPattern'] as Map<String, dynamic>
           : json['weekday_pattern'] is Map<String, dynamic>
-              ? json['weekday_pattern'] as Map<String, dynamic>
-              : null,
-      customDates: _asStringList(json['customDates']) ??
+          ? json['weekday_pattern'] as Map<String, dynamic>
+          : null,
+      customDates:
+          _asStringList(json['customDates']) ??
           _asStringList(json['custom_dates']) ??
           const [],
       startDate:
@@ -78,10 +82,7 @@ class ReservationSeries {
 }
 
 class ReservationSeriesConflict {
-  const ReservationSeriesConflict({
-    required this.date,
-    required this.reason,
-  });
+  const ReservationSeriesConflict({required this.date, required this.reason});
 
   final String date;
   final String reason;
@@ -109,28 +110,33 @@ class ReservationSeriesCreationResult {
 
   factory ReservationSeriesCreationResult.fromJson(Map<String, dynamic> json) {
     return ReservationSeriesCreationResult(
-      series:
-          ReservationSeries.fromJson(json['series'] as Map<String, dynamic>),
+      series: ReservationSeries.fromJson(
+        json['series'] as Map<String, dynamic>,
+      ),
       createdGroups: json['createdGroups'] is List
           ? (json['createdGroups'] as List)
-              .map((item) =>
-                  _asString((item as Map<String, dynamic>)['id']) ?? '')
-              .where((id) => id.isNotEmpty)
-              .toList()
+                .map(
+                  (item) =>
+                      _asString((item as Map<String, dynamic>)['id']) ?? '',
+                )
+                .where((id) => id.isNotEmpty)
+                .toList()
           : const [],
       createdReservations: json['createdReservations'] is List
           ? (json['createdReservations'] as List)
-              .map((item) => Reservation.fromJson(item as Map<String, dynamic>))
-              .toList()
+                .map(
+                  (item) => Reservation.fromJson(item as Map<String, dynamic>),
+                )
+                .toList()
           : const [],
       conflicts: json['conflicts'] is List
           ? (json['conflicts'] as List)
-              .map(
-                (item) => ReservationSeriesConflict.fromJson(
-                  item as Map<String, dynamic>,
-                ),
-              )
-              .toList()
+                .map(
+                  (item) => ReservationSeriesConflict.fromJson(
+                    item as Map<String, dynamic>,
+                  ),
+                )
+                .toList()
           : const [],
     );
   }

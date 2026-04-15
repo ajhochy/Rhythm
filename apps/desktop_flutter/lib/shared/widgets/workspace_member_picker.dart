@@ -48,10 +48,7 @@ class WorkspaceMemberPicker extends StatelessWidget {
               style: TextStyle(fontSize: 13, color: Color(0xFF9CA3AF)),
             ),
           ...workspaceMembers.map(
-            (member) => _WorkspaceMemberLabel(
-              member: member,
-              dense: true,
-            ),
+            (member) => _WorkspaceMemberLabel(member: member, dense: true),
           ),
         ],
         onChanged: onChanged,
@@ -61,10 +58,7 @@ class WorkspaceMemberPicker extends StatelessWidget {
 }
 
 class _WorkspaceMemberLabel extends StatelessWidget {
-  const _WorkspaceMemberLabel({
-    required this.member,
-    this.dense = false,
-  });
+  const _WorkspaceMemberLabel({required this.member, this.dense = false});
 
   final WorkspaceMember member;
   final bool dense;
@@ -79,10 +73,7 @@ class _WorkspaceMemberLabel extends StatelessWidget {
           backgroundColor: const Color(0xFF4F6AF5),
           child: Text(
             _initialFor(member.name),
-            style: const TextStyle(
-              fontSize: 9,
-              color: Colors.white,
-            ),
+            style: const TextStyle(fontSize: 9, color: Colors.white),
           ),
         ),
         SizedBox(width: dense ? 4 : 6),

@@ -26,8 +26,10 @@ void main() {
     });
 
     test('triggerLabel returns human-readable string', () {
-      expect(AutomationRule.triggerLabel('project_step_due'),
-          'Project step is due');
+      expect(
+        AutomationRule.triggerLabel('project_step_due'),
+        'Project step is due',
+      );
       expect(AutomationRule.triggerLabel('task_due'), 'Task is due');
       expect(AutomationRule.triggerLabel('plan_assembly'), 'Plan is assembled');
       expect(AutomationRule.triggerLabel('unknown'), 'unknown');
@@ -35,9 +37,13 @@ void main() {
 
     test('actionLabel returns human-readable string', () {
       expect(
-          AutomationRule.actionLabel('auto_schedule'), 'Auto-schedule to day');
+        AutomationRule.actionLabel('auto_schedule'),
+        'Auto-schedule to day',
+      );
       expect(
-          AutomationRule.actionLabel('send_notification'), 'Send notification');
+        AutomationRule.actionLabel('send_notification'),
+        'Send notification',
+      );
       expect(AutomationRule.actionLabel('tag_task'), 'Tag task');
     });
 

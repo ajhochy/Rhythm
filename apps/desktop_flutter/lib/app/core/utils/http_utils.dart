@@ -19,7 +19,7 @@ void assertOk(http.Response response) {
     }
     final message =
         (body?['error'] as Map<String, dynamic>?)?['message'] as String? ??
-            'Request failed';
+        'Request failed';
     throw AppError(message);
   }
 }

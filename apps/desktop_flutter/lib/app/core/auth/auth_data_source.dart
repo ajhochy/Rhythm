@@ -9,21 +9,14 @@ import 'auth_user.dart';
 import 'workspace_info.dart';
 
 class AuthLoginResponse {
-  const AuthLoginResponse({
-    required this.sessionToken,
-    required this.user,
-  });
+  const AuthLoginResponse({required this.sessionToken, required this.user});
 
   final String sessionToken;
   final AuthUser user;
 }
 
 class MeResponse {
-  const MeResponse({
-    required this.user,
-    this.workspace,
-    this.workspaceRole,
-  });
+  const MeResponse({required this.user, this.workspace, this.workspaceRole});
 
   final AuthUser user;
   final WorkspaceInfo? workspace;
@@ -32,7 +25,7 @@ class MeResponse {
 
 class AuthDataSource {
   AuthDataSource({String? baseUrl})
-      : _baseUrl = baseUrl ?? AppConstants.apiBaseUrl;
+    : _baseUrl = baseUrl ?? AppConstants.apiBaseUrl;
 
   final String _baseUrl;
 
@@ -61,8 +54,9 @@ class AuthDataSource {
     final workspaceJson = json['workspace'] as Map<String, dynamic>?;
     return MeResponse(
       user: AuthUser.fromJson(json['user'] as Map<String, dynamic>),
-      workspace:
-          workspaceJson != null ? WorkspaceInfo.fromJson(workspaceJson) : null,
+      workspace: workspaceJson != null
+          ? WorkspaceInfo.fromJson(workspaceJson)
+          : null,
       workspaceRole: json['workspaceRole'] as String?,
     );
   }

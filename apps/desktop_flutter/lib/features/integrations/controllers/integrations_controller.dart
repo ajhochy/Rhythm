@@ -61,7 +61,9 @@ class IntegrationsController extends ChangeNotifier {
       _googleCalendarSettings = calendarConnected
           ? await _repository.getGoogleCalendarSettings()
           : GoogleCalendarSettings(
-              calendars: const [], selectedCalendarIds: const []);
+              calendars: const [],
+              selectedCalendarIds: const [],
+            );
       final gmailConnected = _accounts.any(
         (account) => account.provider == 'gmail' && account.connected,
       );
@@ -70,13 +72,17 @@ class IntegrationsController extends ChangeNotifier {
         (account) => account.provider == 'planning_center' && account.connected,
       );
       if (pcoConnected) {
-        _planningCenterTaskPreferences =
-            await _repository.getPlanningCenterTaskPreferences();
+        _planningCenterTaskPreferences = await _repository
+            .getPlanningCenterTaskPreferences();
       } else {
-        _planningCenterTaskPreferences =
-            PlanningCenterTaskPreferences(teamIds: [], positionNames: []);
-        _planningCenterTaskOptions =
-            PlanningCenterTaskOptions(teams: [], positionsByTeamId: {});
+        _planningCenterTaskPreferences = PlanningCenterTaskPreferences(
+          teamIds: [],
+          positionNames: [],
+        );
+        _planningCenterTaskOptions = PlanningCenterTaskOptions(
+          teams: [],
+          positionsByTeamId: {},
+        );
       }
       _status = IntegrationsStatus.idle;
     } catch (e) {
@@ -124,13 +130,15 @@ class IntegrationsController extends ChangeNotifier {
   }
 
   Future<void> saveGoogleCalendarPreferences(
-      List<String> selectedCalendarIds) async {
+    List<String> selectedCalendarIds,
+  ) async {
     _savingGoogleCalendarPreferences = true;
     _errorMessage = null;
     notifyListeners();
     try {
-      _googleCalendarSettings =
-          await _repository.saveGoogleCalendarPreferences(selectedCalendarIds);
+      _googleCalendarSettings = await _repository.saveGoogleCalendarPreferences(
+        selectedCalendarIds,
+      );
       await _repository.syncGoogleCalendar();
       _accounts = await _repository.getAccounts();
       _status = IntegrationsStatus.idle;
@@ -184,8 +192,8 @@ class IntegrationsController extends ChangeNotifier {
     _errorMessage = null;
     notifyListeners();
     try {
-      _planningCenterTaskPreferences =
-          await _repository.savePlanningCenterTaskPreferences(preferences);
+      _planningCenterTaskPreferences = await _repository
+          .savePlanningCenterTaskPreferences(preferences);
       _status = IntegrationsStatus.idle;
     } catch (e) {
       _errorMessage = e.toString();
@@ -200,8 +208,8 @@ class IntegrationsController extends ChangeNotifier {
     _errorMessage = null;
     notifyListeners();
     try {
-      _planningCenterTaskOptions =
-          await _repository.getPlanningCenterTaskOptions();
+      _planningCenterTaskOptions = await _repository
+          .getPlanningCenterTaskOptions();
       _status = IntegrationsStatus.idle;
     } catch (e) {
       _errorMessage = e.toString();

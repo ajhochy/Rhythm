@@ -11,7 +11,7 @@ import '../models/reservation_series.dart';
 
 class FacilitiesDataSource {
   FacilitiesDataSource({String? baseUrl})
-      : _baseUrl = baseUrl ?? AppConstants.apiBaseUrl;
+    : _baseUrl = baseUrl ?? AppConstants.apiBaseUrl;
 
   final String _baseUrl;
 
@@ -38,7 +38,9 @@ class FacilitiesDataSource {
   }
 
   Future<Facility> updateFacility(
-      int facilityId, Map<String, dynamic> body) async {
+    int facilityId,
+    Map<String, dynamic> body,
+  ) async {
     final response = await http.patch(
       Uri.parse('$_baseUrl/facilities/$facilityId'),
       headers: AuthSessionStore.headers(json: true),
@@ -83,10 +85,7 @@ class FacilitiesDataSource {
     final uri = Uri.parse('$_baseUrl/facilities/reservations').replace(
       queryParameters: queryParameters.isEmpty ? null : queryParameters,
     );
-    final response = await http.get(
-      uri,
-      headers: AuthSessionStore.headers(),
-    );
+    final response = await http.get(uri, headers: AuthSessionStore.headers());
     assertOk(response);
     final list = jsonDecode(response.body) as List<dynamic>;
     return list
@@ -112,7 +111,8 @@ class FacilitiesDataSource {
   ) async {
     final response = await http.get(
       Uri.parse(
-          '$_baseUrl/facilities/$facilityId/reservation-series/$seriesId'),
+        '$_baseUrl/facilities/$facilityId/reservation-series/$seriesId',
+      ),
       headers: AuthSessionStore.headers(),
     );
     assertOk(response);
@@ -124,7 +124,9 @@ class FacilitiesDataSource {
   }
 
   Future<ReservationMutationResult> createReservation(
-      int facilityId, Map<String, dynamic> body) async {
+    int facilityId,
+    Map<String, dynamic> body,
+  ) async {
     final response = await http.post(
       Uri.parse('$_baseUrl/facilities/$facilityId/reservations'),
       headers: AuthSessionStore.headers(json: true),
@@ -132,7 +134,8 @@ class FacilitiesDataSource {
     );
     assertOk(response);
     return ReservationMutationResult.fromJson(
-        jsonDecode(response.body) as Map<String, dynamic>);
+      jsonDecode(response.body) as Map<String, dynamic>,
+    );
   }
 
   Future<ReservationSeriesCreationResult> createReservationSeries(
@@ -157,7 +160,8 @@ class FacilitiesDataSource {
   ) async {
     final response = await http.patch(
       Uri.parse(
-          '$_baseUrl/facilities/$facilityId/reservation-series/$seriesId'),
+        '$_baseUrl/facilities/$facilityId/reservation-series/$seriesId',
+      ),
       headers: AuthSessionStore.headers(json: true),
       body: jsonEncode(body),
     );
@@ -179,7 +183,8 @@ class FacilitiesDataSource {
     );
     assertOk(response);
     return ReservationMutationResult.fromJson(
-        jsonDecode(response.body) as Map<String, dynamic>);
+      jsonDecode(response.body) as Map<String, dynamic>,
+    );
   }
 
   Future<void> deleteReservation(int facilityId, int reservationId) async {
@@ -193,7 +198,8 @@ class FacilitiesDataSource {
   Future<void> deleteReservationSeries(int facilityId, String seriesId) async {
     final response = await http.delete(
       Uri.parse(
-          '$_baseUrl/facilities/$facilityId/reservation-series/$seriesId'),
+        '$_baseUrl/facilities/$facilityId/reservation-series/$seriesId',
+      ),
       headers: AuthSessionStore.headers(),
     );
     assertOk(response);

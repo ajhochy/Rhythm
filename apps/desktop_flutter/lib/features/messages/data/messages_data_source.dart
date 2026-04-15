@@ -11,7 +11,7 @@ import '../models/message_thread.dart';
 
 class MessagesDataSource {
   MessagesDataSource({String? baseUrl})
-      : _baseUrl = baseUrl ?? AppConstants.apiBaseUrl;
+    : _baseUrl = baseUrl ?? AppConstants.apiBaseUrl;
 
   final String _baseUrl;
 
@@ -39,8 +39,11 @@ class MessagesDataSource {
         .toList();
   }
 
-  Future<MessageThread> createThread(List<int> participantIds,
-      {String? title, String threadType = 'direct'}) async {
+  Future<MessageThread> createThread(
+    List<int> participantIds, {
+    String? title,
+    String threadType = 'direct',
+  }) async {
     final response = await http.post(
       Uri.parse('$_baseUrl/message-threads'),
       headers: AuthSessionStore.headers(json: true),
@@ -52,7 +55,8 @@ class MessagesDataSource {
     );
     assertOk(response);
     return MessageThread.fromJson(
-        jsonDecode(response.body) as Map<String, dynamic>);
+      jsonDecode(response.body) as Map<String, dynamic>,
+    );
   }
 
   Future<List<Message>> getMessages(int threadId) async {
@@ -71,9 +75,7 @@ class MessagesDataSource {
     final response = await http.post(
       Uri.parse('$_baseUrl/message-threads/$threadId/messages'),
       headers: AuthSessionStore.headers(json: true),
-      body: jsonEncode({
-        'body': content,
-      }),
+      body: jsonEncode({'body': content}),
     );
     assertOk(response);
     return Message.fromJson(jsonDecode(response.body) as Map<String, dynamic>);

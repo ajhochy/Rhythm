@@ -40,17 +40,21 @@ class RhythmsController extends ChangeNotifier {
     int? dayOfMonth,
     int? month,
     bool? enabled,
+    bool? sequential,
     List<RecurringTaskRuleStep>? steps,
   }) async {
     try {
-      final updated = await _repository.update(id,
-          title: title,
-          frequency: frequency,
-          dayOfWeek: dayOfWeek,
-          dayOfMonth: dayOfMonth,
-          month: month,
-          enabled: enabled,
-          steps: steps);
+      final updated = await _repository.update(
+        id,
+        title: title,
+        frequency: frequency,
+        dayOfWeek: dayOfWeek,
+        dayOfMonth: dayOfMonth,
+        month: month,
+        enabled: enabled,
+        sequential: sequential,
+        steps: steps,
+      );
       _rules = _rules.map((r) => r.id == id ? updated : r).toList();
       notifyListeners();
     } catch (e) {
@@ -66,6 +70,7 @@ class RhythmsController extends ChangeNotifier {
     int? dayOfWeek,
     int? dayOfMonth,
     int? month,
+    bool? sequential,
     List<RecurringTaskRuleStep>? steps,
   }) async {
     try {
@@ -75,11 +80,31 @@ class RhythmsController extends ChangeNotifier {
         dayOfWeek: dayOfWeek,
         dayOfMonth: dayOfMonth,
         month: month,
+        sequential: sequential,
         steps: steps,
       );
       _rules = [..._rules, rule];
       notifyListeners();
     } catch (e) {
+      _errorMessage = e.toString();
+      _status = RhythmsStatus.error;
+      notifyListeners();
+    }
+  }
+
+  Future<void> toggleSequential(String id, {required bool sequential}) async {
+    _rules = _rules
+        .map((r) => r.id == id ? r.copyWith(sequential: sequential) : r)
+        .toList();
+    notifyListeners();
+    try {
+      final updated = await _repository.update(id, sequential: sequential);
+      _rules = _rules.map((r) => r.id == id ? updated : r).toList();
+      notifyListeners();
+    } catch (e) {
+      _rules = _rules
+          .map((r) => r.id == id ? r.copyWith(sequential: !sequential) : r)
+          .toList();
       _errorMessage = e.toString();
       _status = RhythmsStatus.error;
       notifyListeners();

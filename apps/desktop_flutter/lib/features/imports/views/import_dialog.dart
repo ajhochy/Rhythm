@@ -184,8 +184,9 @@ Example:
       ];
       final summary = parts.isEmpty ? 'Nothing to import.' : parts.join(', ');
       Navigator.pop(context);
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('Imported: $summary')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Imported: $summary')));
     } on FormatException catch (e) {
       setState(() {
         _isImporting = false;
@@ -259,9 +260,9 @@ class _DialogHeader extends StatelessWidget {
               const SizedBox(width: 8),
               Text(
                 'AI Import',
-                style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.bold,
-                    ),
+                style: Theme.of(
+                  context,
+                ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold),
               ),
               const Spacer(),
               IconButton(
@@ -327,7 +328,9 @@ class _PromptTab extends StatelessWidget {
                     child: SelectableText(
                       prompt.trim(),
                       style: const TextStyle(
-                          fontFamily: 'monospace', fontSize: 12),
+                        fontFamily: 'monospace',
+                        fontSize: 12,
+                      ),
                     ),
                   ),
                   Positioned(
@@ -339,7 +342,9 @@ class _PromptTab extends StatelessWidget {
                       label: Text(copied ? 'Copied!' : 'Copy prompt'),
                       style: FilledButton.styleFrom(
                         padding: const EdgeInsets.symmetric(
-                            horizontal: 12, vertical: 8),
+                          horizontal: 12,
+                          vertical: 8,
+                        ),
                         textStyle: const TextStyle(fontSize: 13),
                       ),
                     ),

@@ -7,12 +7,7 @@ import 'auth_session_store.dart';
 import 'auth_user.dart';
 import 'workspace_info.dart';
 
-enum AuthStatus {
-  checking,
-  authenticated,
-  unauthenticated,
-  signingIn,
-}
+enum AuthStatus { checking, authenticated, unauthenticated, signingIn }
 
 class AuthSessionService extends ChangeNotifier {
   AuthSessionService(this._dataSource) {

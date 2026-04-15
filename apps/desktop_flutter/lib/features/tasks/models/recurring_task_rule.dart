@@ -46,10 +46,10 @@ class RecurringTaskRuleStep {
   final String? assigneeName;
 
   Map<String, dynamic> toJson() => {
-        'id': id,
-        'title': title,
-        'assigneeId': assigneeId,
-      };
+    'id': id,
+    'title': title,
+    'assigneeId': assigneeId,
+  };
 }
 
 class RecurringTaskRuleProgress {
@@ -98,6 +98,7 @@ class RecurringTaskRule {
     this.dayOfMonth,
     this.month,
     this.enabled = true,
+    this.sequential = false,
     this.steps = const [],
     this.collaborators = const [],
     this.progress,
@@ -114,15 +115,17 @@ class RecurringTaskRule {
       ownerId: asInt(json['ownerId']),
       createdAt: asString(json['createdAt']) ?? '',
       enabled: asBool(json['enabled']) ?? true,
+      sequential: asBool(json['sequential']) ?? false,
       steps: ((json['steps'] as List<dynamic>?) ?? const [])
-          .map((step) => RecurringTaskRuleStep.fromJson(
-                step as Map<String, dynamic>,
-              ))
+          .map(
+            (step) =>
+                RecurringTaskRuleStep.fromJson(step as Map<String, dynamic>),
+          )
           .toList(),
       collaborators: ((json['collaborators'] as List<dynamic>?) ?? const [])
-          .map((item) => RhythmCollaborator.fromJson(
-                item as Map<String, dynamic>,
-              ))
+          .map(
+            (item) => RhythmCollaborator.fromJson(item as Map<String, dynamic>),
+          )
           .toList(),
       progress: json['progress'] is Map<String, dynamic>
           ? RecurringTaskRuleProgress.fromJson(
@@ -140,6 +143,7 @@ class RecurringTaskRule {
   final int? dayOfMonth; // 1-31 (monthly / annual)
   final int? month; // 1-12 (annual)
   final bool enabled;
+  final bool sequential;
   final String createdAt;
   final List<RecurringTaskRuleStep> steps;
   final List<RhythmCollaborator> collaborators;
@@ -147,6 +151,7 @@ class RecurringTaskRule {
 
   RecurringTaskRule copyWith({
     bool? enabled,
+    bool? sequential,
     List<RecurringTaskRuleStep>? steps,
     List<RhythmCollaborator>? collaborators,
     int? ownerId,
@@ -161,6 +166,7 @@ class RecurringTaskRule {
       month: month,
       createdAt: createdAt,
       enabled: enabled ?? this.enabled,
+      sequential: sequential ?? this.sequential,
       steps: steps ?? this.steps,
       collaborators: collaborators ?? this.collaborators,
       progress: progress,
@@ -184,7 +190,7 @@ class RecurringTaskRule {
           'Wednesday',
           'Thursday',
           'Friday',
-          'Saturday'
+          'Saturday',
         ];
         final dow = dayOfWeek ?? 1;
         return 'Every ${days[dow.clamp(0, 6)]}';
@@ -205,7 +211,7 @@ class RecurringTaskRule {
           'September',
           'October',
           'November',
-          'December'
+          'December',
         ];
         final m = month ?? 1;
         final d = dayOfMonth ?? 1;

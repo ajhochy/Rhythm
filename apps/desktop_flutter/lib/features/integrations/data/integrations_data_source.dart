@@ -11,7 +11,7 @@ import '../models/planning_center_task_preferences.dart';
 
 class IntegrationsDataSource {
   IntegrationsDataSource({String? baseUrl})
-      : _baseUrl = baseUrl ?? AppConstants.apiBaseUrl;
+    : _baseUrl = baseUrl ?? AppConstants.apiBaseUrl;
 
   final String _baseUrl;
 
@@ -24,16 +24,17 @@ class IntegrationsDataSource {
     final list = jsonDecode(response.body) as List<dynamic>;
     return list
         .map(
-            (item) => IntegrationAccount.fromJson(item as Map<String, dynamic>))
+          (item) => IntegrationAccount.fromJson(item as Map<String, dynamic>),
+        )
         .toList();
   }
 
   Uri googleBeginUri() => Uri.parse('$_baseUrl/auth/google/begin').replace(
-        queryParameters: {
-          if (AuthSessionStore.sessionToken != null)
-            'sessionToken': AuthSessionStore.sessionToken!,
-        },
-      );
+    queryParameters: {
+      if (AuthSessionStore.sessionToken != null)
+        'sessionToken': AuthSessionStore.sessionToken!,
+    },
+  );
 
   Uri planningCenterBeginUri() =>
       Uri.parse('$_baseUrl/auth/planning-center/begin').replace(
@@ -76,9 +77,7 @@ class IntegrationsDataSource {
     final response = await http.put(
       Uri.parse('$_baseUrl/integrations/google-calendar/preferences'),
       headers: AuthSessionStore.headers(json: true),
-      body: jsonEncode({
-        'selectedCalendarIds': selectedCalendarIds,
-      }),
+      body: jsonEncode({'selectedCalendarIds': selectedCalendarIds}),
     );
     assertOk(response);
     return fetchGoogleCalendarSettings();
@@ -113,11 +112,9 @@ class IntegrationsDataSource {
   }
 
   Future<PlanningCenterTaskPreferences>
-      fetchPlanningCenterTaskPreferences() async {
+  fetchPlanningCenterTaskPreferences() async {
     final response = await http.get(
-      Uri.parse(
-        '$_baseUrl/integrations/planning-center/task-preferences',
-      ),
+      Uri.parse('$_baseUrl/integrations/planning-center/task-preferences'),
       headers: AuthSessionStore.headers(),
     );
     assertOk(response);
@@ -128,9 +125,7 @@ class IntegrationsDataSource {
 
   Future<PlanningCenterTaskOptions> fetchPlanningCenterTaskOptions() async {
     final response = await http.get(
-      Uri.parse(
-        '$_baseUrl/integrations/planning-center/task-options',
-      ),
+      Uri.parse('$_baseUrl/integrations/planning-center/task-options'),
       headers: AuthSessionStore.headers(),
     );
     assertOk(response);
@@ -143,9 +138,7 @@ class IntegrationsDataSource {
     PlanningCenterTaskPreferences preferences,
   ) async {
     final response = await http.put(
-      Uri.parse(
-        '$_baseUrl/integrations/planning-center/task-preferences',
-      ),
+      Uri.parse('$_baseUrl/integrations/planning-center/task-preferences'),
       headers: AuthSessionStore.headers(json: true),
       body: jsonEncode(preferences.toJson()),
     );

@@ -27,12 +27,10 @@ class IntegrationsRepository {
   Future<void> syncAll() => _dataSource.syncAll();
   Future<GoogleCalendarSettings> saveGoogleCalendarPreferences(
     List<String> selectedCalendarIds,
-  ) =>
-      _dataSource.saveGoogleCalendarPreferences(selectedCalendarIds);
+  ) => _dataSource.saveGoogleCalendarPreferences(selectedCalendarIds);
   Future<void> syncGmail() => _dataSource.syncGmail();
   Future<void> syncPlanningCenter() => _dataSource.syncPlanningCenter();
   Future<PlanningCenterTaskPreferences> savePlanningCenterTaskPreferences(
     PlanningCenterTaskPreferences preferences,
-  ) =>
-      _dataSource.savePlanningCenterTaskPreferences(preferences);
+  ) => _dataSource.savePlanningCenterTaskPreferences(preferences);
 }

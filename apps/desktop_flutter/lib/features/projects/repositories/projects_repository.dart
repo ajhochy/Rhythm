@@ -9,10 +9,15 @@ class ProjectsRepository {
 
   Future<List<ProjectTemplate>> getAll() => _dataSource.fetchAll();
 
-  Future<ProjectTemplate> create(String name,
-          {String? description, String? anchorType}) =>
-      _dataSource.create(name,
-          description: description, anchorType: anchorType);
+  Future<ProjectTemplate> create(
+    String name, {
+    String? description,
+    String? anchorType,
+  }) => _dataSource.create(
+    name,
+    description: description,
+    anchorType: anchorType,
+  );
 
   Future<ProjectTemplateStep> addStep(
     String templateId, {
@@ -21,30 +26,36 @@ class ProjectsRepository {
     String? offsetDescription,
     int? sortOrder,
     int? assigneeId,
-  }) =>
-      _dataSource.addStep(
-        templateId,
-        title: title,
-        offsetDays: offsetDays,
-        offsetDescription: offsetDescription,
-        sortOrder: sortOrder,
-        assigneeId: assigneeId,
-      );
+  }) => _dataSource.addStep(
+    templateId,
+    title: title,
+    offsetDays: offsetDays,
+    offsetDescription: offsetDescription,
+    sortOrder: sortOrder,
+    assigneeId: assigneeId,
+  );
 
-  Future<ProjectTemplate> update(String id,
-          {String? name, String? description}) =>
-      _dataSource.update(id, name: name, description: description);
+  Future<ProjectTemplate> update(
+    String id, {
+    String? name,
+    String? description,
+  }) => _dataSource.update(id, name: name, description: description);
 
-  Future<ProjectTemplateStep> updateStep(String templateId, String stepId,
-          {String? title,
-          int? offsetDays,
-          String? offsetDescription,
-          int? assigneeId}) =>
-      _dataSource.updateStep(templateId, stepId,
-          title: title,
-          offsetDays: offsetDays,
-          offsetDescription: offsetDescription,
-          assigneeId: assigneeId);
+  Future<ProjectTemplateStep> updateStep(
+    String templateId,
+    String stepId, {
+    String? title,
+    int? offsetDays,
+    String? offsetDescription,
+    int? assigneeId,
+  }) => _dataSource.updateStep(
+    templateId,
+    stepId,
+    title: title,
+    offsetDays: offsetDays,
+    offsetDescription: offsetDescription,
+    assigneeId: assigneeId,
+  );
 
   Future<void> deleteStep(String templateId, String stepId) =>
       _dataSource.deleteStep(templateId, stepId);

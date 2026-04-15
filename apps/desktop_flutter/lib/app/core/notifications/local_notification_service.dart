@@ -11,10 +11,7 @@ class LocalNotificationService {
 
     const macos = DarwinInitializationSettings();
     const linux = LinuxInitializationSettings(defaultActionName: 'Open');
-    const settings = InitializationSettings(
-      macOS: macos,
-      linux: linux,
-    );
+    const settings = InitializationSettings(macOS: macos, linux: linux);
     await _plugin.initialize(settings);
     _initialized = true;
   }

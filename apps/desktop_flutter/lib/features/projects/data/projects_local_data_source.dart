@@ -8,7 +8,7 @@ import '../models/project_template_step.dart';
 
 class ProjectsLocalDataSource {
   ProjectsLocalDataSource({String? baseUrl})
-      : _baseUrl = baseUrl ?? AppConstants.apiBaseUrl;
+    : _baseUrl = baseUrl ?? AppConstants.apiBaseUrl;
 
   final String _baseUrl;
 
@@ -24,8 +24,11 @@ class ProjectsLocalDataSource {
         .toList();
   }
 
-  Future<ProjectTemplate> create(String name,
-      {String? description, String? anchorType}) async {
+  Future<ProjectTemplate> create(
+    String name, {
+    String? description,
+    String? anchorType,
+  }) async {
     final response = await http.post(
       Uri.parse('$_baseUrl/project-templates'),
       headers: AuthSessionStore.headers(json: true),
@@ -37,7 +40,8 @@ class ProjectsLocalDataSource {
     );
     assertOk(response);
     return ProjectTemplate.fromJson(
-        jsonDecode(response.body) as Map<String, dynamic>);
+      jsonDecode(response.body) as Map<String, dynamic>,
+    );
   }
 
   Future<ProjectTemplateStep> addStep(
@@ -61,11 +65,15 @@ class ProjectsLocalDataSource {
     );
     assertOk(response);
     return ProjectTemplateStep.fromJson(
-        jsonDecode(response.body) as Map<String, dynamic>);
+      jsonDecode(response.body) as Map<String, dynamic>,
+    );
   }
 
-  Future<ProjectTemplate> update(String id,
-      {String? name, String? description}) async {
+  Future<ProjectTemplate> update(
+    String id, {
+    String? name,
+    String? description,
+  }) async {
     final response = await http.patch(
       Uri.parse('$_baseUrl/project-templates/$id'),
       headers: AuthSessionStore.headers(json: true),
@@ -76,7 +84,8 @@ class ProjectsLocalDataSource {
     );
     assertOk(response);
     return ProjectTemplate.fromJson(
-        jsonDecode(response.body) as Map<String, dynamic>);
+      jsonDecode(response.body) as Map<String, dynamic>,
+    );
   }
 
   Future<ProjectTemplateStep> updateStep(
@@ -99,7 +108,8 @@ class ProjectsLocalDataSource {
     );
     assertOk(response);
     return ProjectTemplateStep.fromJson(
-        jsonDecode(response.body) as Map<String, dynamic>);
+      jsonDecode(response.body) as Map<String, dynamic>,
+    );
   }
 
   Future<void> deleteStep(String templateId, String stepId) async {
