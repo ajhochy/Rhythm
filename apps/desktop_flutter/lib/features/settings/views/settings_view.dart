@@ -610,8 +610,7 @@ class _ClaudeIntegrationSection extends StatefulWidget {
       _ClaudeIntegrationSectionState();
 }
 
-class _ClaudeIntegrationSectionState
-    extends State<_ClaudeIntegrationSection> {
+class _ClaudeIntegrationSectionState extends State<_ClaudeIntegrationSection> {
   bool _tokenVisible = false;
   bool _copied = false;
 
@@ -664,7 +663,9 @@ class _ClaudeIntegrationSectionState
               ),
               const SizedBox(height: 6),
               const Text(
-                'Use this token to connect Claude Desktop or Claude Code to your Rhythm workspace via the @rhythm/mcp-server package.',
+                'Use this token to connect Claude Desktop or Claude Code to '
+                'your Rhythm workspace via the @ajhochy/rhythm-mcp-server '
+                'package.',
                 style: TextStyle(
                   fontSize: 13,
                   color: RhythmTokens.textSecondary,
@@ -699,21 +700,18 @@ class _ClaudeIntegrationSectionState
               ] else ...[
                 // Token display row
                 Container(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 12, vertical: 10),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                   decoration: BoxDecoration(
                     color: RhythmTokens.surfaceMuted,
-                    borderRadius:
-                        BorderRadius.circular(RhythmTokens.radiusS),
+                    borderRadius: BorderRadius.circular(RhythmTokens.radiusS),
                     border: Border.all(color: RhythmTokens.border),
                   ),
                   child: Row(
                     children: [
                       Expanded(
                         child: Text(
-                          _tokenVisible
-                              ? token
-                              : '•' * 40,
+                          _tokenVisible ? token : '•' * 40,
                           style: const TextStyle(
                             fontFamily: 'monospace',
                             fontSize: 12,
@@ -771,15 +769,14 @@ class _ClaudeIntegrationSectionState
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
                     color: const Color(0xFF1E293B),
-                    borderRadius:
-                        BorderRadius.circular(RhythmTokens.radiusS),
+                    borderRadius: BorderRadius.circular(RhythmTokens.radiusS),
                   ),
                   child: SelectableText(
                     '{\n'
                     '  "mcpServers": {\n'
                     '    "rhythm": {\n'
                     '      "command": "npx",\n'
-                    '      "args": ["-y", "@rhythm/mcp-server"],\n'
+                    '      "args": ["-y", "@ajhochy/rhythm-mcp-server"],\n'
                     '      "env": {\n'
                     '        "RHYTHM_API_URL": "${serverConfig.url}",\n'
                     '        "RHYTHM_API_TOKEN": "${_tokenVisible ? token : "••••••••"}"\n'
