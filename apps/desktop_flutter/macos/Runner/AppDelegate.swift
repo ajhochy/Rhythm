@@ -17,8 +17,4 @@ class AppDelegate: FlutterAppDelegate {
       _ = GIDSignIn.sharedInstance.handle(url)
     }
   }
-
-  override func application(_ application: NSApplication, open url: URL, options: [NSOpeningOptions : Any] = [:]) -> Bool {
-    return GIDSignIn.sharedInstance.handle(url)
-  }
 }
