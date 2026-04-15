@@ -5,7 +5,7 @@ Rhythm MCP Server lets you manage tasks, projects, rhythms, messages, and facili
 ## Prerequisites
 
 - Node.js 18 or later
-- A Rhythm account at [api.vcrc.com](https://api.vcrc.com)
+- A Rhythm account at [api.vcrcapps.com](https://api.vcrcapps.com)
 - Claude Desktop, Claude Code, or any MCP-compatible client
 
 ## Get your API token
@@ -15,7 +15,7 @@ Open Rhythm → **Settings → Claude Integration** and copy your session token.
 Alternatively, obtain one via the API:
 
 ```bash
-curl -X POST https://api.vcrc.com/auth/login \
+curl -X POST https://api.vcrcapps.com/auth/login \
   -H "Content-Type: application/json" \
   -d '{"email": "you@example.com", "password": "yourpassword"}'
 # Response: { "sessionToken": "abc123...", "user": { ... } }
@@ -34,7 +34,7 @@ Edit `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS):
       "command": "npx",
       "args": ["-y", "@ajhochy/rhythm-mcp-server"],
       "env": {
-        "RHYTHM_API_URL": "https://api.vcrc.com",
+        "RHYTHM_API_URL": "https://api.vcrcapps.com",
         "RHYTHM_API_TOKEN": "paste-your-session-token-here"
       }
     }
@@ -55,7 +55,7 @@ Add to `~/.claude/settings.json` (global) or `.claude/settings.json` (per-projec
       "command": "npx",
       "args": ["-y", "@ajhochy/rhythm-mcp-server"],
       "env": {
-        "RHYTHM_API_URL": "https://api.vcrc.com",
+        "RHYTHM_API_URL": "https://api.vcrcapps.com",
         "RHYTHM_API_TOKEN": "paste-your-session-token-here"
       }
     }
@@ -102,6 +102,6 @@ Expected response: Rhythm API status and the email address your token authentica
 
 **401 errors** — Token expired or invalid. Re-fetch a token from Rhythm Settings or re-run the login curl command.
 
-**Can't reach API** — Confirm `RHYTHM_API_URL` is set to `https://api.vcrc.com`.
+**Can't reach API** — Confirm `RHYTHM_API_URL` is set to `https://api.vcrcapps.com`.
 
 **`npx` fails** — Ensure Node.js 18+ is installed: `node --version`.

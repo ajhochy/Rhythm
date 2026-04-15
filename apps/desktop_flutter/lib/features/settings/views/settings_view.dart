@@ -628,7 +628,7 @@ class _ClaudeIntegrationSectionState extends State<_ClaudeIntegrationSection> {
     final serverConfig = context.watch<ServerConfigService>();
     final token = auth.sessionToken;
     final isAuthenticated = auth.isAuthenticated && token != null;
-    final isCloudUrl = serverConfig.url.contains('api.vcrc.com');
+    final isCloudUrl = serverConfig.url.contains('api.vcrcapps.com');
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -688,7 +688,7 @@ class _ClaudeIntegrationSectionState extends State<_ClaudeIntegrationSection> {
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
-                        'Your API Server is set to ${serverConfig.url}. Switch to api.vcrc.com to get a cloud token for Claude.',
+                        'Your API Server is set to ${serverConfig.url}. Switch to api.vcrcapps.com to get a cloud token for Claude.',
                         style: const TextStyle(
                           fontSize: 13,
                           color: RhythmTokens.textSecondary,

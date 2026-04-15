@@ -10,7 +10,7 @@ import { registerMessageTools } from './tools/messages.js';
 import { registerFacilityTools } from './tools/facilities.js';
 import { registerDashboardTools } from './tools/dashboard.js';
 
-const RHYTHM_API_URL = process.env.RHYTHM_API_URL ?? 'https://api.vcrc.com';
+const RHYTHM_API_URL = process.env.RHYTHM_API_URL ?? 'https://api.vcrcapps.com';
 const RHYTHM_API_TOKEN = process.env.RHYTHM_API_TOKEN ?? '';
 
 if (!RHYTHM_API_TOKEN) {
