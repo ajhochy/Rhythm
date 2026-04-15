@@ -8,6 +8,8 @@ import 'package:window_manager/window_manager.dart';
 import '../../../features/messages/controllers/messages_controller.dart';
 import '../../../features/dashboard/controllers/dashboard_controller.dart';
 import '../../../features/integrations/controllers/integrations_controller.dart';
+import '../../../features/notifications/controllers/notifications_controller.dart';
+import '../../../features/notifications/views/notification_panel.dart';
 import '../../../features/dashboard/views/dashboard_view.dart';
 import '../../../features/facilities/views/facilities_view.dart';
 import '../../../features/integrations/models/integration_account.dart';
@@ -65,14 +67,35 @@ class _AppShellState extends State<AppShell> with WindowListener {
     final serverStatus = context.watch<ApiServerController>().status;
     final authStatus = context.watch<AuthSessionService>().status;
     final messagesController = context.read<MessagesController>();
-    final enableMessagePolling = serverStatus == ServerStatus.ready &&
+    final notifController = context.watch<NotificationsController>();
+    final enablePolling = serverStatus == ServerStatus.ready &&
         authStatus == AuthStatus.authenticated;
-    final isMessagesScreenActive = enableMessagePolling && _selectedIndex == 5;
+    final isMessagesScreenActive = enablePolling && _selectedIndex == 5;
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      messagesController.setPollingEnabled(enableMessagePolling);
+      messagesController.setPollingEnabled(enablePolling);
       messagesController.setScreenActive(isMessagesScreenActive);
+      if (enablePolling) {
+        notifController.startPolling();
+      } else {
+        notifController.stopPolling();
+      }
+
+      // Handle pending navigation from tapping a notification
+      final pending = notifController.pendingNavigation;
+      if (pending != null) {
+        notifController.clearPendingNavigation();
+        final index = switch (pending.entityType) {
+          'task' => AppConstants.navTasks,
+          'rhythm' => AppConstants.navRhythms,
+          'project' => AppConstants.navProjects,
+          _ => -1,
+        };
+        if (index >= 0) {
+          setState(() => _selectedIndex = index);
+        }
+      }
     });
 
     return switch (serverStatus) {
@@ -290,7 +313,7 @@ class _AppContent extends StatelessWidget {
   }
 }
 
-class _TopRightAccountCluster extends StatelessWidget {
+class _TopRightAccountCluster extends StatefulWidget {
   const _TopRightAccountCluster({
     required this.authSessionService,
     required this.updateController,
@@ -300,13 +323,70 @@ class _TopRightAccountCluster extends StatelessWidget {
   final UpdateController updateController;
 
   @override
+  State<_TopRightAccountCluster> createState() =>
+      _TopRightAccountClusterState();
+}
+
+class _TopRightAccountClusterState extends State<_TopRightAccountCluster> {
+  OverlayEntry? _overlayEntry;
+  final LayerLink _bellLayerLink = LayerLink();
+
+  void _togglePanel(BuildContext context) {
+    if (_overlayEntry != null) {
+      _closePanel();
+      return;
+    }
+    _openPanel(context);
+  }
+
+  void _openPanel(BuildContext context) {
+    _overlayEntry = OverlayEntry(
+      builder: (_) => GestureDetector(
+        behavior: HitTestBehavior.translucent,
+        onTap: _closePanel,
+        child: Stack(
+          children: [
+            // Transparent barrier
+            const SizedBox.expand(),
+            CompositedTransformFollower(
+              link: _bellLayerLink,
+              showWhenUnlinked: false,
+              targetAnchor: Alignment.bottomRight,
+              followerAnchor: Alignment.topRight,
+              offset: const Offset(0, 6),
+              child: GestureDetector(
+                onTap: () {}, // prevent tap-through
+                child: const NotificationPanel(),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+    Overlay.of(context).insert(_overlayEntry!);
+  }
+
+  void _closePanel() {
+    _overlayEntry?.remove();
+    _overlayEntry = null;
+  }
+
+  @override
+  void dispose() {
+    _closePanel();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final user = authSessionService.currentUser;
+    final user = widget.authSessionService.currentUser;
     if (user == null) {
       return const SizedBox.shrink();
     }
 
-    final hasUpdate = updateController.availableUpdate != null;
+    final hasUpdate = widget.updateController.availableUpdate != null;
+    final notifController = context.watch<NotificationsController>();
+    final unreadCount = notifController.unreadCount;
 
     return Row(
       mainAxisSize: MainAxisSize.min,
@@ -340,6 +420,67 @@ class _TopRightAccountCluster extends StatelessWidget {
               ],
             ),
           ),
+        // Bell icon with unread badge
+        CompositedTransformTarget(
+          link: _bellLayerLink,
+          child: Container(
+            margin: const EdgeInsets.only(right: 10),
+            child: Stack(
+              clipBehavior: Clip.none,
+              children: [
+                Material(
+                  color: RhythmTokens.surfaceStrong,
+                  borderRadius: BorderRadius.circular(RhythmTokens.radiusM),
+                  child: InkWell(
+                    onTap: () => _togglePanel(context),
+                    borderRadius: BorderRadius.circular(RhythmTokens.radiusM),
+                    child: Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        borderRadius:
+                            BorderRadius.circular(RhythmTokens.radiusM),
+                        border: Border.all(color: RhythmTokens.borderSoft),
+                      ),
+                      child: Icon(
+                        unreadCount > 0
+                            ? Icons.notifications
+                            : Icons.notifications_none_outlined,
+                        size: 20,
+                        color: unreadCount > 0
+                            ? RhythmTokens.accent
+                            : RhythmTokens.textSecondary,
+                      ),
+                    ),
+                  ),
+                ),
+                if (unreadCount > 0)
+                  Positioned(
+                    top: -4,
+                    right: -4,
+                    child: Container(
+                      padding: const EdgeInsets.all(3),
+                      constraints:
+                          const BoxConstraints(minWidth: 16, minHeight: 16),
+                      decoration: const BoxDecoration(
+                        color: RhythmTokens.danger,
+                        shape: BoxShape.circle,
+                      ),
+                      child: Text(
+                        unreadCount > 9 ? '9+' : '$unreadCount',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 9,
+                          fontWeight: FontWeight.w700,
+                          height: 1,
+                        ),
+                        textAlign: TextAlign.center,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
         Material(
           color: RhythmTokens.surfaceStrong.withValues(alpha: 0.96),
           borderRadius: BorderRadius.circular(RhythmTokens.radiusL),
