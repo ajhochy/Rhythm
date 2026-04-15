@@ -28,31 +28,58 @@ or acceptance criteria for this deployment.
 
 ### Synology Docker runtime
 
-Suggested deployment path:
+Deployment is manual — GitHub Actions builds and publishes the image to GHCR,
+then you SSH into the Synology and pull + restart the container.
 
-1. Copy or pull the repo to the Synology once so the compose file and env file exist there.
-2. In `apps/api_server`, create `.env.production` from `.env.production.example`.
-3. Fill in the real OAuth, Planning Center, and Cloudflare values.
-4. Log in to GHCR on the Synology host:
+### First-time setup
+
+1. Place `docker-compose.synology.yml` and `.env.production` on the Synology at:
+   `/volume1/docker/Rhythm/api_server/`
+2. Create `.env.production` from `.env.production.example` and fill in all values.
+3. Log in to GHCR once on the Synology host (needs a GitHub personal access token
+   with `read:packages` scope):
 
 ```bash
 echo '<ghcr-read-token>' | docker login ghcr.io -u '<github-username>' --password-stdin
 ```
 
-5. Pull and start the API and tunnel:
+### Deploying an update
+
+After CI publishes a new image to GHCR (happens automatically on every push to
+`main`), SSH into the Synology and run:
 
 ```bash
-cd apps/api_server
-export RHYTHM_API_IMAGE=ghcr.io/ajhochy/rhythm-api:main
-docker compose --env-file .env.production -f docker-compose.synology.yml pull
-docker compose --env-file .env.production -f docker-compose.synology.yml up -d
+ssh <user>@<synology-ip>
 ```
 
-Routine updates are now:
+Then navigate to the deployment directory and pull the new image:
 
-1. push to `main`
-2. let GitHub publish the new `ghcr.io/ajhochy/rhythm-api:main` image
-3. run the two `docker compose` commands above on the Synology host
+```bash
+cd /volume1/docker/Rhythm/api_server
+sudo docker compose -f docker-compose.synology.yml --env-file .env.production pull
+```
+
+Restart the containers with the new image:
+
+```bash
+sudo docker compose -f docker-compose.synology.yml --env-file .env.production up -d
+```
+
+The `up -d` command recreates any container whose image changed and leaves
+the rest running. The SQLite data volume is preserved across restarts.
+
+### Routine update summary
+
+1. Push to `main` (or merge a PR).
+2. Wait for the GitHub Actions workflow to finish publishing `ghcr.io/ajhochy/rhythm-api:main`.
+3. SSH into the Synology.
+4. `cd /volume1/docker/Rhythm/api_server`
+5. `sudo docker compose -f docker-compose.synology.yml --env-file .env.production pull`
+6. `sudo docker compose -f docker-compose.synology.yml --env-file .env.production up -d`
+
+> **Note:** `sudo` is required on Synology — Docker commands will fail with permission errors without it.
+>
+> **Note:** Run `pull` and `up -d` as separate commands. Chaining them (e.g. with `&&`) does not reliably execute both on Synology.
 
 The compose file expects:
 
@@ -126,7 +153,8 @@ Local development builds should keep:
 ## GitHub Actions and credentials
 
 The GitHub workflow verifies the API, builds the container image, and publishes
-it to GHCR. It does not SSH into Synology or perform remote deploys.
+it to GHCR. It does not SSH into the Synology or perform any remote deploy —
+that step is always done manually as described above.
 
 GitHub-side requirement:
 
@@ -140,5 +168,6 @@ Synology-side requirement:
 
 - The current production-ready deployment path still assumes SQLite.
 - `#64` is the follow-up issue for moving to a hosted production database.
-- The GitHub workflow publishes the API image to GHCR; Synology deployment is a
-  manual `docker compose pull && up -d` step.
+- The GitHub workflow publishes the API image to GHCR automatically on every push
+  to `main`. Synology deployment is always a manual SSH + `docker compose pull &&
+  up -d` step — there is no automated remote deploy.
