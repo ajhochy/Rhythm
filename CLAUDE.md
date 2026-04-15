@@ -217,9 +217,24 @@ cd apps/web && npm run dev             # Runs on :5173
 
 ---
 
+## Testing Flutter Changes Locally
+
+**Always test with `flutter run` before triggering a release build.** Release builds take 10–15 minutes and require a new version tag — local runs are instant.
+
+```bash
+cd apps/desktop_flutter && flutter run -d macos
+```
+
+- Works for all UI, logic, and API integration changes
+- Point Settings → API Server to `https://api.vcrcapps.com` to test against the hosted server
+- The only things that require a real release build: code-signing, notarization, and the bundled Node.js server (embedded API). Everything else is testable locally.
+
+---
+
 ## CI / Release
 
 - **Trigger:** `workflow_dispatch` in `.github/workflows/desktop_release.yml`
+- **Version:** increment the patch from the latest tag (e.g. `beta.18.7` → `beta.18.8`). Never reuse an existing tag.
 - **Secrets used:** `APPLE_CERT_BASE64`, `APPLE_CERT_PASSWORD`, `APPLE_TEAM_ID`, `APPLE_NOTARY_KEY_ID`, `APPLE_NOTARY_KEY_ISSUER`, `APPLE_NOTARY_KEY_BASE64`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI`, `PCO_APPLICATION_ID`, `PCO_SECRET`, `PCO_REDIRECT_URI`
 - **Steps:** flutter build → bundle api_server → sign all binaries → notarize → upload DMG
 
