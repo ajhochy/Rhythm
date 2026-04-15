@@ -6,9 +6,5 @@
 	<true/>
 	<key>com.apple.security.network.server</key>
 	<true/>
-	<key>com.apple.security.keychain-access-groups</key>
-	<array>
-		<string>$(AppIdentifierPrefix)org.visaliacrc.rhythm</string>
-	</array>
 </dict>
 </plist>
