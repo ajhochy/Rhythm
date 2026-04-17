@@ -9,7 +9,7 @@ import '../models/task_collaborator.dart';
 
 class CollaboratorsDataSource {
   CollaboratorsDataSource({String? baseUrl})
-    : _baseUrl = baseUrl ?? AppConstants.apiBaseUrl;
+      : _baseUrl = baseUrl ?? AppConstants.apiBaseUrl;
 
   final String _baseUrl;
 

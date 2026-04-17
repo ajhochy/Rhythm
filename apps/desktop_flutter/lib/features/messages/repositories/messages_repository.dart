@@ -16,11 +16,12 @@ class MessagesRepository {
     List<int> participantIds, {
     String? title,
     String threadType = 'direct',
-  }) => _dataSource.createThread(
-    participantIds,
-    title: title,
-    threadType: threadType,
-  );
+  }) =>
+      _dataSource.createThread(
+        participantIds,
+        title: title,
+        threadType: threadType,
+      );
 
   Future<List<Message>> getMessages(int threadId) =>
       _dataSource.getMessages(threadId);

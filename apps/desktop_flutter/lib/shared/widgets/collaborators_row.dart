@@ -41,9 +41,8 @@ class CollaboratorsRow extends StatelessWidget {
                 message: '${c.name}${isOwner ? ' (long-press to remove)' : ''}',
                 child: CircleAvatar(
                   radius: 14,
-                  backgroundImage: c.photoUrl != null
-                      ? NetworkImage(c.photoUrl!)
-                      : null,
+                  backgroundImage:
+                      c.photoUrl != null ? NetworkImage(c.photoUrl!) : null,
                   child: c.photoUrl == null
                       ? Text(
                           c.name[0].toUpperCase(),

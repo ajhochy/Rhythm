@@ -62,10 +62,10 @@ class _TasksViewState extends State<TasksView> {
     if (title.isEmpty) return;
     final notes = _notesController.text.trim();
     await context.read<TasksController>().createTask(
-      title,
-      notes: notes.isEmpty ? null : notes,
-      dueDate: _selectedDueDate,
-    );
+          title,
+          notes: notes.isEmpty ? null : notes,
+          dueDate: _selectedDueDate,
+        );
     _titleController.clear();
     _notesController.clear();
     setState(() => _selectedDueDate = null);
@@ -166,12 +166,12 @@ class _TasksViewState extends State<TasksView> {
                     children: [
                       Text(
                         'Tasks',
-                        style: Theme.of(context).textTheme.titleMedium
-                            ?.copyWith(
-                              color: RhythmTokens.textPrimary,
-                              fontWeight: FontWeight.w700,
-                              letterSpacing: -0.3,
-                            ),
+                        style:
+                            Theme.of(context).textTheme.titleMedium?.copyWith(
+                                  color: RhythmTokens.textPrimary,
+                                  fontWeight: FontWeight.w700,
+                                  letterSpacing: -0.3,
+                                ),
                       ),
                       _CompactFilterChip(
                         label: 'Completed',
@@ -272,8 +272,8 @@ class _TasksViewState extends State<TasksView> {
           message: controller.tasks.isEmpty
               ? 'Create a task above and it will settle into this workspace.'
               : _showCompleted
-              ? 'All tasks are already hidden by the current filter.'
-              : 'Completed tasks are hidden right now. Turn them back on to review finished work.',
+                  ? 'All tasks are already hidden by the current filter.'
+                  : 'Completed tasks are hidden right now. Turn them back on to review finished work.',
           icon: controller.tasks.isEmpty
               ? Icons.task_alt_outlined
               : Icons.checklist_outlined,
@@ -460,9 +460,8 @@ class _TasksViewState extends State<TasksView> {
                     CollaboratorsRow(
                       collaborators: task.collaborators,
                       ownerId: task.ownerId!,
-                      workspaceMembers: context
-                          .read<WorkspaceController>()
-                          .members,
+                      workspaceMembers:
+                          context.read<WorkspaceController>().members,
                       onAdd: (userId) async {
                         final ds = CollaboratorsDataSource();
                         await ds.addToTask(task.id, userId);
@@ -736,8 +735,7 @@ class _TaskMetaPill extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
       decoration: BoxDecoration(
-        color:
-            backgroundColor ??
+        color: backgroundColor ??
             (color ?? RhythmTokens.textSecondary).withValues(alpha: 0.08),
         borderRadius: BorderRadius.circular(RhythmTokens.radiusS),
         border: Border.all(
@@ -778,13 +776,13 @@ String _sourceLabel(Task task) {
 }
 
 IconData _sourceIcon(String sourceType) => switch (sourceType) {
-  'automation_rule' => Icons.auto_awesome,
-  'planning_center_signal' => Icons.groups_2_outlined,
-  'calendar_shadow_event' => Icons.event_available_outlined,
-  'project_step' => Icons.folder_open_outlined,
-  'recurring_rule' => Icons.repeat,
-  _ => Icons.link,
-};
+      'automation_rule' => Icons.auto_awesome,
+      'planning_center_signal' => Icons.groups_2_outlined,
+      'calendar_shadow_event' => Icons.event_available_outlined,
+      'project_step' => Icons.folder_open_outlined,
+      'recurring_rule' => Icons.repeat,
+      _ => Icons.link,
+    };
 
 String? _projectTitle(Task task) {
   final sourceName = task.sourceName?.trim();

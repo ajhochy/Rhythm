@@ -71,19 +71,19 @@ class _DashboardViewState extends State<DashboardView> {
           builder: (context, controller, _) {
             return switch (controller.status) {
               DashboardStatus.loading => const Center(
-                child: CircularProgressIndicator(color: _kPrimary),
-              ),
+                  child: CircularProgressIndicator(color: _kPrimary),
+                ),
               DashboardStatus.error => _ErrorView(
-                message: controller.errorMessage ?? 'Unknown error',
-                onRetry: controller.refresh,
-              ),
+                  message: controller.errorMessage ?? 'Unknown error',
+                  onRetry: controller.refresh,
+                ),
               DashboardStatus.ready => _DashboardBody(
-                controller: controller,
-                openWeeklyPlanner: widget.openWeeklyPlanner,
-                openRhythms: widget.openRhythms,
-                openProjects: widget.openProjects,
-                openMessages: widget.openMessages,
-              ),
+                  controller: controller,
+                  openWeeklyPlanner: widget.openWeeklyPlanner,
+                  openRhythms: widget.openRhythms,
+                  openProjects: widget.openProjects,
+                  openMessages: widget.openMessages,
+                ),
             };
           },
         ),
@@ -227,10 +227,10 @@ class _DashboardBodyState extends State<_DashboardBody> {
               Text(
                 'Dashboard',
                 style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                  color: _kTextPrimary,
-                  fontWeight: FontWeight.w600,
-                  letterSpacing: -0.4,
-                ),
+                      color: _kTextPrimary,
+                      fontWeight: FontWeight.w600,
+                      letterSpacing: -0.4,
+                    ),
               ),
               const SizedBox(height: 4),
               const Text(
@@ -313,10 +313,10 @@ class _DashboardBodyState extends State<_DashboardBody> {
                 Text(
                   'Move the week forward.',
                   style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                    color: _kTextPrimary,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: -0.6,
-                  ),
+                        color: _kTextPrimary,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: -0.6,
+                      ),
                 ),
                 const SizedBox(height: 6),
                 const Text(
@@ -1236,13 +1236,13 @@ String _taskSourceLabel(Task task) {
 }
 
 Color _taskSourceColor(Task task) => switch (task.sourceType) {
-  'recurring_rule' => _kRhythmAccent,
-  'project_step' => _kProjectAccent,
-  'calendar_shadow_event' => _kMessageAccent,
-  'planning_center_signal' => const Color(0xFFD97706),
-  'automation_rule' => const Color(0xFF8B5CF6),
-  _ => _kTextSecondary,
-};
+      'recurring_rule' => _kRhythmAccent,
+      'project_step' => _kProjectAccent,
+      'calendar_shadow_event' => _kMessageAccent,
+      'planning_center_signal' => const Color(0xFFD97706),
+      'automation_rule' => const Color(0xFF8B5CF6),
+      _ => _kTextSecondary,
+    };
 
 class _DashboardPreviewShell extends StatelessWidget {
   const _DashboardPreviewShell({
@@ -1362,8 +1362,8 @@ class _TaskPreviewRow extends StatelessWidget {
                 color: task.status == 'done'
                     ? _kCardBorder
                     : showPastDue && _isPastDue(task)
-                    ? _kDanger
-                    : visualStyle.accent,
+                        ? _kDanger
+                        : visualStyle.accent,
                 borderRadius: BorderRadius.circular(999),
               ),
             ),

@@ -13,12 +13,13 @@ class TasksRepository {
     String? notes,
     String? dueDate,
     int? ownerId,
-  }) => _dataSource.create(
-    title,
-    notes: notes,
-    dueDate: dueDate,
-    ownerId: ownerId,
-  );
+  }) =>
+      _dataSource.create(
+        title,
+        notes: notes,
+        dueDate: dueDate,
+        ownerId: ownerId,
+      );
 
   Future<Task> update(
     String id, {
@@ -28,15 +29,16 @@ class TasksRepository {
     String? status,
     int? ownerId,
     bool includeOwnerId = false,
-  }) => _dataSource.update(
-    id,
-    title: title,
-    notes: notes,
-    dueDate: dueDate,
-    status: status,
-    ownerId: ownerId,
-    includeOwnerId: includeOwnerId,
-  );
+  }) =>
+      _dataSource.update(
+        id,
+        title: title,
+        notes: notes,
+        dueDate: dueDate,
+        status: status,
+        ownerId: ownerId,
+        includeOwnerId: includeOwnerId,
+      );
 
   Future<void> delete(String id) => _dataSource.delete(id);
 }

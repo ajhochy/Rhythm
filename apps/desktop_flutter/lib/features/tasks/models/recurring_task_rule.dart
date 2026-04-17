@@ -46,10 +46,10 @@ class RecurringTaskRuleStep {
   final String? assigneeName;
 
   Map<String, dynamic> toJson() => {
-    'id': id,
-    'title': title,
-    'assigneeId': assigneeId,
-  };
+        'id': id,
+        'title': title,
+        'assigneeId': assigneeId,
+      };
 }
 
 class RecurringTaskRuleProgress {

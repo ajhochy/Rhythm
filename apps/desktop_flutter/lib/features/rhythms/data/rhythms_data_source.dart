@@ -8,7 +8,7 @@ import '../../../features/tasks/models/recurring_task_rule.dart';
 
 class RhythmsDataSource {
   RhythmsDataSource({String? baseUrl})
-    : _baseUrl = baseUrl ?? AppConstants.apiBaseUrl;
+      : _baseUrl = baseUrl ?? AppConstants.apiBaseUrl;
 
   final String _baseUrl;
 

@@ -20,10 +20,10 @@ class AutomationCondition {
   }
 
   Map<String, dynamic> toJson() => {
-    'field': field,
-    'operator': operator,
-    'value': value,
-  };
+        'field': field,
+        'operator': operator,
+        'value': value,
+      };
 }
 
 class AutomationRule {
@@ -64,11 +64,11 @@ class AutomationRule {
   final String updatedAt;
 
   String get triggerType => switch (triggerKey) {
-    'rhythm.project_step_due' => 'project_step_due',
-    'rhythm.task_due' => 'task_due',
-    'rhythm.plan_assembly' => 'plan_assembly',
-    _ => triggerKey,
-  };
+        'rhythm.project_step_due' => 'project_step_due',
+        'rhythm.task_due' => 'task_due',
+        'rhythm.plan_assembly' => 'plan_assembly',
+        _ => triggerKey,
+      };
 
   factory AutomationRule.fromJson(Map<String, dynamic> json) {
     final conditionsJson = json['conditions'] as List<dynamic>?;
@@ -76,8 +76,7 @@ class AutomationRule {
       id: asString(json['id']) ?? '',
       name: asString(json['name']) ?? '',
       source: asString(json['source']) ?? 'rhythm',
-      triggerKey:
-          asString(json['triggerKey']) ??
+      triggerKey: asString(json['triggerKey']) ??
           _legacyTriggerKey(asString(json['triggerType'])),
       triggerConfig: json['triggerConfig'] as Map<String, dynamic>?,
       actionType: asString(json['actionType']) ?? '',
@@ -97,60 +96,62 @@ class AutomationRule {
   }
 
   Map<String, dynamic> toJson() => {
-    'id': id,
-    'name': name,
-    'source': source,
-    'triggerKey': triggerKey,
-    if (triggerConfig != null) 'triggerConfig': triggerConfig,
-    'actionType': actionType,
-    if (actionConfig != null) 'actionConfig': actionConfig,
-    if (conditions != null)
-      'conditions': conditions!.map((c) => c.toJson()).toList(),
-    'enabled': enabled,
-    if (sourceAccountId != null) 'sourceAccountId': sourceAccountId,
-    if (lastEvaluatedAt != null) 'lastEvaluatedAt': lastEvaluatedAt,
-    if (lastMatchedAt != null) 'lastMatchedAt': lastMatchedAt,
-    'matchCountLastRun': matchCountLastRun,
-    if (previewSample != null) 'previewSample': previewSample,
-    'createdAt': createdAt,
-    'updatedAt': updatedAt,
-  };
+        'id': id,
+        'name': name,
+        'source': source,
+        'triggerKey': triggerKey,
+        if (triggerConfig != null) 'triggerConfig': triggerConfig,
+        'actionType': actionType,
+        if (actionConfig != null) 'actionConfig': actionConfig,
+        if (conditions != null)
+          'conditions': conditions!.map((c) => c.toJson()).toList(),
+        'enabled': enabled,
+        if (sourceAccountId != null) 'sourceAccountId': sourceAccountId,
+        if (lastEvaluatedAt != null) 'lastEvaluatedAt': lastEvaluatedAt,
+        if (lastMatchedAt != null) 'lastMatchedAt': lastMatchedAt,
+        'matchCountLastRun': matchCountLastRun,
+        if (previewSample != null) 'previewSample': previewSample,
+        'createdAt': createdAt,
+        'updatedAt': updatedAt,
+      };
 
   static String _legacyTriggerKey(String? triggerType) => switch (triggerType) {
-    'project_step_due' => 'rhythm.project_step_due',
-    'task_due' => 'rhythm.task_due',
-    'plan_assembly' => 'rhythm.plan_assembly',
-    _ => triggerType ?? 'rhythm.task_due',
-  };
+        'project_step_due' => 'rhythm.project_step_due',
+        'task_due' => 'rhythm.task_due',
+        'plan_assembly' => 'rhythm.plan_assembly',
+        _ => triggerType ?? 'rhythm.task_due',
+      };
 
   static String triggerLabel(String type) => switch (type) {
-    'project_step_due' => 'Project step is due',
-    'rhythm.project_step_due' => 'Project step is due',
-    'task_due' => 'Task is due',
-    'rhythm.task_due' => 'Task is due',
-    'plan_assembly' => 'Plan is assembled',
-    'rhythm.plan_assembly' => 'Plan is assembled',
-    'planning_center.plan_upcoming' => 'Plan upcoming',
-    'planning_center.plan_published' => 'Plan published',
-    'planning_center.service_item_updated' => 'Service item updated',
-    'planning_center.plan_person_declined' => 'Volunteer declined',
-    'planning_center.plan_person_unconfirmed' => 'Volunteer unconfirmed',
-    'planning_center.needed_position_open' => 'Needed position open',
-    'planning_center.special_service_candidate' => 'Special service candidate',
-    'google_calendar.event_matching_filter' => 'Calendar event matches filter',
-    'google_calendar.all_day_event' => 'All-day calendar event',
-    'gmail.message_matching_filter' => 'Gmail message matches filter',
-    'gmail.unread_message_matching_filter' =>
-      'Unread Gmail message matches filter',
-    _ => type,
-  };
+        'project_step_due' => 'Project step is due',
+        'rhythm.project_step_due' => 'Project step is due',
+        'task_due' => 'Task is due',
+        'rhythm.task_due' => 'Task is due',
+        'plan_assembly' => 'Plan is assembled',
+        'rhythm.plan_assembly' => 'Plan is assembled',
+        'planning_center.plan_upcoming' => 'Plan upcoming',
+        'planning_center.plan_published' => 'Plan published',
+        'planning_center.service_item_updated' => 'Service item updated',
+        'planning_center.plan_person_declined' => 'Volunteer declined',
+        'planning_center.plan_person_unconfirmed' => 'Volunteer unconfirmed',
+        'planning_center.needed_position_open' => 'Needed position open',
+        'planning_center.special_service_candidate' =>
+          'Special service candidate',
+        'google_calendar.event_matching_filter' =>
+          'Calendar event matches filter',
+        'google_calendar.all_day_event' => 'All-day calendar event',
+        'gmail.message_matching_filter' => 'Gmail message matches filter',
+        'gmail.unread_message_matching_filter' =>
+          'Unread Gmail message matches filter',
+        _ => type,
+      };
 
   static String actionLabel(String type) => switch (type) {
-    'create_task' => 'Create task',
-    'create_project_from_template' => 'Create project from template',
-    'auto_schedule' => 'Auto-schedule to day',
-    'send_notification' => 'Send notification',
-    'tag_task' => 'Tag task',
-    _ => type,
-  };
+        'create_task' => 'Create task',
+        'create_project_from_template' => 'Create project from template',
+        'auto_schedule' => 'Auto-schedule to day',
+        'send_notification' => 'Send notification',
+        'tag_task' => 'Tag task',
+        _ => type,
+      };
 }

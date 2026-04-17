@@ -25,8 +25,7 @@ class AuthUser {
       name: _asString(json['name']) ?? '',
       email: _asString(json['email']) ?? '',
       role: _asString(json['role']) ?? 'member',
-      isFacilitiesManager:
-          _asBool(json['isFacilitiesManager']) ??
+      isFacilitiesManager: _asBool(json['isFacilitiesManager']) ??
           _asBool(json['is_facilities_manager']) ??
           false,
       photoUrl: _asString(json['photoUrl']) ?? _asString(json['photo_url']),

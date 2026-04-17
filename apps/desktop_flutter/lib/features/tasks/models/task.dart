@@ -73,23 +73,23 @@ class Task {
   final String updatedAt;
 
   Map<String, dynamic> toJson() => {
-    'id': id,
-    'title': title,
-    'notes': notes,
-    'dueDate': dueDate,
-    'scheduledDate': scheduledDate,
-    'scheduledOrder': scheduledOrder,
-    'locked': locked,
-    'status': status,
-    'sourceType': sourceType,
-    'sourceId': sourceId,
-    'sourceName': sourceName,
-    'startsAt': startsAt,
-    'endsAt': endsAt,
-    'isAllDay': isAllDay,
-    'createdAt': createdAt,
-    'updatedAt': updatedAt,
-  };
+        'id': id,
+        'title': title,
+        'notes': notes,
+        'dueDate': dueDate,
+        'scheduledDate': scheduledDate,
+        'scheduledOrder': scheduledOrder,
+        'locked': locked,
+        'status': status,
+        'sourceType': sourceType,
+        'sourceId': sourceId,
+        'sourceName': sourceName,
+        'startsAt': startsAt,
+        'endsAt': endsAt,
+        'isAllDay': isAllDay,
+        'createdAt': createdAt,
+        'updatedAt': updatedAt,
+      };
 
   Task copyWith({
     String? title,

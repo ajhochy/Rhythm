@@ -72,8 +72,8 @@ class IntegrationsController extends ChangeNotifier {
         (account) => account.provider == 'planning_center' && account.connected,
       );
       if (pcoConnected) {
-        _planningCenterTaskPreferences = await _repository
-            .getPlanningCenterTaskPreferences();
+        _planningCenterTaskPreferences =
+            await _repository.getPlanningCenterTaskPreferences();
       } else {
         _planningCenterTaskPreferences = PlanningCenterTaskPreferences(
           teamIds: [],
@@ -192,8 +192,8 @@ class IntegrationsController extends ChangeNotifier {
     _errorMessage = null;
     notifyListeners();
     try {
-      _planningCenterTaskPreferences = await _repository
-          .savePlanningCenterTaskPreferences(preferences);
+      _planningCenterTaskPreferences =
+          await _repository.savePlanningCenterTaskPreferences(preferences);
       _status = IntegrationsStatus.idle;
     } catch (e) {
       _errorMessage = e.toString();
@@ -208,8 +208,8 @@ class IntegrationsController extends ChangeNotifier {
     _errorMessage = null;
     notifyListeners();
     try {
-      _planningCenterTaskOptions = await _repository
-          .getPlanningCenterTaskOptions();
+      _planningCenterTaskOptions =
+          await _repository.getPlanningCenterTaskOptions();
       _status = IntegrationsStatus.idle;
     } catch (e) {
       _errorMessage = e.toString();

@@ -14,7 +14,7 @@ import '../../tasks/models/task.dart';
 
 class DashboardDataSource {
   DashboardDataSource({String? baseUrl})
-    : _baseUrl = baseUrl ?? AppConstants.apiBaseUrl;
+      : _baseUrl = baseUrl ?? AppConstants.apiBaseUrl;
 
   final String _baseUrl;
 

@@ -37,9 +37,10 @@ class DashboardRepository {
     required List<MessageThread> threads,
     int limit = 3,
   }) async {
-    final unreadThreads =
-        threads.where((thread) => thread.unreadCount > 0).toList()
-          ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
+    final unreadThreads = threads
+        .where((thread) => thread.unreadCount > 0)
+        .toList()
+      ..sort((a, b) => b.updatedAt.compareTo(a.updatedAt));
 
     final previews = <DashboardUnreadMessagePreview>[];
     for (final thread in unreadThreads.take(limit)) {

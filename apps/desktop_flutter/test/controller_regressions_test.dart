@@ -226,60 +226,60 @@ class _FakeDashboardDataSource extends DashboardDataSource {
 
   @override
   Future<List<RecurringTaskRule>> fetchRecurringRules() async => [
-    RecurringTaskRule(
-      id: 'rule-1',
-      title: 'Weekly Rhythm',
-      frequency: 'weekly',
-      dayOfWeek: 1,
-      dayOfMonth: null,
-      month: null,
-      enabled: true,
-      createdAt: '2026-03-29T00:00:00.000Z',
-    ),
-  ];
+        RecurringTaskRule(
+          id: 'rule-1',
+          title: 'Weekly Rhythm',
+          frequency: 'weekly',
+          dayOfWeek: 1,
+          dayOfMonth: null,
+          month: null,
+          enabled: true,
+          createdAt: '2026-03-29T00:00:00.000Z',
+        ),
+      ];
 
   @override
   Future<List<ProjectTemplate>> fetchProjectTemplates() async => [
-    ProjectTemplate(
-      id: 'template-1',
-      name: 'Project Alpha',
-      anchorType: 'date',
-      createdAt: '2026-03-29T00:00:00.000Z',
-      steps: const [],
-    ),
-  ];
+        ProjectTemplate(
+          id: 'template-1',
+          name: 'Project Alpha',
+          anchorType: 'date',
+          createdAt: '2026-03-29T00:00:00.000Z',
+          steps: const [],
+        ),
+      ];
 
   @override
   Future<List<ProjectInstance>> fetchProjectInstances() async => [
-    ProjectInstance(
-      id: 'project-1',
-      templateId: 'template-1',
-      name: 'Project Alpha',
-      anchorDate: '2026-03-31',
-      status: 'active',
-      createdAt: '2026-03-31T00:00:00.000Z',
-      steps: [
-        ProjectInstanceStep(
-          id: 'step-1',
-          instanceId: 'project-1',
-          stepId: 'template-step-1',
-          title: 'Step one',
-          dueDate: '2026-04-01',
-          status: 'done',
-          notes: null,
+        ProjectInstance(
+          id: 'project-1',
+          templateId: 'template-1',
+          name: 'Project Alpha',
+          anchorDate: '2026-03-31',
+          status: 'active',
+          createdAt: '2026-03-31T00:00:00.000Z',
+          steps: [
+            ProjectInstanceStep(
+              id: 'step-1',
+              instanceId: 'project-1',
+              stepId: 'template-step-1',
+              title: 'Step one',
+              dueDate: '2026-04-01',
+              status: 'done',
+              notes: null,
+            ),
+            ProjectInstanceStep(
+              id: 'step-2',
+              instanceId: 'project-1',
+              stepId: 'template-step-2',
+              title: 'Step two',
+              dueDate: '2026-04-03',
+              status: 'open',
+              notes: null,
+            ),
+          ],
         ),
-        ProjectInstanceStep(
-          id: 'step-2',
-          instanceId: 'project-1',
-          stepId: 'template-step-2',
-          title: 'Step two',
-          dueDate: '2026-04-03',
-          status: 'open',
-          notes: null,
-        ),
-      ],
-    ),
-  ];
+      ];
 
   @override
   Future<List<MessageThread>> fetchMessageThreads() async => const [];
@@ -328,7 +328,7 @@ class _FakeDashboardRepository extends DashboardRepository {
 
 class _FakeMessagesRepository extends MessagesRepository {
   _FakeMessagesRepository()
-    : super(MessagesDataSource(baseUrl: 'http://example.invalid'));
+      : super(MessagesDataSource(baseUrl: 'http://example.invalid'));
 
   int getThreadsCallCount = 0;
   int getMessagesCallCount = 0;
@@ -350,8 +350,8 @@ class _FakeMessagesRepository extends MessagesRepository {
 
   @override
   Future<List<AuthUser>> getUsers() async => const [
-    AuthUser(id: 2, name: 'Bob', email: 'bob@example.com', role: 'member'),
-  ];
+        AuthUser(id: 2, name: 'Bob', email: 'bob@example.com', role: 'member'),
+      ];
 
   @override
   Future<MessageThread> createThread(
@@ -419,9 +419,10 @@ class _FakeRhythmsRepository extends RhythmsRepository {
 
   @override
   Future<List<AuthUser>> getUsers() async => const [
-    AuthUser(id: 1, name: 'Alice', email: 'alice@example.com', role: 'member'),
-    AuthUser(id: 2, name: 'Bob', email: 'bob@example.com', role: 'member'),
-  ];
+        AuthUser(
+            id: 1, name: 'Alice', email: 'alice@example.com', role: 'member'),
+        AuthUser(id: 2, name: 'Bob', email: 'bob@example.com', role: 'member'),
+      ];
 
   @override
   Future<RecurringTaskRule> create({

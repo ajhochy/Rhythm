@@ -118,9 +118,8 @@ class NavigationSidebar extends StatelessWidget {
                       isSelected: i == selectedIndex,
                       collapsed: collapsed,
                       onTap: () => onItemSelected(i),
-                      badgeCount: i == AppConstants.navMessages
-                          ? unreadCount
-                          : null,
+                      badgeCount:
+                          i == AppConstants.navMessages ? unreadCount : null,
                     ),
                     const SizedBox(height: 6),
                   ],
@@ -174,9 +173,8 @@ class _NavItemTile extends StatelessWidget {
         boxShadow: isSelected ? RhythmTokens.shadow : const [],
       ),
       child: Row(
-        mainAxisAlignment: collapsed
-            ? MainAxisAlignment.center
-            : MainAxisAlignment.start,
+        mainAxisAlignment:
+            collapsed ? MainAxisAlignment.center : MainAxisAlignment.start,
         children: [
           Stack(
             clipBehavior: Clip.none,
@@ -269,9 +267,8 @@ class _SettingsButton extends StatelessWidget {
             border: Border.all(color: RhythmTokens.borderSoft),
           ),
           child: Row(
-            mainAxisAlignment: collapsed
-                ? MainAxisAlignment.center
-                : MainAxisAlignment.start,
+            mainAxisAlignment:
+                collapsed ? MainAxisAlignment.center : MainAxisAlignment.start,
             children: [
               const Icon(
                 Icons.settings_outlined,

@@ -361,7 +361,7 @@ Future<void> _setTestSurfaceSize(WidgetTester tester) async {
 
 class _FakeAuthSessionService extends AuthSessionService {
   _FakeAuthSessionService(this._user)
-    : super(AuthDataSource(baseUrl: 'http://example.invalid'));
+      : super(AuthDataSource(baseUrl: 'http://example.invalid'));
 
   final AuthUser _user;
 
@@ -371,7 +371,7 @@ class _FakeAuthSessionService extends AuthSessionService {
 
 class _FakeFacilitiesRepository extends FacilitiesRepository {
   _FakeFacilitiesRepository()
-    : super(FacilitiesDataSource(baseUrl: 'http://example.invalid'));
+      : super(FacilitiesDataSource(baseUrl: 'http://example.invalid'));
 
   List<Facility> facilitiesFixture = const [];
   Map<int, List<Reservation>> reservationsByFacilityFixture = const {};
@@ -395,5 +395,6 @@ class _FakeFacilitiesRepository extends FacilitiesRepository {
     String? end,
     int? facilityId,
     String? building,
-  }) async => overviewFixture;
+  }) async =>
+      overviewFixture;
 }

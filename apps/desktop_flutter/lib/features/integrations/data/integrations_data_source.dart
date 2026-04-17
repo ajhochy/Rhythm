@@ -11,7 +11,7 @@ import '../models/planning_center_task_preferences.dart';
 
 class IntegrationsDataSource {
   IntegrationsDataSource({String? baseUrl})
-    : _baseUrl = baseUrl ?? AppConstants.apiBaseUrl;
+      : _baseUrl = baseUrl ?? AppConstants.apiBaseUrl;
 
   final String _baseUrl;
 
@@ -30,11 +30,11 @@ class IntegrationsDataSource {
   }
 
   Uri googleBeginUri() => Uri.parse('$_baseUrl/auth/google/begin').replace(
-    queryParameters: {
-      if (AuthSessionStore.sessionToken != null)
-        'sessionToken': AuthSessionStore.sessionToken!,
-    },
-  );
+        queryParameters: {
+          if (AuthSessionStore.sessionToken != null)
+            'sessionToken': AuthSessionStore.sessionToken!,
+        },
+      );
 
   Uri planningCenterBeginUri() =>
       Uri.parse('$_baseUrl/auth/planning-center/begin').replace(
@@ -112,7 +112,7 @@ class IntegrationsDataSource {
   }
 
   Future<PlanningCenterTaskPreferences>
-  fetchPlanningCenterTaskPreferences() async {
+      fetchPlanningCenterTaskPreferences() async {
     final response = await http.get(
       Uri.parse('$_baseUrl/integrations/planning-center/task-preferences'),
       headers: AuthSessionStore.headers(),

@@ -290,7 +290,7 @@ AutomationRule _rule({
 
 class _FakeAutomationRulesRepository extends AutomationRulesRepository {
   _FakeAutomationRulesRepository()
-    : super(AutomationRulesDataSource(baseUrl: 'http://example.invalid'));
+      : super(AutomationRulesDataSource(baseUrl: 'http://example.invalid'));
 
   List<AutomationRule> rulesFixture = [];
   List<AutomationTriggerCatalogItem> triggersFixture = [];

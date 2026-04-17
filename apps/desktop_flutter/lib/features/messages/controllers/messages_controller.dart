@@ -27,8 +27,8 @@ class MessagesController extends ChangeNotifier {
     this._repository, {
     required LocalNotificationService notifications,
     Duration pollInterval = const Duration(seconds: 30),
-  }) : _notifications = notifications,
-       _pollInterval = pollInterval;
+  })  : _notifications = notifications,
+        _pollInterval = pollInterval;
 
   final MessagesRepository _repository;
   final LocalNotificationService _notifications;
