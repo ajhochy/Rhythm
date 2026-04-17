@@ -28,6 +28,13 @@ function asNumber(value: unknown): number | null {
   return null;
 }
 
+function asStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => asString(item))
+    .filter((item): item is string => item != null);
+}
+
 function interpolate(template: string | null, signal: AutomationSignal): string {
   const fallback = template ?? '';
   const tokens = {
@@ -63,6 +70,17 @@ function scheduleToTargetDay(dateString: string | null, targetDay: number): stri
   while (date.getUTCDay() !== targetDay) {
     date.setUTCDate(date.getUTCDate() + 1);
   }
+  return date.toISOString().slice(0, 10);
+}
+
+function scheduleToWeekdayInSameWeek(dateString: string | null, targetDay: number): string | null {
+  if (!dateString) return null;
+  if (targetDay < 1 || targetDay > 7) return null;
+  const normalized = dateString.includes('T') ? dateString.slice(0, 10) : dateString;
+  const date = new Date(`${normalized}T00:00:00Z`);
+  if (Number.isNaN(date.getTime())) return null;
+  const currentIsoDay = date.getUTCDay() === 0 ? 7 : date.getUTCDay();
+  date.setUTCDate(date.getUTCDate() + targetDay - currentIsoDay);
   return date.toISOString().slice(0, 10);
 }
 
@@ -120,7 +138,19 @@ export class AutomationEngineService {
   }
 
   private matchesRule(rule: AutomationRule, signal: AutomationSignal): boolean {
-    switch (rule.triggerKey) {
+    const triggerKeys = asStringArray(rule.triggerConfig?.triggerKeys);
+    if (triggerKeys.length > 0) {
+      return triggerKeys.some((triggerKey) => this.matchesTriggerKey(triggerKey, rule, signal));
+    }
+    return this.matchesTriggerKey(rule.triggerKey, rule, signal);
+  }
+
+  private matchesTriggerKey(
+    triggerKey: string,
+    rule: AutomationRule,
+    signal: AutomationSignal,
+  ): boolean {
+    switch (triggerKey) {
       case 'rhythm.task_due':
         return signal.signalType === 'task_due' && this.matchesDaysBeforeDue(rule, signal);
       case 'rhythm.project_step_due':
@@ -183,12 +213,22 @@ export class AutomationEngineService {
     if (leadDays != null && signalLeadDays != null && signalLeadDays > leadDays) return false;
     const serviceType = asString(config.serviceType);
     if (serviceType != null && serviceType !== asString(signal.payload.serviceTypeName)) return false;
+    const signalTeamId = asString(signal.payload.teamId);
+    const teamIds = asStringArray(config.teamIds);
+    if (teamIds.length > 0) {
+      if (signalTeamId == null || !teamIds.includes(signalTeamId)) return false;
+    }
     const teamId = asString(config.teamId);
-    if (teamId != null && teamId !== asString(signal.payload.teamId)) return false;
+    if (teamId != null && teamId !== signalTeamId) return false;
+    const signalPositionName = asString(signal.payload.positionName)?.toLowerCase();
+    const positionNames = asStringArray(config.positionNames).map((item) => item.toLowerCase());
+    if (positionNames.length > 0) {
+      if (signalPositionName == null || !positionNames.includes(signalPositionName)) return false;
+    }
     const positionName = asString(config.positionName)?.toLowerCase();
     if (
       positionName != null &&
-      positionName !== asString(signal.payload.positionName)?.toLowerCase()
+      positionName !== signalPositionName
     ) {
       return false;
     }
@@ -359,7 +399,10 @@ export class AutomationEngineService {
     }
     const scheduledDate = autoSchedule
       ? scheduleToTargetDay(dueDate, asNumber(config.targetDay) ?? 1)
-      : null;
+      : scheduleToWeekdayInSameWeek(
+          dueBase,
+          asNumber(config.targetDayOfWeek) ?? -1,
+        );
 
     await this.tasksRepo.upsertExternalTaskAsync({
       title,

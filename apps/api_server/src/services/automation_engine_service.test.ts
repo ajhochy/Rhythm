@@ -289,6 +289,110 @@ describe("Automation overhaul backend", () => {
     expect(instances[0]?.steps[0]?.dueDate).toBe("2026-03-27");
   });
 
+  test("matches Planning Center multi-trigger and multi-team filters", async () => {
+    const rulesRepo = new AutomationRulesRepository();
+    const tasksRepo = new TasksRepository();
+    const engine = new AutomationEngineService();
+    const usersRepo = new UsersRepository();
+    const owner = usersRepo.create({
+      name: "Planner",
+      email: "planner@church.test",
+    });
+
+    const rule = rulesRepo.create({
+      name: "Worship staffing prep",
+      source: "planning_center",
+      triggerKey: "planning_center.plan_published",
+      triggerConfig: {
+        triggerKeys: [
+          "planning_center.plan_published",
+          "planning_center.needed_position_open",
+        ],
+        teamIds: ["team-a", "team-b"],
+        positionNames: ["Vocals"],
+      },
+      actionType: "create_task",
+      actionConfig: {
+        titleTemplate: "Prep {{position}} for {{title}}",
+        targetDayOfWeek: 1,
+      },
+      ownerId: owner.id,
+    });
+
+    const signals: AutomationSignal[] = [
+      {
+        id: "sig-pco-match",
+        provider: "planning_center",
+        signalType: "needed_position_open",
+        externalId: "needed-1",
+        dedupeKey: "planning_center:needed:1",
+        occurredAt: "2026-04-01T17:00:00.000Z",
+        syncedAt: "2026-04-01T17:00:00.000Z",
+        sourceAccountId: null,
+        sourceLabel: "Planning Center",
+        payload: {
+          title: "Sunday Worship",
+          planDate: "2026-04-12",
+          teamId: "team-b",
+          teamName: "Worship",
+          positionName: "vocals",
+        },
+        createdAt: "2026-04-01T17:00:00.000Z",
+        updatedAt: "2026-04-01T17:00:00.000Z",
+      },
+      {
+        id: "sig-pco-wrong-team",
+        provider: "planning_center",
+        signalType: "needed_position_open",
+        externalId: "needed-2",
+        dedupeKey: "planning_center:needed:2",
+        occurredAt: "2026-04-01T17:00:00.000Z",
+        syncedAt: "2026-04-01T17:00:00.000Z",
+        sourceAccountId: null,
+        sourceLabel: "Planning Center",
+        payload: {
+          title: "Sunday Worship",
+          planDate: "2026-04-12",
+          teamId: "team-c",
+          positionName: "Vocals",
+        },
+        createdAt: "2026-04-01T17:00:00.000Z",
+        updatedAt: "2026-04-01T17:00:00.000Z",
+      },
+      {
+        id: "sig-pco-wrong-trigger",
+        provider: "planning_center",
+        signalType: "service_item_updated",
+        externalId: "item-1",
+        dedupeKey: "planning_center:item:1",
+        occurredAt: "2026-04-01T17:00:00.000Z",
+        syncedAt: "2026-04-01T17:00:00.000Z",
+        sourceAccountId: null,
+        sourceLabel: "Planning Center",
+        payload: {
+          title: "Sunday Worship",
+          planDate: "2026-04-12",
+          teamId: "team-b",
+          positionName: "Vocals",
+        },
+        createdAt: "2026-04-01T17:00:00.000Z",
+        updatedAt: "2026-04-01T17:00:00.000Z",
+      },
+    ];
+
+    const result = await engine.evaluateSignals("planning_center", signals);
+
+    expect(result.matchedRules).toBe(1);
+    expect(result.executedActions).toBe(1);
+    expect(result.matchesByRuleId[rule.id]).toBe(1);
+
+    const tasks = tasksRepo.findAll(owner.id);
+    expect(tasks).toHaveLength(1);
+    expect(tasks[0]?.title).toBe("Prep vocals for Sunday Worship");
+    expect(tasks[0]?.dueDate).toBe("2026-04-12");
+    expect(tasks[0]?.scheduledDate).toBe("2026-04-06");
+  });
+
   test("dedupes automation signals by dedupe key and refreshes payload on re-sync", () => {
     const repo = new AutomationSignalsRepository();
 

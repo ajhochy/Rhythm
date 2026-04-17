@@ -298,6 +298,8 @@ class _FakeAutomationRulesRepository extends AutomationRulesRepository {
   List<AutomationProviderCatalogItem> providersFixture = [];
   List<IntegrationAccount> accountsFixture = [];
   PlanningCenterTaskOptions? planningCenterTaskOptionsFixture;
+  List<String> gmailLabelsFixture = [];
+  List<String> projectTemplateNamesFixture = [];
   AutomationRulePreview previewFixture = const AutomationRulePreview(
     ruleId: 'rule-1',
     summary: '',
@@ -324,6 +326,13 @@ class _FakeAutomationRulesRepository extends AutomationRulesRepository {
   @override
   Future<PlanningCenterTaskOptions?> getPlanningCenterTaskOptions() async =>
       planningCenterTaskOptionsFixture;
+
+  @override
+  Future<List<String>> getGmailLabels() async => gmailLabelsFixture;
+
+  @override
+  Future<List<String>> getProjectTemplateNames() async =>
+      projectTemplateNamesFixture;
 
   @override
   Future<AutomationRulePreview> getPreview(String id) async => previewFixture;

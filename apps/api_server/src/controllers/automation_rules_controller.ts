@@ -50,6 +50,13 @@ function summarizeConfig(config: Record<string, unknown> | null): string[] {
       items.push(`${label} ${value.trim()}`);
     }
   };
+  const pushIfStringArray = (label: string, value: unknown) => {
+    if (!Array.isArray(value)) return;
+    const values = value
+      .map((item) => (typeof item === "string" ? item.trim() : ""))
+      .filter((item) => item.length > 0);
+    if (values.length > 0) items.push(`${label} ${values.join(", ")}`);
+  };
   const pushIfNumber = (label: string, value: unknown, suffix = "") => {
     if (typeof value === "number" && Number.isFinite(value)) {
       items.push(`${label} ${value}${suffix}`);
@@ -57,7 +64,9 @@ function summarizeConfig(config: Record<string, unknown> | null): string[] {
   };
 
   pushIfString("team", config.teamId);
+  pushIfStringArray("teams", config.teamIds);
   pushIfString("position", config.positionName);
+  pushIfStringArray("positions", config.positionNames);
   pushIfString("service", config.serviceType);
   pushIfString("match", config.textQuery);
   pushIfString("sender", config.sender);
