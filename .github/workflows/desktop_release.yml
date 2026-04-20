@@ -104,6 +104,11 @@ jobs:
           ARCHS="arm64 x86_64"
           build
 
+      - name: Verify Google Sign-In config in built app
+        run: |
+          plutil -p apps/desktop_flutter/build/macos/Build/Products/Release/Rhythm.app/Contents/Info.plist \
+            | grep -E "GIDClient|CFBundleURLSchemes|CFBundleURLTypes" || echo "WARNING: no Google Sign-In keys found in built Info.plist"
+
       - name: Bundle API server into app
         if: ${{ inputs.use_embedded_api }}
         working-directory: apps/desktop_flutter
