@@ -49,6 +49,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Inject Google client ID into Info.plist
+        working-directory: apps/desktop_flutter/macos/Runner
+        run: |
+          PLIST=Info.plist
+          CLIENT_ID="$GOOGLE_DESKTOP_CLIENT_ID"
+          SCHEME="com.googleusercontent.apps.$(echo "$CLIENT_ID" | sed 's/\.apps\.googleusercontent\.com$//')"
+          /usr/libexec/PlistBuddy -c "Set :GIDClientID $CLIENT_ID" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleURLTypes:0:CFBundleURLSchemes:0 $SCHEME" "$PLIST"
+
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
@@ -94,6 +103,11 @@ jobs:
           ONLY_ACTIVE_ARCH=NO
           ARCHS="arm64 x86_64"
           build
+
+      - name: Verify Google Sign-In config in built app
+        run: |
+          plutil -p apps/desktop_flutter/build/macos/Build/Products/Release/Rhythm.app/Contents/Info.plist \
+            | grep -E "GIDClient|CFBundleURLSchemes|CFBundleURLTypes" || echo "WARNING: no Google Sign-In keys found in built Info.plist"
 
       - name: Bundle API server into app
         if: ${{ inputs.use_embedded_api }}
