@@ -27,12 +27,12 @@
 			<string>Editor</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
-				<string>com.googleusercontent.apps.99919821175-em7b006pdol702sa5qecv9dhu2km483a</string>
+				<string>com.googleusercontent.apps.999198211175-em7b006pdol702sa5qecv9dhu2km483a</string>
 			</array>
 		</dict>
 	</array>
 	<key>GIDClientID</key>
-	<string>99919821175-em7b006pdol702sa5qecv9dhu2km483a.apps.googleusercontent.com</string>
+	<string>999198211175-em7b006pdol702sa5qecv9dhu2km483a.apps.googleusercontent.com</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>$(MACOSX_DEPLOYMENT_TARGET)</string>
 	<key>NSHumanReadableCopyright</key>
