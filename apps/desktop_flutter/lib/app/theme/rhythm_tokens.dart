@@ -20,10 +20,6 @@ class RhythmTokens {
   static const radiusM = 16.0;
   static const radiusS = 12.0;
   static const shadow = [
-    BoxShadow(
-      color: Color(0x0F29314F),
-      blurRadius: 30,
-      offset: Offset(0, 12),
-    ),
+    BoxShadow(color: Color(0x0F29314F), blurRadius: 30, offset: Offset(0, 12)),
   ];
 }

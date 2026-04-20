@@ -155,8 +155,9 @@ class _WeekHeader extends StatelessWidget {
                           ),
                           decoration: BoxDecoration(
                             color: _kPrimarySoft,
-                            borderRadius:
-                                BorderRadius.circular(RhythmTokens.radiusS),
+                            borderRadius: BorderRadius.circular(
+                              RhythmTokens.radiusS,
+                            ),
                           ),
                           child: Text(
                             label,
@@ -174,9 +175,9 @@ class _WeekHeader extends StatelessWidget {
                     const SizedBox(height: 6),
                     Text(
                       'A quieter workspace for the week ahead.',
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: _kTextSecondary,
-                          ),
+                      style: Theme.of(
+                        context,
+                      ).textTheme.bodySmall?.copyWith(color: _kTextSecondary),
                     ),
                   ],
                 ),
@@ -205,8 +206,9 @@ class _WeekHeader extends StatelessWidget {
                       foregroundColor: _kTextPrimary,
                       side: const BorderSide(color: _kBorderStrong),
                       shape: RoundedRectangleBorder(
-                        borderRadius:
-                            BorderRadius.circular(RhythmTokens.radiusS),
+                        borderRadius: BorderRadius.circular(
+                          RhythmTokens.radiusS,
+                        ),
                       ),
                     ),
                     child: const Text('Today'),
@@ -221,8 +223,9 @@ class _WeekHeader extends StatelessWidget {
                         vertical: 12,
                       ),
                       shape: RoundedRectangleBorder(
-                        borderRadius:
-                            BorderRadius.circular(RhythmTokens.radiusS),
+                        borderRadius: BorderRadius.circular(
+                          RhythmTokens.radiusS,
+                        ),
                       ),
                     ),
                     icon: Icon(
@@ -240,8 +243,10 @@ class _WeekHeader extends StatelessWidget {
             Row(
               children: [
                 Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 6,
+                  ),
                   decoration: BoxDecoration(
                     color: _kSurfaceMuted,
                     borderRadius: BorderRadius.circular(RhythmTokens.radiusS),
@@ -257,13 +262,10 @@ class _WeekHeader extends StatelessWidget {
                 ),
                 const SizedBox(width: 8),
                 FilledButton.tonalIcon(
-                  onPressed: () => controller.bulkToggleSelectedTasks(
-                    [
-                      ...?controller.plan?.days.expand((d) => d.tasks),
-                      ...?controller.plan?.backlog,
-                    ],
-                    'done',
-                  ),
+                  onPressed: () => controller.bulkToggleSelectedTasks([
+                    ...?controller.plan?.days.expand((d) => d.tasks),
+                    ...?controller.plan?.backlog,
+                  ], 'done'),
                   icon: const Icon(Icons.checklist, size: 16),
                   label: const Text('Mark complete'),
                 ),
@@ -441,18 +443,16 @@ class _PlannerBody extends StatelessWidget {
       );
     }
 
-    final allTasks = [
-      ...plan.days.expand((d) => d.tasks),
-      ...plan.backlog,
-    ];
+    final allTasks = [...plan.days.expand((d) => d.tasks), ...plan.backlog];
     final visibleBacklog = showCompleted
         ? plan.backlog
         : plan.backlog.where((t) => t.status != 'done').toList();
     final showBacklogPane = visibleBacklog.isNotEmpty;
     final selectedTask = controller.selectedTaskId != null
         ? allTasks.cast<Task?>().firstWhere(
-            (t) => t?.id == controller.selectedTaskId,
-            orElse: () => null)
+              (t) => t?.id == controller.selectedTaskId,
+              orElse: () => null,
+            )
         : null;
 
     return Padding(
@@ -500,10 +500,11 @@ class _PlannerBody extends StatelessWidget {
 // ---------------------------------------------------------------------------
 
 class _BacklogPane extends StatelessWidget {
-  const _BacklogPane(
-      {required this.plan,
-      required this.controller,
-      required this.showCompleted});
+  const _BacklogPane({
+    required this.plan,
+    required this.controller,
+    required this.showCompleted,
+  });
   final WeeklyPlan plan;
   final WeeklyPlannerController controller;
   final bool showCompleted;
@@ -628,8 +629,9 @@ class _BacklogPane extends StatelessWidget {
                       ),
                       decoration: BoxDecoration(
                         color: _kSurface,
-                        borderRadius:
-                            BorderRadius.circular(RhythmTokens.radiusS),
+                        borderRadius: BorderRadius.circular(
+                          RhythmTokens.radiusS,
+                        ),
                         border: Border.all(color: _kBorder),
                       ),
                       child: Row(
@@ -715,11 +717,13 @@ class _BacklogPane extends StatelessWidget {
           ),
           actions: [
             TextButton(
-                onPressed: () => Navigator.pop(ctx, false),
-                child: const Text('Cancel')),
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancel'),
+            ),
             FilledButton(
-                onPressed: () => Navigator.pop(ctx, true),
-                child: const Text('Add')),
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Add'),
+            ),
           ],
         ),
       ),
@@ -735,10 +739,11 @@ class _BacklogPane extends StatelessWidget {
 // ---------------------------------------------------------------------------
 
 class _DayColumnsPane extends StatelessWidget {
-  const _DayColumnsPane(
-      {required this.plan,
-      required this.controller,
-      required this.showCompleted});
+  const _DayColumnsPane({
+    required this.plan,
+    required this.controller,
+    required this.showCompleted,
+  });
   final WeeklyPlan plan;
   final WeeklyPlannerController controller;
   final bool showCompleted;
@@ -872,10 +877,7 @@ class _DayColumnState extends State<_DayColumn> {
         onTap: () => _showAddTaskDialog(context),
         child: Container(
           width: double.infinity,
-          padding: const EdgeInsets.symmetric(
-            horizontal: 10,
-            vertical: 8,
-          ),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
           decoration: BoxDecoration(
             color: _kSurface,
             borderRadius: BorderRadius.circular(RhythmTokens.radiusS),
@@ -883,11 +885,7 @@ class _DayColumnState extends State<_DayColumn> {
           ),
           child: Row(
             children: [
-              const Icon(
-                Icons.add,
-                size: 13,
-                color: _kTextSecondary,
-              ),
+              const Icon(Icons.add, size: 13, color: _kTextSecondary),
               const SizedBox(width: 6),
               Expanded(
                 child: Text(
@@ -967,8 +965,9 @@ class _DayColumnState extends State<_DayColumn> {
                             ),
                             decoration: BoxDecoration(
                               color: _kPrimarySoft,
-                              borderRadius:
-                                  BorderRadius.circular(RhythmTokens.radiusS),
+                              borderRadius: BorderRadius.circular(
+                                RhythmTokens.radiusS,
+                              ),
                             ),
                             child: Text(
                               'Today',
@@ -995,31 +994,84 @@ class _DayColumnState extends State<_DayColumn> {
                 ),
               ),
               Expanded(
-                child: displayTasks.isEmpty
-                    ? Align(
+                child: Builder(
+                  builder: (context) {
+                    final allDayEvents = displayTasks
+                        .where(
+                          (t) =>
+                              t.sourceType == 'calendar_shadow_event' &&
+                              t.isAllDay,
+                        )
+                        .toList();
+                    final timedEvents = displayTasks
+                        .where(
+                          (t) =>
+                              t.sourceType == 'calendar_shadow_event' &&
+                              !t.isAllDay &&
+                              t.startsAt != null,
+                        )
+                        .toList()
+                      ..sort((a, b) {
+                        final aT = parsePlannerEventDateTime(a.startsAt);
+                        final bT = parsePlannerEventDateTime(b.startsAt);
+                        if (aT == null) return 1;
+                        if (bT == null) return -1;
+                        return aT.compareTo(bT);
+                      });
+                    final regularTasks = displayTasks
+                        .where(
+                          (t) => t.sourceType != 'calendar_shadow_event',
+                        )
+                        .toList();
+
+                    final hasContent = allDayEvents.isNotEmpty ||
+                        timedEvents.isNotEmpty ||
+                        regularTasks.isNotEmpty;
+
+                    if (!hasContent) {
+                      return Align(
                         alignment: Alignment.topCenter,
                         child: addButton,
-                      )
-                    : ListView.builder(
-                        padding: const EdgeInsets.fromLTRB(0, 0, 0, 0),
-                        itemCount: displayTasks.length + 1,
-                        itemBuilder: (context, index) {
-                          if (index == displayTasks.length) {
-                            return addButton;
-                          }
-                          return Padding(
-                            padding: EdgeInsets.only(
-                              top: index == 0 ? 8 : 6,
+                      );
+                    }
+
+                    return Column(
+                      children: [
+                        if (allDayEvents.isNotEmpty)
+                          _AllDayEventsBar(
+                            events: allDayEvents,
+                            controller: widget.controller,
+                          ),
+                        Expanded(
+                          child: SingleChildScrollView(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.stretch,
+                              children: [
+                                if (timedEvents.isNotEmpty)
+                                  _TimeGrid(
+                                    events: timedEvents,
+                                    controller: widget.controller,
+                                  ),
+                                ...regularTasks.map(
+                                  (task) => Padding(
+                                    padding: const EdgeInsets.only(top: 6),
+                                    child: _TaskTile(
+                                      task: task,
+                                      controller: widget.controller,
+                                      draggable: true,
+                                      compact: true,
+                                    ),
+                                  ),
+                                ),
+                                addButton,
+                              ],
                             ),
-                            child: _TaskTile(
-                              task: displayTasks[index],
-                              controller: widget.controller,
-                              draggable: true,
-                              compact: true,
-                            ),
-                          );
-                        },
-                      ),
+                          ),
+                        ),
+                      ],
+                    );
+                  },
+                ),
               ),
             ],
           ),
@@ -1080,18 +1132,23 @@ class _DayColumnState extends State<_DayColumn> {
           ),
           actions: [
             TextButton(
-                onPressed: () => Navigator.pop(ctx, false),
-                child: const Text('Cancel')),
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancel'),
+            ),
             FilledButton(
-                onPressed: () => Navigator.pop(ctx, true),
-                child: const Text('Add')),
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Add'),
+            ),
           ],
         ),
       ),
     );
     if (confirmed == true && ctrl.text.trim().isNotEmpty) {
-      await widget.controller
-          .createTask(ctrl.text.trim(), dueDate: widget.date, ownerId: ownerId);
+      await widget.controller.createTask(
+        ctrl.text.trim(),
+        dueDate: widget.date,
+        ownerId: ownerId,
+      );
     }
   }
 }
@@ -1131,12 +1188,14 @@ class _TaskTile extends StatelessWidget {
             border: Border.all(color: _kBorder),
             boxShadow: RhythmTokens.shadow,
           ),
-          child: Text(task.title,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: _kTextPrimary,
-                  )),
+          child: Text(
+            task.title,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: Theme.of(
+              context,
+            ).textTheme.bodySmall?.copyWith(color: _kTextPrimary),
+          ),
         ),
       ),
       childWhenDragging: Opacity(opacity: 0.35, child: card),
@@ -1339,8 +1398,11 @@ class _DetailPaneState extends State<_DetailPane> {
   void initState() {
     super.initState();
     _notesCtrl = TextEditingController();
-    _notesCtrl.addListener(() => setState(
-        () => _notesDirty = _notesCtrl.text != (widget.task.notes ?? '')));
+    _notesCtrl.addListener(
+      () => setState(
+        () => _notesDirty = _notesCtrl.text != (widget.task.notes ?? ''),
+      ),
+    );
     _syncFromTask();
   }
 
@@ -1529,8 +1591,9 @@ class _DetailPaneState extends State<_DetailPane> {
                           vertical: 10,
                         ),
                         shape: RoundedRectangleBorder(
-                          borderRadius:
-                              BorderRadius.circular(RhythmTokens.radiusS),
+                          borderRadius: BorderRadius.circular(
+                            RhythmTokens.radiusS,
+                          ),
                         ),
                       ),
                       onPressed: () =>
@@ -1551,8 +1614,10 @@ class _DetailPaneState extends State<_DetailPane> {
                       label: 'Date',
                       value: _plannerDate == null
                           ? null
-                          : DateFormatters.fullDate(_plannerDate!,
-                              fallback: _plannerDate!),
+                          : DateFormatters.fullDate(
+                              _plannerDate!,
+                              fallback: _plannerDate!,
+                            ),
                       onPick: _pickPlannerDate,
                       onClear: _clearPlannerDate,
                     ),
@@ -1560,16 +1625,21 @@ class _DetailPaneState extends State<_DetailPane> {
                     _row(
                       context,
                       'Date',
-                      DateFormatters.fullDate(_plannerDate!,
-                          fallback: _plannerDate!),
+                      DateFormatters.fullDate(
+                        _plannerDate!,
+                        fallback: _plannerDate!,
+                      ),
                     ),
                   if (isShadowEvent && timeLabel != null)
                     _row(context, 'Time', timeLabel),
                   if (task.sourceType != null)
                     _row(context, 'Source', _sourceLabel(task.sourceType!)),
                   if (task.sourceName != null && task.sourceName!.isNotEmpty)
-                    _row(context, isShadowEvent ? 'Calendar' : 'Project',
-                        task.sourceName!),
+                    _row(
+                      context,
+                      isShadowEvent ? 'Calendar' : 'Project',
+                      task.sourceName!,
+                    ),
                   const SizedBox(height: 16),
                   Text(
                     isShadowEvent ? 'Details' : 'Notes',
@@ -1587,8 +1657,9 @@ class _DetailPaneState extends State<_DetailPane> {
                       decoration: BoxDecoration(
                         color: _kSurface,
                         border: Border.all(color: _kBorder),
-                        borderRadius:
-                            BorderRadius.circular(RhythmTokens.radiusS),
+                        borderRadius: BorderRadius.circular(
+                          RhythmTokens.radiusS,
+                        ),
                       ),
                       child: Text(
                         task.notes?.isNotEmpty == true
@@ -1608,18 +1679,21 @@ class _DetailPaneState extends State<_DetailPane> {
                         filled: true,
                         fillColor: _kSurface,
                         border: OutlineInputBorder(
-                          borderRadius:
-                              BorderRadius.circular(RhythmTokens.radiusS),
+                          borderRadius: BorderRadius.circular(
+                            RhythmTokens.radiusS,
+                          ),
                           borderSide: const BorderSide(color: _kBorder),
                         ),
                         enabledBorder: OutlineInputBorder(
-                          borderRadius:
-                              BorderRadius.circular(RhythmTokens.radiusS),
+                          borderRadius: BorderRadius.circular(
+                            RhythmTokens.radiusS,
+                          ),
                           borderSide: const BorderSide(color: _kBorder),
                         ),
                         focusedBorder: OutlineInputBorder(
-                          borderRadius:
-                              BorderRadius.circular(RhythmTokens.radiusS),
+                          borderRadius: BorderRadius.circular(
+                            RhythmTokens.radiusS,
+                          ),
                           borderSide: const BorderSide(color: _kPrimary),
                         ),
                         isDense: true,
@@ -1709,11 +1783,13 @@ class _DetailPaneState extends State<_DetailPane> {
         children: [
           SizedBox(
             width: 76,
-            child: Text(label,
-                style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                      color: _kTextSecondary,
-                      fontWeight: FontWeight.w600,
-                    )),
+            child: Text(
+              label,
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    color: _kTextSecondary,
+                    fontWeight: FontWeight.w600,
+                  ),
+            ),
           ),
           Expanded(
             child: Text(
@@ -1729,11 +1805,13 @@ class _DetailPaneState extends State<_DetailPane> {
     );
   }
 
-  Widget _editableDateRow(BuildContext context,
-      {required String label,
-      required String? value,
-      required VoidCallback onPick,
-      required VoidCallback? onClear}) {
+  Widget _editableDateRow(
+    BuildContext context, {
+    required String label,
+    required String? value,
+    required VoidCallback onPick,
+    required VoidCallback? onClear,
+  }) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: Row(
@@ -1743,11 +1821,13 @@ class _DetailPaneState extends State<_DetailPane> {
             width: 76,
             child: Padding(
               padding: const EdgeInsets.only(top: 8),
-              child: Text(label,
-                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                        color: _kTextSecondary,
-                        fontWeight: FontWeight.w600,
-                      )),
+              child: Text(
+                label,
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                      color: _kTextSecondary,
+                      fontWeight: FontWeight.w600,
+                    ),
+              ),
             ),
           ),
           Expanded(
@@ -1925,10 +2005,7 @@ class _TaskOwnerPickerField extends StatelessWidget {
 // ---------------------------------------------------------------------------
 
 class _MiniMoveButton extends StatelessWidget {
-  const _MiniMoveButton({
-    required this.icon,
-    required this.onPressed,
-  });
+  const _MiniMoveButton({required this.icon, required this.onPressed});
 
   final IconData icon;
   final VoidCallback onPressed;
@@ -1974,12 +2051,229 @@ class _SourceChip extends StatelessWidget {
         color: color.withValues(alpha: 0.15),
         borderRadius: BorderRadius.circular(RhythmTokens.radiusS),
       ),
-      child: Text(label,
-          style: TextStyle(
-              fontSize: 9.5, fontWeight: FontWeight.bold, color: color)),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontSize: 9.5,
+          fontWeight: FontWeight.bold,
+          color: color,
+        ),
+      ),
     );
   }
 }
+
+// ---------------------------------------------------------------------------
+// All-day events bar
+// ---------------------------------------------------------------------------
+
+class _AllDayEventsBar extends StatelessWidget {
+  const _AllDayEventsBar({required this.events, required this.controller});
+  final List<Task> events;
+  final WeeklyPlannerController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(6, 4, 6, 4),
+      decoration: const BoxDecoration(
+        border: Border(bottom: BorderSide(color: _kBorder)),
+      ),
+      child: Wrap(
+        spacing: 4,
+        runSpacing: 4,
+        children: events.map((event) {
+          final visualStyle = TaskVisualStyles.resolve(event);
+          return GestureDetector(
+            onTap: () => controller.selectTask(event.id),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(
+                color: visualStyle.background,
+                borderRadius: BorderRadius.circular(RhythmTokens.radiusS),
+                border: Border.all(color: visualStyle.border),
+              ),
+              child: Text(
+                event.title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 9.5,
+                  fontWeight: FontWeight.w600,
+                  color: visualStyle.text,
+                ),
+              ),
+            ),
+          );
+        }).toList(),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Time grid for timed calendar events
+// ---------------------------------------------------------------------------
+
+const double _kHourHeight = 52.0;
+const double _kLabelWidth = 36.0;
+const int _kStartHour = 6;
+const int _kEndHour = 23;
+const int _kTotalHours = _kEndHour - _kStartHour;
+
+class _TimeGrid extends StatelessWidget {
+  const _TimeGrid({required this.events, required this.controller});
+  final List<Task> events;
+  final WeeklyPlannerController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    const gridHeight = _kTotalHours * _kHourHeight;
+
+    return SizedBox(
+      height: gridHeight,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: _kLabelWidth,
+            child: Stack(
+              children: [
+                for (int h = _kStartHour; h < _kEndHour; h++)
+                  Positioned(
+                    top: (h - _kStartHour) * _kHourHeight - 6,
+                    left: 0,
+                    right: 2,
+                    child: Text(
+                      _hourLabel(h),
+                      textAlign: TextAlign.right,
+                      style: const TextStyle(
+                        fontSize: 9,
+                        color: _kTextMuted,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: Stack(
+              children: [
+                ...List.generate(
+                  _kTotalHours,
+                  (i) => Positioned(
+                    top: i * _kHourHeight,
+                    left: 0,
+                    right: 0,
+                    child: Container(height: 1, color: _kBorder),
+                  ),
+                ),
+                ...events.map((event) {
+                  final top = _eventTop(event);
+                  final height = _eventHeight(event);
+                  return Positioned(
+                    top: top,
+                    left: 2,
+                    right: 2,
+                    child: SizedBox(
+                      height: height.clamp(20.0, double.infinity),
+                      child: _TimeGridEventTile(
+                        event: event,
+                        controller: controller,
+                      ),
+                    ),
+                  );
+                }),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  double _eventTop(Task event) {
+    final start = parsePlannerEventDateTime(event.startsAt);
+    if (start == null) return 0;
+    final offsetHours = (start.hour - _kStartHour) + start.minute / 60.0;
+    return offsetHours.clamp(0.0, _kTotalHours.toDouble()) * _kHourHeight;
+  }
+
+  double _eventHeight(Task event) {
+    final start = parsePlannerEventDateTime(event.startsAt);
+    final end = parsePlannerEventDateTime(event.endsAt);
+    if (start == null) return _kHourHeight;
+    final endTime = end ?? start.add(const Duration(hours: 1));
+    final durationHours = endTime.difference(start).inMinutes / 60.0;
+    return durationHours.clamp(0.5, _kTotalHours.toDouble()) * _kHourHeight;
+  }
+
+  static String _hourLabel(int h) {
+    if (h == 12) return '12 PM';
+    if (h == 0) return '12 AM';
+    if (h > 12) return '${h - 12} PM';
+    return '$h AM';
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Compact event tile for use inside the time grid
+// ---------------------------------------------------------------------------
+
+class _TimeGridEventTile extends StatelessWidget {
+  const _TimeGridEventTile({required this.event, required this.controller});
+  final Task event;
+  final WeeklyPlannerController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final visualStyle = TaskVisualStyles.resolve(event);
+    final timeLabel = _shadowEventLabel(event);
+    return GestureDetector(
+      onTap: () => controller.selectTask(event.id),
+      child: Container(
+        clipBehavior: Clip.hardEdge,
+        decoration: BoxDecoration(
+          color: visualStyle.background,
+          borderRadius: BorderRadius.circular(RhythmTokens.radiusS),
+          border: Border.all(color: visualStyle.border),
+        ),
+        padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 3),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (timeLabel != null)
+              Text(
+                timeLabel,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 9,
+                  fontWeight: FontWeight.w700,
+                  color: visualStyle.accent,
+                ),
+              ),
+            Text(
+              event.title,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 10,
+                fontWeight: FontWeight.w600,
+                color: visualStyle.text,
+                height: 1.2,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
 
 String? _shadowEventLabel(Task task) {
   if (task.isAllDay) return 'All day';

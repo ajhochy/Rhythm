@@ -24,7 +24,8 @@ class IntegrationsDataSource {
     final list = jsonDecode(response.body) as List<dynamic>;
     return list
         .map(
-            (item) => IntegrationAccount.fromJson(item as Map<String, dynamic>))
+          (item) => IntegrationAccount.fromJson(item as Map<String, dynamic>),
+        )
         .toList();
   }
 
@@ -76,9 +77,7 @@ class IntegrationsDataSource {
     final response = await http.put(
       Uri.parse('$_baseUrl/integrations/google-calendar/preferences'),
       headers: AuthSessionStore.headers(json: true),
-      body: jsonEncode({
-        'selectedCalendarIds': selectedCalendarIds,
-      }),
+      body: jsonEncode({'selectedCalendarIds': selectedCalendarIds}),
     );
     assertOk(response);
     return fetchGoogleCalendarSettings();
@@ -115,9 +114,7 @@ class IntegrationsDataSource {
   Future<PlanningCenterTaskPreferences>
       fetchPlanningCenterTaskPreferences() async {
     final response = await http.get(
-      Uri.parse(
-        '$_baseUrl/integrations/planning-center/task-preferences',
-      ),
+      Uri.parse('$_baseUrl/integrations/planning-center/task-preferences'),
       headers: AuthSessionStore.headers(),
     );
     assertOk(response);
@@ -128,9 +125,7 @@ class IntegrationsDataSource {
 
   Future<PlanningCenterTaskOptions> fetchPlanningCenterTaskOptions() async {
     final response = await http.get(
-      Uri.parse(
-        '$_baseUrl/integrations/planning-center/task-options',
-      ),
+      Uri.parse('$_baseUrl/integrations/planning-center/task-options'),
       headers: AuthSessionStore.headers(),
     );
     assertOk(response);
@@ -143,9 +138,7 @@ class IntegrationsDataSource {
     PlanningCenterTaskPreferences preferences,
   ) async {
     final response = await http.put(
-      Uri.parse(
-        '$_baseUrl/integrations/planning-center/task-preferences',
-      ),
+      Uri.parse('$_baseUrl/integrations/planning-center/task-preferences'),
       headers: AuthSessionStore.headers(json: true),
       body: jsonEncode(preferences.toJson()),
     );

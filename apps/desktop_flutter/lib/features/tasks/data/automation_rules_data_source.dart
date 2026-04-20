@@ -233,4 +233,17 @@ class AutomationRulesDataSource {
     );
     assertOk(response);
   }
+
+  Future<List<String>> fetchProjectTemplateNames() async {
+    final response = await http.get(
+      Uri.parse('$_baseUrl/project-templates'),
+      headers: AuthSessionStore.headers(),
+    );
+    if (response.statusCode >= 400) return const [];
+    final list = jsonDecode(response.body) as List<dynamic>;
+    return list
+        .map((j) => (j as Map<String, dynamic>)['name']?.toString() ?? '')
+        .where((n) => n.isNotEmpty)
+        .toList();
+  }
 }

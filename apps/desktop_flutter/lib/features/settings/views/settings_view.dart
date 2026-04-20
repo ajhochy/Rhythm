@@ -43,9 +43,9 @@ class _SettingsViewState extends State<SettingsView> {
     await context.read<ServerConfigService>().save(value);
     setState(() => _saving = false);
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Saved')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Saved')));
     }
   }
 
@@ -361,7 +361,9 @@ class _SettingsViewState extends State<SettingsView> {
                           width: 16,
                           height: 16,
                           child: CircularProgressIndicator(
-                              strokeWidth: 2, color: Colors.white),
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
                         )
                       : const Text('Save'),
                 ),
@@ -406,10 +408,7 @@ class _UserPermissionsCard extends StatelessWidget {
           const SizedBox(height: 6),
           const Text(
             'Manage which users are admins and which users can manage Facilities.',
-            style: TextStyle(
-              fontSize: 13,
-              color: RhythmTokens.textSecondary,
-            ),
+            style: TextStyle(fontSize: 13, color: RhythmTokens.textSecondary),
           ),
           const SizedBox(height: 16),
           if (controller.usersStatus == SettingsUsersStatus.loading)
@@ -500,9 +499,7 @@ class _UserPermissionRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final roleItems = user.role == 'system'
-        ? const [
-            DropdownMenuItem(value: 'system', child: Text('System')),
-          ]
+        ? const [DropdownMenuItem(value: 'system', child: Text('System'))]
         : const [
             DropdownMenuItem(value: 'member', child: Text('Member')),
             DropdownMenuItem(value: 'admin', child: Text('Admin')),
@@ -675,16 +672,16 @@ class _ClaudeIntegrationSectionState extends State<_ClaudeIntegrationSection> {
               if (!isAuthenticated) ...[
                 const Text(
                   'Sign in to generate a token.',
-                  style: TextStyle(
-                    fontSize: 13,
-                    color: RhythmTokens.textMuted,
-                  ),
+                  style: TextStyle(fontSize: 13, color: RhythmTokens.textMuted),
                 ),
               ] else if (!isCloudUrl) ...[
                 Row(
                   children: [
-                    const Icon(Icons.info_outline,
-                        size: 16, color: RhythmTokens.accentWarm),
+                    const Icon(
+                      Icons.info_outline,
+                      size: 16,
+                      color: RhythmTokens.accentWarm,
+                    ),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
@@ -700,8 +697,10 @@ class _ClaudeIntegrationSectionState extends State<_ClaudeIntegrationSection> {
               ] else ...[
                 // Token display row
                 Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 10,
+                  ),
                   decoration: BoxDecoration(
                     color: RhythmTokens.surfaceMuted,
                     borderRadius: BorderRadius.circular(RhythmTokens.radiusS),
@@ -745,7 +744,9 @@ class _ClaudeIntegrationSectionState extends State<_ClaudeIntegrationSection> {
                         label: Text(_copied ? 'Copied!' : 'Copy'),
                         style: FilledButton.styleFrom(
                           padding: const EdgeInsets.symmetric(
-                              horizontal: 14, vertical: 10),
+                            horizontal: 14,
+                            vertical: 10,
+                          ),
                           backgroundColor: _copied
                               ? RhythmTokens.success
                               : RhythmTokens.accent,
@@ -959,9 +960,7 @@ class _WorkspaceSectionWidgetState extends State<_WorkspaceSectionWidget> {
       if (confirmed == true && selectedUserId != null && context.mounted) {
         await workspaceController.addMemberDirect(selectedUserId!);
         if (!context.mounted) return;
-        messenger.showSnackBar(
-          const SnackBar(content: Text('Member added')),
-        );
+        messenger.showSnackBar(const SnackBar(content: Text('Member added')));
       }
     } catch (error) {
       if (!context.mounted) return;
@@ -1018,7 +1017,9 @@ class _WorkspaceSectionWidgetState extends State<_WorkspaceSectionWidget> {
                     Text(
                       workspace.joinCode!,
                       style: const TextStyle(
-                          fontFamily: 'monospace', fontWeight: FontWeight.bold),
+                        fontFamily: 'monospace',
+                        fontWeight: FontWeight.bold,
+                      ),
                     ),
                     const SizedBox(width: 4),
                     IconButton(
@@ -1026,7 +1027,8 @@ class _WorkspaceSectionWidgetState extends State<_WorkspaceSectionWidget> {
                       tooltip: 'Copy join code',
                       onPressed: () {
                         Clipboard.setData(
-                            ClipboardData(text: workspace.joinCode!));
+                          ClipboardData(text: workspace.joinCode!),
+                        );
                         ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(content: Text('Join code copied')),
                         );
@@ -1055,9 +1057,10 @@ class _WorkspaceSectionWidgetState extends State<_WorkspaceSectionWidget> {
               const Text(
                 'Members',
                 style: TextStyle(
-                    fontWeight: FontWeight.w600,
-                    color: RhythmTokens.textSecondary,
-                    fontSize: 13),
+                  fontWeight: FontWeight.w600,
+                  color: RhythmTokens.textSecondary,
+                  fontSize: 13,
+                ),
               ),
               const SizedBox(height: 8),
               if (controller.status == WorkspaceStatus.loading)
@@ -1087,10 +1090,7 @@ class _WorkspaceSectionWidgetState extends State<_WorkspaceSectionWidget> {
 }
 
 class _MemberTile extends StatelessWidget {
-  const _MemberTile({
-    required this.member,
-    required this.isCurrentUserAdmin,
-  });
+  const _MemberTile({required this.member, required this.isCurrentUserAdmin});
 
   final WorkspaceMember member;
   final bool isCurrentUserAdmin;
@@ -1099,9 +1099,7 @@ class _MemberTile extends StatelessWidget {
   Widget build(BuildContext context) {
     return ListTile(
       contentPadding: EdgeInsets.zero,
-      leading: CircleAvatar(
-        child: Text(member.name[0].toUpperCase()),
-      ),
+      leading: CircleAvatar(child: Text(member.name[0].toUpperCase())),
       title: Text(member.name),
       subtitle: Text(member.email),
       trailing: isCurrentUserAdmin
@@ -1112,7 +1110,9 @@ class _MemberTile extends StatelessWidget {
                   child: Text(member.isAdmin ? 'Make Staff' : 'Make Admin'),
                 ),
                 const PopupMenuItem(
-                    value: 'remove', child: Text('Remove member')),
+                  value: 'remove',
+                  child: Text('Remove member'),
+                ),
               ],
               onSelected: (action) async {
                 final ctrl = context.read<WorkspaceController>();
@@ -1128,7 +1128,9 @@ class _MemberTile extends StatelessWidget {
           : Text(
               member.role,
               style: const TextStyle(
-                  color: RhythmTokens.textSecondary, fontSize: 12),
+                color: RhythmTokens.textSecondary,
+                fontSize: 12,
+              ),
             ),
     );
   }

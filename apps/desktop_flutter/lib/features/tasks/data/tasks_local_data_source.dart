@@ -21,8 +21,12 @@ class TasksLocalDataSource {
     return list.map((j) => Task.fromJson(j as Map<String, dynamic>)).toList();
   }
 
-  Future<Task> create(String title,
-      {String? notes, String? dueDate, int? ownerId}) async {
+  Future<Task> create(
+    String title, {
+    String? notes,
+    String? dueDate,
+    int? ownerId,
+  }) async {
     final response = await http.post(
       Uri.parse('$_baseUrl/tasks'),
       headers: AuthSessionStore.headers(json: true),
@@ -37,13 +41,15 @@ class TasksLocalDataSource {
     return Task.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
   }
 
-  Future<Task> update(String id,
-      {String? title,
-      String? notes,
-      String? dueDate,
-      String? status,
-      int? ownerId,
-      bool includeOwnerId = false}) async {
+  Future<Task> update(
+    String id, {
+    String? title,
+    String? notes,
+    String? dueDate,
+    String? status,
+    int? ownerId,
+    bool includeOwnerId = false,
+  }) async {
     final response = await http.patch(
       Uri.parse('$_baseUrl/tasks/$id'),
       headers: AuthSessionStore.headers(json: true),

@@ -12,14 +12,21 @@ class ResolvedStep {
 class ProjectGenerationService {
   /// Returns each step of [template] with its resolved due date based on [anchorDate].
   List<ResolvedStep> previewSteps(
-      ProjectTemplate template, DateTime anchorDate) {
-    final anchor =
-        DateTime.utc(anchorDate.year, anchorDate.month, anchorDate.day);
+    ProjectTemplate template,
+    DateTime anchorDate,
+  ) {
+    final anchor = DateTime.utc(
+      anchorDate.year,
+      anchorDate.month,
+      anchorDate.day,
+    );
     return template.steps
-        .map((step) => ResolvedStep(
-              step: step,
-              dueDate: anchor.add(Duration(days: step.offsetDays)),
-            ))
+        .map(
+          (step) => ResolvedStep(
+            step: step,
+            dueDate: anchor.add(Duration(days: step.offsetDays)),
+          ),
+        )
         .toList()
       ..sort((a, b) => a.dueDate.compareTo(b.dueDate));
   }

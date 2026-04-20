@@ -143,7 +143,9 @@ class _FacilitiesViewState extends State<FacilitiesView> {
   }
 
   Future<void> _showReserveDialog(
-      BuildContext context, FacilitiesController controller) async {
+    BuildContext context,
+    FacilitiesController controller,
+  ) async {
     await showDialog<void>(
       context: context,
       builder: (_) => _ReservationDialog(
@@ -170,10 +172,8 @@ class _FacilitiesViewState extends State<FacilitiesView> {
   ) async {
     await showDialog<void>(
       context: context,
-      builder: (_) => _FacilityDialog(
-        controller: controller,
-        existingFacility: facility,
-      ),
+      builder: (_) =>
+          _FacilityDialog(controller: controller, existingFacility: facility),
     );
   }
 
@@ -535,7 +535,9 @@ Future<void> _deleteReservationCluster(
       final key = '${reservation.facilityId}:$seriesId';
       if (seenSeries.add(key)) {
         await controller.deleteReservationSeries(
-            reservation.facilityId, seriesId);
+          reservation.facilityId,
+          seriesId,
+        );
       }
       continue;
     }
@@ -544,7 +546,9 @@ Future<void> _deleteReservationCluster(
 }
 
 bool _canManageReservation(
-    FacilitiesController controller, Reservation reservation) {
+  FacilitiesController controller,
+  Reservation reservation,
+) {
   final currentUser = controller.currentUser;
   if (controller.isFacilitiesManager) return true;
   if (currentUser == null) return false;
@@ -565,9 +569,12 @@ Future<void> _showReservationDetails(
   );
 }
 
-Future<void> _showEditReservationDialog(BuildContext context,
-    FacilitiesController controller, Reservation reservation,
-    {List<Reservation>? groupReservations}) async {
+Future<void> _showEditReservationDialog(
+  BuildContext context,
+  FacilitiesController controller,
+  Reservation reservation, {
+  List<Reservation>? groupReservations,
+}) async {
   final facility = _facilityForReservation(controller, reservation);
   if (facility == null) return;
   await showDialog<bool>(
@@ -603,9 +610,12 @@ Future<void> _showEditSeriesDialog(
   );
 }
 
-Future<void> _deleteReservationWithConfirmation(BuildContext context,
-    FacilitiesController controller, Reservation reservation,
-    {List<Reservation>? groupReservations}) async {
+Future<void> _deleteReservationWithConfirmation(
+  BuildContext context,
+  FacilitiesController controller,
+  Reservation reservation, {
+  List<Reservation>? groupReservations,
+}) async {
   final group = groupReservations == null
       ? _reservationClusterForReservation(controller, reservation)
       : _ReservationCluster(groupReservations);
@@ -876,10 +886,7 @@ class _FacilitiesHeader extends StatelessWidget {
 }
 
 class _FacilityDialog extends StatefulWidget {
-  const _FacilityDialog({
-    required this.controller,
-    this.existingFacility,
-  });
+  const _FacilityDialog({required this.controller, this.existingFacility});
 
   final FacilitiesController controller;
   final Facility? existingFacility;
@@ -1091,18 +1098,15 @@ class _FacilityDialogState extends State<_FacilityDialog> {
     } catch (error) {
       if (!mounted) return;
       setState(() => _saving = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error: $error')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Error: $error')));
     }
   }
 }
 
 class _ModeSwitcher extends StatelessWidget {
-  const _ModeSwitcher({
-    required this.mode,
-    required this.onChanged,
-  });
+  const _ModeSwitcher({required this.mode, required this.onChanged});
 
   final _FacilitiesMode mode;
   final ValueChanged<_FacilitiesMode> onChanged;
@@ -1180,9 +1184,9 @@ class _FacilitiesOverview extends StatelessWidget {
           ? 'No Date'
           : '${_formatDateShort(start)}, ${start.year}';
       final roomGroups = groupedReservations.putIfAbsent(key, () => {});
-      roomGroups.putIfAbsent(_reservationGroupKey(reservation), () => []).add(
-            reservation,
-          );
+      roomGroups
+          .putIfAbsent(_reservationGroupKey(reservation), () => [])
+          .add(reservation);
     }
     final setupReservations = reservations
         .where((reservation) => reservation.notes?.trim().isNotEmpty == true)
@@ -1465,10 +1469,7 @@ class _OverviewDateField extends StatelessWidget {
         decoration: _overviewDecoration(label),
         child: Text(
           value,
-          style: const TextStyle(
-            fontSize: 14,
-            color: _kTextPrimary,
-          ),
+          style: const TextStyle(fontSize: 14, color: _kTextPrimary),
         ),
       ),
     );
@@ -1476,10 +1477,7 @@ class _OverviewDateField extends StatelessWidget {
 }
 
 class _RecurringInfoCard extends StatelessWidget {
-  const _RecurringInfoCard({
-    required this.title,
-    required this.body,
-  });
+  const _RecurringInfoCard({required this.title, required this.body});
 
   final String title;
   final String body;
@@ -1551,21 +1549,15 @@ class _GroupedReservationSummaryDialog extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               if (createdRooms.isNotEmpty) ...[
-                Text(
-                  'Created in: ${createdRooms.join(', ')}',
-                ),
+                Text('Created in: ${createdRooms.join(', ')}'),
                 const SizedBox(height: 8),
               ],
               if (updatedRooms.isNotEmpty) ...[
-                Text(
-                  'Updated in: ${updatedRooms.join(', ')}',
-                ),
+                Text('Updated in: ${updatedRooms.join(', ')}'),
                 const SizedBox(height: 8),
               ],
               if (removedRooms.isNotEmpty) ...[
-                Text(
-                  'Removed from: ${removedRooms.join(', ')}',
-                ),
+                Text('Removed from: ${removedRooms.join(', ')}'),
                 const SizedBox(height: 8),
               ],
               if (conflictMessages.isNotEmpty) ...[
@@ -1679,8 +1671,11 @@ class _OverviewSignalPanel extends StatelessWidget {
     final highlightReservations = <Reservation>[
       ...conflictedReservations.take(3),
       ...setupReservations
-          .where((reservation) =>
-              !conflictedReservations.any((item) => item.id == reservation.id))
+          .where(
+            (reservation) => !conflictedReservations.any(
+              (item) => item.id == reservation.id,
+            ),
+          )
           .take(3),
     ];
 
@@ -1776,8 +1771,11 @@ class _OverviewSignalPanel extends StatelessWidget {
                   ),
                 ),
                 ...externallyManagedReservations
-                    .where((reservation) => !highlightReservations
-                        .any((item) => item.id == reservation.id))
+                    .where(
+                      (reservation) => !highlightReservations.any(
+                        (item) => item.id == reservation.id,
+                      ),
+                    )
                     .take(2)
                     .map(
                       (reservation) => Padding(
@@ -2077,7 +2075,9 @@ class _OverviewReservationClusterRow extends StatelessWidget {
     final roomNames = cluster.roomNames(controller);
     final roomLabel = roomNames.join(', ');
     final buildingNames = cluster.reservations
-        .map((reservation) => facilitiesById[reservation.facilityId]?.building)
+        .map(
+          (reservation) => facilitiesById[reservation.facilityId]?.building,
+        )
         .whereType<String>()
         .where((building) => building.isNotEmpty)
         .toSet()
@@ -2236,8 +2236,10 @@ class _OverviewReservationClusterRow extends StatelessWidget {
               children: [
                 if (cluster.isConflicted)
                   Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 6,
+                    ),
                     decoration: BoxDecoration(
                       color: const Color(0xFFFDECEC),
                       borderRadius: BorderRadius.circular(999),
@@ -2378,8 +2380,9 @@ class _SeriesBadge extends StatelessWidget {
         decoration: BoxDecoration(
           color: RhythmTokens.accentSoft,
           borderRadius: BorderRadius.circular(999),
-          border:
-              Border.all(color: RhythmTokens.accent.withValues(alpha: 0.16)),
+          border: Border.all(
+            color: RhythmTokens.accent.withValues(alpha: 0.16),
+          ),
         ),
         child: Text(
           'Series',
@@ -2617,8 +2620,11 @@ class _FacilityCard extends StatelessWidget {
               const SizedBox(height: 10),
               Row(
                 children: [
-                  const Icon(Icons.location_on_outlined,
-                      size: 14, color: _kTextSecondary),
+                  const Icon(
+                    Icons.location_on_outlined,
+                    size: 14,
+                    color: _kTextSecondary,
+                  ),
                   const SizedBox(width: 4),
                   Expanded(
                     child: Text(
@@ -2638,8 +2644,11 @@ class _FacilityCard extends StatelessWidget {
               const SizedBox(height: 8),
               Row(
                 children: [
-                  const Icon(Icons.apartment_outlined,
-                      size: 14, color: _kTextSecondary),
+                  const Icon(
+                    Icons.apartment_outlined,
+                    size: 14,
+                    color: _kTextSecondary,
+                  ),
                   const SizedBox(width: 4),
                   Expanded(
                     child: Text(
@@ -2831,10 +2840,7 @@ class _LoadingState extends StatelessWidget {
             SizedBox(width: 12),
             Text(
               'Loading facilities',
-              style: TextStyle(
-                fontSize: 13,
-                color: _kTextSecondary,
-              ),
+              style: TextStyle(fontSize: 13, color: _kTextSecondary),
             ),
           ],
         ),
@@ -2844,10 +2850,7 @@ class _LoadingState extends StatelessWidget {
 }
 
 class _EmptyFacilitiesState extends StatelessWidget {
-  const _EmptyFacilitiesState({
-    required this.title,
-    required this.body,
-  });
+  const _EmptyFacilitiesState({required this.title, required this.body});
 
   final String title;
   final String body;
@@ -3138,8 +3141,9 @@ class _ReservationDetailDialogState extends State<_ReservationDetailDialog> {
     final hasRecurringSeries = cluster.hasRecurringSeries;
 
     return AlertDialog(
-      title:
-          Text(isGroup ? 'Reservation group details' : 'Reservation details'),
+      title: Text(
+        isGroup ? 'Reservation group details' : 'Reservation details',
+      ),
       content: SizedBox(
         width: 480,
         child: Column(
@@ -3148,10 +3152,7 @@ class _ReservationDetailDialogState extends State<_ReservationDetailDialog> {
           children: [
             Text(
               reservation.title,
-              style: const TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.w700,
-              ),
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
             ),
             const SizedBox(height: 8),
             Text(
@@ -3577,7 +3578,9 @@ class _ReservationDialogState extends State<_ReservationDialog> {
     final facilities = widget.facilities
         .where((facility) => _selectedFacilityIds.contains(facility.id))
         .toList()
-      ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+      ..sort(
+        (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
+      );
     return facilities;
   }
 
@@ -3710,8 +3713,9 @@ class _ReservationDialogState extends State<_ReservationDialog> {
       }
     }
     if (widget.existingGroupReservations != null &&
-        widget.existingGroupReservations!
-            .any((reservation) => reservation.seriesId != null)) {
+        widget.existingGroupReservations!.any(
+          (reservation) => reservation.seriesId != null,
+        )) {
       _isRecurring = true;
       final seriesReservation = widget.existingGroupReservations!.firstWhere(
         (reservation) => reservation.seriesId != null,
@@ -3721,8 +3725,9 @@ class _ReservationDialogState extends State<_ReservationDialog> {
         seriesReservation,
       );
       if (cachedSeries != null) {
-        _recurrenceType =
-            _recurrenceTypeFromApiValue(cachedSeries.recurrenceType);
+        _recurrenceType = _recurrenceTypeFromApiValue(
+          cachedSeries.recurrenceType,
+        );
         _recurrenceEndDate = cachedSeries.endDate == null
             ? null
             : DateTime.tryParse(cachedSeries.endDate!);
@@ -3951,10 +3956,7 @@ class _ReservationDialogState extends State<_ReservationDialog> {
                       ),
                       subtitle: const Text(
                         'Create a weekly, bi-weekly, monthly, or custom-date series.',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: _kTextSecondary,
-                        ),
+                        style: TextStyle(fontSize: 12, color: _kTextSecondary),
                       ),
                       onChanged: (value) {
                         setState(() {
@@ -4120,9 +4122,7 @@ class _ReservationDialogState extends State<_ReservationDialog> {
     );
     if (!endAt.isAfter(startAt)) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('End time must be after the start time.'),
-        ),
+        const SnackBar(content: Text('End time must be after the start time.')),
       );
       return;
     }
@@ -4161,8 +4161,9 @@ class _ReservationDialogState extends State<_ReservationDialog> {
       };
       final isRecurring = (_isRecurring ||
               widget.isEditingSeries ||
-              existingReservations
-                  .any((reservation) => reservation.seriesId != null)) &&
+              existingReservations.any(
+                (reservation) => reservation.seriesId != null,
+              )) &&
           !_isEditingSingleReservation;
       final isCustomSeries = _recurrenceType == _RecurrenceType.custom;
       final seriesEndDate = isCustomSeries
@@ -4392,25 +4393,25 @@ class _ReservationDialogState extends State<_ReservationDialog> {
         );
       }
       if (mounted) {
-        navigator.pop(widget.isEditingSeries || _isEditingSingleReservation
-            ? true
-            : null);
+        navigator.pop(
+          widget.isEditingSeries || _isEditingSingleReservation ? true : null,
+        );
         if (!widget.isEditingSeries && !_isEditingSingleReservation) {
-          ScaffoldMessenger.of(navigator.context).showSnackBar(
-            const SnackBar(content: Text('Reservation created')),
-          );
+          ScaffoldMessenger.of(
+            navigator.context,
+          ).showSnackBar(const SnackBar(content: Text('Reservation created')));
         } else if (_isEditingSingleReservation) {
-          ScaffoldMessenger.of(navigator.context).showSnackBar(
-            const SnackBar(content: Text('Reservation updated')),
-          );
+          ScaffoldMessenger.of(
+            navigator.context,
+          ).showSnackBar(const SnackBar(content: Text('Reservation updated')));
         }
       }
     } catch (e) {
       if (mounted) {
         setState(() => _saving = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error: $e')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text('Error: $e')));
       }
     }
   }
@@ -4455,7 +4456,8 @@ class _ReservationDialogState extends State<_ReservationDialog> {
     if (_selectedDate == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-            content: Text('Choose the first reservation date first.')),
+          content: Text('Choose the first reservation date first.'),
+        ),
       );
       return;
     }
@@ -4475,7 +4477,8 @@ class _ReservationDialogState extends State<_ReservationDialog> {
     if (_selectedDate == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-            content: Text('Choose the first reservation date first.')),
+          content: Text('Choose the first reservation date first.'),
+        ),
       );
       return;
     }
@@ -4718,13 +4721,15 @@ class FacilitiesAvailabilityPanel extends StatelessWidget {
           (facility) => _RoomAvailabilityStatus(
             facility: facility,
             dayReservations: _dayReservationsForFacility(facility),
-            conflictingReservations:
-                _conflictingReservationsForFacility(facility),
+            conflictingReservations: _conflictingReservationsForFacility(
+              facility,
+            ),
           ),
         )
         .toList();
-    final hasConflict =
-        roomStatuses.any((status) => status.conflictingReservations.isNotEmpty);
+    final hasConflict = roomStatuses.any(
+      (status) => status.conflictingReservations.isNotEmpty,
+    );
     final conflictCount = roomStatuses.fold<int>(
       0,
       (sum, status) => sum + status.conflictingReservations.length,
@@ -4807,9 +4812,7 @@ class FacilitiesAvailabilityPanel extends StatelessWidget {
             ...roomStatuses.map(
               (status) => Padding(
                 padding: const EdgeInsets.only(bottom: 10),
-                child: _RoomAvailabilitySummary(
-                  status: status,
-                ),
+                child: _RoomAvailabilitySummary(status: status),
               ),
             ),
           ],
@@ -4879,9 +4882,7 @@ class _RoomAvailabilityStatus {
 }
 
 class _RoomAvailabilitySummary extends StatelessWidget {
-  const _RoomAvailabilitySummary({
-    required this.status,
-  });
+  const _RoomAvailabilitySummary({required this.status});
 
   final _RoomAvailabilityStatus status;
 
@@ -4898,13 +4899,17 @@ class _RoomAvailabilitySummary extends StatelessWidget {
         color: _kSurface.withValues(alpha: 0.4),
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
-            color: conflicts.isNotEmpty ? const Color(0xFFF4C7C7) : _kBorder),
+          color: conflicts.isNotEmpty ? const Color(0xFFF4C7C7) : _kBorder,
+        ),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Icon(Icons.meeting_room_outlined,
-              size: 16, color: _kTextSecondary),
+          const Icon(
+            Icons.meeting_room_outlined,
+            size: 16,
+            color: _kTextSecondary,
+          ),
           const SizedBox(width: 12),
           Expanded(
             child: Column(
@@ -4925,10 +4930,7 @@ class _RoomAvailabilitySummary extends StatelessWidget {
                       : reservations.isEmpty
                           ? 'No reservations on this date'
                           : '${reservations.length} reservation${reservations.length == 1 ? '' : 's'} on this date',
-                  style: const TextStyle(
-                    fontSize: 11,
-                    color: _kTextSecondary,
-                  ),
+                  style: const TextStyle(fontSize: 11, color: _kTextSecondary),
                 ),
                 if (reservations.isNotEmpty) ...[
                   const SizedBox(height: 6),
@@ -5030,10 +5032,7 @@ class _AvailabilityReservationRow extends StatelessWidget {
                 const SizedBox(height: 2),
                 Text(
                   reservation.requesterName,
-                  style: const TextStyle(
-                    fontSize: 11,
-                    color: _kTextSecondary,
-                  ),
+                  style: const TextStyle(fontSize: 11, color: _kTextSecondary),
                 ),
               ],
             ),

@@ -53,7 +53,7 @@ export class RecurringRulesController {
 
   async create(req: Request, res: Response, next: NextFunction) {
     try {
-      const { title, frequency, dayOfWeek, dayOfMonth, month, steps } = req.body as Record<string, unknown>;
+      const { title, frequency, dayOfWeek, dayOfMonth, month, steps, sequential } = req.body as Record<string, unknown>;
 
       if (!title || typeof title !== 'string') throw AppError.badRequest('title is required');
       if (!frequency || !VALID_FREQUENCIES.includes(frequency as never)) {
@@ -68,6 +68,7 @@ export class RecurringRulesController {
         month: month as number ?? null,
         ownerId: req.auth?.user.id ?? null,
         steps: parseSteps(steps),
+        sequential: sequential === true,
       });
 
       // Immediately generate task instances so they appear in the weekly planner

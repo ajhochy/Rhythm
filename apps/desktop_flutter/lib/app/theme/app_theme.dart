@@ -51,12 +51,8 @@ class AppTheme {
             color: RhythmTokens.textPrimary,
             fontWeight: FontWeight.w600,
           ),
-          bodyMedium: TextStyle(
-            color: RhythmTokens.textPrimary,
-          ),
-          bodySmall: TextStyle(
-            color: RhythmTokens.textSecondary,
-          ),
+          bodyMedium: TextStyle(color: RhythmTokens.textPrimary),
+          bodySmall: TextStyle(color: RhythmTokens.textSecondary),
           labelLarge: TextStyle(
             color: RhythmTokens.textPrimary,
             fontWeight: FontWeight.w600,
@@ -83,9 +79,8 @@ class AppTheme {
           selectedColor: RhythmTokens.accentSoft,
           labelStyle: const TextStyle(color: RhythmTokens.textPrimary),
           side: const BorderSide(color: RhythmTokens.borderSoft),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(999),
-          ),
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(999)),
         ),
       );
 }

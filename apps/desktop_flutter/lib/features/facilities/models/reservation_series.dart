@@ -78,10 +78,7 @@ class ReservationSeries {
 }
 
 class ReservationSeriesConflict {
-  const ReservationSeriesConflict({
-    required this.date,
-    required this.reason,
-  });
+  const ReservationSeriesConflict({required this.date, required this.reason});
 
   final String date;
   final String reason;
@@ -109,18 +106,22 @@ class ReservationSeriesCreationResult {
 
   factory ReservationSeriesCreationResult.fromJson(Map<String, dynamic> json) {
     return ReservationSeriesCreationResult(
-      series:
-          ReservationSeries.fromJson(json['series'] as Map<String, dynamic>),
+      series: ReservationSeries.fromJson(
+        json['series'] as Map<String, dynamic>,
+      ),
       createdGroups: json['createdGroups'] is List
           ? (json['createdGroups'] as List)
-              .map((item) =>
-                  _asString((item as Map<String, dynamic>)['id']) ?? '')
+              .map(
+                (item) => _asString((item as Map<String, dynamic>)['id']) ?? '',
+              )
               .where((id) => id.isNotEmpty)
               .toList()
           : const [],
       createdReservations: json['createdReservations'] is List
           ? (json['createdReservations'] as List)
-              .map((item) => Reservation.fromJson(item as Map<String, dynamic>))
+              .map(
+                (item) => Reservation.fromJson(item as Map<String, dynamic>),
+              )
               .toList()
           : const [],
       conflicts: json['conflicts'] is List

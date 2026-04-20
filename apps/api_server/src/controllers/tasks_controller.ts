@@ -3,8 +3,10 @@ import { AppError } from '../errors/app_error';
 import { TasksRepository } from '../repositories/tasks_repository';
 import { NotificationsRepository } from '../repositories/notifications_repository';
 import { NotificationService } from '../services/notification_service';
+import { RecurringTaskRulesRepository } from '../repositories/recurring_task_rules_repository';
 
 const repo = new TasksRepository();
+const rulesRepo = new RecurringTaskRulesRepository();
 const notifService = new NotificationService(new NotificationsRepository());
 
 export class TasksController {
@@ -91,6 +93,9 @@ export class TasksController {
             actorId,
           );
         }
+
+        // Sequential rhythm: unlock next step and notify its assignee
+        await maybeUnlockNextSequentialStep(updated.sourceType, updated.sourceId, updated.dueDate);
       }
 
       res.json(updated);
@@ -151,5 +156,47 @@ export class TasksController {
     } catch (err) {
       next(err);
     }
+  }
+}
+
+/**
+ * When a sequential rhythm step task is completed, unlock the next step's
+ * task for the same due date and notify its assignee.
+ */
+async function maybeUnlockNextSequentialStep(
+  sourceType: string | null,
+  sourceId: string | null,
+  dueDate: string | null,
+): Promise<void> {
+  if (sourceType !== 'recurring_rule' || !sourceId || !dueDate) return;
+
+  // Step tasks have sourceId in the form "ruleId:stepId"
+  const colonIdx = sourceId.indexOf(':');
+  if (colonIdx === -1) return;
+
+  const ruleId = sourceId.slice(0, colonIdx);
+  const stepId = sourceId.slice(colonIdx + 1);
+
+  const rule = await rulesRepo.findByIdAsync(ruleId).catch(() => null);
+  if (!rule || !rule.sequential) return;
+
+  const completedStepIndex = rule.steps.findIndex((s) => s.id === stepId);
+  if (completedStepIndex === -1 || completedStepIndex >= rule.steps.length - 1) return;
+
+  const nextStep = rule.steps[completedStepIndex + 1];
+  const nextSourceId = `${ruleId}:${nextStep.id}`;
+
+  const nextTask = await repo.findBySourceAndDueDateAsync('recurring_rule', nextSourceId, dueDate);
+  if (!nextTask || !nextTask.locked) return;
+
+  await repo.updateAsync(nextTask.id, { locked: false });
+
+  if (nextStep.assigneeId != null) {
+    await notifService.notifyStepUnlockedAsync(
+      ruleId,
+      rule.title,
+      nextStep.title,
+      nextStep.assigneeId,
+    );
   }
 }

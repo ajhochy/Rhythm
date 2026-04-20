@@ -57,11 +57,7 @@ class _MessagesViewState extends State<MessagesView> {
           gradient: LinearGradient(
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
-            colors: [
-              _kCanvas,
-              Color(0xFFF7F4EF),
-              _kCanvas,
-            ],
+            colors: [_kCanvas, Color(0xFFF7F4EF), _kCanvas],
             stops: [0.0, 0.45, 1.0],
           ),
         ),
@@ -114,9 +110,7 @@ class _ThreadListPanel extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _PanelHeader(
-            onNewThread: () => _showNewThreadDialog(context),
-          ),
+          _PanelHeader(onNewThread: () => _showNewThreadDialog(context)),
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
             child: _SearchField(controller: searchController),
@@ -138,10 +132,9 @@ class _ThreadListPanel extends StatelessWidget {
                           thread: filtered[i],
                           isSelected:
                               controller.selectedThreadId == filtered[i].id,
-                          onTap: () =>
-                              context.read<MessagesController>().selectThread(
-                                    filtered[i].id,
-                                  ),
+                          onTap: () => context
+                              .read<MessagesController>()
+                              .selectThread(filtered[i].id),
                           onToggleUnread: () {
                             final messages = context.read<MessagesController>();
                             if (filtered[i].isUnread) {
@@ -196,10 +189,7 @@ class _PanelHeader extends StatelessWidget {
                 SizedBox(height: 3),
                 Text(
                   'Unread threads and direct conversations',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: _kTextMuted,
-                  ),
+                  style: TextStyle(fontSize: 12, color: _kTextMuted),
                 ),
               ],
             ),
@@ -243,8 +233,10 @@ class _SearchField extends StatelessWidget {
         isDense: true,
         filled: true,
         fillColor: _kSurfaceMuted,
-        contentPadding:
-            const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 12,
+          vertical: 10,
+        ),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(RhythmTokens.radiusS),
           borderSide: const BorderSide(color: _kDivider),
@@ -399,8 +391,10 @@ class _ThreadRow extends StatelessWidget {
                 ),
                 if (thread.isUnread)
                   Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 3,
+                    ),
                     decoration: BoxDecoration(
                       color: _kPrimary,
                       borderRadius: BorderRadius.circular(999),
@@ -452,11 +446,7 @@ class _EmptyThreadsState extends StatelessWidget {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            Icon(
-              Icons.forum_outlined,
-              size: 34,
-              color: _kTextMuted,
-            ),
+            Icon(Icons.forum_outlined, size: 34, color: _kTextMuted),
             SizedBox(height: 10),
             Text(
               'No conversations',
@@ -470,11 +460,7 @@ class _EmptyThreadsState extends StatelessWidget {
             Text(
               'Start a direct thread to begin the conversation.',
               textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 12,
-                color: _kTextMuted,
-                height: 1.35,
-              ),
+              style: TextStyle(fontSize: 12, color: _kTextMuted, height: 1.35),
             ),
           ],
         ),
@@ -558,7 +544,9 @@ class _MessagePanelState extends State<_MessagePanel> {
                     children: [
                       Container(
                         padding: const EdgeInsets.symmetric(
-                            horizontal: 20, vertical: 16),
+                          horizontal: 20,
+                          vertical: 16,
+                        ),
                         decoration: const BoxDecoration(
                           border: Border(bottom: BorderSide(color: _kDivider)),
                         ),
@@ -589,11 +577,14 @@ class _MessagePanelState extends State<_MessagePanel> {
                             ),
                             Container(
                               padding: const EdgeInsets.symmetric(
-                                  horizontal: 10, vertical: 6),
+                                horizontal: 10,
+                                vertical: 6,
+                              ),
                               decoration: BoxDecoration(
                                 color: _kAccentSoft,
-                                borderRadius:
-                                    BorderRadius.circular(RhythmTokens.radiusS),
+                                borderRadius: BorderRadius.circular(
+                                  RhythmTokens.radiusS,
+                                ),
                               ),
                               child: Text(
                                 controller.selectedThread?.isGroup == true
@@ -624,13 +615,18 @@ class _MessagePanelState extends State<_MessagePanel> {
                                 )
                               : ListView.separated(
                                   controller: _scrollController,
-                                  padding:
-                                      const EdgeInsets.fromLTRB(20, 20, 20, 16),
+                                  padding: const EdgeInsets.fromLTRB(
+                                    20,
+                                    20,
+                                    20,
+                                    16,
+                                  ),
                                   itemCount: controller.messages.length,
                                   separatorBuilder: (_, __) =>
                                       const SizedBox(height: 12),
                                   itemBuilder: (context, i) => _MessageBubble(
-                                      message: controller.messages[i]),
+                                    message: controller.messages[i],
+                                  ),
                                 ),
                         ),
                       ),
@@ -665,11 +661,7 @@ class _EmptyConversationState extends StatelessWidget {
         child: const Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(
-              Icons.chat_bubble_outline,
-              size: 36,
-              color: _kTextMuted,
-            ),
+            Icon(Icons.chat_bubble_outline, size: 36, color: _kTextMuted),
             SizedBox(height: 12),
             Text(
               'Select a conversation',
@@ -683,11 +675,7 @@ class _EmptyConversationState extends StatelessWidget {
             Text(
               'Messages, thread previews, and reply activity appear here.',
               textAlign: TextAlign.center,
-              style: TextStyle(
-                color: _kTextMuted,
-                fontSize: 12,
-                height: 1.35,
-              ),
+              style: TextStyle(color: _kTextMuted, fontSize: 12, height: 1.35),
             ),
           ],
         ),
@@ -713,9 +701,7 @@ class _IncomingMessageBanner extends StatelessWidget {
           decoration: BoxDecoration(
             color: _kAccentSoft,
             borderRadius: BorderRadius.circular(RhythmTokens.radiusM),
-            border: Border.all(
-              color: _kPrimary.withValues(alpha: 0.18),
-            ),
+            border: Border.all(color: _kPrimary.withValues(alpha: 0.18)),
           ),
           child: Row(
             children: [
@@ -828,10 +814,7 @@ class _MessageBubble extends StatelessWidget {
                     const SizedBox(width: 8),
                     Text(
                       _formatTime(message.createdAt),
-                      style: const TextStyle(
-                        fontSize: 11,
-                        color: _kTextMuted,
-                      ),
+                      style: const TextStyle(fontSize: 11, color: _kTextMuted),
                     ),
                   ],
                 ),
@@ -884,10 +867,7 @@ class _MessageBubble extends StatelessWidget {
 }
 
 class _ReplyArea extends StatelessWidget {
-  const _ReplyArea({
-    required this.messageController,
-    required this.onSend,
-  });
+  const _ReplyArea({required this.messageController, required this.onSend});
 
   final TextEditingController messageController;
   final VoidCallback onSend;
@@ -916,10 +896,7 @@ class _ReplyArea extends StatelessWidget {
               Spacer(),
               Text(
                 'Cmd + Enter to send',
-                style: TextStyle(
-                  fontSize: 11,
-                  color: _kTextMuted,
-                ),
+                style: TextStyle(fontSize: 11, color: _kTextMuted),
               ),
             ],
           ),
@@ -960,8 +937,10 @@ class _ReplyArea extends StatelessWidget {
               onPressed: onSend,
               style: FilledButton.styleFrom(
                 backgroundColor: _kPrimary,
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 22, vertical: 12),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 22,
+                  vertical: 12,
+                ),
                 minimumSize: const Size(88, 40),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(999),
@@ -991,7 +970,10 @@ class _NewThreadDialog extends StatefulWidget {
   const _NewThreadDialog({required this.onCreated});
 
   final Future<void> Function(
-      List<int> participantIds, String? title, String threadType) onCreated;
+    List<int> participantIds,
+    String? title,
+    String threadType,
+  ) onCreated;
 
   @override
   State<_NewThreadDialog> createState() => _NewThreadDialogState();
@@ -1185,10 +1167,7 @@ class _NewThreadDialogState extends State<_NewThreadDialog> {
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
-          child: const Text(
-            'Cancel',
-            style: TextStyle(color: _kTextSecondary),
-          ),
+          child: const Text('Cancel', style: TextStyle(color: _kTextSecondary)),
         ),
         FilledButton(
           onPressed: _canSubmit ? _submit : null,

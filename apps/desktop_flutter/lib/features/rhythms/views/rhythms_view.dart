@@ -96,7 +96,9 @@ class _RhythmsViewState extends State<RhythmsView> {
   }
 
   Future<void> _showCreateDialog(
-      BuildContext context, RhythmsController controller) async {
+    BuildContext context,
+    RhythmsController controller,
+  ) async {
     await showDialog<void>(
       context: context,
       builder: (_) => _CreateRuleDialog(controller: controller),
@@ -135,10 +137,7 @@ class _Header extends StatelessWidget {
                 SizedBox(height: 4),
                 Text(
                   'Recurring rules that quietly keep the workspace moving.',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: _kTextSecondary,
-                  ),
+                  style: TextStyle(fontSize: 12, color: _kTextSecondary),
                 ),
               ],
             ),
@@ -150,10 +149,7 @@ class _Header extends StatelessWidget {
               backgroundColor: _kPrimarySoft,
               foregroundColor: _kPrimary,
               elevation: 0,
-              padding: const EdgeInsets.symmetric(
-                horizontal: 14,
-                vertical: 10,
-              ),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(RhythmTokens.radiusS),
               ),
@@ -293,9 +289,9 @@ class _RuleTileState extends State<_RuleTile> {
                       const SizedBox(height: 6),
                       Text(
                         widget.rule.patternDescription,
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              color: _kTextSecondary,
-                            ),
+                        style: Theme.of(
+                          context,
+                        ).textTheme.bodySmall?.copyWith(color: _kTextSecondary),
                       ),
                       if (widget.rule.progress != null) ...[
                         const SizedBox(height: 12),
@@ -410,10 +406,16 @@ class _RuleTileState extends State<_RuleTile> {
                         const SizedBox(height: 10),
                         Column(
                           children: widget.rule.steps
+                              .asMap()
+                              .entries
                               .map(
-                                (step) => Padding(
+                                (entry) => Padding(
                                   padding: const EdgeInsets.only(bottom: 8),
-                                  child: _WorkflowStepTile(step: step),
+                                  child: _WorkflowStepTile(
+                                    step: entry.value,
+                                    stepIndex: entry.key,
+                                    isSequential: widget.rule.sequential,
+                                  ),
                                 ),
                               )
                               .toList(),
@@ -457,10 +459,7 @@ class _RuleTileState extends State<_RuleTile> {
                                   border: Border.all(color: _kBorderSoft),
                                 ),
                                 child: Text(
-                                  DateFormatters.fullDate(
-                                    date,
-                                    fallback: date,
-                                  ),
+                                  DateFormatters.fullDate(date, fallback: date),
                                   style: Theme.of(context)
                                       .textTheme
                                       .labelSmall
@@ -502,15 +501,18 @@ class _RuleTileState extends State<_RuleTile> {
       builder: (ctx) => AlertDialog(
         title: const Text('Delete Rule'),
         content: Text(
-            'Delete "${widget.rule.title}"? This will not remove already-generated tasks.'),
+          'Delete "${widget.rule.title}"? This will not remove already-generated tasks.',
+        ),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Cancel')),
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
           FilledButton(
             onPressed: () => Navigator.pop(ctx, true),
             style: FilledButton.styleFrom(
-                backgroundColor: Theme.of(context).colorScheme.error),
+              backgroundColor: Theme.of(context).colorScheme.error,
+            ),
             child: const Text('Delete'),
           ),
         ],
@@ -623,10 +625,8 @@ class _RhythmCollaboratorsRow extends StatelessWidget {
                       '${collaborator.name}${isOwner ? ' (long-press to remove)' : ''}',
                   child: GestureDetector(
                     onLongPress: isOwner
-                        ? () => _confirmRemoveCollaborator(
-                              context,
-                              collaborator,
-                            )
+                        ? () =>
+                            _confirmRemoveCollaborator(context, collaborator)
                         : null,
                     child: CircleAvatar(
                       radius: 13,
@@ -788,21 +788,28 @@ class _InlineMetric extends StatelessWidget {
 }
 
 class _WorkflowStepTile extends StatelessWidget {
-  const _WorkflowStepTile({required this.step});
+  const _WorkflowStepTile({
+    required this.step,
+    this.stepIndex = 0,
+    this.isSequential = false,
+  });
 
   final RecurringTaskRuleStep step;
+  final int stepIndex;
+  final bool isSequential;
 
   @override
   Widget build(BuildContext context) {
     final assignee = step.assigneeName?.trim().isNotEmpty == true
         ? step.assigneeName!
         : 'Unassigned';
+    final isLocked = isSequential && stepIndex > 0;
 
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
-        color: _kSurface,
+        color: isLocked ? _kSurfaceMuted : _kSurface,
         borderRadius: BorderRadius.circular(RhythmTokens.radiusS),
         border: Border.all(color: _kBorderSoft),
       ),
@@ -812,10 +819,14 @@ class _WorkflowStepTile extends StatelessWidget {
             width: 22,
             height: 22,
             decoration: BoxDecoration(
-              color: _kPrimarySoft,
+              color: isLocked ? const Color(0xFFE5E7EB) : _kPrimarySoft,
               borderRadius: BorderRadius.circular(8),
             ),
-            child: const Icon(Icons.checklist, size: 13, color: _kPrimary),
+            child: Icon(
+              isLocked ? Icons.lock_outline : Icons.checklist,
+              size: 13,
+              color: isLocked ? _kTextMuted : _kPrimary,
+            ),
           ),
           const SizedBox(width: 10),
           Expanded(
@@ -827,18 +838,18 @@ class _WorkflowStepTile extends StatelessWidget {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                        color: _kTextPrimary,
+                        color: isLocked ? _kTextMuted : _kTextPrimary,
                         fontWeight: FontWeight.w700,
                       ),
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  assignee,
+                  isLocked ? 'Waiting for previous step' : assignee,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                        color: _kTextSecondary,
-                      ),
+                  style: Theme.of(
+                    context,
+                  ).textTheme.labelSmall?.copyWith(color: _kTextMuted),
                 ),
               ],
             ),
@@ -886,6 +897,7 @@ class _CreateRuleDialogState extends State<_CreateRuleDialog> {
   int _dayOfWeek = 1; // Monday
   int _dayOfMonth = 1;
   int _month = 1;
+  bool _sequential = false;
   bool _saving = false;
   final List<_StepEditorModel> _steps = [];
 
@@ -896,7 +908,7 @@ class _CreateRuleDialogState extends State<_CreateRuleDialog> {
     'Wednesday',
     'Thursday',
     'Friday',
-    'Saturday'
+    'Saturday',
   ];
   static const _months = [
     'January',
@@ -910,7 +922,7 @@ class _CreateRuleDialogState extends State<_CreateRuleDialog> {
     'September',
     'October',
     'November',
-    'December'
+    'December',
   ];
 
   @override
@@ -1010,13 +1022,23 @@ class _CreateRuleDialogState extends State<_CreateRuleDialog> {
                       ),
                     ),
                   ),
+                  if (_steps.length > 1) ...[
+                    const Text(
+                      'Sequential',
+                      style: TextStyle(fontSize: 12, color: _kTextSecondary),
+                    ),
+                    const SizedBox(width: 4),
+                    Switch(
+                      value: _sequential,
+                      onChanged: (v) => setState(() => _sequential = v),
+                    ),
+                    const SizedBox(width: 4),
+                  ],
                   TextButton.icon(
                     onPressed: () {
                       setState(() {
                         _steps.add(
-                          _StepEditorModel(
-                            id: _newStepId(_steps.length),
-                          ),
+                          _StepEditorModel(id: _newStepId(_steps.length)),
                         );
                       });
                     },
@@ -1028,9 +1050,9 @@ class _CreateRuleDialogState extends State<_CreateRuleDialog> {
               const SizedBox(height: 6),
               Text(
                 'Leave this empty to use the rhythm title as a single recurring task.',
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: _kTextMuted,
-                    ),
+                style: Theme.of(
+                  context,
+                ).textTheme.bodySmall?.copyWith(color: _kTextMuted),
               ),
               const SizedBox(height: 12),
               if (_steps.isEmpty)
@@ -1081,7 +1103,8 @@ class _CreateRuleDialogState extends State<_CreateRuleDialog> {
               ? const SizedBox(
                   width: 16,
                   height: 16,
-                  child: CircularProgressIndicator(strokeWidth: 2))
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
               : const Text('Create'),
         ),
       ],
@@ -1110,6 +1133,7 @@ class _CreateRuleDialogState extends State<_CreateRuleDialog> {
           ? _dayOfMonth
           : null,
       month: _frequency == 'annual' ? _month : null,
+      sequential: _sequential,
       steps: steps,
     );
     if (mounted) Navigator.pop(context);
@@ -1131,6 +1155,7 @@ class _EditRuleDialogState extends State<_EditRuleDialog> {
   late int _dayOfWeek;
   late int _dayOfMonth;
   late int _month;
+  late bool _sequential;
   bool _saving = false;
   final List<_StepEditorModel> _steps = [];
 
@@ -1141,7 +1166,7 @@ class _EditRuleDialogState extends State<_EditRuleDialog> {
     'Wednesday',
     'Thursday',
     'Friday',
-    'Saturday'
+    'Saturday',
   ];
   static const _months = [
     'January',
@@ -1155,7 +1180,7 @@ class _EditRuleDialogState extends State<_EditRuleDialog> {
     'September',
     'October',
     'November',
-    'December'
+    'December',
   ];
 
   @override
@@ -1166,6 +1191,7 @@ class _EditRuleDialogState extends State<_EditRuleDialog> {
     _dayOfWeek = widget.rule.dayOfWeek ?? 1;
     _dayOfMonth = widget.rule.dayOfMonth ?? 1;
     _month = widget.rule.month ?? 1;
+    _sequential = widget.rule.sequential;
     _steps.addAll(
       widget.rule.steps.map(
         (step) => _StepEditorModel(
@@ -1272,13 +1298,23 @@ class _EditRuleDialogState extends State<_EditRuleDialog> {
                       ),
                     ),
                   ),
+                  if (_steps.length > 1) ...[
+                    const Text(
+                      'Sequential',
+                      style: TextStyle(fontSize: 12, color: _kTextSecondary),
+                    ),
+                    const SizedBox(width: 4),
+                    Switch(
+                      value: _sequential,
+                      onChanged: (v) => setState(() => _sequential = v),
+                    ),
+                    const SizedBox(width: 4),
+                  ],
                   TextButton.icon(
                     onPressed: () {
                       setState(() {
                         _steps.add(
-                          _StepEditorModel(
-                            id: _newStepId(_steps.length),
-                          ),
+                          _StepEditorModel(id: _newStepId(_steps.length)),
                         );
                       });
                     },
@@ -1290,9 +1326,9 @@ class _EditRuleDialogState extends State<_EditRuleDialog> {
               const SizedBox(height: 6),
               Text(
                 'Leave this empty to keep the rhythm as a single task.',
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: _kTextMuted,
-                    ),
+                style: Theme.of(
+                  context,
+                ).textTheme.bodySmall?.copyWith(color: _kTextMuted),
               ),
               const SizedBox(height: 12),
               if (_steps.isEmpty)
@@ -1343,7 +1379,8 @@ class _EditRuleDialogState extends State<_EditRuleDialog> {
               ? const SizedBox(
                   width: 16,
                   height: 16,
-                  child: CircularProgressIndicator(strokeWidth: 2))
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
               : const Text('Save'),
         ),
       ],
@@ -1371,6 +1408,7 @@ class _EditRuleDialogState extends State<_EditRuleDialog> {
           ? _dayOfMonth
           : null,
       month: _frequency == 'annual' ? _month : null,
+      sequential: _sequential,
       steps: steps,
     );
     if (mounted) Navigator.pop(context);
@@ -1454,7 +1492,9 @@ class _DayOfMonthField extends StatelessWidget {
     return TextFormField(
       initialValue: value.toString(),
       decoration: const InputDecoration(
-          labelText: 'Day of Month (1–31)', border: OutlineInputBorder()),
+        labelText: 'Day of Month (1–31)',
+        border: OutlineInputBorder(),
+      ),
       keyboardType: TextInputType.number,
       inputFormatters: [FilteringTextInputFormatter.digitsOnly],
       onChanged: (v) {
@@ -1492,11 +1532,7 @@ class _EmptyState extends StatelessWidget {
                 borderRadius: BorderRadius.circular(18),
                 border: Border.all(color: _kBorderSoft),
               ),
-              child: const Icon(
-                Icons.repeat,
-                size: 28,
-                color: _kPrimary,
-              ),
+              child: const Icon(Icons.repeat, size: 28, color: _kPrimary),
             ),
             const SizedBox(height: 18),
             Text(
@@ -1512,9 +1548,9 @@ class _EmptyState extends StatelessWidget {
             Text(
               'Create a rhythm for weekly work, monthly check-ins, or annual reminders. The list will stay quiet until you add one.',
               textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: _kTextSecondary,
-                  ),
+              style: Theme.of(
+                context,
+              ).textTheme.bodyMedium?.copyWith(color: _kTextSecondary),
             ),
             const SizedBox(height: 18),
             FilledButton.tonalIcon(

@@ -138,7 +138,10 @@ class _TasksViewState extends State<TasksView> {
   }
 
   Widget _buildHeader(
-      BuildContext context, TasksController controller, int visibleCount) {
+    BuildContext context,
+    TasksController controller,
+    int visibleCount,
+  ) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(24, 10, 24, 6),
       child: Container(
@@ -206,20 +209,25 @@ class _TasksViewState extends State<TasksView> {
                         vertical: 10,
                       ),
                       border: OutlineInputBorder(
-                        borderRadius:
-                            BorderRadius.circular(RhythmTokens.radiusM),
-                        borderSide:
-                            const BorderSide(color: RhythmTokens.borderSoft),
+                        borderRadius: BorderRadius.circular(
+                          RhythmTokens.radiusM,
+                        ),
+                        borderSide: const BorderSide(
+                          color: RhythmTokens.borderSoft,
+                        ),
                       ),
                       enabledBorder: OutlineInputBorder(
-                        borderRadius:
-                            BorderRadius.circular(RhythmTokens.radiusM),
-                        borderSide:
-                            const BorderSide(color: RhythmTokens.borderSoft),
+                        borderRadius: BorderRadius.circular(
+                          RhythmTokens.radiusM,
+                        ),
+                        borderSide: const BorderSide(
+                          color: RhythmTokens.borderSoft,
+                        ),
                       ),
                       focusedBorder: OutlineInputBorder(
-                        borderRadius:
-                            BorderRadius.circular(RhythmTokens.radiusM),
+                        borderRadius: BorderRadius.circular(
+                          RhythmTokens.radiusM,
+                        ),
                         borderSide: const BorderSide(
                           color: RhythmTokens.accent,
                           width: 1.2,
@@ -241,7 +249,9 @@ class _TasksViewState extends State<TasksView> {
   }
 
   Widget _buildTaskListSliver(
-      TasksController controller, List<Task> visibleTasks) {
+    TasksController controller,
+    List<Task> visibleTasks,
+  ) {
     if (controller.status == TasksStatus.loading && controller.tasks.isEmpty) {
       return const SliverFillRemaining(
         hasScrollBody: false,
@@ -563,21 +573,27 @@ class _TasksViewState extends State<TasksView> {
                 onPressed: _pickDate,
                 style: OutlinedButton.styleFrom(
                   visualDensity: VisualDensity.compact,
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
+                  ),
                   minimumSize: Size.zero,
                 ),
                 icon: const Icon(Icons.calendar_today, size: 16),
-                label: Text(_selectedDueDate == null
-                    ? 'Due date'
-                    : DateFormatters.fullDate(_selectedDueDate)),
+                label: Text(
+                  _selectedDueDate == null
+                      ? 'Due date'
+                      : DateFormatters.fullDate(_selectedDueDate),
+                ),
               ),
               FilledButton.icon(
                 onPressed: _submitCreate,
                 style: FilledButton.styleFrom(
                   visualDensity: VisualDensity.compact,
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 8,
+                  ),
                   minimumSize: Size.zero,
                 ),
                 icon: const Icon(Icons.add, size: 16),
@@ -792,7 +808,10 @@ class _StickyBarDelegate extends SliverPersistentHeaderDelegate {
 
   @override
   Widget build(
-      BuildContext context, double shrinkOffset, bool overlapsContent) {
+    BuildContext context,
+    double shrinkOffset,
+    bool overlapsContent,
+  ) {
     return Container(
       color: RhythmTokens.background,
       padding: const EdgeInsets.fromLTRB(24, 0, 24, 4),
@@ -883,9 +902,11 @@ class _EditTaskDialogState extends State<_EditTaskDialog> {
                 OutlinedButton.icon(
                   onPressed: _pickDate,
                   icon: const Icon(Icons.calendar_today, size: 16),
-                  label: Text(_dueDate == null
-                      ? 'Set due date'
-                      : DateFormatters.fullDate(_dueDate)),
+                  label: Text(
+                    _dueDate == null
+                        ? 'Set due date'
+                        : DateFormatters.fullDate(_dueDate),
+                  ),
                 ),
                 if (_dueDate != null) ...[
                   const SizedBox(width: 8),

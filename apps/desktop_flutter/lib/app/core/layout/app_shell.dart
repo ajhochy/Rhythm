@@ -437,8 +437,9 @@ class _TopRightAccountClusterState extends State<_TopRightAccountCluster> {
                     child: Container(
                       padding: const EdgeInsets.all(10),
                       decoration: BoxDecoration(
-                        borderRadius:
-                            BorderRadius.circular(RhythmTokens.radiusM),
+                        borderRadius: BorderRadius.circular(
+                          RhythmTokens.radiusM,
+                        ),
                         border: Border.all(color: RhythmTokens.borderSoft),
                       ),
                       child: Icon(
@@ -459,8 +460,10 @@ class _TopRightAccountClusterState extends State<_TopRightAccountCluster> {
                     right: -4,
                     child: Container(
                       padding: const EdgeInsets.all(3),
-                      constraints:
-                          const BoxConstraints(minWidth: 16, minHeight: 16),
+                      constraints: const BoxConstraints(
+                        minWidth: 16,
+                        minHeight: 16,
+                      ),
                       decoration: const BoxDecoration(
                         color: RhythmTokens.danger,
                         shape: BoxShape.circle,

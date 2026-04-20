@@ -320,6 +320,9 @@ export function runMigrations(db: Database.Database): void {
   if (!recurringRuleCols.includes('steps_json')) {
     db.exec(`ALTER TABLE recurring_task_rules ADD COLUMN steps_json TEXT NOT NULL DEFAULT '[]'`);
   }
+  if (!recurringRuleCols.includes('sequential')) {
+    db.exec(`ALTER TABLE recurring_task_rules ADD COLUMN sequential INTEGER NOT NULL DEFAULT 0`);
+  }
 
   const userCols = (db.pragma('table_info(users)') as { name: string }[]).map((c) => c.name);
   if (!userCols.includes('google_sub')) {

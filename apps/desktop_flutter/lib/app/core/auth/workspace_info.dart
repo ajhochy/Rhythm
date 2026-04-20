@@ -1,9 +1,5 @@
 class WorkspaceInfo {
-  const WorkspaceInfo({
-    required this.id,
-    required this.name,
-    this.joinCode,
-  });
+  const WorkspaceInfo({required this.id, required this.name, this.joinCode});
 
   final int id;
   final String name;

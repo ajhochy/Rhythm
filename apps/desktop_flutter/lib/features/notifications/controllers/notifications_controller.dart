@@ -5,10 +5,7 @@ import '../repositories/notifications_repository.dart';
 
 /// A pending navigation request triggered by tapping a notification.
 class PendingNavigation {
-  PendingNavigation({
-    required this.entityType,
-    required this.entityId,
-  });
+  PendingNavigation({required this.entityType, required this.entityId});
 
   /// 'task', 'rhythm', or 'project'
   final String entityType;

@@ -19,6 +19,7 @@ interface RuleRow {
   month: number | null;
   steps_json: string | null;
   enabled: number | boolean;
+  sequential: number | boolean;
   owner_id: number | null;
   created_at: string;
 }
@@ -26,6 +27,8 @@ interface RuleRow {
 function rowToRule(row: RuleRow): RecurringTaskRule {
   const enabled =
     typeof row.enabled === 'boolean' ? row.enabled : row.enabled === 1;
+  const sequential =
+    typeof row.sequential === 'boolean' ? row.sequential : row.sequential === 1;
   return {
     id: row.id,
     title: row.title,
@@ -34,6 +37,7 @@ function rowToRule(row: RuleRow): RecurringTaskRule {
     dayOfMonth: row.day_of_month,
     month: row.month,
     enabled,
+    sequential,
     ownerId: row.owner_id,
     steps: parseSteps(row.steps_json),
     collaborators: [],
@@ -211,8 +215,8 @@ export class RecurringTaskRulesRepository {
       const id = uuidv4();
       const now = new Date().toISOString();
       await getPostgresPool().query(
-        `INSERT INTO recurring_task_rules (id, title, frequency, day_of_week, day_of_month, month, steps_json, enabled, owner_id, created_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+        `INSERT INTO recurring_task_rules (id, title, frequency, day_of_week, day_of_month, month, steps_json, enabled, sequential, owner_id, created_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
         [
           id,
           data.title,
@@ -222,6 +226,7 @@ export class RecurringTaskRulesRepository {
           data.month ?? null,
           serializeSteps(data.steps),
           data.enabled !== false,
+          data.sequential === true,
           data.ownerId ?? null,
           now,
         ],
@@ -235,10 +240,11 @@ export class RecurringTaskRulesRepository {
     const id = uuidv4();
     const now = new Date().toISOString();
     const enabled = data.enabled !== false ? 1 : 0;
+    const sequential = data.sequential === true ? 1 : 0;
     getDb()
       .prepare(
-        `INSERT INTO recurring_task_rules (id, title, frequency, day_of_week, day_of_month, month, steps_json, enabled, owner_id, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO recurring_task_rules (id, title, frequency, day_of_week, day_of_month, month, steps_json, enabled, sequential, owner_id, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         id,
@@ -249,6 +255,7 @@ export class RecurringTaskRulesRepository {
         data.month ?? null,
         serializeSteps(data.steps),
         enabled,
+        sequential,
         data.ownerId ?? null,
         now,
       );
@@ -265,8 +272,8 @@ export class RecurringTaskRulesRepository {
       const steps = data.steps !== undefined ? data.steps : existing.steps;
       await getPostgresPool().query(
         `UPDATE recurring_task_rules
-         SET title = $1, frequency = $2, day_of_week = $3, day_of_month = $4, month = $5, steps_json = $6, enabled = $7, owner_id = $8
-         WHERE id = $9`,
+         SET title = $1, frequency = $2, day_of_week = $3, day_of_month = $4, month = $5, steps_json = $6, enabled = $7, sequential = $8, owner_id = $9
+         WHERE id = $10`,
         [
           data.title ?? existing.title,
           data.frequency ?? existing.frequency,
@@ -275,6 +282,7 @@ export class RecurringTaskRulesRepository {
           data.month !== undefined ? data.month : existing.month,
           serializeSteps(steps),
           data.enabled !== undefined ? data.enabled : existing.enabled,
+          data.sequential !== undefined ? data.sequential : existing.sequential,
           data.ownerId !== undefined ? data.ownerId : existing.ownerId,
           id,
         ],
@@ -291,12 +299,13 @@ export class RecurringTaskRulesRepository {
   ): RecurringTaskRule {
     const existing = this.findById(id, userId);
     const enabled = data.enabled !== undefined ? (data.enabled ? 1 : 0) : (existing.enabled ? 1 : 0);
+    const sequential = data.sequential !== undefined ? (data.sequential ? 1 : 0) : (existing.sequential ? 1 : 0);
     const steps =
       data.steps !== undefined ? data.steps : existing.steps;
     getDb()
       .prepare(
         `UPDATE recurring_task_rules
-         SET title = ?, frequency = ?, day_of_week = ?, day_of_month = ?, month = ?, steps_json = ?, enabled = ?, owner_id = ?
+         SET title = ?, frequency = ?, day_of_week = ?, day_of_month = ?, month = ?, steps_json = ?, enabled = ?, sequential = ?, owner_id = ?
          WHERE id = ?`,
       )
       .run(
@@ -307,6 +316,7 @@ export class RecurringTaskRulesRepository {
         data.month !== undefined ? data.month : existing.month,
         serializeSteps(steps),
         enabled,
+        sequential,
         data.ownerId !== undefined ? data.ownerId : existing.ownerId,
         id,
       );

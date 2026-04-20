@@ -17,6 +17,7 @@ class RhythmsRepository {
     int? dayOfWeek,
     int? dayOfMonth,
     int? month,
+    bool? sequential,
     List<RecurringTaskRuleStep>? steps,
   }) =>
       _dataSource.create(
@@ -25,6 +26,7 @@ class RhythmsRepository {
         dayOfWeek: dayOfWeek,
         dayOfMonth: dayOfMonth,
         month: month,
+        sequential: sequential,
         steps: steps,
       );
 
@@ -36,16 +38,20 @@ class RhythmsRepository {
     int? dayOfMonth,
     int? month,
     bool? enabled,
+    bool? sequential,
     List<RecurringTaskRuleStep>? steps,
   }) =>
-      _dataSource.update(id,
-          title: title,
-          frequency: frequency,
-          dayOfWeek: dayOfWeek,
-          dayOfMonth: dayOfMonth,
-          month: month,
-          enabled: enabled,
-          steps: steps);
+      _dataSource.update(
+        id,
+        title: title,
+        frequency: frequency,
+        dayOfWeek: dayOfWeek,
+        dayOfMonth: dayOfMonth,
+        month: month,
+        enabled: enabled,
+        sequential: sequential,
+        steps: steps,
+      );
 
   Future<void> delete(String id) => _dataSource.delete(id);
 }

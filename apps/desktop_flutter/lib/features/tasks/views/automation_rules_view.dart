@@ -725,10 +725,13 @@ class _AutomationBuilderDialogState extends State<_AutomationBuilderDialog> {
   late final TextEditingController _tagController;
   String? _selectedSource;
   String? _selectedTriggerKey;
+  List<String> _selectedTriggerKeys = [];
   String? _selectedActionType;
   String? _selectedAccountId;
   String? _selectedTeamId;
   String? _selectedPositionName;
+  List<String> _selectedTeamIds = [];
+  List<String> _selectedPositionNames = [];
   String? _selectedEventType;
   String? _selectedLabel;
   int? _leadDays;
@@ -736,9 +739,13 @@ class _AutomationBuilderDialogState extends State<_AutomationBuilderDialog> {
   int? _hoursSinceReceived;
   int? _targetDay;
   int? _daysBeforeDue;
+  int? _targetDayOfWeek;
   bool _allDayOnly = false;
   String? _validationError;
   late List<_ConditionDraft> _conditions;
+  String? _selectedTemplateName;
+  late final FocusNode _titleTemplateFocus;
+  late final FocusNode _notesTemplateFocus;
 
   @override
   void initState() {
@@ -769,6 +776,8 @@ class _AutomationBuilderDialogState extends State<_AutomationBuilderDialog> {
     _tagController = TextEditingController(
       text: existing?.actionConfig?['tag']?.toString() ?? '',
     );
+    _titleTemplateFocus = FocusNode();
+    _notesTemplateFocus = FocusNode();
     for (final controller in [
       _titleTemplateController,
       _notesTemplateController,
@@ -781,12 +790,32 @@ class _AutomationBuilderDialogState extends State<_AutomationBuilderDialog> {
     _selectedSource =
         existing?.source ?? widget.controller.providers.firstOrNull?.source;
     _selectedTriggerKey = existing?.triggerKey;
+    // Multi-select trigger keys (PCO)
+    final rawTriggerKeys = existing?.triggerConfig?['triggerKeys'];
+    if (rawTriggerKeys is List) {
+      _selectedTriggerKeys = rawTriggerKeys.map((k) => k.toString()).toList();
+    } else if (existing?.triggerKey != null) {
+      _selectedTriggerKeys = [existing!.triggerKey];
+    }
     _selectedActionType =
         existing?.actionType ?? widget.controller.actions.firstOrNull?.key;
     _selectedAccountId = existing?.sourceAccountId;
     _selectedTeamId = existing?.triggerConfig?['teamId']?.toString();
     _selectedPositionName =
         existing?.triggerConfig?['positionName']?.toString();
+    final rawTeamIds = existing?.triggerConfig?['teamIds'];
+    if (rawTeamIds is List) {
+      _selectedTeamIds = rawTeamIds.map((k) => k.toString()).toList();
+    } else if (_selectedTeamId != null) {
+      _selectedTeamIds = [_selectedTeamId!];
+    }
+    final rawPositionNames = existing?.triggerConfig?['positionNames'];
+    if (rawPositionNames is List) {
+      _selectedPositionNames =
+          rawPositionNames.map((k) => k.toString()).toList();
+    } else if (_selectedPositionName != null) {
+      _selectedPositionNames = [_selectedPositionName!];
+    }
     _selectedEventType = existing?.triggerConfig?['eventType']?.toString();
     _selectedLabel = existing?.triggerConfig?['label']?.toString();
     _leadDays = (existing?.triggerConfig?['leadDays'] as num?)?.toInt();
@@ -795,15 +824,20 @@ class _AutomationBuilderDialogState extends State<_AutomationBuilderDialog> {
     _hoursSinceReceived =
         (existing?.triggerConfig?['hoursSinceReceived'] as num?)?.toInt();
     _targetDay = (existing?.actionConfig?['targetDay'] as num?)?.toInt();
+    _targetDayOfWeek =
+        (existing?.actionConfig?['targetDayOfWeek'] as num?)?.toInt();
     _daysBeforeDue =
         (existing?.triggerConfig?['daysBeforeDue'] as num?)?.toInt();
     _allDayOnly = existing?.triggerConfig?['allDayOnly'] == true;
+    _selectedTemplateName = existing?.actionConfig?['templateName']?.toString();
     _conditions = (existing?.conditions ?? const [])
-        .map((c) => _ConditionDraft(
-              field: c.field,
-              operator: c.operator,
-              value: TextEditingController(text: c.value),
-            ))
+        .map(
+          (c) => _ConditionDraft(
+            field: c.field,
+            operator: c.operator,
+            value: TextEditingController(text: c.value),
+          ),
+        )
         .toList();
     _syncAccountSelectionWithSource();
     if (existing == null && _nameController.text.trim().isEmpty) {
@@ -822,6 +856,8 @@ class _AutomationBuilderDialogState extends State<_AutomationBuilderDialog> {
     _messageTemplateController.dispose();
     _templateNameController.dispose();
     _tagController.dispose();
+    _titleTemplateFocus.dispose();
+    _notesTemplateFocus.dispose();
     for (final c in _conditions) {
       c.value.dispose();
     }
@@ -837,6 +873,20 @@ class _AutomationBuilderDialogState extends State<_AutomationBuilderDialog> {
     _selectedActionType ??= widget.controller.actions.firstOrNull?.key;
     final trigger =
         triggers.where((item) => item.key == _selectedTriggerKey).firstOrNull;
+    final isPco = _selectedSource == 'planning_center';
+    final availableActions = isPco
+        ? widget.controller.actions
+            .where(
+              (item) =>
+                  item.key == 'create_task' ||
+                  item.key == 'create_project_from_template',
+            )
+            .toList()
+        : widget.controller.actions;
+    if (availableActions.isNotEmpty &&
+        !availableActions.any((item) => item.key == _selectedActionType)) {
+      _selectedActionType = availableActions.first.key;
+    }
 
     return AlertDialog(
       title: Text(
@@ -919,34 +969,97 @@ class _AutomationBuilderDialogState extends State<_AutomationBuilderDialog> {
               ],
               const SizedBox(height: 18),
               _stepTitle('2. Trigger'),
-              DropdownButtonFormField<String>(
-                value: _selectedTriggerKey,
-                isExpanded: true,
-                decoration: const InputDecoration(
-                  labelText: 'Trigger',
-                  border: OutlineInputBorder(),
+              if (isPco) ...[
+                const Text(
+                  'Select one or more triggers:',
+                  style: TextStyle(color: RhythmTokens.textSecondary),
                 ),
-                items: triggers
-                    .map(
-                      (item) => DropdownMenuItem(
-                        value: item.key,
-                        child: Text(item.label),
-                      ),
-                    )
-                    .toList(),
-                onChanged: (value) => setState(() {
-                  _selectedTriggerKey = value;
-                  _populateSuggestedNameIfEmpty();
-                }),
-              ),
-              if (trigger != null) ...[
                 const SizedBox(height: 8),
-                Text(
-                  trigger.description,
-                  style: const TextStyle(color: RhythmTokens.textSecondary),
+                Card(
+                  elevation: 0,
+                  color: RhythmTokens.surfaceMuted,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(RhythmTokens.radiusM),
+                    side: const BorderSide(color: RhythmTokens.borderSoft),
+                  ),
+                  child: SizedBox(
+                    height: 200,
+                    child: ListView(
+                      shrinkWrap: true,
+                      children: triggers.map((item) {
+                        final selected =
+                            _selectedTriggerKeys.contains(item.key);
+                        return CheckboxListTile(
+                          dense: true,
+                          value: selected,
+                          title: Text(item.label),
+                          subtitle: Text(
+                            item.description,
+                            style: const TextStyle(
+                              color: RhythmTokens.textSecondary,
+                              fontSize: 12,
+                            ),
+                          ),
+                          onChanged: (checked) {
+                            setState(() {
+                              if (checked == true) {
+                                _selectedTriggerKeys = [
+                                  ..._selectedTriggerKeys,
+                                  item.key,
+                                ];
+                              } else {
+                                _selectedTriggerKeys = _selectedTriggerKeys
+                                    .where((k) => k != item.key)
+                                    .toList();
+                              }
+                              // Keep _selectedTriggerKey in sync
+                              _selectedTriggerKey =
+                                  _selectedTriggerKeys.firstOrNull ??
+                                      triggers.firstOrNull?.key;
+                              _populateSuggestedNameIfEmpty();
+                            });
+                          },
+                        );
+                      }).toList(),
+                    ),
+                  ),
                 ),
                 const SizedBox(height: 12),
-                ..._buildTriggerFields(trigger),
+                ..._buildTriggerFields(
+                  triggers.firstOrNull ??
+                      (trigger ??
+                          (triggers.isNotEmpty ? triggers.first : null))!,
+                ),
+              ] else ...[
+                DropdownButtonFormField<String>(
+                  value: _selectedTriggerKey,
+                  isExpanded: true,
+                  decoration: const InputDecoration(
+                    labelText: 'Trigger',
+                    border: OutlineInputBorder(),
+                  ),
+                  items: triggers
+                      .map(
+                        (item) => DropdownMenuItem(
+                          value: item.key,
+                          child: Text(item.label),
+                        ),
+                      )
+                      .toList(),
+                  onChanged: (value) => setState(() {
+                    _selectedTriggerKey = value;
+                    _populateSuggestedNameIfEmpty();
+                  }),
+                ),
+                if (trigger != null) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    trigger.description,
+                    style: const TextStyle(color: RhythmTokens.textSecondary),
+                  ),
+                  const SizedBox(height: 12),
+                  ..._buildTriggerFields(trigger),
+                ],
               ],
               const SizedBox(height: 18),
               _stepTitle('3. Conditions (optional)'),
@@ -954,13 +1067,16 @@ class _AutomationBuilderDialogState extends State<_AutomationBuilderDialog> {
               const SizedBox(height: 18),
               _stepTitle('4. Action'),
               DropdownButtonFormField<String>(
-                value: _selectedActionType,
+                value: availableActions
+                        .any((item) => item.key == _selectedActionType)
+                    ? _selectedActionType
+                    : availableActions.firstOrNull?.key,
                 isExpanded: true,
                 decoration: const InputDecoration(
                   labelText: 'Action',
                   border: OutlineInputBorder(),
                 ),
-                items: widget.controller.actions
+                items: availableActions
                     .map(
                       (item) => DropdownMenuItem(
                         value: item.key,
@@ -1003,8 +1119,13 @@ class _AutomationBuilderDialogState extends State<_AutomationBuilderDialog> {
                 : _nameController.text.trim();
             final validationError = _validateDraft();
             setState(() => _validationError = validationError);
+            final effectiveTriggerKey = _selectedSource == 'planning_center'
+                ? (_selectedTriggerKeys.firstOrNull ??
+                    _selectedTriggerKey ??
+                    '')
+                : (_selectedTriggerKey ?? '');
             if (_selectedSource == null ||
-                _selectedTriggerKey == null ||
+                effectiveTriggerKey.isEmpty ||
                 _selectedActionType == null ||
                 validationError != null) {
               return;
@@ -1014,7 +1135,7 @@ class _AutomationBuilderDialogState extends State<_AutomationBuilderDialog> {
               _AutomationDraft(
                 name: name,
                 source: _selectedSource!,
-                triggerKey: _selectedTriggerKey!,
+                triggerKey: effectiveTriggerKey,
                 actionType: _selectedActionType!,
                 triggerConfig: _buildTriggerConfig(),
                 actionConfig: _buildActionConfig(),
@@ -1090,11 +1211,13 @@ class _AutomationBuilderDialogState extends State<_AutomationBuilderDialog> {
       const SizedBox(height: 8),
       TextButton.icon(
         onPressed: () => setState(() {
-          _conditions.add(_ConditionDraft(
-            field: fields.first,
-            operator: 'contains',
-            value: TextEditingController(),
-          ));
+          _conditions.add(
+            _ConditionDraft(
+              field: fields.first,
+              operator: 'contains',
+              value: TextEditingController(),
+            ),
+          );
         }),
         icon: const Icon(Icons.add, size: 16),
         label: const Text('Add condition'),
@@ -1133,10 +1256,12 @@ class _AutomationBuilderDialogState extends State<_AutomationBuilderDialog> {
               isDense: true,
             ),
             items: _conditionOperators
-                .map((op) => DropdownMenuItem(
-                      value: op,
-                      child: Text(_operatorLabel(op)),
-                    ))
+                .map(
+                  (op) => DropdownMenuItem(
+                    value: op,
+                    child: Text(_operatorLabel(op)),
+                  ),
+                )
                 .toList(),
             onChanged: (value) =>
                 setState(() => condition.operator = value ?? 'contains'),
@@ -1168,11 +1293,13 @@ class _AutomationBuilderDialogState extends State<_AutomationBuilderDialog> {
   List<AutomationCondition>? _buildConditions() {
     final result = _conditions
         .where((c) => c.value.text.trim().isNotEmpty)
-        .map((c) => AutomationCondition(
-              field: c.field,
-              operator: c.operator,
-              value: c.value.text.trim(),
-            ))
+        .map(
+          (c) => AutomationCondition(
+            field: c.field,
+            operator: c.operator,
+            value: c.value.text.trim(),
+          ),
+        )
         .toList();
     return result.isEmpty ? null : result;
   }
@@ -1193,45 +1320,85 @@ class _AutomationBuilderDialogState extends State<_AutomationBuilderDialog> {
     if (trigger.source == 'planning_center') {
       final options = widget.controller.planningCenterTaskOptions;
       return [
-        if (options != null) ...[
-          DropdownButtonFormField<String>(
-            value: _selectedTeamId,
-            decoration: const InputDecoration(
-              labelText: 'Team',
-              border: OutlineInputBorder(),
+        if (options == null)
+          const Text(
+            'Connect Planning Center to filter by team.',
+            style: TextStyle(color: RhythmTokens.textSecondary),
+          )
+        else ...[
+          const Text(
+            'Teams (optional, multi-select):',
+            style: TextStyle(
+              fontWeight: FontWeight.w600,
+              color: RhythmTokens.textPrimary,
             ),
-            items: [
-              const DropdownMenuItem<String>(
-                value: null,
-                child: Text('Any team'),
-              ),
-              ...options.teams.map(
-                (team) => DropdownMenuItem(
-                  value: team.id,
-                  child: Text('${team.serviceTypeName} · ${team.name}'),
-                ),
-              ),
-            ],
-            onChanged: (value) => setState(() => _selectedTeamId = value),
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: options.teams.map((team) {
+              final selected = _selectedTeamIds.contains(team.id);
+              return FilterChip(
+                label: Text('${team.serviceTypeName} · ${team.name}'),
+                selected: selected,
+                onSelected: (checked) {
+                  setState(() {
+                    if (checked) {
+                      _selectedTeamIds = [..._selectedTeamIds, team.id];
+                    } else {
+                      _selectedTeamIds = _selectedTeamIds
+                          .where((id) => id != team.id)
+                          .toList();
+                      // Remove positions that no longer belong to any selected team
+                      final validPositions = _positionsForTeams(
+                        options,
+                        _selectedTeamIds,
+                      ).toSet();
+                      _selectedPositionNames = _selectedPositionNames
+                          .where((p) => validPositions.contains(p))
+                          .toList();
+                    }
+                  });
+                },
+              );
+            }).toList(),
           ),
           const SizedBox(height: 12),
-          DropdownButtonFormField<String>(
-            value: _selectedPositionName,
-            decoration: const InputDecoration(
-              labelText: 'Position',
-              border: OutlineInputBorder(),
+          const Text(
+            'Positions (optional, multi-select):',
+            style: TextStyle(
+              fontWeight: FontWeight.w600,
+              color: RhythmTokens.textPrimary,
             ),
-            items: [
-              const DropdownMenuItem<String>(
-                value: null,
-                child: Text('Any position'),
-              ),
-              ..._positionsForTeam(options, _selectedTeamId).map(
-                (position) =>
-                    DropdownMenuItem(value: position, child: Text(position)),
-              ),
-            ],
-            onChanged: (value) => setState(() => _selectedPositionName = value),
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: _positionsForTeams(options, _selectedTeamIds).map(
+              (position) {
+                final selected = _selectedPositionNames.contains(position);
+                return FilterChip(
+                  label: Text(position),
+                  selected: selected,
+                  onSelected: (checked) {
+                    setState(() {
+                      if (checked) {
+                        _selectedPositionNames = [
+                          ..._selectedPositionNames,
+                          position,
+                        ];
+                      } else {
+                        _selectedPositionNames = _selectedPositionNames
+                            .where((p) => p != position)
+                            .toList();
+                      }
+                    });
+                  },
+                );
+              },
+            ).toList(),
           ),
           const SizedBox(height: 12),
         ],
@@ -1591,14 +1758,48 @@ class _AutomationBuilderDialogState extends State<_AutomationBuilderDialog> {
   List<Widget> _buildActionFields() {
     switch (_selectedActionType) {
       case 'create_project_from_template':
+        final templateNames = [
+          ...widget.controller.projectTemplateNames,
+          if (_templateNameController.text.trim().isNotEmpty &&
+              !widget.controller.projectTemplateNames
+                  .contains(_templateNameController.text.trim()))
+            _templateNameController.text.trim(),
+        ];
         return [
-          TextField(
-            controller: _templateNameController,
-            decoration: const InputDecoration(
-              labelText: 'Project template name',
-              border: OutlineInputBorder(),
+          if (templateNames.isNotEmpty)
+            DropdownButtonFormField<String>(
+              value: templateNames.contains(
+                _selectedTemplateName ?? _templateNameController.text.trim(),
+              )
+                  ? (_selectedTemplateName ??
+                      _templateNameController.text.trim())
+                  : null,
+              isExpanded: true,
+              decoration: const InputDecoration(
+                labelText: 'Project template',
+                border: OutlineInputBorder(),
+              ),
+              items: templateNames
+                  .map(
+                    (name) => DropdownMenuItem<String>(
+                      value: name,
+                      child: Text(name),
+                    ),
+                  )
+                  .toList(),
+              onChanged: (value) => setState(() {
+                _selectedTemplateName = value;
+                _templateNameController.text = value ?? '';
+              }),
+            )
+          else
+            TextField(
+              controller: _templateNameController,
+              decoration: const InputDecoration(
+                labelText: 'Project template name',
+                border: OutlineInputBorder(),
+              ),
             ),
-          ),
         ];
       case 'send_notification':
         return [
@@ -1732,6 +1933,23 @@ class _AutomationBuilderDialogState extends State<_AutomationBuilderDialog> {
               onChanged: (value) => setState(() => _targetDay = value),
             ),
           ],
+          if (_selectedSource == 'planning_center' &&
+              _selectedActionType == 'create_task') ...[
+            const SizedBox(height: 12),
+            _IntegerDropdown(
+              label: 'Schedule in service week',
+              value: _targetDayOfWeek,
+              options: const [1, 2, 3, 4, 5],
+              labels: const {
+                1: 'Monday',
+                2: 'Tuesday',
+                3: 'Wednesday',
+                4: 'Thursday',
+                5: 'Friday',
+              },
+              onChanged: (value) => setState(() => _targetDayOfWeek = value),
+            ),
+          ],
         ];
     }
   }
@@ -1743,6 +1961,13 @@ class _AutomationBuilderDialogState extends State<_AutomationBuilderDialog> {
     if (_selectedTeamId != null) config['teamId'] = _selectedTeamId;
     if (_selectedPositionName != null) {
       config['positionName'] = _selectedPositionName;
+    }
+    if (_selectedTeamIds.isNotEmpty) config['teamIds'] = _selectedTeamIds;
+    if (_selectedPositionNames.isNotEmpty) {
+      config['positionNames'] = _selectedPositionNames;
+    }
+    if (_selectedTriggerKeys.length > 1) {
+      config['triggerKeys'] = _selectedTriggerKeys;
     }
     if (_textQueryController.text.trim().isNotEmpty) {
       config['textQuery'] = _textQueryController.text.trim();
@@ -1774,13 +1999,16 @@ class _AutomationBuilderDialogState extends State<_AutomationBuilderDialog> {
     if (_messageTemplateController.text.trim().isNotEmpty) {
       config['messageTemplate'] = _messageTemplateController.text.trim();
     }
-    if (_templateNameController.text.trim().isNotEmpty) {
-      config['templateName'] = _templateNameController.text.trim();
+    final templateName =
+        _selectedTemplateName ?? _templateNameController.text.trim();
+    if (templateName.isNotEmpty) {
+      config['templateName'] = templateName;
     }
     if (_tagController.text.trim().isNotEmpty) {
       config['tag'] = _tagController.text.trim();
     }
     if (_targetDay != null) config['targetDay'] = _targetDay;
+    if (_targetDayOfWeek != null) config['targetDayOfWeek'] = _targetDayOfWeek;
     return config.isEmpty ? null : config;
   }
 
@@ -1868,18 +2096,23 @@ class _AutomationBuilderDialogState extends State<_AutomationBuilderDialog> {
     return null;
   }
 
-  List<String> _positionsForTeam(
+  List<String> _positionsForTeams(
     PlanningCenterTaskOptions options,
-    String? teamId,
+    List<String> teamIds,
   ) {
-    if (teamId == null) {
+    if (teamIds.isEmpty) {
       return options.positionsByTeamId.values
           .expand((item) => item)
           .toSet()
           .toList()
         ..sort();
     }
-    return options.positionsByTeamId[teamId] ?? const [];
+    return teamIds
+        .expand(
+            (teamId) => options.positionsByTeamId[teamId] ?? const <String>[])
+        .toSet()
+        .toList()
+      ..sort();
   }
 }
 

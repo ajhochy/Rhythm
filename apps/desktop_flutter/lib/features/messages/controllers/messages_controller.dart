@@ -113,8 +113,11 @@ class MessagesController extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> createThread(List<int> participantIds,
-      {String? title, String threadType = 'direct'}) async {
+  Future<void> createThread(
+    List<int> participantIds, {
+    String? title,
+    String threadType = 'direct',
+  }) async {
     try {
       final thread = await _repository.createThread(
         participantIds,
@@ -197,10 +200,7 @@ class MessagesController extends ChangeNotifier {
   }
 
   void startPolling() {
-    _pollTimer ??= Timer.periodic(
-      _pollInterval,
-      (_) => unawaited(_poll()),
-    );
+    _pollTimer ??= Timer.periodic(_pollInterval, (_) => unawaited(_poll()));
   }
 
   void stopPolling() {
@@ -210,17 +210,19 @@ class MessagesController extends ChangeNotifier {
 
   void _markThreadReadLocally(int threadId) {
     _threads = _threads
-        .map((thread) => thread.id == threadId
-            ? MessageThread(
-                id: thread.id,
-                title: thread.title,
-                lastMessage: thread.lastMessage,
-                updatedAt: thread.updatedAt,
-                unreadCount: 0,
-                participants: thread.participants,
-                threadType: thread.threadType,
-              )
-            : thread)
+        .map(
+          (thread) => thread.id == threadId
+              ? MessageThread(
+                  id: thread.id,
+                  title: thread.title,
+                  lastMessage: thread.lastMessage,
+                  updatedAt: thread.updatedAt,
+                  unreadCount: 0,
+                  participants: thread.participants,
+                  threadType: thread.threadType,
+                )
+              : thread,
+        )
         .toList();
   }
 
@@ -237,10 +239,7 @@ class MessagesController extends ChangeNotifier {
       participants: thread.participants,
       threadType: thread.threadType,
     );
-    _threads = [
-      updated,
-      ..._threads.where((thread) => thread.id != threadId),
-    ];
+    _threads = [updated, ..._threads.where((thread) => thread.id != threadId)];
   }
 
   Future<void> _poll() async {
@@ -250,7 +249,10 @@ class MessagesController extends ChangeNotifier {
         final threadId = _selectedThreadId!;
         final nextMessages = await _repository.getMessages(threadId);
         _maybeNotifyForIncomingMessages(
-            previousMessages, nextMessages, threadId);
+          previousMessages,
+          nextMessages,
+          threadId,
+        );
         _messages = nextMessages;
         await _repository.markRead(threadId);
       } catch (_) {
@@ -320,11 +322,7 @@ class MessagesController extends ChangeNotifier {
     required String body,
   }) {
     unawaited(
-      _notifications.showMessageNotification(
-        id: id,
-        title: title,
-        body: body,
-      ),
+      _notifications.showMessageNotification(id: id, title: title, body: body),
     );
   }
 

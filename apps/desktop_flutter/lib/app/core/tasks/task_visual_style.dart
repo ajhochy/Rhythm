@@ -86,22 +86,10 @@ class TaskVisualStyles {
           text: RhythmTokens.textPrimary,
           mutedText: Color(0xFF9B6B24),
         ),
-      'recurring_rule' => _variant(
-          _rhythmVariants,
-          variantKey,
-        ),
-      'project_step' => _variant(
-          _projectVariants,
-          variantKey,
-        ),
-      'automation_rule' => _variant(
-          _automationVariants,
-          variantKey,
-        ),
-      'planning_center_signal' => _variant(
-          _planningCenterVariants,
-          variantKey,
-        ),
+      'recurring_rule' => _variant(_rhythmVariants, variantKey),
+      'project_step' => _variant(_projectVariants, variantKey),
+      'automation_rule' => _variant(_automationVariants, variantKey),
+      'planning_center_signal' => _variant(_planningCenterVariants, variantKey),
       _ => const TaskVisualStyle(
           accent: Color(0xFF64748B),
           background: Color(0xFFFFFEFC),
@@ -113,10 +101,7 @@ class TaskVisualStyles {
     };
   }
 
-  static TaskVisualStyle _variant(
-    List<TaskVisualStyle> styles,
-    String key,
-  ) {
+  static TaskVisualStyle _variant(List<TaskVisualStyle> styles, String key) {
     final index =
         key.runes.fold<int>(0, (sum, rune) => sum + rune) % styles.length;
     return styles[index];

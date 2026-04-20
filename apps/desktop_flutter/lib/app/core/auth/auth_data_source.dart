@@ -9,21 +9,14 @@ import 'auth_user.dart';
 import 'workspace_info.dart';
 
 class AuthLoginResponse {
-  const AuthLoginResponse({
-    required this.sessionToken,
-    required this.user,
-  });
+  const AuthLoginResponse({required this.sessionToken, required this.user});
 
   final String sessionToken;
   final AuthUser user;
 }
 
 class MeResponse {
-  const MeResponse({
-    required this.user,
-    this.workspace,
-    this.workspaceRole,
-  });
+  const MeResponse({required this.user, this.workspace, this.workspaceRole});
 
   final AuthUser user;
   final WorkspaceInfo? workspace;

@@ -45,7 +45,9 @@ class FacilitiesRepository {
       _dataSource.getReservationSeriesDetail(facilityId, seriesId);
 
   Future<ReservationMutationResult> createReservation(
-          int facilityId, Map<String, dynamic> body) =>
+    int facilityId,
+    Map<String, dynamic> body,
+  ) =>
       _dataSource.createReservation(facilityId, body);
 
   Future<ReservationSeriesCreationResult> createReservationSeries(

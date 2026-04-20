@@ -37,10 +37,8 @@ class NotificationPanel extends StatelessWidget {
                   padding: EdgeInsets.zero,
                   shrinkWrap: true,
                   itemCount: notifications.length,
-                  separatorBuilder: (_, __) => const Divider(
-                    height: 1,
-                    color: RhythmTokens.borderSoft,
-                  ),
+                  separatorBuilder: (_, __) =>
+                      const Divider(height: 1, color: RhythmTokens.borderSoft),
                   itemBuilder: (context, index) {
                     return _NotificationTile(
                       notification: notifications[index],
@@ -65,9 +63,7 @@ class _PanelHeader extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.fromLTRB(16, 14, 8, 14),
       decoration: const BoxDecoration(
-        border: Border(
-          bottom: BorderSide(color: RhythmTokens.borderSoft),
-        ),
+        border: Border(bottom: BorderSide(color: RhythmTokens.borderSoft)),
       ),
       child: Row(
         children: [
@@ -89,8 +85,10 @@ class _PanelHeader extends StatelessWidget {
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 minimumSize: Size.zero,
                 tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                textStyle:
-                    const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+                textStyle: const TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                ),
               ),
               child: const Text('Mark all read'),
             ),
@@ -111,15 +109,15 @@ class _EmptyState extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.notifications_none,
-                size: 32, color: RhythmTokens.textMuted),
+            Icon(
+              Icons.notifications_none,
+              size: 32,
+              color: RhythmTokens.textMuted,
+            ),
             SizedBox(height: 8),
             Text(
               'You\u2019re all caught up',
-              style: TextStyle(
-                color: RhythmTokens.textSecondary,
-                fontSize: 13,
-              ),
+              style: TextStyle(color: RhythmTokens.textSecondary, fontSize: 13),
             ),
           ],
         ),
@@ -195,6 +193,8 @@ class _NotificationTile extends StatelessWidget {
         return Icons.check_circle_outline;
       case 'step_due':
         return Icons.schedule_outlined;
+      case 'rhythm_step_unlocked':
+        return Icons.lock_open_outlined;
       default:
         return Icons.notifications_outlined;
     }

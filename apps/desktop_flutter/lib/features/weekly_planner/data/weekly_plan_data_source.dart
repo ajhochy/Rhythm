@@ -14,16 +14,22 @@ class WeeklyPlanDataSource {
   final String _baseUrl;
 
   Future<WeeklyPlan> fetchPlan(String weekLabel) async {
-    final uri = Uri.parse('$_baseUrl/weekly-plan')
-        .replace(queryParameters: {'week': weekLabel});
+    final uri = Uri.parse(
+      '$_baseUrl/weekly-plan',
+    ).replace(queryParameters: {'week': weekLabel});
     final response = await http.get(uri, headers: AuthSessionStore.headers());
     assertOk(response);
     return WeeklyPlan.fromJson(
-        jsonDecode(response.body) as Map<String, dynamic>);
+      jsonDecode(response.body) as Map<String, dynamic>,
+    );
   }
 
-  Future<Task> scheduleTask(String taskId, String date,
-      {bool locked = false, int? scheduledOrder}) async {
+  Future<Task> scheduleTask(
+    String taskId,
+    String date, {
+    bool locked = false,
+    int? scheduledOrder,
+  }) async {
     final response = await http.patch(
       Uri.parse('$_baseUrl/weekly-plan/tasks/$taskId'),
       headers: AuthSessionStore.headers(json: true),
@@ -37,18 +43,22 @@ class WeeklyPlanDataSource {
     return Task.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
   }
 
-  Future<Task> updateTask(String taskId,
-      {String? notes,
-      String? status,
-      String? dueDate,
-      String? scheduledDate,
-      int? scheduledOrder,
-      String? sourceType}) async {
+  Future<Task> updateTask(
+    String taskId, {
+    String? notes,
+    String? status,
+    String? dueDate,
+    String? scheduledDate,
+    int? scheduledOrder,
+    String? sourceType,
+  }) async {
     final isProjectStep = sourceType == 'project_step';
     final response = await http.patch(
-      Uri.parse(isProjectStep
-          ? '$_baseUrl/project-instances/steps/$taskId'
-          : '$_baseUrl/tasks/$taskId'),
+      Uri.parse(
+        isProjectStep
+            ? '$_baseUrl/project-instances/steps/$taskId'
+            : '$_baseUrl/tasks/$taskId',
+      ),
       headers: AuthSessionStore.headers(json: true),
       body: jsonEncode({
         if (notes != null) 'notes': notes,

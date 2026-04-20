@@ -72,4 +72,19 @@ export class NotificationService {
       message: `Step "${stepTitle}" is due in "${entityTitle}"`,
     });
   }
+
+  async notifyStepUnlockedAsync(
+    rhythmId: string,
+    rhythmTitle: string,
+    stepTitle: string,
+    assigneeUserId: number,
+  ): Promise<void> {
+    await this.repo.insertAsync({
+      recipientUserId: assigneeUserId,
+      type: 'rhythm_step_unlocked',
+      entityType: 'rhythm',
+      entityId: rhythmId,
+      message: `Your step "${stepTitle}" is now ready in "${rhythmTitle}"`,
+    });
+  }
 }

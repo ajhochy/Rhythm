@@ -128,8 +128,11 @@ class ReservationMutationResult {
             .toList(),
         conflicts: json['conflicts'] is List
             ? (json['conflicts'] as List)
-                .map((item) => ReservationGroupConflict.fromJson(
-                    item as Map<String, dynamic>))
+                .map(
+                  (item) => ReservationGroupConflict.fromJson(
+                    item as Map<String, dynamic>,
+                  ),
+                )
                 .toList()
             : const [],
       );

@@ -38,12 +38,14 @@ class NavigationSidebar extends StatelessWidget {
       width: collapsed ? 76 : 260,
       decoration: const BoxDecoration(
         color: RhythmTokens.surfaceMuted,
-        border: Border(
-          right: BorderSide(color: RhythmTokens.borderSoft),
-        ),
+        border: Border(right: BorderSide(color: RhythmTokens.borderSoft)),
       ),
-      padding:
-          EdgeInsets.fromLTRB(collapsed ? 10 : 16, 14, collapsed ? 10 : 16, 14),
+      padding: EdgeInsets.fromLTRB(
+        collapsed ? 10 : 16,
+        14,
+        collapsed ? 10 : 16,
+        14,
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -189,8 +191,10 @@ class _NavItemTile extends StatelessWidget {
                   right: -7,
                   top: -7,
                   child: Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 5,
+                      vertical: 1,
+                    ),
                     decoration: BoxDecoration(
                       color: RhythmTokens.danger,
                       borderRadius: BorderRadius.circular(999),
@@ -247,9 +251,9 @@ class _SettingsButton extends StatelessWidget {
       message: 'Settings',
       child: InkWell(
         onTap: () {
-          Navigator.of(context).push(
-            MaterialPageRoute<void>(builder: (_) => const SettingsView()),
-          );
+          Navigator.of(
+            context,
+          ).push(MaterialPageRoute<void>(builder: (_) => const SettingsView()));
         },
         borderRadius: BorderRadius.circular(RhythmTokens.radiusM),
         child: Container(
@@ -266,8 +270,11 @@ class _SettingsButton extends StatelessWidget {
             mainAxisAlignment:
                 collapsed ? MainAxisAlignment.center : MainAxisAlignment.start,
             children: [
-              const Icon(Icons.settings_outlined,
-                  color: RhythmTokens.textSecondary, size: 18),
+              const Icon(
+                Icons.settings_outlined,
+                color: RhythmTokens.textSecondary,
+                size: 18,
+              ),
               if (!collapsed) ...[
                 const SizedBox(width: 10),
                 const Text(
