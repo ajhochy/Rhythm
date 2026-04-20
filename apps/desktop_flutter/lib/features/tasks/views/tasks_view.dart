@@ -52,7 +52,8 @@ class _TasksViewState extends State<TasksView> {
     );
     if (picked != null) {
       setState(
-          () => _selectedDueDate = picked.toIso8601String().substring(0, 10));
+        () => _selectedDueDate = picked.toIso8601String().substring(0, 10),
+      );
     }
   }
 
@@ -504,7 +505,8 @@ class _TasksViewState extends State<TasksView> {
           FilledButton(
             onPressed: () => Navigator.pop(ctx, true),
             style: FilledButton.styleFrom(
-                backgroundColor: Theme.of(context).colorScheme.error),
+              backgroundColor: Theme.of(context).colorScheme.error,
+            ),
             child: const Text('Delete'),
           ),
         ],
@@ -860,14 +862,18 @@ class _EditTaskDialogState extends State<_EditTaskDialog> {
             TextField(
               controller: _titleController,
               decoration: const InputDecoration(
-                  labelText: 'Title', border: OutlineInputBorder()),
+                labelText: 'Title',
+                border: OutlineInputBorder(),
+              ),
               autofocus: true,
             ),
             const SizedBox(height: 12),
             TextField(
               controller: _notesController,
               decoration: const InputDecoration(
-                  labelText: 'Notes (optional)', border: OutlineInputBorder()),
+                labelText: 'Notes (optional)',
+                border: OutlineInputBorder(),
+              ),
               minLines: 2,
               maxLines: 5,
             ),
@@ -895,15 +901,17 @@ class _EditTaskDialogState extends State<_EditTaskDialog> {
       ),
       actions: [
         TextButton(
-            onPressed: _saving ? null : () => Navigator.pop(context),
-            child: const Text('Cancel')),
+          onPressed: _saving ? null : () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
         FilledButton(
           onPressed: _saving ? null : _save,
           child: _saving
               ? const SizedBox(
                   width: 16,
                   height: 16,
-                  child: CircularProgressIndicator(strokeWidth: 2))
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
               : const Text('Save'),
         ),
       ],
