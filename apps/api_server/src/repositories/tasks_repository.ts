@@ -272,7 +272,7 @@ export class TasksRepository {
                WHERE tasks.status = 'open'
                  AND (
                    (tasks.due_date IS NULL AND tasks.scheduled_date IS NULL)
-                   OR tasks.due_date < $1
+                   OR (tasks.scheduled_date IS NULL AND tasks.due_date < $1)
                    OR tasks.scheduled_date < $2
                  )
                  AND (tasks.owner_id = $3 OR tasks.owner_id IS NULL)
@@ -289,7 +289,7 @@ export class TasksRepository {
                WHERE tasks.status = 'open'
                  AND (
                    (tasks.due_date IS NULL AND tasks.scheduled_date IS NULL)
-                   OR tasks.due_date < $1
+                   OR (tasks.scheduled_date IS NULL AND tasks.due_date < $1)
                    OR tasks.scheduled_date < $2
                  )
                ORDER BY
@@ -312,7 +312,7 @@ export class TasksRepository {
                WHERE tasks.status = 'open'
                  AND (
                    (tasks.due_date IS NULL AND tasks.scheduled_date IS NULL)
-                   OR tasks.due_date < ?
+                   OR (tasks.scheduled_date IS NULL AND tasks.due_date < ?)
                    OR tasks.scheduled_date < ?
                  )
                  AND (tasks.owner_id = ? OR tasks.owner_id IS NULL)
@@ -330,7 +330,7 @@ export class TasksRepository {
                WHERE tasks.status = 'open'
                  AND (
                    (tasks.due_date IS NULL AND tasks.scheduled_date IS NULL)
-                   OR tasks.due_date < ?
+                   OR (tasks.scheduled_date IS NULL AND tasks.due_date < ?)
                    OR tasks.scheduled_date < ?
                  )
                ORDER BY

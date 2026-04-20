@@ -119,6 +119,24 @@ describe('WeeklyPlanningService.assemblePlan', () => {
     expect(allDayTasks).toHaveLength(0);
   });
 
+  it('removes an overdue task from backlog once it is scheduled this week', async () => {
+    tasksRepo.create({
+      title: 'Overdue but scheduled',
+      dueDate: '2026-03-20',
+      scheduledDate: '2026-03-25',
+    });
+
+    const plan = await service.assemblePlan(WEEK);
+    const wed = plan.days.find((d) => d.date === '2026-03-25')!;
+
+    expect(wed.tasks.map((task) => task.title)).toContain(
+      'Overdue but scheduled',
+    );
+    expect(
+      plan.backlog.some((task) => task.title === 'Overdue but scheduled'),
+    ).toBe(false);
+  });
+
   it('excludes done tasks from backlog', async () => {
     const task = tasksRepo.create({ title: 'Done backlog task' });
     tasksRepo.update(task.id, { status: 'done' });
