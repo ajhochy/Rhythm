@@ -90,6 +90,11 @@ class AuthSessionService extends ChangeNotifier {
 
       _errorMessage = null;
       _status = AuthStatus.authenticated;
+      notifyListeners();
+
+      // Populate workspace info now that the session is valid
+      await refreshFromServer();
+      return;
     } catch (error) {
       await _clearLocalSession();
       _status = AuthStatus.unauthenticated;
