@@ -4,7 +4,7 @@
 <dict>
 	<key>com.apple.security.keychain-access-groups</key>
 	<array>
-		<string>$(AppIdentifierPrefix)org.visaliacrc.rhythm</string>
+		<string>$(AppIdentifierPrefix)com.google.GIDSignIn</string>
 	</array>
 	<key>com.apple.security.cs.allow-jit</key>
 	<true/>
