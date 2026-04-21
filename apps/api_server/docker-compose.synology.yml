@@ -7,16 +7,6 @@ services:
       - '4000:4000'
     env_file:
       - .env.production
-    environment:
-      PORT: '4000'
-      DB_CLIENT: ${DB_CLIENT:-sqlite}
-      DB_PATH: ${DB_PATH:-/data/rhythm.db}
-      DB_HOST: ${DB_HOST:-rhythm-postgres}
-      DB_PORT: ${DB_PORT:-5432}
-      DB_NAME: ${DB_NAME:-rhythm}
-      DB_USER: ${DB_USER:-rhythm_user}
-      DB_PASSWORD: ${DB_PASSWORD:-}
-      DB_SSL: ${DB_SSL:-false}
     volumes:
       - rhythm_api_data:/data
 
