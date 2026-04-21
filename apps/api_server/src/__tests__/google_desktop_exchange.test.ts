@@ -18,19 +18,24 @@ function makeDb() {
 describe('Google desktop PKCE exchange', () => {
   let fetchMock: ReturnType<typeof vi.fn>;
   let originalClientId: string;
+  let originalClientSecret: string;
 
   beforeEach(() => {
     setDb(makeDb());
     fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock);
     originalClientId = env.googleAuthClientId;
+    originalClientSecret = env.googleAuthClientSecret;
     (env as { googleAuthClientId: string }).googleAuthClientId =
       'desktop-client.apps.googleusercontent.com';
+    (env as { googleAuthClientSecret: string }).googleAuthClientSecret =
+      'desktop-client-secret';
   });
 
   afterEach(() => {
     vi.unstubAllGlobals();
     (env as { googleAuthClientId: string }).googleAuthClientId = originalClientId;
+    (env as { googleAuthClientSecret: string }).googleAuthClientSecret = originalClientSecret;
   });
 
   it('exchanges code with PKCE and returns tokens + profile', async () => {
@@ -75,7 +80,7 @@ describe('Google desktop PKCE exchange', () => {
     expect(body).toContain(
       'client_id=desktop-client.apps.googleusercontent.com',
     );
-    expect(body).not.toContain('client_secret');
+    expect(body).toContain('client_secret=desktop-client-secret');
   });
 
   it('stores google_calendar and gmail integration accounts after exchange', async () => {
@@ -146,6 +151,18 @@ describe('Google desktop PKCE exchange', () => {
 
   it('rejects when desktop client id is not configured', async () => {
     (env as { googleAuthClientId: string }).googleAuthClientId = '';
+    const service = new GoogleOAuthService();
+    await expect(
+      service.exchangeDesktopCode({
+        code: 'c',
+        codeVerifier: 'v',
+        redirectUri: 'http://127.0.0.1:1/callback',
+      }),
+    ).rejects.toThrow(/not configured/);
+  });
+
+  it('rejects when desktop client secret is not configured', async () => {
+    (env as { googleAuthClientSecret: string }).googleAuthClientSecret = '';
     const service = new GoogleOAuthService();
     await expect(
       service.exchangeDesktopCode({
