@@ -20,13 +20,14 @@ Each step is one commit to PR #242. Check the box once the commit lands.
 - [x] **Step 4** — Flutter: add `DesktopGoogleOAuthClient` (PKCE verifier/challenge, spins up loopback HTTP server on ephemeral port, launches authorize URL via `url_launcher`, captures code from redirect, posts to server, returns session token)
 - [x] **Step 5** — Flutter: swap `auth_session_service.dart` to call `DesktopGoogleOAuthClient` instead of `GoogleSignIn.instance.authenticate()`
 - [x] **Step 6** — Flutter: `dart format` + `flutter analyze --no-fatal-infos` + `flutter test` pass
-- [ ] **Step 7** — Docs: Google Cloud Console setup (add `http://127.0.0.1` loopback redirect to Desktop OAuth client) + PR test plan
+- [x] **Step 7** — Docs: Google Cloud Console setup (add `http://127.0.0.1` loopback redirect to Desktop OAuth client) + PR test plan → see [`google-oauth-desktop-setup.md`](./google-oauth-desktop-setup.md)
 
-## Leave alone until the new flow ships in a signed release
+## Completed cleanup (moved up due to native plugin interference)
 
-- `google_sign_in` package in `pubspec.yaml` (cleanup in a follow-up PR)
-- `GIDClientID` / `CFBundleURLSchemes` entries in `Info.plist`
-- Release/Debug entitlements (currently minimal — do not re-add `keychain-access-groups`)
+- `google_sign_in` removed from `pubspec.yaml` — the native plugin was still registering at app launch, calling `SecKeychainAddCallback`, and surfacing `GoogleSignInException(providerConfigurationError, keychain error)` even without any Dart code calling it
+- `GIDClientID` and `CFBundleURLSchemes` removed from `Info.plist`
+- `Inject Google client ID into Info.plist` CI step removed from `desktop_release.yml`
+- Release/Debug entitlements remain minimal (no `keychain-access-groups`)
 
 ## Handoff notes for the next agent
 

@@ -49,15 +49,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Inject Google client ID into Info.plist
-        working-directory: apps/desktop_flutter/macos/Runner
-        run: |
-          PLIST=Info.plist
-          CLIENT_ID="$GOOGLE_DESKTOP_CLIENT_ID"
-          SCHEME="com.googleusercontent.apps.$(echo "$CLIENT_ID" | sed 's/\.apps\.googleusercontent\.com$//')"
-          /usr/libexec/PlistBuddy -c "Set :GIDClientID $CLIENT_ID" "$PLIST"
-          /usr/libexec/PlistBuddy -c "Set :CFBundleURLTypes:0:CFBundleURLSchemes:0 $SCHEME" "$PLIST"
-
       - uses: subosito/flutter-action@v2
         with:
           channel: stable
