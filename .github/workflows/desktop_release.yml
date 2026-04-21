@@ -149,6 +149,14 @@ jobs:
         working-directory: apps/desktop_flutter
         run: ../../tools/release/sign_and_notarize_macos.sh
 
+      - name: Dump signed entitlements for diagnosis
+        run: |
+          APP="apps/desktop_flutter/build/macos/Build/Products/Release/Rhythm.app"
+          echo "=== codesign --display --entitlements - ==="
+          codesign --display --entitlements - --xml "$APP" | xmllint --format - || true
+          echo "=== codesign -dvvv ==="
+          codesign -dvvv "$APP" 2>&1 | head -40 || true
+
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
