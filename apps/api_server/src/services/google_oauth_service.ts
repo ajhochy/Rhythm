@@ -15,6 +15,8 @@ const GOOGLE_SCOPES = [
   'https://www.googleapis.com/auth/gmail.metadata',
 ];
 
+export const GOOGLE_DESKTOP_SCOPES = GOOGLE_SCOPES;
+
 interface GoogleTokenResponse {
   access_token: string;
   expires_in?: number;
@@ -74,6 +76,68 @@ export class GoogleOAuthService {
       tokenType: tokens.token_type ?? null,
       expiresAt,
     });
+  }
+
+  async exchangeDesktopCode(options: {
+    code: string;
+    codeVerifier: string;
+    redirectUri: string;
+  }): Promise<{
+    tokens: GoogleTokenResponse;
+    profile: GoogleUserInfo;
+  }> {
+    this.assertDesktopConfigured();
+
+    const response = await fetch(GOOGLE_TOKEN_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        code: options.code,
+        client_id: env.googleAuthClientId,
+        code_verifier: options.codeVerifier,
+        redirect_uri: options.redirectUri,
+        grant_type: 'authorization_code',
+      }),
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      throw AppError.badRequest(`Google token exchange failed: ${text}`);
+    }
+
+    const tokens = (await response.json()) as GoogleTokenResponse;
+    const profile = await this.fetchUserInfo(tokens.access_token);
+    return { tokens, profile };
+  }
+
+  async storeDesktopIntegration(
+    ownerId: number,
+    tokens: GoogleTokenResponse,
+    profile: GoogleUserInfo,
+  ): Promise<void> {
+    const expiresAt = tokens.expires_in
+      ? new Date(Date.now() + tokens.expires_in * 1000).toISOString()
+      : null;
+
+    await this.accountsRepo.upsertGoogleAccountAsync({
+      ownerId,
+      externalAccountId: profile.sub,
+      email: profile.email ?? null,
+      displayName: profile.name ?? null,
+      accessToken: tokens.access_token,
+      refreshToken: tokens.refresh_token ?? null,
+      scope: tokens.scope ?? GOOGLE_SCOPES.join(' '),
+      tokenType: tokens.token_type ?? null,
+      expiresAt,
+    });
+  }
+
+  private assertDesktopConfigured(): void {
+    if (!env.googleAuthClientId) {
+      throw AppError.badRequest(
+        'Google desktop OAuth is not configured. Set GOOGLE_DESKTOP_CLIENT_ID (or GOOGLE_AUTH_CLIENT_ID).',
+      );
+    }
   }
 
   async refreshAccessToken(account: IntegrationAccount): Promise<IntegrationAccount> {
