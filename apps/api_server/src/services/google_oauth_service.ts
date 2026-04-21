@@ -88,16 +88,18 @@ export class GoogleOAuthService {
   }> {
     this.assertDesktopConfigured();
 
+    const params = new URLSearchParams({
+      code: options.code,
+      client_id: env.googleAuthClientId,
+      client_secret: env.googleAuthClientSecret,
+      code_verifier: options.codeVerifier,
+      redirect_uri: options.redirectUri,
+      grant_type: 'authorization_code',
+    });
     const response = await fetch(GOOGLE_TOKEN_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({
-        code: options.code,
-        client_id: env.googleAuthClientId,
-        code_verifier: options.codeVerifier,
-        redirect_uri: options.redirectUri,
-        grant_type: 'authorization_code',
-      }),
+      body: params,
     });
 
     if (!response.ok) {
@@ -133,9 +135,9 @@ export class GoogleOAuthService {
   }
 
   private assertDesktopConfigured(): void {
-    if (!env.googleAuthClientId) {
+    if (!env.googleAuthClientId || !env.googleAuthClientSecret) {
       throw AppError.badRequest(
-        'Google desktop OAuth is not configured. Set GOOGLE_DESKTOP_CLIENT_ID (or GOOGLE_AUTH_CLIENT_ID).',
+        'Google desktop OAuth is not configured. Set GOOGLE_AUTH_CLIENT_ID and GOOGLE_AUTH_CLIENT_SECRET.',
       );
     }
   }

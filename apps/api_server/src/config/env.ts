@@ -32,6 +32,8 @@ export const env = {
   googleClientId: process.env.GOOGLE_CLIENT_ID ?? '',
   googleAuthClientId:
     process.env.GOOGLE_AUTH_CLIENT_ID ?? process.env.GOOGLE_CLIENT_ID ?? '',
+  googleAuthClientSecret:
+    process.env.GOOGLE_AUTH_CLIENT_SECRET ?? '',
   googleClientSecret: process.env.GOOGLE_CLIENT_SECRET ?? '',
   googleRedirectUri:
     process.env.GOOGLE_REDIRECT_URI ??
