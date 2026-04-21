@@ -17,7 +17,7 @@ Each step is one commit to PR #242. Check the box once the commit lands.
 - [x] **Step 1** — Add this tracking doc
 - [x] **Step 2** — Server: add `POST /auth/google/desktop-exchange` endpoint (PKCE, no client secret, uses `GOOGLE_DESKTOP_CLIENT_ID`, exchanges code for tokens, mints Rhythm session, upserts integration account based on granted scopes)
 - [x] **Step 3** — Server: unit tests for the new endpoint (happy path + invalid code + PKCE mismatch)
-- [ ] **Step 4** — Flutter: add `DesktopGoogleOAuthClient` (PKCE verifier/challenge, spins up loopback HTTP server on ephemeral port, launches authorize URL via `url_launcher`, captures code from redirect, posts to server, returns session token)
+- [x] **Step 4** — Flutter: add `DesktopGoogleOAuthClient` (PKCE verifier/challenge, spins up loopback HTTP server on ephemeral port, launches authorize URL via `url_launcher`, captures code from redirect, posts to server, returns session token)
 - [ ] **Step 5** — Flutter: swap `auth_session_service.dart` to call `DesktopGoogleOAuthClient` instead of `GoogleSignIn.instance.authenticate()`
 - [ ] **Step 6** — Flutter: `dart format` + `flutter analyze --no-fatal-infos` + `flutter test` pass
 - [ ] **Step 7** — Docs: Google Cloud Console setup (add `http://127.0.0.1` loopback redirect to Desktop OAuth client) + PR test plan
