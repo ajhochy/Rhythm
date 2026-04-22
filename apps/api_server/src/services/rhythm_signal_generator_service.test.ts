@@ -4,6 +4,7 @@ import { setDb } from '../database/db';
 import { runMigrations } from '../database/migrations';
 import { ProjectTemplatesRepository } from '../repositories/project_templates_repository';
 import { TasksRepository } from '../repositories/tasks_repository';
+import { UsersRepository } from '../repositories/users_repository';
 import { ProjectGenerationService } from './project_generation_service';
 import { RhythmSignalGeneratorService } from './rhythm_signal_generator_service';
 
@@ -53,8 +54,16 @@ describe('RhythmSignalGeneratorService', () => {
     const templatesRepo = new ProjectTemplatesRepository();
     const genService = new ProjectGenerationService();
     const generator = new RhythmSignalGeneratorService();
+    const owner = new UsersRepository().create({
+      name: 'Owner',
+      email: 'owner@example.com',
+    });
 
-    const template = templatesRepo.create({ name: 'Easter', anchorType: 'date' });
+    const template = templatesRepo.create({
+      name: 'Easter',
+      anchorType: 'date',
+      ownerId: owner.id,
+    });
     templatesRepo.addStep(template.id, {
       title: 'Print bulletins',
       offsetDays: -3,
@@ -65,7 +74,7 @@ describe('RhythmSignalGeneratorService', () => {
       offsetDays: 30,
       sortOrder: 1,
     });
-    genService.generate(template.id, '2026-04-04', 'Easter 2026');
+    genService.generate(template.id, '2026-04-04', 'Easter 2026', owner.id);
 
     const signals = generator.generateProjectStepDueSignals(7);
 

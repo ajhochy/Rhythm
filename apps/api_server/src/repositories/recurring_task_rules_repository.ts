@@ -108,45 +108,78 @@ function serializeSteps(steps?: RecurringTaskRuleStep[]): string {
 }
 
 export class RecurringTaskRulesRepository {
-  async findAllAsync(userId?: number): Promise<RecurringTaskRule[]> {
+  async findAllAsync(userId: number): Promise<RecurringTaskRule[]> {
     if (env.dbClient === 'postgres') {
-      const result =
-        userId != null
-          ? await getPostgresPool().query<RuleRow>(
-              `SELECT recurring_task_rules.*
-               FROM recurring_task_rules
-               LEFT JOIN rhythm_collaborators rc
-                 ON rc.rhythm_id = recurring_task_rules.id
-                AND rc.user_id = $1
-               WHERE recurring_task_rules.owner_id = $1
-                  OR rc.user_id IS NOT NULL
-               ORDER BY recurring_task_rules.created_at ASC`,
-              [userId],
-            )
-          : await getPostgresPool().query<RuleRow>(
-              'SELECT * FROM recurring_task_rules ORDER BY created_at ASC',
-            );
+      const result = await getPostgresPool().query<RuleRow>(
+        `SELECT recurring_task_rules.*
+         FROM recurring_task_rules
+         LEFT JOIN rhythm_collaborators rc
+           ON rc.rhythm_id = recurring_task_rules.id
+          AND rc.user_id = $1
+         WHERE recurring_task_rules.owner_id = $1
+            OR rc.user_id IS NOT NULL
+         ORDER BY recurring_task_rules.created_at ASC`,
+        [userId],
+      );
       return result.rows.map(rowToRule);
     }
     return this.findAll(userId);
   }
 
-  findAll(userId?: number): RecurringTaskRule[] {
-    if (userId != null) {
-      const rows = getDb()
-        .prepare(
-          `SELECT recurring_task_rules.*
-           FROM recurring_task_rules
-           LEFT JOIN rhythm_collaborators rc
-             ON rc.rhythm_id = recurring_task_rules.id
-            AND rc.user_id = ?
-           WHERE recurring_task_rules.owner_id = ?
-              OR rc.user_id IS NOT NULL
-           ORDER BY recurring_task_rules.created_at ASC`,
-        )
-        .all(userId, userId) as RuleRow[];
-      return rows.map(rowToRule);
+  findAll(userId: number): RecurringTaskRule[] {
+    const rows = getDb()
+      .prepare(
+        `SELECT recurring_task_rules.*
+         FROM recurring_task_rules
+         LEFT JOIN rhythm_collaborators rc
+           ON rc.rhythm_id = recurring_task_rules.id
+          AND rc.user_id = ?
+         WHERE recurring_task_rules.owner_id = ?
+            OR rc.user_id IS NOT NULL
+         ORDER BY recurring_task_rules.created_at ASC`,
+      )
+      .all(userId, userId) as RuleRow[];
+    return rows.map(rowToRule);
+  }
+
+  async findEnabledForGenerationAsync(): Promise<RecurringTaskRule[]> {
+    if (env.dbClient === 'postgres') {
+      const result = await getPostgresPool().query<RuleRow>(
+        `SELECT *
+         FROM recurring_task_rules
+         WHERE owner_id IS NOT NULL
+           AND enabled = TRUE
+         ORDER BY created_at ASC`,
+      );
+      return result.rows.map(rowToRule);
     }
+    return this.findEnabledForGeneration();
+  }
+
+  findEnabledForGeneration(): RecurringTaskRule[] {
+    const rows = getDb()
+      .prepare(
+        `SELECT *
+         FROM recurring_task_rules
+         WHERE owner_id IS NOT NULL
+           AND enabled = 1
+         ORDER BY created_at ASC`,
+      )
+      .all() as RuleRow[];
+    return rows.map(rowToRule);
+  }
+
+  async findAllIncludingLegacyAsync(): Promise<RecurringTaskRule[]> {
+    if (env.dbClient === 'postgres') {
+      const result = await getPostgresPool().query<RuleRow>(
+        'SELECT * FROM recurring_task_rules ORDER BY created_at ASC',
+      );
+      return result.rows.map(rowToRule);
+    }
+    return this.findAllIncludingLegacy();
+  }
+
+  findAllIncludingLegacy(): RecurringTaskRule[] {
     const rows = getDb()
       .prepare('SELECT * FROM recurring_task_rules ORDER BY created_at ASC')
       .all() as RuleRow[];

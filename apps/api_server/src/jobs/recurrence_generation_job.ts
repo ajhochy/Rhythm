@@ -15,25 +15,37 @@ function getCronSchedule(): string {
   return process.env.RECURRENCE_CRON_SCHEDULE ?? DEFAULT_CRON_SCHEDULE;
 }
 
+export async function runRecurrenceGenerationOnce(
+  from: Date = new Date(),
+  to?: Date,
+): Promise<{ ruleCount: number; createdCount: number }> {
+  const rules =
+    await new RecurringTaskRulesRepository().findEnabledForGenerationAsync();
+  if (rules.length === 0) return { ruleCount: 0, createdCount: 0 };
+
+  const service = new RecurrenceService();
+  const end = to ?? new Date(from);
+  if (to == null) {
+    end.setUTCDate(end.getUTCDate() + getLookaheadWeeks() * 7);
+  }
+
+  let total = 0;
+  for (const rule of rules) {
+    const created = await service.generateInstances(rule, from, end);
+    total += created.length;
+  }
+
+  return { ruleCount: rules.length, createdCount: total };
+}
+
 async function runGeneration(): Promise<void> {
   try {
-    const rules = (await new RecurringTaskRulesRepository().findAllAsync()).filter(
-      (r) => r.enabled,
+    const result = await runRecurrenceGenerationOnce();
+    if (result.ruleCount === 0) return;
+
+    logger.info(
+      `RecurrenceGenerationJob: created ${result.createdCount} task(s) for ${result.ruleCount} rule(s)`,
     );
-    if (rules.length === 0) return;
-
-    const service = new RecurrenceService();
-    const from = new Date();
-    const to = new Date();
-    to.setUTCDate(to.getUTCDate() + getLookaheadWeeks() * 7);
-
-    let total = 0;
-    for (const rule of rules) {
-      const created = await service.generateInstances(rule, from, to);
-      total += created.length;
-    }
-
-    logger.info(`RecurrenceGenerationJob: created ${total} task(s) for ${rules.length} rule(s)`);
   } catch (err) {
     logger.error(`RecurrenceGenerationJob error: ${String(err)}`);
   }

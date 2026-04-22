@@ -24,7 +24,7 @@ export class ProjectGenerationController {
         req.params.id,
         anchorDate,
         typeof name === 'string' ? name : null,
-        req.auth?.user.id,
+        req.auth!.user.id,
       );
       res.status(201).json(instance);
     } catch (err) {
@@ -39,11 +39,11 @@ export class ProjectGenerationController {
         res.json(
           await instanceRepo.findByTemplateIdAsync(
             templateId,
-            req.auth?.user.id,
+            req.auth!.user.id,
           ),
         );
       } else {
-        res.json(await instanceRepo.findAllAsync(req.auth?.user.id));
+        res.json(await instanceRepo.findAllAsync(req.auth!.user.id));
       }
     } catch (err) {
       next(err);
@@ -52,7 +52,7 @@ export class ProjectGenerationController {
 
   async updateInstanceStep(req: Request, res: Response, next: NextFunction) {
     try {
-      const actorId = req.auth?.user.id;
+      const actorId = req.auth!.user.id;
       const { stepId } = req.params;
       const { title, dueDate, status, notes, assigneeId } = req.body as Record<string, unknown>;
       const step = await instanceRepo.updateStepAsync(
@@ -78,7 +78,7 @@ export class ProjectGenerationController {
       );
 
       // Notify on step completion
-      if (status === 'done' && actorId != null) {
+      if (status === 'done') {
         const collaborators = await instanceRepo.listCollaboratorsAsync(req.params.id);
         const collaboratorIds = collaborators.map((c) => c.userId);
         const instance = await instanceRepo.findByIdAsync(req.params.id, actorId);
@@ -105,7 +105,7 @@ export class ProjectGenerationController {
 
   async deleteInstance(req: Request, res: Response, next: NextFunction) {
     try {
-      await instanceRepo.deleteAsync(req.params.id, req.auth?.user.id);
+      await instanceRepo.deleteAsync(req.params.id, req.auth!.user.id);
       res.status(204).send();
     } catch (err) {
       next(err);
@@ -114,6 +114,7 @@ export class ProjectGenerationController {
 
   async getCollaborators(req: Request, res: Response, next: NextFunction) {
     try {
+      await instanceRepo.findByIdAsync(req.params.id, req.auth!.user.id);
       res.json(await instanceRepo.listCollaboratorsAsync(req.params.id));
     } catch (err) {
       next(err);
@@ -126,18 +127,19 @@ export class ProjectGenerationController {
       if (!userId || typeof userId !== 'number') {
         throw AppError.badRequest('userId is required and must be a number');
       }
-      await instanceRepo.addCollaboratorAsync(req.params.id, userId);
-      const actorId = req.auth?.user.id;
-      if (actorId != null) {
-        const instance = await instanceRepo.findByIdAsync(req.params.id, actorId);
-        await notifService.notifyCollaboratorAddedAsync(
-          'project',
-          req.params.id,
-          instance.name ?? 'Project',
-          userId,
-          actorId,
-        );
+      const actorId = req.auth!.user.id;
+      const instance = await instanceRepo.findByIdAsync(req.params.id, actorId);
+      if (instance.ownerId !== actorId) {
+        throw AppError.forbidden('Only the project owner can add collaborators');
       }
+      await instanceRepo.addCollaboratorAsync(req.params.id, userId);
+      await notifService.notifyCollaboratorAddedAsync(
+        'project',
+        req.params.id,
+        instance.name ?? 'Project',
+        userId,
+        actorId,
+      );
       res.status(201).json(await instanceRepo.listCollaboratorsAsync(req.params.id));
     } catch (err) {
       next(err);
@@ -149,6 +151,11 @@ export class ProjectGenerationController {
       const collaboratorUserId = Number(req.params.userId);
       if (isNaN(collaboratorUserId)) {
         throw AppError.badRequest('Invalid userId');
+      }
+      const actorId = req.auth!.user.id;
+      const instance = await instanceRepo.findByIdAsync(req.params.id, actorId);
+      if (instance.ownerId !== actorId) {
+        throw AppError.forbidden('Only the project owner can remove collaborators');
       }
       await instanceRepo.removeCollaboratorAsync(req.params.id, collaboratorUserId);
       res.status(204).send();

@@ -236,6 +236,7 @@ describe("Automation overhaul backend", () => {
     const template = templatesRepo.create({
       name: "Special Service",
       anchorType: "date",
+      ownerId: owner.id,
     });
     templatesRepo.addStep(template.id, {
       title: "Confirm volunteers",
@@ -254,6 +255,7 @@ describe("Automation overhaul backend", () => {
         projectNameTemplate: "{{title}} Project",
       },
       sourceAccountId: pcoAccount.id,
+      ownerId: owner.id,
     });
 
     const signal: AutomationSignal = {
@@ -281,7 +283,7 @@ describe("Automation overhaul backend", () => {
     expect(result.matchedRules).toBe(1);
     expect(result.executedActions).toBe(1);
 
-    const instances = instancesRepo.findByTemplateId(template.id);
+    const instances = instancesRepo.findByTemplateId(template.id, owner.id);
     expect(instances).toHaveLength(1);
     expect(instances[0]?.name).toBe("Good Friday Service Project");
     expect(instances[0]?.anchorDate).toBe("2026-04-03");

@@ -433,18 +433,19 @@ export class AutomationEngineService {
     rule: AutomationRule,
     signal: AutomationSignal,
   ): Promise<boolean> {
+    if (rule.ownerId == null) return false;
     const config = rule.actionConfig ?? {};
     const templateId = asString(config.templateId);
     const templateName = asString(config.templateName);
     const template = templateId
       ? await this.templatesRepo.findByIdAsync(
           templateId,
-          rule.ownerId ?? undefined,
+          rule.ownerId,
         )
       : templateName
         ? await this.templatesRepo.findByNameInsensitiveAsync(
             templateName,
-            rule.ownerId ?? undefined,
+            rule.ownerId,
           )
         : null;
     if (template == null) return false;
@@ -463,7 +464,7 @@ export class AutomationEngineService {
       template.id,
       anchorDate,
       projectName,
-      rule.ownerId ?? undefined,
+      rule.ownerId,
     );
     return true;
   }

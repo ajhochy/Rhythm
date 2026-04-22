@@ -7,7 +7,7 @@ const repo = new ProjectTemplatesRepository();
 export class ProjectTemplatesController {
   async getAll(req: Request, res: Response, next: NextFunction) {
     try {
-      res.json(await repo.findAllAsync(req.auth?.user.id));
+      res.json(await repo.findAllAsync(req.auth!.user.id));
     } catch (err) {
       next(err);
     }
@@ -15,7 +15,7 @@ export class ProjectTemplatesController {
 
   async getById(req: Request, res: Response, next: NextFunction) {
     try {
-      res.json(await repo.findByIdAsync(req.params.id, req.auth?.user.id));
+      res.json(await repo.findByIdAsync(req.params.id, req.auth!.user.id));
     } catch (err) {
       next(err);
     }
@@ -31,7 +31,7 @@ export class ProjectTemplatesController {
         name,
         description: description as string ?? null,
         anchorType: anchorType as string,
-        ownerId: req.auth?.user.id ?? null,
+        ownerId: req.auth!.user.id,
       });
       res.status(201).json(template);
     } catch (err) {
@@ -50,7 +50,7 @@ export class ProjectTemplatesController {
             ? { description: (description as string | null) ?? null }
             : {}),
         },
-        req.auth?.user.id,
+        req.auth!.user.id,
       );
       res.json(template);
     } catch (err) {
@@ -60,7 +60,7 @@ export class ProjectTemplatesController {
 
   async remove(req: Request, res: Response, next: NextFunction) {
     try {
-      await repo.deleteAsync(req.params.id, req.auth?.user.id);
+      await repo.deleteAsync(req.params.id, req.auth!.user.id);
       res.status(204).send();
     } catch (err) {
       next(err);
@@ -86,7 +86,7 @@ export class ProjectTemplatesController {
                 ? assigneeId
                 : undefined,
         },
-        req.auth?.user.id,
+        req.auth!.user.id,
       );
       res.status(201).json(step);
     } catch (err) {
@@ -99,7 +99,7 @@ export class ProjectTemplatesController {
       const step = await repo.updateStepAsync(
         req.params.stepId,
         req.body as Record<string, unknown>,
-        req.auth?.user.id,
+        req.auth!.user.id,
       );
       res.json(step);
     } catch (err) {
@@ -109,7 +109,7 @@ export class ProjectTemplatesController {
 
   async removeStep(req: Request, res: Response, next: NextFunction) {
     try {
-      await repo.deleteStepAsync(req.params.stepId, req.auth?.user.id);
+      await repo.deleteStepAsync(req.params.stepId, req.auth!.user.id);
       res.status(204).send();
     } catch (err) {
       next(err);
