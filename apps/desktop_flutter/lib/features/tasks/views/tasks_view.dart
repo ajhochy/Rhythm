@@ -104,7 +104,9 @@ class _TasksViewState extends State<TasksView> {
                       SliverPersistentHeader(
                         pinned: true,
                         delegate: _StickyBarDelegate(
-                          height: 176,
+                          height: MediaQuery.sizeOf(context).width >= 980
+                              ? 82
+                              : 176,
                           child: _buildCreateBar(context),
                         ),
                       ),
@@ -240,6 +242,7 @@ class _TasksViewState extends State<TasksView> {
         ),
       );
     }
+    final groups = _groupTasks(visibleTasks);
     return SliverPadding(
       padding: const EdgeInsets.fromLTRB(
         RhythmSpacing.md,
@@ -248,10 +251,9 @@ class _TasksViewState extends State<TasksView> {
         RhythmSpacing.md,
       ),
       sliver: SliverList.separated(
-        itemCount: visibleTasks.length,
-        separatorBuilder: (_, __) => const SizedBox(height: RhythmSpacing.xs),
-        itemBuilder: (context, i) =>
-            _buildTaskCard(visibleTasks[i], controller),
+        itemCount: groups.length,
+        separatorBuilder: (_, __) => const SizedBox(height: RhythmSpacing.sm),
+        itemBuilder: (context, i) => _buildTaskGroup(groups[i], controller),
       ),
     );
   }
@@ -271,7 +273,124 @@ class _TasksViewState extends State<TasksView> {
     );
   }
 
-  Widget _buildTaskCard(Task task, TasksController controller) {
+  List<_TaskGroup> _groupTasks(List<Task> tasks) {
+    final buckets = <_TaskGroupKind, List<Task>>{
+      for (final kind in _TaskGroupKind.values) kind: <Task>[],
+    };
+
+    for (final task in tasks) {
+      buckets[_groupKindForTask(task)]!.add(task);
+    }
+
+    return [
+      _TaskGroup(
+        title: 'Past due',
+        subtitle: 'Needs attention',
+        icon: Icons.warning_amber_rounded,
+        tone: RhythmBadgeTone.danger,
+        tasks: buckets[_TaskGroupKind.pastDue]!,
+      ),
+      _TaskGroup(
+        title: 'Today',
+        subtitle: 'Due or scheduled today',
+        icon: Icons.today_outlined,
+        tone: RhythmBadgeTone.warning,
+        tasks: buckets[_TaskGroupKind.today]!,
+      ),
+      _TaskGroup(
+        title: 'Scheduled',
+        subtitle: 'Placed on the work plan',
+        icon: Icons.event_available_outlined,
+        tone: RhythmBadgeTone.info,
+        tasks: buckets[_TaskGroupKind.scheduled]!,
+      ),
+      _TaskGroup(
+        title: 'Upcoming',
+        subtitle: 'Due later',
+        icon: Icons.calendar_month_outlined,
+        tone: RhythmBadgeTone.neutral,
+        tasks: buckets[_TaskGroupKind.upcoming]!,
+      ),
+      _TaskGroup(
+        title: 'Backlog',
+        subtitle: 'No date yet',
+        icon: Icons.inbox_outlined,
+        tone: RhythmBadgeTone.neutral,
+        tasks: buckets[_TaskGroupKind.backlog]!,
+      ),
+      _TaskGroup(
+        title: 'Completed',
+        subtitle: 'Finished work',
+        icon: Icons.check_circle_outline,
+        tone: RhythmBadgeTone.success,
+        tasks: buckets[_TaskGroupKind.completed]!,
+      ),
+    ].where((group) => group.tasks.isNotEmpty).toList();
+  }
+
+  _TaskGroupKind _groupKindForTask(Task task) {
+    if (task.status == 'done') return _TaskGroupKind.completed;
+    if (DateFormatters.isPastDue(
+      dueDate: task.dueDate,
+      scheduledDate: task.scheduledDate,
+      isDone: false,
+    )) {
+      return _TaskGroupKind.pastDue;
+    }
+    if (DateFormatters.isDueToday(
+      dueDate: task.dueDate,
+      scheduledDate: task.scheduledDate,
+      isDone: false,
+    )) {
+      return _TaskGroupKind.today;
+    }
+    if (task.scheduledDate != null && task.scheduledDate!.trim().isNotEmpty) {
+      return _TaskGroupKind.scheduled;
+    }
+    if (task.dueDate != null && task.dueDate!.trim().isNotEmpty) {
+      return _TaskGroupKind.upcoming;
+    }
+    return _TaskGroupKind.backlog;
+  }
+
+  Widget _buildTaskGroup(_TaskGroup group, TasksController controller) {
+    final colors = context.rhythm;
+    return RhythmPanel(
+      padding: EdgeInsets.zero,
+      header: Row(
+        children: [
+          RhythmBadge(
+            icon: group.icon,
+            label: '${group.title} · ${group.tasks.length}',
+            tone: group.tone,
+            compact: true,
+          ),
+          const SizedBox(width: RhythmSpacing.sm),
+          Expanded(
+            child: Text(
+              group.subtitle,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: colors.textMuted,
+                    letterSpacing: 0,
+                  ),
+            ),
+          ),
+        ],
+      ),
+      child: Column(
+        children: [
+          for (var i = 0; i < group.tasks.length; i++) ...[
+            if (i > 0) Divider(height: 1, color: colors.borderSubtle),
+            _buildTaskRow(group.tasks[i], controller),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTaskRow(Task task, TasksController controller) {
     final isDone = task.status == 'done';
     final hasNotes = task.notes != null && task.notes!.trim().isNotEmpty;
     final visualStyle = TaskVisualStyles.resolve(task);
@@ -283,127 +402,88 @@ class _TasksViewState extends State<TasksView> {
     final dueLabel = task.dueDate == null
         ? null
         : DateFormatters.fullDate(task.dueDate, fallback: task.dueDate!);
+    final scheduledLabel = task.scheduledDate == null
+        ? null
+        : DateFormatters.fullDate(
+            task.scheduledDate,
+            fallback: task.scheduledDate!,
+          );
 
-    return RhythmPanel(
-      padding: const EdgeInsets.all(RhythmSpacing.md),
-      backgroundColor: visualStyle.background,
-      borderColor: visualStyle.border,
-      elevated: !isDone,
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Padding(
-            padding: const EdgeInsets.only(top: 2),
-            child: Checkbox(
-              value: isDone,
-              onChanged: (_) => controller.toggleDone(task.id),
-            ),
-          ),
-          const SizedBox(width: RhythmSpacing.xs),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                if (_projectTitle(task) case final projectTitle?) ...[
-                  Text(
-                    projectTitle,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w700,
-                      color: Colors.transparent,
-                      letterSpacing: 0.2,
-                    ).copyWith(color: visualStyle.accent),
-                  ),
-                  const SizedBox(height: RhythmSpacing.xxs),
-                ],
-                Text(
-                  task.title,
-                  style: TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w600,
-                    height: 1.25,
-                    decoration: isDone
-                        ? TextDecoration.lineThrough
-                        : TextDecoration.none,
-                    color: visualStyle.text,
-                  ),
+    return Container(
+      constraints: const BoxConstraints(minHeight: 58),
+      decoration: BoxDecoration(
+        color: visualStyle.background.withValues(alpha: isDone ? 0.42 : 0.72),
+        border: Border(left: BorderSide(color: visualStyle.accent, width: 3)),
+      ),
+      padding: const EdgeInsets.fromLTRB(
+        RhythmSpacing.sm,
+        RhythmSpacing.xs,
+        RhythmSpacing.xs,
+        RhythmSpacing.xs,
+      ),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final compact = constraints.maxWidth < 820;
+          final titleColumn = _TaskTitleColumn(
+            task: task,
+            hasNotes: hasNotes,
+            isDone: isDone,
+            accent: visualStyle.accent,
+            text: visualStyle.text,
+            mutedText: visualStyle.mutedText,
+          );
+          final status = isDone
+              ? const RhythmBadge(
+                  icon: Icons.check_circle_outline,
+                  label: 'Done',
+                  tone: RhythmBadgeTone.success,
+                  compact: true,
+                )
+              : isPastDue
+                  ? const RhythmBadge(
+                      icon: Icons.warning_amber_rounded,
+                      label: 'Past due',
+                      tone: RhythmBadgeTone.danger,
+                      compact: true,
+                    )
+                  : const RhythmBadge(
+                      icon: Icons.radio_button_unchecked,
+                      label: 'Open',
+                      compact: true,
+                    );
+          final date = Wrap(
+            spacing: RhythmSpacing.xs,
+            runSpacing: RhythmSpacing.xxs,
+            children: [
+              if (scheduledLabel != null)
+                RhythmBadge(
+                  icon: Icons.event_available_outlined,
+                  label: scheduledLabel,
+                  tone: RhythmBadgeTone.info,
+                  compact: true,
                 ),
-                const SizedBox(height: 10),
-                Wrap(
-                  spacing: RhythmSpacing.xs,
-                  runSpacing: RhythmSpacing.xs,
-                  children: [
-                    if (isPastDue)
-                      const RhythmBadge(
-                        icon: Icons.warning_amber_rounded,
-                        label: 'Past due',
-                        tone: RhythmBadgeTone.danger,
-                        compact: true,
-                      ),
-                    if (dueLabel != null)
-                      RhythmBadge(
-                        icon: Icons.event_outlined,
-                        label: dueLabel,
-                        tone: isPastDue
-                            ? RhythmBadgeTone.warning
-                            : RhythmBadgeTone.neutral,
-                        compact: true,
-                      ),
-                    if (task.sourceType != null)
-                      RhythmBadge(
-                        icon: _sourceIcon(task.sourceType!),
-                        label: _sourceLabel(task),
-                        tone: RhythmBadgeTone.accent,
-                        compact: true,
-                      ),
-                    if (isDone)
-                      const RhythmBadge(
-                        icon: Icons.check_circle_outline,
-                        label: 'Completed',
-                        tone: RhythmBadgeTone.success,
-                        compact: true,
-                      ),
-                  ],
+              if (dueLabel != null)
+                RhythmBadge(
+                  icon: Icons.flag_outlined,
+                  label: dueLabel,
+                  tone: isPastDue
+                      ? RhythmBadgeTone.warning
+                      : RhythmBadgeTone.neutral,
+                  compact: true,
                 ),
-                if (hasNotes) ...[
-                  const SizedBox(height: 10),
-                  Text(
-                    task.notes!.trim(),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: Colors.transparent,
-                      fontSize: 13,
-                      height: 1.45,
-                    ).copyWith(color: visualStyle.mutedText),
-                  ),
-                ],
-                if (task.ownerId != null) ...[
-                  const SizedBox(height: RhythmSpacing.xs),
-                  CollaboratorsRow(
-                    collaborators: task.collaborators,
-                    ownerId: task.ownerId!,
-                    workspaceMembers:
-                        context.read<WorkspaceController>().members,
-                    onAdd: (userId) async {
-                      final ds = CollaboratorsDataSource();
-                      await ds.addToTask(task.id, userId);
-                      await controller.load();
-                    },
-                    onRemove: (userId) async {
-                      final ds = CollaboratorsDataSource();
-                      await ds.removeFromTask(task.id, userId);
-                      await controller.load();
-                    },
-                  ),
-                ],
-              ],
-            ),
-          ),
-          const SizedBox(width: RhythmSpacing.xs),
-          RhythmMenuButton<_TaskAction>(
+              if (scheduledLabel == null && dueLabel == null)
+                const RhythmBadge(
+                  icon: Icons.inbox_outlined,
+                  label: 'No date',
+                  compact: true,
+                ),
+            ],
+          );
+          final contextBadges = _TaskContextBadges(
+            task: task,
+            controller: controller,
+          );
+          final menu = RhythmMenuButton<_TaskAction>(
             items: const [
               RhythmMenuAction(
                 value: _TaskAction.edit,
@@ -425,8 +505,63 @@ class _TasksViewState extends State<TasksView> {
                   _confirmDelete(task, controller);
               }
             },
-          ),
-        ],
+          );
+
+          if (compact) {
+            return Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                SizedBox(
+                  width: 32,
+                  child: Checkbox(
+                    value: isDone,
+                    onChanged: (_) => controller.toggleDone(task.id),
+                  ),
+                ),
+                const SizedBox(width: RhythmSpacing.xs),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      titleColumn,
+                      const SizedBox(height: RhythmSpacing.xs),
+                      Wrap(
+                        spacing: RhythmSpacing.xs,
+                        runSpacing: RhythmSpacing.xs,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        children: [status, date, contextBadges],
+                      ),
+                    ],
+                  ),
+                ),
+                menu,
+              ],
+            );
+          }
+
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              SizedBox(
+                width: 32,
+                child: Checkbox(
+                  value: isDone,
+                  onChanged: (_) => controller.toggleDone(task.id),
+                ),
+              ),
+              const SizedBox(width: RhythmSpacing.xs),
+              Expanded(flex: 5, child: titleColumn),
+              const SizedBox(width: RhythmSpacing.sm),
+              SizedBox(width: 104, child: status),
+              const SizedBox(width: RhythmSpacing.sm),
+              SizedBox(width: 146, child: date),
+              const SizedBox(width: RhythmSpacing.sm),
+              SizedBox(width: 196, child: contextBadges),
+              const SizedBox(width: RhythmSpacing.xs),
+              menu,
+            ],
+          );
+        },
       ),
     );
   }
@@ -465,10 +600,9 @@ class _TasksViewState extends State<TasksView> {
   Widget _buildCreateBar(BuildContext context) {
     return RhythmPanel(
       padding: const EdgeInsets.all(RhythmSpacing.sm),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          TextField(
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final titleField = TextField(
             controller: _titleController,
             decoration: _fieldDecoration(
               context,
@@ -477,9 +611,8 @@ class _TasksViewState extends State<TasksView> {
             ),
             textInputAction: TextInputAction.next,
             onSubmitted: (_) => _submitCreate(),
-          ),
-          const SizedBox(height: RhythmSpacing.xs),
-          TextField(
+          );
+          final notesField = TextField(
             controller: _notesController,
             decoration: _fieldDecoration(
               context,
@@ -488,30 +621,52 @@ class _TasksViewState extends State<TasksView> {
             ),
             minLines: 1,
             maxLines: 1,
-          ),
-          const SizedBox(height: RhythmSpacing.xs),
-          Wrap(
-            spacing: RhythmSpacing.xs,
-            runSpacing: RhythmSpacing.xs,
-            crossAxisAlignment: WrapCrossAlignment.center,
+          );
+          final dateButton = RhythmButton.outlined(
+            onPressed: _pickDate,
+            icon: Icons.calendar_today,
+            compact: true,
+            label: _selectedDueDate == null
+                ? 'Due date'
+                : DateFormatters.fullDate(_selectedDueDate),
+          );
+          final addButton = RhythmButton.filled(
+            onPressed: _submitCreate,
+            icon: Icons.add,
+            label: 'Add task',
+            compact: true,
+          );
+
+          if (constraints.maxWidth >= 900) {
+            return Row(
+              children: [
+                Expanded(flex: 3, child: titleField),
+                const SizedBox(width: RhythmSpacing.xs),
+                Expanded(flex: 4, child: notesField),
+                const SizedBox(width: RhythmSpacing.xs),
+                dateButton,
+                const SizedBox(width: RhythmSpacing.xs),
+                addButton,
+              ],
+            );
+          }
+
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              RhythmButton.outlined(
-                onPressed: _pickDate,
-                icon: Icons.calendar_today,
-                compact: true,
-                label: _selectedDueDate == null
-                    ? 'Due date'
-                    : DateFormatters.fullDate(_selectedDueDate),
-              ),
-              RhythmButton.filled(
-                onPressed: _submitCreate,
-                icon: Icons.add,
-                label: 'Add task',
-                compact: true,
+              titleField,
+              const SizedBox(height: RhythmSpacing.xs),
+              notesField,
+              const SizedBox(height: RhythmSpacing.xs),
+              Wrap(
+                spacing: RhythmSpacing.xs,
+                runSpacing: RhythmSpacing.xs,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [dateButton, addButton],
               ),
             ],
-          ),
-        ],
+          );
+        },
       ),
     );
   }
@@ -548,6 +703,151 @@ class _TasksViewState extends State<TasksView> {
 }
 
 enum _TaskAction { edit, delete }
+
+enum _TaskGroupKind { pastDue, today, scheduled, upcoming, backlog, completed }
+
+class _TaskGroup {
+  const _TaskGroup({
+    required this.title,
+    required this.subtitle,
+    required this.icon,
+    required this.tone,
+    required this.tasks,
+  });
+
+  final String title;
+  final String subtitle;
+  final IconData icon;
+  final RhythmBadgeTone tone;
+  final List<Task> tasks;
+}
+
+class _TaskTitleColumn extends StatelessWidget {
+  const _TaskTitleColumn({
+    required this.task,
+    required this.hasNotes,
+    required this.isDone,
+    required this.accent,
+    required this.text,
+    required this.mutedText,
+  });
+
+  final Task task;
+  final bool hasNotes;
+  final bool isDone;
+  final Color accent;
+  final Color text;
+  final Color mutedText;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (_projectTitle(task) case final projectTitle?) ...[
+          Text(
+            projectTitle,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                  color: accent,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 0,
+                ),
+          ),
+          const SizedBox(height: 2),
+        ],
+        Text(
+          task.title,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                fontWeight: FontWeight.w700,
+                height: 1.2,
+                letterSpacing: 0,
+                decoration:
+                    isDone ? TextDecoration.lineThrough : TextDecoration.none,
+                color: text,
+              ),
+        ),
+        if (hasNotes) ...[
+          const SizedBox(height: 3),
+          Text(
+            task.notes!.trim(),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: mutedText,
+                  height: 1.25,
+                  letterSpacing: 0,
+                ),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+class _TaskContextBadges extends StatelessWidget {
+  const _TaskContextBadges({required this.task, required this.controller});
+
+  final Task task;
+  final TasksController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final ownerId = task.ownerId;
+    final members = context.read<WorkspaceController>().members;
+    String? ownerName;
+    if (ownerId != null) {
+      for (final member in members) {
+        if (member.userId == ownerId) {
+          ownerName = member.name;
+          break;
+        }
+      }
+      ownerName ??= 'Owner #$ownerId';
+    }
+
+    return Wrap(
+      spacing: RhythmSpacing.xs,
+      runSpacing: RhythmSpacing.xxs,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: [
+        if (task.sourceType != null)
+          RhythmBadge(
+            icon: _sourceIcon(task.sourceType!),
+            label: _sourceLabel(task),
+            tone: RhythmBadgeTone.accent,
+            compact: true,
+          ),
+        if (ownerName != null)
+          RhythmBadge(
+            icon: Icons.person_outline,
+            label: ownerName,
+            compact: true,
+          ),
+        if (ownerId != null)
+          CollaboratorsRow(
+            collaborators: task.collaborators,
+            ownerId: ownerId,
+            workspaceMembers: members,
+            onAdd: (userId) async {
+              final ds = CollaboratorsDataSource();
+              await ds.addToTask(task.id, userId);
+              await controller.load();
+            },
+            onRemove: (userId) async {
+              final ds = CollaboratorsDataSource();
+              await ds.removeFromTask(task.id, userId);
+              await controller.load();
+            },
+          ),
+      ],
+    );
+  }
+}
 
 String _sourceLabel(Task task) {
   if (task.sourceName != null && task.sourceName!.trim().isNotEmpty) {
