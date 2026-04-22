@@ -14,8 +14,8 @@ export class ProjectGenerationService {
   generate(
     templateId: string,
     anchorDate: string,
-    name?: string | null,
-    userId?: number,
+    name: string | null,
+    userId: number,
   ): ProjectInstance {
     const normalizedName = name?.trim() || null;
     const existing = this.instanceRepo.findByTemplateAndAnchor(
@@ -52,8 +52,8 @@ export class ProjectGenerationService {
   async generateAsync(
     templateId: string,
     anchorDate: string,
-    name?: string | null,
-    userId?: number,
+    name: string | null,
+    userId: number,
   ): Promise<ProjectInstance> {
     const normalizedName = name?.trim() || null;
     const existing = await this.instanceRepo.findByTemplateAndAnchorAsync(

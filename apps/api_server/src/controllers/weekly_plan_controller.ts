@@ -24,7 +24,8 @@ export class WeeklyPlanController {
           "Invalid week format. Use YYYY-WNN (e.g. 2026-W13).",
         );
       }
-      const plan = await this.service.assemblePlan(weekLabel, req.auth?.user.id);
+      const userId = req.auth!.user.id;
+      const plan = await this.service.assemblePlan(weekLabel, userId);
       const assemblySignal: AutomationSignal = {
         id: `rhythm:plan_assembly:${weekLabel}`,
         provider: "rhythm",
@@ -74,7 +75,7 @@ export class WeeklyPlanController {
       const updated = await this.tasksRepo.updateAsync(
         id,
         { scheduledDate, locked },
-        req.auth?.user.id,
+        req.auth!.user.id,
       );
       res.json(updated);
     } catch (err) {

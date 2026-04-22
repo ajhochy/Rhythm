@@ -27,10 +27,11 @@ const VALID_FREQUENCIES = ['weekly', 'monthly', 'annual'] as const;
 export class RecurringRulesController {
   async getAll(req: Request, res: Response, next: NextFunction) {
     try {
+      const userId = req.auth!.user.id;
       res.json(
         await this.decorateRules(
-          await repo.findAllAsync(req.auth?.user.id),
-          req.auth?.user.id,
+          await repo.findAllAsync(userId),
+          userId,
         ),
       );
     } catch (err) {
@@ -40,10 +41,11 @@ export class RecurringRulesController {
 
   async getById(req: Request, res: Response, next: NextFunction) {
     try {
+      const userId = req.auth!.user.id;
       res.json(
         await this.decorateRule(
-          await repo.findByIdAsync(req.params.id, req.auth?.user.id),
-          req.auth?.user.id,
+          await repo.findByIdAsync(req.params.id, userId),
+          userId,
         ),
       );
     } catch (err) {
@@ -66,7 +68,7 @@ export class RecurringRulesController {
         dayOfWeek: dayOfWeek as number ?? null,
         dayOfMonth: dayOfMonth as number ?? null,
         month: month as number ?? null,
-        ownerId: req.auth?.user.id ?? null,
+        ownerId: req.auth!.user.id,
         steps: parseSteps(steps),
         sequential: sequential === true,
       });
@@ -79,7 +81,7 @@ export class RecurringRulesController {
       to.setUTCDate(to.getUTCDate() + weeks * 7);
       await recurrenceService.generateInstances(rule, from, to);
 
-      res.status(201).json(await this.decorateRule(rule, req.auth?.user.id));
+      res.status(201).json(await this.decorateRule(rule, req.auth!.user.id));
     } catch (err) {
       next(err);
     }
@@ -88,7 +90,8 @@ export class RecurringRulesController {
   async update(req: Request, res: Response, next: NextFunction) {
     try {
       const body = req.body as Record<string, unknown>;
-      const rule = await repo.updateAsync(req.params.id, body, req.auth?.user.id);
+      const userId = req.auth!.user.id;
+      const rule = await repo.updateAsync(req.params.id, body, userId);
       await tasksRepo.deleteFutureOpenBySourceIdAsync('recurring_rule', rule.id);
       if (rule.enabled) {
         const weeks = parseInt(process.env.RECURRENCE_LOOKAHEAD_WEEKS ?? '', 10);
@@ -98,7 +101,7 @@ export class RecurringRulesController {
         to.setUTCDate(to.getUTCDate() + lookahead * 7);
         await recurrenceService.generateInstances(rule, from, to);
       }
-      res.json(await this.decorateRule(rule, req.auth?.user.id));
+      res.json(await this.decorateRule(rule, userId));
     } catch (err) {
       next(err);
     }
@@ -106,7 +109,7 @@ export class RecurringRulesController {
 
   async remove(req: Request, res: Response, next: NextFunction) {
     try {
-      await repo.deleteAsync(req.params.id, req.auth?.user.id);
+      await repo.deleteAsync(req.params.id, req.auth!.user.id);
       res.status(204).send();
     } catch (err) {
       next(err);
@@ -115,6 +118,7 @@ export class RecurringRulesController {
 
   async getCollaborators(req: Request, res: Response, next: NextFunction) {
     try {
+      await repo.findByIdAsync(req.params.id, req.auth!.user.id);
       res.json(await repo.listCollaboratorsAsync(req.params.id));
     } catch (err) {
       next(err);
@@ -123,8 +127,8 @@ export class RecurringRulesController {
 
   async addCollaborator(req: Request, res: Response, next: NextFunction) {
     try {
-      const actorId = req.auth?.user.id;
-      const rule = await repo.findByIdAsync(req.params.id);
+      const actorId = req.auth!.user.id;
+      const rule = await repo.findByIdAsync(req.params.id, actorId);
       if (rule.ownerId !== actorId) throw AppError.forbidden('Only the rhythm owner can manage collaborators');
       const { userId } = req.body as Record<string, unknown>;
       if (!userId || typeof userId !== 'number') {
@@ -148,8 +152,9 @@ export class RecurringRulesController {
 
   async removeCollaborator(req: Request, res: Response, next: NextFunction) {
     try {
-      const rule = await repo.findByIdAsync(req.params.id);
-      if (rule.ownerId !== req.auth?.user.id) throw AppError.forbidden('Only the rhythm owner can manage collaborators');
+      const actorId = req.auth!.user.id;
+      const rule = await repo.findByIdAsync(req.params.id, actorId);
+      if (rule.ownerId !== actorId) throw AppError.forbidden('Only the rhythm owner can manage collaborators');
       const collaboratorUserId = Number(req.params.userId);
       if (isNaN(collaboratorUserId)) {
         throw AppError.badRequest('Invalid userId');
@@ -163,16 +168,16 @@ export class RecurringRulesController {
 
   private async decorateRules(
     rules: RecurringTaskRule[],
-    currentUserId?: number,
+    currentUserId: number,
   ) {
     return Promise.all(
       rules.map((rule) => this.decorateRule(rule, currentUserId)),
     );
   }
 
-  private async decorateRule(rule: RecurringTaskRule, currentUserId?: number) {
+  private async decorateRule(rule: RecurringTaskRule, currentUserId: number) {
     const [visibleTasks, users, collaborators] = await Promise.all([
-      tasksRepo.findAllAsync(),
+      tasksRepo.findAllAsync(currentUserId),
       usersRepo.findAllAsync(),
       repo.listCollaboratorsAsync(rule.id),
     ]);
