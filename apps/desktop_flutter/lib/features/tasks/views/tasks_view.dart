@@ -34,6 +34,7 @@ class _TasksViewState extends State<TasksView> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<TasksController>().load();
+      context.read<WorkspaceController>().loadMembers();
     });
   }
 
@@ -103,23 +104,29 @@ class _TasksViewState extends State<TasksView> {
                     ),
                   ),
                 Expanded(
-                  child: CustomScrollView(
-                    slivers: [
-                      SliverPersistentHeader(
-                        pinned: true,
-                        delegate: _StickyBarDelegate(
-                          height: MediaQuery.sizeOf(context).width >= 980
-                              ? 82
-                              : 176,
-                          child: _buildCreateBar(context),
-                        ),
-                      ),
-                      _buildTaskListSliver(
-                        controller,
-                        visibleTasks,
-                        currentUserId,
-                      ),
-                    ],
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      final createBarStacks = constraints.maxWidth < 940;
+                      return CustomScrollView(
+                        slivers: [
+                          SliverPersistentHeader(
+                            pinned: true,
+                            delegate: _StickyBarDelegate(
+                              height: createBarStacks ? 176 : 82,
+                              child: _buildCreateBar(
+                                context,
+                                stacked: createBarStacks,
+                              ),
+                            ),
+                          ),
+                          _buildTaskListSliver(
+                            controller,
+                            visibleTasks,
+                            currentUserId,
+                          ),
+                        ],
+                      );
+                    },
                   ),
                 ),
               ],
@@ -263,15 +270,22 @@ class _TasksViewState extends State<TasksView> {
       );
     }
     if (visibleTasks.isEmpty) {
+      final hasSearch = _searchQuery.trim().isNotEmpty;
       return SliverFillRemaining(
         hasScrollBody: false,
         child: _buildEmptyState(
-          title: controller.tasks.isEmpty ? 'No tasks yet' : 'Nothing to show',
+          title: controller.tasks.isEmpty
+              ? 'No tasks yet'
+              : hasSearch
+                  ? 'No matching tasks'
+                  : 'Nothing to show',
           message: controller.tasks.isEmpty
               ? 'Create a task above and it will settle into this workspace.'
-              : _showCompleted
-                  ? 'All tasks are already hidden by the current filter.'
-                  : 'Completed tasks are hidden right now. Turn them back on to review finished work.',
+              : hasSearch
+                  ? 'Try a different search, or clear the search field to return to the full queue.'
+                  : _showCompleted
+                      ? 'No tasks match the current view.'
+                      : 'Completed tasks are hidden right now. Turn them back on to review finished work.',
           icon: controller.tasks.isEmpty
               ? Icons.task_alt_outlined
               : Icons.checklist_outlined,
@@ -786,7 +800,7 @@ class _TasksViewState extends State<TasksView> {
     );
   }
 
-  Widget _buildCreateBar(BuildContext context) {
+  Widget _buildCreateBar(BuildContext context, {required bool stacked}) {
     return RhythmPanel(
       padding: const EdgeInsets.all(RhythmSpacing.sm),
       child: LayoutBuilder(
@@ -826,7 +840,7 @@ class _TasksViewState extends State<TasksView> {
             compact: true,
           );
 
-          if (constraints.maxWidth >= 900) {
+          if (!stacked && constraints.maxWidth >= 900) {
             return Row(
               children: [
                 Expanded(flex: 3, child: titleField),

@@ -55,9 +55,13 @@ class _DashboardViewState extends State<DashboardView> {
       child: Consumer<DashboardController>(
         builder: (context, controller, _) {
           return switch (controller.status) {
-            DashboardStatus.loading => const RhythmEmptyState(
-                title: 'Loading dashboard...',
-                tone: RhythmEmptyStateTone.loading,
+            DashboardStatus.loading => const RhythmSurface.section(
+                clipBehavior: Clip.antiAlias,
+                child: RhythmEmptyState(
+                  title: 'Loading dashboard...',
+                  message: 'Planning, handoffs, and previews will appear here.',
+                  tone: RhythmEmptyStateTone.loading,
+                ),
               ),
             DashboardStatus.error => _ErrorView(
                 message: controller.errorMessage ?? 'Unknown error',
@@ -635,26 +639,32 @@ class _SectionLabel extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 4),
       child: Row(
         children: [
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                title,
-                style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                      fontWeight: FontWeight.w700,
-                      color: colors.textPrimary,
-                      letterSpacing: 0,
-                    ),
-              ),
-              const SizedBox(height: RhythmSpacing.xxs),
-              Text(
-                subtitle,
-                style: Theme.of(context)
-                    .textTheme
-                    .bodySmall
-                    ?.copyWith(color: colors.textSecondary),
-              ),
-            ],
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w700,
+                        color: colors.textPrimary,
+                        letterSpacing: 0,
+                      ),
+                ),
+                const SizedBox(height: RhythmSpacing.xxs),
+                Text(
+                  subtitle,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context)
+                      .textTheme
+                      .bodySmall
+                      ?.copyWith(color: colors.textSecondary),
+                ),
+              ],
+            ),
           ),
         ],
       ),

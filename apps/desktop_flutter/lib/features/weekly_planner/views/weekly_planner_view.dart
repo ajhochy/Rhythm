@@ -287,15 +287,10 @@ class _PlannerBody extends StatelessWidget {
   Widget build(BuildContext context) {
     if (controller.status == WeeklyPlannerStatus.loading &&
         controller.plan == null) {
-      return const Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            CircularProgressIndicator(),
-            SizedBox(height: 12),
-            Text('Loading this week...'),
-          ],
-        ),
+      return const RhythmEmptyState(
+        title: 'Loading this week...',
+        message: 'Backlog, day columns, and task details will appear here.',
+        tone: RhythmEmptyStateTone.loading,
       );
     }
     final plan = controller.plan;
