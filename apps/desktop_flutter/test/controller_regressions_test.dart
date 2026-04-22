@@ -16,6 +16,7 @@ import 'package:rhythm_desktop/features/rhythms/data/rhythms_data_source.dart';
 import 'package:rhythm_desktop/features/rhythms/repositories/rhythms_repository.dart';
 import 'package:rhythm_desktop/features/tasks/models/recurring_task_rule.dart';
 import 'package:rhythm_desktop/features/tasks/models/task.dart';
+import 'package:rhythm_desktop/features/tasks/models/task_collaborator.dart';
 
 void main() {
   test(
@@ -61,6 +62,21 @@ void main() {
       expect(controller.dueThisWeekCount, 0);
     },
   );
+
+  test('DashboardController derives open handoff tasks from shared context',
+      () async {
+    final controller = DashboardController(
+      _FakeDashboardRepository(_FakeDashboardHandoffDataSource()),
+      now: () => DateTime(2026, 4, 9),
+    );
+
+    await controller.load();
+
+    expect(controller.handoffTasks.map((task) => task.id), [
+      'shared-due',
+      'collaborative-unscheduled',
+    ]);
+  });
 
   test('MessagesController reloads threads after creating a thread', () async {
     final repository = _FakeMessagesRepository();
@@ -317,6 +333,53 @@ class _FakeDashboardNextWeekDataSource extends _FakeDashboardDataSource {
         dueDate: '2026-04-15',
         createdAt: '2026-04-09T00:00:00.000Z',
         updatedAt: '2026-04-09T00:00:00.000Z',
+      ),
+    ];
+  }
+}
+
+class _FakeDashboardHandoffDataSource extends _FakeDashboardDataSource {
+  @override
+  Future<List<Task>> fetchTasks() async {
+    loadCount += 1;
+    return [
+      Task(
+        id: 'solo',
+        title: 'Solo task',
+        status: 'open',
+        dueDate: '2026-04-09',
+        createdAt: '2026-04-08T00:00:00.000Z',
+        updatedAt: '2026-04-08T00:00:00.000Z',
+      ),
+      Task(
+        id: 'shared-due',
+        title: 'Shared due task',
+        status: 'open',
+        dueDate: '2026-04-10',
+        ownerId: 1,
+        isShared: true,
+        createdAt: '2026-04-08T00:00:00.000Z',
+        updatedAt: '2026-04-08T00:00:00.000Z',
+      ),
+      Task(
+        id: 'collaborative-unscheduled',
+        title: 'Collaborative task',
+        status: 'open',
+        ownerId: 2,
+        collaborators: const [
+          TaskCollaborator(userId: 1, name: 'Alice'),
+        ],
+        createdAt: '2026-04-08T00:00:00.000Z',
+        updatedAt: '2026-04-08T00:01:00.000Z',
+      ),
+      Task(
+        id: 'shared-done',
+        title: 'Completed shared task',
+        status: 'done',
+        ownerId: 1,
+        isShared: true,
+        createdAt: '2026-04-08T00:00:00.000Z',
+        updatedAt: '2026-04-08T00:02:00.000Z',
       ),
     ];
   }

@@ -36,6 +36,7 @@ class DashboardController extends ChangeNotifier {
   List<Task> _thisWeekTasks = [];
   List<Task> _todayTasks = [];
   List<Task> _unscheduledTasks = [];
+  List<Task> _handoffTasks = [];
   List<DashboardRhythmProgress> _activeRhythms = [];
   List<DashboardProjectProgress> _activeProjects = [];
   List<DashboardUnreadMessagePreview> _unreadMessages = [];
@@ -58,6 +59,7 @@ class DashboardController extends ChangeNotifier {
   List<Task> get thisWeekTasks => _thisWeekTasks;
   List<Task> get todayTasks => _todayTasks;
   List<Task> get unscheduledTasks => _unscheduledTasks;
+  List<Task> get handoffTasks => _handoffTasks;
   List<DashboardRhythmProgress> get activeRhythms => _activeRhythms;
   List<DashboardProjectProgress> get activeProjects => _activeProjects;
   List<DashboardUnreadMessagePreview> get unreadMessages => _unreadMessages;
@@ -94,6 +96,8 @@ class DashboardController extends ChangeNotifier {
         ..sort(_compareTasks);
       _unscheduledTasks = tasks.where(_isUnscheduled).toList()
         ..sort((a, b) => b.id.compareTo(a.id));
+      _handoffTasks = tasks.where(_hasOpenHandoffContext).toList()
+        ..sort(_compareTasks);
       _pastDueTaskCount = _pastDueTasks.length;
       _todayTasksRemainingCount = _todayTasks.length;
       _todayTasksTotalCount = tasks
@@ -268,6 +272,11 @@ class DashboardController extends ChangeNotifier {
       task.dueDate == null &&
       task.scheduledDate == null;
 
+  static bool _hasOpenHandoffContext(Task task) {
+    if (task.status == 'done') return false;
+    return task.isShared || task.collaborators.isNotEmpty;
+  }
+
   Future<List<DashboardProjectProgress>> _loadProjectSummaries() async {
     try {
       final results = await Future.wait([
@@ -334,6 +343,7 @@ class DashboardController extends ChangeNotifier {
       ..._thisWeekTasks,
       ..._todayTasks,
       ..._unscheduledTasks,
+      ..._handoffTasks,
     ]) {
       if (task.id == id) return task;
     }

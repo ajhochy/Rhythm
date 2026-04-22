@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import '../../../app/theme/rhythm_tokens.dart';
+import '../../../app/core/ui/tokens/rhythm_theme.dart';
 import '../controllers/notifications_controller.dart';
 import '../models/app_notification.dart';
 
@@ -14,16 +14,16 @@ class NotificationPanel extends StatelessWidget {
 
     return Material(
       elevation: 8,
-      color: RhythmTokens.surfaceStrong,
-      borderRadius: BorderRadius.circular(RhythmTokens.radiusM),
+      color: context.rhythm.surfaceRaised,
+      borderRadius: BorderRadius.circular(RhythmRadius.lg),
       child: Container(
         width: 320,
         constraints: const BoxConstraints(maxHeight: 480),
         decoration: BoxDecoration(
-          color: RhythmTokens.surfaceStrong,
-          borderRadius: BorderRadius.circular(RhythmTokens.radiusM),
-          border: Border.all(color: RhythmTokens.borderSoft),
-          boxShadow: RhythmTokens.shadow,
+          color: context.rhythm.surfaceRaised,
+          borderRadius: BorderRadius.circular(RhythmRadius.lg),
+          border: Border.all(color: context.rhythm.borderSubtle),
+          boxShadow: RhythmElevation.panel,
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -37,8 +37,10 @@ class NotificationPanel extends StatelessWidget {
                   padding: EdgeInsets.zero,
                   shrinkWrap: true,
                   itemCount: notifications.length,
-                  separatorBuilder: (_, __) =>
-                      const Divider(height: 1, color: RhythmTokens.borderSoft),
+                  separatorBuilder: (context, __) => Divider(
+                    height: 1,
+                    color: context.rhythm.borderSubtle,
+                  ),
                   itemBuilder: (context, index) {
                     return _NotificationTile(
                       notification: notifications[index],
@@ -62,17 +64,19 @@ class _PanelHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.fromLTRB(16, 14, 8, 14),
-      decoration: const BoxDecoration(
-        border: Border(bottom: BorderSide(color: RhythmTokens.borderSoft)),
+      decoration: BoxDecoration(
+        border: Border(
+          bottom: BorderSide(color: context.rhythm.borderSubtle),
+        ),
       ),
       child: Row(
         children: [
-          const Text(
+          Text(
             'Notifications',
             style: TextStyle(
               fontSize: 14,
               fontWeight: FontWeight.w700,
-              color: RhythmTokens.textPrimary,
+              color: context.rhythm.textPrimary,
             ),
           ),
           const Spacer(),
@@ -81,7 +85,7 @@ class _PanelHeader extends StatelessWidget {
               onPressed: () =>
                   context.read<NotificationsController>().markAllRead(),
               style: TextButton.styleFrom(
-                foregroundColor: RhythmTokens.accent,
+                foregroundColor: context.rhythm.accent,
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 minimumSize: Size.zero,
                 tapTargetSize: MaterialTapTargetSize.shrinkWrap,
@@ -103,8 +107,8 @@ class _EmptyState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return const Padding(
-      padding: EdgeInsets.symmetric(vertical: 32, horizontal: 16),
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 32, horizontal: 16),
       child: Center(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -112,12 +116,15 @@ class _EmptyState extends StatelessWidget {
             Icon(
               Icons.notifications_none,
               size: 32,
-              color: RhythmTokens.textMuted,
+              color: context.rhythm.textMuted,
             ),
-            SizedBox(height: 8),
+            const SizedBox(height: 8),
             Text(
               'You\u2019re all caught up',
-              style: TextStyle(color: RhythmTokens.textSecondary, fontSize: 13),
+              style: TextStyle(
+                color: context.rhythm.textSecondary,
+                fontSize: 13,
+              ),
             ),
           ],
         ),
@@ -151,7 +158,7 @@ class _NotificationTile extends StatelessWidget {
               child: Icon(
                 _iconFor(notification.type),
                 size: 16,
-                color: RhythmTokens.accent,
+                color: context.rhythm.accent,
               ),
             ),
             const SizedBox(width: 12),
@@ -161,17 +168,17 @@ class _NotificationTile extends StatelessWidget {
                 children: [
                   Text(
                     notification.message,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 13,
-                      color: RhythmTokens.textPrimary,
+                      color: context.rhythm.textPrimary,
                     ),
                   ),
                   const SizedBox(height: 3),
                   Text(
                     _relativeTime(notification.createdAt),
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 11,
-                      color: RhythmTokens.textMuted,
+                      color: context.rhythm.textMuted,
                     ),
                   ),
                 ],

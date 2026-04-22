@@ -8,7 +8,8 @@ import '../../../app/core/services/server_config_service.dart';
 import '../../../app/core/updates/update_controller.dart';
 import '../../../app/core/workspace/workspace_controller.dart';
 import '../../../app/core/workspace/workspace_models.dart';
-import '../../../app/theme/rhythm_tokens.dart';
+import '../../../app/core/services/theme_mode_service.dart';
+import '../../../app/core/ui/tokens/rhythm_theme.dart';
 import '../controllers/settings_controller.dart';
 
 class SettingsView extends StatefulWidget {
@@ -66,27 +67,27 @@ class _SettingsViewState extends State<SettingsView> {
     }
 
     return Scaffold(
-      backgroundColor: RhythmTokens.background,
+      backgroundColor: context.rhythm.canvas,
       appBar: AppBar(
         title: const Text('Settings'),
-        backgroundColor: RhythmTokens.surface,
-        foregroundColor: RhythmTokens.textPrimary,
+        backgroundColor: context.rhythm.surface,
+        foregroundColor: context.rhythm.textPrimary,
         elevation: 0,
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(1),
-          child: Container(color: RhythmTokens.borderSoft, height: 1),
+          child: Container(color: context.rhythm.borderSubtle, height: 1),
         ),
       ),
       body: ListView(
         padding: const EdgeInsets.all(24),
         children: [
           if (user != null) ...[
-            const Text(
+            Text(
               'ACCOUNT',
               style: TextStyle(
                 fontSize: 12,
                 fontWeight: FontWeight.w600,
-                color: RhythmTokens.textSecondary,
+                color: context.rhythm.textSecondary,
                 letterSpacing: 0.8,
               ),
             ),
@@ -94,19 +95,19 @@ class _SettingsViewState extends State<SettingsView> {
             Container(
               padding: const EdgeInsets.all(20),
               decoration: BoxDecoration(
-                color: RhythmTokens.surfaceStrong,
-                borderRadius: BorderRadius.circular(RhythmTokens.radiusL),
-                border: Border.all(color: RhythmTokens.borderSoft),
-                boxShadow: RhythmTokens.shadow,
+                color: context.rhythm.surfaceRaised,
+                borderRadius: BorderRadius.circular(RhythmRadius.xl),
+                border: Border.all(color: context.rhythm.borderSubtle),
+                boxShadow: RhythmElevation.panel,
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
+                  Text(
                     'Signed in user',
                     style: TextStyle(
                       fontWeight: FontWeight.w600,
-                      color: RhythmTokens.textPrimary,
+                      color: context.rhythm.textPrimary,
                     ),
                   ),
                   const SizedBox(height: 12),
@@ -114,15 +115,15 @@ class _SettingsViewState extends State<SettingsView> {
                     children: [
                       CircleAvatar(
                         radius: 22,
-                        backgroundColor: RhythmTokens.accentSoft,
+                        backgroundColor: context.rhythm.accentMuted,
                         backgroundImage: user.photoUrl != null
                             ? NetworkImage(user.photoUrl!)
                             : null,
                         child: user.photoUrl == null
                             ? Text(
                                 _settingsInitialsFor(user.name),
-                                style: const TextStyle(
-                                  color: RhythmTokens.accent,
+                                style: TextStyle(
+                                  color: context.rhythm.accent,
                                   fontWeight: FontWeight.w700,
                                 ),
                               )
@@ -135,17 +136,17 @@ class _SettingsViewState extends State<SettingsView> {
                           children: [
                             Text(
                               user.name,
-                              style: const TextStyle(
-                                color: RhythmTokens.textPrimary,
+                              style: TextStyle(
+                                color: context.rhythm.textPrimary,
                                 fontWeight: FontWeight.w600,
                               ),
                             ),
                             const SizedBox(height: 4),
                             Text(
                               user.email,
-                              style: const TextStyle(
+                              style: TextStyle(
                                 fontSize: 13,
-                                color: RhythmTokens.textSecondary,
+                                color: context.rhythm.textSecondary,
                               ),
                             ),
                           ],
@@ -156,9 +157,9 @@ class _SettingsViewState extends State<SettingsView> {
                   const SizedBox(height: 12),
                   Text(
                     'Role: ${user.role}',
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 13,
-                      color: RhythmTokens.textSecondary,
+                      color: context.rhythm.textSecondary,
                     ),
                   ),
                   const SizedBox(height: 6),
@@ -166,9 +167,9 @@ class _SettingsViewState extends State<SettingsView> {
                     user.isFacilitiesManager
                         ? 'Facilities manager access enabled'
                         : 'Facilities manager access disabled',
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 13,
-                      color: RhythmTokens.textSecondary,
+                      color: context.rhythm.textSecondary,
                     ),
                   ),
                   const SizedBox(height: 16),
@@ -188,12 +189,12 @@ class _SettingsViewState extends State<SettingsView> {
             const SizedBox(height: 24),
           ],
           if (canManagePermissions) ...[
-            const Text(
+            Text(
               'USER PERMISSIONS',
               style: TextStyle(
                 fontSize: 12,
                 fontWeight: FontWeight.w600,
-                color: RhythmTokens.textSecondary,
+                color: context.rhythm.textSecondary,
                 letterSpacing: 0.8,
               ),
             ),
@@ -204,15 +205,17 @@ class _SettingsViewState extends State<SettingsView> {
             ),
             const SizedBox(height: 24),
           ],
+          const _AppearanceSection(),
+          const SizedBox(height: 24),
           const _ClaudeIntegrationSection(),
           const SizedBox(height: 24),
           const _WorkspaceSectionWidget(),
-          const Text(
+          Text(
             'UPDATES',
             style: TextStyle(
               fontSize: 12,
               fontWeight: FontWeight.w600,
-              color: RhythmTokens.textSecondary,
+              color: context.rhythm.textSecondary,
               letterSpacing: 0.8,
             ),
           ),
@@ -220,19 +223,19 @@ class _SettingsViewState extends State<SettingsView> {
           Container(
             padding: const EdgeInsets.all(20),
             decoration: BoxDecoration(
-              color: RhythmTokens.surfaceStrong,
-              borderRadius: BorderRadius.circular(RhythmTokens.radiusL),
-              border: Border.all(color: RhythmTokens.borderSoft),
-              boxShadow: RhythmTokens.shadow,
+              color: context.rhythm.surfaceRaised,
+              borderRadius: BorderRadius.circular(RhythmRadius.xl),
+              border: Border.all(color: context.rhythm.borderSubtle),
+              boxShadow: RhythmElevation.panel,
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
+                Text(
                   'Desktop app updates',
                   style: TextStyle(
                     fontWeight: FontWeight.w600,
-                    color: RhythmTokens.textPrimary,
+                    color: context.rhythm.textPrimary,
                   ),
                 ),
                 const SizedBox(height: 8),
@@ -240,26 +243,26 @@ class _SettingsViewState extends State<SettingsView> {
                   updateController.currentVersion == null
                       ? 'Version unknown'
                       : 'Current version: v${updateController.currentVersion}',
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 13,
-                    color: RhythmTokens.textSecondary,
+                    color: context.rhythm.textSecondary,
                   ),
                 ),
                 const SizedBox(height: 12),
                 if (updateController.isChecking)
-                  const Text(
+                  Text(
                     'Checking for updates...',
                     style: TextStyle(
                       fontSize: 13,
-                      color: RhythmTokens.textSecondary,
+                      color: context.rhythm.textSecondary,
                     ),
                   )
                 else if (updateController.availableUpdate != null) ...[
                   Text(
                     'Update ready: ${updateController.availableUpdate!.version}${updateController.availableUpdate!.prerelease ? ' beta' : ''}',
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 13,
-                      color: RhythmTokens.textPrimary,
+                      color: context.rhythm.textPrimary,
                       fontWeight: FontWeight.w600,
                     ),
                   ),
@@ -279,11 +282,11 @@ class _SettingsViewState extends State<SettingsView> {
                     ],
                   ),
                 ] else ...[
-                  const Text(
+                  Text(
                     'You are on the latest release.',
                     style: TextStyle(
                       fontSize: 13,
-                      color: RhythmTokens.textSecondary,
+                      color: context.rhythm.textSecondary,
                     ),
                   ),
                   const SizedBox(height: 12),
@@ -296,9 +299,9 @@ class _SettingsViewState extends State<SettingsView> {
                   const SizedBox(height: 10),
                   Text(
                     updateController.errorMessage!,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 12,
-                      color: RhythmTokens.danger,
+                      color: context.rhythm.danger,
                     ),
                   ),
                 ],
@@ -306,12 +309,12 @@ class _SettingsViewState extends State<SettingsView> {
             ),
           ),
           const SizedBox(height: 24),
-          const Text(
+          Text(
             'SERVER',
             style: TextStyle(
               fontSize: 12,
               fontWeight: FontWeight.w600,
-              color: RhythmTokens.textSecondary,
+              color: context.rhythm.textSecondary,
               letterSpacing: 0.8,
             ),
           ),
@@ -319,27 +322,27 @@ class _SettingsViewState extends State<SettingsView> {
           Container(
             padding: const EdgeInsets.all(20),
             decoration: BoxDecoration(
-              color: RhythmTokens.surfaceStrong,
-              borderRadius: BorderRadius.circular(RhythmTokens.radiusL),
-              border: Border.all(color: RhythmTokens.borderSoft),
-              boxShadow: RhythmTokens.shadow,
+              color: context.rhythm.surfaceRaised,
+              borderRadius: BorderRadius.circular(RhythmRadius.xl),
+              border: Border.all(color: context.rhythm.borderSubtle),
+              boxShadow: RhythmElevation.panel,
             ),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
+                Text(
                   'API Server URL',
                   style: TextStyle(
                     fontWeight: FontWeight.w600,
-                    color: RhythmTokens.textPrimary,
+                    color: context.rhythm.textPrimary,
                   ),
                 ),
                 const SizedBox(height: 4),
-                const Text(
+                Text(
                   'Use http://localhost:4000 for local, or your hosted server URL.',
                   style: TextStyle(
                     fontSize: 13,
-                    color: RhythmTokens.textSecondary,
+                    color: context.rhythm.textSecondary,
                   ),
                 ),
                 const SizedBox(height: 16),
@@ -390,25 +393,25 @@ class _UserPermissionsCard extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-        color: RhythmTokens.surfaceStrong,
-        borderRadius: BorderRadius.circular(RhythmTokens.radiusL),
-        border: Border.all(color: RhythmTokens.borderSoft),
-        boxShadow: RhythmTokens.shadow,
+        color: context.rhythm.surfaceRaised,
+        borderRadius: BorderRadius.circular(RhythmRadius.xl),
+        border: Border.all(color: context.rhythm.borderSubtle),
+        boxShadow: RhythmElevation.panel,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
+          Text(
             'Admin controls',
             style: TextStyle(
               fontWeight: FontWeight.w600,
-              color: RhythmTokens.textPrimary,
+              color: context.rhythm.textPrimary,
             ),
           ),
           const SizedBox(height: 6),
-          const Text(
+          Text(
             'Manage which users are admins and which users can manage Facilities.',
-            style: TextStyle(fontSize: 13, color: RhythmTokens.textSecondary),
+            style: TextStyle(fontSize: 13, color: context.rhythm.textSecondary),
           ),
           const SizedBox(height: 16),
           if (controller.usersStatus == SettingsUsersStatus.loading)
@@ -422,9 +425,9 @@ class _UserPermissionsCard extends StatelessWidget {
               children: [
                 Text(
                   controller.usersErrorMessage ?? 'Could not load users.',
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 13,
-                    color: RhythmTokens.danger,
+                    color: context.rhythm.danger,
                   ),
                 ),
                 const SizedBox(height: 12),
@@ -508,9 +511,9 @@ class _UserPermissionRow extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: RhythmTokens.surface,
-        borderRadius: BorderRadius.circular(RhythmTokens.radiusM),
-        border: Border.all(color: RhythmTokens.borderSoft),
+        color: context.rhythm.surface,
+        borderRadius: BorderRadius.circular(RhythmRadius.lg),
+        border: Border.all(color: context.rhythm.borderSubtle),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -523,17 +526,17 @@ class _UserPermissionRow extends StatelessWidget {
                   children: [
                     Text(
                       user.name,
-                      style: const TextStyle(
-                        color: RhythmTokens.textPrimary,
+                      style: TextStyle(
+                        color: context.rhythm.textPrimary,
                         fontWeight: FontWeight.w600,
                       ),
                     ),
                     const SizedBox(height: 4),
                     Text(
                       user.email,
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 13,
-                        color: RhythmTokens.textSecondary,
+                        color: context.rhythm.textSecondary,
                       ),
                     ),
                   ],
@@ -569,18 +572,18 @@ class _UserPermissionRow extends StatelessWidget {
                 width: 260,
                 child: SwitchListTile(
                   contentPadding: EdgeInsets.zero,
-                  title: const Text(
+                  title: Text(
                     'Facilities manager',
                     style: TextStyle(
                       fontSize: 14,
-                      color: RhythmTokens.textPrimary,
+                      color: context.rhythm.textPrimary,
                     ),
                   ),
-                  subtitle: const Text(
+                  subtitle: Text(
                     'Can create, edit, and manage rooms in Facilities.',
                     style: TextStyle(
                       fontSize: 12,
-                      color: RhythmTokens.textSecondary,
+                      color: context.rhythm.textSecondary,
                     ),
                   ),
                   value: user.isFacilitiesManager,
@@ -630,12 +633,12 @@ class _ClaudeIntegrationSectionState extends State<_ClaudeIntegrationSection> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
+        Text(
           'CLAUDE INTEGRATION',
           style: TextStyle(
             fontSize: 12,
             fontWeight: FontWeight.w600,
-            color: RhythmTokens.textSecondary,
+            color: context.rhythm.textSecondary,
             letterSpacing: 0.8,
           ),
         ),
@@ -643,52 +646,55 @@ class _ClaudeIntegrationSectionState extends State<_ClaudeIntegrationSection> {
         Container(
           padding: const EdgeInsets.all(20),
           decoration: BoxDecoration(
-            color: RhythmTokens.surfaceStrong,
-            borderRadius: BorderRadius.circular(RhythmTokens.radiusL),
-            border: Border.all(color: RhythmTokens.borderSoft),
-            boxShadow: RhythmTokens.shadow,
+            color: context.rhythm.surfaceRaised,
+            borderRadius: BorderRadius.circular(RhythmRadius.xl),
+            border: Border.all(color: context.rhythm.borderSubtle),
+            boxShadow: RhythmElevation.panel,
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text(
+              Text(
                 'MCP Server Token',
                 style: TextStyle(
                   fontWeight: FontWeight.w600,
-                  color: RhythmTokens.textPrimary,
+                  color: context.rhythm.textPrimary,
                 ),
               ),
               const SizedBox(height: 6),
-              const Text(
+              Text(
                 'Use this token to connect Claude Desktop or Claude Code to '
                 'your Rhythm workspace via the @ajhochy/rhythm-mcp-server '
                 'package.',
                 style: TextStyle(
                   fontSize: 13,
-                  color: RhythmTokens.textSecondary,
+                  color: context.rhythm.textSecondary,
                 ),
               ),
               const SizedBox(height: 16),
               if (!isAuthenticated) ...[
-                const Text(
+                Text(
                   'Sign in to generate a token.',
-                  style: TextStyle(fontSize: 13, color: RhythmTokens.textMuted),
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: context.rhythm.textMuted,
+                  ),
                 ),
               ] else if (!isCloudUrl) ...[
                 Row(
                   children: [
-                    const Icon(
+                    Icon(
                       Icons.info_outline,
                       size: 16,
-                      color: RhythmTokens.accentWarm,
+                      color: context.rhythm.warning,
                     ),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
                         'Your API Server is set to ${serverConfig.url}. Switch to api.vcrcapps.com to get a cloud token for Claude.',
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 13,
-                          color: RhythmTokens.textSecondary,
+                          color: context.rhythm.textSecondary,
                         ),
                       ),
                     ),
@@ -702,19 +708,19 @@ class _ClaudeIntegrationSectionState extends State<_ClaudeIntegrationSection> {
                     vertical: 10,
                   ),
                   decoration: BoxDecoration(
-                    color: RhythmTokens.surfaceMuted,
-                    borderRadius: BorderRadius.circular(RhythmTokens.radiusS),
-                    border: Border.all(color: RhythmTokens.border),
+                    color: context.rhythm.surfaceMuted,
+                    borderRadius: BorderRadius.circular(RhythmRadius.md),
+                    border: Border.all(color: context.rhythm.border),
                   ),
                   child: Row(
                     children: [
                       Expanded(
                         child: Text(
                           _tokenVisible ? token : '•' * 40,
-                          style: const TextStyle(
-                            fontFamily: 'monospace',
+                          style: TextStyle(
+                            fontFamily: 'JetBrainsMono',
                             fontSize: 12,
-                            color: RhythmTokens.textPrimary,
+                            color: context.rhythm.textPrimary,
                           ),
                           overflow: TextOverflow.ellipsis,
                         ),
@@ -726,7 +732,7 @@ class _ClaudeIntegrationSectionState extends State<_ClaudeIntegrationSection> {
                               ? Icons.visibility_off_outlined
                               : Icons.visibility_outlined,
                           size: 18,
-                          color: RhythmTokens.textSecondary,
+                          color: context.rhythm.textSecondary,
                         ),
                         tooltip: _tokenVisible ? 'Hide token' : 'Show token',
                         onPressed: () =>
@@ -748,20 +754,20 @@ class _ClaudeIntegrationSectionState extends State<_ClaudeIntegrationSection> {
                             vertical: 10,
                           ),
                           backgroundColor: _copied
-                              ? RhythmTokens.success
-                              : RhythmTokens.accent,
+                              ? context.rhythm.success
+                              : context.rhythm.accent,
                         ),
                       ),
                     ],
                   ),
                 ),
                 const SizedBox(height: 16),
-                const Text(
+                Text(
                   'Claude Desktop config (~/.claude/claude_desktop_config.json):',
                   style: TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.w600,
-                    color: RhythmTokens.textSecondary,
+                    color: context.rhythm.textSecondary,
                   ),
                 ),
                 const SizedBox(height: 6),
@@ -770,7 +776,7 @@ class _ClaudeIntegrationSectionState extends State<_ClaudeIntegrationSection> {
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
                     color: const Color(0xFF1E293B),
-                    borderRadius: BorderRadius.circular(RhythmTokens.radiusS),
+                    borderRadius: BorderRadius.circular(RhythmRadius.md),
                   ),
                   child: SelectableText(
                     '{\n'
@@ -786,7 +792,7 @@ class _ClaudeIntegrationSectionState extends State<_ClaudeIntegrationSection> {
                     '  }\n'
                     '}',
                     style: const TextStyle(
-                      fontFamily: 'monospace',
+                      fontFamily: 'JetBrainsMono',
                       fontSize: 12,
                       color: Color(0xFF94A3B8),
                       height: 1.6,
@@ -796,9 +802,9 @@ class _ClaudeIntegrationSectionState extends State<_ClaudeIntegrationSection> {
                 const SizedBox(height: 8),
                 Text(
                   'Token is valid for 1 year. Sign out and back in to rotate it.',
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 12,
-                    color: RhythmTokens.textMuted,
+                    color: context.rhythm.textMuted,
                   ),
                 ),
               ],
@@ -895,14 +901,15 @@ class _WorkspaceSectionWidgetState extends State<_WorkspaceSectionWidget> {
                       ConstrainedBox(
                         constraints: const BoxConstraints(maxHeight: 320),
                         child: candidates.isEmpty
-                            ? const Center(
+                            ? Center(
                                 child: Padding(
-                                  padding: EdgeInsets.symmetric(vertical: 16),
+                                  padding:
+                                      const EdgeInsets.symmetric(vertical: 16),
                                   child: Text(
                                     'No matching registered users found.',
                                     style: TextStyle(
                                       fontSize: 13,
-                                      color: RhythmTokens.textSecondary,
+                                      color: dialogContext.rhythm.textSecondary,
                                     ),
                                     textAlign: TextAlign.center,
                                   ),
@@ -980,12 +987,12 @@ class _WorkspaceSectionWidgetState extends State<_WorkspaceSectionWidget> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
+        Text(
           'WORKSPACE',
           style: TextStyle(
             fontSize: 12,
             fontWeight: FontWeight.w600,
-            color: RhythmTokens.textSecondary,
+            color: context.rhythm.textSecondary,
             letterSpacing: 0.8,
           ),
         ),
@@ -993,20 +1000,20 @@ class _WorkspaceSectionWidgetState extends State<_WorkspaceSectionWidget> {
         Container(
           padding: const EdgeInsets.all(20),
           decoration: BoxDecoration(
-            color: RhythmTokens.surfaceStrong,
-            borderRadius: BorderRadius.circular(RhythmTokens.radiusL),
-            border: Border.all(color: RhythmTokens.borderSoft),
-            boxShadow: RhythmTokens.shadow,
+            color: context.rhythm.surfaceRaised,
+            borderRadius: BorderRadius.circular(RhythmRadius.xl),
+            border: Border.all(color: context.rhythm.borderSubtle),
+            boxShadow: RhythmElevation.panel,
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
                 workspace.name,
-                style: const TextStyle(
+                style: TextStyle(
                   fontWeight: FontWeight.w600,
                   fontSize: 16,
-                  color: RhythmTokens.textPrimary,
+                  color: context.rhythm.textPrimary,
                 ),
               ),
               if (auth.isWorkspaceAdmin && workspace.joinCode != null) ...[
@@ -1017,7 +1024,7 @@ class _WorkspaceSectionWidgetState extends State<_WorkspaceSectionWidget> {
                     Text(
                       workspace.joinCode!,
                       style: const TextStyle(
-                        fontFamily: 'monospace',
+                        fontFamily: 'JetBrainsMono',
                         fontWeight: FontWeight.bold,
                       ),
                     ),
@@ -1054,11 +1061,11 @@ class _WorkspaceSectionWidgetState extends State<_WorkspaceSectionWidget> {
                 ),
               ],
               const SizedBox(height: 16),
-              const Text(
+              Text(
                 'Members',
                 style: TextStyle(
                   fontWeight: FontWeight.w600,
-                  color: RhythmTokens.textSecondary,
+                  color: context.rhythm.textSecondary,
                   fontSize: 13,
                 ),
               ),
@@ -1127,14 +1134,90 @@ class _MemberTile extends StatelessWidget {
             )
           : Text(
               member.role,
-              style: const TextStyle(
-                color: RhythmTokens.textSecondary,
+              style: TextStyle(
+                color: context.rhythm.textSecondary,
                 fontSize: 12,
               ),
             ),
     );
   }
 }
+
+// ---------------------------------------------------------------------------
+// Appearance
+// ---------------------------------------------------------------------------
+
+class _AppearanceSection extends StatelessWidget {
+  const _AppearanceSection();
+
+  @override
+  Widget build(BuildContext context) {
+    final service = context.watch<ThemeModeService>();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'APPEARANCE',
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+            color: context.rhythm.textSecondary,
+            letterSpacing: 0.8,
+          ),
+        ),
+        const SizedBox(height: 12),
+        Container(
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: context.rhythm.surfaceRaised,
+            borderRadius: BorderRadius.circular(RhythmRadius.xl),
+            border: Border.all(color: context.rhythm.borderSubtle),
+            boxShadow: RhythmElevation.panel,
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Theme',
+                style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  color: context.rhythm.textPrimary,
+                ),
+              ),
+              const SizedBox(height: 16),
+              SegmentedButton<ThemeMode>(
+                segments: const [
+                  ButtonSegment(
+                    value: ThemeMode.light,
+                    label: Text('Light'),
+                    icon: Icon(Icons.light_mode_outlined),
+                  ),
+                  ButtonSegment(
+                    value: ThemeMode.system,
+                    label: Text('System'),
+                    icon: Icon(Icons.brightness_auto_outlined),
+                  ),
+                  ButtonSegment(
+                    value: ThemeMode.dark,
+                    label: Text('Dark'),
+                    icon: Icon(Icons.dark_mode_outlined),
+                  ),
+                ],
+                selected: {service.themeMode},
+                onSelectionChanged: (selection) => context
+                    .read<ThemeModeService>()
+                    .setThemeMode(selection.first),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
 
 String _settingsInitialsFor(String name) {
   final parts = name

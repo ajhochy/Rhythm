@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 
 import '../../../features/tasks/models/task.dart';
 import '../formatters/date_formatters.dart';
-import '../../theme/rhythm_tokens.dart';
 
 class TaskVisualStyle {
   const TaskVisualStyle({
@@ -44,8 +43,8 @@ class TaskVisualStyles {
         background: Color(0xFFF7F4EE),
         border: Color(0xFFE8E2D7),
         badgeBackground: Color(0xFFEDE7DC),
-        text: RhythmTokens.textMuted,
-        mutedText: RhythmTokens.textMuted,
+        text: Color(0xFF94A3B8),
+        mutedText: Color(0xFF94A3B8),
       );
     }
 
@@ -55,7 +54,7 @@ class TaskVisualStyles {
         background: Color(0xFFFFECEA),
         border: Color(0xFFEDB1AD),
         badgeBackground: Color(0xFFF7D2CE),
-        text: RhythmTokens.textPrimary,
+        text: Color(0xFF1E293B),
         mutedText: Color(0xFFA84A47),
       );
     }
@@ -66,7 +65,7 @@ class TaskVisualStyles {
         background: Color(0xFFFFF4E5),
         border: Color(0xFFEABF78),
         badgeBackground: Color(0xFFF5DDB0),
-        text: RhythmTokens.textPrimary,
+        text: Color(0xFF1E293B),
         mutedText: Color(0xFF9B6B24),
       );
     }
@@ -83,7 +82,7 @@ class TaskVisualStyles {
           background: Color(0xFFFFF2DE),
           border: Color(0xFFE9BC6E),
           badgeBackground: Color(0xFFF6DCAB),
-          text: RhythmTokens.textPrimary,
+          text: Color(0xFF1E293B),
           mutedText: Color(0xFF9B6B24),
         ),
       'recurring_rule' => _variant(_rhythmVariants, variantKey),
@@ -95,8 +94,8 @@ class TaskVisualStyles {
           background: Color(0xFFFFFEFC),
           border: Color(0xFFE5DED1),
           badgeBackground: Color(0xFFF3EEE6),
-          text: RhythmTokens.textPrimary,
-          mutedText: RhythmTokens.textSecondary,
+          text: Color(0xFF1E293B),
+          mutedText: Color(0xFF64748B),
         ),
     };
   }
@@ -114,7 +113,7 @@ const _rhythmVariants = <TaskVisualStyle>[
     background: Color(0xFFEDF1FF),
     border: Color(0xFFBFC9FA),
     badgeBackground: Color(0xFFD9E0FD),
-    text: RhythmTokens.textPrimary,
+    text: Color(0xFF1E293B),
     mutedText: Color(0xFF4656BF),
   ),
   TaskVisualStyle(
@@ -122,7 +121,7 @@ const _rhythmVariants = <TaskVisualStyle>[
     background: Color(0xFFF3EEFF),
     border: Color(0xFFD3C5F4),
     badgeBackground: Color(0xFFE5DBFA),
-    text: RhythmTokens.textPrimary,
+    text: Color(0xFF1E293B),
     mutedText: Color(0xFF5C46B2),
   ),
   TaskVisualStyle(
@@ -130,7 +129,7 @@ const _rhythmVariants = <TaskVisualStyle>[
     background: Color(0xFFEBF5FE),
     border: Color(0xFFBDD8F0),
     badgeBackground: Color(0xFFD8E9F8),
-    text: RhythmTokens.textPrimary,
+    text: Color(0xFF1E293B),
     mutedText: Color(0xFF346FA8),
   ),
 ];
@@ -141,7 +140,7 @@ const _projectVariants = <TaskVisualStyle>[
     background: Color(0xFFEAF5FD),
     border: Color(0xFFB8D6ED),
     badgeBackground: Color(0xFFD3E8F7),
-    text: RhythmTokens.textPrimary,
+    text: Color(0xFF1E293B),
     mutedText: Color(0xFF286CA7),
   ),
   TaskVisualStyle(
@@ -149,7 +148,7 @@ const _projectVariants = <TaskVisualStyle>[
     background: Color(0xFFEAF9F6),
     border: Color(0xFFB6E3DB),
     badgeBackground: Color(0xFFCEEEE7),
-    text: RhythmTokens.textPrimary,
+    text: Color(0xFF1E293B),
     mutedText: Color(0xFF1F7B71),
   ),
   TaskVisualStyle(
@@ -157,7 +156,7 @@ const _projectVariants = <TaskVisualStyle>[
     background: Color(0xFFEEF3FD),
     border: Color(0xFFC7D3F1),
     badgeBackground: Color(0xFFDCE4F9),
-    text: RhythmTokens.textPrimary,
+    text: Color(0xFF1E293B),
     mutedText: Color(0xFF415BA8),
   ),
 ];
@@ -168,7 +167,7 @@ const _automationVariants = <TaskVisualStyle>[
     background: Color(0xFFE8FAF6),
     border: Color(0xFFAFE3D9),
     badgeBackground: Color(0xFFCBEFE8),
-    text: RhythmTokens.textPrimary,
+    text: Color(0xFF1E293B),
     mutedText: Color(0xFF11796C),
   ),
   TaskVisualStyle(
@@ -176,7 +175,7 @@ const _automationVariants = <TaskVisualStyle>[
     background: Color(0xFFE9F8FC),
     border: Color(0xFFB7E2EC),
     badgeBackground: Color(0xFFD0EDF4),
-    text: RhythmTokens.textPrimary,
+    text: Color(0xFF1E293B),
     mutedText: Color(0xFF167C90),
   ),
 ];
@@ -187,7 +186,7 @@ const _planningCenterVariants = <TaskVisualStyle>[
     background: Color(0xFFFBF0E9),
     border: Color(0xFFE1B99F),
     badgeBackground: Color(0xFFEFD4C3),
-    text: RhythmTokens.textPrimary,
+    text: Color(0xFF1E293B),
     mutedText: Color(0xFF9A4E24),
   ),
   TaskVisualStyle(
@@ -195,7 +194,7 @@ const _planningCenterVariants = <TaskVisualStyle>[
     background: Color(0xFFFBF3E6),
     border: Color(0xFFE0C79F),
     badgeBackground: Color(0xFFEBDAB8),
-    text: RhythmTokens.textPrimary,
+    text: Color(0xFF1E293B),
     mutedText: Color(0xFF8D5A18),
   ),
 ];

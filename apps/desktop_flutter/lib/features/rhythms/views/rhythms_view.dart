@@ -6,25 +6,12 @@ import '../../../app/core/formatters/date_formatters.dart';
 import '../../../app/core/widgets/error_banner.dart';
 import '../../../app/core/workspace/workspace_controller.dart';
 import '../../../app/core/workspace/workspace_models.dart';
-import '../../../app/theme/rhythm_tokens.dart';
+import '../../../app/core/ui/tokens/rhythm_theme.dart';
 import '../controllers/rhythms_controller.dart';
 import '../data/rhythms_data_source.dart';
 import '../../../features/tasks/models/recurring_task_rule.dart';
 import '../../../features/tasks/services/recurrence_service.dart';
 import '../../../shared/widgets/workspace_member_picker.dart';
-
-const _kCanvas = RhythmTokens.background;
-const _kCanvasAccent = RhythmTokens.backgroundAccent;
-const _kSurface = RhythmTokens.surfaceStrong;
-const _kSurfaceMuted = RhythmTokens.surfaceMuted;
-const _kBorder = RhythmTokens.border;
-const _kBorderSoft = RhythmTokens.borderSoft;
-const _kTextPrimary = RhythmTokens.textPrimary;
-const _kTextSecondary = RhythmTokens.textSecondary;
-const _kTextMuted = RhythmTokens.textMuted;
-const _kPrimary = RhythmTokens.accent;
-const _kPrimarySoft = RhythmTokens.accentSoft;
-const _kWarm = RhythmTokens.accentWarm;
 
 class RhythmsView extends StatefulWidget {
   const RhythmsView({super.key});
@@ -50,22 +37,26 @@ class _RhythmsViewState extends State<RhythmsView> {
     return Consumer<RhythmsController>(
       builder: (context, controller, _) {
         return Container(
-          decoration: const BoxDecoration(
+          decoration: BoxDecoration(
             gradient: LinearGradient(
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
-              colors: [_kCanvas, Color(0xFFF7F4EF), _kCanvasAccent],
-              stops: [0.0, 0.55, 1.0],
+              colors: [
+                context.rhythm.canvas,
+                const Color(0xFFF7F4EF),
+                context.rhythm.accentMuted,
+              ],
+              stops: const [0.0, 0.55, 1.0],
             ),
           ),
           child: Padding(
             padding: const EdgeInsets.all(12),
             child: DecoratedBox(
               decoration: BoxDecoration(
-                color: _kSurface,
-                borderRadius: BorderRadius.circular(RhythmTokens.radiusL),
-                border: Border.all(color: _kBorderSoft),
-                boxShadow: RhythmTokens.shadow,
+                color: context.rhythm.surfaceRaised,
+                borderRadius: BorderRadius.circular(RhythmRadius.xl),
+                border: Border.all(color: context.rhythm.borderSubtle),
+                boxShadow: RhythmElevation.panel,
               ),
               child: Column(
                 children: [
@@ -114,14 +105,16 @@ class _Header extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.fromLTRB(20, 18, 20, 16),
-      decoration: const BoxDecoration(
-        color: _kSurface,
-        border: Border(bottom: BorderSide(color: _kBorderSoft)),
+      decoration: BoxDecoration(
+        color: context.rhythm.surfaceRaised,
+        border: Border(
+          bottom: BorderSide(color: context.rhythm.borderSubtle),
+        ),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Expanded(
+          Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -130,14 +123,15 @@ class _Header extends StatelessWidget {
                   style: TextStyle(
                     fontSize: 18,
                     fontWeight: FontWeight.w700,
-                    color: _kTextPrimary,
+                    color: context.rhythm.textPrimary,
                     letterSpacing: -0.3,
                   ),
                 ),
-                SizedBox(height: 4),
+                const SizedBox(height: 4),
                 Text(
                   'Recurring rules that quietly keep the workspace moving.',
-                  style: TextStyle(fontSize: 12, color: _kTextSecondary),
+                  style: TextStyle(
+                      fontSize: 12, color: context.rhythm.textSecondary),
                 ),
               ],
             ),
@@ -146,12 +140,12 @@ class _Header extends StatelessWidget {
           FilledButton.tonalIcon(
             onPressed: onAdd,
             style: FilledButton.styleFrom(
-              backgroundColor: _kPrimarySoft,
-              foregroundColor: _kPrimary,
+              backgroundColor: context.rhythm.accentMuted,
+              foregroundColor: context.rhythm.accent,
               elevation: 0,
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
               shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(RhythmTokens.radiusS),
+                borderRadius: BorderRadius.circular(RhythmRadius.md),
               ),
             ),
             icon: const Icon(Icons.add, size: 18),
@@ -180,7 +174,9 @@ class _RulesList extends StatelessWidget {
   Widget build(BuildContext context) {
     if (controller.status == RhythmsStatus.loading &&
         controller.rules.isEmpty) {
-      return const Center(child: CircularProgressIndicator(color: _kPrimary));
+      return Center(
+        child: CircularProgressIndicator(color: context.rhythm.accent),
+      );
     }
     if (controller.rules.isEmpty) {
       return Center(child: _EmptyState(onCreate: onCreate));
@@ -235,10 +231,10 @@ class _RuleTileState extends State<_RuleTile> {
 
     return Card(
       elevation: 0,
-      color: _kSurface,
+      color: context.rhythm.surfaceRaised,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(RhythmTokens.radiusM),
-        side: const BorderSide(color: _kBorderSoft),
+        borderRadius: BorderRadius.circular(RhythmRadius.lg),
+        side: BorderSide(color: context.rhythm.borderSubtle),
       ),
       child: Padding(
         padding: const EdgeInsets.all(18),
@@ -252,14 +248,18 @@ class _RuleTileState extends State<_RuleTile> {
                   width: 40,
                   height: 40,
                   decoration: BoxDecoration(
-                    color: dimmed ? _kSurfaceMuted : _kPrimarySoft,
-                    borderRadius: BorderRadius.circular(RhythmTokens.radiusS),
-                    border: Border.all(color: _kBorderSoft),
+                    color: dimmed
+                        ? context.rhythm.surfaceMuted
+                        : context.rhythm.accentMuted,
+                    borderRadius: BorderRadius.circular(RhythmRadius.md),
+                    border: Border.all(color: context.rhythm.borderSubtle),
                   ),
                   child: Icon(
                     Icons.repeat,
                     size: 20,
-                    color: dimmed ? _kTextMuted : _kPrimary,
+                    color: dimmed
+                        ? context.rhythm.textMuted
+                        : context.rhythm.accent,
                   ),
                 ),
                 const SizedBox(width: 14),
@@ -276,7 +276,9 @@ class _RuleTileState extends State<_RuleTile> {
                                   .textTheme
                                   .titleMedium
                                   ?.copyWith(
-                                    color: dimmed ? _kTextMuted : _kTextPrimary,
+                                    color: dimmed
+                                        ? context.rhythm.textMuted
+                                        : context.rhythm.textPrimary,
                                     fontWeight: FontWeight.w700,
                                     letterSpacing: -0.2,
                                   ),
@@ -291,7 +293,9 @@ class _RuleTileState extends State<_RuleTile> {
                         widget.rule.patternDescription,
                         style: Theme.of(
                           context,
-                        ).textTheme.bodySmall?.copyWith(color: _kTextSecondary),
+                        ).textTheme.bodySmall?.copyWith(
+                              color: context.rhythm.textSecondary,
+                            ),
                       ),
                       if (widget.rule.progress != null) ...[
                         const SizedBox(height: 12),
@@ -328,14 +332,14 @@ class _RuleTileState extends State<_RuleTile> {
                 TextButton.icon(
                   onPressed: () => setState(() => _expanded = !_expanded),
                   style: TextButton.styleFrom(
-                    foregroundColor: _kTextPrimary,
-                    backgroundColor: _kSurfaceMuted,
+                    foregroundColor: context.rhythm.textPrimary,
+                    backgroundColor: context.rhythm.surfaceMuted,
                     padding: const EdgeInsets.symmetric(
                       horizontal: 12,
                       vertical: 10,
                     ),
                     shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(RhythmTokens.radiusS),
+                      borderRadius: BorderRadius.circular(RhythmRadius.md),
                     ),
                   ),
                   icon: Icon(
@@ -347,14 +351,14 @@ class _RuleTileState extends State<_RuleTile> {
                 OutlinedButton.icon(
                   onPressed: () => _showEditDialog(context),
                   style: OutlinedButton.styleFrom(
-                    foregroundColor: _kTextPrimary,
-                    side: const BorderSide(color: _kBorder),
+                    foregroundColor: context.rhythm.textPrimary,
+                    side: BorderSide(color: context.rhythm.border),
                     padding: const EdgeInsets.symmetric(
                       horizontal: 12,
                       vertical: 10,
                     ),
                     shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(RhythmTokens.radiusS),
+                      borderRadius: BorderRadius.circular(RhythmRadius.md),
                     ),
                   ),
                   icon: const Icon(Icons.edit_outlined, size: 16),
@@ -375,9 +379,9 @@ class _RuleTileState extends State<_RuleTile> {
                   width: double.infinity,
                   padding: const EdgeInsets.all(14),
                   decoration: BoxDecoration(
-                    color: _kSurfaceMuted,
-                    borderRadius: BorderRadius.circular(RhythmTokens.radiusS),
-                    border: Border.all(color: _kBorderSoft),
+                    color: context.rhythm.surfaceMuted,
+                    borderRadius: BorderRadius.circular(RhythmRadius.md),
+                    border: Border.all(color: context.rhythm.borderSubtle),
                   ),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -385,10 +389,10 @@ class _RuleTileState extends State<_RuleTile> {
                       if (widget.rule.steps.isNotEmpty) ...[
                         Row(
                           children: [
-                            const Icon(
+                            Icon(
                               Icons.route_outlined,
                               size: 14,
-                              color: _kTextMuted,
+                              color: context.rhythm.textMuted,
                             ),
                             const SizedBox(width: 6),
                             Text(
@@ -397,7 +401,7 @@ class _RuleTileState extends State<_RuleTile> {
                                   .textTheme
                                   .labelMedium
                                   ?.copyWith(
-                                    color: _kTextSecondary,
+                                    color: context.rhythm.textSecondary,
                                     fontWeight: FontWeight.w600,
                                   ),
                             ),
@@ -424,10 +428,10 @@ class _RuleTileState extends State<_RuleTile> {
                       ],
                       Row(
                         children: [
-                          const Icon(
+                          Icon(
                             Icons.calendar_today_outlined,
                             size: 14,
-                            color: _kTextMuted,
+                            color: context.rhythm.textMuted,
                           ),
                           const SizedBox(width: 6),
                           Text(
@@ -436,7 +440,7 @@ class _RuleTileState extends State<_RuleTile> {
                                 .textTheme
                                 .labelMedium
                                 ?.copyWith(
-                                  color: _kTextSecondary,
+                                  color: context.rhythm.textSecondary,
                                   fontWeight: FontWeight.w600,
                                 ),
                           ),
@@ -454,9 +458,11 @@ class _RuleTileState extends State<_RuleTile> {
                                   vertical: 7,
                                 ),
                                 decoration: BoxDecoration(
-                                  color: _kSurface,
+                                  color: context.rhythm.surfaceRaised,
                                   borderRadius: BorderRadius.circular(999),
-                                  border: Border.all(color: _kBorderSoft),
+                                  border: Border.all(
+                                    color: context.rhythm.borderSubtle,
+                                  ),
                                 ),
                                 child: Text(
                                   DateFormatters.fullDate(date, fallback: date),
@@ -464,7 +470,7 @@ class _RuleTileState extends State<_RuleTile> {
                                       .textTheme
                                       .labelSmall
                                       ?.copyWith(
-                                        color: _kTextSecondary,
+                                        color: context.rhythm.textSecondary,
                                         fontWeight: FontWeight.w600,
                                       ),
                                 ),
@@ -541,19 +547,19 @@ class _ProgressStrip extends StatelessWidget {
             _InlineMetric(
               label: 'Remaining',
               value: '${progress.remainingCount}',
-              color: _kPrimary,
+              color: context.rhythm.accent,
             ),
             const SizedBox(width: 8),
             _InlineMetric(
               label: 'Personal',
               value: '${progress.personalRemainingCount}',
-              color: _kWarm,
+              color: context.rhythm.warning,
             ),
             const SizedBox(width: 8),
             _InlineMetric(
               label: 'Complete',
               value: '$percent%',
-              color: _kPrimary,
+              color: context.rhythm.accent,
             ),
             const SizedBox(width: 8),
             if (progress.waitingOnUserName != null)
@@ -561,7 +567,7 @@ class _ProgressStrip extends StatelessWidget {
                 child: _InlineMetric(
                   label: 'Waiting on',
                   value: progress.waitingOnUserName!,
-                  color: _kTextSecondary,
+                  color: context.rhythm.textSecondary,
                 ),
               ),
           ],
@@ -572,8 +578,8 @@ class _ProgressStrip extends StatelessWidget {
           child: LinearProgressIndicator(
             minHeight: 7,
             value: progress.totalCount == 0 ? 0 : progress.completionRatio,
-            backgroundColor: _kBorderSoft,
-            valueColor: const AlwaysStoppedAnimation<Color>(_kPrimary),
+            backgroundColor: context.rhythm.borderSubtle,
+            valueColor: AlwaysStoppedAnimation<Color>(context.rhythm.accent),
           ),
         ),
       ],
@@ -633,13 +639,13 @@ class _RhythmCollaboratorsRow extends StatelessWidget {
                       backgroundImage: collaborator.photoUrl != null
                           ? NetworkImage(collaborator.photoUrl!)
                           : null,
-                      backgroundColor: _kPrimarySoft,
+                      backgroundColor: context.rhythm.accentMuted,
                       child: collaborator.photoUrl == null
                           ? Text(
                               _initialFor(collaborator.name),
-                              style: const TextStyle(
+                              style: TextStyle(
                                 fontSize: 10,
-                                color: _kPrimary,
+                                color: context.rhythm.accent,
                                 fontWeight: FontWeight.w700,
                               ),
                             )
@@ -757,7 +763,7 @@ class _InlineMetric extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(RhythmTokens.radiusS),
+        borderRadius: BorderRadius.circular(RhythmRadius.md),
         border: Border.all(color: color.withValues(alpha: 0.14)),
       ),
       child: Column(
@@ -767,7 +773,7 @@ class _InlineMetric extends StatelessWidget {
           Text(
             label,
             style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                  color: _kTextMuted,
+                  color: context.rhythm.textMuted,
                   fontWeight: FontWeight.w600,
                 ),
           ),
@@ -809,9 +815,11 @@ class _WorkflowStepTile extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
-        color: isLocked ? _kSurfaceMuted : _kSurface,
-        borderRadius: BorderRadius.circular(RhythmTokens.radiusS),
-        border: Border.all(color: _kBorderSoft),
+        color: isLocked
+            ? context.rhythm.surfaceMuted
+            : context.rhythm.surfaceRaised,
+        borderRadius: BorderRadius.circular(RhythmRadius.md),
+        border: Border.all(color: context.rhythm.borderSubtle),
       ),
       child: Row(
         children: [
@@ -819,13 +827,16 @@ class _WorkflowStepTile extends StatelessWidget {
             width: 22,
             height: 22,
             decoration: BoxDecoration(
-              color: isLocked ? const Color(0xFFE5E7EB) : _kPrimarySoft,
+              color: isLocked
+                  ? const Color(0xFFE5E7EB)
+                  : context.rhythm.accentMuted,
               borderRadius: BorderRadius.circular(8),
             ),
             child: Icon(
               isLocked ? Icons.lock_outline : Icons.checklist,
               size: 13,
-              color: isLocked ? _kTextMuted : _kPrimary,
+              color:
+                  isLocked ? context.rhythm.textMuted : context.rhythm.accent,
             ),
           ),
           const SizedBox(width: 10),
@@ -838,7 +849,9 @@ class _WorkflowStepTile extends StatelessWidget {
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                        color: isLocked ? _kTextMuted : _kTextPrimary,
+                        color: isLocked
+                            ? context.rhythm.textMuted
+                            : context.rhythm.textPrimary,
                         fontWeight: FontWeight.w700,
                       ),
                 ),
@@ -849,7 +862,9 @@ class _WorkflowStepTile extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                   style: Theme.of(
                     context,
-                  ).textTheme.labelSmall?.copyWith(color: _kTextMuted),
+                  ).textTheme.labelSmall?.copyWith(
+                        color: context.rhythm.textMuted,
+                      ),
                 ),
               ],
             ),
@@ -1012,20 +1027,23 @@ class _CreateRuleDialogState extends State<_CreateRuleDialog> {
               const SizedBox(height: 18),
               Row(
                 children: [
-                  const Expanded(
+                  Expanded(
                     child: Text(
                       'Workflow steps',
                       style: TextStyle(
                         fontSize: 13,
                         fontWeight: FontWeight.w700,
-                        color: _kTextPrimary,
+                        color: context.rhythm.textPrimary,
                       ),
                     ),
                   ),
                   if (_steps.length > 1) ...[
-                    const Text(
+                    Text(
                       'Sequential',
-                      style: TextStyle(fontSize: 12, color: _kTextSecondary),
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: context.rhythm.textSecondary,
+                      ),
                     ),
                     const SizedBox(width: 4),
                     Switch(
@@ -1052,7 +1070,10 @@ class _CreateRuleDialogState extends State<_CreateRuleDialog> {
                 'Leave this empty to use the rhythm title as a single recurring task.',
                 style: Theme.of(
                   context,
-                ).textTheme.bodySmall?.copyWith(color: _kTextMuted),
+                )
+                    .textTheme
+                    .bodySmall
+                    ?.copyWith(color: context.rhythm.textMuted),
               ),
               const SizedBox(height: 12),
               if (_steps.isEmpty)
@@ -1060,13 +1081,16 @@ class _CreateRuleDialogState extends State<_CreateRuleDialog> {
                   width: double.infinity,
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
-                    color: _kSurfaceMuted,
-                    borderRadius: BorderRadius.circular(RhythmTokens.radiusS),
-                    border: Border.all(color: _kBorderSoft),
+                    color: context.rhythm.surfaceMuted,
+                    borderRadius: BorderRadius.circular(RhythmRadius.md),
+                    border: Border.all(color: context.rhythm.borderSubtle),
                   ),
-                  child: const Text(
+                  child: Text(
                     'No steps yet. Add one if this rhythm needs multiple tasks or assignees.',
-                    style: TextStyle(color: _kTextMuted, fontSize: 12),
+                    style: TextStyle(
+                      color: context.rhythm.textMuted,
+                      fontSize: 12,
+                    ),
                   ),
                 )
               else
@@ -1288,20 +1312,23 @@ class _EditRuleDialogState extends State<_EditRuleDialog> {
               const SizedBox(height: 18),
               Row(
                 children: [
-                  const Expanded(
+                  Expanded(
                     child: Text(
                       'Workflow steps',
                       style: TextStyle(
                         fontSize: 13,
                         fontWeight: FontWeight.w700,
-                        color: _kTextPrimary,
+                        color: context.rhythm.textPrimary,
                       ),
                     ),
                   ),
                   if (_steps.length > 1) ...[
-                    const Text(
+                    Text(
                       'Sequential',
-                      style: TextStyle(fontSize: 12, color: _kTextSecondary),
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: context.rhythm.textSecondary,
+                      ),
                     ),
                     const SizedBox(width: 4),
                     Switch(
@@ -1328,7 +1355,10 @@ class _EditRuleDialogState extends State<_EditRuleDialog> {
                 'Leave this empty to keep the rhythm as a single task.',
                 style: Theme.of(
                   context,
-                ).textTheme.bodySmall?.copyWith(color: _kTextMuted),
+                )
+                    .textTheme
+                    .bodySmall
+                    ?.copyWith(color: context.rhythm.textMuted),
               ),
               const SizedBox(height: 12),
               if (_steps.isEmpty)
@@ -1336,13 +1366,16 @@ class _EditRuleDialogState extends State<_EditRuleDialog> {
                   width: double.infinity,
                   padding: const EdgeInsets.all(16),
                   decoration: BoxDecoration(
-                    color: _kSurfaceMuted,
-                    borderRadius: BorderRadius.circular(RhythmTokens.radiusS),
-                    border: Border.all(color: _kBorderSoft),
+                    color: context.rhythm.surfaceMuted,
+                    borderRadius: BorderRadius.circular(RhythmRadius.md),
+                    border: Border.all(color: context.rhythm.borderSubtle),
                   ),
-                  child: const Text(
+                  child: Text(
                     'No steps yet. Add one if this rhythm needs multiple tasks or assignees.',
-                    style: TextStyle(color: _kTextMuted, fontSize: 12),
+                    style: TextStyle(
+                      color: context.rhythm.textMuted,
+                      fontSize: 12,
+                    ),
                   ),
                 )
               else
@@ -1437,22 +1470,22 @@ class _StepEditorRow extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: _kSurfaceMuted,
-        borderRadius: BorderRadius.circular(RhythmTokens.radiusS),
-        border: Border.all(color: _kBorderSoft),
+        color: context.rhythm.surfaceMuted,
+        borderRadius: BorderRadius.circular(RhythmRadius.md),
+        border: Border.all(color: context.rhythm.borderSubtle),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              const Expanded(
+              Expanded(
                 child: Text(
                   'Step',
                   style: TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.w700,
-                    color: _kTextSecondary,
+                    color: context.rhythm.textSecondary,
                   ),
                 ),
               ),
@@ -1517,9 +1550,9 @@ class _EmptyState extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.all(28),
         decoration: BoxDecoration(
-          color: _kSurfaceMuted,
-          borderRadius: BorderRadius.circular(RhythmTokens.radiusL),
-          border: Border.all(color: _kBorderSoft),
+          color: context.rhythm.surfaceMuted,
+          borderRadius: BorderRadius.circular(RhythmRadius.xl),
+          border: Border.all(color: context.rhythm.borderSubtle),
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -1528,18 +1561,18 @@ class _EmptyState extends StatelessWidget {
               width: 56,
               height: 56,
               decoration: BoxDecoration(
-                color: _kPrimarySoft,
+                color: context.rhythm.accentMuted,
                 borderRadius: BorderRadius.circular(18),
-                border: Border.all(color: _kBorderSoft),
+                border: Border.all(color: context.rhythm.borderSubtle),
               ),
-              child: const Icon(Icons.repeat, size: 28, color: _kPrimary),
+              child: Icon(Icons.repeat, size: 28, color: context.rhythm.accent),
             ),
             const SizedBox(height: 18),
             Text(
               'No recurring rules yet',
               textAlign: TextAlign.center,
               style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                    color: _kTextPrimary,
+                    color: context.rhythm.textPrimary,
                     fontWeight: FontWeight.w700,
                     letterSpacing: -0.2,
                   ),
@@ -1550,21 +1583,24 @@ class _EmptyState extends StatelessWidget {
               textAlign: TextAlign.center,
               style: Theme.of(
                 context,
-              ).textTheme.bodyMedium?.copyWith(color: _kTextSecondary),
+              )
+                  .textTheme
+                  .bodyMedium
+                  ?.copyWith(color: context.rhythm.textSecondary),
             ),
             const SizedBox(height: 18),
             FilledButton.tonalIcon(
               onPressed: onCreate,
               style: FilledButton.styleFrom(
-                backgroundColor: _kPrimarySoft,
-                foregroundColor: _kPrimary,
+                backgroundColor: context.rhythm.accentMuted,
+                foregroundColor: context.rhythm.accent,
                 elevation: 0,
                 padding: const EdgeInsets.symmetric(
                   horizontal: 16,
                   vertical: 12,
                 ),
                 shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(RhythmTokens.radiusS),
+                  borderRadius: BorderRadius.circular(RhythmRadius.md),
                 ),
               ),
               icon: const Icon(Icons.add, size: 18),
@@ -1584,8 +1620,10 @@ class _StatusChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final background = enabled ? _kPrimarySoft : _kSurfaceMuted;
-    final foreground = enabled ? _kPrimary : _kTextSecondary;
+    final background =
+        enabled ? context.rhythm.accentMuted : context.rhythm.surfaceMuted;
+    final foreground =
+        enabled ? context.rhythm.accent : context.rhythm.textSecondary;
     final label = enabled ? 'Enabled' : 'Paused';
 
     return Container(
@@ -1593,7 +1631,7 @@ class _StatusChip extends StatelessWidget {
       decoration: BoxDecoration(
         color: background,
         borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: _kBorderSoft),
+        border: Border.all(color: context.rhythm.borderSubtle),
       ),
       child: Text(
         label,
