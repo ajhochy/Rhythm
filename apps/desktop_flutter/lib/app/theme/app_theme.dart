@@ -22,6 +22,8 @@ class AppTheme {
       ThemeData(
         useMaterial3: true,
         brightness: brightness,
+        fontFamily: 'Inter',
+        fontFamilyFallback: const ['Inter'],
         scaffoldBackgroundColor: colors.canvas,
         colorScheme: ColorScheme.fromSeed(
           seedColor: colors.accent,

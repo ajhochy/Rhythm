@@ -1112,65 +1112,115 @@ class _ProgressPreviewCard<T extends DashboardProgressItem>
   Widget build(BuildContext context) {
     final colors = context.rhythm;
     final feature = items.isEmpty ? null : items.first;
-    final secondary = items.skip(1).take(2).toList();
-    return _DashboardPreviewShell(
-      title: title,
-      tone: tone,
-      icon: icon,
-      onTap: onTapHeader,
-      trailing: RhythmBadge(
-        label: countLabel,
+    if (feature == null) {
+      return _DashboardPreviewShell(
+        title: title,
         tone: tone,
-        compact: true,
-      ),
-      child: feature == null
-          ? Padding(
-              padding: const EdgeInsets.symmetric(vertical: 18),
-              child: Text(
-                emptyLabel,
-                style: TextStyle(
-                  color: colors.textSecondary,
-                  fontSize: 13,
-                  height: 1.4,
-                ),
-              ),
-            )
-          : Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                _ProgressFeaturePanel(
-                  item: feature,
-                  tone: tone,
-                  onTap: () => onTapItem(feature),
-                ),
-                if (secondary.isNotEmpty) ...[
-                  const SizedBox(height: RhythmSpacing.sm),
-                  for (final item in secondary) ...[
-                    Divider(height: 1, color: colors.borderSubtle),
-                    _ProgressPreviewRow(
-                      item: item,
-                      tone: tone,
-                      onTap: () => onTapItem(item),
-                    ),
-                  ],
-                ],
-                if (items.length > 1 + secondary.length)
-                  Padding(
-                    padding: const EdgeInsets.only(top: RhythmSpacing.sm),
-                    child: Align(
-                      alignment: Alignment.centerLeft,
-                      child: Text(
-                        '+${items.length - 1 - secondary.length} more',
-                        style: TextStyle(
-                          color: colors.textSecondary,
-                          fontSize: 12,
-                        ),
-                      ),
-                    ),
-                  ),
-              ],
+        icon: icon,
+        onTap: onTapHeader,
+        trailing: RhythmBadge(
+          label: countLabel,
+          tone: tone,
+          compact: true,
+        ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 18),
+          child: Text(
+            emptyLabel,
+            style: TextStyle(
+              color: colors.textSecondary,
+              fontSize: 13,
+              height: 1.4,
             ),
+          ),
+        ),
+      );
+    }
+
+    final visibleItems = items.take(2).toList();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        for (var index = 0; index < visibleItems.length; index++) ...[
+          FocusBusinessProjectProgress(
+            panelTitle: index == 0 ? title.toUpperCase() : 'MORE $title',
+            title: visibleItems[index].title,
+            description: visibleItems[index].subtitle,
+            progress: visibleItems[index].progress,
+            icon: icon,
+            pills: [
+              FocusBusinessPill(
+                label: countLabel,
+                tone: tone,
+              ),
+              FocusBusinessPill(
+                label: _progressStatusLabel(visibleItems[index]),
+                tone: _progressStatusTone(visibleItems[index], tone),
+              ),
+            ],
+            metrics: _progressMetrics(visibleItems[index], tone),
+            managers: [
+              FocusBusinessAvatar(
+                label: title == 'Active Rhythms'
+                    ? 'Rhythm owner'
+                    : 'Project owner',
+                tone: tone,
+              ),
+            ],
+            team: [
+              const FocusBusinessAvatar(
+                  label: 'Workspace', tone: RhythmBadgeTone.accent),
+              FocusBusinessAvatar(label: countLabel, tone: tone),
+            ],
+            onTap: () => onTapItem(visibleItems[index]),
+          ),
+          if (index < visibleItems.length - 1)
+            const SizedBox(height: RhythmSpacing.sm),
+        ],
+        if (items.length > visibleItems.length)
+          Padding(
+            padding: const EdgeInsets.only(top: RhythmSpacing.sm),
+            child: Text(
+              '+${items.length - visibleItems.length} more',
+              style: TextStyle(
+                color: colors.textSecondary,
+                fontSize: 12,
+              ),
+            ),
+          ),
+      ],
     );
+  }
+
+  List<FocusBusinessMetric> _progressMetrics(
+    DashboardProgressItem item,
+    RhythmBadgeTone tone,
+  ) {
+    final remaining =
+        (item.totalCount - item.completedCount).clamp(0, item.totalCount);
+    final nextDueDate = item.nextDueDate;
+    return [
+      FocusBusinessMetric(
+        label: 'COMPLETE',
+        value: '${item.completedCount}/${item.totalCount}',
+        tone: tone,
+      ),
+      FocusBusinessMetric(
+        label: 'OPEN',
+        value: '$remaining',
+      ),
+      FocusBusinessMetric(
+        label: 'NEXT',
+        value: nextDueDate == null
+            ? 'No date'
+            : DateFormatters.fullDate(nextDueDate, fallback: nextDueDate),
+      ),
+      FocusBusinessMetric(
+        label: 'PROGRESS',
+        value: '${(item.progress.clamp(0, 1) * 100).round()}%',
+        tone: tone,
+      ),
+    ];
   }
 }
 
@@ -1484,6 +1534,25 @@ String? _memberName(
   return '$fallbackLabel #$userId';
 }
 
+String _progressStatusLabel(DashboardProgressItem item) {
+  if (item.totalCount == 0) return 'No tasks';
+  if (item.completedCount >= item.totalCount) return 'Complete';
+  if (item.progress >= 0.75) return 'On track';
+  if (item.progress >= 0.35) return 'In progress';
+  return 'Needs attention';
+}
+
+RhythmBadgeTone _progressStatusTone(
+  DashboardProgressItem item,
+  RhythmBadgeTone fallback,
+) {
+  if (item.totalCount == 0) return RhythmBadgeTone.neutral;
+  if (item.completedCount >= item.totalCount) return RhythmBadgeTone.success;
+  if (item.progress >= 0.75) return RhythmBadgeTone.success;
+  if (item.progress >= 0.35) return fallback;
+  return RhythmBadgeTone.warning;
+}
+
 Color _toneColor(RhythmColorRoles colors, RhythmBadgeTone tone) {
   return switch (tone) {
     RhythmBadgeTone.neutral => colors.textSecondary,
@@ -1596,105 +1665,54 @@ class _TaskPreviewRow extends StatelessWidget {
     final colors = context.rhythm;
     final tone = _taskTone(task, showPastDue: showPastDue);
     final accent = _toneColor(colors, tone);
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(RhythmRadius.md),
-      child: Container(
-        margin: const EdgeInsets.symmetric(vertical: 4),
-        padding: const EdgeInsets.fromLTRB(
-          RhythmSpacing.sm,
-          RhythmSpacing.sm,
-          RhythmSpacing.sm,
-          RhythmSpacing.sm,
-        ),
-        decoration: BoxDecoration(
-          color: colors.surfaceMuted.withValues(alpha: 0.62),
-          borderRadius: BorderRadius.circular(RhythmRadius.md),
-          border: Border.all(color: accent.withValues(alpha: 0.18)),
-        ),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Icon(
-              task.status == 'done'
-                  ? Icons.check_box_outlined
-                  : Icons.check_box_outline_blank,
-              size: 20,
-              color: task.status == 'done' ? colors.textMuted : accent,
+    final description = task.notes?.trim().isNotEmpty == true
+        ? task.notes!.trim()
+        : [
+            if (task.scheduledDate != null)
+              'Scheduled ${DateFormatters.fullDate(task.scheduledDate, fallback: task.scheduledDate!)}',
+            if (task.dueDate != null)
+              'Due ${DateFormatters.fullDate(task.dueDate, fallback: task.dueDate!)}',
+            if (task.sourceName?.trim().isNotEmpty == true)
+              'From ${task.sourceName!.trim()}',
+            if (task.scheduledDate == null &&
+                task.dueDate == null &&
+                task.sourceName?.trim().isNotEmpty != true)
+              'Open the planner for details and next steps.',
+          ].join(' · ');
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: FocusBusinessTaskListItem(
+        title: task.title,
+        description: description,
+        checked: task.status == 'done',
+        onChanged: (_) => onTap(),
+        onTap: onTap,
+        backgroundColor: colors.surfaceMuted.withValues(alpha: 0.62),
+        borderColor: accent.withValues(alpha: 0.18),
+        accentColor: accent,
+        pills: [
+          if (showPastDue && _isPastDue(task))
+            const FocusBusinessPill(
+              label: 'Past due',
+              tone: RhythmBadgeTone.danger,
             ),
-            const SizedBox(width: RhythmSpacing.sm),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    task.title,
-                    style: TextStyle(
-                      fontSize: 13.5,
-                      fontWeight: FontWeight.w800,
-                      color: colors.textPrimary,
-                      height: 1.2,
-                    ),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  if (task.notes?.trim().isNotEmpty == true) ...[
-                    const SizedBox(height: RhythmSpacing.xs),
-                    Text(
-                      task.notes!.trim(),
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: colors.textSecondary,
-                        height: 1.35,
-                      ),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ],
-                  const SizedBox(height: RhythmSpacing.sm),
-                  Wrap(
-                    spacing: RhythmSpacing.xs,
-                    runSpacing: RhythmSpacing.xs,
-                    children: [
-                      if (showPastDue && _isPastDue(task))
-                        const RhythmBadge(
-                          label: 'Past due',
-                          tone: RhythmBadgeTone.danger,
-                          compact: true,
-                        ),
-                      if (task.dueDate != null)
-                        RhythmBadge(
-                          label:
-                              'Due ${DateFormatters.fullDate(task.dueDate, fallback: task.dueDate!)}',
-                          tone: RhythmBadgeTone.neutral,
-                          compact: true,
-                        ),
-                      if (task.scheduledDate != null)
-                        RhythmBadge(
-                          label:
-                              'Scheduled ${DateFormatters.fullDate(task.scheduledDate, fallback: task.scheduledDate!)}',
-                          tone: RhythmBadgeTone.neutral,
-                          compact: true,
-                        ),
-                      if (task.sourceName?.trim().isNotEmpty == true)
-                        RhythmBadge(
-                          label: task.sourceName!.trim(),
-                          tone: tone,
-                          compact: true,
-                        )
-                      else if (task.sourceType != null)
-                        RhythmBadge(
-                          label: _taskSourceLabel(task),
-                          tone: tone,
-                          compact: true,
-                        ),
-                    ],
-                  ),
-                ],
-              ),
+          if (task.dueDate != null)
+            FocusBusinessPill(
+              label:
+                  'Due ${DateFormatters.fullDate(task.dueDate, fallback: task.dueDate!)}',
+              tone: RhythmBadgeTone.neutral,
             ),
-          ],
-        ),
+          if (task.scheduledDate != null)
+            FocusBusinessPill(
+              label:
+                  'Scheduled ${DateFormatters.fullDate(task.scheduledDate, fallback: task.scheduledDate!)}',
+              tone: RhythmBadgeTone.neutral,
+            ),
+          if (task.sourceName?.trim().isNotEmpty == true)
+            FocusBusinessPill(label: task.sourceName!.trim(), tone: tone)
+          else if (task.sourceType != null)
+            FocusBusinessPill(label: _taskSourceLabel(task), tone: tone),
+        ],
       ),
     );
   }

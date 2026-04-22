@@ -6,6 +6,7 @@ import '../../../app/core/tasks/task_visual_style.dart';
 import '../../../app/core/ui/rhythm_ui.dart';
 import '../../../app/core/widgets/error_banner.dart';
 import '../../../app/core/workspace/workspace_controller.dart';
+import '../../../app/core/workspace/workspace_models.dart';
 import '../../../shared/widgets/collaborators_row.dart';
 import '../controllers/tasks_controller.dart';
 import '../data/collaborators_data_source.dart';
@@ -594,6 +595,7 @@ class _TasksViewState extends State<TasksView> {
   }
 
   Widget _buildTaskRow(Task task, TasksController controller) {
+    final colors = context.rhythm;
     final isDone = task.status == 'done';
     final hasNotes = task.notes != null && task.notes!.trim().isNotEmpty;
     final visualStyle = TaskVisualStyles.resolve(task);
@@ -605,153 +607,119 @@ class _TasksViewState extends State<TasksView> {
     final dueLabel = _compactDate(task.dueDate);
     final scheduledLabel =
         task.scheduledDate == null ? null : _compactDate(task.scheduledDate);
+    final members = context.read<WorkspaceController>().members;
+    final ownerName = _ownerName(task.ownerId, members);
+    final description = hasNotes
+        ? task.notes!.trim()
+        : [
+            if (scheduledLabel != null) 'Scheduled $scheduledLabel',
+            if (dueLabel != null) 'Due $dueLabel',
+            if (task.sourceName?.trim().isNotEmpty == true)
+              'From ${task.sourceName!.trim()}',
+            if (task.sourceName?.trim().isNotEmpty != true &&
+                scheduledLabel == null &&
+                dueLabel == null)
+              'No note yet. Open the task to add context or next steps.',
+          ].join(' · ');
+    final pills = <FocusBusinessPill>[
+      if (isDone)
+        const FocusBusinessPill(
+          label: 'Done',
+          tone: RhythmBadgeTone.success,
+          icon: Icons.check_circle_outline,
+        )
+      else if (isPastDue)
+        const FocusBusinessPill(
+          label: 'Past due',
+          tone: RhythmBadgeTone.danger,
+          icon: Icons.warning_amber_rounded,
+        )
+      else
+        const FocusBusinessPill(
+          label: 'Open',
+          tone: RhythmBadgeTone.neutral,
+          icon: Icons.radio_button_unchecked,
+        ),
+      if (scheduledLabel != null)
+        FocusBusinessPill(
+          label: scheduledLabel,
+          tone: RhythmBadgeTone.info,
+          icon: Icons.event_available_outlined,
+        ),
+      if (dueLabel != null)
+        FocusBusinessPill(
+          label: dueLabel,
+          tone: isPastDue ? RhythmBadgeTone.warning : RhythmBadgeTone.neutral,
+          icon: Icons.flag_outlined,
+        ),
+      if (task.sourceType != null)
+        FocusBusinessPill(
+          label: _sourceLabel(task),
+          tone: RhythmBadgeTone.accent,
+          icon: _sourceIcon(task.sourceType!),
+        ),
+      if (ownerName != null)
+        FocusBusinessPill(
+          label: ownerName,
+          tone: RhythmBadgeTone.neutral,
+          icon: Icons.person_outline,
+        ),
+    ];
 
     return Container(
-      constraints: const BoxConstraints(minHeight: 78),
-      decoration: BoxDecoration(
-        color: visualStyle.background.withValues(alpha: isDone ? 0.38 : 0.68),
-        border: Border.all(
-          color: visualStyle.accent.withValues(alpha: isDone ? 0.18 : 0.34),
+      constraints: const BoxConstraints(minHeight: 92),
+      child: FocusBusinessTaskListItem(
+        title: task.title,
+        description: description,
+        checked: isDone,
+        onChanged: (_) => controller.toggleDone(task.id),
+        backgroundColor: isDone
+            ? colors.surfaceMuted.withValues(alpha: 0.45)
+            : visualStyle.accent.withValues(alpha: 0.09),
+        borderColor: visualStyle.accent.withValues(alpha: isDone ? 0.14 : 0.24),
+        accentColor: visualStyle.accent,
+        pills: pills,
+        detailWidgets: [
+          if (task.ownerId != null)
+            CollaboratorsRow(
+              collaborators: task.collaborators,
+              ownerId: task.ownerId!,
+              workspaceMembers: members,
+              onAdd: (userId) async {
+                final ds = CollaboratorsDataSource();
+                await ds.addToTask(task.id, userId);
+                await controller.load();
+              },
+              onRemove: (userId) async {
+                final ds = CollaboratorsDataSource();
+                await ds.removeFromTask(task.id, userId);
+                await controller.load();
+              },
+            ),
+        ],
+        trailing: RhythmMenuButton<_TaskAction>(
+          items: const [
+            RhythmMenuAction(
+              value: _TaskAction.edit,
+              label: 'Edit',
+              icon: Icons.edit_outlined,
+            ),
+            RhythmMenuAction(
+              value: _TaskAction.delete,
+              label: 'Delete',
+              icon: Icons.delete_outline,
+              destructive: true,
+            ),
+          ],
+          onSelected: (action) {
+            switch (action) {
+              case _TaskAction.edit:
+                _showEditDialog(task, controller);
+              case _TaskAction.delete:
+                _confirmDelete(task, controller);
+            }
+          },
         ),
-      ),
-      padding: const EdgeInsets.fromLTRB(
-        RhythmSpacing.md,
-        RhythmSpacing.sm,
-        RhythmSpacing.sm,
-        RhythmSpacing.sm,
-      ),
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          final compact = constraints.maxWidth < 820;
-          final titleColumn = _TaskTitleColumn(
-            task: task,
-            hasNotes: hasNotes,
-            isDone: isDone,
-            accent: visualStyle.accent,
-            text: visualStyle.text,
-            mutedText: visualStyle.mutedText,
-          );
-          final status = isDone
-              ? const RhythmBadge(
-                  icon: Icons.check_circle_outline,
-                  label: 'Done',
-                  tone: RhythmBadgeTone.success,
-                  compact: true,
-                )
-              : isPastDue
-                  ? const RhythmBadge(
-                      icon: Icons.warning_amber_rounded,
-                      label: 'Past due',
-                      tone: RhythmBadgeTone.danger,
-                      compact: true,
-                    )
-                  : const RhythmBadge(
-                      icon: Icons.radio_button_unchecked,
-                      label: 'Open',
-                      compact: true,
-                    );
-          final date = Wrap(
-            spacing: RhythmSpacing.xs,
-            runSpacing: RhythmSpacing.xxs,
-            children: [
-              if (scheduledLabel != null)
-                RhythmBadge(
-                  icon: Icons.event_available_outlined,
-                  label: scheduledLabel,
-                  tone: RhythmBadgeTone.info,
-                  compact: true,
-                ),
-              if (dueLabel != null)
-                RhythmBadge(
-                  icon: Icons.flag_outlined,
-                  label: dueLabel,
-                  tone: isPastDue
-                      ? RhythmBadgeTone.warning
-                      : RhythmBadgeTone.neutral,
-                  compact: true,
-                ),
-              if (scheduledLabel == null && dueLabel == null)
-                const RhythmBadge(
-                  icon: Icons.inbox_outlined,
-                  label: 'No date',
-                  compact: true,
-                ),
-            ],
-          );
-          final contextBadges = _TaskContextBadges(
-            task: task,
-            controller: controller,
-          );
-          final menu = RhythmMenuButton<_TaskAction>(
-            items: const [
-              RhythmMenuAction(
-                value: _TaskAction.edit,
-                label: 'Edit',
-                icon: Icons.edit_outlined,
-              ),
-              RhythmMenuAction(
-                value: _TaskAction.delete,
-                label: 'Delete',
-                icon: Icons.delete_outline,
-                destructive: true,
-              ),
-            ],
-            onSelected: (action) {
-              switch (action) {
-                case _TaskAction.edit:
-                  _showEditDialog(task, controller);
-                case _TaskAction.delete:
-                  _confirmDelete(task, controller);
-              }
-            },
-          );
-
-          final detailRail = Wrap(
-            spacing: RhythmSpacing.xs,
-            runSpacing: RhythmSpacing.xs,
-            crossAxisAlignment: WrapCrossAlignment.center,
-            alignment: compact ? WrapAlignment.start : WrapAlignment.end,
-            children: [status, date, contextBadges],
-          );
-
-          return Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              SizedBox(
-                width: 32,
-                child: Checkbox(
-                  value: isDone,
-                  onChanged: (_) => controller.toggleDone(task.id),
-                ),
-              ),
-              const SizedBox(width: RhythmSpacing.xs),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    titleColumn,
-                    if (compact) ...[
-                      const SizedBox(height: RhythmSpacing.sm),
-                      detailRail,
-                    ],
-                  ],
-                ),
-              ),
-              if (!compact) ...[
-                const SizedBox(width: RhythmSpacing.lg),
-                ConstrainedBox(
-                  constraints: const BoxConstraints(
-                    minWidth: 280,
-                    maxWidth: 430,
-                  ),
-                  child: detailRail,
-                ),
-                const SizedBox(width: RhythmSpacing.xs),
-              ],
-              menu,
-            ],
-          );
-        },
       ),
     );
   }
@@ -914,133 +882,6 @@ class _TaskGroup {
   final List<Task> tasks;
 }
 
-class _TaskTitleColumn extends StatelessWidget {
-  const _TaskTitleColumn({
-    required this.task,
-    required this.hasNotes,
-    required this.isDone,
-    required this.accent,
-    required this.text,
-    required this.mutedText,
-  });
-
-  final Task task;
-  final bool hasNotes;
-  final bool isDone;
-  final Color accent;
-  final Color text;
-  final Color mutedText;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        if (_projectTitle(task) case final projectTitle?) ...[
-          Text(
-            projectTitle,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                  color: accent,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: 0,
-                ),
-          ),
-          const SizedBox(height: 2),
-        ],
-        Text(
-          task.title,
-          maxLines: 2,
-          overflow: TextOverflow.ellipsis,
-          style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                fontWeight: FontWeight.w700,
-                height: 1.2,
-                letterSpacing: 0,
-                decoration:
-                    isDone ? TextDecoration.lineThrough : TextDecoration.none,
-                color: text,
-              ),
-        ),
-        if (hasNotes) ...[
-          const SizedBox(height: 3),
-          Text(
-            task.notes!.trim(),
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: mutedText,
-                  height: 1.35,
-                  letterSpacing: 0,
-                ),
-          ),
-        ],
-      ],
-    );
-  }
-}
-
-class _TaskContextBadges extends StatelessWidget {
-  const _TaskContextBadges({required this.task, required this.controller});
-
-  final Task task;
-  final TasksController controller;
-
-  @override
-  Widget build(BuildContext context) {
-    final ownerId = task.ownerId;
-    final members = context.read<WorkspaceController>().members;
-    String? ownerName;
-    if (ownerId != null) {
-      for (final member in members) {
-        if (member.userId == ownerId) {
-          ownerName = member.name;
-          break;
-        }
-      }
-      ownerName ??= 'Owner #$ownerId';
-    }
-
-    return Wrap(
-      spacing: RhythmSpacing.xs,
-      runSpacing: RhythmSpacing.xxs,
-      crossAxisAlignment: WrapCrossAlignment.center,
-      children: [
-        if (task.sourceType != null)
-          RhythmBadge(
-            icon: _sourceIcon(task.sourceType!),
-            label: _sourceLabel(task),
-            tone: RhythmBadgeTone.accent,
-            compact: true,
-          ),
-        if (ownerName != null)
-          RhythmBadge(
-            icon: Icons.person_outline,
-            label: ownerName,
-            compact: true,
-          ),
-        if (ownerId != null)
-          CollaboratorsRow(
-            collaborators: task.collaborators,
-            ownerId: ownerId,
-            workspaceMembers: members,
-            onAdd: (userId) async {
-              final ds = CollaboratorsDataSource();
-              await ds.addToTask(task.id, userId);
-              await controller.load();
-            },
-            onRemove: (userId) async {
-              final ds = CollaboratorsDataSource();
-              await ds.removeFromTask(task.id, userId);
-              await controller.load();
-            },
-          ),
-      ],
-    );
-  }
-}
-
 String _sourceLabel(Task task) {
   if (task.sourceName != null && task.sourceName!.trim().isNotEmpty) {
     return task.sourceName!.trim();
@@ -1053,6 +894,14 @@ String _sourceLabel(Task task) {
     'recurring_rule' => 'Rhythm',
     _ => 'External',
   };
+}
+
+String? _ownerName(int? ownerId, List<WorkspaceMember> members) {
+  if (ownerId == null) return null;
+  for (final member in members) {
+    if (member.userId == ownerId) return member.name;
+  }
+  return 'Owner #$ownerId';
 }
 
 String _sourceGroupTitle(Task task, String fallbackTitle) {
@@ -1082,16 +931,6 @@ IconData _sourceIcon(String sourceType) => switch (sourceType) {
       'recurring_rule' => Icons.repeat,
       _ => Icons.link,
     };
-
-String? _projectTitle(Task task) {
-  final sourceName = task.sourceName?.trim();
-  if (task.sourceType != 'project_step' ||
-      sourceName == null ||
-      sourceName.isEmpty) {
-    return null;
-  }
-  return sourceName;
-}
 
 String? _compactDate(String? isoDate) {
   if (isoDate == null || isoDate.trim().isEmpty) return null;

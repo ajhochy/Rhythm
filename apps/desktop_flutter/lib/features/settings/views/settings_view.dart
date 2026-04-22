@@ -718,7 +718,7 @@ class _ClaudeIntegrationSectionState extends State<_ClaudeIntegrationSection> {
                         child: Text(
                           _tokenVisible ? token : '•' * 40,
                           style: TextStyle(
-                            fontFamily: 'monospace',
+                            fontFamily: 'JetBrainsMono',
                             fontSize: 12,
                             color: context.rhythm.textPrimary,
                           ),
@@ -792,7 +792,7 @@ class _ClaudeIntegrationSectionState extends State<_ClaudeIntegrationSection> {
                     '  }\n'
                     '}',
                     style: const TextStyle(
-                      fontFamily: 'monospace',
+                      fontFamily: 'JetBrainsMono',
                       fontSize: 12,
                       color: Color(0xFF94A3B8),
                       height: 1.6,
@@ -1024,7 +1024,7 @@ class _WorkspaceSectionWidgetState extends State<_WorkspaceSectionWidget> {
                     Text(
                       workspace.joinCode!,
                       style: const TextStyle(
-                        fontFamily: 'monospace',
+                        fontFamily: 'JetBrainsMono',
                         fontWeight: FontWeight.bold,
                       ),
                     ),
