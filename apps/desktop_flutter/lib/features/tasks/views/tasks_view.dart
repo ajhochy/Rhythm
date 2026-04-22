@@ -112,7 +112,7 @@ class _TasksViewState extends State<TasksView> {
                           SliverPersistentHeader(
                             pinned: true,
                             delegate: _StickyBarDelegate(
-                              height: createBarStacks ? 176 : 82,
+                              height: createBarStacks ? 176 : 86,
                               child: _buildCreateBar(
                                 context,
                                 stacked: createBarStacks,
@@ -602,15 +602,9 @@ class _TasksViewState extends State<TasksView> {
       scheduledDate: task.scheduledDate,
       isDone: isDone,
     );
-    final dueLabel = task.dueDate == null
-        ? null
-        : DateFormatters.fullDate(task.dueDate, fallback: task.dueDate!);
-    final scheduledLabel = task.scheduledDate == null
-        ? null
-        : DateFormatters.fullDate(
-            task.scheduledDate,
-            fallback: task.scheduledDate!,
-          );
+    final dueLabel = _compactDate(task.dueDate);
+    final scheduledLabel =
+        task.scheduledDate == null ? null : _compactDate(task.scheduledDate);
 
     return Container(
       constraints: const BoxConstraints(minHeight: 58),
@@ -1106,6 +1100,30 @@ String? _projectTitle(Task task) {
   return sourceName;
 }
 
+String? _compactDate(String? isoDate) {
+  if (isoDate == null || isoDate.trim().isEmpty) return null;
+  final match = RegExp(r'^(\d{4})-(\d{2})-(\d{2})').firstMatch(isoDate.trim());
+  if (match == null) return isoDate;
+  final month = int.tryParse(match.group(2)!);
+  final day = int.tryParse(match.group(3)!);
+  if (month == null || day == null || month < 1 || month > 12) return isoDate;
+  const months = [
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec',
+  ];
+  return '${months[month - 1]} $day';
+}
+
 class _StickyBarDelegate extends SliverPersistentHeaderDelegate {
   _StickyBarDelegate({required this.height, required this.child});
 
@@ -1125,15 +1143,17 @@ class _StickyBarDelegate extends SliverPersistentHeaderDelegate {
     bool overlapsContent,
   ) {
     final colors = context.rhythm;
-    return Container(
-      color: colors.surface,
-      padding: const EdgeInsets.fromLTRB(
-        RhythmSpacing.md,
-        RhythmSpacing.sm,
-        RhythmSpacing.md,
-        RhythmSpacing.xs,
+    return SizedBox.expand(
+      child: Container(
+        color: colors.surface,
+        padding: const EdgeInsets.fromLTRB(
+          RhythmSpacing.md,
+          RhythmSpacing.sm,
+          RhythmSpacing.md,
+          RhythmSpacing.xs,
+        ),
+        child: child,
       ),
-      child: child,
     );
   }
 

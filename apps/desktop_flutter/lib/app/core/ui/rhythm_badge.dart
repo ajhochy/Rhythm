@@ -29,28 +29,43 @@ class RhythmBadge extends StatelessWidget {
           letterSpacing: 0,
         );
 
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: background,
-        borderRadius: BorderRadius.circular(RhythmRadius.pill),
-        border: Border.all(color: foreground.withValues(alpha: 0.22)),
-      ),
-      child: Padding(
-        padding: EdgeInsets.symmetric(
-          horizontal: compact ? RhythmSpacing.xs : RhythmSpacing.sm,
-          vertical: compact ? 3 : 5,
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            if (icon != null) ...[
-              Icon(icon, size: compact ? 12 : 14, color: foreground),
-              const SizedBox(width: RhythmSpacing.xxs),
-            ],
-            Text(label, style: textStyle),
-          ],
-        ),
-      ),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final labelText = Text(
+          label,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          softWrap: false,
+          style: textStyle,
+        );
+
+        return DecoratedBox(
+          decoration: BoxDecoration(
+            color: background,
+            borderRadius: BorderRadius.circular(RhythmRadius.pill),
+            border: Border.all(color: foreground.withValues(alpha: 0.22)),
+          ),
+          child: Padding(
+            padding: EdgeInsets.symmetric(
+              horizontal: compact ? RhythmSpacing.xs : RhythmSpacing.sm,
+              vertical: compact ? 3 : 5,
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (icon != null) ...[
+                  Icon(icon, size: compact ? 12 : 14, color: foreground),
+                  const SizedBox(width: RhythmSpacing.xxs),
+                ],
+                if (constraints.hasBoundedWidth)
+                  Flexible(child: labelText)
+                else
+                  labelText,
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 
