@@ -8,6 +8,7 @@ import '../../../app/core/services/server_config_service.dart';
 import '../../../app/core/updates/update_controller.dart';
 import '../../../app/core/workspace/workspace_controller.dart';
 import '../../../app/core/workspace/workspace_models.dart';
+import '../../../app/core/services/theme_mode_service.dart';
 import '../../../app/theme/rhythm_tokens.dart';
 import '../controllers/settings_controller.dart';
 
@@ -204,6 +205,8 @@ class _SettingsViewState extends State<SettingsView> {
             ),
             const SizedBox(height: 24),
           ],
+          const _AppearanceSection(),
+          const SizedBox(height: 24),
           const _ClaudeIntegrationSection(),
           const SizedBox(height: 24),
           const _WorkspaceSectionWidget(),
@@ -1135,6 +1138,82 @@ class _MemberTile extends StatelessWidget {
     );
   }
 }
+
+// ---------------------------------------------------------------------------
+// Appearance
+// ---------------------------------------------------------------------------
+
+class _AppearanceSection extends StatelessWidget {
+  const _AppearanceSection();
+
+  @override
+  Widget build(BuildContext context) {
+    final service = context.watch<ThemeModeService>();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'APPEARANCE',
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+            color: RhythmTokens.textSecondary,
+            letterSpacing: 0.8,
+          ),
+        ),
+        const SizedBox(height: 12),
+        Container(
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            color: RhythmTokens.surfaceStrong,
+            borderRadius: BorderRadius.circular(RhythmTokens.radiusL),
+            border: Border.all(color: RhythmTokens.borderSoft),
+            boxShadow: RhythmTokens.shadow,
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Theme',
+                style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  color: RhythmTokens.textPrimary,
+                ),
+              ),
+              const SizedBox(height: 16),
+              SegmentedButton<ThemeMode>(
+                segments: const [
+                  ButtonSegment(
+                    value: ThemeMode.light,
+                    label: Text('Light'),
+                    icon: Icon(Icons.light_mode_outlined),
+                  ),
+                  ButtonSegment(
+                    value: ThemeMode.system,
+                    label: Text('System'),
+                    icon: Icon(Icons.brightness_auto_outlined),
+                  ),
+                  ButtonSegment(
+                    value: ThemeMode.dark,
+                    label: Text('Dark'),
+                    icon: Icon(Icons.dark_mode_outlined),
+                  ),
+                ],
+                selected: {service.themeMode},
+                onSelectionChanged: (selection) => context
+                    .read<ThemeModeService>()
+                    .setThemeMode(selection.first),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
 
 String _settingsInitialsFor(String name) {
   final parts = name
