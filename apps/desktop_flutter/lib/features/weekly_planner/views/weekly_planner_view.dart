@@ -1069,162 +1069,278 @@ class _TaskTile extends StatelessWidget {
       scheduledDate: task.scheduledDate,
       isDone: isDone,
     );
+    final workspaceMembers = context.watch<WorkspaceController>().members;
+    final ownerName = _ownerName(task.ownerId, workspaceMembers);
+    final sourceName = task.sourceName?.trim();
+    final hasSourceName = sourceName != null && sourceName.isNotEmpty;
+    final notesPreview = task.notes?.trim();
+    final hasNotes = notesPreview != null && notesPreview.isNotEmpty;
     final colors = context.rhythm;
     return GestureDetector(
       onTap: () => controller.selectTask(task.id),
       onLongPress:
           isShadowEvent ? null : () => controller.toggleTaskSelection(task.id),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 120),
-        margin: compact
-            ? const EdgeInsets.symmetric(horizontal: 8, vertical: 1)
-            : const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-        padding: EdgeInsets.symmetric(
-          horizontal: compact ? 8 : 10,
-          vertical: compact ? 6 : 10,
-        ),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final showContext = !compact || constraints.maxWidth >= 118;
+          final showNotes =
+              hasNotes && (!compact || constraints.maxWidth >= 142);
+          return AnimatedContainer(
+            duration: const Duration(milliseconds: 120),
+            margin: compact
+                ? const EdgeInsets.symmetric(horizontal: 8, vertical: 2)
+                : const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            padding: EdgeInsets.symmetric(
+              horizontal: compact ? 8 : 10,
+              vertical: compact ? 8 : 11,
+            ),
+            decoration: BoxDecoration(
+              color: isSelected || isMultiSelected
+                  ? colors.accentMuted
+                  : visualStyle.background,
+              borderRadius: BorderRadius.circular(RhythmRadius.sm),
+              border: Border.all(
+                color: isSelected || isMultiSelected
+                    ? colors.accent
+                    : visualStyle.border,
+              ),
+              boxShadow: isSelected || isMultiSelected
+                  ? RhythmElevation.panel
+                  : const [],
+            ),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (isShadowEvent)
+                  Container(
+                    width: 3,
+                    margin: const EdgeInsets.only(top: 2, right: 7),
+                    decoration: BoxDecoration(
+                      color: visualStyle.accent,
+                      borderRadius: BorderRadius.circular(RhythmRadius.pill),
+                    ),
+                  )
+                else ...[
+                  SizedBox(
+                    width: compact ? 14 : 16,
+                    height: compact ? 14 : 16,
+                    child: Checkbox(
+                      value: isDone,
+                      onChanged: (_) => controller.toggleTaskDone(task, isDone),
+                      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      visualDensity: compact
+                          ? const VisualDensity(horizontal: -4, vertical: -4)
+                          : VisualDensity.compact,
+                    ),
+                  ),
+                  SizedBox(width: compact ? 6 : 8),
+                ],
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (shadowTimeLabel != null)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 3),
+                          child: Text(
+                            shadowTimeLabel,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: (compact
+                                    ? Theme.of(context).textTheme.labelSmall
+                                    : Theme.of(context).textTheme.bodySmall)
+                                ?.copyWith(
+                              fontSize: compact ? 9.5 : 10.5,
+                              fontWeight: FontWeight.w700,
+                              color: visualStyle.accent,
+                            ),
+                          ),
+                        ),
+                      Text(
+                        task.title,
+                        maxLines: compact ? 4 : 3,
+                        overflow: TextOverflow.ellipsis,
+                        softWrap: true,
+                        style: (compact
+                                ? Theme.of(context).textTheme.labelSmall
+                                : Theme.of(context).textTheme.bodySmall)
+                            ?.copyWith(
+                          decoration:
+                              isDone ? TextDecoration.lineThrough : null,
+                          color: isDone ? colors.textMuted : visualStyle.text,
+                          fontSize: compact ? 11 : null,
+                          fontWeight: FontWeight.w700,
+                          height: compact ? 1.18 : 1.25,
+                        ),
+                      ),
+                      if (showContext &&
+                          (isPastDue ||
+                              isDone ||
+                              ownerName != null ||
+                              task.sourceType != null ||
+                              hasSourceName)) ...[
+                        const SizedBox(height: 6),
+                        Wrap(
+                          spacing: 5,
+                          runSpacing: 5,
+                          children: [
+                            if (isPastDue)
+                              const RhythmBadge(
+                                label: 'Past due',
+                                tone: RhythmBadgeTone.danger,
+                                compact: true,
+                              ),
+                            if (isDone)
+                              const RhythmBadge(
+                                label: 'Done',
+                                tone: RhythmBadgeTone.success,
+                                compact: true,
+                              ),
+                            if (ownerName != null)
+                              _TaskMetaPill(
+                                icon: Icons.person_outline,
+                                label: ownerName,
+                                color: visualStyle.mutedText,
+                              ),
+                            if (task.sourceType != null || hasSourceName)
+                              _TaskMetaPill(
+                                icon: _sourceIcon(task.sourceType),
+                                label: _sourceLabelForTask(task),
+                                color: visualStyle.accent,
+                              ),
+                          ],
+                        ),
+                      ],
+                      if (showNotes) ...[
+                        const SizedBox(height: 6),
+                        Text(
+                          notesPreview,
+                          maxLines: compact ? 2 : 3,
+                          overflow: TextOverflow.ellipsis,
+                          style:
+                              Theme.of(context).textTheme.labelSmall?.copyWith(
+                                    color: isDone
+                                        ? colors.textMuted
+                                        : visualStyle.mutedText,
+                                    height: 1.25,
+                                  ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+                if (!isShadowEvent && compact) ...[
+                  const SizedBox(width: 6),
+                  Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      _MiniMoveButton(
+                        icon: Icons.keyboard_arrow_up,
+                        onPressed: () => controller.moveTaskEarlier(task),
+                      ),
+                      const SizedBox(height: 4),
+                      _MiniMoveButton(
+                        icon: Icons.keyboard_arrow_down,
+                        onPressed: () => controller.moveTaskLater(task),
+                      ),
+                    ],
+                  ),
+                ],
+                if (isMultiSelected && !compact) ...[
+                  const SizedBox(width: 6),
+                  Icon(Icons.done_all, size: 14, color: colors.accent),
+                ],
+                if (task.locked && !compact) ...[
+                  const SizedBox(width: 6),
+                  Icon(Icons.lock, size: 11, color: colors.textSecondary),
+                ],
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  String? _ownerName(int? ownerId, List<WorkspaceMember> workspaceMembers) {
+    if (ownerId == null) return null;
+    for (final member in workspaceMembers) {
+      if (member.userId == ownerId) {
+        final name = member.name.trim();
+        return name.isEmpty ? member.email.trim() : name;
+      }
+    }
+    return 'User $ownerId';
+  }
+}
+
+class _TaskMetaPill extends StatelessWidget {
+  const _TaskMetaPill({
+    required this.icon,
+    required this.label,
+    required this.color,
+  });
+
+  final IconData icon;
+  final String label;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 128),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
         decoration: BoxDecoration(
-          color: isSelected || isMultiSelected
-              ? colors.accentMuted
-              : visualStyle.background,
-          borderRadius: BorderRadius.circular(RhythmRadius.sm),
-          border: Border.all(
-            color: isSelected || isMultiSelected
-                ? colors.accent
-                : visualStyle.border,
-          ),
-          boxShadow:
-              isSelected || isMultiSelected ? RhythmElevation.panel : const [],
+          color: color.withValues(alpha: 0.13),
+          borderRadius: BorderRadius.circular(RhythmRadius.pill),
+          border: Border.all(color: color.withValues(alpha: 0.22)),
         ),
         child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
           children: [
-            if (isShadowEvent)
-              Container(
-                width: 3,
-                margin: const EdgeInsets.only(top: 2, right: 7),
-                decoration: BoxDecoration(
-                  color: visualStyle.accent,
-                  borderRadius: BorderRadius.circular(RhythmRadius.pill),
-                ),
-              )
-            else ...[
-              SizedBox(
-                width: compact ? 14 : 16,
-                height: compact ? 14 : 16,
-                child: Checkbox(
-                  value: isDone,
-                  onChanged: (_) => controller.toggleTaskDone(task, isDone),
-                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  visualDensity: compact
-                      ? const VisualDensity(horizontal: -4, vertical: -4)
-                      : VisualDensity.compact,
-                ),
-              ),
-              SizedBox(width: compact ? 6 : 8),
-            ],
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (shadowTimeLabel != null)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 3),
-                      child: Text(
-                        shadowTimeLabel,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: (compact
-                                ? Theme.of(context).textTheme.labelSmall
-                                : Theme.of(context).textTheme.bodySmall)
-                            ?.copyWith(
-                          fontSize: compact ? 9.5 : 10.5,
-                          fontWeight: FontWeight.w700,
-                          color: visualStyle.accent,
-                        ),
-                      ),
+            Icon(icon, size: 11, color: color),
+            const SizedBox(width: 4),
+            Flexible(
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                      color: color,
+                      fontWeight: FontWeight.w700,
+                      height: 1,
                     ),
-                  if (task.sourceName != null && task.sourceName!.isNotEmpty)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 2),
-                      child: Text(
-                        task.sourceName!,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: (compact
-                                ? Theme.of(context).textTheme.labelSmall
-                                : Theme.of(context).textTheme.bodySmall)
-                            ?.copyWith(
-                          fontSize: compact ? 9.5 : 10,
-                          fontWeight: FontWeight.w700,
-                          color: visualStyle.accent,
-                        ),
-                      ),
-                    ),
-                  Text(
-                    task.title,
-                    maxLines: compact ? 3 : 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: (compact
-                            ? Theme.of(context).textTheme.labelSmall
-                            : Theme.of(context).textTheme.bodySmall)
-                        ?.copyWith(
-                      decoration: isDone ? TextDecoration.lineThrough : null,
-                      color: isDone ? colors.textMuted : visualStyle.text,
-                      fontSize: compact ? 10.5 : null,
-                      height: compact ? 1.15 : 1.2,
-                    ),
-                  ),
-                  if (isPastDue || task.sourceType != null) ...[
-                    const SizedBox(height: 4),
-                    Wrap(
-                      spacing: 6,
-                      runSpacing: 4,
-                      children: [
-                        if (isPastDue)
-                          const RhythmBadge(
-                            label: 'Past due',
-                            tone: RhythmBadgeTone.danger,
-                            compact: true,
-                          ),
-                        if (task.sourceType != null) _SourceChip(task: task),
-                      ],
-                    ),
-                  ],
-                ],
               ),
             ),
-            if (!isShadowEvent && compact) ...[
-              const SizedBox(width: 6),
-              Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  _MiniMoveButton(
-                    icon: Icons.keyboard_arrow_up,
-                    onPressed: () => controller.moveTaskEarlier(task),
-                  ),
-                  const SizedBox(height: 4),
-                  _MiniMoveButton(
-                    icon: Icons.keyboard_arrow_down,
-                    onPressed: () => controller.moveTaskLater(task),
-                  ),
-                ],
-              ),
-            ],
-            if (isMultiSelected && !compact) ...[
-              const SizedBox(width: 6),
-              Icon(Icons.done_all, size: 14, color: colors.accent),
-            ],
-            if (task.locked && !compact) ...[
-              const SizedBox(width: 6),
-              Icon(Icons.lock, size: 11, color: colors.textSecondary),
-            ],
           ],
         ),
       ),
     );
   }
+}
+
+IconData _sourceIcon(String? sourceType) => switch (sourceType) {
+      'automation_rule' => Icons.auto_awesome,
+      'planning_center_signal' => Icons.groups_2_outlined,
+      'calendar_shadow_event' => Icons.event_available_outlined,
+      'project_step' => Icons.folder_open_outlined,
+      'recurring_rule' => Icons.repeat,
+      _ => Icons.link,
+    };
+
+String _sourceLabelForTask(Task task) {
+  final sourceName = task.sourceName?.trim();
+  if (sourceName != null && sourceName.isNotEmpty) return sourceName;
+  return switch (task.sourceType) {
+    'automation_rule' => 'Automation',
+    'planning_center_signal' => 'Planning Center',
+    'calendar_shadow_event' => 'Calendar',
+    'project_step' => 'Project',
+    'recurring_rule' => 'Rhythm',
+    _ => 'Source',
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -1808,40 +1924,6 @@ class _MiniMoveButton extends StatelessWidget {
           border: Border.all(color: colors.borderSubtle),
         ),
         child: Icon(icon, size: 12, color: colors.textSecondary),
-      ),
-    );
-  }
-}
-
-class _SourceChip extends StatelessWidget {
-  const _SourceChip({required this.task});
-  final Task task;
-
-  @override
-  Widget build(BuildContext context) {
-    final sourceType = task.sourceType ?? '';
-    final accent = TaskVisualStyles.resolve(task).accent;
-    final (label, color) = switch (sourceType) {
-      'recurring_rule' => ('R', accent),
-      'project_step' => ('P', accent),
-      'calendar_shadow_event' => ('C', accent),
-      'planning_center_signal' => ('PC', accent),
-      'automation_rule' => ('A', accent),
-      _ => ('T', accent),
-    };
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.15),
-        borderRadius: BorderRadius.circular(RhythmRadius.sm),
-      ),
-      child: Text(
-        label,
-        style: TextStyle(
-          fontSize: 9.5,
-          fontWeight: FontWeight.bold,
-          color: color,
-        ),
       ),
     );
   }
