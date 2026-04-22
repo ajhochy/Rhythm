@@ -160,6 +160,40 @@ class _NavItemTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final iconWithBadge = Stack(
+      clipBehavior: Clip.none,
+      children: [
+        Icon(
+          item.icon,
+          color:
+              isSelected ? context.rhythm.accent : context.rhythm.textSecondary,
+          size: 18,
+        ),
+        if ((badgeCount ?? 0) > 0)
+          Positioned(
+            right: -7,
+            top: -7,
+            child: Container(
+              padding: const EdgeInsets.symmetric(
+                horizontal: 5,
+                vertical: 1,
+              ),
+              decoration: BoxDecoration(
+                color: context.rhythm.danger,
+                borderRadius: BorderRadius.circular(999),
+              ),
+              child: Text(
+                '${badgeCount!}',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 10,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
     final tile = AnimatedContainer(
       duration: const Duration(milliseconds: 160),
       padding: EdgeInsets.symmetric(
@@ -176,61 +210,28 @@ class _NavItemTile extends StatelessWidget {
         ),
         boxShadow: isSelected ? RhythmElevation.panel : const [],
       ),
-      child: Row(
-        mainAxisAlignment:
-            collapsed ? MainAxisAlignment.center : MainAxisAlignment.start,
-        children: [
-          Stack(
-            clipBehavior: Clip.none,
-            children: [
-              Icon(
-                item.icon,
-                color: isSelected
-                    ? context.rhythm.accent
-                    : context.rhythm.textSecondary,
-                size: 18,
-              ),
-              if ((badgeCount ?? 0) > 0)
-                Positioned(
-                  right: -7,
-                  top: -7,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 5,
-                      vertical: 1,
-                    ),
-                    decoration: BoxDecoration(
-                      color: context.rhythm.danger,
-                      borderRadius: BorderRadius.circular(999),
-                    ),
-                    child: Text(
-                      '${badgeCount!}',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 10,
-                        fontWeight: FontWeight.w700,
-                      ),
+      child: collapsed
+          ? Center(child: iconWithBadge)
+          : Row(
+              children: [
+                iconWithBadge,
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    item.label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: isSelected
+                          ? context.rhythm.textPrimary
+                          : context.rhythm.textSecondary,
+                      fontWeight:
+                          isSelected ? FontWeight.w700 : FontWeight.w500,
                     ),
                   ),
                 ),
-            ],
-          ),
-          if (!collapsed) ...[
-            const SizedBox(width: 10),
-            Expanded(
-              child: Text(
-                item.label,
-                style: TextStyle(
-                  color: isSelected
-                      ? context.rhythm.textPrimary
-                      : context.rhythm.textSecondary,
-                  fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
-                ),
-              ),
+              ],
             ),
-          ],
-        ],
-      ),
     );
 
     return Tooltip(
@@ -251,6 +252,11 @@ class _SettingsButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final icon = Icon(
+      Icons.settings_outlined,
+      color: context.rhythm.textSecondary,
+      size: 18,
+    );
     return Tooltip(
       message: 'Settings',
       child: InkWell(
@@ -270,24 +276,22 @@ class _SettingsButton extends StatelessWidget {
             borderRadius: BorderRadius.circular(RhythmRadius.lg),
             border: Border.all(color: context.rhythm.borderSubtle),
           ),
-          child: Row(
-            mainAxisAlignment:
-                collapsed ? MainAxisAlignment.center : MainAxisAlignment.start,
-            children: [
-              Icon(
-                Icons.settings_outlined,
-                color: context.rhythm.textSecondary,
-                size: 18,
-              ),
-              if (!collapsed) ...[
-                const SizedBox(width: 10),
-                Text(
-                  'Settings',
-                  style: TextStyle(color: context.rhythm.textSecondary),
+          child: collapsed
+              ? Center(child: icon)
+              : Row(
+                  children: [
+                    icon,
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        'Settings',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(color: context.rhythm.textSecondary),
+                      ),
+                    ),
+                  ],
                 ),
-              ],
-            ],
-          ),
         ),
       ),
     );

@@ -729,87 +729,87 @@ class _ProgressDialCard extends StatelessWidget {
         icon: Icons.arrow_forward,
         compact: true,
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final primary = primaryLabel ??
+              (totalCount == 0 ? 'No tasks' : '$remainingCount left');
+          final percent =
+              totalCount == 0 ? '0%' : '${((progress * 100).round())}%';
+          final details = Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      primaryLabel ??
-                          (totalCount == 0
-                              ? 'No tasks'
-                              : '$remainingCount left'),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      totalCount == 0
-                          ? '0% complete'
-                          : '${((progress * 100).round())}% complete',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: accent,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ],
+              Text(
+                primary,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: colors.textPrimary,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w800,
+                  height: 1.15,
                 ),
               ),
-              const SizedBox(width: 10),
-              SizedBox(
-                width: 70,
-                height: 70,
-                child: Stack(
-                  alignment: Alignment.center,
-                  children: [
-                    CircularProgressIndicator(
-                      value: progress,
-                      strokeWidth: 7,
-                      backgroundColor: colors.surfaceMuted,
-                      valueColor: AlwaysStoppedAnimation<Color>(accent),
-                    ),
-                    Text(
-                      totalCount == 0 ? '0%' : '${((progress * 100).round())}%',
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w800,
-                        color: colors.textPrimary,
-                        height: 1,
-                      ),
-                    ),
-                  ],
+              const SizedBox(height: RhythmSpacing.xs),
+              Wrap(
+                spacing: RhythmSpacing.xs,
+                runSpacing: RhythmSpacing.xs,
+                children: [
+                  RhythmBadge(
+                    label:
+                        totalCount == 0 ? '0% complete' : '$percent complete',
+                    tone: tone,
+                    compact: true,
+                  ),
+                  RhythmBadge(
+                    label: '$remainingCount remaining',
+                    compact: true,
+                  ),
+                ],
+              ),
+              const SizedBox(height: RhythmSpacing.sm),
+              LinearProgressIndicator(
+                value: progress,
+                minHeight: 7,
+                borderRadius: BorderRadius.circular(999),
+                backgroundColor: colors.surfaceMuted,
+                valueColor: AlwaysStoppedAnimation<Color>(accent),
+              ),
+              const SizedBox(height: RhythmSpacing.sm),
+              Text(
+                subtitle,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 12,
+                  color: colors.textSecondary,
+                  height: 1.35,
                 ),
               ),
             ],
-          ),
-          const SizedBox(height: 10),
-          LinearProgressIndicator(
-            value: progress,
-            minHeight: 7,
-            borderRadius: BorderRadius.circular(999),
-            backgroundColor: colors.surfaceMuted,
-            valueColor: AlwaysStoppedAnimation<Color>(accent),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            subtitle,
-            style: TextStyle(
-              fontSize: 12,
-              color: colors.textSecondary,
-              height: 1.35,
-            ),
-          ),
-        ],
+          );
+
+          if (constraints.maxWidth < 360) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _ProgressRing(
+                    percent: percent, progress: progress, accent: accent),
+                const SizedBox(height: RhythmSpacing.md),
+                details,
+              ],
+            );
+          }
+
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              _ProgressRing(
+                  percent: percent, progress: progress, accent: accent),
+              const SizedBox(width: RhythmSpacing.lg),
+              Expanded(child: details),
+            ],
+          );
+        },
       ),
     );
   }
@@ -1111,7 +1111,8 @@ class _ProgressPreviewCard<T extends DashboardProgressItem>
   @override
   Widget build(BuildContext context) {
     final colors = context.rhythm;
-    final visible = items.take(3).toList();
+    final feature = items.isEmpty ? null : items.first;
+    final secondary = items.skip(1).take(2).toList();
     return _DashboardPreviewShell(
       title: title,
       tone: tone,
@@ -1122,7 +1123,7 @@ class _ProgressPreviewCard<T extends DashboardProgressItem>
         tone: tone,
         compact: true,
       ),
-      child: visible.isEmpty
+      child: feature == null
           ? Padding(
               padding: const EdgeInsets.symmetric(vertical: 18),
               child: Text(
@@ -1135,20 +1136,31 @@ class _ProgressPreviewCard<T extends DashboardProgressItem>
               ),
             )
           : Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                for (final item in visible)
-                  _ProgressPreviewRow(
-                    item: item,
-                    tone: tone,
-                    onTap: () => onTapItem(item),
-                  ),
-                if (items.length > visible.length)
+                _ProgressFeaturePanel(
+                  item: feature,
+                  tone: tone,
+                  onTap: () => onTapItem(feature),
+                ),
+                if (secondary.isNotEmpty) ...[
+                  const SizedBox(height: RhythmSpacing.sm),
+                  for (final item in secondary) ...[
+                    Divider(height: 1, color: colors.borderSubtle),
+                    _ProgressPreviewRow(
+                      item: item,
+                      tone: tone,
+                      onTap: () => onTapItem(item),
+                    ),
+                  ],
+                ],
+                if (items.length > 1 + secondary.length)
                   Padding(
-                    padding: const EdgeInsets.only(top: 8),
+                    padding: const EdgeInsets.only(top: RhythmSpacing.sm),
                     child: Align(
                       alignment: Alignment.centerLeft,
                       child: Text(
-                        '+${items.length - visible.length} more',
+                        '+${items.length - 1 - secondary.length} more',
                         style: TextStyle(
                           color: colors.textSecondary,
                           fontSize: 12,
@@ -1158,6 +1170,198 @@ class _ProgressPreviewCard<T extends DashboardProgressItem>
                   ),
               ],
             ),
+    );
+  }
+}
+
+class _ProgressFeaturePanel extends StatelessWidget {
+  const _ProgressFeaturePanel({
+    required this.item,
+    required this.onTap,
+    required this.tone,
+  });
+
+  final DashboardProgressItem item;
+  final VoidCallback onTap;
+  final RhythmBadgeTone tone;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.rhythm;
+    final accent = _toneColor(colors, tone);
+    final progress = item.progress.clamp(0.0, 1.0);
+    final percent = '${(progress * 100).round()}%';
+    final nextDueDate = item.nextDueDate;
+    final dueLabel = nextDueDate == null
+        ? null
+        : DateFormatters.fullDate(
+            nextDueDate,
+            fallback: nextDueDate,
+          );
+
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(RhythmRadius.lg),
+      child: Container(
+        padding: const EdgeInsets.all(RhythmSpacing.md),
+        decoration: BoxDecoration(
+          color: colors.surfaceMuted.withValues(alpha: 0.62),
+          borderRadius: BorderRadius.circular(RhythmRadius.lg),
+          border: Border.all(color: accent.withValues(alpha: 0.22)),
+        ),
+        child: LayoutBuilder(
+          builder: (context, constraints) {
+            final stacked = constraints.maxWidth < 420;
+            final ring = _ProgressRing(
+              percent: percent,
+              progress: progress,
+              accent: accent,
+            );
+            final details = _ProgressFeatureDetails(
+              item: item,
+              tone: tone,
+              accent: accent,
+              dueLabel: dueLabel,
+            );
+            if (stacked) {
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  ring,
+                  const SizedBox(height: RhythmSpacing.md),
+                  details,
+                ],
+              );
+            }
+            return Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                ring,
+                const SizedBox(width: RhythmSpacing.lg),
+                Expanded(child: details),
+              ],
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
+
+class _ProgressRing extends StatelessWidget {
+  const _ProgressRing({
+    required this.percent,
+    required this.progress,
+    required this.accent,
+  });
+
+  final String percent;
+  final double progress;
+  final Color accent;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.rhythm;
+    return SizedBox(
+      width: 96,
+      height: 96,
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          SizedBox(
+            width: 86,
+            height: 86,
+            child: CircularProgressIndicator(
+              value: progress,
+              strokeWidth: 7,
+              backgroundColor: colors.surface,
+              valueColor: AlwaysStoppedAnimation<Color>(accent),
+            ),
+          ),
+          Text(
+            percent,
+            style: TextStyle(
+              color: colors.textPrimary,
+              fontSize: 18,
+              fontWeight: FontWeight.w800,
+              height: 1,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ProgressFeatureDetails extends StatelessWidget {
+  const _ProgressFeatureDetails({
+    required this.item,
+    required this.tone,
+    required this.accent,
+    required this.dueLabel,
+  });
+
+  final DashboardProgressItem item;
+  final RhythmBadgeTone tone;
+  final Color accent;
+  final String? dueLabel;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.rhythm;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Icon(Icons.grid_view_rounded, color: accent, size: 18),
+            const SizedBox(width: RhythmSpacing.xs),
+            Expanded(
+              child: Text(
+                item.title,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: colors.textPrimary,
+                  fontSize: 18,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 0,
+                  height: 1.15,
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: RhythmSpacing.sm),
+        Wrap(
+          spacing: RhythmSpacing.xs,
+          runSpacing: RhythmSpacing.xs,
+          children: [
+            RhythmBadge(
+              label: '${item.completedCount}/${item.totalCount} complete',
+              tone: tone,
+              compact: true,
+            ),
+            if (dueLabel != null)
+              RhythmBadge(
+                label: 'Next $dueLabel',
+                icon: Icons.event_outlined,
+                compact: true,
+              ),
+          ],
+        ),
+        const SizedBox(height: RhythmSpacing.md),
+        Text(
+          item.subtitle,
+          maxLines: 3,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            color: colors.textSecondary,
+            fontSize: 12.5,
+            height: 1.45,
+          ),
+        ),
+      ],
     );
   }
 }
@@ -1397,56 +1601,60 @@ class _TaskPreviewRow extends StatelessWidget {
       borderRadius: BorderRadius.circular(RhythmRadius.md),
       child: Container(
         margin: const EdgeInsets.symmetric(vertical: 4),
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        padding: const EdgeInsets.fromLTRB(
+          RhythmSpacing.sm,
+          RhythmSpacing.sm,
+          RhythmSpacing.sm,
+          RhythmSpacing.sm,
+        ),
         decoration: BoxDecoration(
-          color: colors.surfaceMuted.withValues(alpha: 0.74),
+          color: colors.surfaceMuted.withValues(alpha: 0.62),
           borderRadius: BorderRadius.circular(RhythmRadius.md),
-          border: Border.all(color: colors.borderSubtle),
+          border: Border.all(color: accent.withValues(alpha: 0.18)),
         ),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Container(
-              width: 4,
-              height: 22,
-              margin: const EdgeInsets.only(top: 1),
-              decoration: BoxDecoration(
-                color: task.status == 'done' ? colors.border : accent,
-                borderRadius: BorderRadius.circular(999),
-              ),
+            Icon(
+              task.status == 'done'
+                  ? Icons.check_box_outlined
+                  : Icons.check_box_outline_blank,
+              size: 20,
+              color: task.status == 'done' ? colors.textMuted : accent,
             ),
-            const SizedBox(width: 10),
+            const SizedBox(width: RhythmSpacing.sm),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  if (task.sourceName?.trim().isNotEmpty == true) ...[
-                    Text(
-                      task.sourceName!.trim(),
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w700,
-                        color: accent,
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    const SizedBox(height: 3),
-                  ],
                   Text(
                     task.title,
                     style: TextStyle(
-                      fontSize: 12.5,
-                      fontWeight: FontWeight.w700,
+                      fontSize: 13.5,
+                      fontWeight: FontWeight.w800,
                       color: colors.textPrimary,
+                      height: 1.2,
                     ),
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                   ),
-                  const SizedBox(height: 4),
+                  if (task.notes?.trim().isNotEmpty == true) ...[
+                    const SizedBox(height: RhythmSpacing.xs),
+                    Text(
+                      task.notes!.trim(),
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: colors.textSecondary,
+                        height: 1.35,
+                      ),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ],
+                  const SizedBox(height: RhythmSpacing.sm),
                   Wrap(
-                    spacing: 6,
-                    runSpacing: 6,
+                    spacing: RhythmSpacing.xs,
+                    runSpacing: RhythmSpacing.xs,
                     children: [
                       if (showPastDue && _isPastDue(task))
                         const RhythmBadge(
@@ -1468,7 +1676,13 @@ class _TaskPreviewRow extends StatelessWidget {
                           tone: RhythmBadgeTone.neutral,
                           compact: true,
                         ),
-                      if (task.sourceType != null)
+                      if (task.sourceName?.trim().isNotEmpty == true)
+                        RhythmBadge(
+                          label: task.sourceName!.trim(),
+                          tone: tone,
+                          compact: true,
+                        )
+                      else if (task.sourceType != null)
                         RhythmBadge(
                           label: _taskSourceLabel(task),
                           tone: tone,

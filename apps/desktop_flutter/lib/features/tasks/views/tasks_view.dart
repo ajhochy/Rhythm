@@ -607,16 +607,18 @@ class _TasksViewState extends State<TasksView> {
         task.scheduledDate == null ? null : _compactDate(task.scheduledDate);
 
     return Container(
-      constraints: const BoxConstraints(minHeight: 58),
+      constraints: const BoxConstraints(minHeight: 78),
       decoration: BoxDecoration(
-        color: visualStyle.background.withValues(alpha: isDone ? 0.42 : 0.72),
-        border: Border(left: BorderSide(color: visualStyle.accent, width: 3)),
+        color: visualStyle.background.withValues(alpha: isDone ? 0.38 : 0.68),
+        border: Border.all(
+          color: visualStyle.accent.withValues(alpha: isDone ? 0.18 : 0.34),
+        ),
       ),
       padding: const EdgeInsets.fromLTRB(
+        RhythmSpacing.md,
         RhythmSpacing.sm,
-        RhythmSpacing.xs,
-        RhythmSpacing.xs,
-        RhythmSpacing.xs,
+        RhythmSpacing.sm,
+        RhythmSpacing.sm,
       ),
       child: LayoutBuilder(
         builder: (context, constraints) {
@@ -704,40 +706,16 @@ class _TasksViewState extends State<TasksView> {
             },
           );
 
-          if (compact) {
-            return Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                SizedBox(
-                  width: 32,
-                  child: Checkbox(
-                    value: isDone,
-                    onChanged: (_) => controller.toggleDone(task.id),
-                  ),
-                ),
-                const SizedBox(width: RhythmSpacing.xs),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      titleColumn,
-                      const SizedBox(height: RhythmSpacing.xs),
-                      Wrap(
-                        spacing: RhythmSpacing.xs,
-                        runSpacing: RhythmSpacing.xs,
-                        crossAxisAlignment: WrapCrossAlignment.center,
-                        children: [status, date, contextBadges],
-                      ),
-                    ],
-                  ),
-                ),
-                menu,
-              ],
-            );
-          }
+          final detailRail = Wrap(
+            spacing: RhythmSpacing.xs,
+            runSpacing: RhythmSpacing.xs,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            alignment: compact ? WrapAlignment.start : WrapAlignment.end,
+            children: [status, date, contextBadges],
+          );
 
           return Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               SizedBox(
                 width: 32,
@@ -747,14 +725,29 @@ class _TasksViewState extends State<TasksView> {
                 ),
               ),
               const SizedBox(width: RhythmSpacing.xs),
-              Expanded(flex: 5, child: titleColumn),
-              const SizedBox(width: RhythmSpacing.sm),
-              SizedBox(width: 104, child: status),
-              const SizedBox(width: RhythmSpacing.sm),
-              SizedBox(width: 146, child: date),
-              const SizedBox(width: RhythmSpacing.sm),
-              SizedBox(width: 196, child: contextBadges),
-              const SizedBox(width: RhythmSpacing.xs),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    titleColumn,
+                    if (compact) ...[
+                      const SizedBox(height: RhythmSpacing.sm),
+                      detailRail,
+                    ],
+                  ],
+                ),
+              ),
+              if (!compact) ...[
+                const SizedBox(width: RhythmSpacing.lg),
+                ConstrainedBox(
+                  constraints: const BoxConstraints(
+                    minWidth: 280,
+                    maxWidth: 430,
+                  ),
+                  child: detailRail,
+                ),
+                const SizedBox(width: RhythmSpacing.xs),
+              ],
               menu,
             ],
           );
@@ -974,11 +967,11 @@ class _TaskTitleColumn extends StatelessWidget {
           const SizedBox(height: 3),
           Text(
             task.notes!.trim(),
-            maxLines: 1,
+            maxLines: 2,
             overflow: TextOverflow.ellipsis,
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
                   color: mutedText,
-                  height: 1.25,
+                  height: 1.35,
                   letterSpacing: 0,
                 ),
           ),
