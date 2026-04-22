@@ -7,23 +7,12 @@ import '../../../app/core/ui/rhythm_ui.dart';
 import '../../../app/core/widgets/error_banner.dart';
 import '../../../app/core/workspace/workspace_controller.dart';
 import '../../../app/core/workspace/workspace_models.dart';
-import '../../../app/theme/rhythm_tokens.dart';
 import '../../../shared/widgets/collaborators_row.dart';
 import '../../../shared/widgets/workspace_member_picker.dart';
 import '../../tasks/models/task.dart';
 import '../controllers/weekly_planner_controller.dart';
 import '../models/weekly_plan.dart';
 import '../../tasks/data/collaborators_data_source.dart';
-
-const _kSurface = RhythmTokens.surfaceStrong;
-const _kSurfaceMuted = RhythmTokens.surfaceMuted;
-const _kBorder = RhythmTokens.borderSoft;
-const _kTextPrimary = RhythmTokens.textPrimary;
-const _kTextSecondary = RhythmTokens.textSecondary;
-const _kTextMuted = RhythmTokens.textMuted;
-const _kPrimary = RhythmTokens.accent;
-const _kPrimarySoft = RhythmTokens.accentSoft;
-const _kDanger = RhythmTokens.danger;
 
 class WeeklyPlannerView extends StatefulWidget {
   const WeeklyPlannerView({super.key});
@@ -419,7 +408,7 @@ class _BacklogPane extends StatelessWidget {
                       Text(
                         'Backlog',
                         style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                              color: _kTextPrimary,
+                              color: colors.textPrimary,
                               fontWeight: FontWeight.w700,
                             ),
                       ),
@@ -427,7 +416,7 @@ class _BacklogPane extends StatelessWidget {
                       Text(
                         'Tasks waiting to be scheduled',
                         style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                              color: _kTextSecondary,
+                              color: colors.textSecondary,
                             ),
                       ),
                     ],
@@ -441,7 +430,7 @@ class _BacklogPane extends StatelessWidget {
               ],
             ),
           ),
-          const Divider(height: 1, color: _kBorder),
+          Divider(height: 1, color: colors.borderSubtle),
           Expanded(
             child: Column(
               children: [
@@ -476,7 +465,7 @@ class _BacklogPane extends StatelessWidget {
                 Padding(
                   padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
                   child: InkWell(
-                    borderRadius: BorderRadius.circular(RhythmTokens.radiusS),
+                    borderRadius: BorderRadius.circular(RhythmRadius.sm),
                     onTap: () => _showAddBacklogTaskDialog(context),
                     child: Container(
                       width: double.infinity,
@@ -485,19 +474,14 @@ class _BacklogPane extends StatelessWidget {
                         vertical: 10,
                       ),
                       decoration: BoxDecoration(
-                        color: _kSurface,
-                        borderRadius: BorderRadius.circular(
-                          RhythmTokens.radiusS,
-                        ),
-                        border: Border.all(color: _kBorder),
+                        color: colors.surfaceRaised,
+                        borderRadius: BorderRadius.circular(RhythmRadius.sm),
+                        border: Border.all(color: colors.borderSubtle),
                       ),
                       child: Row(
                         children: [
-                          const Icon(
-                            Icons.add,
-                            size: 14,
-                            color: _kTextSecondary,
-                          ),
+                          Icon(Icons.add,
+                              size: 14, color: colors.textSecondary),
                           const SizedBox(width: 6),
                           Text(
                             'Add unscheduled task',
@@ -505,7 +489,7 @@ class _BacklogPane extends StatelessWidget {
                                 .textTheme
                                 .labelSmall
                                 ?.copyWith(
-                                  color: _kTextSecondary,
+                                  color: colors.textSecondary,
                                   fontWeight: FontWeight.w600,
                                 ),
                           ),
@@ -529,60 +513,63 @@ class _BacklogPane extends StatelessWidget {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setState) => AlertDialog(
-          backgroundColor: _kSurface,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(RhythmTokens.radiusL),
-          ),
-          title: const Text('Add unscheduled task'),
-          content: SizedBox(
-            width: 380,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                TextField(
-                  controller: ctrl,
-                  autofocus: true,
-                  decoration: InputDecoration(
-                    hintText: 'Task title',
-                    filled: true,
-                    fillColor: _kSurfaceMuted,
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(RhythmTokens.radiusS),
-                      borderSide: const BorderSide(color: _kBorder),
+        builder: (ctx, setState) {
+          final dlgColors = ctx.rhythm;
+          return AlertDialog(
+            backgroundColor: dlgColors.surfaceRaised,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(RhythmRadius.xl),
+            ),
+            title: const Text('Add unscheduled task'),
+            content: SizedBox(
+              width: 380,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  TextField(
+                    controller: ctrl,
+                    autofocus: true,
+                    decoration: InputDecoration(
+                      hintText: 'Task title',
+                      filled: true,
+                      fillColor: dlgColors.surfaceMuted,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(RhythmRadius.sm),
+                        borderSide: BorderSide(color: dlgColors.borderSubtle),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(RhythmRadius.sm),
+                        borderSide: BorderSide(color: dlgColors.borderSubtle),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(RhythmRadius.sm),
+                        borderSide: BorderSide(color: dlgColors.accent),
+                      ),
                     ),
-                    enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(RhythmTokens.radiusS),
-                      borderSide: const BorderSide(color: _kBorder),
-                    ),
-                    focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(RhythmTokens.radiusS),
-                      borderSide: const BorderSide(color: _kPrimary),
-                    ),
+                    onSubmitted: (_) => Navigator.pop(ctx, true),
                   ),
-                  onSubmitted: (_) => Navigator.pop(ctx, true),
-                ),
-                const SizedBox(height: 12),
-                _TaskOwnerPickerField(
-                  workspaceMembers: workspaceMembers,
-                  selectedUserId: ownerId,
-                  onChanged: (value) => setState(() => ownerId = value),
-                ),
-              ],
+                  const SizedBox(height: 12),
+                  _TaskOwnerPickerField(
+                    workspaceMembers: workspaceMembers,
+                    selectedUserId: ownerId,
+                    onChanged: (value) => setState(() => ownerId = value),
+                  ),
+                ],
+              ),
             ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('Add'),
-            ),
-          ],
-        ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text('Add'),
+              ),
+            ],
+          );
+        },
       ),
     );
     if (confirmed == true && ctrl.text.trim().isNotEmpty) {
@@ -644,7 +631,7 @@ class _DayColumnsPane extends StatelessWidget {
                       Text(
                         'This week',
                         style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                              color: _kTextPrimary,
+                              color: colors.textPrimary,
                               fontWeight: FontWeight.w700,
                             ),
                       ),
@@ -652,7 +639,7 @@ class _DayColumnsPane extends StatelessWidget {
                       Text(
                         'Scheduled work across the week',
                         style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                              color: _kTextSecondary,
+                              color: colors.textSecondary,
                             ),
                       ),
                     ],
@@ -661,7 +648,7 @@ class _DayColumnsPane extends StatelessWidget {
               ],
             ),
           ),
-          const Divider(height: 1, color: _kBorder),
+          Divider(height: 1, color: colors.borderSubtle),
           Expanded(
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -725,32 +712,33 @@ class _DayColumnState extends State<_DayColumn> {
   @override
   Widget build(BuildContext context) {
     final today = _isToday();
+    final colors = context.rhythm;
     final displayTasks = widget.showCompleted
         ? widget.tasks
         : widget.tasks.where((t) => t.status != 'done').toList();
     final addButton = Padding(
       padding: const EdgeInsets.fromLTRB(8, 8, 8, 8),
       child: InkWell(
-        borderRadius: BorderRadius.circular(RhythmTokens.radiusS),
+        borderRadius: BorderRadius.circular(RhythmRadius.sm),
         onTap: () => _showAddTaskDialog(context),
         child: Container(
           width: double.infinity,
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
           decoration: BoxDecoration(
-            color: _kSurface,
-            borderRadius: BorderRadius.circular(RhythmTokens.radiusS),
-            border: Border.all(color: _kBorder),
+            color: colors.surfaceRaised,
+            borderRadius: BorderRadius.circular(RhythmRadius.sm),
+            border: Border.all(color: colors.borderSubtle),
           ),
           child: Row(
             children: [
-              const Icon(Icons.add, size: 13, color: _kTextSecondary),
+              Icon(Icons.add, size: 13, color: colors.textSecondary),
               const SizedBox(width: 6),
               Expanded(
                 child: Text(
                   'Add task to ${widget.dayName}',
                   overflow: TextOverflow.ellipsis,
                   style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                        color: _kTextSecondary,
+                        color: colors.textSecondary,
                         fontWeight: FontWeight.w600,
                       ),
                 ),
@@ -775,13 +763,13 @@ class _DayColumnState extends State<_DayColumn> {
         return AnimatedContainer(
           duration: const Duration(milliseconds: 120),
           decoration: BoxDecoration(
-            color: _hovering ? _kPrimarySoft : _kSurfaceMuted,
+            color: _hovering ? colors.accentMuted : colors.surfaceMuted,
             border: Border(
               right: widget.isLast
                   ? BorderSide.none
-                  : const BorderSide(color: _kBorder),
+                  : BorderSide(color: colors.borderSubtle),
               top: BorderSide(
-                color: today ? _kPrimary : _kBorder,
+                color: today ? colors.accent : colors.borderSubtle,
                 width: today ? 2 : 1,
               ),
             ),
@@ -792,11 +780,12 @@ class _DayColumnState extends State<_DayColumn> {
                 width: double.infinity,
                 padding: const EdgeInsets.fromLTRB(10, 12, 10, 10),
                 decoration: BoxDecoration(
-                  color: today ? _kSurface : _kSurfaceMuted,
+                  color: today ? colors.surfaceRaised : colors.surfaceMuted,
                   border: Border(
                     bottom: BorderSide(
-                      color:
-                          today ? _kPrimary.withValues(alpha: 0.18) : _kBorder,
+                      color: today
+                          ? colors.accent.withValues(alpha: 0.18)
+                          : colors.borderSubtle,
                     ),
                   ),
                 ),
@@ -807,12 +796,15 @@ class _DayColumnState extends State<_DayColumn> {
                       children: [
                         Text(
                           widget.dayName,
-                          style:
-                              Theme.of(context).textTheme.labelSmall?.copyWith(
-                                    fontWeight: FontWeight.w700,
-                                    letterSpacing: 0.3,
-                                    color: today ? _kPrimary : _kTextPrimary,
-                                  ),
+                          style: Theme.of(context)
+                              .textTheme
+                              .labelSmall
+                              ?.copyWith(
+                                fontWeight: FontWeight.w700,
+                                letterSpacing: 0.3,
+                                color:
+                                    today ? colors.accent : colors.textPrimary,
+                              ),
                         ),
                         if (today) ...[
                           const SizedBox(width: 6),
@@ -822,10 +814,9 @@ class _DayColumnState extends State<_DayColumn> {
                               vertical: 2,
                             ),
                             decoration: BoxDecoration(
-                              color: _kPrimarySoft,
-                              borderRadius: BorderRadius.circular(
-                                RhythmTokens.radiusS,
-                              ),
+                              color: colors.accentMuted,
+                              borderRadius:
+                                  BorderRadius.circular(RhythmRadius.sm),
                             ),
                             child: Text(
                               'Today',
@@ -833,7 +824,7 @@ class _DayColumnState extends State<_DayColumn> {
                                   .textTheme
                                   .labelSmall
                                   ?.copyWith(
-                                    color: _kPrimary,
+                                    color: colors.accent,
                                     fontWeight: FontWeight.w600,
                                   ),
                             ),
@@ -845,7 +836,7 @@ class _DayColumnState extends State<_DayColumn> {
                     Text(
                       _shortDate(),
                       style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                            color: today ? _kPrimary : _kTextSecondary,
+                            color: today ? colors.accent : colors.textSecondary,
                           ),
                     ),
                   ],
@@ -945,60 +936,63 @@ class _DayColumnState extends State<_DayColumn> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setState) => AlertDialog(
-          backgroundColor: _kSurface,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(RhythmTokens.radiusL),
-          ),
-          title: Text('Add task for ${widget.dayName}'),
-          content: SizedBox(
-            width: 380,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                TextField(
-                  controller: ctrl,
-                  autofocus: true,
-                  decoration: InputDecoration(
-                    hintText: 'Task title',
-                    filled: true,
-                    fillColor: _kSurfaceMuted,
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(RhythmTokens.radiusS),
-                      borderSide: const BorderSide(color: _kBorder),
+        builder: (ctx, setState) {
+          final dlgColors = ctx.rhythm;
+          return AlertDialog(
+            backgroundColor: dlgColors.surfaceRaised,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(RhythmRadius.xl),
+            ),
+            title: Text('Add task for ${widget.dayName}'),
+            content: SizedBox(
+              width: 380,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  TextField(
+                    controller: ctrl,
+                    autofocus: true,
+                    decoration: InputDecoration(
+                      hintText: 'Task title',
+                      filled: true,
+                      fillColor: dlgColors.surfaceMuted,
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(RhythmRadius.sm),
+                        borderSide: BorderSide(color: dlgColors.borderSubtle),
+                      ),
+                      enabledBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(RhythmRadius.sm),
+                        borderSide: BorderSide(color: dlgColors.borderSubtle),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(RhythmRadius.sm),
+                        borderSide: BorderSide(color: dlgColors.accent),
+                      ),
                     ),
-                    enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(RhythmTokens.radiusS),
-                      borderSide: const BorderSide(color: _kBorder),
-                    ),
-                    focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(RhythmTokens.radiusS),
-                      borderSide: const BorderSide(color: _kPrimary),
-                    ),
+                    onSubmitted: (_) => Navigator.pop(ctx, true),
                   ),
-                  onSubmitted: (_) => Navigator.pop(ctx, true),
-                ),
-                const SizedBox(height: 12),
-                _TaskOwnerPickerField(
-                  workspaceMembers: workspaceMembers,
-                  selectedUserId: ownerId,
-                  onChanged: (value) => setState(() => ownerId = value),
-                ),
-              ],
+                  const SizedBox(height: 12),
+                  _TaskOwnerPickerField(
+                    workspaceMembers: workspaceMembers,
+                    selectedUserId: ownerId,
+                    onChanged: (value) => setState(() => ownerId = value),
+                  ),
+                ],
+              ),
             ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(ctx, false),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: () => Navigator.pop(ctx, true),
-              child: const Text('Add'),
-            ),
-          ],
-        ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text('Add'),
+              ),
+            ],
+          );
+        },
       ),
     );
     if (confirmed == true && ctrl.text.trim().isNotEmpty) {
@@ -1031,28 +1025,30 @@ class _TaskTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final card = _card(context);
     if (!draggable || task.sourceType == 'calendar_shadow_event') return card;
+    final colors = context.rhythm;
     return Draggable<Task>(
       data: task,
       feedback: Material(
         color: Colors.transparent,
         elevation: 0,
-        borderRadius: BorderRadius.circular(RhythmTokens.radiusS),
+        borderRadius: BorderRadius.circular(RhythmRadius.sm),
         child: Container(
           width: 160,
           padding: const EdgeInsets.all(10),
           decoration: BoxDecoration(
-            color: _kSurface,
-            borderRadius: BorderRadius.circular(RhythmTokens.radiusS),
-            border: Border.all(color: _kBorder),
-            boxShadow: RhythmTokens.shadow,
+            color: colors.surfaceRaised,
+            borderRadius: BorderRadius.circular(RhythmRadius.sm),
+            border: Border.all(color: colors.borderSubtle),
+            boxShadow: RhythmElevation.panel,
           ),
           child: Text(
             task.title,
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
-            style: Theme.of(
-              context,
-            ).textTheme.bodySmall?.copyWith(color: _kTextPrimary),
+            style: Theme.of(context)
+                .textTheme
+                .bodySmall
+                ?.copyWith(color: colors.textPrimary),
           ),
         ),
       ),
@@ -1073,6 +1069,7 @@ class _TaskTile extends StatelessWidget {
       scheduledDate: task.scheduledDate,
       isDone: isDone,
     );
+    final colors = context.rhythm;
     return GestureDetector(
       onTap: () => controller.selectTask(task.id),
       onLongPress:
@@ -1088,15 +1085,16 @@ class _TaskTile extends StatelessWidget {
         ),
         decoration: BoxDecoration(
           color: isSelected || isMultiSelected
-              ? _kPrimarySoft
+              ? colors.accentMuted
               : visualStyle.background,
-          borderRadius: BorderRadius.circular(RhythmTokens.radiusS),
+          borderRadius: BorderRadius.circular(RhythmRadius.sm),
           border: Border.all(
-            color:
-                isSelected || isMultiSelected ? _kPrimary : visualStyle.border,
+            color: isSelected || isMultiSelected
+                ? colors.accent
+                : visualStyle.border,
           ),
           boxShadow:
-              isSelected || isMultiSelected ? RhythmTokens.shadow : const [],
+              isSelected || isMultiSelected ? RhythmElevation.panel : const [],
         ),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -1107,7 +1105,7 @@ class _TaskTile extends StatelessWidget {
                 margin: const EdgeInsets.only(top: 2, right: 7),
                 decoration: BoxDecoration(
                   color: visualStyle.accent,
-                  borderRadius: BorderRadius.circular(999),
+                  borderRadius: BorderRadius.circular(RhythmRadius.pill),
                 ),
               )
             else ...[
@@ -1173,7 +1171,7 @@ class _TaskTile extends StatelessWidget {
                             : Theme.of(context).textTheme.bodySmall)
                         ?.copyWith(
                       decoration: isDone ? TextDecoration.lineThrough : null,
-                      color: isDone ? _kTextMuted : visualStyle.text,
+                      color: isDone ? colors.textMuted : visualStyle.text,
                       fontSize: compact ? 10.5 : null,
                       height: compact ? 1.15 : 1.2,
                     ),
@@ -1185,10 +1183,10 @@ class _TaskTile extends StatelessWidget {
                       runSpacing: 4,
                       children: [
                         if (isPastDue)
-                          _TaskBadge(
+                          const RhythmBadge(
                             label: 'Past due',
-                            backgroundColor: _kDanger.withValues(alpha: 0.12),
-                            foregroundColor: _kDanger,
+                            tone: RhythmBadgeTone.danger,
+                            compact: true,
                           ),
                         if (task.sourceType != null) _SourceChip(task: task),
                       ],
@@ -1216,11 +1214,11 @@ class _TaskTile extends StatelessWidget {
             ],
             if (isMultiSelected && !compact) ...[
               const SizedBox(width: 6),
-              const Icon(Icons.done_all, size: 14, color: _kPrimary),
+              Icon(Icons.done_all, size: 14, color: colors.accent),
             ],
             if (task.locked && !compact) ...[
               const SizedBox(width: 6),
-              const Icon(Icons.lock, size: 11, color: _kTextSecondary),
+              Icon(Icons.lock, size: 11, color: colors.textSecondary),
             ],
           ],
         ),
@@ -1363,6 +1361,7 @@ class _DetailPaneState extends State<_DetailPane> {
     final isShadowEvent = task.sourceType == 'calendar_shadow_event';
     final timeLabel = _shadowEventLabel(task);
     final workspaceMembers = context.watch<WorkspaceController>().members;
+    final colors = context.rhythm;
     return RhythmDetailPane(
       width: 320,
       title: 'Task details',
@@ -1385,7 +1384,7 @@ class _DetailPaneState extends State<_DetailPane> {
               task.title,
               style: Theme.of(context).textTheme.titleMedium?.copyWith(
                     decoration: isDone ? TextDecoration.lineThrough : null,
-                    color: isDone ? _kTextMuted : _kTextPrimary,
+                    color: isDone ? colors.textMuted : colors.textPrimary,
                   ),
             ),
             const SizedBox(height: 8),
@@ -1460,7 +1459,7 @@ class _DetailPaneState extends State<_DetailPane> {
             Text(
               isShadowEvent ? 'Details' : 'Notes',
               style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                    color: _kTextSecondary,
+                    color: colors.textSecondary,
                     fontWeight: FontWeight.w700,
                     letterSpacing: 0.4,
                   ),
@@ -1471,18 +1470,16 @@ class _DetailPaneState extends State<_DetailPane> {
                 width: double.infinity,
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: _kSurface,
-                  border: Border.all(color: _kBorder),
-                  borderRadius: BorderRadius.circular(
-                    RhythmTokens.radiusS,
-                  ),
+                  color: colors.surfaceRaised,
+                  border: Border.all(color: colors.borderSubtle),
+                  borderRadius: BorderRadius.circular(RhythmRadius.sm),
                 ),
                 child: Text(
                   task.notes?.isNotEmpty == true
                       ? task.notes!
                       : 'No additional details.',
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: _kTextPrimary,
+                        color: colors.textPrimary,
                         height: 1.35,
                       ),
                 ),
@@ -1493,24 +1490,18 @@ class _DetailPaneState extends State<_DetailPane> {
                 decoration: InputDecoration(
                   hintText: 'Add a note...',
                   filled: true,
-                  fillColor: _kSurface,
+                  fillColor: colors.surfaceRaised,
                   border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(
-                      RhythmTokens.radiusS,
-                    ),
-                    borderSide: const BorderSide(color: _kBorder),
+                    borderRadius: BorderRadius.circular(RhythmRadius.sm),
+                    borderSide: BorderSide(color: colors.borderSubtle),
                   ),
                   enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(
-                      RhythmTokens.radiusS,
-                    ),
-                    borderSide: const BorderSide(color: _kBorder),
+                    borderRadius: BorderRadius.circular(RhythmRadius.sm),
+                    borderSide: BorderSide(color: colors.borderSubtle),
                   ),
                   focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(
-                      RhythmTokens.radiusS,
-                    ),
-                    borderSide: const BorderSide(color: _kPrimary),
+                    borderRadius: BorderRadius.circular(RhythmRadius.sm),
+                    borderSide: BorderSide(color: colors.accent),
                   ),
                   isDense: true,
                 ),
@@ -1572,6 +1563,7 @@ class _DetailPaneState extends State<_DetailPane> {
   }
 
   Widget _row(BuildContext context, String label, String value) {
+    final colors = context.rhythm;
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: Row(
@@ -1582,7 +1574,7 @@ class _DetailPaneState extends State<_DetailPane> {
             child: Text(
               label,
               style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                    color: _kTextSecondary,
+                    color: colors.textSecondary,
                     fontWeight: FontWeight.w600,
                   ),
             ),
@@ -1591,7 +1583,7 @@ class _DetailPaneState extends State<_DetailPane> {
             child: Text(
               value,
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: _kTextPrimary,
+                    color: colors.textPrimary,
                     height: 1.35,
                   ),
             ),
@@ -1608,6 +1600,7 @@ class _DetailPaneState extends State<_DetailPane> {
     required VoidCallback onPick,
     required VoidCallback? onClear,
   }) {
+    final colors = context.rhythm;
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: Row(
@@ -1620,7 +1613,7 @@ class _DetailPaneState extends State<_DetailPane> {
               child: Text(
                 label,
                 style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                      color: _kTextSecondary,
+                      color: colors.textSecondary,
                       fontWeight: FontWeight.w600,
                     ),
               ),
@@ -1655,6 +1648,7 @@ class _DetailPaneState extends State<_DetailPane> {
     BuildContext context,
     List<WorkspaceMember> workspaceMembers,
   ) {
+    final colors = context.rhythm;
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: Row(
@@ -1667,7 +1661,7 @@ class _DetailPaneState extends State<_DetailPane> {
               child: Text(
                 'Owner',
                 style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                      color: _kTextSecondary,
+                      color: colors.textSecondary,
                       fontWeight: FontWeight.w600,
                     ),
               ),
@@ -1696,6 +1690,7 @@ class _DetailPaneState extends State<_DetailPane> {
     Task task,
     List<WorkspaceMember> workspaceMembers,
   ) {
+    final colors = context.rhythm;
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: Row(
@@ -1708,7 +1703,7 @@ class _DetailPaneState extends State<_DetailPane> {
               child: Text(
                 'Collaborators',
                 style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                      color: _kTextSecondary,
+                      color: colors.textSecondary,
                       fontWeight: FontWeight.w600,
                     ),
               ),
@@ -1750,6 +1745,7 @@ class _TaskOwnerPickerField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.rhythm;
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1760,7 +1756,7 @@ class _TaskOwnerPickerField extends StatelessWidget {
             child: Text(
               'Owner',
               style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                    color: _kTextSecondary,
+                    color: colors.textSecondary,
                     fontWeight: FontWeight.w600,
                   ),
             ),
@@ -1770,9 +1766,9 @@ class _TaskOwnerPickerField extends StatelessWidget {
           child: Container(
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
             decoration: BoxDecoration(
-              color: _kSurface,
-              borderRadius: BorderRadius.circular(RhythmTokens.radiusS),
-              border: Border.all(color: _kBorder),
+              color: colors.surfaceRaised,
+              borderRadius: BorderRadius.circular(RhythmRadius.sm),
+              border: Border.all(color: colors.borderSubtle),
             ),
             child: WorkspaceMemberPicker(
               workspaceMembers: workspaceMembers,
@@ -1799,18 +1795,19 @@ class _MiniMoveButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.rhythm;
     return InkWell(
       onTap: onPressed,
-      borderRadius: BorderRadius.circular(999),
+      borderRadius: BorderRadius.circular(RhythmRadius.pill),
       child: Container(
         width: 18,
         height: 18,
         decoration: BoxDecoration(
-          color: _kSurfaceMuted,
-          borderRadius: BorderRadius.circular(999),
-          border: Border.all(color: _kBorder),
+          color: colors.surfaceMuted,
+          borderRadius: BorderRadius.circular(RhythmRadius.pill),
+          border: Border.all(color: colors.borderSubtle),
         ),
-        child: Icon(icon, size: 12, color: _kTextSecondary),
+        child: Icon(icon, size: 12, color: colors.textSecondary),
       ),
     );
   }
@@ -1836,7 +1833,7 @@ class _SourceChip extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.15),
-        borderRadius: BorderRadius.circular(RhythmTokens.radiusS),
+        borderRadius: BorderRadius.circular(RhythmRadius.sm),
       ),
       child: Text(
         label,
@@ -1861,11 +1858,12 @@ class _AllDayEventsBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.rhythm;
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.fromLTRB(6, 4, 6, 4),
-      decoration: const BoxDecoration(
-        border: Border(bottom: BorderSide(color: _kBorder)),
+      decoration: BoxDecoration(
+        border: Border(bottom: BorderSide(color: colors.borderSubtle)),
       ),
       child: Wrap(
         spacing: 4,
@@ -1878,7 +1876,7 @@ class _AllDayEventsBar extends StatelessWidget {
               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
               decoration: BoxDecoration(
                 color: visualStyle.background,
-                borderRadius: BorderRadius.circular(RhythmTokens.radiusS),
+                borderRadius: BorderRadius.circular(RhythmRadius.sm),
                 border: Border.all(color: visualStyle.border),
               ),
               child: Text(
@@ -1917,6 +1915,7 @@ class _TimeGrid extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     const gridHeight = _kTotalHours * _kHourHeight;
+    final colors = context.rhythm;
 
     return SizedBox(
       height: gridHeight,
@@ -1935,9 +1934,9 @@ class _TimeGrid extends StatelessWidget {
                     child: Text(
                       _hourLabel(h),
                       textAlign: TextAlign.right,
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 9,
-                        color: _kTextMuted,
+                        color: colors.textMuted,
                       ),
                     ),
                   ),
@@ -1953,7 +1952,7 @@ class _TimeGrid extends StatelessWidget {
                     top: i * _kHourHeight,
                     left: 0,
                     right: 0,
-                    child: Container(height: 1, color: _kBorder),
+                    child: Container(height: 1, color: colors.borderSubtle),
                   ),
                 ),
                 ...events.map((event) {
@@ -2023,7 +2022,7 @@ class _TimeGridEventTile extends StatelessWidget {
         clipBehavior: Clip.hardEdge,
         decoration: BoxDecoration(
           color: visualStyle.background,
-          borderRadius: BorderRadius.circular(RhythmTokens.radiusS),
+          borderRadius: BorderRadius.circular(RhythmRadius.sm),
           border: Border.all(color: visualStyle.border),
         ),
         padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 3),
@@ -2098,34 +2097,3 @@ String _sourceLabel(String t) => switch (t) {
       'automation_rule' => 'Automation',
       _ => t,
     };
-
-class _TaskBadge extends StatelessWidget {
-  const _TaskBadge({
-    required this.label,
-    required this.backgroundColor,
-    required this.foregroundColor,
-  });
-
-  final String label;
-  final Color backgroundColor;
-  final Color foregroundColor;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-      decoration: BoxDecoration(
-        color: backgroundColor,
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Text(
-        label,
-        style: TextStyle(
-          fontSize: 10,
-          fontWeight: FontWeight.w700,
-          color: foregroundColor,
-        ),
-      ),
-    );
-  }
-}
