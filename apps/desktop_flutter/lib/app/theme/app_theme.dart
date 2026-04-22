@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 
 import '../core/ui/tokens/rhythm_theme.dart';
-import 'rhythm_tokens.dart';
 
 class AppTheme {
   static ThemeMode system() => ThemeMode.system;
@@ -43,7 +42,7 @@ class AppTheme {
           color: colors.surfaceRaised,
           elevation: 0,
           shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(RhythmTokens.radiusL),
+            borderRadius: BorderRadius.circular(RhythmRadius.xl),
             side: BorderSide(color: colors.border),
           ),
         ),
@@ -79,15 +78,15 @@ class AppTheme {
         ),
         inputDecorationTheme: InputDecorationTheme(
           border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(RhythmTokens.radiusM),
+            borderRadius: BorderRadius.circular(RhythmRadius.lg),
             borderSide: BorderSide(color: colors.border),
           ),
           enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(RhythmTokens.radiusM),
+            borderRadius: BorderRadius.circular(RhythmRadius.lg),
             borderSide: BorderSide(color: colors.border),
           ),
           focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(RhythmTokens.radiusM),
+            borderRadius: BorderRadius.circular(RhythmRadius.lg),
             borderSide: BorderSide(color: colors.focusRing, width: 2),
           ),
           filled: true,
