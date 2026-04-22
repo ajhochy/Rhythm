@@ -106,7 +106,12 @@ export class TasksController {
 
   async remove(req: Request, res: Response, next: NextFunction) {
     try {
-      await repo.deleteAsync(req.params.id, req.auth?.user.id);
+      const actorId = req.auth?.user.id;
+      const task = await repo.findByIdAsync(req.params.id, actorId);
+      if (actorId == null || task.ownerId !== actorId) {
+        throw AppError.forbidden('Only the task owner can delete this task');
+      }
+      await repo.deleteAsync(req.params.id, actorId);
       res.status(204).send();
     } catch (err) {
       next(err);
@@ -115,6 +120,7 @@ export class TasksController {
 
   async getCollaborators(req: Request, res: Response, next: NextFunction) {
     try {
+      await repo.findByIdAsync(req.params.id, req.auth?.user.id);
       res.json(await repo.listCollaboratorsAsync(req.params.id));
     } catch (err) {
       next(err);
@@ -127,10 +133,13 @@ export class TasksController {
       if (!userId || typeof userId !== 'number') {
         throw AppError.badRequest('userId is required and must be a number');
       }
-      await repo.addCollaboratorAsync(req.params.id, userId);
       const actorId = req.auth?.user.id;
+      const task = await repo.findByIdAsync(req.params.id, actorId);
+      if (actorId == null || task.ownerId !== actorId) {
+        throw AppError.forbidden('Only the task owner can add collaborators');
+      }
+      await repo.addCollaboratorAsync(req.params.id, userId);
       if (actorId != null) {
-        const task = await repo.findByIdAsync(req.params.id, actorId);
         await notifService.notifyCollaboratorAddedAsync(
           'task',
           req.params.id,
@@ -150,6 +159,11 @@ export class TasksController {
       const collaboratorUserId = Number(req.params.userId);
       if (isNaN(collaboratorUserId)) {
         throw AppError.badRequest('Invalid userId');
+      }
+      const actorId = req.auth?.user.id;
+      const task = await repo.findByIdAsync(req.params.id, actorId);
+      if (actorId == null || task.ownerId !== actorId) {
+        throw AppError.forbidden('Only the task owner can remove collaborators');
       }
       await repo.removeCollaboratorAsync(req.params.id, collaboratorUserId);
       res.status(204).send();
