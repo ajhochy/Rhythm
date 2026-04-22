@@ -3,7 +3,10 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../app/core/formatters/date_formatters.dart';
+import '../../../app/core/auth/auth_session_service.dart';
 import '../../../app/core/ui/rhythm_ui.dart';
+import '../../../app/core/workspace/workspace_controller.dart';
+import '../../../app/core/workspace/workspace_models.dart';
 import '../../messages/controllers/messages_controller.dart';
 import '../controllers/dashboard_controller.dart';
 import '../../tasks/models/task.dart';
@@ -35,6 +38,7 @@ class _DashboardViewState extends State<DashboardView> {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<DashboardController>().load();
+      context.read<WorkspaceController>().loadMembers();
     });
   }
 
@@ -157,6 +161,8 @@ class _DashboardBodyState extends State<_DashboardBody> {
   @override
   Widget build(BuildContext context) {
     final c = widget.controller;
+    final currentUserId = context.watch<AuthSessionService>().currentUser?.id;
+    final workspaceMembers = context.watch<WorkspaceController>().members;
     return RhythmSurface.section(
       clipBehavior: Clip.antiAlias,
       padding: EdgeInsets.zero,
@@ -185,7 +191,12 @@ class _DashboardBodyState extends State<_DashboardBody> {
                         subtitle: 'What needs attention this week and today',
                       ),
                       const SizedBox(height: RhythmSpacing.sm),
-                      _buildOverviewGrid(context, c),
+                      _buildOverviewGrid(
+                        context,
+                        c,
+                        currentUserId: currentUserId,
+                        workspaceMembers: workspaceMembers,
+                      ),
                     ],
                   ),
                 ),
@@ -365,7 +376,12 @@ class _DashboardBodyState extends State<_DashboardBody> {
     );
   }
 
-  Widget _buildOverviewGrid(BuildContext context, DashboardController c) {
+  Widget _buildOverviewGrid(
+    BuildContext context,
+    DashboardController c, {
+    required int? currentUserId,
+    required List<WorkspaceMember> workspaceMembers,
+  }) {
     return LayoutBuilder(
       builder: (context, constraints) {
         const gap = 14.0;
@@ -396,6 +412,16 @@ class _DashboardBodyState extends State<_DashboardBody> {
               spacing: gap,
               runSpacing: gap,
               children: [
+                SizedBox(
+                  width: cardWidth,
+                  child: _HandoffListCard(
+                    items: c.handoffTasks,
+                    currentUserId: currentUserId,
+                    workspaceMembers: workspaceMembers,
+                    onTapHeader: widget.openWeeklyPlanner,
+                    onTapTask: (_) => widget.openWeeklyPlanner(),
+                  ),
+                ),
                 SizedBox(
                   width: cardWidth,
                   child: _TaskListCard(
@@ -903,6 +929,153 @@ class _TaskListCard extends StatelessWidget {
   }
 }
 
+class _HandoffListCard extends StatelessWidget {
+  const _HandoffListCard({
+    required this.items,
+    required this.currentUserId,
+    required this.workspaceMembers,
+    required this.onTapHeader,
+    required this.onTapTask,
+  });
+
+  final List<Task> items;
+  final int? currentUserId;
+  final List<WorkspaceMember> workspaceMembers;
+  final VoidCallback onTapHeader;
+  final ValueChanged<Task> onTapTask;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.rhythm;
+    final waitingOnMe = <Task>[];
+    final sharedWithMe = <Task>[];
+    final teamShared = <Task>[];
+
+    for (final task in items) {
+      final collaboratorIds = task.collaborators.map((c) => c.userId).toSet();
+      final ownedByMe = currentUserId != null && task.ownerId == currentUserId;
+      final includesMe =
+          currentUserId != null && collaboratorIds.contains(currentUserId);
+
+      if (ownedByMe) {
+        waitingOnMe.add(task);
+      } else if (includesMe) {
+        sharedWithMe.add(task);
+      } else {
+        teamShared.add(task);
+      }
+    }
+
+    final visible = [
+      ...waitingOnMe.take(2),
+      ...sharedWithMe.take(2),
+      ...teamShared.take(2),
+    ].take(4).toList();
+
+    return _DashboardPreviewShell(
+      title: 'Collaborator Handoffs',
+      tone: RhythmBadgeTone.warning,
+      icon: Icons.handshake_outlined,
+      onTap: onTapHeader,
+      trailing: RhythmBadge(
+        label: '${items.length} shared',
+        tone: RhythmBadgeTone.warning,
+        compact: true,
+      ),
+      child: items.isEmpty
+          ? Padding(
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              child: Text(
+                'No shared tasks need attention right now.',
+                style: TextStyle(
+                  color: colors.textSecondary,
+                  fontSize: 13,
+                  height: 1.4,
+                ),
+              ),
+            )
+          : Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Wrap(
+                  spacing: RhythmSpacing.xs,
+                  runSpacing: RhythmSpacing.xs,
+                  children: [
+                    _HandoffSummaryPill(
+                      label: 'Waiting on me',
+                      count: waitingOnMe.length,
+                      tone: RhythmBadgeTone.warning,
+                    ),
+                    _HandoffSummaryPill(
+                      label: 'Shared with me',
+                      count: sharedWithMe.length,
+                      tone: RhythmBadgeTone.accent,
+                    ),
+                    _HandoffSummaryPill(
+                      label: 'Team shared',
+                      count: teamShared.length,
+                      tone: RhythmBadgeTone.info,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: RhythmSpacing.xs),
+                for (final task in visible)
+                  _HandoffPreviewRow(
+                    task: task,
+                    currentUserId: currentUserId,
+                    workspaceMembers: workspaceMembers,
+                    onTap: () => onTapTask(task),
+                  ),
+                if (items.length > visible.length)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: Text(
+                      '+${items.length - visible.length} more shared tasks',
+                      style: TextStyle(
+                        color: colors.textSecondary,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ),
+                if (currentUserId == null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: RhythmSpacing.xs),
+                    child: Text(
+                      'Sign-in context is needed to separate tasks owned by you from tasks shared with you.',
+                      style: TextStyle(
+                        color: colors.textMuted,
+                        fontSize: 11.5,
+                        height: 1.35,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+    );
+  }
+}
+
+class _HandoffSummaryPill extends StatelessWidget {
+  const _HandoffSummaryPill({
+    required this.label,
+    required this.count,
+    required this.tone,
+  });
+
+  final String label;
+  final int count;
+  final RhythmBadgeTone tone;
+
+  @override
+  Widget build(BuildContext context) {
+    return RhythmBadge(
+      label: '$count $label',
+      tone: tone,
+      compact: true,
+    );
+  }
+}
+
 class _ProgressPreviewCard<T extends DashboardProgressItem>
     extends StatelessWidget {
   const _ProgressPreviewCard({
@@ -1022,6 +1195,79 @@ RhythmBadgeTone _taskTone(Task task, {bool showPastDue = false}) {
     'automation_rule' => RhythmBadgeTone.accent,
     _ => RhythmBadgeTone.neutral,
   };
+}
+
+RhythmBadgeTone _handoffTone(Task task, int? currentUserId) {
+  final collaboratorIds = task.collaborators.map((c) => c.userId).toSet();
+  final ownedByMe = currentUserId != null && task.ownerId == currentUserId;
+  final includesMe =
+      currentUserId != null && collaboratorIds.contains(currentUserId);
+
+  if (ownedByMe) return RhythmBadgeTone.warning;
+  if (includesMe) return RhythmBadgeTone.accent;
+  return RhythmBadgeTone.info;
+}
+
+String _handoffLabel(
+  Task task,
+  int? currentUserId,
+  List<WorkspaceMember> workspaceMembers,
+) {
+  final collaboratorIds = task.collaborators.map((c) => c.userId).toSet();
+  final ownedByMe = currentUserId != null && task.ownerId == currentUserId;
+  final includesMe =
+      currentUserId != null && collaboratorIds.contains(currentUserId);
+
+  if (ownedByMe) return 'Waiting on me';
+  if (includesMe) {
+    final ownerName = _memberName(task.ownerId, workspaceMembers);
+    if (ownerName == null) return 'Shared with me';
+    return '$ownerName owns this with you';
+  }
+  return 'Team shared';
+}
+
+String? _handoffPeopleLabel(
+  Task task,
+  int? currentUserId,
+  List<WorkspaceMember> workspaceMembers,
+) {
+  final names = <String>[];
+  for (final collaborator in task.collaborators) {
+    if (collaborator.userId == currentUserId) continue;
+    final name = collaborator.name.trim().isNotEmpty
+        ? collaborator.name.trim()
+        : _memberName(
+            collaborator.userId,
+            workspaceMembers,
+            fallbackLabel: 'User',
+          );
+    if (name != null && !names.contains(name)) names.add(name);
+  }
+
+  final ownerName = _memberName(task.ownerId, workspaceMembers);
+  if (ownerName != null &&
+      task.ownerId != currentUserId &&
+      !names.contains(ownerName)) {
+    names.insert(0, ownerName);
+  }
+
+  if (names.isEmpty) return null;
+  if (names.length == 1) return 'With ${names.first}';
+  if (names.length == 2) return 'With ${names.join(' and ')}';
+  return 'With ${names.take(2).join(', ')} +${names.length - 2}';
+}
+
+String? _memberName(
+  int? userId,
+  List<WorkspaceMember> workspaceMembers, {
+  String fallbackLabel = 'Owner',
+}) {
+  if (userId == null) return null;
+  for (final member in workspaceMembers) {
+    if (member.userId == userId) return member.name;
+  }
+  return '$fallbackLabel #$userId';
 }
 
 Color _toneColor(RhythmColorRoles colors, RhythmBadgeTone tone) {
@@ -1209,6 +1455,116 @@ class _TaskPreviewRow extends StatelessWidget {
                         RhythmBadge(
                           label:
                               'Scheduled ${DateFormatters.fullDate(task.scheduledDate, fallback: task.scheduledDate!)}',
+                          tone: RhythmBadgeTone.neutral,
+                          compact: true,
+                        ),
+                      if (task.sourceType != null)
+                        RhythmBadge(
+                          label: _taskSourceLabel(task),
+                          tone: tone,
+                          compact: true,
+                        ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _HandoffPreviewRow extends StatelessWidget {
+  const _HandoffPreviewRow({
+    required this.task,
+    required this.currentUserId,
+    required this.workspaceMembers,
+    required this.onTap,
+  });
+
+  final Task task;
+  final int? currentUserId;
+  final List<WorkspaceMember> workspaceMembers;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.rhythm;
+    final tone = _handoffTone(task, currentUserId);
+    final accent = _toneColor(colors, tone);
+    final label = _handoffLabel(task, currentUserId, workspaceMembers);
+    final peopleLabel =
+        _handoffPeopleLabel(task, currentUserId, workspaceMembers);
+
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(RhythmRadius.md),
+      child: Container(
+        margin: const EdgeInsets.symmetric(vertical: 4),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+        decoration: BoxDecoration(
+          color: colors.surfaceMuted.withValues(alpha: 0.78),
+          borderRadius: BorderRadius.circular(RhythmRadius.md),
+          border: Border.all(color: accent.withValues(alpha: 0.2)),
+        ),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Container(
+              width: 28,
+              height: 28,
+              decoration: BoxDecoration(
+                color: accent.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(RhythmRadius.sm),
+                border: Border.all(color: accent.withValues(alpha: 0.22)),
+              ),
+              child: Icon(Icons.group_outlined, size: 15, color: accent),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 11.5,
+                      color: accent,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    task.title,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 12.5,
+                      color: colors.textPrimary,
+                      fontWeight: FontWeight.w700,
+                      height: 1.25,
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    children: [
+                      if (peopleLabel != null)
+                        RhythmBadge(
+                          label: peopleLabel,
+                          icon: Icons.people_outline,
+                          tone: RhythmBadgeTone.neutral,
+                          compact: true,
+                        ),
+                      if (task.dueDate != null)
+                        RhythmBadge(
+                          label:
+                              'Due ${DateFormatters.fullDate(task.dueDate, fallback: task.dueDate!)}',
                           tone: RhythmBadgeTone.neutral,
                           compact: true,
                         ),
