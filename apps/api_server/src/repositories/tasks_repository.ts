@@ -87,7 +87,7 @@ export class TasksRepository {
                  ON tasks.source_type = 'recurring_rule'
                 AND (tasks.source_id = rr.id OR tasks.source_id LIKE rr.id || ':%')
                LEFT JOIN task_collaborators tc ON tc.task_id = tasks.id AND tc.user_id = $2
-               WHERE tasks.owner_id = $3 OR tasks.owner_id IS NULL OR tc.user_id IS NOT NULL
+               WHERE tasks.owner_id = $3 OR tc.user_id IS NOT NULL
                ORDER BY tasks.due_date ASC, tasks.scheduled_order ASC, tasks.created_at ASC`,
               [userId, userId, userId],
             )
@@ -120,7 +120,7 @@ export class TasksRepository {
              ON tasks.source_type = 'recurring_rule'
             AND (tasks.source_id = rr.id OR tasks.source_id LIKE rr.id || ':%')
            LEFT JOIN task_collaborators tc ON tc.task_id = tasks.id AND tc.user_id = ?
-           WHERE tasks.owner_id = ? OR tasks.owner_id IS NULL OR tc.user_id IS NOT NULL
+           WHERE tasks.owner_id = ? OR tc.user_id IS NOT NULL
            ORDER BY tasks.due_date ASC, tasks.scheduled_order ASC, tasks.created_at ASC`,
         )
         .all(userId, userId, userId) as TaskRow[];
@@ -137,7 +137,9 @@ export class TasksRepository {
       const result =
         userId != null
           ? await getPostgresPool().query<TaskRow>(
-              `${TASK_SELECT} WHERE tasks.id = $1 AND (tasks.owner_id = $2 OR tasks.owner_id IS NULL)`,
+              `${TASK_SELECT}
+               LEFT JOIN task_collaborators tc ON tc.task_id = tasks.id AND tc.user_id = $2
+               WHERE tasks.id = $1 AND (tasks.owner_id = $2 OR tc.user_id IS NOT NULL)`,
               [id, userId],
             )
           : await getPostgresPool().query<TaskRow>(
@@ -156,9 +158,11 @@ export class TasksRepository {
     const row = (userId != null
       ? getDb()
           .prepare(
-            `${TASK_SELECT} WHERE tasks.id = ? AND (tasks.owner_id = ? OR tasks.owner_id IS NULL)`,
+            `${TASK_SELECT}
+             LEFT JOIN task_collaborators tc ON tc.task_id = tasks.id AND tc.user_id = ?
+             WHERE tasks.id = ? AND (tasks.owner_id = ? OR tc.user_id IS NOT NULL)`,
           )
-          .get(id, userId)
+          .get(userId, id, userId)
       : getDb().prepare(`${TASK_SELECT} WHERE tasks.id = ?`).get(id)) as
       | TaskRow
       | undefined;
@@ -224,7 +228,8 @@ export class TasksRepository {
         userId != null
           ? await getPostgresPool().query<TaskRow>(
               `${TASK_SELECT}
-               WHERE (tasks.owner_id = $1 OR tasks.owner_id IS NULL)
+               LEFT JOIN task_collaborators tc ON tc.task_id = tasks.id AND tc.user_id = $1
+               WHERE (tasks.owner_id = $1 OR tc.user_id IS NOT NULL)
                  AND (tasks.due_date BETWEEN $2 AND $3 OR tasks.scheduled_date BETWEEN $4 AND $5)
                ORDER BY tasks.due_date ASC, tasks.scheduled_order ASC, tasks.created_at ASC`,
               [userId, weekStart, weekEnd, weekStart, weekEnd],
@@ -246,11 +251,12 @@ export class TasksRepository {
       const rows = getDb()
           .prepare(
             `${TASK_SELECT}
-          WHERE (tasks.owner_id = ? OR tasks.owner_id IS NULL)
+          LEFT JOIN task_collaborators tc ON tc.task_id = tasks.id AND tc.user_id = ?
+          WHERE (tasks.owner_id = ? OR tc.user_id IS NOT NULL)
              AND (tasks.due_date BETWEEN ? AND ? OR tasks.scheduled_date BETWEEN ? AND ?)
          ORDER BY tasks.due_date ASC, tasks.scheduled_order ASC, tasks.created_at ASC`,
       )
-        .all(userId, weekStart, weekEnd, weekStart, weekEnd) as TaskRow[];
+        .all(userId, userId, weekStart, weekEnd, weekStart, weekEnd) as TaskRow[];
       return rows.map(rowToTask);
     }
     const rows = getDb()
@@ -275,7 +281,13 @@ export class TasksRepository {
                    OR (tasks.scheduled_date IS NULL AND tasks.due_date < $1)
                    OR tasks.scheduled_date < $2
                  )
-                 AND (tasks.owner_id = $3 OR tasks.owner_id IS NULL)
+                 AND (
+                   tasks.owner_id = $3
+                   OR EXISTS (
+                     SELECT 1 FROM task_collaborators tc
+                     WHERE tc.task_id = tasks.id AND tc.user_id = $3
+                   )
+                 )
                ORDER BY
                  CASE
                    WHEN tasks.scheduled_date IS NOT NULL THEN tasks.scheduled_date
@@ -315,7 +327,13 @@ export class TasksRepository {
                    OR (tasks.scheduled_date IS NULL AND tasks.due_date < ?)
                    OR tasks.scheduled_date < ?
                  )
-                 AND (tasks.owner_id = ? OR tasks.owner_id IS NULL)
+                 AND (
+                   tasks.owner_id = ?
+                   OR EXISTS (
+                     SELECT 1 FROM task_collaborators tc
+                     WHERE tc.task_id = tasks.id AND tc.user_id = ?
+                   )
+                 )
                ORDER BY
                  CASE
                    WHEN tasks.scheduled_date IS NOT NULL THEN tasks.scheduled_date
@@ -323,7 +341,7 @@ export class TasksRepository {
                  END ASC,
                  tasks.created_at ASC`,
             )
-            .all(startOfWeek, startOfWeek, userId) as TaskRow[])
+            .all(startOfWeek, startOfWeek, userId, userId) as TaskRow[])
         : (db
             .prepare(
               `${TASK_SELECT}

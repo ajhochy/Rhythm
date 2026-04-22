@@ -63,7 +63,7 @@ describe('Auth and ownership flows', () => {
     ).toBe(session.user.id);
   });
 
-  it('filters tasks to the current owner plus legacy shared records', () => {
+  it('filters tasks to the current owner only', () => {
     const alice = usersRepo.create({ name: 'Alice', email: 'alice@example.com' });
     const bob = usersRepo.create({ name: 'Bob', email: 'bob@example.com' });
 
@@ -72,12 +72,12 @@ describe('Auth and ownership flows', () => {
     tasksRepo.create({ title: 'Bob private task', ownerId: bob.id });
 
     const visibleToAlice = tasksRepo.findAll(alice.id).map((task) => task.title);
-    expect(visibleToAlice).toContain('Shared task');
+    expect(visibleToAlice).not.toContain('Shared task');
     expect(visibleToAlice).toContain('Alice private task');
     expect(visibleToAlice).not.toContain('Bob private task');
   });
 
-  it('filters project templates and instances to the current owner plus legacy shared records', () => {
+  it('filters project templates and instances to the current owner only', () => {
     const alice = usersRepo.create({ name: 'Alice', email: 'alice@example.com' });
     const bob = usersRepo.create({ name: 'Bob', email: 'bob@example.com' });
 
@@ -116,14 +116,14 @@ describe('Auth and ownership flows', () => {
     const visibleTemplatesToAlice = projectTemplatesRepo
       .findAll(alice.id)
       .map((template) => template.name);
-    expect(visibleTemplatesToAlice).toContain('Shared Template');
+    expect(visibleTemplatesToAlice).not.toContain('Shared Template');
     expect(visibleTemplatesToAlice).toContain('Alice Template');
     expect(visibleTemplatesToAlice).not.toContain('Bob Template');
 
     const visibleInstancesToAlice = projectInstancesRepo
       .findAll(alice.id)
       .map((instance) => instance.name);
-    expect(visibleInstancesToAlice).toContain('Shared Instance');
+    expect(visibleInstancesToAlice).not.toContain('Shared Instance');
     expect(visibleInstancesToAlice).toContain('Alice Instance');
     expect(visibleInstancesToAlice).not.toContain('Bob Instance');
   });
