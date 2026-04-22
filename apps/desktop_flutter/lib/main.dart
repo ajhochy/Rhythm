@@ -188,6 +188,8 @@ class RhythmApp extends StatelessWidget {
         title: AppConstants.appName,
         debugShowCheckedModeBanner: false,
         theme: AppTheme.light(),
+        darkTheme: AppTheme.dark(),
+        themeMode: AppTheme.system(),
         home: const AppShell(),
       ),
     );

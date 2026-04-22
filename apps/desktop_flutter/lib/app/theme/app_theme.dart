@@ -1,84 +1,103 @@
 import 'package:flutter/material.dart';
 
+import '../core/ui/tokens/rhythm_theme.dart';
 import 'rhythm_tokens.dart';
 
 class AppTheme {
-  static ThemeData light() => ThemeData(
+  static ThemeMode system() => ThemeMode.system;
+
+  static ThemeData light() => _theme(
+        brightness: Brightness.light,
+        colors: RhythmColorRoles.light,
+      );
+
+  static ThemeData dark() => _theme(
+        brightness: Brightness.dark,
+        colors: RhythmColorRoles.dark,
+      );
+
+  static ThemeData _theme({
+    required Brightness brightness,
+    required RhythmColorRoles colors,
+  }) =>
+      ThemeData(
         useMaterial3: true,
-        scaffoldBackgroundColor: RhythmTokens.background,
+        brightness: brightness,
+        scaffoldBackgroundColor: colors.canvas,
         colorScheme: ColorScheme.fromSeed(
-          seedColor: RhythmTokens.accent,
-          brightness: Brightness.light,
-          surface: RhythmTokens.surface,
-          onSurface: RhythmTokens.textPrimary,
-          outline: RhythmTokens.border,
+          seedColor: colors.accent,
+          brightness: brightness,
+          surface: colors.surface,
+          onSurface: colors.textPrimary,
+          outline: colors.border,
         ).copyWith(
-          primary: RhythmTokens.accent,
-          secondary: RhythmTokens.accentWarm,
-          error: RhythmTokens.danger,
-          surfaceContainerLow: RhythmTokens.surfaceMuted,
-          surfaceContainer: RhythmTokens.surface,
-          surfaceContainerHigh: RhythmTokens.surfaceStrong,
+          primary: colors.accent,
+          secondary: colors.warning,
+          error: colors.danger,
+          surfaceContainerLow: colors.surfaceMuted,
+          surfaceContainer: colors.surface,
+          surfaceContainerHigh: colors.surfaceRaised,
         ),
+        extensions: <ThemeExtension<dynamic>>[colors],
         cardTheme: CardThemeData(
-          color: RhythmTokens.surfaceStrong,
+          color: colors.surfaceRaised,
           elevation: 0,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(RhythmTokens.radiusL),
-            side: const BorderSide(color: RhythmTokens.border),
+            side: BorderSide(color: colors.border),
           ),
         ),
-        dividerColor: RhythmTokens.borderSoft,
-        appBarTheme: const AppBarTheme(
+        dividerColor: colors.borderSubtle,
+        appBarTheme: AppBarTheme(
           backgroundColor: Colors.transparent,
           surfaceTintColor: Colors.transparent,
           elevation: 0,
           centerTitle: false,
-          foregroundColor: RhythmTokens.textPrimary,
+          foregroundColor: colors.textPrimary,
         ),
-        textTheme: const TextTheme(
+        textTheme: TextTheme(
           headlineSmall: TextStyle(
-            color: RhythmTokens.textPrimary,
+            color: colors.textPrimary,
             fontWeight: FontWeight.w600,
-            letterSpacing: -0.4,
+            letterSpacing: 0,
           ),
           titleLarge: TextStyle(
-            color: RhythmTokens.textPrimary,
+            color: colors.textPrimary,
             fontWeight: FontWeight.w600,
-            letterSpacing: -0.25,
+            letterSpacing: 0,
           ),
           titleMedium: TextStyle(
-            color: RhythmTokens.textPrimary,
+            color: colors.textPrimary,
             fontWeight: FontWeight.w600,
           ),
-          bodyMedium: TextStyle(color: RhythmTokens.textPrimary),
-          bodySmall: TextStyle(color: RhythmTokens.textSecondary),
+          bodyMedium: TextStyle(color: colors.textPrimary),
+          bodySmall: TextStyle(color: colors.textSecondary),
           labelLarge: TextStyle(
-            color: RhythmTokens.textPrimary,
+            color: colors.textPrimary,
             fontWeight: FontWeight.w600,
           ),
         ),
         inputDecorationTheme: InputDecorationTheme(
           border: OutlineInputBorder(
             borderRadius: BorderRadius.circular(RhythmTokens.radiusM),
-            borderSide: const BorderSide(color: RhythmTokens.border),
+            borderSide: BorderSide(color: colors.border),
           ),
           enabledBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(RhythmTokens.radiusM),
-            borderSide: const BorderSide(color: RhythmTokens.border),
+            borderSide: BorderSide(color: colors.border),
           ),
           focusedBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(RhythmTokens.radiusM),
-            borderSide: const BorderSide(color: RhythmTokens.accent, width: 2),
+            borderSide: BorderSide(color: colors.focusRing, width: 2),
           ),
           filled: true,
-          fillColor: RhythmTokens.surfaceStrong,
+          fillColor: colors.surfaceRaised,
         ),
         chipTheme: ChipThemeData(
-          backgroundColor: RhythmTokens.surfaceMuted,
-          selectedColor: RhythmTokens.accentSoft,
-          labelStyle: const TextStyle(color: RhythmTokens.textPrimary),
-          side: const BorderSide(color: RhythmTokens.borderSoft),
+          backgroundColor: colors.surfaceMuted,
+          selectedColor: colors.accentMuted,
+          labelStyle: TextStyle(color: colors.textPrimary),
+          side: BorderSide(color: colors.borderSubtle),
           shape:
               RoundedRectangleBorder(borderRadius: BorderRadius.circular(999)),
         ),
