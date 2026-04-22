@@ -38,6 +38,7 @@ jobs:
       APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
       GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID }}
       GOOGLE_AUTH_CLIENT_ID: ${{ secrets.GOOGLE_DESKTOP_CLIENT_ID }}
+      GOOGLE_AUTH_CLIENT_SECRET: ${{ secrets.GOOGLE_DESKTOP_CLIENT_SECRET }}
       GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET }}
       GOOGLE_DESKTOP_CLIENT_ID: ${{ secrets.GOOGLE_DESKTOP_CLIENT_ID }}
       GOOGLE_REDIRECT_URI: ${{ secrets.GOOGLE_REDIRECT_URI }}
@@ -48,15 +49,6 @@ jobs:
       RHYTHM_USE_EMBEDDED_API: ${{ inputs.use_embedded_api && 'true' || 'false' }}
     steps:
       - uses: actions/checkout@v4
-
-      - name: Inject Google client ID into Info.plist
-        working-directory: apps/desktop_flutter/macos/Runner
-        run: |
-          PLIST=Info.plist
-          CLIENT_ID="$GOOGLE_DESKTOP_CLIENT_ID"
-          SCHEME="com.googleusercontent.apps.$(echo "$CLIENT_ID" | sed 's/\.apps\.googleusercontent\.com$//')"
-          /usr/libexec/PlistBuddy -c "Set :GIDClientID $CLIENT_ID" "$PLIST"
-          /usr/libexec/PlistBuddy -c "Set :CFBundleURLTypes:0:CFBundleURLSchemes:0 $SCHEME" "$PLIST"
 
       - uses: subosito/flutter-action@v2
         with:
@@ -83,13 +75,14 @@ jobs:
 
       - name: Configure macOS release build
         working-directory: apps/desktop_flutter
-        run: >
-          flutter build macos --release --config-only
-          --build-name="$RELEASE_VERSION"
-          --build-number="${{ github.run_number }}"
-          --dart-define=GOOGLE_DESKTOP_CLIENT_ID="$GOOGLE_DESKTOP_CLIENT_ID"
-          --dart-define=RHYTHM_SERVER_URL="$RHYTHM_SERVER_URL"
-          --dart-define=RHYTHM_USE_EMBEDDED_API="$RHYTHM_USE_EMBEDDED_API"
+        run: |
+          flutter clean
+          flutter build macos --release --config-only \
+            --build-name="$RELEASE_VERSION" \
+            --build-number="${{ github.run_number }}" \
+            --dart-define=GOOGLE_DESKTOP_CLIENT_ID="$GOOGLE_DESKTOP_CLIENT_ID" \
+            --dart-define=RHYTHM_SERVER_URL="$RHYTHM_SERVER_URL" \
+            --dart-define=RHYTHM_USE_EMBEDDED_API="$RHYTHM_USE_EMBEDDED_API"
 
       - name: Build macOS release
         working-directory: apps/desktop_flutter/macos
@@ -104,10 +97,10 @@ jobs:
           ARCHS="arm64 x86_64"
           build
 
-      - name: Verify Google Sign-In config in built app
+      - name: Verify desktop OAuth build
         run: |
-          plutil -p apps/desktop_flutter/build/macos/Build/Products/Release/Rhythm.app/Contents/Info.plist \
-            | grep -E "GIDClient|CFBundleURLSchemes|CFBundleURLTypes" || echo "WARNING: no Google Sign-In keys found in built Info.plist"
+          tools/release/verify_desktop_oauth_build.sh \
+            apps/desktop_flutter/build/macos/Build/Products/Release/Rhythm.app
 
       - name: Bundle API server into app
         if: ${{ inputs.use_embedded_api }}
@@ -124,8 +117,8 @@ jobs:
             npm install --omit=dev
           )
           # Write OAuth secrets into a .env file loaded by the server at runtime
-          printf 'GOOGLE_CLIENT_ID=%s\nGOOGLE_AUTH_CLIENT_ID=%s\nGOOGLE_CLIENT_SECRET=%s\nGOOGLE_REDIRECT_URI=%s\nPCO_APPLICATION_ID=%s\nPCO_SECRET=%s\nPCO_REDIRECT_URI=%s\n' \
-            "$GOOGLE_CLIENT_ID" "$GOOGLE_AUTH_CLIENT_ID" "$GOOGLE_CLIENT_SECRET" "$GOOGLE_REDIRECT_URI" \
+          printf 'GOOGLE_CLIENT_ID=%s\nGOOGLE_AUTH_CLIENT_ID=%s\nGOOGLE_AUTH_CLIENT_SECRET=%s\nGOOGLE_CLIENT_SECRET=%s\nGOOGLE_REDIRECT_URI=%s\nPCO_APPLICATION_ID=%s\nPCO_SECRET=%s\nPCO_REDIRECT_URI=%s\n' \
+            "$GOOGLE_CLIENT_ID" "$GOOGLE_AUTH_CLIENT_ID" "$GOOGLE_AUTH_CLIENT_SECRET" "$GOOGLE_CLIENT_SECRET" "$GOOGLE_REDIRECT_URI" \
             "$PCO_APPLICATION_ID" "$PCO_SECRET" "$PCO_REDIRECT_URI" \
             > "$DEST/.env"
 
@@ -148,6 +141,14 @@ jobs:
       - name: Sign and notarize when Apple secrets are present
         working-directory: apps/desktop_flutter
         run: ../../tools/release/sign_and_notarize_macos.sh
+
+      - name: Dump signed entitlements for diagnosis
+        run: |
+          APP="apps/desktop_flutter/build/macos/Build/Products/Release/Rhythm.app"
+          echo "=== codesign --display --entitlements - ==="
+          codesign --display --entitlements - --xml "$APP" | xmllint --format - || true
+          echo "=== codesign -dvvv ==="
+          codesign -dvvv "$APP" 2>&1 | head -40 || true
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4

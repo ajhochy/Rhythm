@@ -1,16 +1,17 @@
 import 'package:flutter/foundation.dart';
-import 'package:google_sign_in/google_sign_in.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'auth_data_source.dart';
 import 'auth_session_store.dart';
 import 'auth_user.dart';
+import 'desktop_google_oauth_client.dart';
 import 'workspace_info.dart';
 
 enum AuthStatus { checking, authenticated, unauthenticated, signingIn }
 
 class AuthSessionService extends ChangeNotifier {
-  AuthSessionService(this._dataSource) {
+  AuthSessionService(this._dataSource, {DesktopGoogleOAuthClient? googleClient})
+      : _googleClient = googleClient ?? DesktopGoogleOAuthClient() {
     instance = this;
   }
 
@@ -18,6 +19,7 @@ class AuthSessionService extends ChangeNotifier {
   static const _sessionTokenKey = 'session_token';
 
   final AuthDataSource _dataSource;
+  final DesktopGoogleOAuthClient _googleClient;
 
   AuthStatus _status = AuthStatus.checking;
   AuthUser? _currentUser;
@@ -26,7 +28,6 @@ class AuthSessionService extends ChangeNotifier {
   String? _errorMessage;
   String? _sessionToken;
   bool _restoreAttempted = false;
-  bool _googleInitialized = false;
 
   AuthStatus get status => _status;
   AuthUser? get currentUser => _currentUser;
@@ -79,15 +80,7 @@ class AuthSessionService extends ChangeNotifier {
     notifyListeners();
 
     try {
-      await _initializeGoogle();
-      final account = await GoogleSignIn.instance.authenticate();
-      final authentication = account.authentication;
-      final googleIdToken = authentication.idToken;
-      if (googleIdToken == null || googleIdToken.isEmpty) {
-        throw Exception('Google Sign-In did not return an ID token.');
-      }
-
-      final login = await _dataSource.loginWithGoogleIdToken(googleIdToken);
+      final login = await _googleClient.signIn();
       _sessionToken = login.sessionToken;
       _currentUser = login.user;
       AuthSessionStore.setSessionToken(login.sessionToken);
@@ -97,6 +90,11 @@ class AuthSessionService extends ChangeNotifier {
 
       _errorMessage = null;
       _status = AuthStatus.authenticated;
+      notifyListeners();
+
+      // Populate workspace info now that the session is valid
+      await refreshFromServer();
+      return;
     } catch (error) {
       await _clearLocalSession();
       _status = AuthStatus.unauthenticated;
@@ -111,13 +109,6 @@ class AuthSessionService extends ChangeNotifier {
     } catch (_) {
       // Local logout should still succeed if the server session is already gone.
     }
-    if (_googleInitialized) {
-      try {
-        await GoogleSignIn.instance.signOut();
-      } catch (_) {
-        // Local session reset still takes precedence.
-      }
-    }
     await _clearLocalSession();
     _errorMessage = null;
     _status = AuthStatus.unauthenticated;
@@ -128,15 +119,6 @@ class AuthSessionService extends ChangeNotifier {
     if (_currentUser?.id != user.id) return;
     _currentUser = user;
     notifyListeners();
-  }
-
-  Future<void> _initializeGoogle() async {
-    if (_googleInitialized) return;
-    const clientId = String.fromEnvironment('GOOGLE_DESKTOP_CLIENT_ID');
-    await GoogleSignIn.instance.initialize(
-      clientId: clientId.isEmpty ? null : clientId,
-    );
-    _googleInitialized = true;
   }
 
   void refreshWorkspace(WorkspaceInfo? workspace, String? role) {

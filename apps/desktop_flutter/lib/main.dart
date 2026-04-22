@@ -5,6 +5,7 @@ import 'package:window_manager/window_manager.dart';
 import 'app/core/constants/app_constants.dart';
 import 'app/core/auth/auth_data_source.dart';
 import 'app/core/auth/auth_session_service.dart';
+import 'app/core/auth/desktop_google_oauth_client.dart';
 import 'app/core/layout/app_shell.dart';
 import 'app/core/notifications/local_notification_service.dart';
 import 'app/core/server/api_server_controller.dart';
@@ -78,6 +79,7 @@ void main() async {
   )..initialize();
   final authSessionService = AuthSessionService(
     AuthDataSource(baseUrl: serverConfigService.url),
+    googleClient: DesktopGoogleOAuthClient(baseUrl: serverConfigService.url),
   );
   final localNotificationService = LocalNotificationService();
   await localNotificationService.initialize();

@@ -32,6 +32,22 @@ export class AuthService {
     };
   }
 
+  async loginWithGoogleProfile(profile: {
+    googleSub: string;
+    email: string;
+    name: string;
+    photoUrl?: string | null;
+  }): Promise<{ sessionToken: string; user: User }> {
+    const user = await this.usersRepo.upsertGoogleUserAsync({
+      googleSub: profile.googleSub,
+      email: profile.email,
+      name: profile.name,
+      photoUrl: profile.photoUrl ?? null,
+    });
+    const session = await this.sessionsRepo.createAsync(user.id);
+    return { sessionToken: session.token, user };
+  }
+
   async getUserForSessionToken(token: string): Promise<User | null> {
     return this.sessionsRepo.findUserByTokenAsync(token);
   }

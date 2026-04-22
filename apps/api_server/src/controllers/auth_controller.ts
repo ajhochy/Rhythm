@@ -121,6 +121,46 @@ export class AuthController {
     }
   }
 
+  async googleDesktopExchange(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { code, codeVerifier, redirectUri } = req.body as Record<
+        string,
+        unknown
+      >;
+      if (!code || typeof code !== 'string') {
+        throw AppError.badRequest('code is required');
+      }
+      if (!codeVerifier || typeof codeVerifier !== 'string') {
+        throw AppError.badRequest('codeVerifier is required');
+      }
+      if (!redirectUri || typeof redirectUri !== 'string') {
+        throw AppError.badRequest('redirectUri is required');
+      }
+
+      const { tokens, profile } = await googleOAuth.exchangeDesktopCode({
+        code,
+        codeVerifier,
+        redirectUri,
+      });
+
+      if (!profile.email) {
+        throw AppError.badRequest('Google account did not return an email');
+      }
+
+      const session = await authService.loginWithGoogleProfile({
+        googleSub: profile.sub,
+        email: profile.email,
+        name: profile.name ?? profile.email,
+      });
+
+      await googleOAuth.storeDesktopIntegration(session.user.id, tokens, profile);
+
+      res.status(200).json(session);
+    } catch (err) {
+      next(err);
+    }
+  }
+
   async beginPlanningCenterOAuth(
     req: Request,
     res: Response,
