@@ -27,7 +27,7 @@ import '../workspace/workspace_onboarding_view.dart';
 import '../updates/update_controller.dart';
 import '../constants/app_constants.dart';
 import 'navigation_sidebar.dart';
-import '../../theme/rhythm_tokens.dart';
+import '../ui/tokens/rhythm_theme.dart';
 
 class AppShell extends StatefulWidget {
   const AppShell({super.key});
@@ -240,7 +240,7 @@ class _AppContent extends StatelessWidget {
       const IntegrationsView(),
     ];
     return Scaffold(
-      backgroundColor: RhythmTokens.background,
+      backgroundColor: context.rhythm.canvas,
       body: Stack(
         children: [
           const _ShellBackdrop(),
@@ -266,14 +266,14 @@ class _AppContent extends StatelessWidget {
                                   ? 'Expand sidebar'
                                   : 'Collapse sidebar',
                               style: IconButton.styleFrom(
-                                backgroundColor: RhythmTokens.surfaceStrong,
-                                foregroundColor: RhythmTokens.textPrimary,
-                                side: const BorderSide(
-                                  color: RhythmTokens.borderSoft,
+                                backgroundColor: context.rhythm.surfaceRaised,
+                                foregroundColor: context.rhythm.textPrimary,
+                                side: BorderSide(
+                                  color: context.rhythm.borderSubtle,
                                 ),
                                 shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(
-                                    RhythmTokens.radiusM,
+                                    RhythmRadius.lg,
                                   ),
                                 ),
                               ),
@@ -293,10 +293,10 @@ class _AppContent extends StatelessWidget {
                       Expanded(
                         child: ClipRRect(
                           borderRadius: BorderRadius.circular(
-                            RhythmTokens.radiusL,
+                            RhythmRadius.xl,
                           ),
                           child: Material(
-                            color: RhythmTokens.surface,
+                            color: context.rhythm.surface,
                             child: views[selectedIndex],
                           ),
                         ),
@@ -396,23 +396,23 @@ class _TopRightAccountClusterState extends State<_TopRightAccountCluster> {
             margin: const EdgeInsets.only(right: 10),
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
             decoration: BoxDecoration(
-              color: RhythmTokens.surfaceStrong,
+              color: context.rhythm.surfaceRaised,
               borderRadius: BorderRadius.circular(999),
-              border: Border.all(color: RhythmTokens.borderSoft),
+              border: Border.all(color: context.rhythm.borderSubtle),
             ),
-            child: const Row(
+            child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
                 Icon(
                   Icons.system_update_alt,
                   size: 14,
-                  color: RhythmTokens.accent,
+                  color: context.rhythm.accent,
                 ),
-                SizedBox(width: 6),
+                const SizedBox(width: 6),
                 Text(
                   'Update ready',
                   style: TextStyle(
-                    color: RhythmTokens.textPrimary,
+                    color: context.rhythm.textPrimary,
                     fontSize: 12,
                     fontWeight: FontWeight.w600,
                   ),
@@ -429,18 +429,18 @@ class _TopRightAccountClusterState extends State<_TopRightAccountCluster> {
               clipBehavior: Clip.none,
               children: [
                 Material(
-                  color: RhythmTokens.surfaceStrong,
-                  borderRadius: BorderRadius.circular(RhythmTokens.radiusM),
+                  color: context.rhythm.surfaceRaised,
+                  borderRadius: BorderRadius.circular(RhythmRadius.lg),
                   child: InkWell(
                     onTap: () => _togglePanel(context),
-                    borderRadius: BorderRadius.circular(RhythmTokens.radiusM),
+                    borderRadius: BorderRadius.circular(RhythmRadius.lg),
                     child: Container(
                       padding: const EdgeInsets.all(10),
                       decoration: BoxDecoration(
                         borderRadius: BorderRadius.circular(
-                          RhythmTokens.radiusM,
+                          RhythmRadius.lg,
                         ),
-                        border: Border.all(color: RhythmTokens.borderSoft),
+                        border: Border.all(color: context.rhythm.borderSubtle),
                       ),
                       child: Icon(
                         unreadCount > 0
@@ -448,8 +448,8 @@ class _TopRightAccountClusterState extends State<_TopRightAccountCluster> {
                             : Icons.notifications_none_outlined,
                         size: 20,
                         color: unreadCount > 0
-                            ? RhythmTokens.accent
-                            : RhythmTokens.textSecondary,
+                            ? context.rhythm.accent
+                            : context.rhythm.textSecondary,
                       ),
                     ),
                   ),
@@ -464,8 +464,8 @@ class _TopRightAccountClusterState extends State<_TopRightAccountCluster> {
                         minWidth: 16,
                         minHeight: 16,
                       ),
-                      decoration: const BoxDecoration(
-                        color: RhythmTokens.danger,
+                      decoration: BoxDecoration(
+                        color: context.rhythm.danger,
                         shape: BoxShape.circle,
                       ),
                       child: Text(
@@ -485,36 +485,36 @@ class _TopRightAccountClusterState extends State<_TopRightAccountCluster> {
           ),
         ),
         Material(
-          color: RhythmTokens.surfaceStrong.withValues(alpha: 0.96),
-          borderRadius: BorderRadius.circular(RhythmTokens.radiusL),
+          color: context.rhythm.surfaceRaised.withValues(alpha: 0.96),
+          borderRadius: BorderRadius.circular(RhythmRadius.xl),
           child: InkWell(
             onTap: () {
               Navigator.of(context).push(
                 MaterialPageRoute<void>(builder: (_) => const SettingsView()),
               );
             },
-            borderRadius: BorderRadius.circular(RhythmTokens.radiusL),
+            borderRadius: BorderRadius.circular(RhythmRadius.xl),
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
               decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(RhythmTokens.radiusL),
-                border: Border.all(color: RhythmTokens.borderSoft),
-                boxShadow: RhythmTokens.shadow,
+                borderRadius: BorderRadius.circular(RhythmRadius.xl),
+                border: Border.all(color: context.rhythm.borderSubtle),
+                boxShadow: RhythmElevation.panel,
               ),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   CircleAvatar(
                     radius: 18,
-                    backgroundColor: RhythmTokens.accentSoft,
+                    backgroundColor: context.rhythm.accentMuted,
                     backgroundImage: user.photoUrl != null
                         ? NetworkImage(user.photoUrl!)
                         : null,
                     child: user.photoUrl == null
                         ? Text(
                             _initialsFor(user.name),
-                            style: const TextStyle(
-                              color: RhythmTokens.accent,
+                            style: TextStyle(
+                              color: context.rhythm.accent,
                               fontSize: 12,
                               fontWeight: FontWeight.w700,
                             ),
@@ -531,8 +531,8 @@ class _TopRightAccountClusterState extends State<_TopRightAccountCluster> {
                         Text(
                           user.name,
                           overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: RhythmTokens.textPrimary,
+                          style: TextStyle(
+                            color: context.rhythm.textPrimary,
                             fontWeight: FontWeight.w700,
                           ),
                         ),
@@ -540,8 +540,8 @@ class _TopRightAccountClusterState extends State<_TopRightAccountCluster> {
                         Text(
                           user.email,
                           overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            color: RhythmTokens.textSecondary,
+                          style: TextStyle(
+                            color: context.rhythm.textSecondary,
                             fontSize: 12,
                           ),
                         ),
@@ -549,9 +549,9 @@ class _TopRightAccountClusterState extends State<_TopRightAccountCluster> {
                     ),
                   ),
                   const SizedBox(width: 10),
-                  const Icon(
+                  Icon(
                     Icons.keyboard_arrow_down,
-                    color: RhythmTokens.textSecondary,
+                    color: context.rhythm.textSecondary,
                     size: 18,
                   ),
                 ],
@@ -587,9 +587,9 @@ class _ShellBackdrop extends StatelessWidget {
             begin: Alignment.topLeft,
             end: Alignment.bottomRight,
             colors: [
-              RhythmTokens.backgroundAccent.withValues(alpha: 0.35),
-              RhythmTokens.background,
-              RhythmTokens.background.withValues(alpha: 0.92),
+              context.rhythm.accentMuted.withValues(alpha: 0.35),
+              context.rhythm.canvas,
+              context.rhythm.canvas.withValues(alpha: 0.92),
             ],
           ),
         ),
