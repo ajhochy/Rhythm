@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../app/core/formatters/date_formatters.dart';
 import '../../../app/core/tasks/task_visual_style.dart';
+import '../../../app/core/ui/rhythm_ui.dart';
 import '../../../app/core/widgets/error_banner.dart';
 import '../../../app/core/workspace/workspace_controller.dart';
 import '../../../app/core/workspace/workspace_models.dart';
@@ -14,12 +15,9 @@ import '../controllers/weekly_planner_controller.dart';
 import '../models/weekly_plan.dart';
 import '../../tasks/data/collaborators_data_source.dart';
 
-const _kCanvas = RhythmTokens.background;
-const _kCanvasAccent = RhythmTokens.backgroundAccent;
 const _kSurface = RhythmTokens.surfaceStrong;
 const _kSurfaceMuted = RhythmTokens.surfaceMuted;
 const _kBorder = RhythmTokens.borderSoft;
-const _kBorderStrong = RhythmTokens.border;
 const _kTextPrimary = RhythmTokens.textPrimary;
 const _kTextSecondary = RhythmTokens.textSecondary;
 const _kTextMuted = RhythmTokens.textMuted;
@@ -50,49 +48,40 @@ class _WeeklyPlannerViewState extends State<WeeklyPlannerView> {
   Widget build(BuildContext context) {
     return Consumer<WeeklyPlannerController>(
       builder: (context, controller, _) {
-        return Container(
-          decoration: const BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [_kCanvas, Color(0xFFF7F4EF), _kCanvasAccent],
-              stops: [0.0, 0.6, 1.0],
-            ),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.all(12),
-            child: DecoratedBox(
-              decoration: BoxDecoration(
-                color: _kSurface,
-                borderRadius: BorderRadius.circular(RhythmTokens.radiusL),
-                border: Border.all(color: _kBorder),
-                boxShadow: RhythmTokens.shadow,
-              ),
-              child: Column(
-                children: [
-                  _WeekHeader(
+        return RhythmSurface.page(
+          padding: const EdgeInsets.all(RhythmSpacing.sm),
+          child: RhythmSurface.section(
+            clipBehavior: Clip.antiAlias,
+            padding: EdgeInsets.zero,
+            child: Column(
+              children: [
+                _WeekHeader(
+                  controller: controller,
+                  showCompleted: _showCompleted,
+                  onCompletedModeChanged: (value) =>
+                      setState(() => _showCompleted = value),
+                ),
+                if (controller.status == WeeklyPlannerStatus.error &&
+                    controller.errorMessage != null)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(
+                      RhythmSpacing.md,
+                      RhythmSpacing.sm,
+                      RhythmSpacing.md,
+                      RhythmSpacing.sm,
+                    ),
+                    child: ErrorBanner(
+                      message: controller.errorMessage!,
+                      onRetry: controller.load,
+                    ),
+                  ),
+                Expanded(
+                  child: _PlannerBody(
                     controller: controller,
                     showCompleted: _showCompleted,
-                    onToggleCompleted: () =>
-                        setState(() => _showCompleted = !_showCompleted),
                   ),
-                  if (controller.status == WeeklyPlannerStatus.error &&
-                      controller.errorMessage != null)
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-                      child: ErrorBanner(
-                        message: controller.errorMessage!,
-                        onRetry: controller.load,
-                      ),
-                    ),
-                  Expanded(
-                    child: _PlannerBody(
-                      controller: controller,
-                      showCompleted: _showCompleted,
-                    ),
-                  ),
-                ],
-              ),
+                ),
+              ],
             ),
           ),
         );
@@ -109,176 +98,90 @@ class _WeekHeader extends StatelessWidget {
   const _WeekHeader({
     required this.controller,
     required this.showCompleted,
-    required this.onToggleCompleted,
+    required this.onCompletedModeChanged,
   });
   final WeeklyPlannerController controller;
   final bool showCompleted;
-  final VoidCallback onToggleCompleted;
+  final ValueChanged<bool> onCompletedModeChanged;
 
   @override
   Widget build(BuildContext context) {
     final label = _formatWeekLabel(controller.currentWeekLabel);
     final hasSelection = controller.selectedTaskIds.isNotEmpty;
-    return Container(
-      padding: const EdgeInsets.fromLTRB(20, 18, 20, 16),
-      decoration: const BoxDecoration(
-        color: _kSurface,
-        border: Border(bottom: BorderSide(color: _kBorder)),
+    return RhythmToolbar(
+      title: 'Weekly Planner',
+      subtitle: 'A quieter workspace for the week ahead.',
+      leading: RhythmBadge(
+        label: label,
+        icon: Icons.calendar_today_outlined,
+        tone: RhythmBadgeTone.accent,
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Text(
-                          'Weekly Planner',
-                          style: Theme.of(context)
-                              .textTheme
-                              .headlineSmall
-                              ?.copyWith(
-                                color: _kTextPrimary,
-                                fontWeight: FontWeight.w700,
-                              ),
-                        ),
-                        const SizedBox(width: 10),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 10,
-                            vertical: 5,
-                          ),
-                          decoration: BoxDecoration(
-                            color: _kPrimarySoft,
-                            borderRadius: BorderRadius.circular(
-                              RhythmTokens.radiusS,
-                            ),
-                          ),
-                          child: Text(
-                            label,
-                            style: Theme.of(context)
-                                .textTheme
-                                .labelSmall
-                                ?.copyWith(
-                                  color: _kPrimary,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      'A quieter workspace for the week ahead.',
-                      style: Theme.of(
-                        context,
-                      ).textTheme.bodySmall?.copyWith(color: _kTextSecondary),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 16),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                alignment: WrapAlignment.end,
-                crossAxisAlignment: WrapCrossAlignment.center,
-                children: [
-                  _HeaderPillButton(
-                    icon: Icons.chevron_left,
-                    tooltip: 'Previous week',
-                    onPressed: controller.goToPrevWeek,
-                  ),
-                  _HeaderPillButton(
-                    icon: Icons.chevron_right,
-                    tooltip: 'Next week',
-                    onPressed: controller.goToNextWeek,
-                  ),
-                  OutlinedButton(
-                    onPressed:
-                        controller.isCurrentWeek ? null : controller.goToToday,
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: _kTextPrimary,
-                      side: const BorderSide(color: _kBorderStrong),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(
-                          RhythmTokens.radiusS,
-                        ),
-                      ),
-                    ),
-                    child: const Text('Today'),
-                  ),
-                  TextButton.icon(
-                    onPressed: onToggleCompleted,
-                    style: TextButton.styleFrom(
-                      foregroundColor: _kTextPrimary,
-                      backgroundColor: _kSurfaceMuted,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 12,
-                      ),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(
-                          RhythmTokens.radiusS,
-                        ),
-                      ),
-                    ),
-                    icon: Icon(
-                      showCompleted ? Icons.visibility_off : Icons.visibility,
-                      size: 16,
-                    ),
-                    label: Text(showCompleted ? 'Hide done' : 'Show done'),
-                  ),
-                ],
-              ),
-            ],
-          ),
-          if (hasSelection) ...[
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10,
-                    vertical: 6,
-                  ),
-                  decoration: BoxDecoration(
-                    color: _kSurfaceMuted,
-                    borderRadius: BorderRadius.circular(RhythmTokens.radiusS),
-                    border: Border.all(color: _kBorder),
-                  ),
-                  child: Text(
-                    '${controller.selectedTaskIds.length} selected',
-                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                          color: _kTextSecondary,
-                          fontWeight: FontWeight.w600,
-                        ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                FilledButton.tonalIcon(
-                  onPressed: () => controller.bulkToggleSelectedTasks([
-                    ...?controller.plan?.days.expand((d) => d.tasks),
-                    ...?controller.plan?.backlog,
-                  ], 'done'),
-                  icon: const Icon(Icons.checklist, size: 16),
-                  label: const Text('Mark complete'),
-                ),
-                const SizedBox(width: 8),
-                TextButton(
-                  onPressed: controller.clearTaskSelection,
-                  child: const Text('Clear selection'),
-                ),
-              ],
+      padding: const EdgeInsets.fromLTRB(
+        RhythmSpacing.md,
+        RhythmSpacing.sm,
+        RhythmSpacing.md,
+        RhythmSpacing.sm,
+      ),
+      filters: [
+        RhythmSegmentedControl<bool>(
+          compact: true,
+          value: showCompleted,
+          onChanged: onCompletedModeChanged,
+          segments: const [
+            RhythmSegment(
+              value: false,
+              label: 'Open',
+              icon: Icons.radio_button_unchecked,
+            ),
+            RhythmSegment(
+              value: true,
+              label: 'All',
+              icon: Icons.visibility,
             ),
           ],
-        ],
-      ),
+        ),
+      ],
+      actions: [
+        RhythmButton.icon(
+          icon: Icons.chevron_left,
+          tooltip: 'Previous week',
+          compact: true,
+          onPressed: controller.goToPrevWeek,
+        ),
+        RhythmButton.icon(
+          icon: Icons.chevron_right,
+          tooltip: 'Next week',
+          compact: true,
+          onPressed: controller.goToNextWeek,
+        ),
+        RhythmButton.outlined(
+          label: 'Today',
+          compact: true,
+          onPressed: controller.isCurrentWeek ? null : controller.goToToday,
+        ),
+        if (hasSelection)
+          RhythmBadge(
+            label: '${controller.selectedTaskIds.length} selected',
+            icon: Icons.done_all,
+            compact: true,
+          ),
+        if (hasSelection)
+          RhythmButton.quiet(
+            label: 'Mark complete',
+            icon: Icons.checklist,
+            compact: true,
+            onPressed: () => controller.bulkToggleSelectedTasks([
+              ...?controller.plan?.days.expand((d) => d.tasks),
+              ...?controller.plan?.backlog,
+            ], 'done'),
+          ),
+        if (hasSelection)
+          RhythmButton.quiet(
+            label: 'Clear',
+            compact: true,
+            onPressed: controller.clearTaskSelection,
+          ),
+      ],
     );
   }
 
@@ -308,35 +211,6 @@ class _WeekHeader extends StatelessWidget {
   }
 }
 
-class _HeaderPillButton extends StatelessWidget {
-  const _HeaderPillButton({
-    required this.icon,
-    required this.tooltip,
-    required this.onPressed,
-  });
-
-  final IconData icon;
-  final String tooltip;
-  final VoidCallback onPressed;
-
-  @override
-  Widget build(BuildContext context) {
-    return IconButton(
-      tooltip: tooltip,
-      onPressed: onPressed,
-      style: IconButton.styleFrom(
-        backgroundColor: _kSurfaceMuted,
-        foregroundColor: _kTextPrimary,
-        side: const BorderSide(color: _kBorder),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(RhythmTokens.radiusS),
-        ),
-      ),
-      icon: Icon(icon, size: 18),
-    );
-  }
-}
-
 class _EmptyWorkspaceState extends StatelessWidget {
   const _EmptyWorkspaceState({
     required this.icon,
@@ -354,33 +228,31 @@ class _EmptyWorkspaceState extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.rhythm;
     return ConstrainedBox(
       constraints: const BoxConstraints(maxWidth: 240),
-      child: Container(
-        padding: const EdgeInsets.all(14),
-        decoration: BoxDecoration(
-          color: _kSurface,
-          borderRadius: BorderRadius.circular(RhythmTokens.radiusM),
-          border: Border.all(color: _kBorder),
-        ),
+      child: RhythmPanel(
+        padding: const EdgeInsets.all(RhythmSpacing.sm),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Container(
+            SizedBox(
               width: 36,
               height: 36,
-              decoration: BoxDecoration(
-                color: _kPrimarySoft,
-                borderRadius: BorderRadius.circular(RhythmTokens.radiusS),
+              child: RhythmSurface(
+                tone: RhythmSurfaceTone.muted,
+                borderRadius: BorderRadius.circular(RhythmRadius.sm),
+                child: Center(
+                  child: Icon(icon, size: 18, color: colors.accent),
+                ),
               ),
-              child: Icon(icon, size: 18, color: _kPrimary),
             ),
             const SizedBox(height: 10),
             Text(
               title,
               textAlign: TextAlign.center,
               style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                    color: _kTextPrimary,
+                    color: colors.textPrimary,
                     fontWeight: FontWeight.w700,
                   ),
             ),
@@ -389,15 +261,16 @@ class _EmptyWorkspaceState extends StatelessWidget {
               message,
               textAlign: TextAlign.center,
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: _kTextSecondary,
+                    color: colors.textSecondary,
                     height: 1.35,
                   ),
             ),
             if (actionLabel != null && onAction != null) ...[
               const SizedBox(height: 12),
-              FilledButton.tonal(
+              RhythmButton.quiet(
                 onPressed: onAction,
-                child: Text(actionLabel!),
+                label: actionLabel!,
+                compact: true,
               ),
             ],
           ],
@@ -480,13 +353,10 @@ class _PlannerBody extends StatelessWidget {
           ),
           if (selectedTask != null) ...[
             const SizedBox(width: 12),
-            SizedBox(
-              width: 320,
-              child: _DetailPane(
-                key: ValueKey(selectedTask.id),
-                task: selectedTask,
-                controller: controller,
-              ),
+            _DetailPane(
+              key: ValueKey(selectedTask.id),
+              task: selectedTask,
+              controller: controller,
             ),
           ],
         ],
@@ -514,12 +384,11 @@ class _BacklogPane extends StatelessWidget {
     final backlog = showCompleted
         ? plan.backlog
         : plan.backlog.where((t) => t.status != 'done').toList();
-    return Container(
-      decoration: BoxDecoration(
-        color: _kSurfaceMuted,
-        borderRadius: BorderRadius.circular(RhythmTokens.radiusL),
-        border: Border.all(color: _kBorder),
-      ),
+    final colors = context.rhythm;
+    return RhythmSurface(
+      tone: RhythmSurfaceTone.muted,
+      border: true,
+      clipBehavior: Clip.antiAlias,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -527,17 +396,19 @@ class _BacklogPane extends StatelessWidget {
             padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
             child: Row(
               children: [
-                Container(
+                SizedBox(
                   width: 28,
                   height: 28,
-                  decoration: BoxDecoration(
-                    color: _kPrimarySoft,
-                    borderRadius: BorderRadius.circular(RhythmTokens.radiusS),
-                  ),
-                  child: const Icon(
-                    Icons.inbox_outlined,
-                    size: 16,
-                    color: _kPrimary,
+                  child: RhythmSurface(
+                    tone: RhythmSurfaceTone.raised,
+                    borderRadius: BorderRadius.circular(RhythmRadius.sm),
+                    child: Center(
+                      child: Icon(
+                        Icons.inbox_outlined,
+                        size: 16,
+                        color: colors.accent,
+                      ),
+                    ),
                   ),
                 ),
                 const SizedBox(width: 10),
@@ -563,23 +434,9 @@ class _BacklogPane extends StatelessWidget {
                   ),
                 ),
                 if (backlog.isNotEmpty)
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 4,
-                    ),
-                    decoration: BoxDecoration(
-                      color: _kSurface,
-                      borderRadius: BorderRadius.circular(RhythmTokens.radiusS),
-                      border: Border.all(color: _kBorder),
-                    ),
-                    child: Text(
-                      '${backlog.length}',
-                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                            color: _kTextSecondary,
-                            fontWeight: FontWeight.w600,
-                          ),
-                    ),
+                  RhythmBadge(
+                    label: '${backlog.length}',
+                    compact: true,
                   ),
               ],
             ),
@@ -752,12 +609,11 @@ class _DayColumnsPane extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        color: _kSurface,
-        borderRadius: BorderRadius.circular(RhythmTokens.radiusL),
-        border: Border.all(color: _kBorder),
-      ),
+    final colors = context.rhythm;
+    return RhythmSurface(
+      tone: RhythmSurfaceTone.surface,
+      border: true,
+      clipBehavior: Clip.antiAlias,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -765,17 +621,19 @@ class _DayColumnsPane extends StatelessWidget {
             padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
             child: Row(
               children: [
-                Container(
+                SizedBox(
                   width: 28,
                   height: 28,
-                  decoration: BoxDecoration(
-                    color: _kPrimarySoft,
-                    borderRadius: BorderRadius.circular(RhythmTokens.radiusS),
-                  ),
-                  child: const Icon(
-                    Icons.calendar_view_week_outlined,
-                    size: 16,
-                    color: _kPrimary,
+                  child: RhythmSurface(
+                    tone: RhythmSurfaceTone.muted,
+                    borderRadius: BorderRadius.circular(RhythmRadius.sm),
+                    child: Center(
+                      child: Icon(
+                        Icons.calendar_view_week_outlined,
+                        size: 16,
+                        color: colors.accent,
+                      ),
+                    ),
                   ),
                 ),
                 const SizedBox(width: 10),
@@ -1505,106 +1363,57 @@ class _DetailPaneState extends State<_DetailPane> {
     final isShadowEvent = task.sourceType == 'calendar_shadow_event';
     final timeLabel = _shadowEventLabel(task);
     final workspaceMembers = context.watch<WorkspaceController>().members;
-    return Container(
-      decoration: BoxDecoration(
-        color: _kSurfaceMuted,
-        borderRadius: BorderRadius.circular(RhythmTokens.radiusL),
-        border: Border.all(color: _kBorder),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            padding: const EdgeInsets.fromLTRB(16, 16, 10, 14),
-            decoration: const BoxDecoration(
-              border: Border(bottom: BorderSide(color: _kBorder)),
-            ),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Task details',
-                        style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                              color: _kTextPrimary,
-                              fontWeight: FontWeight.w700,
-                            ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        isShadowEvent
-                            ? 'Read-only calendar context'
-                            : 'Notes, dates, and completion',
-                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                              color: _kTextSecondary,
-                            ),
-                      ),
-                    ],
+    return RhythmDetailPane(
+      width: 320,
+      title: 'Task details',
+      subtitle:
+          isShadowEvent ? 'Read-only calendar context' : 'Notes and planning',
+      actions: [
+        RhythmButton.icon(
+          icon: Icons.close,
+          tooltip: 'Close details',
+          compact: true,
+          onPressed: () => widget.controller.selectTask(null),
+        ),
+      ],
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              task.title,
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    decoration: isDone ? TextDecoration.lineThrough : null,
+                    color: isDone ? _kTextMuted : _kTextPrimary,
                   ),
-                ),
-                IconButton(
-                  icon: const Icon(Icons.close, size: 18),
-                  onPressed: () => widget.controller.selectTask(null),
-                  style: IconButton.styleFrom(
-                    backgroundColor: _kSurface,
-                    foregroundColor: _kTextPrimary,
-                    side: const BorderSide(color: _kBorder),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(RhythmTokens.radiusS),
-                    ),
-                  ),
-                ),
-              ],
             ),
-          ),
-          Expanded(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.all(16),
+            const SizedBox(height: 8),
+            if (!isShadowEvent)
+              RhythmButton.quiet(
+                icon:
+                    isDone ? Icons.check_circle : Icons.radio_button_unchecked,
+                label: isDone ? 'Mark open' : 'Mark done',
+                onPressed: () => widget.controller.toggleTaskDone(task, isDone),
+              ),
+            const SizedBox(height: 14),
+            RhythmDisclosure(
+              title: 'Planning',
+              subtitle: isShadowEvent
+                  ? 'Calendar event metadata'
+                  : 'Owner, date, and source',
+              initiallyExpanded: true,
               child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    task.title,
-                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                          decoration:
-                              isDone ? TextDecoration.lineThrough : null,
-                          color: isDone ? _kTextMuted : _kTextPrimary,
-                        ),
-                  ),
-                  const SizedBox(height: 8),
-                  if (!isShadowEvent)
-                    TextButton.icon(
-                      icon: Icon(
-                        isDone
-                            ? Icons.check_circle
-                            : Icons.radio_button_unchecked,
-                        size: 16,
-                      ),
-                      label: Text(isDone ? 'Mark open' : 'Mark done'),
-                      style: TextButton.styleFrom(
-                        foregroundColor: _kPrimary,
-                        backgroundColor: _kPrimarySoft,
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 10,
-                        ),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(
-                            RhythmTokens.radiusS,
-                          ),
-                        ),
-                      ),
-                      onPressed: () =>
-                          widget.controller.toggleTaskDone(task, isDone),
-                    ),
-                  const SizedBox(height: 14),
                   if (!isShadowEvent && task.sourceType != 'project_step') ...[
                     _editableOwnerRow(context, workspaceMembers),
                     if (task.ownerId != null) ...[
                       const SizedBox(height: 10),
-                      _collaboratorsSection(context, task, workspaceMembers),
+                      _collaboratorsSection(
+                        context,
+                        task,
+                        workspaceMembers,
+                      ),
                     ],
                     const SizedBox(height: 14),
                   ],
@@ -1633,144 +1442,131 @@ class _DetailPaneState extends State<_DetailPane> {
                   if (isShadowEvent && timeLabel != null)
                     _row(context, 'Time', timeLabel),
                   if (task.sourceType != null)
-                    _row(context, 'Source', _sourceLabel(task.sourceType!)),
+                    _row(
+                      context,
+                      'Source',
+                      _sourceLabel(task.sourceType!),
+                    ),
                   if (task.sourceName != null && task.sourceName!.isNotEmpty)
                     _row(
                       context,
                       isShadowEvent ? 'Calendar' : 'Project',
                       task.sourceName!,
                     ),
-                  const SizedBox(height: 16),
-                  Text(
-                    isShadowEvent ? 'Details' : 'Notes',
-                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                          color: _kTextSecondary,
-                          fontWeight: FontWeight.w700,
-                          letterSpacing: 0.4,
-                        ),
-                  ),
-                  const SizedBox(height: 8),
-                  if (isShadowEvent)
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: _kSurface,
-                        border: Border.all(color: _kBorder),
-                        borderRadius: BorderRadius.circular(
-                          RhythmTokens.radiusS,
-                        ),
-                      ),
-                      child: Text(
-                        task.notes?.isNotEmpty == true
-                            ? task.notes!
-                            : 'No additional details.',
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              color: _kTextPrimary,
-                              height: 1.35,
-                            ),
-                      ),
-                    )
-                  else
-                    TextField(
-                      controller: _notesCtrl,
-                      decoration: InputDecoration(
-                        hintText: 'Add a note...',
-                        filled: true,
-                        fillColor: _kSurface,
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(
-                            RhythmTokens.radiusS,
-                          ),
-                          borderSide: const BorderSide(color: _kBorder),
-                        ),
-                        enabledBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(
-                            RhythmTokens.radiusS,
-                          ),
-                          borderSide: const BorderSide(color: _kBorder),
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(
-                            RhythmTokens.radiusS,
-                          ),
-                          borderSide: const BorderSide(color: _kPrimary),
-                        ),
-                        isDense: true,
-                      ),
-                      minLines: 3,
-                      maxLines: 8,
-                    ),
-                  const SizedBox(height: 10),
-                  if (!isShadowEvent &&
-                      (_notesDirty || _datesDirty || _ownerDirty))
-                    Row(
-                      children: [
-                        FilledButton.tonal(
-                          onPressed: _saving ? null : _saveDetailChanges,
-                          child: _saving
-                              ? const SizedBox(
-                                  width: 14,
-                                  height: 14,
-                                  child: CircularProgressIndicator(
-                                    strokeWidth: 2,
-                                  ),
-                                )
-                              : const Text('Save changes'),
-                        ),
-                        const SizedBox(width: 8),
-                        TextButton(
-                          onPressed: _saving
-                              ? null
-                              : () => setState(() {
-                                    _notesCtrl.text = widget.task.notes ?? '';
-                                    _dueDate = widget.task.dueDate;
-                                    _scheduledDate = widget.task.scheduledDate;
-                                    _ownerId = widget.task.ownerId;
-                                    _notesDirty = false;
-                                    _datesDirty = false;
-                                    _ownerDirty = false;
-                                  }),
-                          child: const Text('Discard'),
-                        ),
-                      ],
-                    ),
-                  if (!isShadowEvent) ...[
-                    const SizedBox(height: 10),
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: [
-                        OutlinedButton.icon(
-                          onPressed: () =>
-                              widget.controller.moveTaskEarlier(task),
-                          icon: const Icon(Icons.arrow_upward, size: 14),
-                          label: const Text('Move earlier'),
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: _kTextPrimary,
-                            side: const BorderSide(color: _kBorderStrong),
-                            backgroundColor: _kSurface,
-                          ),
-                        ),
-                        OutlinedButton.icon(
-                          onPressed: () =>
-                              widget.controller.moveTaskLater(task),
-                          icon: const Icon(Icons.arrow_downward, size: 14),
-                          label: const Text('Move later'),
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: _kTextPrimary,
-                            side: const BorderSide(color: _kBorderStrong),
-                            backgroundColor: _kSurface,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
                 ],
               ),
             ),
-          ),
-        ],
+            const SizedBox(height: 16),
+            Text(
+              isShadowEvent ? 'Details' : 'Notes',
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    color: _kTextSecondary,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0.4,
+                  ),
+            ),
+            const SizedBox(height: 8),
+            if (isShadowEvent)
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: _kSurface,
+                  border: Border.all(color: _kBorder),
+                  borderRadius: BorderRadius.circular(
+                    RhythmTokens.radiusS,
+                  ),
+                ),
+                child: Text(
+                  task.notes?.isNotEmpty == true
+                      ? task.notes!
+                      : 'No additional details.',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: _kTextPrimary,
+                        height: 1.35,
+                      ),
+                ),
+              )
+            else
+              TextField(
+                controller: _notesCtrl,
+                decoration: InputDecoration(
+                  hintText: 'Add a note...',
+                  filled: true,
+                  fillColor: _kSurface,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(
+                      RhythmTokens.radiusS,
+                    ),
+                    borderSide: const BorderSide(color: _kBorder),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(
+                      RhythmTokens.radiusS,
+                    ),
+                    borderSide: const BorderSide(color: _kBorder),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(
+                      RhythmTokens.radiusS,
+                    ),
+                    borderSide: const BorderSide(color: _kPrimary),
+                  ),
+                  isDense: true,
+                ),
+                minLines: 3,
+                maxLines: 8,
+              ),
+            const SizedBox(height: 10),
+            if (!isShadowEvent && (_notesDirty || _datesDirty || _ownerDirty))
+              Row(
+                children: [
+                  RhythmButton.filled(
+                    onPressed: _saving ? null : _saveDetailChanges,
+                    label: _saving ? 'Saving...' : 'Save changes',
+                    compact: true,
+                  ),
+                  const SizedBox(width: 8),
+                  RhythmButton.quiet(
+                    onPressed: _saving
+                        ? null
+                        : () => setState(() {
+                              _notesCtrl.text = widget.task.notes ?? '';
+                              _dueDate = widget.task.dueDate;
+                              _scheduledDate = widget.task.scheduledDate;
+                              _ownerId = widget.task.ownerId;
+                              _notesDirty = false;
+                              _datesDirty = false;
+                              _ownerDirty = false;
+                            }),
+                    label: 'Discard',
+                    compact: true,
+                  ),
+                ],
+              ),
+            if (!isShadowEvent) ...[
+              const SizedBox(height: 10),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  RhythmButton.outlined(
+                    onPressed: () => widget.controller.moveTaskEarlier(task),
+                    icon: Icons.arrow_upward,
+                    label: 'Move earlier',
+                    compact: true,
+                  ),
+                  RhythmButton.outlined(
+                    onPressed: () => widget.controller.moveTaskLater(task),
+                    icon: Icons.arrow_downward,
+                    label: 'Move later',
+                    compact: true,
+                  ),
+                ],
+              ),
+            ],
+          ],
+        ),
       ),
     );
   }
@@ -1835,26 +1631,17 @@ class _DetailPaneState extends State<_DetailPane> {
               spacing: 8,
               runSpacing: 8,
               children: [
-                OutlinedButton.icon(
+                RhythmButton.outlined(
                   onPressed: onPick,
-                  icon: const Icon(Icons.calendar_today, size: 14),
-                  label: Text(value ?? 'Set date'),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: _kTextPrimary,
-                    side: const BorderSide(color: _kBorderStrong),
-                    backgroundColor: _kSurface,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(RhythmTokens.radiusS),
-                    ),
-                  ),
+                  icon: Icons.calendar_today,
+                  label: value ?? 'Set date',
+                  compact: true,
                 ),
                 if (value != null && onClear != null)
-                  TextButton(
+                  RhythmButton.quiet(
                     onPressed: onClear,
-                    style: TextButton.styleFrom(
-                      foregroundColor: _kTextSecondary,
-                    ),
-                    child: const Text('Clear'),
+                    label: 'Clear',
+                    compact: true,
                   ),
               ],
             ),
