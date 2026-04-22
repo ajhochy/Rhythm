@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../../../app/core/auth/auth_session_service.dart';
 import '../../../app/core/formatters/date_formatters.dart';
 import '../../../app/core/tasks/task_visual_style.dart';
 import '../../../app/core/ui/rhythm_ui.dart';
@@ -26,6 +27,7 @@ class _TasksViewState extends State<TasksView> {
   bool _showCompleted = false;
   bool _sortByDueDate = false;
   String _searchQuery = '';
+  _TaskGroupingMode _groupingMode = _TaskGroupingMode.queue;
 
   @override
   void initState() {
@@ -77,6 +79,8 @@ class _TasksViewState extends State<TasksView> {
       padding: const EdgeInsets.all(RhythmSpacing.sm),
       child: Consumer<TasksController>(
         builder: (context, controller, _) {
+          final currentUserId =
+              context.watch<AuthSessionService>().currentUser?.id;
           final visibleTasks = _visibleTasks(controller);
           return RhythmSurface.section(
             clipBehavior: Clip.antiAlias,
@@ -110,7 +114,11 @@ class _TasksViewState extends State<TasksView> {
                           child: _buildCreateBar(context),
                         ),
                       ),
-                      _buildTaskListSliver(controller, visibleTasks),
+                      _buildTaskListSliver(
+                        controller,
+                        visibleTasks,
+                        currentUserId,
+                      ),
                     ],
                   ),
                 ),
@@ -201,6 +209,33 @@ class _TasksViewState extends State<TasksView> {
             ),
           ],
           filters: [
+            RhythmSegmentedControl<_TaskGroupingMode>(
+              segments: const [
+                RhythmSegment(
+                  value: _TaskGroupingMode.queue,
+                  label: 'Queue',
+                  icon: Icons.view_agenda_outlined,
+                ),
+                RhythmSegment(
+                  value: _TaskGroupingMode.project,
+                  label: 'Project',
+                  icon: Icons.folder_open_outlined,
+                ),
+                RhythmSegment(
+                  value: _TaskGroupingMode.rhythm,
+                  label: 'Rhythm',
+                  icon: Icons.repeat,
+                ),
+                RhythmSegment(
+                  value: _TaskGroupingMode.handoff,
+                  label: 'Handoff',
+                  icon: Icons.handshake_outlined,
+                ),
+              ],
+              value: _groupingMode,
+              onChanged: (value) => setState(() => _groupingMode = value),
+              compact: true,
+            ),
             RhythmButton.quiet(
               onPressed: () => setState(() => _sortByDueDate = !_sortByDueDate),
               label: _sortByDueDate ? 'Due date first' : 'Manual order',
@@ -216,6 +251,7 @@ class _TasksViewState extends State<TasksView> {
   Widget _buildTaskListSliver(
     TasksController controller,
     List<Task> visibleTasks,
+    int? currentUserId,
   ) {
     if (controller.status == TasksStatus.loading && controller.tasks.isEmpty) {
       return const SliverFillRemaining(
@@ -242,7 +278,7 @@ class _TasksViewState extends State<TasksView> {
         ),
       );
     }
-    final groups = _groupTasks(visibleTasks);
+    final groups = _groupTasks(visibleTasks, currentUserId: currentUserId);
     return SliverPadding(
       padding: const EdgeInsets.fromLTRB(
         RhythmSpacing.md,
@@ -273,7 +309,35 @@ class _TasksViewState extends State<TasksView> {
     );
   }
 
-  List<_TaskGroup> _groupTasks(List<Task> tasks) {
+  List<_TaskGroup> _groupTasks(List<Task> tasks, {int? currentUserId}) {
+    return switch (_groupingMode) {
+      _TaskGroupingMode.queue => _groupTasksByQueue(tasks),
+      _TaskGroupingMode.project => _groupTasksBySource(
+          tasks,
+          sourceType: 'project_step',
+          fallbackTitle: 'Project',
+          otherTitle: 'Other tasks',
+          otherSubtitle: 'Tasks not tied to a project',
+          icon: Icons.folder_open_outlined,
+          tone: RhythmBadgeTone.accent,
+        ),
+      _TaskGroupingMode.rhythm => _groupTasksBySource(
+          tasks,
+          sourceType: 'recurring_rule',
+          fallbackTitle: 'Rhythm',
+          otherTitle: 'Other tasks',
+          otherSubtitle: 'Tasks not tied to a rhythm',
+          icon: Icons.repeat,
+          tone: RhythmBadgeTone.info,
+        ),
+      _TaskGroupingMode.handoff => _groupTasksByHandoff(
+          tasks,
+          currentUserId: currentUserId,
+        ),
+    };
+  }
+
+  List<_TaskGroup> _groupTasksByQueue(List<Task> tasks) {
     final buckets = <_TaskGroupKind, List<Task>>{
       for (final kind in _TaskGroupKind.values) kind: <Task>[],
     };
@@ -324,6 +388,131 @@ class _TasksViewState extends State<TasksView> {
         icon: Icons.check_circle_outline,
         tone: RhythmBadgeTone.success,
         tasks: buckets[_TaskGroupKind.completed]!,
+      ),
+    ].where((group) => group.tasks.isNotEmpty).toList();
+  }
+
+  List<_TaskGroup> _groupTasksBySource(
+    List<Task> tasks, {
+    required String sourceType,
+    required String fallbackTitle,
+    required String otherTitle,
+    required String otherSubtitle,
+    required IconData icon,
+    required RhythmBadgeTone tone,
+  }) {
+    final groupsByName = <String, List<Task>>{};
+    final other = <Task>[];
+
+    for (final task in tasks) {
+      if (task.sourceType == sourceType) {
+        final title = _sourceGroupTitle(task, fallbackTitle);
+        groupsByName.putIfAbsent(title, () => <Task>[]).add(task);
+      } else {
+        other.add(task);
+      }
+    }
+
+    final groups = groupsByName.entries
+        .map(
+          (entry) => _TaskGroup(
+            title: entry.key,
+            subtitle: _sourceGroupSubtitle(entry.value),
+            icon: icon,
+            tone: tone,
+            tasks: entry.value,
+          ),
+        )
+        .toList()
+      ..sort(
+        (a, b) => a.title.toLowerCase().compareTo(b.title.toLowerCase()),
+      );
+
+    if (other.isNotEmpty) {
+      groups.add(
+        _TaskGroup(
+          title: otherTitle,
+          subtitle: otherSubtitle,
+          icon: Icons.inbox_outlined,
+          tone: RhythmBadgeTone.neutral,
+          tasks: other,
+        ),
+      );
+    }
+
+    return groups;
+  }
+
+  List<_TaskGroup> _groupTasksByHandoff(
+    List<Task> tasks, {
+    required int? currentUserId,
+  }) {
+    final waitingOnMe = <Task>[];
+    final sharedWithMe = <Task>[];
+    final teamShared = <Task>[];
+    final solo = <Task>[];
+    final completed = <Task>[];
+
+    for (final task in tasks) {
+      if (task.status == 'done') {
+        completed.add(task);
+        continue;
+      }
+
+      final collaboratorIds = task.collaborators.map((c) => c.userId).toSet();
+      final hasSharedContext = task.isShared || collaboratorIds.isNotEmpty;
+      final ownedByMe = currentUserId != null && task.ownerId == currentUserId;
+      final includesMe =
+          currentUserId != null && collaboratorIds.contains(currentUserId);
+
+      if (ownedByMe && hasSharedContext) {
+        waitingOnMe.add(task);
+      } else if (includesMe) {
+        sharedWithMe.add(task);
+      } else if (hasSharedContext) {
+        teamShared.add(task);
+      } else {
+        solo.add(task);
+      }
+    }
+
+    return [
+      _TaskGroup(
+        title: 'Waiting on me',
+        subtitle: currentUserId == null
+            ? 'Shared tasks cannot be matched to you yet'
+            : 'Shared work owned by you',
+        icon: Icons.priority_high_rounded,
+        tone: RhythmBadgeTone.warning,
+        tasks: waitingOnMe,
+      ),
+      _TaskGroup(
+        title: 'Shared with me',
+        subtitle: 'Owned by someone else',
+        icon: Icons.group_outlined,
+        tone: RhythmBadgeTone.accent,
+        tasks: sharedWithMe,
+      ),
+      _TaskGroup(
+        title: 'Team shared',
+        subtitle: 'Shared ownership context',
+        icon: Icons.groups_2_outlined,
+        tone: RhythmBadgeTone.info,
+        tasks: teamShared,
+      ),
+      _TaskGroup(
+        title: 'Solo tasks',
+        subtitle: 'No collaborator handoff data',
+        icon: Icons.person_outline,
+        tone: RhythmBadgeTone.neutral,
+        tasks: solo,
+      ),
+      _TaskGroup(
+        title: 'Completed',
+        subtitle: 'Finished work',
+        icon: Icons.check_circle_outline,
+        tone: RhythmBadgeTone.success,
+        tasks: completed,
       ),
     ].where((group) => group.tasks.isNotEmpty).toList();
   }
@@ -704,6 +893,8 @@ class _TasksViewState extends State<TasksView> {
 
 enum _TaskAction { edit, delete }
 
+enum _TaskGroupingMode { queue, project, rhythm, handoff }
+
 enum _TaskGroupKind { pastDue, today, scheduled, upcoming, backlog, completed }
 
 class _TaskGroup {
@@ -861,6 +1052,25 @@ String _sourceLabel(Task task) {
     'recurring_rule' => 'Rhythm',
     _ => 'External',
   };
+}
+
+String _sourceGroupTitle(Task task, String fallbackTitle) {
+  final sourceName = task.sourceName?.trim();
+  if (sourceName != null && sourceName.isNotEmpty) return sourceName;
+
+  final sourceId = task.sourceId?.trim();
+  if (sourceId != null && sourceId.isNotEmpty) {
+    return '$fallbackTitle $sourceId';
+  }
+
+  return '$fallbackTitle source';
+}
+
+String _sourceGroupSubtitle(List<Task> tasks) {
+  final openCount = tasks.where((task) => task.status != 'done').length;
+  if (openCount == tasks.length) return '$openCount open';
+  final completed = tasks.length - openCount;
+  return '$openCount open · $completed complete';
 }
 
 IconData _sourceIcon(String sourceType) => switch (sourceType) {
