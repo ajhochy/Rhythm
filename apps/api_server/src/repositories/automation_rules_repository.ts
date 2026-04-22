@@ -61,7 +61,7 @@ export class AutomationRulesRepository {
         userId != null
           ? await getPostgresPool().query<AutomationRuleRow>(
               `SELECT * FROM automation_rules
-               WHERE owner_id = $1 OR owner_id IS NULL
+               WHERE owner_id = $1
                ORDER BY created_at ASC`,
               [userId],
             )
@@ -78,7 +78,7 @@ export class AutomationRulesRepository {
       ? getDb()
           .prepare(
             `SELECT * FROM automation_rules
-             WHERE owner_id = ? OR owner_id IS NULL
+             WHERE owner_id = ?
              ORDER BY created_at ASC`,
           )
           .all(userId)
@@ -120,7 +120,7 @@ export class AutomationRulesRepository {
         userId != null
           ? await getPostgresPool().query<AutomationRuleRow>(
               `SELECT * FROM automation_rules
-               WHERE id = $1 AND (owner_id = $2 OR owner_id IS NULL)`,
+               WHERE id = $1 AND owner_id = $2`,
               [id, userId],
             )
           : await getPostgresPool().query<AutomationRuleRow>(
@@ -139,7 +139,7 @@ export class AutomationRulesRepository {
       ? getDb()
           .prepare(
             `SELECT * FROM automation_rules
-             WHERE id = ? AND (owner_id = ? OR owner_id IS NULL)`,
+             WHERE id = ? AND owner_id = ?`,
           )
           .get(id, userId)
       : getDb()

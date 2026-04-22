@@ -119,7 +119,6 @@ export class RecurringTaskRulesRepository {
                  ON rc.rhythm_id = recurring_task_rules.id
                 AND rc.user_id = $1
                WHERE recurring_task_rules.owner_id = $1
-                  OR recurring_task_rules.owner_id IS NULL
                   OR rc.user_id IS NOT NULL
                ORDER BY recurring_task_rules.created_at ASC`,
               [userId],
@@ -142,7 +141,6 @@ export class RecurringTaskRulesRepository {
              ON rc.rhythm_id = recurring_task_rules.id
             AND rc.user_id = ?
            WHERE recurring_task_rules.owner_id = ?
-              OR recurring_task_rules.owner_id IS NULL
               OR rc.user_id IS NOT NULL
            ORDER BY recurring_task_rules.created_at ASC`,
         )
@@ -168,7 +166,6 @@ export class RecurringTaskRulesRepository {
                WHERE recurring_task_rules.id = $1
                  AND (
                    recurring_task_rules.owner_id = $2
-                   OR recurring_task_rules.owner_id IS NULL
                    OR rc.user_id IS NOT NULL
                  )`,
               [id, userId],
@@ -196,7 +193,6 @@ export class RecurringTaskRulesRepository {
              WHERE recurring_task_rules.id = ?
                AND (
                  recurring_task_rules.owner_id = ?
-                 OR recurring_task_rules.owner_id IS NULL
                  OR rc.user_id IS NOT NULL
                )`,
           )

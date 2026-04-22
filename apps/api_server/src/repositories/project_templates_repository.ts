@@ -90,7 +90,7 @@ export class ProjectTemplatesRepository {
         userId != null
           ? await getPostgresPool().query<TemplateRow>(
               `SELECT * FROM project_templates
-               WHERE owner_id = $1 OR owner_id IS NULL
+               WHERE owner_id = $1
                ORDER BY created_at ASC`,
               [userId],
             )
@@ -111,7 +111,7 @@ export class ProjectTemplatesRepository {
       ? getDb()
           .prepare(
             `SELECT * FROM project_templates
-             WHERE owner_id = ? OR owner_id IS NULL
+             WHERE owner_id = ?
              ORDER BY created_at ASC`,
           )
           .all(userId)
@@ -127,7 +127,7 @@ export class ProjectTemplatesRepository {
         userId != null
           ? await getPostgresPool().query<TemplateRow>(
               `SELECT * FROM project_templates
-               WHERE id = $1 AND (owner_id = $2 OR owner_id IS NULL)`,
+               WHERE id = $1 AND owner_id = $2`,
               [id, userId],
             )
           : await getPostgresPool().query<TemplateRow>(
@@ -146,7 +146,7 @@ export class ProjectTemplatesRepository {
       ? getDb()
           .prepare(
             `SELECT * FROM project_templates
-             WHERE id = ? AND (owner_id = ? OR owner_id IS NULL)`,
+             WHERE id = ? AND owner_id = ?`,
           )
           .get(id, userId)
       : getDb().prepare('SELECT * FROM project_templates WHERE id = ?').get(id)) as
@@ -256,11 +256,11 @@ export class ProjectTemplatesRepository {
       await this.findByIdAsync(id, userId);
       if (userId != null) {
         await getPostgresPool().query(
-          'DELETE FROM project_instances WHERE template_id = $1 AND (owner_id = $2 OR owner_id IS NULL)',
+          'DELETE FROM project_instances WHERE template_id = $1 AND owner_id = $2',
           [id, userId],
         );
         const result = await getPostgresPool().query(
-          'DELETE FROM project_templates WHERE id = $1 AND (owner_id = $2 OR owner_id IS NULL)',
+          'DELETE FROM project_templates WHERE id = $1 AND owner_id = $2',
           [id, userId],
         );
         if (result.rowCount === 0) throw AppError.notFound('ProjectTemplate');
@@ -359,7 +359,7 @@ export class ProjectTemplatesRepository {
              FROM project_template_steps pts
              JOIN project_templates pt ON pt.id = pts.template_id
              LEFT JOIN users u ON u.id = pts.assignee_id
-             WHERE pts.id = ? AND (pt.owner_id = ? OR pt.owner_id IS NULL)`,
+             WHERE pts.id = ? AND pt.owner_id = ?`,
           )
           .get(stepId, userId)
       : getDb()
@@ -409,7 +409,7 @@ export class ProjectTemplatesRepository {
                FROM project_template_steps pts
                JOIN project_templates pt ON pt.id = pts.template_id
                LEFT JOIN users u ON u.id = pts.assignee_id
-               WHERE pts.id = $1 AND (pt.owner_id = $2 OR pt.owner_id IS NULL)`,
+               WHERE pts.id = $1 AND pt.owner_id = $2`,
               [stepId, userId],
             )
           : await getPostgresPool().query<StepRow>(
@@ -453,7 +453,7 @@ export class ProjectTemplatesRepository {
           `SELECT pts.id
            FROM project_template_steps pts
            JOIN project_templates pt ON pt.id = pts.template_id
-           WHERE pts.id = ? AND (pt.owner_id = ? OR pt.owner_id IS NULL)`,
+           WHERE pts.id = ? AND pt.owner_id = ?`,
         )
         .get(stepId, userId) as { id: string } | undefined;
       if (!visible) throw AppError.notFound('ProjectTemplateStep');
@@ -469,7 +469,7 @@ export class ProjectTemplatesRepository {
           `SELECT pts.id
            FROM project_template_steps pts
            JOIN project_templates pt ON pt.id = pts.template_id
-           WHERE pts.id = $1 AND (pt.owner_id = $2 OR pt.owner_id IS NULL)`,
+           WHERE pts.id = $1 AND pt.owner_id = $2`,
           [stepId, userId],
         );
         if (visible.rows.length === 0) {

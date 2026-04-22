@@ -239,7 +239,7 @@ export class ProjectInstancesRepository {
       ? getDb()
           .prepare(
             `SELECT * FROM project_instances
-             WHERE owner_id = ? OR owner_id IS NULL
+             WHERE owner_id = ?
              ORDER BY created_at DESC`,
           )
           .all(userId)
@@ -255,7 +255,7 @@ export class ProjectInstancesRepository {
         userId != null
           ? await getPostgresPool().query<InstanceRow>(
               `SELECT * FROM project_instances
-               WHERE owner_id = $1 OR owner_id IS NULL
+               WHERE owner_id = $1
                ORDER BY created_at DESC`,
               [userId],
             )
@@ -276,7 +276,7 @@ export class ProjectInstancesRepository {
       ? getDb()
           .prepare(
             `SELECT * FROM project_instances
-             WHERE template_id = ? AND (owner_id = ? OR owner_id IS NULL)
+             WHERE template_id = ? AND owner_id = ?
              ORDER BY anchor_date DESC`,
           )
           .all(templateId, userId)
@@ -297,7 +297,7 @@ export class ProjectInstancesRepository {
         userId != null
           ? await getPostgresPool().query<InstanceRow>(
               `SELECT * FROM project_instances
-               WHERE template_id = $1 AND (owner_id = $2 OR owner_id IS NULL)
+               WHERE template_id = $1 AND owner_id = $2
                ORDER BY anchor_date DESC`,
               [templateId, userId],
             )
@@ -319,7 +319,7 @@ export class ProjectInstancesRepository {
       ? getDb()
           .prepare(
             `SELECT * FROM project_instances
-             WHERE id = ? AND (owner_id = ? OR owner_id IS NULL)`,
+             WHERE id = ? AND owner_id = ?`,
           )
           .get(id, userId)
       : getDb()
@@ -335,7 +335,7 @@ export class ProjectInstancesRepository {
         userId != null
           ? await getPostgresPool().query<InstanceRow>(
               `SELECT * FROM project_instances
-               WHERE id = $1 AND (owner_id = $2 OR owner_id IS NULL)`,
+               WHERE id = $1 AND owner_id = $2`,
               [id, userId],
             )
           : await getPostgresPool().query<InstanceRow>(
@@ -362,7 +362,7 @@ export class ProjectInstancesRepository {
              WHERE template_id = ?
                AND anchor_date = ?
                AND COALESCE(name, '') = COALESCE(?, '')
-               AND (owner_id = ? OR owner_id IS NULL)`,
+               AND owner_id = ?`,
           )
           .get(templateId, anchorDate, name ?? null, userId)
       : getDb()
@@ -389,7 +389,7 @@ export class ProjectInstancesRepository {
                WHERE template_id = $1
                  AND anchor_date = $2
                  AND COALESCE(name, '') = COALESCE($3, '')
-                 AND (owner_id = $4 OR owner_id IS NULL)`,
+                 AND owner_id = $4`,
               [templateId, anchorDate, name ?? null, userId],
             )
           : await getPostgresPool().query<InstanceRow>(
@@ -497,7 +497,7 @@ export class ProjectInstancesRepository {
              FROM project_instance_steps pis
              JOIN project_instances pi ON pi.id = pis.instance_id
              LEFT JOIN users u ON u.id = pis.assignee_id
-             WHERE pis.id = ? AND (pi.owner_id = ? OR pi.owner_id IS NULL)`,
+             WHERE pis.id = ? AND pi.owner_id = ?`,
           )
           .get(stepId, userId)
       : getDb()
@@ -549,7 +549,7 @@ export class ProjectInstancesRepository {
                FROM project_instance_steps pis
                JOIN project_instances pi ON pi.id = pis.instance_id
                LEFT JOIN users u ON u.id = pis.assignee_id
-               WHERE pis.id = $1 AND (pi.owner_id = $2 OR pi.owner_id IS NULL)`,
+               WHERE pis.id = $1 AND pi.owner_id = $2`,
               [stepId, userId],
             )
           : await getPostgresPool().query<InstanceStepRow>(
@@ -593,7 +593,7 @@ export class ProjectInstancesRepository {
     if (userId != null) {
       getDb()
         .prepare(
-          'DELETE FROM project_instances WHERE template_id = ? AND (owner_id = ? OR owner_id IS NULL)',
+          'DELETE FROM project_instances WHERE template_id = ? AND owner_id = ?',
         )
         .run(templateId, userId);
       return;
@@ -605,7 +605,7 @@ export class ProjectInstancesRepository {
     if (env.dbClient === 'postgres') {
       if (userId != null) {
         await getPostgresPool().query(
-          'DELETE FROM project_instances WHERE template_id = $1 AND (owner_id = $2 OR owner_id IS NULL)',
+          'DELETE FROM project_instances WHERE template_id = $1 AND owner_id = $2',
           [templateId, userId],
         );
         return;
@@ -624,7 +624,7 @@ export class ProjectInstancesRepository {
     const result = (userId != null
       ? getDb()
           .prepare(
-            'DELETE FROM project_instances WHERE id = ? AND (owner_id = ? OR owner_id IS NULL)',
+            'DELETE FROM project_instances WHERE id = ? AND owner_id = ?',
           )
           .run(instanceId, userId)
       : getDb().prepare('DELETE FROM project_instances WHERE id = ?').run(instanceId));
@@ -637,7 +637,7 @@ export class ProjectInstancesRepository {
       const result =
         userId != null
           ? await getPostgresPool().query(
-              'DELETE FROM project_instances WHERE id = $1 AND (owner_id = $2 OR owner_id IS NULL)',
+              'DELETE FROM project_instances WHERE id = $1 AND owner_id = $2',
               [instanceId, userId],
             )
           : await getPostgresPool().query(
