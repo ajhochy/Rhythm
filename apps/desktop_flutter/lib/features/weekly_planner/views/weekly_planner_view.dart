@@ -278,6 +278,11 @@ class _PlannerBody extends StatelessWidget {
   final WeeklyPlannerController controller;
   final bool showCompleted;
 
+  static const _wideLayout = 1480.0;
+  static const _sideDetailLayout = 1320.0;
+  static const _sideBacklogLayout = 1080.0;
+  static const _minimumWeekWidth = 980.0;
+
   @override
   Widget build(BuildContext context) {
     if (controller.status == WeeklyPlannerStatus.loading &&
@@ -317,39 +322,85 @@ class _PlannerBody extends StatelessWidget {
             )
         : null;
 
-    return Padding(
-      padding: const EdgeInsets.all(12),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          if (showBacklogPane) ...[
-            SizedBox(
-              width: 260,
-              child: _BacklogPane(
-                plan: plan,
-                controller: controller,
-                showCompleted: showCompleted,
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final width = constraints.maxWidth;
+        final useSideBacklog = showBacklogPane && width >= _sideBacklogLayout;
+        final detailBreakpoint =
+            showBacklogPane ? _wideLayout - 60 : _sideDetailLayout;
+        final useSideDetail = selectedTask != null && width >= detailBreakpoint;
+        final backlogWidth = width >= _wideLayout ? 292.0 : 232.0;
+        final detailWidth = width >= _wideLayout ? 340.0 : 300.0;
+        final weekMinimumWidth =
+            width >= _sideBacklogLayout ? 0.0 : _minimumWeekWidth;
+
+        final weekPane = _DayColumnsPane(
+          plan: plan,
+          controller: controller,
+          showCompleted: showCompleted,
+          minimumWidth: weekMinimumWidth,
+        );
+
+        final mainRow = Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (useSideBacklog) ...[
+              SizedBox(
+                width: backlogWidth,
+                child: _BacklogPane(
+                  plan: plan,
+                  controller: controller,
+                  showCompleted: showCompleted,
+                ),
               ),
-            ),
-            const SizedBox(width: 12),
+              const SizedBox(width: RhythmSpacing.sm),
+            ],
+            Expanded(child: weekPane),
+            if (useSideDetail) ...[
+              const SizedBox(width: RhythmSpacing.sm),
+              _DetailPane(
+                key: ValueKey(selectedTask.id),
+                task: selectedTask,
+                controller: controller,
+                width: detailWidth,
+              ),
+            ],
           ],
-          Expanded(
-            child: _DayColumnsPane(
-              plan: plan,
-              controller: controller,
-              showCompleted: showCompleted,
-            ),
+        );
+
+        return Padding(
+          padding: const EdgeInsets.all(RhythmSpacing.sm),
+          child: Column(
+            children: [
+              if (showBacklogPane && !useSideBacklog) ...[
+                SizedBox(
+                  height: 216,
+                  child: _BacklogPane(
+                    plan: plan,
+                    controller: controller,
+                    showCompleted: showCompleted,
+                    horizontal: true,
+                  ),
+                ),
+                const SizedBox(height: RhythmSpacing.sm),
+              ],
+              Expanded(child: mainRow),
+              if (selectedTask != null && !useSideDetail) ...[
+                const SizedBox(height: RhythmSpacing.sm),
+                SizedBox(
+                  height: width < _sideBacklogLayout ? 280 : 320,
+                  child: _DetailPane(
+                    key: ValueKey('bottom-${selectedTask.id}'),
+                    task: selectedTask,
+                    controller: controller,
+                    width: double.infinity,
+                  ),
+                ),
+              ],
+            ],
           ),
-          if (selectedTask != null) ...[
-            const SizedBox(width: 12),
-            _DetailPane(
-              key: ValueKey(selectedTask.id),
-              task: selectedTask,
-              controller: controller,
-            ),
-          ],
-        ],
-      ),
+        );
+      },
     );
   }
 }
@@ -363,10 +414,12 @@ class _BacklogPane extends StatelessWidget {
     required this.plan,
     required this.controller,
     required this.showCompleted,
+    this.horizontal = false,
   });
   final WeeklyPlan plan;
   final WeeklyPlannerController controller;
   final bool showCompleted;
+  final bool horizontal;
 
   @override
   Widget build(BuildContext context) {
@@ -431,78 +484,92 @@ class _BacklogPane extends StatelessWidget {
             ),
           ),
           Divider(height: 1, color: colors.borderSubtle),
-          Expanded(
-            child: Column(
-              children: [
-                Expanded(
-                  child: backlog.isEmpty
-                      ? Center(
-                          child: Padding(
-                            padding: const EdgeInsets.all(16),
-                            child: _EmptyWorkspaceState(
-                              icon: Icons.inbox_outlined,
-                              title: 'Nothing in backlog',
-                              message:
-                                  'Undated work lands here until you schedule it into the week.',
-                              actionLabel: 'Add task',
-                              onAction: () =>
-                                  _showAddBacklogTaskDialog(context),
-                            ),
-                          ),
-                        )
-                      : ListView.separated(
-                          padding: const EdgeInsets.fromLTRB(12, 4, 12, 12),
-                          itemCount: backlog.length,
-                          separatorBuilder: (_, __) =>
-                              const SizedBox(height: 6),
-                          itemBuilder: (context, i) => _TaskTile(
-                            task: backlog[i],
-                            controller: controller,
-                            draggable: true,
-                          ),
-                        ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-                  child: InkWell(
-                    borderRadius: BorderRadius.circular(RhythmRadius.sm),
-                    onTap: () => _showAddBacklogTaskDialog(context),
-                    child: Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 10,
-                      ),
-                      decoration: BoxDecoration(
-                        color: colors.surfaceRaised,
-                        borderRadius: BorderRadius.circular(RhythmRadius.sm),
-                        border: Border.all(color: colors.borderSubtle),
-                      ),
-                      child: Row(
-                        children: [
-                          Icon(Icons.add,
-                              size: 14, color: colors.textSecondary),
-                          const SizedBox(width: 6),
-                          Text(
-                            'Add unscheduled task',
-                            style: Theme.of(context)
-                                .textTheme
-                                .labelSmall
-                                ?.copyWith(
-                                  color: colors.textSecondary,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
+          Expanded(child: _backlogContent(context, backlog)),
         ],
       ),
+    );
+  }
+
+  Widget _backlogContent(BuildContext context, List<Task> backlog) {
+    if (backlog.isEmpty) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(RhythmSpacing.md),
+          child: _EmptyWorkspaceState(
+            icon: Icons.inbox_outlined,
+            title: 'Nothing in backlog',
+            message:
+                'Undated work lands here until you schedule it into the week.',
+            actionLabel: 'Add task',
+            onAction: () => _showAddBacklogTaskDialog(context),
+          ),
+        ),
+      );
+    }
+
+    if (horizontal) {
+      return ListView.separated(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.fromLTRB(
+          RhythmSpacing.sm,
+          RhythmSpacing.xs,
+          RhythmSpacing.sm,
+          RhythmSpacing.sm,
+        ),
+        itemCount: backlog.length + 1,
+        separatorBuilder: (_, __) => const SizedBox(width: RhythmSpacing.xs),
+        itemBuilder: (context, i) {
+          if (i == backlog.length) {
+            return SizedBox(
+              width: 210,
+              child: _AddBacklogTaskButton(
+                onTap: () => _showAddBacklogTaskDialog(context),
+              ),
+            );
+          }
+          return SizedBox(
+            width: 240,
+            child: _TaskTile(
+              task: backlog[i],
+              controller: controller,
+              draggable: true,
+            ),
+          );
+        },
+      );
+    }
+
+    return Column(
+      children: [
+        Expanded(
+          child: ListView.separated(
+            padding: const EdgeInsets.fromLTRB(
+              RhythmSpacing.sm,
+              RhythmSpacing.xxs,
+              RhythmSpacing.sm,
+              RhythmSpacing.sm,
+            ),
+            itemCount: backlog.length,
+            separatorBuilder: (_, __) => const SizedBox(height: 6),
+            itemBuilder: (context, i) => _TaskTile(
+              task: backlog[i],
+              controller: controller,
+              draggable: true,
+            ),
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(
+            RhythmSpacing.sm,
+            0,
+            RhythmSpacing.sm,
+            RhythmSpacing.sm,
+          ),
+          child: _AddBacklogTaskButton(
+            onTap: () => _showAddBacklogTaskDialog(context),
+          ),
+        ),
+      ],
     );
   }
 
@@ -578,6 +645,49 @@ class _BacklogPane extends StatelessWidget {
   }
 }
 
+class _AddBacklogTaskButton extends StatelessWidget {
+  const _AddBacklogTaskButton({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.rhythm;
+    return InkWell(
+      borderRadius: BorderRadius.circular(RhythmRadius.sm),
+      onTap: onTap,
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(
+          horizontal: RhythmSpacing.sm,
+          vertical: 10,
+        ),
+        decoration: BoxDecoration(
+          color: colors.surfaceRaised,
+          borderRadius: BorderRadius.circular(RhythmRadius.sm),
+          border: Border.all(color: colors.borderSubtle),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.add, size: 14, color: colors.textSecondary),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Text(
+                'Add unscheduled task',
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                      color: colors.textSecondary,
+                      fontWeight: FontWeight.w600,
+                    ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Day columns pane
 // ---------------------------------------------------------------------------
@@ -587,10 +697,12 @@ class _DayColumnsPane extends StatelessWidget {
     required this.plan,
     required this.controller,
     required this.showCompleted,
+    this.minimumWidth = 0,
   });
   final WeeklyPlan plan;
   final WeeklyPlannerController controller;
   final bool showCompleted;
+  final double minimumWidth;
 
   static const _dayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
@@ -650,21 +762,34 @@ class _DayColumnsPane extends StatelessWidget {
           ),
           Divider(height: 1, color: colors.borderSubtle),
           Expanded(
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: List.generate(plan.days.length, (i) {
-                final day = plan.days[i];
-                return Expanded(
-                  child: _DayColumn(
-                    dayName: _dayNames[i],
-                    date: day.date,
-                    tasks: plan.tasksForDate(day.date),
-                    controller: controller,
-                    showCompleted: showCompleted,
-                    isLast: i == plan.days.length - 1,
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                final contentWidth = constraints.maxWidth < minimumWidth
+                    ? minimumWidth
+                    : constraints.maxWidth;
+                return SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: SizedBox(
+                    width: contentWidth,
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: List.generate(plan.days.length, (i) {
+                        final day = plan.days[i];
+                        return Expanded(
+                          child: _DayColumn(
+                            dayName: _dayNames[i],
+                            date: day.date,
+                            tasks: plan.tasksForDate(day.date),
+                            controller: controller,
+                            showCompleted: showCompleted,
+                            isLast: i == plan.days.length - 1,
+                          ),
+                        );
+                      }),
+                    ),
                   ),
                 );
-              }),
+              },
             ),
           ),
         ],
@@ -1348,9 +1473,15 @@ String _sourceLabelForTask(Task task) {
 // ---------------------------------------------------------------------------
 
 class _DetailPane extends StatefulWidget {
-  const _DetailPane({super.key, required this.task, required this.controller});
+  const _DetailPane({
+    super.key,
+    required this.task,
+    required this.controller,
+    this.width = 320,
+  });
   final Task task;
   final WeeklyPlannerController controller;
+  final double width;
 
   @override
   State<_DetailPane> createState() => _DetailPaneState();
@@ -1479,7 +1610,7 @@ class _DetailPaneState extends State<_DetailPane> {
     final workspaceMembers = context.watch<WorkspaceController>().members;
     final colors = context.rhythm;
     return RhythmDetailPane(
-      width: 320,
+      width: widget.width,
       title: 'Task details',
       subtitle:
           isShadowEvent ? 'Read-only calendar context' : 'Notes and planning',
