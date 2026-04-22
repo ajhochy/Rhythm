@@ -106,7 +106,7 @@ class _TasksViewState extends State<TasksView> {
                 Expanded(
                   child: LayoutBuilder(
                     builder: (context, constraints) {
-                      final createBarStacks = constraints.maxWidth < 940;
+                      final createBarStacks = constraints.maxWidth < 1400;
                       return CustomScrollView(
                         slivers: [
                           SliverPersistentHeader(
