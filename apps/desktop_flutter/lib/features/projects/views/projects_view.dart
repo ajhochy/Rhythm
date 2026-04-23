@@ -491,25 +491,12 @@ class _TemplateList extends StatelessWidget {
     ProjectTemplateController controller,
     ProjectTemplate t,
   ) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Delete Template'),
-        content: Text('Delete "${t.name}"?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            style: FilledButton.styleFrom(
-              backgroundColor: Theme.of(context).colorScheme.error,
-            ),
-            child: const Text('Delete'),
-          ),
-        ],
-      ),
+    final confirmed = await RhythmDialog.confirm(
+      context,
+      title: 'Delete Template',
+      message: 'Delete "${t.name}"? All associated data will be removed.',
+      confirmLabel: 'Delete',
+      destructive: true,
     );
     if (confirmed == true) await controller.deleteTemplate(t.id);
   }
@@ -1592,25 +1579,12 @@ class _StepTile extends StatelessWidget {
   }
 
   Future<void> _confirmDeleteStep(BuildContext context) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Delete Step'),
-        content: Text('Delete step "${step.title}"?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            style: FilledButton.styleFrom(
-              backgroundColor: Theme.of(context).colorScheme.error,
-            ),
-            child: const Text('Delete'),
-          ),
-        ],
-      ),
+    final confirmed = await RhythmDialog.confirm(
+      context,
+      title: 'Delete Step',
+      message: 'Delete step "${step.title}"?',
+      confirmLabel: 'Delete',
+      destructive: true,
     );
     if (confirmed == true) await controller.deleteStep(template.id, step.id);
   }
