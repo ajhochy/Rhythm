@@ -8,6 +8,7 @@ import '../../../app/core/widgets/error_banner.dart';
 import '../../../app/core/workspace/workspace_controller.dart';
 import '../../../app/core/workspace/workspace_models.dart';
 import '../../../shared/widgets/collaborators_row.dart';
+import '../../../shared/widgets/rhythm_date_button.dart';
 import '../controllers/tasks_controller.dart';
 import '../data/collaborators_data_source.dart';
 import '../models/task.dart';
@@ -45,20 +46,6 @@ class _TasksViewState extends State<TasksView> {
     _titleController.dispose();
     _notesController.dispose();
     super.dispose();
-  }
-
-  Future<void> _pickDate() async {
-    final picked = await showDatePicker(
-      context: context,
-      initialDate: DateTime.now(),
-      firstDate: DateTime(2020),
-      lastDate: DateTime(2030),
-    );
-    if (picked != null) {
-      setState(
-        () => _selectedDueDate = picked.toIso8601String().substring(0, 10),
-      );
-    }
   }
 
   Future<void> _submitCreate() async {
@@ -791,13 +778,19 @@ class _TasksViewState extends State<TasksView> {
             minLines: 1,
             maxLines: 1,
           );
-          final dateButton = RhythmButton.outlined(
-            onPressed: _pickDate,
-            icon: Icons.calendar_today,
-            compact: true,
-            label: _selectedDueDate == null
-                ? 'Due date'
-                : DateFormatters.fullDate(_selectedDueDate),
+          final dateButton = RhythmDateButton(
+            date: _selectedDueDate,
+            placeholder: 'Due date',
+            onTap: () async {
+              final result = await pickRhythmDate(
+                context,
+                current: _selectedDueDate,
+              );
+              if (result != null) setState(() => _selectedDueDate = result);
+            },
+            onClear: _selectedDueDate != null
+                ? () => setState(() => _selectedDueDate = null)
+                : null,
           );
           final addButton = RhythmButton.filled(
             onPressed: _submitCreate,

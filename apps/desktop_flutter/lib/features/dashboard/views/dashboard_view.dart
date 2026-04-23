@@ -144,20 +144,6 @@ class _DashboardBodyState extends State<_DashboardBody> {
     super.dispose();
   }
 
-  Future<void> _pickDate() async {
-    final picked = await showDatePicker(
-      context: context,
-      initialDate: DateTime.now(),
-      firstDate: DateTime(2020),
-      lastDate: DateTime(2030),
-    );
-    if (picked != null) {
-      setState(
-        () => _selectedDueDate = picked.toIso8601String().substring(0, 10),
-      );
-    }
-  }
-
   Future<void> _submitTask() async {
     final title = _addTaskController.text.trim();
     if (title.isEmpty) return;
@@ -900,12 +886,19 @@ class _DashboardBodyState extends State<_DashboardBody> {
               onSubmitted: (_) => _submitTask(),
             );
 
-            final dueDateButton = RhythmButton.outlined(
-              onPressed: _pickDate,
-              icon: Icons.calendar_today_outlined,
-              label: _selectedDueDate == null
-                  ? 'Due date'
-                  : DateFormatters.fullDate(_selectedDueDate),
+            final dueDateButton = RhythmDateButton(
+              date: _selectedDueDate,
+              placeholder: 'Due date',
+              onTap: () async {
+                final result = await pickRhythmDate(
+                  context,
+                  current: _selectedDueDate,
+                );
+                if (result != null) setState(() => _selectedDueDate = result);
+              },
+              onClear: _selectedDueDate != null
+                  ? () => setState(() => _selectedDueDate = null)
+                  : null,
             );
 
             final addButton = RhythmButton.filled(
