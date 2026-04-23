@@ -3,6 +3,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../app/core/formatters/date_formatters.dart';
+import '../../../shared/widgets/rhythm_date_button.dart';
 import '../../../app/core/auth/auth_session_service.dart';
 import '../../../app/core/ui/rhythm_ui.dart';
 import '../../../app/core/workspace/workspace_controller.dart';
@@ -1176,18 +1177,8 @@ class _ProjectStepEditDialogState extends State<_ProjectStepEditDialog> {
   }
 
   Future<void> _pickDate() async {
-    final initial = _dueDate != null
-        ? DateTime.tryParse(_dueDate!) ?? DateTime.now()
-        : DateTime.now();
-    final picked = await showDatePicker(
-      context: context,
-      initialDate: initial,
-      firstDate: DateTime(2020),
-      lastDate: DateTime(2030),
-    );
-    if (picked != null) {
-      setState(() => _dueDate = picked.toIso8601String().substring(0, 10));
-    }
+    final result = await pickRhythmDate(context, current: _dueDate);
+    if (result != null) setState(() => _dueDate = result);
   }
 
   @override
@@ -1220,14 +1211,13 @@ class _ProjectStepEditDialogState extends State<_ProjectStepEditDialog> {
             const SizedBox(height: 12),
             Align(
               alignment: Alignment.centerLeft,
-              child: OutlinedButton.icon(
-                onPressed: _pickDate,
-                icon: const Icon(Icons.calendar_today, size: 16),
-                label: Text(
-                  _dueDate == null
-                      ? 'Set due date'
-                      : DateFormatters.fullDate(_dueDate),
-                ),
+              child: RhythmDateButton(
+                date: _dueDate,
+                placeholder: 'Set due date',
+                onTap: _pickDate,
+                onClear: _dueDate != null
+                    ? () => setState(() => _dueDate = null)
+                    : null,
               ),
             ),
           ],
