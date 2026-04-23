@@ -6,6 +6,7 @@ import '../../../app/core/formatters/date_formatters.dart';
 import '../../../app/core/widgets/error_banner.dart';
 import '../../../app/core/workspace/workspace_controller.dart';
 import '../../../app/core/workspace/workspace_models.dart';
+import '../../../app/core/ui/rhythm_dialog.dart';
 import '../../../app/core/ui/tokens/rhythm_theme.dart';
 import '../controllers/rhythms_controller.dart';
 import '../data/rhythms_data_source.dart';
@@ -502,27 +503,13 @@ class _RuleTileState extends State<_RuleTile> {
   }
 
   Future<void> _confirmDelete(BuildContext context) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Delete Rule'),
-        content: Text(
+    final confirmed = await RhythmDialog.confirm(
+      context,
+      title: 'Delete Rule',
+      message:
           'Delete "${widget.rule.title}"? This will not remove already-generated tasks.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            style: FilledButton.styleFrom(
-              backgroundColor: Theme.of(context).colorScheme.error,
-            ),
-            child: const Text('Delete'),
-          ),
-        ],
-      ),
+      confirmLabel: 'Delete',
+      destructive: true,
     );
     if (confirmed == true) widget.onDelete();
   }
@@ -673,22 +660,12 @@ class _RhythmCollaboratorsRow extends StatelessWidget {
     BuildContext context,
     RhythmCollaborator collaborator,
   ) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Remove collaborator'),
-        content: Text('Remove ${collaborator.name} from this rhythm?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Remove'),
-          ),
-        ],
-      ),
+    final confirmed = await RhythmDialog.confirm(
+      context,
+      title: 'Remove collaborator',
+      message: 'Remove ${collaborator.name} from this rhythm?',
+      confirmLabel: 'Remove',
+      destructive: false,
     );
     if (confirmed != true) return;
     await dataSource.removeCollaborator(rule.id, collaborator.userId);
