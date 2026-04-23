@@ -58,6 +58,8 @@ class TasksController extends ChangeNotifier {
     String? title,
     String? notes,
     String? dueDate,
+    bool includeNotes = false,
+    bool includeDueDate = false,
   }) async {
     try {
       final updated = await _repository.update(
@@ -65,6 +67,8 @@ class TasksController extends ChangeNotifier {
         title: title,
         notes: notes,
         dueDate: dueDate,
+        includeNotes: includeNotes,
+        includeDueDate: includeDueDate,
       );
       _tasks = _tasks.map((t) => t.id == id ? updated : t).toList();
       _status = TasksStatus.idle;

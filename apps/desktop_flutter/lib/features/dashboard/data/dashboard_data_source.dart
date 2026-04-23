@@ -100,6 +100,60 @@ class DashboardDataSource {
     return Task.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
   }
 
+  Future<Task> updateTask(
+    String id, {
+    String? title,
+    String? notes,
+    String? dueDate,
+    bool includeNotes = false,
+    bool includeDueDate = false,
+  }) async {
+    final response = await http.patch(
+      Uri.parse('$_baseUrl/tasks/$id'),
+      headers: AuthSessionStore.headers(json: true),
+      body: jsonEncode({
+        if (title != null) 'title': title,
+        if (includeNotes || notes != null) 'notes': notes,
+        if (includeDueDate || dueDate != null) 'dueDate': dueDate,
+      }),
+    );
+    assertOk(response);
+    return Task.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
+  }
+
+  Future<ProjectInstanceStep> updateProjectInstanceStepStatus(
+    String stepId,
+    String status,
+  ) async {
+    return updateProjectInstanceStep(stepId, status: status);
+  }
+
+  Future<ProjectInstanceStep> updateProjectInstanceStep(
+    String stepId, {
+    String? title,
+    String? dueDate,
+    String? status,
+    String? notes,
+    int? assigneeId,
+    bool includeNotes = false,
+  }) async {
+    final response = await http.patch(
+      Uri.parse('$_baseUrl/project-instances/steps/$stepId'),
+      headers: AuthSessionStore.headers(json: true),
+      body: jsonEncode({
+        if (title != null) 'title': title,
+        if (dueDate != null) 'dueDate': dueDate,
+        if (status != null) 'status': status,
+        if (includeNotes || notes != null) 'notes': notes,
+        if (assigneeId != null) 'assigneeId': assigneeId,
+      }),
+    );
+    assertOk(response);
+    return ProjectInstanceStep.fromJson(
+      jsonDecode(response.body) as Map<String, dynamic>,
+    );
+  }
+
   Future<List<Message>> getMessages(int threadId) async {
     final response = await http.get(
       Uri.parse('$_baseUrl/message-threads/$threadId/messages'),

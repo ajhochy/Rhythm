@@ -48,6 +48,8 @@ class TasksLocalDataSource {
     String? dueDate,
     String? status,
     int? ownerId,
+    bool includeNotes = false,
+    bool includeDueDate = false,
     bool includeOwnerId = false,
   }) async {
     final response = await http.patch(
@@ -55,8 +57,8 @@ class TasksLocalDataSource {
       headers: AuthSessionStore.headers(json: true),
       body: jsonEncode({
         if (title != null) 'title': title,
-        if (notes != null) 'notes': notes,
-        if (dueDate != null) 'dueDate': dueDate,
+        if (includeNotes || notes != null) 'notes': notes,
+        if (includeDueDate || dueDate != null) 'dueDate': dueDate,
         if (status != null) 'status': status,
         if (includeOwnerId) 'ownerId': ownerId,
       }),

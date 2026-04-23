@@ -28,6 +28,8 @@ class TasksRepository {
     String? dueDate,
     String? status,
     int? ownerId,
+    bool includeNotes = false,
+    bool includeDueDate = false,
     bool includeOwnerId = false,
   }) =>
       _dataSource.update(
@@ -37,6 +39,8 @@ class TasksRepository {
         dueDate: dueDate,
         status: status,
         ownerId: ownerId,
+        includeNotes: includeNotes,
+        includeDueDate: includeDueDate,
         includeOwnerId: includeOwnerId,
       );
 

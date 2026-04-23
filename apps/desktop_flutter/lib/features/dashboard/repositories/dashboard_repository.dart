@@ -31,6 +31,48 @@ class DashboardRepository {
   Future<Task> toggleTaskDone(String id, String currentStatus) =>
       _dataSource.toggleTaskDone(id, currentStatus);
 
+  Future<Task> updateTask(
+    String id, {
+    String? title,
+    String? notes,
+    String? dueDate,
+    bool includeNotes = false,
+    bool includeDueDate = false,
+  }) =>
+      _dataSource.updateTask(
+        id,
+        title: title,
+        notes: notes,
+        dueDate: dueDate,
+        includeNotes: includeNotes,
+        includeDueDate: includeDueDate,
+      );
+
+  Future<ProjectInstanceStep> updateProjectInstanceStepStatus(
+    String stepId,
+    String status,
+  ) =>
+      _dataSource.updateProjectInstanceStepStatus(stepId, status);
+
+  Future<ProjectInstanceStep> updateProjectInstanceStep(
+    String stepId, {
+    String? title,
+    String? dueDate,
+    String? status,
+    String? notes,
+    int? assigneeId,
+    bool includeNotes = false,
+  }) =>
+      _dataSource.updateProjectInstanceStep(
+        stepId,
+        title: title,
+        dueDate: dueDate,
+        status: status,
+        notes: notes,
+        assigneeId: assigneeId,
+        includeNotes: includeNotes,
+      );
+
   /// Builds unread message previews using an already-fetched [threads] list
   /// to avoid a redundant HTTP call to /message-threads.
   Future<List<DashboardUnreadMessagePreview>> getUnreadMessagePreviews({

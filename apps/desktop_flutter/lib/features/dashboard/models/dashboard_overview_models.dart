@@ -43,9 +43,10 @@ class DashboardProjectProgress implements DashboardProgressItem {
     required this.subtitle,
     required this.completedCount,
     required this.totalCount,
+    this.nextStep,
     this.nextStepTitle,
     this.nextDueDate,
-    this.onDeckStepTitles = const [],
+    this.onDeckSteps = const [],
     this.ownerId,
     this.collaboratorNames = const [],
   });
@@ -60,16 +61,39 @@ class DashboardProjectProgress implements DashboardProgressItem {
   final int completedCount;
   @override
   final int totalCount;
+  final DashboardProjectStepPreview? nextStep;
   final String? nextStepTitle;
   @override
   final String? nextDueDate;
-  final List<String> onDeckStepTitles;
+  final List<DashboardProjectStepPreview> onDeckSteps;
   final int? ownerId;
   final List<String> collaboratorNames;
 
   @override
   double get progress =>
       totalCount == 0 ? 0 : completedCount.clamp(0, totalCount) / totalCount;
+}
+
+class DashboardProjectStepPreview {
+  const DashboardProjectStepPreview({
+    required this.id,
+    required this.title,
+    required this.status,
+    required this.dueDate,
+    this.notes,
+    this.assigneeId,
+    this.assigneeName,
+  });
+
+  final String id;
+  final String title;
+  final String status;
+  final String dueDate;
+  final String? notes;
+  final int? assigneeId;
+  final String? assigneeName;
+
+  bool get isDone => status == 'done';
 }
 
 class DashboardUnreadMessagePreview {

@@ -11,5 +11,6 @@ export 'rhythm_panel.dart';
 export 'rhythm_search_field.dart';
 export 'rhythm_segmented_control.dart';
 export 'rhythm_surface.dart';
+export 'rhythm_task_edit_dialog.dart';
 export 'rhythm_toolbar.dart';
 export 'tokens/rhythm_theme.dart';

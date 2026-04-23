@@ -35,11 +35,31 @@ class FocusBusinessMetric {
     required this.label,
     required this.value,
     this.tone = RhythmBadgeTone.neutral,
+    this.onTap,
   });
 
   final String label;
   final String value;
   final RhythmBadgeTone tone;
+  final VoidCallback? onTap;
+}
+
+class FocusOnDeckItem {
+  const FocusOnDeckItem({
+    required this.title,
+    this.checked = false,
+    this.onChanged,
+    this.onTap,
+    this.avatarLabel,
+    this.avatarTone = RhythmBadgeTone.accent,
+  });
+
+  final String title;
+  final bool checked;
+  final ValueChanged<bool>? onChanged;
+  final VoidCallback? onTap;
+  final String? avatarLabel;
+  final RhythmBadgeTone avatarTone;
 }
 
 class FocusBusinessTaskListPanel extends StatelessWidget {
@@ -396,7 +416,7 @@ class FocusBusinessProjectProgress extends StatelessWidget {
   final double progress;
   final List<FocusBusinessMetric> metrics;
   final String descriptionTitle;
-  final List<String> descriptionItems;
+  final List<FocusOnDeckItem> descriptionItems;
   final List<FocusBusinessPill> pills;
   final List<FocusBusinessAvatar> managers;
   final List<FocusBusinessAvatar> team;
@@ -488,6 +508,8 @@ class FocusBusinessProjectProgress extends StatelessWidget {
 
   Widget _buildContent02(BuildContext context) {
     final colors = context.rhythm;
+    final accent =
+        pills.isEmpty ? colors.accent : _toneColor(colors, pills[0].tone);
     return Padding(
       padding: const EdgeInsets.all(RhythmSpacing.xs),
       child: Column(
@@ -537,39 +559,25 @@ class FocusBusinessProjectProgress extends StatelessWidget {
             ],
           ),
           const SizedBox(height: RhythmSpacing.lg),
-          Text(descriptionTitle, style: _FocusType.regularB(context)),
-          const SizedBox(height: 5),
           if (descriptionItems.isEmpty)
-            Text(
-              description,
-              maxLines: 4,
-              overflow: TextOverflow.ellipsis,
-              style: _FocusType.regular(context),
-            )
-          else
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                for (final item in descriptionItems)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 6),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('-', style: _FocusType.regular(context)),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            item,
-                            maxLines: 2,
-                            overflow: TextOverflow.ellipsis,
-                            style: _FocusType.regular(context),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
+                Text(descriptionTitle, style: _FocusType.regularB(context)),
+                const SizedBox(height: 5),
+                Text(
+                  description,
+                  maxLines: 4,
+                  overflow: TextOverflow.ellipsis,
+                  style: _FocusType.regular(context),
+                ),
               ],
+            )
+          else
+            _FocusOnDeckTable(
+              title: descriptionTitle,
+              items: descriptionItems,
+              accent: accent,
             ),
           if (showPeople) ...[
             const SizedBox(height: RhythmSpacing.lg),
@@ -603,6 +611,125 @@ class FocusBusinessProjectProgress extends StatelessWidget {
               },
             ),
           ],
+        ],
+      ),
+    );
+  }
+}
+
+class _FocusOnDeckTable extends StatelessWidget {
+  const _FocusOnDeckTable({
+    required this.title,
+    required this.items,
+    required this.accent,
+  });
+
+  final String title;
+  final List<FocusOnDeckItem> items;
+  final Color accent;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.rhythm;
+    return Container(
+      decoration: BoxDecoration(
+        color: colors.surface,
+        borderRadius: BorderRadius.circular(RhythmRadius.sm),
+        border: Border.all(color: colors.borderSubtle),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        children: [
+          Container(
+            color: accent.withValues(alpha: 0.16),
+            padding: const EdgeInsets.symmetric(
+              horizontal: RhythmSpacing.sm,
+              vertical: 7,
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    title,
+                    style: _FocusType.small(context).copyWith(
+                      color: accent,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          for (var index = 0; index < items.length; index++)
+            Container(
+              padding: const EdgeInsets.symmetric(
+                horizontal: RhythmSpacing.sm,
+                vertical: 8,
+              ),
+              decoration: BoxDecoration(
+                border: Border(
+                  top: BorderSide(color: colors.borderSubtle),
+                ),
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  SizedBox(
+                    width: 42,
+                    child: Transform.scale(
+                      scale: 0.85,
+                      alignment: Alignment.centerLeft,
+                      child: Checkbox(
+                        value: items[index].checked,
+                        onChanged: items[index].onChanged == null
+                            ? null
+                            : (value) =>
+                                items[index].onChanged!(value ?? false),
+                        side: BorderSide(
+                          color: colors.textMuted.withValues(alpha: 0.75),
+                          width: 1.6,
+                        ),
+                        activeColor: accent,
+                        checkColor: colors.canvas,
+                        visualDensity: VisualDensity.compact,
+                      ),
+                    ),
+                  ),
+                  Expanded(
+                    child: InkWell(
+                      onTap: items[index].onTap,
+                      borderRadius: BorderRadius.circular(RhythmRadius.xs),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 2),
+                        child: Text(
+                          items[index].title,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: _FocusType.regular(context).copyWith(
+                            color: items[index].checked
+                                ? colors.textMuted
+                                : colors.textPrimary,
+                            decoration: items[index].checked
+                                ? TextDecoration.lineThrough
+                                : TextDecoration.none,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  if (items[index].avatarLabel?.trim().isNotEmpty == true) ...[
+                    const SizedBox(width: RhythmSpacing.sm),
+                    _FocusAvatar(
+                      avatar: FocusBusinessAvatar(
+                        label: items[index].avatarLabel!.trim(),
+                        tone: items[index].avatarTone,
+                      ),
+                      size: 24,
+                    ),
+                  ],
+                ],
+              ),
+            ),
         ],
       ),
     );
@@ -703,7 +830,7 @@ class _FocusMetricBlock extends StatelessWidget {
     final colors = context.rhythm;
     final accent = _toneColor(colors, metric.tone);
     final useDetailStyle = metric.label == 'NEXT' || metric.label == 'TOMORROW';
-    return Padding(
+    final content = Padding(
       padding: const EdgeInsets.only(bottom: 0),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -726,6 +853,12 @@ class _FocusMetricBlock extends StatelessWidget {
           ),
         ],
       ),
+    );
+    if (metric.onTap == null) return content;
+    return InkWell(
+      onTap: metric.onTap,
+      borderRadius: BorderRadius.circular(RhythmRadius.xs),
+      child: content,
     );
   }
 }

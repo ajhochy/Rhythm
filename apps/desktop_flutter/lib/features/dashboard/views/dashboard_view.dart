@@ -9,6 +9,7 @@ import '../../../app/core/workspace/workspace_controller.dart';
 import '../../../app/core/workspace/workspace_models.dart';
 import '../../messages/controllers/messages_controller.dart';
 import '../controllers/dashboard_controller.dart';
+import '../../tasks/data/collaborators_data_source.dart';
 import '../../tasks/models/task.dart';
 import '../models/dashboard_overview_models.dart';
 
@@ -191,6 +192,7 @@ class _DashboardBodyState extends State<_DashboardBody> {
                       _buildHero(
                         context,
                         c,
+                        currentUserId: currentUserId,
                         workspaceMembers: workspaceMembers,
                       ),
                       const SizedBox(height: RhythmSpacing.lg),
@@ -259,6 +261,7 @@ class _DashboardBodyState extends State<_DashboardBody> {
   Widget _buildHero(
     BuildContext context,
     DashboardController c, {
+    required int? currentUserId,
     required List<WorkspaceMember> workspaceMembers,
   }) {
     final colors = context.rhythm;
@@ -273,6 +276,12 @@ class _DashboardBodyState extends State<_DashboardBody> {
             c.thisWeekTasks,
             DateTime.now().add(const Duration(days: 1)),
           );
+          final thisWeekOnDeckTasks = _onDeckAfterFirstTomorrow(
+            weekTasks: c.thisWeekTasks,
+            tomorrowTasks: tomorrowTasks,
+            currentUserId: currentUserId,
+            workspaceMembers: workspaceMembers,
+          );
 
           final todayCard = _buildTaskProgressPanel(
             panelTitle: 'TODAY',
@@ -286,8 +295,15 @@ class _DashboardBodyState extends State<_DashboardBody> {
             totalCount: c.todayTasksTotalCount,
             nextMetricLabel: 'NEXT',
             nextTaskTitle: _nextTaskTitle(c.todayTasks, 'Clear for today'),
+            onNextTap: c.todayTasks.isEmpty
+                ? null
+                : () => _showTaskEditDialog(c.todayTasks.first),
             onDeckTitle: 'On Deck',
-            onDeckTasks: _onDeckTaskTitles(c.todayTasks),
+            onDeckTasks: _onDeckTaskItems(
+              c.todayTasks,
+              currentUserId: currentUserId,
+              workspaceMembers: workspaceMembers,
+            ),
             onTap: widget.openWeeklyPlanner,
           );
 
@@ -303,8 +319,11 @@ class _DashboardBodyState extends State<_DashboardBody> {
             totalCount: c.thisWeekTasksTotalCount,
             nextMetricLabel: 'TOMORROW',
             nextTaskTitle: _nextTaskTitle(tomorrowTasks, 'Clear tomorrow'),
-            onDeckTitle: 'On Deck Tomorrow',
-            onDeckTasks: _onDeckTaskTitles(tomorrowTasks),
+            onNextTap: tomorrowTasks.isEmpty
+                ? null
+                : () => _showTaskEditDialog(tomorrowTasks.first),
+            onDeckTitle: 'On Deck This Week',
+            onDeckTasks: thisWeekOnDeckTasks,
             onTap: widget.openWeeklyPlanner,
           );
 
@@ -316,6 +335,7 @@ class _DashboardBodyState extends State<_DashboardBody> {
 
           final projectCards = _buildProjectMetricCards(
             c,
+            currentUserId: currentUserId,
             workspaceMembers: workspaceMembers,
           );
           final glanceCards = <Widget>[
@@ -458,6 +478,55 @@ class _DashboardBodyState extends State<_DashboardBody> {
     widget.openMessages();
   }
 
+  Future<void> _showTaskEditDialog(Task task) async {
+    final collaboratorsDataSource = CollaboratorsDataSource();
+    final result = await showRhythmTaskEditDialog(
+      context,
+      task: task,
+      workspaceMembers: context.read<WorkspaceController>().members,
+      onAddCollaborator: (userId) async {
+        final collaborators =
+            await collaboratorsDataSource.addToTask(task.id, userId);
+        await widget.controller.refresh();
+        return collaborators;
+      },
+      onRemoveCollaborator: (userId) async {
+        await collaboratorsDataSource.removeFromTask(task.id, userId);
+        final collaborators =
+            await collaboratorsDataSource.fetchForTask(task.id);
+        await widget.controller.refresh();
+        return collaborators;
+      },
+    );
+    if (result == null) return;
+    await widget.controller.updateTask(
+      task.id,
+      title: result.title,
+      notes: result.notes,
+      dueDate: result.dueDate,
+      includeNotes: true,
+      includeDueDate: true,
+    );
+  }
+
+  Future<void> _showProjectStepEditDialog(
+    DashboardProjectStepPreview step,
+  ) async {
+    final result = await showDialog<_ProjectStepEditResult>(
+      context: context,
+      builder: (_) => _ProjectStepEditDialog(step: step),
+    );
+    if (result == null) return;
+    await widget.controller.updateProjectStep(
+      step.id,
+      title: result.title,
+      dueDate: result.dueDate,
+      notes: result.notes,
+      assigneeId: step.assigneeId,
+      includeNotes: true,
+    );
+  }
+
   List<Task> _tasksForDate(List<Task> tasks, DateTime date) {
     final target = DateTime(date.year, date.month, date.day);
     return tasks.where((task) {
@@ -474,8 +543,82 @@ class _DashboardBodyState extends State<_DashboardBody> {
     return tasks.first.title;
   }
 
-  List<String> _onDeckTaskTitles(List<Task> tasks) {
-    return tasks.skip(1).take(3).map((task) => task.title).toList();
+  List<FocusOnDeckItem> _onDeckTaskItems(
+    List<Task> tasks, {
+    required int? currentUserId,
+    required List<WorkspaceMember> workspaceMembers,
+  }) {
+    return tasks
+        .skip(1)
+        .take(3)
+        .map(
+          (task) => _onDeckTaskItem(
+            task,
+            currentUserId: currentUserId,
+            workspaceMembers: workspaceMembers,
+          ),
+        )
+        .toList();
+  }
+
+  FocusOnDeckItem _onDeckTaskItem(
+    Task task, {
+    required int? currentUserId,
+    required List<WorkspaceMember> workspaceMembers,
+  }) {
+    return FocusOnDeckItem(
+      title: task.title,
+      checked: task.status == 'done',
+      onChanged: (_) => widget.controller.toggleTaskDone(task.id),
+      onTap: () => _showTaskEditDialog(task),
+      avatarLabel: _onDeckTaskPersonLabel(
+        task,
+        currentUserId,
+        workspaceMembers,
+      ),
+    );
+  }
+
+  List<FocusOnDeckItem> _onDeckAfterFirstTomorrow({
+    required List<Task> weekTasks,
+    required List<Task> tomorrowTasks,
+    required int? currentUserId,
+    required List<WorkspaceMember> workspaceMembers,
+  }) {
+    final excludedTaskId =
+        tomorrowTasks.isEmpty ? null : tomorrowTasks.first.id;
+    return weekTasks
+        .where((task) => task.id != excludedTaskId)
+        .take(3)
+        .map(
+          (task) => _onDeckTaskItem(
+            task,
+            currentUserId: currentUserId,
+            workspaceMembers: workspaceMembers,
+          ),
+        )
+        .toList();
+  }
+
+  String? _onDeckTaskPersonLabel(
+    Task task,
+    int? currentUserId,
+    List<WorkspaceMember> workspaceMembers,
+  ) {
+    for (final collaborator in task.collaborators) {
+      if (collaborator.userId == currentUserId) continue;
+      final name = collaborator.name.trim();
+      if (name.isNotEmpty) return name;
+      return _memberName(
+        collaborator.userId,
+        workspaceMembers,
+        fallbackLabel: 'User',
+      );
+    }
+    if (task.ownerId != null && task.ownerId != currentUserId) {
+      return _memberName(task.ownerId, workspaceMembers);
+    }
+    return null;
   }
 
   Widget _buildTaskProgressPanel({
@@ -488,8 +631,9 @@ class _DashboardBodyState extends State<_DashboardBody> {
     required int totalCount,
     required String nextMetricLabel,
     required String nextTaskTitle,
+    required VoidCallback? onNextTap,
     required String onDeckTitle,
-    required List<String> onDeckTasks,
+    required List<FocusOnDeckItem> onDeckTasks,
     required VoidCallback onTap,
   }) {
     final completed = (totalCount - remainingCount).clamp(0, totalCount);
@@ -515,6 +659,7 @@ class _DashboardBodyState extends State<_DashboardBody> {
         FocusBusinessMetric(
           label: nextMetricLabel,
           value: nextTaskTitle,
+          onTap: onNextTap,
         ),
         FocusBusinessMetric(
           label: 'PROGRESS',
@@ -542,8 +687,9 @@ class _DashboardBodyState extends State<_DashboardBody> {
 
   List<FocusBusinessMetric> _progressMetrics(
     DashboardProgressItem item,
-    RhythmBadgeTone tone,
-  ) {
+    RhythmBadgeTone tone, {
+    VoidCallback? onNextTap,
+  }) {
     final remaining =
         (item.totalCount - item.completedCount).clamp(0, item.totalCount);
     return [
@@ -556,7 +702,11 @@ class _DashboardBodyState extends State<_DashboardBody> {
         label: 'OPEN',
         value: '$remaining',
       ),
-      FocusBusinessMetric(label: 'NEXT', value: _nextProgressTitle(item)),
+      FocusBusinessMetric(
+        label: 'NEXT',
+        value: _nextProgressTitle(item),
+        onTap: onNextTap,
+      ),
       FocusBusinessMetric(
         label: 'PROGRESS',
         value: '${(item.progress.clamp(0, 1) * 100).round()}%',
@@ -584,8 +734,21 @@ class _DashboardBodyState extends State<_DashboardBody> {
     return _memberName(project.ownerId, workspaceMembers) ?? 'Project owner';
   }
 
+  String? _projectStepAvatarLabel(
+    DashboardProjectStepPreview step, {
+    required int? currentUserId,
+  }) {
+    if (step.assigneeId != null && step.assigneeId == currentUserId) {
+      return null;
+    }
+    final name = step.assigneeName?.trim();
+    if (name != null && name.isNotEmpty) return name;
+    return step.assigneeId == null ? null : 'User #${step.assigneeId}';
+  }
+
   List<Widget> _buildProjectMetricCards(
     DashboardController controller, {
+    required int? currentUserId,
     required List<WorkspaceMember> workspaceMembers,
   }) {
     final projects = controller.activeProjects;
@@ -598,16 +761,37 @@ class _DashboardBodyState extends State<_DashboardBody> {
         FocusBusinessProjectProgress(
           panelTitle: index == 0 ? 'URGENT PROJECT' : 'NEXT PROJECT',
           title: visibleProjects[index].title,
-          description: visibleProjects[index].onDeckStepTitles.isEmpty
+          description: visibleProjects[index].onDeckSteps.isEmpty
               ? 'No other open tasks queued.'
               : visibleProjects[index].subtitle,
           descriptionTitle: 'On Deck',
-          descriptionItems: visibleProjects[index].onDeckStepTitles,
+          descriptionItems: [
+            for (final step in visibleProjects[index].onDeckSteps)
+              FocusOnDeckItem(
+                title: step.title,
+                checked: step.isDone,
+                onChanged: (_) => controller.toggleProjectStepDone(
+                  step.id,
+                  step.isDone,
+                ),
+                onTap: () => _showProjectStepEditDialog(step),
+                avatarLabel: _projectStepAvatarLabel(
+                  step,
+                  currentUserId: currentUserId,
+                ),
+                avatarTone: RhythmBadgeTone.warning,
+              ),
+          ],
           progress: visibleProjects[index].progress,
           icon: Icons.folder_open_outlined,
           metrics: _progressMetrics(
             visibleProjects[index],
             RhythmBadgeTone.warning,
+            onNextTap: visibleProjects[index].nextStep == null
+                ? null
+                : () => _showProjectStepEditDialog(
+                      visibleProjects[index].nextStep!,
+                    ),
           ),
           pills: [
             FocusBusinessPill(
@@ -915,6 +1099,133 @@ class _ProgressDialCard extends StatelessWidget {
             ],
           );
         },
+      ),
+    );
+  }
+}
+
+class _ProjectStepEditResult {
+  const _ProjectStepEditResult({
+    required this.title,
+    required this.dueDate,
+    this.notes,
+  });
+
+  final String title;
+  final String dueDate;
+  final String? notes;
+}
+
+class _ProjectStepEditDialog extends StatefulWidget {
+  const _ProjectStepEditDialog({required this.step});
+
+  final DashboardProjectStepPreview step;
+
+  @override
+  State<_ProjectStepEditDialog> createState() => _ProjectStepEditDialogState();
+}
+
+class _ProjectStepEditDialogState extends State<_ProjectStepEditDialog> {
+  late final TextEditingController _titleController;
+  late final TextEditingController _notesController;
+  String? _dueDate;
+
+  @override
+  void initState() {
+    super.initState();
+    _titleController = TextEditingController(text: widget.step.title);
+    _notesController = TextEditingController(text: widget.step.notes ?? '');
+    _dueDate = widget.step.dueDate;
+  }
+
+  @override
+  void dispose() {
+    _titleController.dispose();
+    _notesController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _pickDate() async {
+    final initial = _dueDate != null
+        ? DateTime.tryParse(_dueDate!) ?? DateTime.now()
+        : DateTime.now();
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: initial,
+      firstDate: DateTime(2020),
+      lastDate: DateTime(2030),
+    );
+    if (picked != null) {
+      setState(() => _dueDate = picked.toIso8601String().substring(0, 10));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Edit Project Step'),
+      content: SizedBox(
+        width: 420,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: _titleController,
+              decoration: const InputDecoration(
+                labelText: 'Title',
+                border: OutlineInputBorder(),
+              ),
+              autofocus: true,
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              controller: _notesController,
+              decoration: const InputDecoration(
+                labelText: 'Notes',
+                border: OutlineInputBorder(),
+              ),
+              minLines: 2,
+              maxLines: 5,
+            ),
+            const SizedBox(height: 12),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: OutlinedButton.icon(
+                onPressed: _pickDate,
+                icon: const Icon(Icons.calendar_today, size: 16),
+                label: Text(
+                  _dueDate == null
+                      ? 'Set due date'
+                      : DateFormatters.fullDate(_dueDate),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: _save,
+          child: const Text('Save'),
+        ),
+      ],
+    );
+  }
+
+  void _save() {
+    final title = _titleController.text.trim();
+    if (title.isEmpty || _dueDate == null) return;
+    final notes = _notesController.text.trim();
+    Navigator.pop(
+      context,
+      _ProjectStepEditResult(
+        title: title,
+        dueDate: _dueDate!,
+        notes: notes.isEmpty ? null : notes,
       ),
     );
   }

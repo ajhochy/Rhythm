@@ -79,16 +79,17 @@ export class ProjectGenerationController {
 
       // Notify on step completion
       if (status === 'done' && actorId != null) {
-        const collaborators = await instanceRepo.listCollaboratorsAsync(req.params.id);
+        const instanceId = step.instanceId;
+        const collaborators = await instanceRepo.listCollaboratorsAsync(instanceId);
         const collaboratorIds = collaborators.map((c) => c.userId);
-        const instance = await instanceRepo.findByIdAsync(req.params.id, actorId);
+        const instance = await instanceRepo.findByIdAsync(instanceId, actorId);
         if (instance.ownerId != null && !collaboratorIds.includes(instance.ownerId)) {
           collaboratorIds.push(instance.ownerId);
         }
         if (collaboratorIds.length > 0) {
           await notifService.notifyStepCompletedAsync(
             'project',
-            req.params.id,
+            instanceId,
             instance.name ?? 'Project',
             step.title,
             collaboratorIds,

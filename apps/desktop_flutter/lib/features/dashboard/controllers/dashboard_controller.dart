@@ -158,6 +158,69 @@ class DashboardController extends ChangeNotifier {
     }
   }
 
+  Future<void> updateTask(
+    String id, {
+    String? title,
+    String? notes,
+    String? dueDate,
+    bool includeNotes = false,
+    bool includeDueDate = false,
+  }) async {
+    try {
+      await _repository.updateTask(
+        id,
+        title: title,
+        notes: notes,
+        dueDate: dueDate,
+        includeNotes: includeNotes,
+        includeDueDate: includeDueDate,
+      );
+      await refresh();
+    } catch (e) {
+      _errorMessage = e.toString();
+      notifyListeners();
+    }
+  }
+
+  Future<void> toggleProjectStepDone(String stepId, bool currentlyDone) async {
+    try {
+      await _repository.updateProjectInstanceStepStatus(
+        stepId,
+        currentlyDone ? 'open' : 'done',
+      );
+      await refresh();
+    } catch (e) {
+      _errorMessage = e.toString();
+      notifyListeners();
+    }
+  }
+
+  Future<void> updateProjectStep(
+    String stepId, {
+    String? title,
+    String? dueDate,
+    String? status,
+    String? notes,
+    int? assigneeId,
+    bool includeNotes = false,
+  }) async {
+    try {
+      await _repository.updateProjectInstanceStep(
+        stepId,
+        title: title,
+        dueDate: dueDate,
+        status: status,
+        notes: notes,
+        assigneeId: assigneeId,
+        includeNotes: includeNotes,
+      );
+      await refresh();
+    } catch (e) {
+      _errorMessage = e.toString();
+      notifyListeners();
+    }
+  }
+
   List<DashboardRhythmProgress> _buildRhythmSummaries(
     List<Task> tasks,
     List<RecurringTaskRule> rules,
@@ -215,6 +278,17 @@ class DashboardController extends ChangeNotifier {
           .toList();
       final openSteps =
           sortedSteps.where((step) => step.status != 'done').toList();
+      final nextStep = openSteps.isEmpty
+          ? null
+          : DashboardProjectStepPreview(
+              id: openSteps.first.id,
+              title: openSteps.first.title,
+              status: openSteps.first.status,
+              dueDate: openSteps.first.dueDate,
+              notes: openSteps.first.notes,
+              assigneeId: openSteps.first.assigneeId,
+              assigneeName: openSteps.first.assigneeName,
+            );
       summaries.add(
         DashboardProjectProgress(
           id: instance.id,
@@ -223,10 +297,24 @@ class DashboardController extends ChangeNotifier {
               '$completed of ${sortedSteps.length} step${sortedSteps.length == 1 ? '' : 's'} complete',
           completedCount: completed,
           totalCount: sortedSteps.length,
+          nextStep: nextStep,
           nextStepTitle: openSteps.isEmpty ? null : openSteps.first.title,
           nextDueDate: nextDueDates.isEmpty ? null : nextDueDates.first,
-          onDeckStepTitles:
-              openSteps.skip(1).take(3).map((step) => step.title).toList(),
+          onDeckSteps: openSteps
+              .skip(1)
+              .take(3)
+              .map(
+                (step) => DashboardProjectStepPreview(
+                  id: step.id,
+                  title: step.title,
+                  status: step.status,
+                  dueDate: step.dueDate,
+                  notes: step.notes,
+                  assigneeId: step.assigneeId,
+                  assigneeName: step.assigneeName,
+                ),
+              )
+              .toList(),
           ownerId: instance.ownerId,
           collaboratorNames: instance.collaborators
               .map((collaborator) => collaborator.name.trim())

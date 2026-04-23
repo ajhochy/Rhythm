@@ -749,9 +749,33 @@ class _TasksViewState extends State<TasksView> {
   }
 
   Future<void> _showEditDialog(Task task, TasksController controller) async {
-    await showDialog<void>(
-      context: context,
-      builder: (_) => _EditTaskDialog(task: task, controller: controller),
+    final collaboratorsDataSource = CollaboratorsDataSource();
+    final result = await showRhythmTaskEditDialog(
+      context,
+      task: task,
+      workspaceMembers: context.read<WorkspaceController>().members,
+      onAddCollaborator: (userId) async {
+        final collaborators =
+            await collaboratorsDataSource.addToTask(task.id, userId);
+        await controller.load();
+        return collaborators;
+      },
+      onRemoveCollaborator: (userId) async {
+        await collaboratorsDataSource.removeFromTask(task.id, userId);
+        final collaborators =
+            await collaboratorsDataSource.fetchForTask(task.id);
+        await controller.load();
+        return collaborators;
+      },
+    );
+    if (result == null) return;
+    await controller.updateTask(
+      task.id,
+      title: result.title,
+      notes: result.notes,
+      dueDate: result.dueDate,
+      includeNotes: true,
+      includeDueDate: true,
     );
   }
 
@@ -992,134 +1016,4 @@ class _StickyBarDelegate extends SliverPersistentHeaderDelegate {
   @override
   bool shouldRebuild(covariant _StickyBarDelegate oldDelegate) =>
       oldDelegate.height != height || oldDelegate.child != child;
-}
-
-class _EditTaskDialog extends StatefulWidget {
-  const _EditTaskDialog({required this.task, required this.controller});
-  final Task task;
-  final TasksController controller;
-
-  @override
-  State<_EditTaskDialog> createState() => _EditTaskDialogState();
-}
-
-class _EditTaskDialogState extends State<_EditTaskDialog> {
-  late final TextEditingController _titleController;
-  late final TextEditingController _notesController;
-  String? _dueDate;
-  bool _saving = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _titleController = TextEditingController(text: widget.task.title);
-    _notesController = TextEditingController(text: widget.task.notes ?? '');
-    _dueDate = widget.task.dueDate;
-  }
-
-  @override
-  void dispose() {
-    _titleController.dispose();
-    _notesController.dispose();
-    super.dispose();
-  }
-
-  Future<void> _pickDate() async {
-    final initial = _dueDate != null
-        ? DateTime.tryParse(_dueDate!) ?? DateTime.now()
-        : DateTime.now();
-    final picked = await showDatePicker(
-      context: context,
-      initialDate: initial,
-      firstDate: DateTime(2020),
-      lastDate: DateTime(2030),
-    );
-    if (picked != null) {
-      setState(() => _dueDate = picked.toIso8601String().substring(0, 10));
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      title: const Text('Edit Task'),
-      content: SizedBox(
-        width: 400,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: _titleController,
-              decoration: const InputDecoration(
-                labelText: 'Title',
-                border: OutlineInputBorder(),
-              ),
-              autofocus: true,
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _notesController,
-              decoration: const InputDecoration(
-                labelText: 'Notes (optional)',
-                border: OutlineInputBorder(),
-              ),
-              minLines: 2,
-              maxLines: 5,
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                OutlinedButton.icon(
-                  onPressed: _pickDate,
-                  icon: const Icon(Icons.calendar_today, size: 16),
-                  label: Text(
-                    _dueDate == null
-                        ? 'Set due date'
-                        : DateFormatters.fullDate(_dueDate),
-                  ),
-                ),
-                if (_dueDate != null) ...[
-                  const SizedBox(width: 8),
-                  TextButton(
-                    onPressed: () => setState(() => _dueDate = null),
-                    child: const Text('Clear'),
-                  ),
-                ],
-              ],
-            ),
-          ],
-        ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: _saving ? null : () => Navigator.pop(context),
-          child: const Text('Cancel'),
-        ),
-        FilledButton(
-          onPressed: _saving ? null : _save,
-          child: _saving
-              ? const SizedBox(
-                  width: 16,
-                  height: 16,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              : const Text('Save'),
-        ),
-      ],
-    );
-  }
-
-  Future<void> _save() async {
-    final title = _titleController.text.trim();
-    if (title.isEmpty) return;
-    setState(() => _saving = true);
-    final notes = _notesController.text.trim();
-    await widget.controller.updateTask(
-      widget.task.id,
-      title: title,
-      notes: notes.isEmpty ? null : notes,
-      dueDate: _dueDate,
-    );
-    if (mounted) Navigator.pop(context);
-  }
 }
