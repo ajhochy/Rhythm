@@ -13,6 +13,7 @@ class RhythmButton extends StatelessWidget {
     this.tooltip,
     this.variant = RhythmButtonVariant.filled,
     this.compact = false,
+    this.danger = false,
   });
 
   final VoidCallback? onPressed;
@@ -21,6 +22,7 @@ class RhythmButton extends StatelessWidget {
   final String? tooltip;
   final RhythmButtonVariant variant;
   final bool compact;
+  final bool danger;
 
   const RhythmButton.filled({
     super.key,
@@ -29,6 +31,7 @@ class RhythmButton extends StatelessWidget {
     this.icon,
     this.tooltip,
     this.compact = false,
+    this.danger = false,
   }) : variant = RhythmButtonVariant.filled;
 
   const RhythmButton.outlined({
@@ -38,7 +41,8 @@ class RhythmButton extends StatelessWidget {
     this.icon,
     this.tooltip,
     this.compact = false,
-  }) : variant = RhythmButtonVariant.outlined;
+  })  : variant = RhythmButtonVariant.outlined,
+        danger = false;
 
   const RhythmButton.quiet({
     super.key,
@@ -47,7 +51,8 @@ class RhythmButton extends StatelessWidget {
     this.icon,
     this.tooltip,
     this.compact = false,
-  }) : variant = RhythmButtonVariant.quiet;
+  })  : variant = RhythmButtonVariant.quiet,
+        danger = false;
 
   const RhythmButton.icon({
     super.key,
@@ -56,7 +61,8 @@ class RhythmButton extends StatelessWidget {
     required this.tooltip,
     this.compact = false,
   })  : label = null,
-        variant = RhythmButtonVariant.icon;
+        variant = RhythmButtonVariant.icon,
+        danger = false;
 
   @override
   Widget build(BuildContext context) {
@@ -99,7 +105,7 @@ class RhythmButton extends StatelessWidget {
     final style = switch (variant) {
       RhythmButtonVariant.filled => FilledButton.styleFrom(
           minimumSize: minimumSize,
-          backgroundColor: colors.accent,
+          backgroundColor: danger ? colors.danger : colors.accent,
           foregroundColor: Colors.white,
           disabledBackgroundColor: colors.surfaceMuted,
           disabledForegroundColor: colors.textMuted,

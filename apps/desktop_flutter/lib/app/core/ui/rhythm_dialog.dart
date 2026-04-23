@@ -10,6 +10,7 @@ class RhythmDialog extends StatelessWidget {
     required this.child,
     this.actions = const [],
     this.icon,
+    this.iconColor,
     this.width = 460,
   });
 
@@ -17,6 +18,7 @@ class RhythmDialog extends StatelessWidget {
   final Widget child;
   final List<Widget> actions;
   final IconData? icon;
+  final Color? iconColor;
   final double width;
 
   static Future<bool?> confirm(
@@ -27,11 +29,13 @@ class RhythmDialog extends StatelessWidget {
     String cancelLabel = 'Cancel',
     bool destructive = false,
   }) {
+    final colors = context.rhythm;
     return showDialog<bool>(
       context: context,
       builder: (context) => RhythmDialog(
         title: title,
         icon: destructive ? Icons.warning_amber : Icons.help_outline,
+        iconColor: destructive ? colors.danger : null,
         actions: [
           RhythmButton.quiet(
             onPressed: () => Navigator.of(context).pop(false),
@@ -42,6 +46,7 @@ class RhythmDialog extends StatelessWidget {
             onPressed: () => Navigator.of(context).pop(true),
             label: confirmLabel,
             compact: true,
+            danger: destructive,
           ),
         ],
         child: Text(message),
@@ -70,7 +75,7 @@ class RhythmDialog extends StatelessWidget {
               Row(
                 children: [
                   if (icon != null) ...[
-                    Icon(icon, size: 20, color: colors.accent),
+                    Icon(icon, size: 20, color: iconColor ?? colors.accent),
                     const SizedBox(width: RhythmSpacing.sm),
                   ],
                   Expanded(
