@@ -26,10 +26,12 @@ class TasksRepository {
     String? title,
     String? notes,
     String? dueDate,
+    String? scheduledDate,
     String? status,
     int? ownerId,
     bool includeNotes = false,
     bool includeDueDate = false,
+    bool includeScheduledDate = false,
     bool includeOwnerId = false,
   }) =>
       _dataSource.update(
@@ -37,10 +39,12 @@ class TasksRepository {
         title: title,
         notes: notes,
         dueDate: dueDate,
+        scheduledDate: scheduledDate,
         status: status,
         ownerId: ownerId,
         includeNotes: includeNotes,
         includeDueDate: includeDueDate,
+        includeScheduledDate: includeScheduledDate,
         includeOwnerId: includeOwnerId,
       );
 

@@ -36,16 +36,20 @@ class DashboardRepository {
     String? title,
     String? notes,
     String? dueDate,
+    String? scheduledDate,
     bool includeNotes = false,
     bool includeDueDate = false,
+    bool includeScheduledDate = false,
   }) =>
       _dataSource.updateTask(
         id,
         title: title,
         notes: notes,
         dueDate: dueDate,
+        scheduledDate: scheduledDate,
         includeNotes: includeNotes,
         includeDueDate: includeDueDate,
+        includeScheduledDate: includeScheduledDate,
       );
 
   Future<ProjectInstanceStep> updateProjectInstanceStepStatus(

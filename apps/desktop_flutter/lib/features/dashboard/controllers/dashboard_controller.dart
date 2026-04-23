@@ -163,8 +163,10 @@ class DashboardController extends ChangeNotifier {
     String? title,
     String? notes,
     String? dueDate,
+    String? scheduledDate,
     bool includeNotes = false,
     bool includeDueDate = false,
+    bool includeScheduledDate = false,
   }) async {
     try {
       await _repository.updateTask(
@@ -172,8 +174,10 @@ class DashboardController extends ChangeNotifier {
         title: title,
         notes: notes,
         dueDate: dueDate,
+        scheduledDate: scheduledDate,
         includeNotes: includeNotes,
         includeDueDate: includeDueDate,
+        includeScheduledDate: includeScheduledDate,
       );
       await refresh();
     } catch (e) {
@@ -397,10 +401,14 @@ class DashboardController extends ChangeNotifier {
     final bDate = _taskPriorityDate(b) ?? DateTime(9999);
     final dateCompare = aDate.compareTo(bDate);
     if (dateCompare != 0) return dateCompare;
-    final aUpdated = DateTime.tryParse(a.updatedAt) ?? DateTime(9999);
-    final bUpdated = DateTime.tryParse(b.updatedAt) ?? DateTime(9999);
-    final updatedCompare = aUpdated.compareTo(bUpdated);
-    if (updatedCompare != 0) return updatedCompare;
+    final orderCompare = (a.scheduledOrder ?? 10000000).compareTo(
+      b.scheduledOrder ?? 10000000,
+    );
+    if (orderCompare != 0) return orderCompare;
+    final aCreated = DateTime.tryParse(a.createdAt) ?? DateTime(9999);
+    final bCreated = DateTime.tryParse(b.createdAt) ?? DateTime(9999);
+    final createdCompare = aCreated.compareTo(bCreated);
+    if (createdCompare != 0) return createdCompare;
     return a.id.compareTo(b.id);
   }
 

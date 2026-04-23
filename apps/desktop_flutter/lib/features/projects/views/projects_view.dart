@@ -12,7 +12,9 @@ import '../models/project_template.dart';
 import '../models/project_template_step.dart';
 import '../services/project_generation_service.dart';
 import '../../../app/core/services/server_config_service.dart';
+import '../../../app/core/ui/rhythm_ui.dart';
 import '../../../app/core/workspace/workspace_controller.dart';
+import '../../../app/core/workspace/workspace_models.dart';
 import '../../../shared/widgets/collaborators_row.dart';
 import '../../../shared/widgets/workspace_member_picker.dart';
 import '../../tasks/data/collaborators_data_source.dart';
@@ -169,6 +171,7 @@ class _ProjectsViewState extends State<ProjectsView> {
                         error: _activeInstancesError,
                         onRefresh: _loadActiveInstances,
                         onUpdateStep: _updateActiveProjectStep,
+                        onInspectStep: _inspectActiveProjectStep,
                         onDeleteInstance: _deleteActiveProjectInstance,
                         templateNames: templateNames,
                       )
@@ -268,6 +271,33 @@ class _ProjectsViewState extends State<ProjectsView> {
         await _loadActiveInstances();
       }
     } catch (_) {}
+  }
+
+  Future<void> _inspectActiveProjectStep(
+    ProjectInstance instance,
+    ProjectInstanceStep step,
+  ) async {
+    final title = instance.name?.trim().isNotEmpty == true
+        ? instance.name!
+        : 'Project on ${DateFormatters.fullDate(instance.anchorDate, fallback: instance.anchorDate)}';
+    await showRhythmProjectStepInspector(
+      context,
+      step: step,
+      projectTitle: title,
+      projectOwnerLabel: _ownerName(
+        instance.ownerId,
+        context.read<WorkspaceController>().members,
+      ),
+      projectCollaborators: instance.collaborators,
+      workspaceMembers: context.read<WorkspaceController>().members,
+      onSaveDetails: (request) => _updateActiveProjectStep(
+        step,
+        title: request.title,
+        dueDate: request.dueDate,
+        notes: request.notes,
+        assigneeId: request.assigneeId,
+      ),
+    );
   }
 
   Future<void> _deleteActiveProjectInstance(String instanceId) async {
@@ -589,6 +619,33 @@ class _TemplateDetailState extends State<_TemplateDetail>
     } catch (_) {}
   }
 
+  Future<void> _inspectInstanceStep(
+    ProjectInstance instance,
+    ProjectInstanceStep step,
+  ) async {
+    final title = instance.name?.trim().isNotEmpty == true
+        ? instance.name!
+        : 'Project on ${DateFormatters.fullDate(instance.anchorDate, fallback: instance.anchorDate)}';
+    await showRhythmProjectStepInspector(
+      context,
+      step: step,
+      projectTitle: title,
+      projectOwnerLabel: _ownerName(
+        instance.ownerId,
+        context.read<WorkspaceController>().members,
+      ),
+      projectCollaborators: instance.collaborators,
+      workspaceMembers: context.read<WorkspaceController>().members,
+      onSaveDetails: (request) => _updateStep(
+        step,
+        title: request.title,
+        dueDate: request.dueDate,
+        notes: request.notes,
+        assigneeId: request.assigneeId,
+      ),
+    );
+  }
+
   Future<void> _deleteInstance(String instanceId) async {
     try {
       final response = await http.delete(
@@ -767,6 +824,7 @@ class _TemplateDetailState extends State<_TemplateDetail>
                   error: _instancesError,
                   onRefresh: _loadInstances,
                   onUpdateStep: _updateStep,
+                  onInspectStep: _inspectInstanceStep,
                   onDeleteInstance: _deleteInstance,
                 ),
               ],
@@ -911,6 +969,7 @@ class _InstancesPanel extends StatelessWidget {
     required this.error,
     required this.onRefresh,
     required this.onUpdateStep,
+    required this.onInspectStep,
     required this.onDeleteInstance,
     this.templateNames = const {},
   });
@@ -926,6 +985,10 @@ class _InstancesPanel extends StatelessWidget {
     String? notes,
     int? assigneeId,
   }) onUpdateStep;
+  final Future<void> Function(
+    ProjectInstance instance,
+    ProjectInstanceStep step,
+  ) onInspectStep;
   final Future<void> Function(String instanceId) onDeleteInstance;
   final Map<String, String> templateNames;
 
@@ -968,6 +1031,7 @@ class _InstancesPanel extends StatelessWidget {
         instances: instances,
         onRefresh: onRefresh,
         onUpdateStep: onUpdateStep,
+        onInspectStep: onInspectStep,
         onDeleteInstance: onDeleteInstance,
         templateNames: templateNames,
       ),
@@ -980,6 +1044,7 @@ class _InstancesList extends StatefulWidget {
     required this.instances,
     required this.onRefresh,
     required this.onUpdateStep,
+    required this.onInspectStep,
     required this.onDeleteInstance,
     this.templateNames = const {},
   });
@@ -993,6 +1058,10 @@ class _InstancesList extends StatefulWidget {
     String? notes,
     int? assigneeId,
   }) onUpdateStep;
+  final Future<void> Function(
+    ProjectInstance instance,
+    ProjectInstanceStep step,
+  ) onInspectStep;
   final Future<void> Function(String instanceId) onDeleteInstance;
   final Map<String, String> templateNames;
 
@@ -1060,6 +1129,7 @@ class _InstancesListState extends State<_InstancesList> {
                     instance: visibleInstances[i],
                     onRefresh: widget.onRefresh,
                     onUpdateStep: widget.onUpdateStep,
+                    onInspectStep: widget.onInspectStep,
                     onDeleteInstance: widget.onDeleteInstance,
                     showCompleted: _showCompleted,
                     templateName:
@@ -1077,6 +1147,7 @@ class _InstanceCard extends StatelessWidget {
     required this.instance,
     required this.onRefresh,
     required this.onUpdateStep,
+    required this.onInspectStep,
     required this.onDeleteInstance,
     required this.showCompleted,
     this.templateName,
@@ -1091,6 +1162,10 @@ class _InstanceCard extends StatelessWidget {
     String? notes,
     int? assigneeId,
   }) onUpdateStep;
+  final Future<void> Function(
+    ProjectInstance instance,
+    ProjectInstanceStep step,
+  ) onInspectStep;
   final Future<void> Function(String instanceId) onDeleteInstance;
   final bool showCompleted;
   final String? templateName;
@@ -1157,8 +1232,10 @@ class _InstanceCard extends StatelessWidget {
             ),
           ...visibleSteps.map(
             (step) => _InstanceStepTile(
+              instance: instance,
               step: step,
               onUpdateStep: onUpdateStep,
+              onInspectStep: onInspectStep,
               canReassign: canReassign,
             ),
           ),
@@ -1170,10 +1247,13 @@ class _InstanceCard extends StatelessWidget {
 
 class _InstanceStepTile extends StatelessWidget {
   const _InstanceStepTile({
+    required this.instance,
     required this.step,
     required this.onUpdateStep,
+    required this.onInspectStep,
     required this.canReassign,
   });
+  final ProjectInstance instance;
   final ProjectInstanceStep step;
   final Future<void> Function(
     ProjectInstanceStep step, {
@@ -1183,6 +1263,10 @@ class _InstanceStepTile extends StatelessWidget {
     String? notes,
     int? assigneeId,
   }) onUpdateStep;
+  final Future<void> Function(
+    ProjectInstance instance,
+    ProjectInstanceStep step,
+  ) onInspectStep;
   final bool canReassign;
 
   @override
@@ -1196,6 +1280,7 @@ class _InstanceStepTile extends StatelessWidget {
         border: Border.all(color: colorScheme.outlineVariant),
       ),
       child: ListTile(
+        onTap: () => onInspectStep(instance, step),
         leading: Checkbox(
           value: isDone,
           onChanged: (_) => onUpdateStep(
@@ -1240,14 +1325,7 @@ class _InstanceStepTile extends StatelessWidget {
         ),
         trailing: IconButton(
           icon: const Icon(Icons.edit_outlined, size: 16),
-          onPressed: () => showDialog<void>(
-            context: context,
-            builder: (_) => _EditInstanceStepDialog(
-              step: step,
-              onSave: onUpdateStep,
-              canEditAssignee: canReassign,
-            ),
-          ),
+          onPressed: () => onInspectStep(instance, step),
         ),
       ),
     );
@@ -1870,6 +1948,14 @@ class _CreateTemplateDialogState extends State<_CreateTemplateDialog> {
     );
     if (mounted) Navigator.pop(context);
   }
+}
+
+String? _ownerName(int? ownerId, List<WorkspaceMember> members) {
+  if (ownerId == null) return null;
+  for (final member in members) {
+    if (member.userId == ownerId) return member.name;
+  }
+  return 'User #$ownerId';
 }
 
 class _AddStepDialog extends StatefulWidget {

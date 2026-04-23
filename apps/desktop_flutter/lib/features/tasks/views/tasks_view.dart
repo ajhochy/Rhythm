@@ -673,6 +673,7 @@ class _TasksViewState extends State<TasksView> {
         description: description,
         checked: isDone,
         onChanged: (_) => controller.toggleDone(task.id),
+        onTap: () => _showEditDialog(task, controller),
         backgroundColor: isDone
             ? colors.surfaceMuted.withValues(alpha: 0.45)
             : visualStyle.accent.withValues(alpha: 0.09),
@@ -701,7 +702,7 @@ class _TasksViewState extends State<TasksView> {
           items: const [
             RhythmMenuAction(
               value: _TaskAction.edit,
-              label: 'Edit',
+              label: 'Inspect',
               icon: Icons.edit_outlined,
             ),
             RhythmMenuAction(
@@ -750,32 +751,31 @@ class _TasksViewState extends State<TasksView> {
 
   Future<void> _showEditDialog(Task task, TasksController controller) async {
     final collaboratorsDataSource = CollaboratorsDataSource();
-    final result = await showRhythmTaskEditDialog(
+    await showRhythmTaskInspector(
       context,
       task: task,
       workspaceMembers: context.read<WorkspaceController>().members,
+      onSaveDetails: (request) => controller.updateTask(
+        task.id,
+        title: request.title,
+        notes: request.notes,
+        dueDate: request.dueDate,
+        scheduledDate: request.scheduledDate,
+        includeNotes: true,
+        includeDueDate: true,
+        includeScheduledDate: true,
+      ),
       onAddCollaborator: (userId) async {
         final collaborators =
             await collaboratorsDataSource.addToTask(task.id, userId);
-        await controller.load();
         return collaborators;
       },
       onRemoveCollaborator: (userId) async {
         await collaboratorsDataSource.removeFromTask(task.id, userId);
         final collaborators =
             await collaboratorsDataSource.fetchForTask(task.id);
-        await controller.load();
         return collaborators;
       },
-    );
-    if (result == null) return;
-    await controller.updateTask(
-      task.id,
-      title: result.title,
-      notes: result.notes,
-      dueDate: result.dueDate,
-      includeNotes: true,
-      includeDueDate: true,
     );
   }
 

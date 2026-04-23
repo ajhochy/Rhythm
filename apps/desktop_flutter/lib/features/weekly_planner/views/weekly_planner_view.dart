@@ -23,6 +23,7 @@ class WeeklyPlannerView extends StatefulWidget {
 
 class _WeeklyPlannerViewState extends State<WeeklyPlannerView> {
   bool _showCompleted = false;
+  String? _presentedInspectorTaskId;
 
   @override
   void initState() {
@@ -37,6 +38,27 @@ class _WeeklyPlannerViewState extends State<WeeklyPlannerView> {
   Widget build(BuildContext context) {
     return Consumer<WeeklyPlannerController>(
       builder: (context, controller, _) {
+        final plan = controller.plan;
+        if (plan != null && controller.selectedTaskId != null) {
+          final allTasks = [
+            ...plan.days.expand((d) => d.tasks),
+            ...plan.backlog
+          ];
+          final selectedTask = allTasks.cast<Task?>().firstWhere(
+                (task) => task?.id == controller.selectedTaskId,
+                orElse: () => null,
+              );
+          if (selectedTask != null &&
+              _presentedInspectorTaskId != selectedTask.id) {
+            _presentedInspectorTaskId = selectedTask.id;
+            WidgetsBinding.instance.addPostFrameCallback((_) async {
+              await _openInspector(controller, selectedTask);
+              if (!mounted) return;
+              controller.selectTask(null);
+              _presentedInspectorTaskId = null;
+            });
+          }
+        }
         return RhythmSurface.page(
           padding: const EdgeInsets.all(RhythmSpacing.sm),
           child: RhythmSurface.section(
@@ -76,6 +98,39 @@ class _WeeklyPlannerViewState extends State<WeeklyPlannerView> {
         );
       },
     );
+  }
+
+  Future<void> _openInspector(
+    WeeklyPlannerController controller,
+    Task task,
+  ) async {
+    final collaboratorsDataSource = CollaboratorsDataSource();
+    await showRhythmTaskInspector(
+      context,
+      task: task,
+      workspaceMembers: context.read<WorkspaceController>().members,
+      onSaveDetails: (request) => controller.updateTask(
+        task,
+        notes: request.notes,
+        dueDate: request.dueDate,
+        scheduledDate: request.scheduledDate,
+      ),
+      onAddCollaborator: task.sourceType == 'calendar_shadow_event'
+          ? null
+          : (userId) async {
+              final collaborators =
+                  await collaboratorsDataSource.addToTask(task.id, userId);
+              return collaborators;
+            },
+      onRemoveCollaborator: task.sourceType == 'calendar_shadow_event'
+          ? null
+          : (userId) async {
+              await collaboratorsDataSource.removeFromTask(task.id, userId);
+              return collaboratorsDataSource.fetchForTask(task.id);
+            },
+    );
+    if (!mounted) return;
+    await controller.load();
   }
 }
 
@@ -279,7 +334,6 @@ class _PlannerBody extends StatelessWidget {
   final bool showCompleted;
 
   static const _wideLayout = 1480.0;
-  static const _sideDetailLayout = 1320.0;
   static const _sideBacklogLayout = 1080.0;
   static const _minimumWeekWidth = 980.0;
 
@@ -305,27 +359,16 @@ class _PlannerBody extends StatelessWidget {
       );
     }
 
-    final allTasks = [...plan.days.expand((d) => d.tasks), ...plan.backlog];
     final visibleBacklog = showCompleted
         ? plan.backlog
         : plan.backlog.where((t) => t.status != 'done').toList();
     final showBacklogPane = visibleBacklog.isNotEmpty;
-    final selectedTask = controller.selectedTaskId != null
-        ? allTasks.cast<Task?>().firstWhere(
-              (t) => t?.id == controller.selectedTaskId,
-              orElse: () => null,
-            )
-        : null;
 
     return LayoutBuilder(
       builder: (context, constraints) {
         final width = constraints.maxWidth;
         final useSideBacklog = showBacklogPane && width >= _sideBacklogLayout;
-        final detailBreakpoint =
-            showBacklogPane ? _wideLayout - 60 : _sideDetailLayout;
-        final useSideDetail = selectedTask != null && width >= detailBreakpoint;
         final backlogWidth = width >= _wideLayout ? 292.0 : 232.0;
-        final detailWidth = width >= _wideLayout ? 340.0 : 300.0;
         final weekMinimumWidth =
             width >= _sideBacklogLayout ? 0.0 : _minimumWeekWidth;
 
@@ -351,15 +394,6 @@ class _PlannerBody extends StatelessWidget {
               const SizedBox(width: RhythmSpacing.sm),
             ],
             Expanded(child: weekPane),
-            if (useSideDetail) ...[
-              const SizedBox(width: RhythmSpacing.sm),
-              _DetailPane(
-                key: ValueKey(selectedTask.id),
-                task: selectedTask,
-                controller: controller,
-                width: detailWidth,
-              ),
-            ],
           ],
         );
 
@@ -380,18 +414,6 @@ class _PlannerBody extends StatelessWidget {
                 const SizedBox(height: RhythmSpacing.sm),
               ],
               Expanded(child: mainRow),
-              if (selectedTask != null && !useSideDetail) ...[
-                const SizedBox(height: RhythmSpacing.sm),
-                SizedBox(
-                  height: width < _sideBacklogLayout ? 280 : 320,
-                  child: _DetailPane(
-                    key: ValueKey('bottom-${selectedTask.id}'),
-                    task: selectedTask,
-                    controller: controller,
-                    width: double.infinity,
-                  ),
-                ),
-              ],
             ],
           ),
         );
@@ -1469,14 +1491,11 @@ String _sourceLabelForTask(Task task) {
 
 class _DetailPane extends StatefulWidget {
   const _DetailPane({
-    super.key,
     required this.task,
     required this.controller,
-    this.width = 320,
   });
   final Task task;
   final WeeklyPlannerController controller;
-  final double width;
 
   @override
   State<_DetailPane> createState() => _DetailPaneState();
@@ -1605,7 +1624,6 @@ class _DetailPaneState extends State<_DetailPane> {
     final workspaceMembers = context.watch<WorkspaceController>().members;
     final colors = context.rhythm;
     return RhythmDetailPane(
-      width: widget.width,
       title: 'Task details',
       subtitle:
           isShadowEvent ? 'Read-only calendar context' : 'Notes and planning',

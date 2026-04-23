@@ -78,6 +78,20 @@ void main() {
     ]);
   });
 
+  test(
+    'DashboardController keeps same-day task order stable when updatedAt changes',
+    () async {
+      final controller = DashboardController(
+        _FakeDashboardRepository(_FakeDashboardStableOrderingDataSource()),
+        now: () => DateTime(2026, 4, 9),
+      );
+
+      await controller.load();
+
+      expect(controller.todayTasks.map((task) => task.id), ['early', 'late']);
+    },
+  );
+
   test('MessagesController reloads threads after creating a thread', () async {
     final repository = _FakeMessagesRepository();
     final controller = MessagesController(
@@ -380,6 +394,31 @@ class _FakeDashboardHandoffDataSource extends _FakeDashboardDataSource {
         isShared: true,
         createdAt: '2026-04-08T00:00:00.000Z',
         updatedAt: '2026-04-08T00:02:00.000Z',
+      ),
+    ];
+  }
+}
+
+class _FakeDashboardStableOrderingDataSource extends _FakeDashboardDataSource {
+  @override
+  Future<List<Task>> fetchTasks() async {
+    loadCount += 1;
+    return [
+      Task(
+        id: 'early',
+        title: 'First task',
+        status: 'open',
+        dueDate: '2026-04-09',
+        createdAt: '2026-04-08T00:00:00.000Z',
+        updatedAt: '2026-04-09T12:00:00.000Z',
+      ),
+      Task(
+        id: 'late',
+        title: 'Edited task',
+        status: 'open',
+        dueDate: '2026-04-09',
+        createdAt: '2026-04-08T01:00:00.000Z',
+        updatedAt: '2026-04-09T23:59:00.000Z',
       ),
     ];
   }

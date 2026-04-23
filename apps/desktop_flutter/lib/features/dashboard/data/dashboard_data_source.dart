@@ -11,6 +11,7 @@ import '../../projects/models/project_instance.dart';
 import '../../projects/models/project_template.dart';
 import '../../tasks/models/recurring_task_rule.dart';
 import '../../tasks/models/task.dart';
+import '../../tasks/models/task_collaborator.dart';
 
 class DashboardDataSource {
   DashboardDataSource({String? baseUrl})
@@ -25,7 +26,9 @@ class DashboardDataSource {
     );
     assertOk(response);
     final list = jsonDecode(response.body) as List<dynamic>;
-    return list.map((j) => Task.fromJson(j as Map<String, dynamic>)).toList();
+    final tasks =
+        list.map((j) => Task.fromJson(j as Map<String, dynamic>)).toList();
+    return _withCollaborators(tasks);
   }
 
   Future<List<RecurringTaskRule>> fetchRecurringRules() async {
@@ -105,8 +108,10 @@ class DashboardDataSource {
     String? title,
     String? notes,
     String? dueDate,
+    String? scheduledDate,
     bool includeNotes = false,
     bool includeDueDate = false,
+    bool includeScheduledDate = false,
   }) async {
     final response = await http.patch(
       Uri.parse('$_baseUrl/tasks/$id'),
@@ -115,6 +120,8 @@ class DashboardDataSource {
         if (title != null) 'title': title,
         if (includeNotes || notes != null) 'notes': notes,
         if (includeDueDate || dueDate != null) 'dueDate': dueDate,
+        if (includeScheduledDate || scheduledDate != null)
+          'scheduledDate': scheduledDate,
       }),
     );
     assertOk(response);
@@ -164,5 +171,28 @@ class DashboardDataSource {
     return list
         .map((j) => Message.fromJson(j as Map<String, dynamic>))
         .toList();
+  }
+
+  Future<List<Task>> _withCollaborators(List<Task> tasks) async {
+    return Future.wait(tasks.map(_withTaskCollaborators));
+  }
+
+  Future<Task> _withTaskCollaborators(Task task) async {
+    try {
+      final response = await http.get(
+        Uri.parse('$_baseUrl/tasks/${task.id}/collaborators'),
+        headers: AuthSessionStore.headers(),
+      );
+      assertOk(response);
+      final list = jsonDecode(response.body) as List<dynamic>;
+      final collaborators = list
+          .map(
+            (item) => TaskCollaborator.fromJson(item as Map<String, dynamic>),
+          )
+          .toList();
+      return task.copyWith(collaborators: collaborators);
+    } catch (_) {
+      return task;
+    }
   }
 }

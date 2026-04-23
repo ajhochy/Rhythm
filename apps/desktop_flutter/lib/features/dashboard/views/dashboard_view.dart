@@ -8,8 +8,10 @@ import '../../../app/core/ui/rhythm_ui.dart';
 import '../../../app/core/workspace/workspace_controller.dart';
 import '../../../app/core/workspace/workspace_models.dart';
 import '../../messages/controllers/messages_controller.dart';
+import '../../projects/models/project_instance.dart';
 import '../controllers/dashboard_controller.dart';
 import '../../tasks/data/collaborators_data_source.dart';
+import '../../tasks/models/task_collaborator.dart';
 import '../../tasks/models/task.dart';
 import '../models/dashboard_overview_models.dart';
 
@@ -480,50 +482,69 @@ class _DashboardBodyState extends State<_DashboardBody> {
 
   Future<void> _showTaskEditDialog(Task task) async {
     final collaboratorsDataSource = CollaboratorsDataSource();
-    final result = await showRhythmTaskEditDialog(
+    await showRhythmTaskInspector(
       context,
       task: task,
       workspaceMembers: context.read<WorkspaceController>().members,
+      onSaveDetails: (request) => widget.controller.updateTask(
+        task.id,
+        title: request.title,
+        notes: request.notes,
+        dueDate: request.dueDate,
+        scheduledDate: request.scheduledDate,
+        includeNotes: true,
+        includeDueDate: true,
+        includeScheduledDate: true,
+      ),
       onAddCollaborator: (userId) async {
         final collaborators =
             await collaboratorsDataSource.addToTask(task.id, userId);
-        await widget.controller.refresh();
         return collaborators;
       },
       onRemoveCollaborator: (userId) async {
         await collaboratorsDataSource.removeFromTask(task.id, userId);
         final collaborators =
             await collaboratorsDataSource.fetchForTask(task.id);
-        await widget.controller.refresh();
         return collaborators;
       },
-    );
-    if (result == null) return;
-    await widget.controller.updateTask(
-      task.id,
-      title: result.title,
-      notes: result.notes,
-      dueDate: result.dueDate,
-      includeNotes: true,
-      includeDueDate: true,
     );
   }
 
   Future<void> _showProjectStepEditDialog(
-    DashboardProjectStepPreview step,
-  ) async {
-    final result = await showDialog<_ProjectStepEditResult>(
-      context: context,
-      builder: (_) => _ProjectStepEditDialog(step: step),
-    );
-    if (result == null) return;
-    await widget.controller.updateProjectStep(
-      step.id,
-      title: result.title,
-      dueDate: result.dueDate,
-      notes: result.notes,
-      assigneeId: step.assigneeId,
-      includeNotes: true,
+    DashboardProjectStepPreview step, {
+    required String projectTitle,
+    required int? ownerId,
+    required List<String> collaboratorNames,
+  }) async {
+    final workspaceMembers = context.read<WorkspaceController>().members;
+    await showRhythmProjectStepInspector(
+      context,
+      step: ProjectInstanceStep(
+        id: step.id,
+        instanceId: '',
+        stepId: step.id,
+        title: step.title,
+        dueDate: step.dueDate,
+        status: step.status,
+        notes: step.notes,
+        assigneeId: step.assigneeId,
+        assigneeName: step.assigneeName,
+      ),
+      projectTitle: projectTitle,
+      projectOwnerLabel: _memberName(ownerId, workspaceMembers),
+      projectCollaborators: [
+        for (final name in collaboratorNames)
+          TaskCollaborator(userId: 0, name: name),
+      ],
+      workspaceMembers: workspaceMembers,
+      onSaveDetails: (request) => widget.controller.updateProjectStep(
+        step.id,
+        title: request.title,
+        dueDate: request.dueDate,
+        notes: request.notes,
+        assigneeId: request.assigneeId,
+        includeNotes: true,
+      ),
     );
   }
 
@@ -774,7 +795,12 @@ class _DashboardBodyState extends State<_DashboardBody> {
                   step.id,
                   step.isDone,
                 ),
-                onTap: () => _showProjectStepEditDialog(step),
+                onTap: () => _showProjectStepEditDialog(
+                  step,
+                  projectTitle: visibleProjects[index].title,
+                  ownerId: visibleProjects[index].ownerId,
+                  collaboratorNames: visibleProjects[index].collaboratorNames,
+                ),
                 avatarLabel: _projectStepAvatarLabel(
                   step,
                   currentUserId: currentUserId,
@@ -791,6 +817,10 @@ class _DashboardBodyState extends State<_DashboardBody> {
                 ? null
                 : () => _showProjectStepEditDialog(
                       visibleProjects[index].nextStep!,
+                      projectTitle: visibleProjects[index].title,
+                      ownerId: visibleProjects[index].ownerId,
+                      collaboratorNames:
+                          visibleProjects[index].collaboratorNames,
                     ),
           ),
           pills: [
