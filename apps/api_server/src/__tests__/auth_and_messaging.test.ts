@@ -63,6 +63,29 @@ describe('Auth and ownership flows', () => {
     ).toBe(session.user.id);
   });
 
+  it('keeps an existing Google avatar when a later login omits picture', async () => {
+    const authService = new AuthService(
+      usersRepo,
+      sessionsRepo,
+      {
+        verifyIdToken: async (token: string): Promise<GoogleIdentity> => ({
+          sub: 'google-sub-avatar',
+          email: 'alice@example.com',
+          name: 'Alice',
+          picture:
+            token === 'with-picture'
+              ? 'https://example.com/alice.png'
+              : null,
+        }),
+      } as never,
+    );
+
+    await authService.loginWithGoogleIdToken('with-picture');
+    const session = await authService.loginWithGoogleIdToken('without-picture');
+
+    expect(session.user.photoUrl).toBe('https://example.com/alice.png');
+  });
+
   it('filters tasks to the current owner only', () => {
     const alice = usersRepo.create({ name: 'Alice', email: 'alice@example.com' });
     const bob = usersRepo.create({ name: 'Bob', email: 'bob@example.com' });
