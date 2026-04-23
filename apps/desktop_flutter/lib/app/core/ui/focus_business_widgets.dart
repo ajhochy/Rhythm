@@ -4,7 +4,7 @@ import 'package:step_progress_indicator/step_progress_indicator.dart';
 import 'rhythm_badge.dart';
 import 'tokens/rhythm_theme.dart';
 
-// Source-derived from Focus Flutter UI Kit Business Widget 05 and 02.
+// Source-derived from Focus Flutter UI Kit Business Widget 05, 02, and Small Info 06.
 // Upstream: https://github.com/maxlam79/focus_flutter_ui_kit
 // License: apps/desktop_flutter/third_party/focus_flutter_ui_kit/LICENSE
 
@@ -40,6 +40,81 @@ class FocusBusinessMetric {
   final String label;
   final String value;
   final RhythmBadgeTone tone;
+}
+
+class FocusBusinessTaskListPanel extends StatelessWidget {
+  const FocusBusinessTaskListPanel({
+    super.key,
+    required this.header,
+    required this.children,
+    this.headerActions = const [],
+    this.onTap,
+    this.minHeight,
+  });
+
+  final String header;
+  final List<Widget> children;
+  final List<Widget> headerActions;
+  final VoidCallback? onTap;
+  final double? minHeight;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.rhythm;
+    final content = Container(
+      constraints: BoxConstraints(minHeight: minHeight ?? 0),
+      decoration: BoxDecoration(
+        color: colors.surface,
+        borderRadius: BorderRadius.circular(RhythmRadius.md),
+        border: Border.all(color: colors.borderSubtle),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(
+              RhythmSpacing.md,
+              RhythmSpacing.md,
+              RhythmSpacing.md,
+              RhythmSpacing.sm,
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(header, style: _FocusType.preH(context)),
+                ),
+                ...headerActions,
+              ],
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(
+              RhythmSpacing.md,
+              RhythmSpacing.xs,
+              RhythmSpacing.md,
+              RhythmSpacing.md,
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: children,
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (onTap == null) return content;
+    return Material(
+      color: Colors.transparent,
+      borderRadius: BorderRadius.circular(RhythmRadius.md),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(RhythmRadius.md),
+        child: content,
+      ),
+    );
+  }
 }
 
 class FocusBusinessTaskListItem extends StatelessWidget {
@@ -188,6 +263,115 @@ class FocusBusinessTaskListItem extends StatelessWidget {
   }
 }
 
+class FocusSmallInfo06 extends StatelessWidget {
+  const FocusSmallInfo06({
+    super.key,
+    required this.header,
+    required this.value,
+    required this.description,
+    required this.icon,
+    this.tone = RhythmBadgeTone.info,
+    this.onTap,
+    this.actions = const [],
+    this.footer,
+    this.subtle = false,
+  });
+
+  final String header;
+  final String value;
+  final String description;
+  final IconData icon;
+  final RhythmBadgeTone tone;
+  final VoidCallback? onTap;
+  final List<Widget> actions;
+  final Widget? footer;
+  final bool subtle;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.rhythm;
+    final accent = _toneColor(colors, tone);
+    final background = subtle ? colors.surface : accent.withValues(alpha: 0.92);
+    final foreground = subtle ? colors.textPrimary : colors.canvas;
+    final secondary =
+        subtle ? colors.textSecondary : colors.canvas.withValues(alpha: 0.72);
+    final content = Container(
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(RhythmRadius.md),
+        border: Border.all(
+          color: subtle ? accent.withValues(alpha: 0.24) : background,
+        ),
+      ),
+      padding: const EdgeInsets.all(RhythmSpacing.md),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  header.toUpperCase(),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: _FocusType.preH(context).copyWith(
+                    color: foreground,
+                  ),
+                ),
+              ),
+              for (final action in actions) ...[
+                const SizedBox(width: RhythmSpacing.xs),
+                action,
+              ],
+            ],
+          ),
+          const SizedBox(height: RhythmSpacing.md),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  value,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: _FocusType.h2(context).copyWith(
+                    color: foreground,
+                    fontSize: 38,
+                  ),
+                ),
+              ),
+              Icon(icon, color: subtle ? accent : colors.canvas, size: 38),
+            ],
+          ),
+          const SizedBox(height: RhythmSpacing.sm),
+          Text(
+            description,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: _FocusType.small(context).copyWith(
+              color: secondary,
+            ),
+          ),
+          if (footer != null) ...[
+            const SizedBox(height: RhythmSpacing.md),
+            footer!,
+          ],
+        ],
+      ),
+    );
+
+    if (onTap == null) return content;
+    return Material(
+      color: Colors.transparent,
+      borderRadius: BorderRadius.circular(RhythmRadius.md),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(RhythmRadius.md),
+        child: content,
+      ),
+    );
+  }
+}
+
 class FocusBusinessProjectProgress extends StatelessWidget {
   const FocusBusinessProjectProgress({
     super.key,
@@ -196,11 +380,14 @@ class FocusBusinessProjectProgress extends StatelessWidget {
     required this.description,
     required this.progress,
     required this.metrics,
+    this.descriptionTitle = 'Project Description',
+    this.descriptionItems = const [],
     this.pills = const [],
     this.managers = const [],
     this.team = const [],
     this.onTap,
     this.icon = Icons.grid_view_rounded,
+    this.showPeople = true,
   });
 
   final String panelTitle;
@@ -208,11 +395,14 @@ class FocusBusinessProjectProgress extends StatelessWidget {
   final String description;
   final double progress;
   final List<FocusBusinessMetric> metrics;
+  final String descriptionTitle;
+  final List<String> descriptionItems;
   final List<FocusBusinessPill> pills;
   final List<FocusBusinessAvatar> managers;
   final List<FocusBusinessAvatar> team;
   final VoidCallback? onTap;
   final IconData icon;
+  final bool showPeople;
 
   @override
   Widget build(BuildContext context) {
@@ -223,7 +413,7 @@ class FocusBusinessProjectProgress extends StatelessWidget {
       header: panelTitle,
       child: LayoutBuilder(
         builder: (context, constraints) {
-          final stacked = constraints.maxWidth < 720;
+          final stacked = constraints.maxWidth < 560;
           final left = _buildContent01(context, accent);
           final right = _buildContent02(context);
           if (stacked) {
@@ -239,12 +429,14 @@ class FocusBusinessProjectProgress extends StatelessWidget {
           return Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Expanded(
-                  child: Padding(
-                padding: const EdgeInsets.only(right: 30),
-                child: left,
-              )),
-              Expanded(child: right),
+              Flexible(
+                flex: 9,
+                child: Padding(
+                  padding: const EdgeInsets.only(right: RhythmSpacing.md),
+                  child: left,
+                ),
+              ),
+              Flexible(flex: 10, child: right),
             ],
           );
         },
@@ -285,10 +477,10 @@ class FocusBusinessProjectProgress extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         _FocusStepProgress(progress: progress, accent: accent),
-        const SizedBox(height: 20),
+        const SizedBox(height: RhythmSpacing.md),
         for (final row in metricRows) ...[
           row,
-          const SizedBox(height: 20),
+          const SizedBox(height: RhythmSpacing.md),
         ],
       ],
     );
@@ -297,18 +489,23 @@ class FocusBusinessProjectProgress extends StatelessWidget {
   Widget _buildContent02(BuildContext context) {
     final colors = context.rhythm;
     return Padding(
-      padding: const EdgeInsets.all(10),
+      padding: const EdgeInsets.all(RhythmSpacing.xs),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           LayoutBuilder(
             builder: (context, constraints) {
+              final compact = constraints.maxWidth < 300;
               return Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Padding(
                     padding: const EdgeInsets.only(top: 7),
-                    child: Icon(icon, size: 30, color: colors.textPrimary),
+                    child: Icon(
+                      icon,
+                      size: compact ? 24 : 30,
+                      color: colors.textPrimary,
+                    ),
                   ),
                   const SizedBox(width: 10),
                   Expanded(
@@ -317,9 +514,11 @@ class FocusBusinessProjectProgress extends StatelessWidget {
                       softWrap: true,
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
-                      style: constraints.maxWidth > 520
-                          ? _FocusType.h2(context)
-                          : _FocusType.h3(context),
+                      style: compact
+                          ? _FocusType.h4(context)
+                          : constraints.maxWidth > 520
+                              ? _FocusType.h2(context)
+                              : _FocusType.h3(context),
                     ),
                   ),
                 ],
@@ -337,44 +536,73 @@ class FocusBusinessProjectProgress extends StatelessWidget {
                 _FocusTextPill(pill: pill, square: true),
             ],
           ),
-          const SizedBox(height: 30),
-          Text('Project Description', style: _FocusType.regularB(context)),
+          const SizedBox(height: RhythmSpacing.lg),
+          Text(descriptionTitle, style: _FocusType.regularB(context)),
           const SizedBox(height: 5),
-          Text(
-            description,
-            maxLines: 4,
-            overflow: TextOverflow.ellipsis,
-            style: _FocusType.regular(context),
-          ),
-          const SizedBox(height: 30),
-          LayoutBuilder(
-            builder: (context, constraints) {
-              final stacked = constraints.maxWidth < 420;
-              final managerBlock = _FocusAvatarBlock(
-                label: 'Project Manager',
-                avatars: managers,
-              );
-              final teamBlock = _FocusAvatarBlock(label: 'Team', avatars: team);
-              if (stacked) {
-                return Column(
+          if (descriptionItems.isEmpty)
+            Text(
+              description,
+              maxLines: 4,
+              overflow: TextOverflow.ellipsis,
+              style: _FocusType.regular(context),
+            )
+          else
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                for (final item in descriptionItems)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 6),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('-', style: _FocusType.regular(context)),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            item,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: _FocusType.regular(context),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+              ],
+            ),
+          if (showPeople) ...[
+            const SizedBox(height: RhythmSpacing.lg),
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final stacked = constraints.maxWidth < 420;
+                final managerBlock = _FocusAvatarBlock(
+                  label: 'Project Manager',
+                  avatars: managers,
+                );
+                final teamBlock =
+                    _FocusAvatarBlock(label: 'Team', avatars: team);
+                if (stacked) {
+                  return Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      managerBlock,
+                      const SizedBox(height: RhythmSpacing.md),
+                      teamBlock,
+                    ],
+                  );
+                }
+                return Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    managerBlock,
-                    const SizedBox(height: RhythmSpacing.md),
-                    teamBlock,
+                    Expanded(flex: 4, child: managerBlock),
+                    const SizedBox(width: RhythmSpacing.md),
+                    Expanded(flex: 8, child: teamBlock),
                   ],
                 );
-              }
-              return Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(flex: 4, child: managerBlock),
-                  const SizedBox(width: RhythmSpacing.md),
-                  Expanded(flex: 8, child: teamBlock),
-                ],
-              );
-            },
-          ),
+              },
+            ),
+          ],
         ],
       ),
     );
@@ -425,7 +653,10 @@ class _FocusPanel extends StatelessWidget {
 }
 
 class _FocusStepProgress extends StatelessWidget {
-  const _FocusStepProgress({required this.progress, required this.accent});
+  const _FocusStepProgress({
+    required this.progress,
+    required this.accent,
+  });
 
   final double progress;
   final Color accent;
@@ -471,6 +702,7 @@ class _FocusMetricBlock extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = context.rhythm;
     final accent = _toneColor(colors, metric.tone);
+    final useDetailStyle = metric.label == 'NEXT' || metric.label == 'TOMORROW';
     return Padding(
       padding: const EdgeInsets.only(bottom: 0),
       child: Column(
@@ -480,9 +712,13 @@ class _FocusMetricBlock extends StatelessWidget {
           const SizedBox(height: 3),
           Text(
             metric.value,
-            maxLines: 2,
+            maxLines: useDetailStyle ? 3 : 2,
             overflow: TextOverflow.ellipsis,
-            style: _FocusType.h3(context).copyWith(
+            style: (useDetailStyle
+                    ? _FocusType.regular(context)
+                    : _FocusType.h3(context))
+                .copyWith(
+              fontWeight: useDetailStyle ? FontWeight.w400 : FontWeight.w800,
               color: metric.tone == RhythmBadgeTone.neutral
                   ? colors.textPrimary
                   : accent,

@@ -188,7 +188,11 @@ class _DashboardBodyState extends State<_DashboardBody> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      _buildHero(context, c),
+                      _buildHero(
+                        context,
+                        c,
+                        workspaceMembers: workspaceMembers,
+                      ),
                       const SizedBox(height: RhythmSpacing.lg),
                       const _SectionLabel(
                         title: 'Planning',
@@ -252,7 +256,11 @@ class _DashboardBodyState extends State<_DashboardBody> {
     );
   }
 
-  Widget _buildHero(BuildContext context, DashboardController c) {
+  Widget _buildHero(
+    BuildContext context,
+    DashboardController c, {
+    required List<WorkspaceMember> workspaceMembers,
+  }) {
     final colors = context.rhythm;
     return RhythmPanel(
       elevated: true,
@@ -261,32 +269,42 @@ class _DashboardBodyState extends State<_DashboardBody> {
       padding: const EdgeInsets.all(RhythmSpacing.md),
       child: LayoutBuilder(
         builder: (context, constraints) {
-          final width = constraints.maxWidth;
-          final useSingleColumn = width < 900;
+          final tomorrowTasks = _tasksForDate(
+            c.thisWeekTasks,
+            DateTime.now().add(const Duration(days: 1)),
+          );
 
-          final todayCard = _ProgressDialCard(
+          final todayCard = _buildTaskProgressPanel(
+            panelTitle: 'TODAY',
             title: "Today's Tasks",
+            subtitle: c.todayTasksRemainingCount == 0
+                ? 'Clear for today'
+                : '${c.todayTasksRemainingCount} task${c.todayTasksRemainingCount == 1 ? '' : 's'} left today',
             tone: RhythmBadgeTone.accent,
             icon: Icons.today_outlined,
             remainingCount: c.todayTasksRemainingCount,
             totalCount: c.todayTasksTotalCount,
-            subtitle: c.todayTasksRemainingCount == 0
-                ? 'Clear for today'
-                : '${c.todayTasksRemainingCount} remaining',
-            openText: 'Planner',
+            nextMetricLabel: 'NEXT',
+            nextTaskTitle: _nextTaskTitle(c.todayTasks, 'Clear for today'),
+            onDeckTitle: 'On Deck',
+            onDeckTasks: _onDeckTaskTitles(c.todayTasks),
             onTap: widget.openWeeklyPlanner,
           );
 
-          final thisWeekCard = _ProgressDialCard(
+          final thisWeekCard = _buildTaskProgressPanel(
+            panelTitle: 'THIS WEEK',
             title: "This Week",
+            subtitle: c.thisWeekTasksRemainingCount == 0
+                ? 'Week is clear'
+                : '${c.thisWeekTasksRemainingCount} task${c.thisWeekTasksRemainingCount == 1 ? '' : 's'} left this week',
             tone: RhythmBadgeTone.success,
             icon: Icons.calendar_view_week_outlined,
             remainingCount: c.thisWeekTasksRemainingCount,
             totalCount: c.thisWeekTasksTotalCount,
-            subtitle: c.thisWeekTasksRemainingCount == 0
-                ? 'Week is clear'
-                : '${c.thisWeekTasksRemainingCount} remaining',
-            openText: 'Planner',
+            nextMetricLabel: 'TOMORROW',
+            nextTaskTitle: _nextTaskTitle(tomorrowTasks, 'Clear tomorrow'),
+            onDeckTitle: 'On Deck Tomorrow',
+            onDeckTasks: _onDeckTaskTitles(tomorrowTasks),
             onTap: widget.openWeeklyPlanner,
           );
 
@@ -296,8 +314,16 @@ class _DashboardBodyState extends State<_DashboardBody> {
             onTapItem: (preview) => _openMessageThread(context, preview),
           );
 
-          final projectCards = _buildProjectMetricCards(c);
-
+          final projectCards = _buildProjectMetricCards(
+            c,
+            workspaceMembers: workspaceMembers,
+          );
+          final glanceCards = <Widget>[
+            todayCard,
+            thisWeekCard,
+            ...projectCards,
+            unreadCard,
+          ];
           return Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -320,59 +346,10 @@ class _DashboardBodyState extends State<_DashboardBody> {
                     ),
               ),
               const SizedBox(height: RhythmSpacing.md),
-              if (useSingleColumn)
-                Column(
-                  children: [
-                    todayCard,
-                    const SizedBox(height: RhythmSpacing.sm),
-                    thisWeekCard,
-                    for (final card in projectCards) ...[
-                      const SizedBox(height: RhythmSpacing.sm),
-                      card,
-                    ],
-                    const SizedBox(height: RhythmSpacing.sm),
-                    unreadCard,
-                  ],
-                )
-              else
-                Column(
-                  children: [
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Expanded(child: todayCard),
-                        const SizedBox(width: RhythmSpacing.sm),
-                        Expanded(child: thisWeekCard),
-                      ],
-                    ),
-                    if (projectCards.isEmpty) ...[
-                      const SizedBox(height: RhythmSpacing.sm),
-                      unreadCard,
-                    ] else if (projectCards.length == 1) ...[
-                      const SizedBox(height: RhythmSpacing.sm),
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Expanded(child: projectCards.first),
-                          const SizedBox(width: RhythmSpacing.sm),
-                          Expanded(child: unreadCard),
-                        ],
-                      ),
-                    ] else ...[
-                      const SizedBox(height: RhythmSpacing.sm),
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Expanded(child: projectCards[0]),
-                          const SizedBox(width: RhythmSpacing.sm),
-                          Expanded(child: projectCards[1]),
-                        ],
-                      ),
-                      const SizedBox(height: RhythmSpacing.sm),
-                      unreadCard,
-                    ],
-                  ],
-                ),
+              for (var index = 0; index < glanceCards.length; index++) ...[
+                if (index > 0) const SizedBox(height: RhythmSpacing.sm),
+                glanceCards[index],
+              ],
             ],
           );
         },
@@ -404,7 +381,6 @@ class _DashboardBodyState extends State<_DashboardBody> {
                   items: c.pastDueTasks,
                   emptyLabel: 'Nothing past due.',
                   tone: RhythmBadgeTone.danger,
-                  icon: Icons.priority_high_outlined,
                   onTapHeader: widget.openWeeklyPlanner,
                   onTapTask: (_) => widget.openWeeklyPlanner(),
                   showPastDue: true,
@@ -434,7 +410,6 @@ class _DashboardBodyState extends State<_DashboardBody> {
                     items: c.todayTasks,
                     emptyLabel: 'No tasks scheduled for today.',
                     tone: RhythmBadgeTone.accent,
-                    icon: Icons.today_outlined,
                     onTapHeader: widget.openWeeklyPlanner,
                     onTapTask: (_) => widget.openWeeklyPlanner(),
                     showPastDue: true,
@@ -448,7 +423,6 @@ class _DashboardBodyState extends State<_DashboardBody> {
                     items: c.thisWeekTasks,
                     emptyLabel: 'No tasks due this week.',
                     tone: RhythmBadgeTone.success,
-                    icon: Icons.calendar_view_week_outlined,
                     onTapHeader: widget.openWeeklyPlanner,
                     onTapTask: (_) => widget.openWeeklyPlanner(),
                     showPastDue: true,
@@ -462,36 +436,9 @@ class _DashboardBodyState extends State<_DashboardBody> {
                     items: c.unscheduledTasks,
                     emptyLabel: 'No unscheduled tasks.',
                     tone: RhythmBadgeTone.neutral,
-                    icon: Icons.inbox_outlined,
                     onTapHeader: widget.openWeeklyPlanner,
                     onTapTask: (_) => widget.openWeeklyPlanner(),
                     showPastDue: false,
-                  ),
-                ),
-                SizedBox(
-                  width: cardWidth,
-                  child: _ProgressPreviewCard(
-                    title: 'Active Rhythms',
-                    countLabel: '${c.activeRhythmsCount} active',
-                    emptyLabel: 'No active rhythms.',
-                    items: c.activeRhythms,
-                    tone: RhythmBadgeTone.success,
-                    icon: Icons.repeat,
-                    onTapHeader: widget.openRhythms,
-                    onTapItem: (_) => widget.openRhythms(),
-                  ),
-                ),
-                SizedBox(
-                  width: cardWidth,
-                  child: _ProgressPreviewCard(
-                    title: 'Active Projects',
-                    countLabel: '${c.activeProjectsCount} active',
-                    emptyLabel: 'No active projects.',
-                    items: c.activeProjects,
-                    tone: RhythmBadgeTone.warning,
-                    icon: Icons.folder_open_outlined,
-                    onTapHeader: widget.openProjects,
-                    onTapItem: (_) => widget.openProjects(),
                   ),
                 ),
               ],
@@ -511,27 +458,188 @@ class _DashboardBodyState extends State<_DashboardBody> {
     widget.openMessages();
   }
 
-  List<Widget> _buildProjectMetricCards(DashboardController controller) {
+  List<Task> _tasksForDate(List<Task> tasks, DateTime date) {
+    final target = DateTime(date.year, date.month, date.day);
+    return tasks.where((task) {
+      final taskDate = _taskPriorityDate(task);
+      return taskDate != null &&
+          taskDate.year == target.year &&
+          taskDate.month == target.month &&
+          taskDate.day == target.day;
+    }).toList();
+  }
+
+  String _nextTaskTitle(List<Task> tasks, String fallback) {
+    if (tasks.isEmpty) return fallback;
+    return tasks.first.title;
+  }
+
+  List<String> _onDeckTaskTitles(List<Task> tasks) {
+    return tasks.skip(1).take(3).map((task) => task.title).toList();
+  }
+
+  Widget _buildTaskProgressPanel({
+    required String panelTitle,
+    required String title,
+    required String subtitle,
+    required RhythmBadgeTone tone,
+    required IconData icon,
+    required int remainingCount,
+    required int totalCount,
+    required String nextMetricLabel,
+    required String nextTaskTitle,
+    required String onDeckTitle,
+    required List<String> onDeckTasks,
+    required VoidCallback onTap,
+  }) {
+    final completed = (totalCount - remainingCount).clamp(0, totalCount);
+    final progress = totalCount == 0 ? 1.0 : completed / totalCount;
+    return FocusBusinessProjectProgress(
+      panelTitle: panelTitle,
+      title: title,
+      description: onDeckTasks.isEmpty
+          ? "You're done! Look at you! You're a real worker!!!"
+          : subtitle,
+      progress: progress,
+      icon: icon,
+      metrics: [
+        FocusBusinessMetric(
+          label: 'COMPLETE',
+          value: '$completed/$totalCount',
+          tone: tone,
+        ),
+        FocusBusinessMetric(
+          label: 'OPEN',
+          value: '$remainingCount',
+        ),
+        FocusBusinessMetric(
+          label: nextMetricLabel,
+          value: nextTaskTitle,
+        ),
+        FocusBusinessMetric(
+          label: 'PROGRESS',
+          value: '${(progress.clamp(0, 1) * 100).round()}%',
+          tone: tone,
+        ),
+      ],
+      pills: [
+        FocusBusinessPill(
+          label: totalCount == 0
+              ? 'No scheduled tasks'
+              : '${(progress.clamp(0, 1) * 100).round()}% complete',
+          tone: tone,
+        ),
+        FocusBusinessPill(
+          label: '$remainingCount open',
+        ),
+      ],
+      descriptionTitle: onDeckTitle,
+      descriptionItems: onDeckTasks,
+      showPeople: false,
+      onTap: onTap,
+    );
+  }
+
+  List<FocusBusinessMetric> _progressMetrics(
+    DashboardProgressItem item,
+    RhythmBadgeTone tone,
+  ) {
+    final remaining =
+        (item.totalCount - item.completedCount).clamp(0, item.totalCount);
+    return [
+      FocusBusinessMetric(
+        label: 'COMPLETE',
+        value: '${item.completedCount}/${item.totalCount}',
+        tone: tone,
+      ),
+      FocusBusinessMetric(
+        label: 'OPEN',
+        value: '$remaining',
+      ),
+      FocusBusinessMetric(label: 'NEXT', value: _nextProgressTitle(item)),
+      FocusBusinessMetric(
+        label: 'PROGRESS',
+        value: '${(item.progress.clamp(0, 1) * 100).round()}%',
+        tone: tone,
+      ),
+    ];
+  }
+
+  String _nextProgressTitle(DashboardProgressItem item) {
+    if (item is DashboardProjectProgress) {
+      return item.nextStepTitle?.trim().isNotEmpty == true
+          ? item.nextStepTitle!.trim()
+          : 'No open tasks';
+    }
+    final nextDueDate = item.nextDueDate;
+    return nextDueDate == null
+        ? 'No date'
+        : DateFormatters.fullDate(nextDueDate, fallback: nextDueDate);
+  }
+
+  String _projectOwnerName(
+    DashboardProjectProgress project,
+    List<WorkspaceMember> workspaceMembers,
+  ) {
+    return _memberName(project.ownerId, workspaceMembers) ?? 'Project owner';
+  }
+
+  List<Widget> _buildProjectMetricCards(
+    DashboardController controller, {
+    required List<WorkspaceMember> workspaceMembers,
+  }) {
     final projects = controller.activeProjects;
     if (projects.isEmpty) return const [];
 
     final visibleProjects = projects.take(2).toList();
 
     return [
-      for (final project in visibleProjects)
-        _ProgressDialCard(
-          title: visibleProjects.length == 1
-              ? 'Project due soonest'
-              : project.title,
-          tone: RhythmBadgeTone.warning,
+      for (var index = 0; index < visibleProjects.length; index++)
+        FocusBusinessProjectProgress(
+          panelTitle: index == 0 ? 'URGENT PROJECT' : 'NEXT PROJECT',
+          title: visibleProjects[index].title,
+          description: visibleProjects[index].onDeckStepTitles.isEmpty
+              ? 'No other open tasks queued.'
+              : visibleProjects[index].subtitle,
+          descriptionTitle: 'On Deck',
+          descriptionItems: visibleProjects[index].onDeckStepTitles,
+          progress: visibleProjects[index].progress,
           icon: Icons.folder_open_outlined,
-          remainingCount: project.totalCount - project.completedCount,
-          totalCount: project.totalCount,
-          primaryLabel: project.title,
-          subtitle: project.nextDueDate == null
-              ? '${project.completedCount}/${project.totalCount} complete'
-              : 'Next ${DateFormatters.fullDate(project.nextDueDate!, fallback: project.nextDueDate!)}',
-          openText: 'Projects',
+          metrics: _progressMetrics(
+            visibleProjects[index],
+            RhythmBadgeTone.warning,
+          ),
+          pills: [
+            FocusBusinessPill(
+              label: _progressStatusLabel(visibleProjects[index]),
+              tone: _progressStatusTone(
+                visibleProjects[index],
+                RhythmBadgeTone.warning,
+              ),
+            ),
+            FocusBusinessPill(
+              label: visibleProjects[index].nextDueDate == null
+                  ? 'No due date'
+                  : 'Next ${DateFormatters.fullDate(
+                      visibleProjects[index].nextDueDate!,
+                      fallback: visibleProjects[index].nextDueDate!,
+                    )}',
+              tone: RhythmBadgeTone.warning,
+            ),
+          ],
+          managers: [
+            FocusBusinessAvatar(
+              label: _projectOwnerName(
+                visibleProjects[index],
+                workspaceMembers,
+              ),
+              tone: RhythmBadgeTone.warning,
+            ),
+          ],
+          team: [
+            for (final name in visibleProjects[index].collaboratorNames)
+              FocusBusinessAvatar(label: name, tone: RhythmBadgeTone.accent),
+          ],
           onTap: widget.openProjects,
         ),
     ];
@@ -698,7 +806,6 @@ class _ProgressDialCard extends StatelessWidget {
     required this.subtitle,
     required this.openText,
     required this.onTap,
-    this.primaryLabel,
   });
 
   final String title;
@@ -709,7 +816,6 @@ class _ProgressDialCard extends StatelessWidget {
   final String subtitle;
   final String openText;
   final VoidCallback onTap;
-  final String? primaryLabel;
 
   @override
   Widget build(BuildContext context) {
@@ -731,8 +837,7 @@ class _ProgressDialCard extends StatelessWidget {
       ),
       child: LayoutBuilder(
         builder: (context, constraints) {
-          final primary = primaryLabel ??
-              (totalCount == 0 ? 'No tasks' : '$remainingCount left');
+          final primary = totalCount == 0 ? 'No tasks' : '$remainingCount left';
           final percent =
               totalCount == 0 ? '0%' : '${((progress * 100).round())}%';
           final details = Column(
@@ -828,33 +933,41 @@ class _UnreadOverviewCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors = context.rhythm;
     final visible = items.take(3).toList();
-    return _DashboardPreviewShell(
-      title: 'Unread Messages',
+    final description = visible.isEmpty
+        ? 'You are caught up.'
+        : '${visible.first.senderName}: ${visible.first.preview}';
+    return FocusSmallInfo06(
+      header: 'Unread Messages',
+      value: '${items.length} unread',
+      description: description,
       tone: RhythmBadgeTone.info,
       icon: Icons.mark_chat_unread_outlined,
       onTap: onTapHeader,
-      trailing: RhythmBadge(
-        label: '${items.length} unread',
-        tone: RhythmBadgeTone.info,
-        compact: true,
-      ),
-      child: visible.isEmpty
-          ? Padding(
-              padding: const EdgeInsets.symmetric(vertical: RhythmSpacing.xs),
-              child: Text(
-                'You are caught up.',
-                style: TextStyle(color: colors.textSecondary, fontSize: 13),
-              ),
-            )
-          : Column(
+      subtle: true,
+      actions: [
+        RhythmButton.icon(
+          onPressed: onTapHeader,
+          icon: Icons.arrow_forward,
+          tooltip: 'Open messages',
+          compact: true,
+        ),
+      ],
+      footer: visible.isEmpty
+          ? null
+          : Wrap(
+              spacing: RhythmSpacing.xs,
+              runSpacing: RhythmSpacing.xs,
               children: [
                 for (final item in visible)
-                  _UnreadMessagePreviewRow(
-                    preview: item,
-                    tone: RhythmBadgeTone.info,
+                  InkWell(
                     onTap: () => onTapItem(item),
+                    borderRadius: BorderRadius.circular(RhythmRadius.pill),
+                    child: RhythmBadge(
+                      label: item.threadTitle,
+                      tone: RhythmBadgeTone.info,
+                      compact: true,
+                    ),
                   ),
               ],
             ),
@@ -868,7 +981,6 @@ class _TaskListCard extends StatelessWidget {
     required this.items,
     required this.emptyLabel,
     required this.tone,
-    required this.icon,
     required this.onTapHeader,
     required this.onTapTask,
     required this.countLabel,
@@ -879,7 +991,6 @@ class _TaskListCard extends StatelessWidget {
   final List<Task> items;
   final String emptyLabel;
   final RhythmBadgeTone tone;
-  final IconData icon;
   final VoidCallback onTapHeader;
   final ValueChanged<Task> onTapTask;
   final String countLabel;
@@ -889,52 +1000,48 @@ class _TaskListCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final colors = context.rhythm;
     final visible = items.take(3).toList();
-    return _DashboardPreviewShell(
-      title: title,
-      tone: tone,
-      icon: icon,
+    return FocusBusinessTaskListPanel(
+      header: title.toUpperCase(),
       onTap: onTapHeader,
-      trailing: RhythmBadge(
-        label: countLabel,
-        tone: tone,
-        compact: true,
-      ),
-      child: visible.isEmpty
-          ? Padding(
-              padding: const EdgeInsets.symmetric(vertical: 12),
-              child: Text(
-                emptyLabel,
-                style: TextStyle(
-                  color: colors.textSecondary,
-                  fontSize: 13,
-                  height: 1.4,
+      headerActions: [
+        RhythmBadge(label: countLabel, tone: tone, compact: true),
+      ],
+      children: visible.isEmpty
+          ? [
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                child: Text(
+                  emptyLabel,
+                  style: TextStyle(
+                    color: colors.textSecondary,
+                    fontSize: 13,
+                    height: 1.4,
+                  ),
                 ),
               ),
-            )
-          : Column(
-              children: [
-                for (final task in visible)
-                  _TaskPreviewRow(
-                    task: task,
-                    showPastDue: showPastDue,
-                    onTap: () => onTapTask(task),
-                  ),
-                if (items.length > visible.length)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 8),
-                    child: Align(
-                      alignment: Alignment.centerLeft,
-                      child: Text(
-                        '+${items.length - visible.length} more',
-                        style: TextStyle(
-                          color: colors.textSecondary,
-                          fontSize: 12,
-                        ),
+            ]
+          : [
+              for (final task in visible)
+                _TaskPreviewRow(
+                  task: task,
+                  showPastDue: showPastDue,
+                  onTap: () => onTapTask(task),
+                ),
+              if (items.length > visible.length)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      '+${items.length - visible.length} more',
+                      style: TextStyle(
+                        color: colors.textSecondary,
+                        fontSize: 12,
                       ),
                     ),
                   ),
-              ],
-            ),
+                ),
+            ],
     );
   }
 }
@@ -982,85 +1089,84 @@ class _HandoffListCard extends StatelessWidget {
       ...teamShared.take(2),
     ].take(4).toList();
 
-    return _DashboardPreviewShell(
-      title: 'Collaborator Handoffs',
-      tone: RhythmBadgeTone.warning,
-      icon: Icons.handshake_outlined,
+    return FocusBusinessTaskListPanel(
+      header: 'COLLABORATOR HANDOFFS',
       onTap: onTapHeader,
-      trailing: RhythmBadge(
-        label: '${items.length} shared',
-        tone: RhythmBadgeTone.warning,
-        compact: true,
-      ),
-      child: items.isEmpty
-          ? Padding(
-              padding: const EdgeInsets.symmetric(vertical: 12),
-              child: Text(
-                'No shared tasks need attention right now.',
-                style: TextStyle(
-                  color: colors.textSecondary,
-                  fontSize: 13,
-                  height: 1.4,
+      headerActions: [
+        RhythmBadge(
+          label: '${items.length} shared',
+          tone: RhythmBadgeTone.warning,
+          compact: true,
+        ),
+      ],
+      children: items.isEmpty
+          ? [
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                child: Text(
+                  'No shared tasks need attention right now.',
+                  style: TextStyle(
+                    color: colors.textSecondary,
+                    fontSize: 13,
+                    height: 1.4,
+                  ),
                 ),
               ),
-            )
-          : Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Wrap(
-                  spacing: RhythmSpacing.xs,
-                  runSpacing: RhythmSpacing.xs,
-                  children: [
-                    _HandoffSummaryPill(
-                      label: 'Waiting on me',
-                      count: waitingOnMe.length,
-                      tone: RhythmBadgeTone.warning,
-                    ),
-                    _HandoffSummaryPill(
-                      label: 'Shared with me',
-                      count: sharedWithMe.length,
-                      tone: RhythmBadgeTone.accent,
-                    ),
-                    _HandoffSummaryPill(
-                      label: 'Team shared',
-                      count: teamShared.length,
-                      tone: RhythmBadgeTone.info,
-                    ),
-                  ],
+            ]
+          : [
+              Wrap(
+                spacing: RhythmSpacing.xs,
+                runSpacing: RhythmSpacing.xs,
+                children: [
+                  _HandoffSummaryPill(
+                    label: 'Waiting on me',
+                    count: waitingOnMe.length,
+                    tone: RhythmBadgeTone.warning,
+                  ),
+                  _HandoffSummaryPill(
+                    label: 'Shared with me',
+                    count: sharedWithMe.length,
+                    tone: RhythmBadgeTone.accent,
+                  ),
+                  _HandoffSummaryPill(
+                    label: 'Team shared',
+                    count: teamShared.length,
+                    tone: RhythmBadgeTone.info,
+                  ),
+                ],
+              ),
+              const SizedBox(height: RhythmSpacing.xs),
+              for (final task in visible)
+                _HandoffPreviewRow(
+                  task: task,
+                  currentUserId: currentUserId,
+                  workspaceMembers: workspaceMembers,
+                  onTap: () => onTapTask(task),
                 ),
-                const SizedBox(height: RhythmSpacing.xs),
-                for (final task in visible)
-                  _HandoffPreviewRow(
-                    task: task,
-                    currentUserId: currentUserId,
-                    workspaceMembers: workspaceMembers,
-                    onTap: () => onTapTask(task),
-                  ),
-                if (items.length > visible.length)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 8),
-                    child: Text(
-                      '+${items.length - visible.length} more shared tasks',
-                      style: TextStyle(
-                        color: colors.textSecondary,
-                        fontSize: 12,
-                      ),
+              if (items.length > visible.length)
+                Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: Text(
+                    '+${items.length - visible.length} more shared tasks',
+                    style: TextStyle(
+                      color: colors.textSecondary,
+                      fontSize: 12,
                     ),
                   ),
-                if (currentUserId == null)
-                  Padding(
-                    padding: const EdgeInsets.only(top: RhythmSpacing.xs),
-                    child: Text(
-                      'Sign-in context is needed to separate tasks owned by you from tasks shared with you.',
-                      style: TextStyle(
-                        color: colors.textMuted,
-                        fontSize: 11.5,
-                        height: 1.35,
-                      ),
+                ),
+              if (currentUserId == null)
+                Padding(
+                  padding: const EdgeInsets.only(top: RhythmSpacing.xs),
+                  child: Text(
+                    'Sign-in context is needed to separate tasks owned by you from tasks shared with you.',
+                    style: TextStyle(
+                      color: colors.textMuted,
+                      fontSize: 11.5,
+                      height: 1.35,
                     ),
                   ),
-              ],
-            ),
+                ),
+            ],
     );
   }
 }

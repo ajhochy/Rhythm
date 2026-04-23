@@ -213,6 +213,8 @@ class DashboardController extends ChangeNotifier {
           .map((step) => step.dueDate)
           .whereType<String>()
           .toList();
+      final openSteps =
+          sortedSteps.where((step) => step.status != 'done').toList();
       summaries.add(
         DashboardProjectProgress(
           id: instance.id,
@@ -221,7 +223,15 @@ class DashboardController extends ChangeNotifier {
               '$completed of ${sortedSteps.length} step${sortedSteps.length == 1 ? '' : 's'} complete',
           completedCount: completed,
           totalCount: sortedSteps.length,
+          nextStepTitle: openSteps.isEmpty ? null : openSteps.first.title,
           nextDueDate: nextDueDates.isEmpty ? null : nextDueDates.first,
+          onDeckStepTitles:
+              openSteps.skip(1).take(3).map((step) => step.title).toList(),
+          ownerId: instance.ownerId,
+          collaboratorNames: instance.collaborators
+              .map((collaborator) => collaborator.name.trim())
+              .where((name) => name.isNotEmpty)
+              .toList(),
         ),
       );
     }

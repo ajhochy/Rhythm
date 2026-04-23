@@ -43,7 +43,11 @@ class DashboardProjectProgress implements DashboardProgressItem {
     required this.subtitle,
     required this.completedCount,
     required this.totalCount,
+    this.nextStepTitle,
     this.nextDueDate,
+    this.onDeckStepTitles = const [],
+    this.ownerId,
+    this.collaboratorNames = const [],
   });
 
   @override
@@ -56,8 +60,12 @@ class DashboardProjectProgress implements DashboardProgressItem {
   final int completedCount;
   @override
   final int totalCount;
+  final String? nextStepTitle;
   @override
   final String? nextDueDate;
+  final List<String> onDeckStepTitles;
+  final int? ownerId;
+  final List<String> collaboratorNames;
 
   @override
   double get progress =>
