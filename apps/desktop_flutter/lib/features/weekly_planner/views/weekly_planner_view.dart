@@ -1239,12 +1239,12 @@ class _TaskTile extends StatelessWidget {
             decoration: BoxDecoration(
               color: isSelected || isMultiSelected
                   ? colors.accentMuted
-                  : visualStyle.background,
+                  : _plannerSurfaceColor(context, task, visualStyle),
               borderRadius: BorderRadius.circular(RhythmRadius.sm),
               border: Border.all(
                 color: isSelected || isMultiSelected
                     ? colors.accent
-                    : visualStyle.border,
+                    : _plannerBorderColor(context, task, visualStyle),
               ),
               boxShadow: isSelected || isMultiSelected
                   ? RhythmElevation.panel
@@ -1292,10 +1292,10 @@ class _TaskTile extends StatelessWidget {
                             style: (compact
                                     ? Theme.of(context).textTheme.labelSmall
                                     : Theme.of(context).textTheme.bodySmall)
-                                ?.copyWith(
+                            ?.copyWith(
                               fontSize: compact ? 9.5 : 10.5,
                               fontWeight: FontWeight.w700,
-                              color: visualStyle.accent,
+                              color: _plannerAccentColor(context, visualStyle),
                             ),
                           ),
                         ),
@@ -1310,7 +1310,9 @@ class _TaskTile extends StatelessWidget {
                             ?.copyWith(
                           decoration:
                               isDone ? TextDecoration.lineThrough : null,
-                          color: isDone ? colors.textMuted : visualStyle.text,
+                          color: isDone
+                              ? colors.textMuted
+                              : _plannerTextColor(context, visualStyle),
                           fontSize: compact ? 11 : null,
                           fontWeight: FontWeight.w700,
                           height: compact ? 1.18 : 1.25,
@@ -1343,13 +1345,15 @@ class _TaskTile extends StatelessWidget {
                               _TaskMetaPill(
                                 icon: Icons.person_outline,
                                 label: ownerName,
-                                color: visualStyle.mutedText,
+                                color:
+                                    _plannerMutedTextColor(context, visualStyle),
                               ),
                             if (task.sourceType != null || hasSourceName)
                               _TaskMetaPill(
                                 icon: _sourceIcon(task.sourceType),
                                 label: _sourceLabelForTask(task),
-                                color: visualStyle.accent,
+                                color:
+                                    _plannerAccentColor(context, visualStyle),
                               ),
                           ],
                         ),
@@ -1364,7 +1368,10 @@ class _TaskTile extends StatelessWidget {
                               Theme.of(context).textTheme.labelSmall?.copyWith(
                                     color: isDone
                                         ? colors.textMuted
-                                        : visualStyle.mutedText,
+                                        : _plannerMutedTextColor(
+                                            context,
+                                            visualStyle,
+                                          ),
                                     height: 1.25,
                                   ),
                         ),
@@ -2101,9 +2108,11 @@ class _AllDayEventsBar extends StatelessWidget {
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
               decoration: BoxDecoration(
-                color: visualStyle.background,
+                color: _plannerSurfaceColor(context, event, visualStyle),
                 borderRadius: BorderRadius.circular(RhythmRadius.sm),
-                border: Border.all(color: visualStyle.border),
+                border: Border.all(
+                  color: _plannerBorderColor(context, event, visualStyle),
+                ),
               ),
               child: Text(
                 event.title,
@@ -2112,7 +2121,7 @@ class _AllDayEventsBar extends StatelessWidget {
                 style: TextStyle(
                   fontSize: 9.5,
                   fontWeight: FontWeight.w600,
-                  color: visualStyle.text,
+                  color: _plannerTextColor(context, visualStyle),
                 ),
               ),
             ),
@@ -2247,9 +2256,11 @@ class _TimeGridEventTile extends StatelessWidget {
       child: Container(
         clipBehavior: Clip.hardEdge,
         decoration: BoxDecoration(
-          color: visualStyle.background,
+          color: _plannerSurfaceColor(context, event, visualStyle),
           borderRadius: BorderRadius.circular(RhythmRadius.sm),
-          border: Border.all(color: visualStyle.border),
+          border: Border.all(
+            color: _plannerBorderColor(context, event, visualStyle),
+          ),
         ),
         padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 3),
         child: Column(
@@ -2264,7 +2275,7 @@ class _TimeGridEventTile extends StatelessWidget {
                 style: TextStyle(
                   fontSize: 9,
                   fontWeight: FontWeight.w700,
-                  color: visualStyle.accent,
+                  color: _plannerAccentColor(context, visualStyle),
                 ),
               ),
             Text(
@@ -2274,7 +2285,7 @@ class _TimeGridEventTile extends StatelessWidget {
               style: TextStyle(
                 fontSize: 10,
                 fontWeight: FontWeight.w600,
-                color: visualStyle.text,
+                color: _plannerTextColor(context, visualStyle),
                 height: 1.2,
               ),
             ),
@@ -2283,6 +2294,59 @@ class _TimeGridEventTile extends StatelessWidget {
       ),
     );
   }
+}
+
+Color _plannerSurfaceColor(
+  BuildContext context,
+  Task task,
+  TaskVisualStyle visualStyle,
+) {
+  final colors = context.rhythm;
+  if (Theme.of(context).brightness != Brightness.dark) {
+    return visualStyle.background;
+  }
+  if (task.status == 'done') {
+    return colors.surfaceMuted.withValues(alpha: 0.72);
+  }
+  return Color.lerp(colors.surfaceRaised, visualStyle.accent, 0.12)!;
+}
+
+Color _plannerBorderColor(
+  BuildContext context,
+  Task task,
+  TaskVisualStyle visualStyle,
+) {
+  final colors = context.rhythm;
+  if (Theme.of(context).brightness != Brightness.dark) {
+    return visualStyle.border;
+  }
+  if (task.status == 'done') {
+    return colors.border;
+  }
+  return Color.lerp(colors.border, visualStyle.accent, 0.38)!;
+}
+
+Color _plannerTextColor(BuildContext context, TaskVisualStyle visualStyle) {
+  final colors = context.rhythm;
+  if (Theme.of(context).brightness != Brightness.dark) {
+    return visualStyle.text;
+  }
+  return colors.textPrimary;
+}
+
+Color _plannerMutedTextColor(BuildContext context, TaskVisualStyle visualStyle) {
+  final colors = context.rhythm;
+  if (Theme.of(context).brightness != Brightness.dark) {
+    return visualStyle.mutedText;
+  }
+  return Color.lerp(colors.textSecondary, visualStyle.accent, 0.2)!;
+}
+
+Color _plannerAccentColor(BuildContext context, TaskVisualStyle visualStyle) {
+  if (Theme.of(context).brightness != Brightness.dark) {
+    return visualStyle.accent;
+  }
+  return Color.lerp(context.rhythm.textPrimary, visualStyle.accent, 0.72)!;
 }
 
 // ---------------------------------------------------------------------------
