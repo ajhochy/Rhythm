@@ -726,25 +726,12 @@ class _TasksViewState extends State<TasksView> {
   }
 
   Future<void> _confirmDelete(Task task, TasksController controller) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Delete task?'),
-        content: Text('Delete "${task.title}"?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            style: FilledButton.styleFrom(
-              backgroundColor: Theme.of(context).colorScheme.error,
-            ),
-            child: const Text('Delete'),
-          ),
-        ],
-      ),
+    final confirmed = await RhythmDialog.confirm(
+      context,
+      title: 'Delete task?',
+      message: 'Delete "${task.title}"? This cannot be undone.',
+      confirmLabel: 'Delete',
+      destructive: true,
     );
     if (confirmed == true) controller.deleteTask(task.id);
   }
