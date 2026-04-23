@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../features/projects/models/project_instance.dart';
 import '../../../features/tasks/models/task.dart';
 import '../../../features/tasks/models/task_collaborator.dart';
+import '../../../shared/widgets/rhythm_date_button.dart';
 import '../../../shared/widgets/workspace_member_picker.dart';
 import '../formatters/date_formatters.dart';
 import '../tasks/task_visual_style.dart';
@@ -507,28 +508,18 @@ class _RhythmTaskInspectorState extends State<_RhythmTaskInspector> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 if (_editing && !_readOnly) ...[
-                  Row(
-                    children: [
-                      OutlinedButton.icon(
-                        onPressed: _pickDate,
-                        icon: const Icon(Icons.calendar_today, size: 16),
-                        label: Text(
-                          _primaryDate == null
-                              ? 'Set date'
-                              : DateFormatters.fullDate(
-                                  _primaryDate,
-                                  fallback: _primaryDate!,
-                                ),
-                        ),
-                      ),
-                      if (_primaryDate != null) ...[
-                        const SizedBox(width: 8),
-                        TextButton(
-                          onPressed: () => setState(() => _primaryDate = null),
-                          child: const Text('Clear'),
-                        ),
-                      ],
-                    ],
+                  RhythmDateButton(
+                    date: _primaryDate,
+                    onTap: () async {
+                      final result = await pickRhythmDate(
+                        context,
+                        current: _primaryDate,
+                      );
+                      if (result != null && mounted) {
+                        setState(() => _primaryDate = result);
+                      }
+                    },
+                    onClear: () => setState(() => _primaryDate = null),
                   ),
                 ] else ...[
                   _MetaRow(label: 'Date', value: scheduleLabel),
@@ -642,21 +633,6 @@ class _RhythmTaskInspectorState extends State<_RhythmTaskInspector> {
             ),
       ),
     );
-  }
-
-  Future<void> _pickDate() async {
-    final initial = _primaryDate != null
-        ? DateTime.tryParse(_primaryDate!) ?? DateTime.now()
-        : DateTime.now();
-    final picked = await showDatePicker(
-      context: context,
-      initialDate: initial,
-      firstDate: DateTime(2020),
-      lastDate: DateTime(2035),
-    );
-    if (picked != null) {
-      setState(() => _primaryDate = picked.toIso8601String().substring(0, 10));
-    }
   }
 
   Future<void> _showPeoplePicker() async {
@@ -878,28 +854,19 @@ class _RhythmProjectStepInspectorState
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 if (_editing) ...[
-                  Row(
-                    children: [
-                      OutlinedButton.icon(
-                        onPressed: _pickDate,
-                        icon: const Icon(Icons.calendar_today, size: 16),
-                        label: Text(
-                          _dueDate == null
-                              ? 'Set due date'
-                              : DateFormatters.fullDate(
-                                  _dueDate,
-                                  fallback: _dueDate!,
-                                ),
-                        ),
-                      ),
-                      if (_dueDate != null) ...[
-                        const SizedBox(width: 8),
-                        TextButton(
-                          onPressed: () => setState(() => _dueDate = null),
-                          child: const Text('Clear'),
-                        ),
-                      ],
-                    ],
+                  RhythmDateButton(
+                    date: _dueDate,
+                    placeholder: 'Set due date',
+                    onTap: () async {
+                      final result = await pickRhythmDate(
+                        context,
+                        current: _dueDate,
+                      );
+                      if (result != null && mounted) {
+                        setState(() => _dueDate = result);
+                      }
+                    },
+                    onClear: () => setState(() => _dueDate = null),
                   ),
                   const SizedBox(height: 12),
                   Text(
@@ -1017,21 +984,6 @@ class _RhythmProjectStepInspectorState
             ),
       ),
     );
-  }
-
-  Future<void> _pickDate() async {
-    final initial = _dueDate != null
-        ? DateTime.tryParse(_dueDate!) ?? DateTime.now()
-        : DateTime.now();
-    final picked = await showDatePicker(
-      context: context,
-      initialDate: initial,
-      firstDate: DateTime(2020),
-      lastDate: DateTime(2035),
-    );
-    if (picked != null) {
-      setState(() => _dueDate = picked.toIso8601String().substring(0, 10));
-    }
   }
 
   Future<void> _save() async {

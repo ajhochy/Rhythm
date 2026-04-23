@@ -1,3 +1,5 @@
+import 'package:flutter/material.dart';
+
 class DateFormatters {
   static const _weekdayNames = <String>[
     'Monday',
@@ -83,4 +85,18 @@ class DateFormatters {
     if (year == null || month == null || day == null) return null;
     return DateTime(year, month, day);
   }
+}
+
+Future<String?> pickRhythmDate(BuildContext context, {String? current}) async {
+  final initial = current != null
+      ? DateTime.tryParse(current) ?? DateTime.now()
+      : DateTime.now();
+  final picked = await showDatePicker(
+    context: context,
+    initialDate: initial,
+    firstDate: DateTime(2020),
+    lastDate: DateTime(2035),
+  );
+  if (picked == null) return null;
+  return picked.toIso8601String().substring(0, 10);
 }
