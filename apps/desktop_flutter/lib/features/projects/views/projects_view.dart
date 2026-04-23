@@ -4,7 +4,6 @@ import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:provider/provider.dart';
 import '../../../app/core/formatters/date_formatters.dart';
-import '../../../app/core/auth/auth_session_service.dart';
 import '../../../app/core/auth/auth_session_store.dart';
 import '../controllers/project_template_controller.dart';
 import '../models/project_instance.dart';
@@ -1160,8 +1159,6 @@ class _InstanceCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colorScheme = Theme.of(context).colorScheme;
-    final canReassign =
-        AuthSessionService.instance.currentUser?.id == instance.ownerId;
     final visibleSteps = showCompleted
         ? instance.steps
         : instance.steps.where((step) => step.status != 'done').toList();
@@ -1223,7 +1220,6 @@ class _InstanceCard extends StatelessWidget {
               step: step,
               onUpdateStep: onUpdateStep,
               onInspectStep: onInspectStep,
-              canReassign: canReassign,
             ),
           ),
         ],
@@ -1238,7 +1234,6 @@ class _InstanceStepTile extends StatelessWidget {
     required this.step,
     required this.onUpdateStep,
     required this.onInspectStep,
-    required this.canReassign,
   });
   final ProjectInstance instance;
   final ProjectInstanceStep step;
@@ -1254,7 +1249,6 @@ class _InstanceStepTile extends StatelessWidget {
     ProjectInstance instance,
     ProjectInstanceStep step,
   ) onInspectStep;
-  final bool canReassign;
 
   @override
   Widget build(BuildContext context) {
@@ -1316,175 +1310,6 @@ class _InstanceStepTile extends StatelessWidget {
         ),
       ),
     );
-  }
-}
-
-class _EditInstanceStepDialog extends StatefulWidget {
-  const _EditInstanceStepDialog({
-    required this.step,
-    required this.onSave,
-    required this.canEditAssignee,
-  });
-  final ProjectInstanceStep step;
-  final Future<void> Function(
-    ProjectInstanceStep step, {
-    String? title,
-    String? dueDate,
-    String? status,
-    String? notes,
-    int? assigneeId,
-  }) onSave;
-  final bool canEditAssignee;
-
-  @override
-  State<_EditInstanceStepDialog> createState() =>
-      _EditInstanceStepDialogState();
-}
-
-class _EditInstanceStepDialogState extends State<_EditInstanceStepDialog> {
-  late final TextEditingController _titleCtrl;
-  late final TextEditingController _dueDateCtrl;
-  late final TextEditingController _notesCtrl;
-  int? _assigneeId;
-  bool _saving = false;
-
-  @override
-  void initState() {
-    super.initState();
-    _titleCtrl = TextEditingController(text: widget.step.title);
-    _dueDateCtrl = TextEditingController(text: widget.step.dueDate);
-    _notesCtrl = TextEditingController(text: widget.step.notes ?? '');
-    _assigneeId = widget.step.assigneeId;
-  }
-
-  @override
-  void dispose() {
-    _titleCtrl.dispose();
-    _dueDateCtrl.dispose();
-    _notesCtrl.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      title: const Text('Edit Step'),
-      content: SizedBox(
-        width: 360,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            TextField(
-              controller: _titleCtrl,
-              decoration: const InputDecoration(
-                labelText: 'Title',
-                border: OutlineInputBorder(),
-              ),
-              autofocus: true,
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              controller: _dueDateCtrl,
-              decoration: const InputDecoration(
-                labelText: 'Due date (YYYY-MM-DD)',
-                border: OutlineInputBorder(),
-              ),
-            ),
-            const SizedBox(height: 12),
-            if (widget.canEditAssignee) ...[
-              Align(
-                alignment: Alignment.centerLeft,
-                child: Text(
-                  'Assignee',
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: Theme.of(context).colorScheme.onSurfaceVariant,
-                        fontWeight: FontWeight.w600,
-                      ),
-                ),
-              ),
-              const SizedBox(height: 6),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 10,
-                ),
-                decoration: BoxDecoration(
-                  border: Border.all(
-                    color: Theme.of(context).colorScheme.outlineVariant,
-                  ),
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                child: Builder(
-                  builder: (context) {
-                    final members =
-                        context.watch<WorkspaceController>().members;
-                    final selectedId = _assigneeId != null &&
-                            members.any((m) => m.userId == _assigneeId)
-                        ? _assigneeId
-                        : null;
-                    return WorkspaceMemberPicker(
-                      workspaceMembers: members,
-                      selectedUserId: selectedId,
-                      onChanged: (value) => setState(() => _assigneeId = value),
-                    );
-                  },
-                ),
-              ),
-              const SizedBox(height: 12),
-            ] else ...[
-              Text(
-                'Assignee: ${widget.step.assigneeName ?? 'Unassigned'}',
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: Theme.of(context).colorScheme.onSurfaceVariant,
-                    ),
-              ),
-              const SizedBox(height: 12),
-            ],
-            TextField(
-              controller: _notesCtrl,
-              decoration: const InputDecoration(
-                labelText: 'Notes (optional)',
-                border: OutlineInputBorder(),
-              ),
-              minLines: 2,
-              maxLines: 4,
-            ),
-          ],
-        ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: _saving ? null : () => Navigator.pop(context),
-          child: const Text('Cancel'),
-        ),
-        FilledButton(
-          onPressed: _saving ? null : _save,
-          child: _saving
-              ? const SizedBox(
-                  width: 16,
-                  height: 16,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              : const Text('Save'),
-        ),
-      ],
-    );
-  }
-
-  Future<void> _save() async {
-    final title = _titleCtrl.text.trim();
-    if (title.isEmpty) return;
-    setState(() => _saving = true);
-    await widget.onSave(
-      widget.step,
-      title: title,
-      dueDate:
-          _dueDateCtrl.text.trim().isEmpty ? null : _dueDateCtrl.text.trim(),
-      notes: _notesCtrl.text.trim(),
-      assigneeId: _assigneeId,
-    );
-    if (mounted) Navigator.pop(context);
   }
 }
 
