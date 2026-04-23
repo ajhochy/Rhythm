@@ -151,6 +151,7 @@ export class AuthController {
         googleSub: profile.sub,
         email: profile.email,
         name: profile.name ?? profile.email,
+        photoUrl: profile.picture ?? null,
       });
 
       await googleOAuth.storeDesktopIntegration(session.user.id, tokens, profile);
