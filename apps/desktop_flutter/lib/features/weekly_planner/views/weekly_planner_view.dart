@@ -2087,15 +2087,17 @@ class _TimeGridEventTile extends StatelessWidget {
                   color: _plannerAccentColor(context, visualStyle),
                 ),
               ),
-            Text(
-              event.title,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                fontSize: 10,
-                fontWeight: FontWeight.w600,
-                color: _plannerTextColor(context, visualStyle),
-                height: 1.2,
+            Expanded(
+              child: Text(
+                event.title,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w600,
+                  color: _plannerTextColor(context, visualStyle),
+                  height: 1.2,
+                ),
               ),
             ),
           ],
