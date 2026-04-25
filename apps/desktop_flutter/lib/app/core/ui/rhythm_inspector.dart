@@ -4,6 +4,7 @@ import '../../../features/projects/models/project_instance.dart';
 import '../../../features/tasks/models/task.dart';
 import '../../../features/tasks/models/task_collaborator.dart';
 import '../../../shared/widgets/rhythm_date_button.dart';
+import '../../../shared/widgets/rhythm_assignee_field.dart';
 import '../../../shared/widgets/workspace_member_picker.dart';
 import '../formatters/date_formatters.dart';
 import '../tasks/task_visual_style.dart';
@@ -649,18 +650,10 @@ class _RhythmTaskInspectorState extends State<_RhythmTaskInspector> {
       );
       return;
     }
-    final selected = await showDialog<WorkspaceMember>(
-      context: context,
-      builder: (ctx) => SimpleDialog(
-        title: const Text('Add collaborator'),
-        children: [
-          for (final member in candidates)
-            SimpleDialogOption(
-              onPressed: () => Navigator.pop(ctx, member),
-              child: Text(member.name),
-            ),
-        ],
-      ),
+    final selected = await showWorkspaceMemberPickerDialog(
+      context,
+      candidates: candidates,
+      title: 'Add collaborator',
     );
     if (selected == null || widget.onAddCollaborator == null) return;
     setState(() => _updatingCollaborators = true);
@@ -869,28 +862,11 @@ class _RhythmProjectStepInspectorState
                     onClear: () => setState(() => _dueDate = null),
                   ),
                   const SizedBox(height: 12),
-                  Text(
-                    'Assignee',
-                    style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                          fontWeight: FontWeight.w700,
-                        ),
-                  ),
-                  const SizedBox(height: 8),
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 10,
-                    ),
-                    decoration: BoxDecoration(
-                      border: Border.all(color: colors.borderSubtle),
-                      borderRadius: BorderRadius.circular(RhythmRadius.sm),
-                    ),
-                    child: WorkspaceMemberPicker(
-                      workspaceMembers: widget.workspaceMembers,
-                      selectedUserId: _assigneeId,
-                      onChanged: (value) => setState(() => _assigneeId = value),
-                    ),
+                  RhythmAssigneeField(
+                    workspaceMembers: widget.workspaceMembers,
+                    selectedUserId: _assigneeId,
+                    onChanged: (value) => setState(() => _assigneeId = value),
+                    label: 'Assignee',
                   ),
                 ] else ...[
                   _MetaRow(label: 'Project', value: widget.projectTitle),
