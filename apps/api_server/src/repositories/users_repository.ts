@@ -257,7 +257,7 @@ export class UsersRepository {
         name: data.name,
         email: data.email,
         googleSub: data.googleSub,
-        photoUrl: data.photoUrl ?? null,
+        photoUrl: data.photoUrl ?? existingBySub.photoUrl,
       });
     }
 
@@ -267,7 +267,7 @@ export class UsersRepository {
         name: data.name,
         email: data.email,
         googleSub: data.googleSub,
-        photoUrl: data.photoUrl ?? null,
+        photoUrl: data.photoUrl ?? existingByEmail.photoUrl,
       });
     }
 

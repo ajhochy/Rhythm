@@ -58,6 +58,7 @@ describe('Google desktop PKCE exchange', () => {
             sub: 'google-sub-xyz',
             email: 'user@example.com',
             name: 'Test User',
+            picture: 'https://example.com/user.png',
           }),
           { status: 200, headers: { 'Content-Type': 'application/json' } },
         ),
@@ -72,6 +73,7 @@ describe('Google desktop PKCE exchange', () => {
 
     expect(result.tokens.access_token).toBe('access-123');
     expect(result.profile.email).toBe('user@example.com');
+    expect(result.profile.picture).toBe('https://example.com/user.png');
     const tokenCall = fetchMock.mock.calls[0];
     expect(tokenCall[0]).toBe('https://oauth2.googleapis.com/token');
     const body = (tokenCall[1].body as URLSearchParams).toString();
@@ -104,6 +106,7 @@ describe('Google desktop PKCE exchange', () => {
             sub: 'google-sub-1',
             email: 'alice@example.com',
             name: 'Alice',
+            picture: 'https://example.com/alice.png',
           }),
           { status: 200, headers: { 'Content-Type': 'application/json' } },
         ),
@@ -120,6 +123,7 @@ describe('Google desktop PKCE exchange', () => {
       googleSub: profile.sub,
       email: profile.email!,
       name: profile.name!,
+      photoUrl: profile.picture ?? null,
     });
     await oauth.storeDesktopIntegration(session.user.id, tokens, profile);
 
@@ -132,6 +136,7 @@ describe('Google desktop PKCE exchange', () => {
     expect(cal?.accessToken).toBe('access-456');
     expect(gmail?.accessToken).toBe('access-456');
     expect(cal?.refreshToken).toBe('refresh-456');
+    expect(session.user.photoUrl).toBe('https://example.com/alice.png');
   });
 
   it('surfaces Google token errors as AppError', async () => {
