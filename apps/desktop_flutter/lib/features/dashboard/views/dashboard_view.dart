@@ -3,7 +3,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../app/core/formatters/date_formatters.dart';
-import '../../../shared/widgets/rhythm_date_button.dart';
+import '../../../shared/widgets/rhythm_task_create_bar.dart';
 import '../../../app/core/auth/auth_session_service.dart';
 import '../../../app/core/ui/rhythm_ui.dart';
 import '../../../app/core/workspace/workspace_controller.dart';
@@ -35,8 +35,6 @@ class DashboardView extends StatefulWidget {
 }
 
 class _DashboardViewState extends State<DashboardView> {
-  final _addTaskController = TextEditingController();
-
   @override
   void initState() {
     super.initState();
@@ -48,7 +46,6 @@ class _DashboardViewState extends State<DashboardView> {
 
   @override
   void dispose() {
-    _addTaskController.dispose();
     super.dispose();
   }
 
@@ -135,23 +132,6 @@ class _DashboardBody extends StatefulWidget {
 }
 
 class _DashboardBodyState extends State<_DashboardBody> {
-  final _addTaskController = TextEditingController();
-  String? _selectedDueDate;
-
-  @override
-  void dispose() {
-    _addTaskController.dispose();
-    super.dispose();
-  }
-
-  Future<void> _submitTask() async {
-    final title = _addTaskController.text.trim();
-    if (title.isEmpty) return;
-    await widget.controller.createTask(title, dueDate: _selectedDueDate);
-    _addTaskController.clear();
-    setState(() => _selectedDueDate = null);
-  }
-
   @override
   Widget build(BuildContext context) {
     final c = widget.controller;
@@ -202,7 +182,16 @@ class _DashboardBodyState extends State<_DashboardBody> {
               ),
             ),
           ),
-          _buildAddTaskBar(context, c),
+          RhythmTaskCreateBar(
+            showNotes: false,
+            addLabel: 'Add Task',
+            titleHint: 'Add a task...',
+            onSubmit: (title, {notes, dueDate}) {
+              context
+                  .read<DashboardController>()
+                  .createTask(title, dueDate: dueDate);
+            },
+          ),
         ],
       ),
     );
@@ -847,99 +836,6 @@ class _DashboardBodyState extends State<_DashboardBody> {
   }
   // -------------------------------------------------------------------------
   // Add task bar
-  // -------------------------------------------------------------------------
-
-  Widget _buildAddTaskBar(BuildContext context, DashboardController c) {
-    final colors = context.rhythm;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(
-        RhythmSpacing.md,
-        0,
-        RhythmSpacing.md,
-        RhythmSpacing.md,
-      ),
-      child: RhythmPanel(
-        elevated: true,
-        backgroundColor: colors.surfaceRaised,
-        borderColor: colors.border,
-        padding: const EdgeInsets.all(RhythmSpacing.sm),
-        child: LayoutBuilder(
-          builder: (context, constraints) {
-            final taskField = TextField(
-              controller: _addTaskController,
-              style: TextStyle(color: colors.textPrimary),
-              decoration: InputDecoration(
-                hintText: 'Add a task...',
-                hintStyle: TextStyle(color: colors.textMuted),
-                isDense: true,
-                filled: true,
-                fillColor: colors.surfaceMuted,
-                enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(RhythmRadius.md),
-                  borderSide: BorderSide(color: colors.borderSubtle),
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(RhythmRadius.md),
-                  borderSide: BorderSide(color: colors.focusRing),
-                ),
-              ),
-              onSubmitted: (_) => _submitTask(),
-            );
-
-            final dueDateButton = RhythmDateButton(
-              date: _selectedDueDate,
-              placeholder: 'Due date',
-              onTap: () async {
-                final result = await pickRhythmDate(
-                  context,
-                  current: _selectedDueDate,
-                );
-                if (result != null) setState(() => _selectedDueDate = result);
-              },
-              onClear: _selectedDueDate != null
-                  ? () => setState(() => _selectedDueDate = null)
-                  : null,
-            );
-
-            final addButton = RhythmButton.filled(
-              onPressed: _submitTask,
-              icon: Icons.add,
-              label: 'Add Task',
-            );
-
-            if (constraints.maxWidth < 720) {
-              return Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  taskField,
-                  const SizedBox(height: RhythmSpacing.sm),
-                  Wrap(
-                    spacing: RhythmSpacing.sm,
-                    runSpacing: RhythmSpacing.sm,
-                    alignment: WrapAlignment.end,
-                    children: [
-                      dueDateButton,
-                      addButton,
-                    ],
-                  ),
-                ],
-              );
-            }
-
-            return Row(
-              children: [
-                Expanded(child: taskField),
-                const SizedBox(width: RhythmSpacing.sm),
-                dueDateButton,
-                const SizedBox(width: RhythmSpacing.sm),
-                addButton,
-              ],
-            );
-          },
-        ),
-      ),
-    );
-  }
 }
 
 class _SectionLabel extends StatelessWidget {
