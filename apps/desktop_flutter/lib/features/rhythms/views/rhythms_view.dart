@@ -683,42 +683,13 @@ class _RhythmCollaboratorsRow extends StatelessWidget {
       return;
     }
 
-    final selectedUserId = await showDialog<int>(
-      context: context,
-      builder: (ctx) {
-        var selectedId = candidates.first.userId;
-        return StatefulBuilder(
-          builder: (ctx, setState) => AlertDialog(
-            title: const Text('Add collaborator'),
-            content: SizedBox(
-              width: 360,
-              child: WorkspaceMemberPicker(
-                workspaceMembers: candidates,
-                selectedUserId: selectedId,
-                allowNone: false,
-                onChanged: (value) {
-                  if (value == null) return;
-                  setState(() => selectedId = value);
-                },
-              ),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(ctx),
-                child: const Text('Cancel'),
-              ),
-              FilledButton(
-                onPressed: () => Navigator.pop(ctx, selectedId),
-                child: const Text('Add'),
-              ),
-            ],
-          ),
-        );
-      },
+    final selected = await showWorkspaceMemberPickerDialog(
+      context,
+      candidates: candidates,
+      title: 'Add collaborator',
     );
-
-    if (selectedUserId == null) return;
-    await dataSource.addCollaborator(rule.id, selectedUserId);
+    if (selected == null) return;
+    await dataSource.addCollaborator(rule.id, selected.userId);
     onChanged();
   }
 }
