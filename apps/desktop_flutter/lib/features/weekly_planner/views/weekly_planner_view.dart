@@ -2074,7 +2074,7 @@ class _TimeGridEventTile extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 3),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
+          mainAxisSize: MainAxisSize.max,
           children: [
             if (timeLabel != null)
               Text(
