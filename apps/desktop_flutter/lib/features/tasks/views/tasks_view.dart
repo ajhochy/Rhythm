@@ -8,7 +8,7 @@ import '../../../app/core/widgets/error_banner.dart';
 import '../../../app/core/workspace/workspace_controller.dart';
 import '../../../app/core/workspace/workspace_models.dart';
 import '../../../shared/widgets/collaborators_row.dart';
-import '../../../shared/widgets/rhythm_date_button.dart';
+import '../../../shared/widgets/rhythm_task_create_bar.dart';
 import '../controllers/tasks_controller.dart';
 import '../data/collaborators_data_source.dart';
 import '../models/task.dart';
@@ -23,9 +23,6 @@ class TasksView extends StatefulWidget {
 
 class _TasksViewState extends State<TasksView> {
   final _searchController = TextEditingController();
-  final _titleController = TextEditingController();
-  final _notesController = TextEditingController();
-  String? _selectedDueDate;
   bool _showCompleted = false;
   bool _sortByDueDate = false;
   String _searchQuery = '';
@@ -43,23 +40,7 @@ class _TasksViewState extends State<TasksView> {
   @override
   void dispose() {
     _searchController.dispose();
-    _titleController.dispose();
-    _notesController.dispose();
     super.dispose();
-  }
-
-  Future<void> _submitCreate() async {
-    final title = _titleController.text.trim();
-    if (title.isEmpty) return;
-    final notes = _notesController.text.trim();
-    await context.read<TasksController>().createTask(
-          title,
-          notes: notes.isEmpty ? null : notes,
-          dueDate: _selectedDueDate,
-        );
-    _titleController.clear();
-    _notesController.clear();
-    setState(() => _selectedDueDate = null);
   }
 
   @override
@@ -94,16 +75,23 @@ class _TasksViewState extends State<TasksView> {
                 Expanded(
                   child: LayoutBuilder(
                     builder: (context, constraints) {
-                      final createBarStacks = constraints.maxWidth < 1400;
+                      final createBarStacks = constraints.maxWidth < 900;
                       return CustomScrollView(
                         slivers: [
                           SliverPersistentHeader(
                             pinned: true,
                             delegate: _StickyBarDelegate(
                               height: createBarStacks ? 176 : 86,
-                              child: _buildCreateBar(
-                                context,
-                                stacked: createBarStacks,
+                              child: RhythmTaskCreateBar(
+                                showNotes: true,
+                                addLabel: 'Add task',
+                                onSubmit: (title, {notes, dueDate}) {
+                                  context.read<TasksController>().createTask(
+                                        title,
+                                        notes: notes,
+                                        dueDate: dueDate,
+                                      );
+                                },
                               ),
                             ),
                           ),
@@ -750,116 +738,6 @@ class _TasksViewState extends State<TasksView> {
             await collaboratorsDataSource.fetchForTask(task.id);
         return collaborators;
       },
-    );
-  }
-
-  Widget _buildCreateBar(BuildContext context, {required bool stacked}) {
-    return RhythmPanel(
-      padding: const EdgeInsets.all(RhythmSpacing.sm),
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          final titleField = TextField(
-            controller: _titleController,
-            decoration: _fieldDecoration(
-              context,
-              hintText: 'New task title',
-              icon: Icons.edit_note_outlined,
-            ),
-            textInputAction: TextInputAction.next,
-            onSubmitted: (_) => _submitCreate(),
-          );
-          final notesField = TextField(
-            controller: _notesController,
-            decoration: _fieldDecoration(
-              context,
-              hintText: 'Add a note, context, or next step',
-              icon: Icons.subject_outlined,
-            ),
-            minLines: 1,
-            maxLines: 1,
-          );
-          final dateButton = RhythmDateButton(
-            date: _selectedDueDate,
-            placeholder: 'Due date',
-            onTap: () async {
-              final result = await pickRhythmDate(
-                context,
-                current: _selectedDueDate,
-              );
-              if (result != null) setState(() => _selectedDueDate = result);
-            },
-            onClear: _selectedDueDate != null
-                ? () => setState(() => _selectedDueDate = null)
-                : null,
-          );
-          final addButton = RhythmButton.filled(
-            onPressed: _submitCreate,
-            icon: Icons.add,
-            label: 'Add task',
-            compact: true,
-          );
-
-          if (!stacked && constraints.maxWidth >= 900) {
-            return Row(
-              children: [
-                Expanded(flex: 3, child: titleField),
-                const SizedBox(width: RhythmSpacing.xs),
-                Expanded(flex: 4, child: notesField),
-                const SizedBox(width: RhythmSpacing.xs),
-                dateButton,
-                const SizedBox(width: RhythmSpacing.xs),
-                addButton,
-              ],
-            );
-          }
-
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              titleField,
-              const SizedBox(height: RhythmSpacing.xs),
-              notesField,
-              const SizedBox(height: RhythmSpacing.xs),
-              Wrap(
-                spacing: RhythmSpacing.xs,
-                runSpacing: RhythmSpacing.xs,
-                crossAxisAlignment: WrapCrossAlignment.center,
-                children: [dateButton, addButton],
-              ),
-            ],
-          );
-        },
-      ),
-    );
-  }
-
-  InputDecoration _fieldDecoration(
-    BuildContext context, {
-    required String hintText,
-    required IconData icon,
-  }) {
-    final colors = context.rhythm;
-    return InputDecoration(
-      hintText: hintText,
-      hintStyle: TextStyle(color: colors.textMuted),
-      prefixIcon: Icon(icon, size: 18, color: colors.textMuted),
-      isDense: true,
-      filled: true,
-      fillColor: colors.surfaceMuted,
-      contentPadding: const EdgeInsets.symmetric(
-        horizontal: RhythmSpacing.md,
-        vertical: 10,
-      ),
-      border: _fieldBorder(colors.borderSubtle),
-      enabledBorder: _fieldBorder(colors.borderSubtle),
-      focusedBorder: _fieldBorder(colors.focusRing, width: 1.5),
-    );
-  }
-
-  OutlineInputBorder _fieldBorder(Color color, {double width = 1}) {
-    return OutlineInputBorder(
-      borderRadius: BorderRadius.circular(RhythmRadius.md),
-      borderSide: BorderSide(color: color, width: width),
     );
   }
 }
