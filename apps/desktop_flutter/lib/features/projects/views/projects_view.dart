@@ -15,7 +15,7 @@ import '../../../app/core/ui/rhythm_ui.dart';
 import '../../../app/core/workspace/workspace_controller.dart';
 import '../../../app/core/workspace/workspace_models.dart';
 import '../../../shared/widgets/collaborators_row.dart';
-import '../../../shared/widgets/workspace_member_picker.dart';
+import '../../../shared/widgets/rhythm_assignee_field.dart';
 import '../../tasks/data/collaborators_data_source.dart';
 
 class ProjectsView extends StatefulWidget {
@@ -1594,29 +1594,11 @@ class _EditStepDialogState extends State<_EditStepDialog> {
               ),
             ),
             const SizedBox(height: 6),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-              decoration: BoxDecoration(
-                border: Border.all(
-                  color: Theme.of(context).colorScheme.outlineVariant,
-                ),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Builder(
-                builder: (context) {
-                  final members = context.watch<WorkspaceController>().members;
-                  final selectedId = _assigneeId != null &&
-                          members.any((m) => m.userId == _assigneeId)
-                      ? _assigneeId
-                      : null;
-                  return WorkspaceMemberPicker(
-                    workspaceMembers: members,
-                    selectedUserId: selectedId,
-                    onChanged: (value) => setState(() => _assigneeId = value),
-                  );
-                },
-              ),
+            RhythmAssigneeField(
+              workspaceMembers: context.watch<WorkspaceController>().members,
+              selectedUserId: _assigneeId,
+              onChanged: (value) => setState(() => _assigneeId = value),
+              label: 'Assignee',
             ),
             const SizedBox(height: 12),
             TextField(
@@ -1822,29 +1804,11 @@ class _AddStepDialogState extends State<_AddStepDialog> {
               ),
             ),
             const SizedBox(height: 6),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-              decoration: BoxDecoration(
-                border: Border.all(
-                  color: Theme.of(context).colorScheme.outlineVariant,
-                ),
-                borderRadius: BorderRadius.circular(12),
-              ),
-              child: Builder(
-                builder: (context) {
-                  final members = context.watch<WorkspaceController>().members;
-                  final selectedId = _assigneeId != null &&
-                          members.any((m) => m.userId == _assigneeId)
-                      ? _assigneeId
-                      : null;
-                  return WorkspaceMemberPicker(
-                    workspaceMembers: members,
-                    selectedUserId: selectedId,
-                    onChanged: (value) => setState(() => _assigneeId = value),
-                  );
-                },
-              ),
+            RhythmAssigneeField(
+              workspaceMembers: context.watch<WorkspaceController>().members,
+              selectedUserId: _assigneeId,
+              onChanged: (value) => setState(() => _assigneeId = value),
+              label: 'Assignee',
             ),
             const SizedBox(height: 12),
             TextField(
