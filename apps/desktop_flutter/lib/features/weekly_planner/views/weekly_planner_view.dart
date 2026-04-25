@@ -13,6 +13,7 @@ import '../../tasks/models/task.dart';
 import '../controllers/weekly_planner_controller.dart';
 import '../models/weekly_plan.dart';
 import '../../tasks/data/collaborators_data_source.dart';
+import '../../../app/core/ui/rhythm_task_create_dialog.dart';
 
 class WeeklyPlannerView extends StatefulWidget {
   const WeeklyPlannerView({super.key});
@@ -591,73 +592,13 @@ class _BacklogPane extends StatelessWidget {
   }
 
   Future<void> _showAddBacklogTaskDialog(BuildContext context) async {
-    final ctrl = TextEditingController();
-    final workspaceMembers = context.read<WorkspaceController>().members;
-    int? ownerId;
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setState) {
-          final dlgColors = ctx.rhythm;
-          return AlertDialog(
-            backgroundColor: dlgColors.surfaceRaised,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(RhythmRadius.xl),
-            ),
-            title: const Text('Add unscheduled task'),
-            content: SizedBox(
-              width: 380,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  TextField(
-                    controller: ctrl,
-                    autofocus: true,
-                    decoration: InputDecoration(
-                      hintText: 'Task title',
-                      filled: true,
-                      fillColor: dlgColors.surfaceMuted,
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(RhythmRadius.sm),
-                        borderSide: BorderSide(color: dlgColors.borderSubtle),
-                      ),
-                      enabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(RhythmRadius.sm),
-                        borderSide: BorderSide(color: dlgColors.borderSubtle),
-                      ),
-                      focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(RhythmRadius.sm),
-                        borderSide: BorderSide(color: dlgColors.accent),
-                      ),
-                    ),
-                    onSubmitted: (_) => Navigator.pop(ctx, true),
-                  ),
-                  const SizedBox(height: 12),
-                  _TaskOwnerPickerField(
-                    workspaceMembers: workspaceMembers,
-                    selectedUserId: ownerId,
-                    onChanged: (value) => setState(() => ownerId = value),
-                  ),
-                ],
-              ),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(ctx, false),
-                child: const Text('Cancel'),
-              ),
-              FilledButton(
-                onPressed: () => Navigator.pop(ctx, true),
-                child: const Text('Add'),
-              ),
-            ],
-          );
-        },
-      ),
+    final result = await showRhythmTaskCreateDialog(
+      context,
+      title: 'Add unscheduled task',
+      workspaceMembers: context.read<WorkspaceController>().members,
     );
-    if (confirmed == true && ctrl.text.trim().isNotEmpty) {
-      await controller.createTask(ctrl.text.trim(), ownerId: ownerId);
+    if (result != null && result.title.isNotEmpty) {
+      await controller.createTask(result.title, ownerId: result.ownerId);
     }
   }
 }
@@ -1072,76 +1013,16 @@ class _DayColumnState extends State<_DayColumn> {
   }
 
   Future<void> _showAddTaskDialog(BuildContext context) async {
-    final ctrl = TextEditingController();
-    final workspaceMembers = context.read<WorkspaceController>().members;
-    int? ownerId;
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setState) {
-          final dlgColors = ctx.rhythm;
-          return AlertDialog(
-            backgroundColor: dlgColors.surfaceRaised,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(RhythmRadius.xl),
-            ),
-            title: Text('Add task for ${widget.dayName}'),
-            content: SizedBox(
-              width: 380,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  TextField(
-                    controller: ctrl,
-                    autofocus: true,
-                    decoration: InputDecoration(
-                      hintText: 'Task title',
-                      filled: true,
-                      fillColor: dlgColors.surfaceMuted,
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(RhythmRadius.sm),
-                        borderSide: BorderSide(color: dlgColors.borderSubtle),
-                      ),
-                      enabledBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(RhythmRadius.sm),
-                        borderSide: BorderSide(color: dlgColors.borderSubtle),
-                      ),
-                      focusedBorder: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(RhythmRadius.sm),
-                        borderSide: BorderSide(color: dlgColors.accent),
-                      ),
-                    ),
-                    onSubmitted: (_) => Navigator.pop(ctx, true),
-                  ),
-                  const SizedBox(height: 12),
-                  _TaskOwnerPickerField(
-                    workspaceMembers: workspaceMembers,
-                    selectedUserId: ownerId,
-                    onChanged: (value) => setState(() => ownerId = value),
-                  ),
-                ],
-              ),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(ctx, false),
-                child: const Text('Cancel'),
-              ),
-              FilledButton(
-                onPressed: () => Navigator.pop(ctx, true),
-                child: const Text('Add'),
-              ),
-            ],
-          );
-        },
-      ),
+    final result = await showRhythmTaskCreateDialog(
+      context,
+      title: 'Add task for ${widget.dayName}',
+      workspaceMembers: context.read<WorkspaceController>().members,
     );
-    if (confirmed == true && ctrl.text.trim().isNotEmpty) {
+    if (result != null && result.title.isNotEmpty) {
       await widget.controller.createTask(
-        ctrl.text.trim(),
+        result.title,
         dueDate: widget.date,
-        ownerId: ownerId,
+        ownerId: result.ownerId,
       );
     }
   }
@@ -1292,7 +1173,7 @@ class _TaskTile extends StatelessWidget {
                             style: (compact
                                     ? Theme.of(context).textTheme.labelSmall
                                     : Theme.of(context).textTheme.bodySmall)
-                            ?.copyWith(
+                                ?.copyWith(
                               fontSize: compact ? 9.5 : 10.5,
                               fontWeight: FontWeight.w700,
                               color: _plannerAccentColor(context, visualStyle),
@@ -1345,8 +1226,8 @@ class _TaskTile extends StatelessWidget {
                               _TaskMetaPill(
                                 icon: Icons.person_outline,
                                 label: ownerName,
-                                color:
-                                    _plannerMutedTextColor(context, visualStyle),
+                                color: _plannerMutedTextColor(
+                                    context, visualStyle),
                               ),
                             if (task.sourceType != null || hasSourceName)
                               _TaskMetaPill(
@@ -1999,57 +1880,6 @@ class _DetailPaneState extends State<_DetailPane> {
   }
 }
 
-class _TaskOwnerPickerField extends StatelessWidget {
-  const _TaskOwnerPickerField({
-    required this.workspaceMembers,
-    required this.selectedUserId,
-    required this.onChanged,
-  });
-
-  final List<WorkspaceMember> workspaceMembers;
-  final int? selectedUserId;
-  final ValueChanged<int?> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = context.rhythm;
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        SizedBox(
-          width: 76,
-          child: Padding(
-            padding: const EdgeInsets.only(top: 8),
-            child: Text(
-              'Owner',
-              style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                    color: colors.textSecondary,
-                    fontWeight: FontWeight.w600,
-                  ),
-            ),
-          ),
-        ),
-        Expanded(
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-            decoration: BoxDecoration(
-              color: colors.surfaceRaised,
-              borderRadius: BorderRadius.circular(RhythmRadius.sm),
-              border: Border.all(color: colors.borderSubtle),
-            ),
-            child: WorkspaceMemberPicker(
-              workspaceMembers: workspaceMembers,
-              selectedUserId: selectedUserId,
-              onChanged: onChanged,
-              label: 'Select owner',
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
 // ---------------------------------------------------------------------------
 // Shared
 // ---------------------------------------------------------------------------
@@ -2334,7 +2164,8 @@ Color _plannerTextColor(BuildContext context, TaskVisualStyle visualStyle) {
   return colors.textPrimary;
 }
 
-Color _plannerMutedTextColor(BuildContext context, TaskVisualStyle visualStyle) {
+Color _plannerMutedTextColor(
+    BuildContext context, TaskVisualStyle visualStyle) {
   final colors = context.rhythm;
   if (Theme.of(context).brightness != Brightness.dark) {
     return visualStyle.mutedText;
