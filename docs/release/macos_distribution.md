@@ -71,9 +71,25 @@ base64 -i DeveloperIDApplication.p12 | pbcopy
 5. Wait for the workflow to:
    - run analyze and tests
    - build the macOS app
+   - verify the unsigned app still uses the desktop PKCE flow and does not contain stale native Google/AppAuth markers
    - package `.zip` and `.dmg`
    - sign/notarize if Apple secrets are configured
+   - dump the final signed entitlements and re-verify the signed app carries the expected runtime and entitlement shape
    - publish a GitHub release
+
+## Release Diagnostics
+
+The workflow now runs [`tools/release/verify_desktop_oauth_build.sh`](/Users/ajhochhalter/Documents/Rhythm/tools/release/verify_desktop_oauth_build.sh) twice:
+
+- before signing, to catch accidental regressions in the desktop OAuth build output
+- after signing, to confirm the final `.app` still has the expected network entitlements and does not pick up stale keychain or Google Sign-In entitlements
+
+You can run the same check locally against a built app bundle:
+
+```bash
+tools/release/verify_desktop_oauth_build.sh apps/desktop_flutter/build/macos/Build/Products/Release/Rhythm.app
+tools/release/verify_desktop_oauth_build.sh --signed apps/desktop_flutter/build/macos/Build/Products/Release/Rhythm.app
+```
 
 ## Facilities V1 Beta Notes
 
