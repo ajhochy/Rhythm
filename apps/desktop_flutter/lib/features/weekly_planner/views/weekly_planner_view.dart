@@ -116,6 +116,9 @@ class _WeeklyPlannerViewState extends State<WeeklyPlannerView> {
         dueDate: request.dueDate,
         scheduledDate: request.scheduledDate,
       ),
+      onToggleStatus: task.sourceType == 'calendar_shadow_event'
+          ? null
+          : () => controller.toggleTaskDone(task, task.status == 'done'),
       onAddCollaborator: task.sourceType == 'calendar_shadow_event'
           ? null
           : (userId) async {

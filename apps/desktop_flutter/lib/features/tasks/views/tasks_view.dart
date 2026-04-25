@@ -732,6 +732,7 @@ class _TasksViewState extends State<TasksView> {
         includeDueDate: true,
         includeScheduledDate: true,
       ),
+      onToggleStatus: () => controller.toggleDone(task.id),
       onAddCollaborator: (userId) async {
         final collaborators =
             await collaboratorsDataSource.addToTask(task.id, userId);

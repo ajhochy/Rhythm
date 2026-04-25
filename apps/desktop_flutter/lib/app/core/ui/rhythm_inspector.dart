@@ -56,6 +56,7 @@ Future<void> showRhythmTaskInspector(
   required RhythmTaskInspectorSave onSaveDetails,
   RhythmTaskCollaboratorUpdate? onAddCollaborator,
   RhythmTaskCollaboratorUpdate? onRemoveCollaborator,
+  Future<void> Function()? onToggleStatus,
 }) {
   return showDialog<void>(
     context: context,
@@ -65,6 +66,7 @@ Future<void> showRhythmTaskInspector(
       onSaveDetails: onSaveDetails,
       onAddCollaborator: onAddCollaborator,
       onRemoveCollaborator: onRemoveCollaborator,
+      onToggleStatus: onToggleStatus,
     ),
   );
 }
@@ -103,6 +105,7 @@ class _RhythmInspectorShell extends StatelessWidget {
     required this.aside,
     required this.actions,
     this.headerBody,
+    this.onIconTap,
   });
 
   final String kicker;
@@ -115,6 +118,7 @@ class _RhythmInspectorShell extends StatelessWidget {
   final Widget aside;
   final List<Widget> actions;
   final Widget? headerBody;
+  final VoidCallback? onIconTap;
 
   @override
   Widget build(BuildContext context) {
@@ -155,14 +159,24 @@ class _RhythmInspectorShell extends StatelessWidget {
                     Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Container(
-                          width: 44,
-                          height: 44,
-                          decoration: BoxDecoration(
-                            color: accent.withValues(alpha: 0.18),
-                            borderRadius: BorderRadius.circular(14),
+                        Tooltip(
+                          message: onIconTap != null ? 'Toggle complete' : '',
+                          child: Material(
+                            color: Colors.transparent,
+                            child: InkWell(
+                              onTap: onIconTap,
+                              borderRadius: BorderRadius.circular(14),
+                              child: Container(
+                                width: 44,
+                                height: 44,
+                                decoration: BoxDecoration(
+                                  color: accent.withValues(alpha: 0.18),
+                                  borderRadius: BorderRadius.circular(14),
+                                ),
+                                child: Icon(icon, color: accent, size: 22),
+                              ),
+                            ),
                           ),
-                          child: Icon(icon, color: accent, size: 22),
                         ),
                         const SizedBox(width: 16),
                         Expanded(
@@ -351,6 +365,7 @@ class _RhythmTaskInspector extends StatefulWidget {
     required this.onSaveDetails,
     required this.onAddCollaborator,
     required this.onRemoveCollaborator,
+    this.onToggleStatus,
   });
 
   final Task task;
@@ -358,6 +373,7 @@ class _RhythmTaskInspector extends StatefulWidget {
   final RhythmTaskInspectorSave onSaveDetails;
   final RhythmTaskCollaboratorUpdate? onAddCollaborator;
   final RhythmTaskCollaboratorUpdate? onRemoveCollaborator;
+  final Future<void> Function()? onToggleStatus;
 
   @override
   State<_RhythmTaskInspector> createState() => _RhythmTaskInspectorState();
@@ -411,7 +427,17 @@ class _RhythmTaskInspectorState extends State<_RhythmTaskInspector> {
       subtitle: _readOnly
           ? 'This item is synced from your calendar and shown here for context.'
           : 'Review context, coordinate with collaborators, and edit the work when needed.',
-      icon: _readOnly ? Icons.event_note_outlined : Icons.task_alt_outlined,
+      icon: _readOnly
+          ? Icons.event_note_outlined
+          : widget.task.status == 'done'
+              ? Icons.task_alt
+              : Icons.radio_button_unchecked,
+      onIconTap: _readOnly || widget.onToggleStatus == null
+          ? null
+          : () async {
+              await widget.onToggleStatus!();
+              if (mounted) Navigator.of(context).pop();
+            },
       accent: visualStyle.accent,
       headerPills: [
         _headerPill(

@@ -473,6 +473,7 @@ class _DashboardBodyState extends State<_DashboardBody> {
         includeDueDate: true,
         includeScheduledDate: true,
       ),
+      onToggleStatus: () => widget.controller.toggleTaskDone(task.id),
       onAddCollaborator: (userId) async {
         final collaborators =
             await collaboratorsDataSource.addToTask(task.id, userId);
