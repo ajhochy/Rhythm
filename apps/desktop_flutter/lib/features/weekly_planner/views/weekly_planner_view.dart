@@ -8,7 +8,7 @@ import '../../../app/core/widgets/error_banner.dart';
 import '../../../app/core/workspace/workspace_controller.dart';
 import '../../../app/core/workspace/workspace_models.dart';
 import '../../../shared/widgets/collaborators_row.dart';
-import '../../../shared/widgets/workspace_member_picker.dart';
+import '../../../shared/widgets/rhythm_assignee_field.dart';
 import '../../tasks/models/task.dart';
 import '../controllers/weekly_planner_controller.dart';
 import '../models/weekly_plan.dart';
@@ -1796,39 +1796,18 @@ class _DetailPaneState extends State<_DetailPane> {
     BuildContext context,
     List<WorkspaceMember> workspaceMembers,
   ) {
-    final colors = context.rhythm;
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            width: 76,
-            child: Padding(
-              padding: const EdgeInsets.only(top: 8),
-              child: Text(
-                'Owner',
-                style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                      color: colors.textSecondary,
-                      fontWeight: FontWeight.w600,
-                    ),
-              ),
-            ),
-          ),
-          Expanded(
-            child: WorkspaceMemberPicker(
-              workspaceMembers: workspaceMembers,
-              selectedUserId: _ownerId,
-              onChanged: (value) {
-                setState(() {
-                  _ownerId = value;
-                  _ownerDirty = _ownerId != widget.task.ownerId;
-                });
-              },
-              label: 'Select owner',
-            ),
-          ),
-        ],
+      child: RhythmAssigneeField(
+        workspaceMembers: workspaceMembers,
+        selectedUserId: _ownerId,
+        onChanged: (value) {
+          setState(() {
+            _ownerId = value;
+            _ownerDirty = _ownerId != widget.task.ownerId;
+          });
+        },
+        label: 'Owner',
       ),
     );
   }
