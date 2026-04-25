@@ -79,17 +79,31 @@ class DashboardDataSource {
         .toList();
   }
 
-  Future<Task> createTask(String title, {String? dueDate}) async {
+  Future<Task> createTask(
+    String title, {
+    String? notes,
+    String? dueDate,
+  }) async {
     final response = await http.post(
       Uri.parse('$_baseUrl/tasks'),
       headers: AuthSessionStore.headers(json: true),
       body: jsonEncode({
         'title': title,
+        if (notes != null && notes.isNotEmpty) 'notes': notes,
         if (dueDate != null) 'dueDate': dueDate,
       }),
     );
     assertOk(response);
     return Task.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
+  }
+
+  Future<void> addCollaboratorToTask(String taskId, int userId) async {
+    final response = await http.post(
+      Uri.parse('$_baseUrl/tasks/$taskId/collaborators'),
+      headers: AuthSessionStore.headers(json: true),
+      body: jsonEncode({'userId': userId}),
+    );
+    assertOk(response);
   }
 
   Future<Task> toggleTaskDone(String id, String currentStatus) async {

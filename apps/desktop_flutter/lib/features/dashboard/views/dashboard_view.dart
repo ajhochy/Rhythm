@@ -183,13 +183,14 @@ class _DashboardBodyState extends State<_DashboardBody> {
             ),
           ),
           RhythmTaskCreateBar(
-            showNotes: false,
-            addLabel: 'Add Task',
-            titleHint: 'Add a task...',
-            onSubmit: (title, {notes, dueDate}) {
-              context
-                  .read<DashboardController>()
-                  .createTask(title, dueDate: dueDate);
+            addLabel: 'Add task',
+            onSubmit: (title, {notes, dueDate, collaboratorId}) {
+              context.read<DashboardController>().createTask(
+                    title,
+                    notes: notes,
+                    dueDate: dueDate,
+                    collaboratorId: collaboratorId,
+                  );
             },
           ),
         ],

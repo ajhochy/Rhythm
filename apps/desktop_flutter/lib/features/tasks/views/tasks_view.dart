@@ -81,15 +81,20 @@ class _TasksViewState extends State<TasksView> {
                           SliverPersistentHeader(
                             pinned: true,
                             delegate: _StickyBarDelegate(
-                              height: createBarStacks ? 176 : 86,
+                              height: createBarStacks ? 220 : 96,
                               child: RhythmTaskCreateBar(
-                                showNotes: true,
                                 addLabel: 'Add task',
-                                onSubmit: (title, {notes, dueDate}) {
+                                onSubmit: (
+                                  title, {
+                                  notes,
+                                  dueDate,
+                                  collaboratorId,
+                                }) {
                                   context.read<TasksController>().createTask(
                                         title,
                                         notes: notes,
                                         dueDate: dueDate,
+                                        collaboratorId: collaboratorId,
                                       );
                                 },
                               ),

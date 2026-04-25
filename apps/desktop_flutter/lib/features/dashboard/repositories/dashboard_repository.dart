@@ -25,8 +25,22 @@ class DashboardRepository {
   Future<List<MessageThread>> getMessageThreads() =>
       _dataSource.fetchMessageThreads();
 
-  Future<Task> createTask(String title, {String? dueDate}) =>
-      _dataSource.createTask(title, dueDate: dueDate);
+  Future<Task> createTask(
+    String title, {
+    String? notes,
+    String? dueDate,
+    int? collaboratorId,
+  }) async {
+    final task = await _dataSource.createTask(
+      title,
+      notes: notes,
+      dueDate: dueDate,
+    );
+    if (collaboratorId != null) {
+      await _dataSource.addCollaboratorToTask(task.id, collaboratorId);
+    }
+    return task;
+  }
 
   Future<Task> toggleTaskDone(String id, String currentStatus) =>
       _dataSource.toggleTaskDone(id, currentStatus);

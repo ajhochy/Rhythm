@@ -35,12 +35,14 @@ class TasksController extends ChangeNotifier {
     String title, {
     String? notes,
     String? dueDate,
+    int? collaboratorId,
   }) async {
     try {
       final task = await _repository.create(
         title,
         notes: notes,
         dueDate: dueDate,
+        collaboratorId: collaboratorId,
       );
       _tasks = [..._tasks, task];
       _status = TasksStatus.idle;

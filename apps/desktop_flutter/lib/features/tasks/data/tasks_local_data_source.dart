@@ -74,6 +74,15 @@ class TasksLocalDataSource {
     return Task.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
   }
 
+  Future<void> addCollaborator(String taskId, int userId) async {
+    final response = await http.post(
+      Uri.parse('$_baseUrl/tasks/$taskId/collaborators'),
+      headers: AuthSessionStore.headers(json: true),
+      body: jsonEncode({'userId': userId}),
+    );
+    assertOk(response);
+  }
+
   Future<void> delete(String id) async {
     final response = await http.delete(
       Uri.parse('$_baseUrl/tasks/$id'),

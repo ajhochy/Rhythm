@@ -13,13 +13,19 @@ class TasksRepository {
     String? notes,
     String? dueDate,
     int? ownerId,
-  }) =>
-      _dataSource.create(
-        title,
-        notes: notes,
-        dueDate: dueDate,
-        ownerId: ownerId,
-      );
+    int? collaboratorId,
+  }) async {
+    final task = await _dataSource.create(
+      title,
+      notes: notes,
+      dueDate: dueDate,
+      ownerId: ownerId,
+    );
+    if (collaboratorId != null) {
+      await _dataSource.addCollaborator(task.id, collaboratorId);
+    }
+    return task;
+  }
 
   Future<Task> update(
     String id, {

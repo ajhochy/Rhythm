@@ -136,9 +136,19 @@ class DashboardController extends ChangeNotifier {
 
   Future<void> refresh() => load();
 
-  Future<void> createTask(String title, {String? dueDate}) async {
+  Future<void> createTask(
+    String title, {
+    String? notes,
+    String? dueDate,
+    int? collaboratorId,
+  }) async {
     try {
-      await _repository.createTask(title, dueDate: dueDate);
+      await _repository.createTask(
+        title,
+        notes: notes,
+        dueDate: dueDate,
+        collaboratorId: collaboratorId,
+      );
       await refresh();
     } catch (e) {
       _errorMessage = e.toString();
