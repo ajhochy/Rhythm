@@ -150,6 +150,11 @@ jobs:
           echo "=== codesign -dvvv ==="
           codesign -dvvv "$APP" 2>&1 | head -40 || true
 
+      - name: Verify signed desktop OAuth build
+        run: |
+          tools/release/verify_desktop_oauth_build.sh --signed \
+            apps/desktop_flutter/build/macos/Build/Products/Release/Rhythm.app
+
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
