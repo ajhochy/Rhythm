@@ -84,19 +84,14 @@ export class ProjectTemplatesRepository {
     return rows.map(rowToStep);
   }
 
-  async findAllAsync(userId?: number): Promise<ProjectTemplate[]> {
+  async findAllAsync(userId: number): Promise<ProjectTemplate[]> {
     if (env.dbClient === 'postgres') {
-      const result =
-        userId != null
-          ? await getPostgresPool().query<TemplateRow>(
-              `SELECT * FROM project_templates
-               WHERE owner_id = $1
-               ORDER BY created_at ASC`,
-              [userId],
-            )
-          : await getPostgresPool().query<TemplateRow>(
-              'SELECT * FROM project_templates ORDER BY created_at ASC',
-            );
+      const result = await getPostgresPool().query<TemplateRow>(
+        `SELECT * FROM project_templates
+         WHERE owner_id = $1
+         ORDER BY created_at ASC`,
+        [userId],
+      );
       return Promise.all(
         result.rows.map(async (row) =>
           rowToTemplate(row, await this.getStepsAsync(row.id)),
@@ -106,34 +101,45 @@ export class ProjectTemplatesRepository {
     return this.findAll(userId);
   }
 
-  findAll(userId?: number): ProjectTemplate[] {
-    const rows = (userId != null
-      ? getDb()
-          .prepare(
-            `SELECT * FROM project_templates
-             WHERE owner_id = ?
-             ORDER BY created_at ASC`,
-          )
-          .all(userId)
-      : getDb()
-          .prepare('SELECT * FROM project_templates ORDER BY created_at ASC')
-          .all()) as TemplateRow[];
+  findAll(userId: number): ProjectTemplate[] {
+    const rows = getDb()
+      .prepare(
+        `SELECT * FROM project_templates
+         WHERE owner_id = ?
+         ORDER BY created_at ASC`,
+      )
+      .all(userId) as TemplateRow[];
     return rows.map((row) => rowToTemplate(row, this.getSteps(row.id)));
   }
 
-  async findByIdAsync(id: string, userId?: number): Promise<ProjectTemplate> {
+  async findAllIncludingLegacyAsync(): Promise<ProjectTemplate[]> {
     if (env.dbClient === 'postgres') {
-      const result =
-        userId != null
-          ? await getPostgresPool().query<TemplateRow>(
-              `SELECT * FROM project_templates
-               WHERE id = $1 AND owner_id = $2`,
-              [id, userId],
-            )
-          : await getPostgresPool().query<TemplateRow>(
-              'SELECT * FROM project_templates WHERE id = $1',
-              [id],
-            );
+      const result = await getPostgresPool().query<TemplateRow>(
+        'SELECT * FROM project_templates ORDER BY created_at ASC',
+      );
+      return Promise.all(
+        result.rows.map(async (row) =>
+          rowToTemplate(row, await this.getStepsAsync(row.id)),
+        ),
+      );
+    }
+    return this.findAllIncludingLegacy();
+  }
+
+  findAllIncludingLegacy(): ProjectTemplate[] {
+    const rows = getDb()
+      .prepare('SELECT * FROM project_templates ORDER BY created_at ASC')
+      .all() as TemplateRow[];
+    return rows.map((row) => rowToTemplate(row, this.getSteps(row.id)));
+  }
+
+  async findByIdAsync(id: string, userId: number): Promise<ProjectTemplate> {
+    if (env.dbClient === 'postgres') {
+      const result = await getPostgresPool().query<TemplateRow>(
+        `SELECT * FROM project_templates
+         WHERE id = $1 AND owner_id = $2`,
+        [id, userId],
+      );
       const row = result.rows[0];
       if (!row) throw AppError.notFound('ProjectTemplate');
       return rowToTemplate(row, await this.getStepsAsync(id));
@@ -141,24 +147,41 @@ export class ProjectTemplatesRepository {
     return this.findById(id, userId);
   }
 
-  findById(id: string, userId?: number): ProjectTemplate {
-    const row = (userId != null
-      ? getDb()
-          .prepare(
-            `SELECT * FROM project_templates
-             WHERE id = ? AND owner_id = ?`,
-          )
-          .get(id, userId)
-      : getDb().prepare('SELECT * FROM project_templates WHERE id = ?').get(id)) as
-      | TemplateRow
-      | undefined;
+  findById(id: string, userId: number): ProjectTemplate {
+    const row = getDb()
+      .prepare(
+        `SELECT * FROM project_templates
+         WHERE id = ? AND owner_id = ?`,
+      )
+      .get(id, userId) as TemplateRow | undefined;
+    if (!row) throw AppError.notFound('ProjectTemplate');
+    return rowToTemplate(row, this.getSteps(id));
+  }
+
+  async findByIdIncludingLegacyAsync(id: string): Promise<ProjectTemplate> {
+    if (env.dbClient === 'postgres') {
+      const result = await getPostgresPool().query<TemplateRow>(
+        'SELECT * FROM project_templates WHERE id = $1',
+        [id],
+      );
+      const row = result.rows[0];
+      if (!row) throw AppError.notFound('ProjectTemplate');
+      return rowToTemplate(row, await this.getStepsAsync(id));
+    }
+    return this.findByIdIncludingLegacy(id);
+  }
+
+  findByIdIncludingLegacy(id: string): ProjectTemplate {
+    const row = getDb()
+      .prepare('SELECT * FROM project_templates WHERE id = ?')
+      .get(id) as TemplateRow | undefined;
     if (!row) throw AppError.notFound('ProjectTemplate');
     return rowToTemplate(row, this.getSteps(id));
   }
 
   async findByNameInsensitiveAsync(
     name: string,
-    userId?: number,
+    userId: number,
   ): Promise<ProjectTemplate | null> {
     const normalized = name.trim().toLowerCase();
     const rows = await this.findAllAsync(userId);
@@ -168,7 +191,7 @@ export class ProjectTemplatesRepository {
     return match ?? null;
   }
 
-  findByNameInsensitive(name: string, userId?: number): ProjectTemplate | null {
+  findByNameInsensitive(name: string, userId: number): ProjectTemplate | null {
     const normalized = name.trim().toLowerCase();
     const rows = this.findAll(userId);
     const match = rows.find(
@@ -193,7 +216,7 @@ export class ProjectTemplatesRepository {
           now,
         ],
       );
-      return this.findByIdAsync(id);
+      return this.findByIdIncludingLegacyAsync(id);
     }
     return this.create(data);
   }
@@ -214,7 +237,7 @@ export class ProjectTemplatesRepository {
         data.ownerId ?? null,
         now,
       );
-    return this.findById(id);
+    return this.findByIdIncludingLegacy(id);
   }
 
   async updateAsync(
@@ -223,7 +246,10 @@ export class ProjectTemplatesRepository {
     userId?: number,
   ): Promise<ProjectTemplate> {
     if (env.dbClient === 'postgres') {
-      const existing = await this.findByIdAsync(id, userId);
+      const existing =
+        userId != null
+          ? await this.findByIdAsync(id, userId)
+          : await this.findByIdIncludingLegacyAsync(id);
       await getPostgresPool().query(
         `UPDATE project_templates SET name = $1, description = $2, owner_id = $3 WHERE id = $4`,
         [
@@ -233,13 +259,18 @@ export class ProjectTemplatesRepository {
           id,
         ],
       );
-      return this.findByIdAsync(id, userId);
+      return userId != null
+        ? this.findByIdAsync(id, userId)
+        : this.findByIdIncludingLegacyAsync(id);
     }
     return this.update(id, data, userId);
   }
 
   update(id: string, data: UpdateProjectTemplateDto, userId?: number): ProjectTemplate {
-    const existing = this.findById(id, userId);
+    const existing =
+      userId != null
+        ? this.findById(id, userId)
+        : this.findByIdIncludingLegacy(id);
     getDb()
       .prepare(`UPDATE project_templates SET name = ?, description = ?, owner_id = ? WHERE id = ?`)
       .run(
@@ -248,12 +279,18 @@ export class ProjectTemplatesRepository {
         data.ownerId !== undefined ? data.ownerId : existing.ownerId,
         id,
       );
-    return this.findById(id, userId);
+    return userId != null
+      ? this.findById(id, userId)
+      : this.findByIdIncludingLegacy(id);
   }
 
   async deleteAsync(id: string, userId?: number): Promise<void> {
     if (env.dbClient === 'postgres') {
-      await this.findByIdAsync(id, userId);
+      if (userId != null) {
+        await this.findByIdAsync(id, userId);
+      } else {
+        await this.findByIdIncludingLegacyAsync(id);
+      }
       if (userId != null) {
         await getPostgresPool().query(
           'DELETE FROM project_instances WHERE template_id = $1 AND owner_id = $2',
@@ -281,7 +318,11 @@ export class ProjectTemplatesRepository {
   }
 
   delete(id: string, userId?: number): void {
-    this.findById(id, userId);
+    if (userId != null) {
+      this.findById(id, userId);
+    } else {
+      this.findByIdIncludingLegacy(id);
+    }
     const db = getDb();
     db.transaction(() => {
       db.prepare('DELETE FROM project_instances WHERE template_id = ?').run(id);
@@ -296,7 +337,11 @@ export class ProjectTemplatesRepository {
     userId?: number,
   ): Promise<ProjectTemplateStep> {
     if (env.dbClient === 'postgres') {
-      await this.findByIdAsync(templateId, userId);
+      if (userId != null) {
+        await this.findByIdAsync(templateId, userId);
+      } else {
+        await this.findByIdIncludingLegacyAsync(templateId);
+      }
       const id = uuidv4();
       await getPostgresPool().query(
         `INSERT INTO project_template_steps (id, template_id, title, offset_days, offset_description, sort_order, assignee_id)
@@ -324,7 +369,11 @@ export class ProjectTemplatesRepository {
   }
 
   addStep(templateId: string, data: CreateStepDto, userId?: number): ProjectTemplateStep {
-    this.findById(templateId, userId); // ensures template exists
+    if (userId != null) {
+      this.findById(templateId, userId);
+    } else {
+      this.findByIdIncludingLegacy(templateId);
+    }
     const id = uuidv4();
     getDb()
       .prepare(

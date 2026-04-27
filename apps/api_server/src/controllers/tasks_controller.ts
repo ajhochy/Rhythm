@@ -12,7 +12,7 @@ const notifService = new NotificationService(new NotificationsRepository());
 export class TasksController {
   async getAll(req: Request, res: Response, next: NextFunction) {
     try {
-      res.json(await repo.findAllAsync(req.auth?.user.id));
+      res.json(await repo.findAllAsync(req.auth!.user.id));
     } catch (err) {
       next(err);
     }
@@ -20,7 +20,7 @@ export class TasksController {
 
   async getById(req: Request, res: Response, next: NextFunction) {
     try {
-      res.json(await repo.findByIdAsync(req.params.id, req.auth?.user.id));
+      res.json(await repo.findByIdAsync(req.params.id, req.auth!.user.id));
     } catch (err) {
       next(err);
     }
@@ -37,7 +37,7 @@ export class TasksController {
         notes: (notes as string) ?? null,
         dueDate: (dueDate as string) ?? null,
         status: status as 'open' | 'done',
-        ownerId: req.auth?.user.id ?? null,
+        ownerId: req.auth!.user.id,
       });
       res.status(201).json(task);
     } catch (err) {
@@ -47,7 +47,7 @@ export class TasksController {
 
   async update(req: Request, res: Response, next: NextFunction) {
     try {
-      const actorId = req.auth?.user.id;
+      const actorId = req.auth!.user.id;
       const existing = await repo.findByIdAsync(req.params.id, actorId);
       const updated = await repo.updateAsync(
         req.params.id,
@@ -106,9 +106,9 @@ export class TasksController {
 
   async remove(req: Request, res: Response, next: NextFunction) {
     try {
-      const actorId = req.auth?.user.id;
+      const actorId = req.auth!.user.id;
       const task = await repo.findByIdAsync(req.params.id, actorId);
-      if (actorId == null || task.ownerId !== actorId) {
+      if (task.ownerId !== actorId) {
         throw AppError.forbidden('Only the task owner can delete this task');
       }
       await repo.deleteAsync(req.params.id, actorId);
@@ -120,7 +120,7 @@ export class TasksController {
 
   async getCollaborators(req: Request, res: Response, next: NextFunction) {
     try {
-      await repo.findByIdAsync(req.params.id, req.auth?.user.id);
+      await repo.findByIdAsync(req.params.id, req.auth!.user.id);
       res.json(await repo.listCollaboratorsAsync(req.params.id));
     } catch (err) {
       next(err);
@@ -133,21 +133,19 @@ export class TasksController {
       if (!userId || typeof userId !== 'number') {
         throw AppError.badRequest('userId is required and must be a number');
       }
-      const actorId = req.auth?.user.id;
+      const actorId = req.auth!.user.id;
       const task = await repo.findByIdAsync(req.params.id, actorId);
-      if (actorId == null || task.ownerId !== actorId) {
+      if (task.ownerId !== actorId) {
         throw AppError.forbidden('Only the task owner can add collaborators');
       }
       await repo.addCollaboratorAsync(req.params.id, userId);
-      if (actorId != null) {
-        await notifService.notifyCollaboratorAddedAsync(
-          'task',
-          req.params.id,
-          task.title,
-          userId,
-          actorId,
-        );
-      }
+      await notifService.notifyCollaboratorAddedAsync(
+        'task',
+        req.params.id,
+        task.title,
+        userId,
+        actorId,
+      );
       res.status(201).json(await repo.listCollaboratorsAsync(req.params.id));
     } catch (err) {
       next(err);
@@ -160,9 +158,9 @@ export class TasksController {
       if (isNaN(collaboratorUserId)) {
         throw AppError.badRequest('Invalid userId');
       }
-      const actorId = req.auth?.user.id;
+      const actorId = req.auth!.user.id;
       const task = await repo.findByIdAsync(req.params.id, actorId);
-      if (actorId == null || task.ownerId !== actorId) {
+      if (task.ownerId !== actorId) {
         throw AppError.forbidden('Only the task owner can remove collaborators');
       }
       await repo.removeCollaboratorAsync(req.params.id, collaboratorUserId);

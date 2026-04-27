@@ -14,6 +14,8 @@ export class RecurrenceService {
     from: Date,
     to: Date,
   ): Promise<Task[]> {
+    if (rule.ownerId == null) return [];
+
     const dates = this.computeDates(rule, from, to);
     const created: Task[] = [];
     const hasWorkflowSteps = rule.steps.length > 0;

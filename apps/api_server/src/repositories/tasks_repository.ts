@@ -67,85 +67,88 @@ const TASK_SELECT = `
 `;
 
 export class TasksRepository {
-  async findAllAsync(userId?: number): Promise<Task[]> {
+  async findAllAsync(userId: number): Promise<Task[]> {
     if (env.dbClient === 'postgres') {
-      const result =
-        userId != null
-          ? await getPostgresPool().query<TaskRow>(
-              `SELECT tasks.*,
-                CASE
-                  WHEN tasks.source_type = 'project_step' THEN COALESCE(pi.name, pt.name)
-                  WHEN tasks.source_type = 'recurring_rule' THEN rr.title
-                  ELSE NULL
-                END AS source_name,
-                CASE WHEN tasks.owner_id != $1 THEN 1 ELSE 0 END AS is_shared
-               FROM tasks
-               LEFT JOIN project_instances pi
-                 ON tasks.source_type = 'project_step' AND tasks.source_id = pi.id
-               LEFT JOIN project_templates pt ON pi.template_id = pt.id
-               LEFT JOIN recurring_task_rules rr
-                 ON tasks.source_type = 'recurring_rule'
-                AND (tasks.source_id = rr.id OR tasks.source_id LIKE rr.id || ':%')
-               LEFT JOIN task_collaborators tc ON tc.task_id = tasks.id AND tc.user_id = $2
-               WHERE tasks.owner_id = $3 OR tc.user_id IS NOT NULL
-               ORDER BY tasks.due_date ASC, tasks.scheduled_order ASC, tasks.created_at ASC`,
-              [userId, userId, userId],
-            )
-          : await getPostgresPool().query<TaskRow>(
-              `${TASK_SELECT}
-               ORDER BY tasks.due_date ASC, tasks.scheduled_order ASC, tasks.created_at ASC`,
-            );
+      const result = await getPostgresPool().query<TaskRow>(
+        `SELECT tasks.*,
+          CASE
+            WHEN tasks.source_type = 'project_step' THEN COALESCE(pi.name, pt.name)
+            WHEN tasks.source_type = 'recurring_rule' THEN rr.title
+            ELSE NULL
+          END AS source_name,
+          CASE WHEN tasks.owner_id != $1 THEN 1 ELSE 0 END AS is_shared
+         FROM tasks
+         LEFT JOIN project_instances pi
+           ON tasks.source_type = 'project_step' AND tasks.source_id = pi.id
+         LEFT JOIN project_templates pt ON pi.template_id = pt.id
+         LEFT JOIN recurring_task_rules rr
+           ON tasks.source_type = 'recurring_rule'
+          AND (tasks.source_id = rr.id OR tasks.source_id LIKE rr.id || ':%')
+         LEFT JOIN task_collaborators tc ON tc.task_id = tasks.id AND tc.user_id = $2
+         WHERE tasks.owner_id = $3 OR tc.user_id IS NOT NULL
+         ORDER BY tasks.due_date ASC, tasks.scheduled_order ASC, tasks.created_at ASC`,
+        [userId, userId, userId],
+      );
       return result.rows.map(rowToTask);
     }
 
     return this.findAll(userId);
   }
 
-  findAll(userId?: number): Task[] {
-    if (userId != null) {
-      const rows = getDb()
-        .prepare(
-          `SELECT tasks.*,
-            CASE
-              WHEN tasks.source_type = 'project_step' THEN COALESCE(pi.name, pt.name)
-              WHEN tasks.source_type = 'recurring_rule' THEN rr.title
-              ELSE NULL
-            END AS source_name,
-            CASE WHEN tasks.owner_id != ? THEN 1 ELSE 0 END AS is_shared
-           FROM tasks
-           LEFT JOIN project_instances pi
-             ON tasks.source_type = 'project_step' AND tasks.source_id = pi.id
-           LEFT JOIN project_templates pt ON pi.template_id = pt.id
-           LEFT JOIN recurring_task_rules rr
-             ON tasks.source_type = 'recurring_rule'
-            AND (tasks.source_id = rr.id OR tasks.source_id LIKE rr.id || ':%')
-           LEFT JOIN task_collaborators tc ON tc.task_id = tasks.id AND tc.user_id = ?
-           WHERE tasks.owner_id = ? OR tc.user_id IS NOT NULL
-           ORDER BY tasks.due_date ASC, tasks.scheduled_order ASC, tasks.created_at ASC`,
-        )
-        .all(userId, userId, userId) as TaskRow[];
-      return rows.map(rowToTask);
-    }
+  findAll(userId: number): Task[] {
     const rows = getDb()
-      .prepare(`${TASK_SELECT} ORDER BY tasks.due_date ASC, tasks.scheduled_order ASC, tasks.created_at ASC`)
+      .prepare(
+        `SELECT tasks.*,
+          CASE
+            WHEN tasks.source_type = 'project_step' THEN COALESCE(pi.name, pt.name)
+            WHEN tasks.source_type = 'recurring_rule' THEN rr.title
+            ELSE NULL
+          END AS source_name,
+          CASE WHEN tasks.owner_id != ? THEN 1 ELSE 0 END AS is_shared
+         FROM tasks
+         LEFT JOIN project_instances pi
+           ON tasks.source_type = 'project_step' AND tasks.source_id = pi.id
+         LEFT JOIN project_templates pt ON pi.template_id = pt.id
+         LEFT JOIN recurring_task_rules rr
+           ON tasks.source_type = 'recurring_rule'
+          AND (tasks.source_id = rr.id OR tasks.source_id LIKE rr.id || ':%')
+         LEFT JOIN task_collaborators tc ON tc.task_id = tasks.id AND tc.user_id = ?
+         WHERE tasks.owner_id = ? OR tc.user_id IS NOT NULL
+         ORDER BY tasks.due_date ASC, tasks.scheduled_order ASC, tasks.created_at ASC`,
+      )
+      .all(userId, userId, userId) as TaskRow[];
+    return rows.map(rowToTask);
+  }
+
+  async findAllIncludingLegacyAsync(): Promise<Task[]> {
+    if (env.dbClient === 'postgres') {
+      const result = await getPostgresPool().query<TaskRow>(
+        `${TASK_SELECT}
+         ORDER BY tasks.due_date ASC, tasks.scheduled_order ASC, tasks.created_at ASC`,
+      );
+      return result.rows.map(rowToTask);
+    }
+    return this.findAllIncludingLegacy();
+  }
+
+  findAllIncludingLegacy(): Task[] {
+    const rows = getDb()
+      .prepare(
+        `${TASK_SELECT}
+         ORDER BY tasks.due_date ASC, tasks.scheduled_order ASC, tasks.created_at ASC`,
+      )
       .all() as TaskRow[];
     return rows.map(rowToTask);
   }
 
-  async findByIdAsync(id: string, userId?: number): Promise<Task> {
+  async findByIdAsync(id: string, userId: number): Promise<Task> {
     if (env.dbClient === 'postgres') {
-      const result =
-        userId != null
-          ? await getPostgresPool().query<TaskRow>(
-              `${TASK_SELECT}
-               LEFT JOIN task_collaborators tc ON tc.task_id = tasks.id AND tc.user_id = $2
-               WHERE tasks.id = $1 AND (tasks.owner_id = $2 OR tc.user_id IS NOT NULL)`,
-              [id, userId],
-            )
-          : await getPostgresPool().query<TaskRow>(
-              `${TASK_SELECT} WHERE tasks.id = $1`,
-              [id],
-            );
+      const result = await getPostgresPool().query<TaskRow>(
+        `${TASK_SELECT}
+         LEFT JOIN task_collaborators tc ON tc.task_id = tasks.id AND tc.user_id = $2
+         WHERE tasks.id = $1 AND (tasks.owner_id = $2 OR tc.user_id IS NOT NULL)`,
+        [id, userId],
+      );
       const row = result.rows[0];
       if (!row) throw AppError.notFound('Task');
       return rowToTask(row);
@@ -154,18 +157,35 @@ export class TasksRepository {
     return this.findById(id, userId);
   }
 
-  findById(id: string, userId?: number): Task {
-    const row = (userId != null
-      ? getDb()
-          .prepare(
-            `${TASK_SELECT}
-             LEFT JOIN task_collaborators tc ON tc.task_id = tasks.id AND tc.user_id = ?
-             WHERE tasks.id = ? AND (tasks.owner_id = ? OR tc.user_id IS NOT NULL)`,
-          )
-          .get(userId, id, userId)
-      : getDb().prepare(`${TASK_SELECT} WHERE tasks.id = ?`).get(id)) as
-      | TaskRow
-      | undefined;
+  findById(id: string, userId: number): Task {
+    const row = getDb()
+      .prepare(
+        `${TASK_SELECT}
+         LEFT JOIN task_collaborators tc ON tc.task_id = tasks.id AND tc.user_id = ?
+         WHERE tasks.id = ? AND (tasks.owner_id = ? OR tc.user_id IS NOT NULL)`,
+      )
+      .get(userId, id, userId) as TaskRow | undefined;
+    if (!row) throw AppError.notFound('Task');
+    return rowToTask(row);
+  }
+
+  async findByIdIncludingLegacyAsync(id: string): Promise<Task> {
+    if (env.dbClient === 'postgres') {
+      const result = await getPostgresPool().query<TaskRow>(
+        `${TASK_SELECT} WHERE tasks.id = $1`,
+        [id],
+      );
+      const row = result.rows[0];
+      if (!row) throw AppError.notFound('Task');
+      return rowToTask(row);
+    }
+    return this.findByIdIncludingLegacy(id);
+  }
+
+  findByIdIncludingLegacy(id: string): Task {
+    const row = getDb()
+      .prepare(`${TASK_SELECT} WHERE tasks.id = ?`)
+      .get(id) as TaskRow | undefined;
     if (!row) throw AppError.notFound('Task');
     return rowToTask(row);
   }
@@ -221,43 +241,48 @@ export class TasksRepository {
   async findByWeekAsync(
     weekStart: string,
     weekEnd: string,
-    userId?: number,
+    userId: number,
   ): Promise<Task[]> {
     if (env.dbClient === 'postgres') {
-      const result =
-        userId != null
-          ? await getPostgresPool().query<TaskRow>(
-              `${TASK_SELECT}
-               LEFT JOIN task_collaborators tc ON tc.task_id = tasks.id AND tc.user_id = $1
-               WHERE (tasks.owner_id = $1 OR tc.user_id IS NOT NULL)
-                 AND (tasks.due_date BETWEEN $2 AND $3 OR tasks.scheduled_date BETWEEN $4 AND $5)
-               ORDER BY tasks.due_date ASC, tasks.scheduled_order ASC, tasks.created_at ASC`,
-              [userId, weekStart, weekEnd, weekStart, weekEnd],
-            )
-          : await getPostgresPool().query<TaskRow>(
-              `${TASK_SELECT}
-               WHERE (tasks.due_date BETWEEN $1 AND $2 OR tasks.scheduled_date BETWEEN $3 AND $4)
-               ORDER BY tasks.due_date ASC, tasks.created_at ASC`,
-              [weekStart, weekEnd, weekStart, weekEnd],
-            );
+      const result = await getPostgresPool().query<TaskRow>(
+        `${TASK_SELECT}
+         LEFT JOIN task_collaborators tc ON tc.task_id = tasks.id AND tc.user_id = $1
+         WHERE (tasks.owner_id = $1 OR tc.user_id IS NOT NULL)
+           AND (tasks.due_date BETWEEN $2 AND $3 OR tasks.scheduled_date BETWEEN $4 AND $5)
+         ORDER BY tasks.due_date ASC, tasks.scheduled_order ASC, tasks.created_at ASC`,
+        [userId, weekStart, weekEnd, weekStart, weekEnd],
+      );
       return result.rows.map(rowToTask);
     }
 
     return this.findByWeek(weekStart, weekEnd, userId);
   }
 
-  findByWeek(weekStart: string, weekEnd: string, userId?: number): Task[] {
-    if (userId != null) {
-      const rows = getDb()
-          .prepare(
-            `${TASK_SELECT}
-          LEFT JOIN task_collaborators tc ON tc.task_id = tasks.id AND tc.user_id = ?
-          WHERE (tasks.owner_id = ? OR tc.user_id IS NOT NULL)
-             AND (tasks.due_date BETWEEN ? AND ? OR tasks.scheduled_date BETWEEN ? AND ?)
-         ORDER BY tasks.due_date ASC, tasks.scheduled_order ASC, tasks.created_at ASC`,
-      )
-        .all(userId, userId, weekStart, weekEnd, weekStart, weekEnd) as TaskRow[];
-      return rows.map(rowToTask);
+  findByWeek(weekStart: string, weekEnd: string, userId: number): Task[] {
+    const rows = getDb()
+        .prepare(
+          `${TASK_SELECT}
+        LEFT JOIN task_collaborators tc ON tc.task_id = tasks.id AND tc.user_id = ?
+        WHERE (tasks.owner_id = ? OR tc.user_id IS NOT NULL)
+           AND (tasks.due_date BETWEEN ? AND ? OR tasks.scheduled_date BETWEEN ? AND ?)
+       ORDER BY tasks.due_date ASC, tasks.scheduled_order ASC, tasks.created_at ASC`,
+    )
+      .all(userId, userId, weekStart, weekEnd, weekStart, weekEnd) as TaskRow[];
+    return rows.map(rowToTask);
+  }
+
+  async findByWeekIncludingLegacyAsync(
+    weekStart: string,
+    weekEnd: string,
+  ): Promise<Task[]> {
+    if (env.dbClient === 'postgres') {
+      const result = await getPostgresPool().query<TaskRow>(
+        `${TASK_SELECT}
+         WHERE (tasks.due_date BETWEEN $1 AND $2 OR tasks.scheduled_date BETWEEN $3 AND $4)
+         ORDER BY tasks.due_date ASC, tasks.created_at ASC`,
+        [weekStart, weekEnd, weekStart, weekEnd],
+      );
+      return result.rows.map(rowToTask);
     }
     const rows = getDb()
       .prepare(
@@ -269,96 +294,100 @@ export class TasksRepository {
     return rows.map(rowToTask);
   }
 
-  async findBacklogAsync(startOfWeek: string, userId?: number): Promise<Task[]> {
+  async findBacklogAsync(startOfWeek: string, userId: number): Promise<Task[]> {
     if (env.dbClient === 'postgres') {
-      const result =
-        userId != null
-          ? await getPostgresPool().query<TaskRow>(
-              `${TASK_SELECT}
-               WHERE tasks.status = 'open'
-                 AND (
-                   (tasks.due_date IS NULL AND tasks.scheduled_date IS NULL)
-                   OR (tasks.scheduled_date IS NULL AND tasks.due_date < $1)
-                   OR tasks.scheduled_date < $2
-                 )
-                 AND (
-                   tasks.owner_id = $3
-                   OR EXISTS (
-                     SELECT 1 FROM task_collaborators tc
-                     WHERE tc.task_id = tasks.id AND tc.user_id = $3
-                   )
-                 )
-               ORDER BY
-                 CASE
-                   WHEN tasks.scheduled_date IS NOT NULL THEN tasks.scheduled_date
-                   ELSE tasks.due_date
-                 END ASC,
-                 tasks.created_at ASC`,
-              [startOfWeek, startOfWeek, userId],
-            )
-          : await getPostgresPool().query<TaskRow>(
-              `${TASK_SELECT}
-               WHERE tasks.status = 'open'
-                 AND (
-                   (tasks.due_date IS NULL AND tasks.scheduled_date IS NULL)
-                   OR (tasks.scheduled_date IS NULL AND tasks.due_date < $1)
-                   OR tasks.scheduled_date < $2
-                 )
-               ORDER BY
-                 CASE
-                   WHEN tasks.scheduled_date IS NOT NULL THEN tasks.scheduled_date
-                   ELSE tasks.due_date
-                 END ASC,
-                 tasks.created_at ASC`,
-              [startOfWeek, startOfWeek],
-            );
+      const result = await getPostgresPool().query<TaskRow>(
+        `${TASK_SELECT}
+         WHERE tasks.status = 'open'
+           AND (
+             (tasks.due_date IS NULL AND tasks.scheduled_date IS NULL)
+             OR (tasks.scheduled_date IS NULL AND tasks.due_date < $1)
+             OR tasks.scheduled_date < $2
+           )
+           AND (
+             tasks.owner_id = $3
+             OR EXISTS (
+               SELECT 1 FROM task_collaborators tc
+               WHERE tc.task_id = tasks.id AND tc.user_id = $3
+             )
+           )
+         ORDER BY
+           CASE
+             WHEN tasks.scheduled_date IS NOT NULL THEN tasks.scheduled_date
+             ELSE tasks.due_date
+           END ASC,
+           tasks.created_at ASC`,
+        [startOfWeek, startOfWeek, userId],
+      );
       return result.rows.map(rowToTask);
     }
 
     const db = getDb();
-    const rows =
-      userId != null
-        ? (db
-            .prepare(
-              `${TASK_SELECT}
-               WHERE tasks.status = 'open'
-                 AND (
-                   (tasks.due_date IS NULL AND tasks.scheduled_date IS NULL)
-                   OR (tasks.scheduled_date IS NULL AND tasks.due_date < ?)
-                   OR tasks.scheduled_date < ?
-                 )
-                 AND (
-                   tasks.owner_id = ?
-                   OR EXISTS (
-                     SELECT 1 FROM task_collaborators tc
-                     WHERE tc.task_id = tasks.id AND tc.user_id = ?
-                   )
-                 )
-               ORDER BY
-                 CASE
-                   WHEN tasks.scheduled_date IS NOT NULL THEN tasks.scheduled_date
-                   ELSE tasks.due_date
-                 END ASC,
-                 tasks.created_at ASC`,
-            )
-            .all(startOfWeek, startOfWeek, userId, userId) as TaskRow[])
-        : (db
-            .prepare(
-              `${TASK_SELECT}
-               WHERE tasks.status = 'open'
-                 AND (
-                   (tasks.due_date IS NULL AND tasks.scheduled_date IS NULL)
-                   OR (tasks.scheduled_date IS NULL AND tasks.due_date < ?)
-                   OR tasks.scheduled_date < ?
-                 )
-               ORDER BY
-                 CASE
-                   WHEN tasks.scheduled_date IS NOT NULL THEN tasks.scheduled_date
-                   ELSE tasks.due_date
-                 END ASC,
-                 tasks.created_at ASC`,
-            )
-            .all(startOfWeek, startOfWeek) as TaskRow[]);
+    const rows = db
+      .prepare(
+        `${TASK_SELECT}
+         WHERE tasks.status = 'open'
+           AND (
+             (tasks.due_date IS NULL AND tasks.scheduled_date IS NULL)
+             OR (tasks.scheduled_date IS NULL AND tasks.due_date < ?)
+             OR tasks.scheduled_date < ?
+           )
+           AND (
+             tasks.owner_id = ?
+             OR EXISTS (
+               SELECT 1 FROM task_collaborators tc
+               WHERE tc.task_id = tasks.id AND tc.user_id = ?
+             )
+           )
+         ORDER BY
+           CASE
+             WHEN tasks.scheduled_date IS NOT NULL THEN tasks.scheduled_date
+             ELSE tasks.due_date
+           END ASC,
+           tasks.created_at ASC`,
+      )
+      .all(startOfWeek, startOfWeek, userId, userId) as TaskRow[];
+    return rows.map(rowToTask);
+  }
+
+  async findBacklogIncludingLegacyAsync(startOfWeek: string): Promise<Task[]> {
+    if (env.dbClient === 'postgres') {
+      const result = await getPostgresPool().query<TaskRow>(
+        `${TASK_SELECT}
+         WHERE tasks.status = 'open'
+           AND (
+             (tasks.due_date IS NULL AND tasks.scheduled_date IS NULL)
+             OR (tasks.scheduled_date IS NULL AND tasks.due_date < $1)
+             OR tasks.scheduled_date < $2
+           )
+         ORDER BY
+           CASE
+             WHEN tasks.scheduled_date IS NOT NULL THEN tasks.scheduled_date
+             ELSE tasks.due_date
+           END ASC,
+           tasks.created_at ASC`,
+        [startOfWeek, startOfWeek],
+      );
+      return result.rows.map(rowToTask);
+    }
+
+    const rows = getDb()
+      .prepare(
+        `${TASK_SELECT}
+         WHERE tasks.status = 'open'
+           AND (
+             (tasks.due_date IS NULL AND tasks.scheduled_date IS NULL)
+             OR (tasks.scheduled_date IS NULL AND tasks.due_date < ?)
+             OR tasks.scheduled_date < ?
+           )
+         ORDER BY
+           CASE
+             WHEN tasks.scheduled_date IS NOT NULL THEN tasks.scheduled_date
+             ELSE tasks.due_date
+           END ASC,
+           tasks.created_at ASC`,
+      )
+      .all(startOfWeek, startOfWeek) as TaskRow[];
     return rows.map(rowToTask);
   }
 
@@ -388,7 +417,7 @@ export class TasksRepository {
           now,
         ],
       );
-      return this.findByIdAsync(id);
+      return this.findByIdIncludingLegacyAsync(id);
     }
 
     return this.create(data);
@@ -420,7 +449,7 @@ export class TasksRepository {
         now,
         now,
       );
-    return this.findById(id);
+    return this.findByIdIncludingLegacy(id);
   }
 
   async upsertExternalTaskAsync(data: CreateTaskDto): Promise<Task> {
@@ -612,7 +641,10 @@ export class TasksRepository {
 
   async updateAsync(id: string, data: UpdateTaskDto, userId?: number): Promise<Task> {
     if (env.dbClient === 'postgres') {
-      const existing = await this.findByIdAsync(id, userId);
+      const existing =
+        userId != null
+          ? await this.findByIdAsync(id, userId)
+          : await this.findByIdIncludingLegacyAsync(id);
       const now = new Date().toISOString();
       const nextNotes = data.notes === '' ? null : data.notes;
       const nextDueDate = data.dueDate === '' ? null : data.dueDate;
@@ -649,14 +681,19 @@ export class TasksRepository {
           id,
         ],
       );
-      return this.findByIdAsync(id, userId);
+      return userId != null
+        ? this.findByIdAsync(id, userId)
+        : this.findByIdIncludingLegacyAsync(id);
     }
 
     return this.update(id, data, userId);
   }
 
   update(id: string, data: UpdateTaskDto, userId?: number): Task {
-    const existing = this.findById(id, userId);
+    const existing =
+      userId != null
+        ? this.findById(id, userId)
+        : this.findByIdIncludingLegacy(id);
     const now = new Date().toISOString();
     const nextNotes = data.notes === '' ? null : data.notes;
     const nextDueDate = data.dueDate === '' ? null : data.dueDate;
@@ -687,12 +724,18 @@ export class TasksRepository {
         now,
         id,
       );
-    return this.findById(id, userId);
+    return userId != null
+      ? this.findById(id, userId)
+      : this.findByIdIncludingLegacy(id);
   }
 
   async deleteAsync(id: string, userId?: number): Promise<void> {
     if (env.dbClient === 'postgres') {
-      await this.findByIdAsync(id, userId);
+      if (userId != null) {
+        await this.findByIdAsync(id, userId);
+      } else {
+        await this.findByIdIncludingLegacyAsync(id);
+      }
       const result = await getPostgresPool().query(
         'DELETE FROM tasks WHERE id = $1',
         [id],
@@ -705,7 +748,11 @@ export class TasksRepository {
   }
 
   delete(id: string, userId?: number): void {
-    this.findById(id, userId);
+    if (userId != null) {
+      this.findById(id, userId);
+    } else {
+      this.findByIdIncludingLegacy(id);
+    }
     const result = getDb().prepare('DELETE FROM tasks WHERE id = ?').run(id);
     if (result.changes === 0) throw AppError.notFound('Task');
   }

@@ -6,6 +6,7 @@ import { UsersRepository } from '../repositories/users_repository';
 import { RecurringTaskRulesRepository } from '../repositories/recurring_task_rules_repository';
 import { TasksRepository } from '../repositories/tasks_repository';
 import { RecurrenceService } from '../services/recurrence_service';
+import { runRecurrenceGenerationOnce } from '../jobs/recurrence_generation_job';
 
 function makeDb() {
   const db = new Database(':memory:');
@@ -78,7 +79,9 @@ describe('Recurring rules and recurrence generation', () => {
     await service.generateInstances(stepRule, from, to);
     await service.generateInstances(legacyRule, from, to);
 
-    const generated = tasksRepo.findAll().filter((task) => task.sourceType === 'recurring_rule');
+    const generated = tasksRepo
+      .findAllIncludingLegacy()
+      .filter((task) => task.sourceType === 'recurring_rule');
     expect(generated).toHaveLength(3);
     expect(generated.map((task) => task.title).sort()).toEqual([
       'Lead',
@@ -100,5 +103,83 @@ describe('Recurring rules and recurrence generation', () => {
     expect(
       generated.find((task) => task.title === 'Lead')?.ownerId,
     ).toBe(assigneeId);
+  });
+
+  it('does not generate tasks from null-owned legacy recurring rules', async () => {
+    const legacyRule = rulesRepo.create({
+      title: 'Legacy null-owned rhythm',
+      frequency: 'weekly',
+      dayOfWeek: 1,
+      ownerId: null,
+      steps: [
+        { id: 'assigned', title: 'Assigned legacy step', assigneeId },
+      ],
+    });
+
+    const from = new Date('2026-03-23T00:00:00.000Z');
+    const to = new Date('2026-03-23T23:59:59.999Z');
+
+    const created = await service.generateInstances(legacyRule, from, to);
+
+    expect(created).toHaveLength(0);
+    expect(tasksRepo.findAllIncludingLegacy()).toHaveLength(0);
+  });
+
+  it('only returns enabled owned rules for background generation', async () => {
+    const ownedRule = rulesRepo.create({
+      title: 'Owned rhythm',
+      frequency: 'weekly',
+      dayOfWeek: 1,
+      ownerId,
+    });
+    rulesRepo.create({
+      title: 'Legacy null-owned rhythm',
+      frequency: 'weekly',
+      dayOfWeek: 1,
+      ownerId: null,
+    });
+    rulesRepo.create({
+      title: 'Disabled owned rhythm',
+      frequency: 'weekly',
+      dayOfWeek: 1,
+      ownerId,
+      enabled: false,
+    });
+
+    expect(
+      rulesRepo.findEnabledForGeneration().map((rule) => rule.id),
+    ).toEqual([ownedRule.id]);
+    expect(rulesRepo.findAllIncludingLegacy()).toHaveLength(3);
+  });
+
+  it('background recurrence generation skips null-owned legacy rules and generates owned rules', async () => {
+    const ownedRule = rulesRepo.create({
+      title: 'Owned rhythm',
+      frequency: 'weekly',
+      dayOfWeek: 1,
+      ownerId,
+    });
+    rulesRepo.create({
+      title: 'Legacy null-owned rhythm',
+      frequency: 'weekly',
+      dayOfWeek: 1,
+      ownerId: null,
+      steps: [
+        { id: 'assigned', title: 'Assigned legacy step', assigneeId },
+      ],
+    });
+
+    const result = await runRecurrenceGenerationOnce(
+      new Date('2026-03-23T00:00:00.000Z'),
+      new Date('2026-03-23T23:59:59.999Z'),
+    );
+
+    const generated = tasksRepo
+      .findAllIncludingLegacy()
+      .filter((task) => task.sourceType === 'recurring_rule');
+    expect(result).toEqual({ ruleCount: 1, createdCount: 1 });
+    expect(generated).toHaveLength(1);
+    expect(generated[0].sourceId).toBe(ownedRule.id);
+    expect(generated[0].ownerId).toBe(ownerId);
   });
 });

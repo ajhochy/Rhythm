@@ -62,6 +62,8 @@ function stepRowToPlannerTask(row: {
   notes: string | null;
   instance_id: string;
   instance_name: string | null;
+  owner_id: number | null;
+  is_shared?: number | boolean | null;
 }): Task {
   return {
     id: row.id,
@@ -75,7 +77,8 @@ function stepRowToPlannerTask(row: {
     sourceType: 'project_step',
     sourceId: row.instance_id,
     sourceName: row.instance_name ?? null,
-    ownerId: null,
+    ownerId: row.owner_id,
+    isShared: Boolean(row.is_shared),
     createdAt: '',
     updatedAt: '',
   };
@@ -89,6 +92,8 @@ interface PlannerStepRow {
   notes: string | null;
   instance_id: string;
   instance_name: string | null;
+  owner_id: number | null;
+  is_shared?: number | boolean | null;
 }
 
 export class ProjectInstancesRepository {
@@ -128,64 +133,83 @@ export class ProjectInstancesRepository {
   async findPlannerStepsDueInRangeAsync(
     startDate: string,
     endDate: string,
+    userId: number,
   ): Promise<Task[]> {
     const query = `SELECT pis.id, pis.title, pis.due_date, pis.status, pis.notes, pis.instance_id,
-                          pi.name as instance_name
+                          pi.name as instance_name, pi.owner_id,
+                          CASE WHEN pi.owner_id != $3 THEN 1 ELSE 0 END AS is_shared
                    FROM project_instance_steps pis
                    JOIN project_instances pi ON pi.id = pis.instance_id
-                   WHERE pis.due_date BETWEEN $1 AND $2 AND pis.due_date IS NOT NULL AND pis.due_date != ''
+                   LEFT JOIN project_collaborators pc
+                     ON pc.project_instance_id = pi.id AND pc.user_id = $3
+                   WHERE pis.due_date BETWEEN $1 AND $2
+                     AND pis.due_date IS NOT NULL
+                     AND pis.due_date != ''
+                     AND (pi.owner_id = $3 OR pc.user_id IS NOT NULL)
                    ORDER BY pis.due_date ASC`;
 
     if (env.dbClient === 'postgres') {
       const result = await getPostgresPool().query<PlannerStepRow>(query, [
         startDate,
         endDate,
+        userId,
       ]);
       return result.rows.map(stepRowToPlannerTask);
     }
 
     const rows = getDb()
-      .prepare(query.replace(/\$1/g, '?').replace(/\$2/g, '?'))
-      .all(startDate, endDate) as PlannerStepRow[];
+      .prepare(query.replace(/\$1/g, '?').replace(/\$2/g, '?').replace(/\$3/g, '?'))
+      .all(userId, userId, startDate, endDate, userId) as PlannerStepRow[];
     return rows.map(stepRowToPlannerTask);
   }
 
-  async findPlannerOpenStepsWithoutDueDateAsync(): Promise<Task[]> {
+  async findPlannerOpenStepsWithoutDueDateAsync(userId: number): Promise<Task[]> {
     const query = `SELECT pis.id, pis.title, pis.due_date, pis.status, pis.notes, pis.instance_id,
-                          pi.name as instance_name
+                          pi.name as instance_name, pi.owner_id,
+                          CASE WHEN pi.owner_id != $1 THEN 1 ELSE 0 END AS is_shared
                    FROM project_instance_steps pis
                    JOIN project_instances pi ON pi.id = pis.instance_id
-                   WHERE pis.status = 'open' AND (pis.due_date IS NULL OR pis.due_date = '')
+                   LEFT JOIN project_collaborators pc
+                     ON pc.project_instance_id = pi.id AND pc.user_id = $1
+                   WHERE pis.status = 'open'
+                     AND (pis.due_date IS NULL OR pis.due_date = '')
+                     AND (pi.owner_id = $1 OR pc.user_id IS NOT NULL)
                    ORDER BY pi.created_at ASC, pis.title ASC`;
 
     if (env.dbClient === 'postgres') {
-      const result = await getPostgresPool().query<PlannerStepRow>(query);
-      return result.rows.map(stepRowToPlannerTask);
-    }
-
-    const rows = getDb().prepare(query).all() as PlannerStepRow[];
-    return rows.map(stepRowToPlannerTask);
-  }
-
-  async findPlannerOpenStepsBeforeDateAsync(date: string): Promise<Task[]> {
-    const query = `SELECT pis.id, pis.title, pis.due_date, pis.status, pis.notes, pis.instance_id,
-                          pi.name as instance_name
-                   FROM project_instance_steps pis
-                   JOIN project_instances pi ON pi.id = pis.instance_id
-                   WHERE pis.status = 'open'
-                     AND pis.due_date IS NOT NULL
-                     AND pis.due_date != ''
-                     AND pis.due_date < $1
-                   ORDER BY pis.due_date ASC, pi.created_at ASC`;
-
-    if (env.dbClient === 'postgres') {
-      const result = await getPostgresPool().query<PlannerStepRow>(query, [date]);
+      const result = await getPostgresPool().query<PlannerStepRow>(query, [userId]);
       return result.rows.map(stepRowToPlannerTask);
     }
 
     const rows = getDb()
       .prepare(query.replace(/\$1/g, '?'))
-      .all(date) as PlannerStepRow[];
+      .all(userId, userId, userId) as PlannerStepRow[];
+    return rows.map(stepRowToPlannerTask);
+  }
+
+  async findPlannerOpenStepsBeforeDateAsync(date: string, userId: number): Promise<Task[]> {
+    const query = `SELECT pis.id, pis.title, pis.due_date, pis.status, pis.notes, pis.instance_id,
+                          pi.name as instance_name, pi.owner_id,
+                          CASE WHEN pi.owner_id != $2 THEN 1 ELSE 0 END AS is_shared
+                   FROM project_instance_steps pis
+                   JOIN project_instances pi ON pi.id = pis.instance_id
+                   LEFT JOIN project_collaborators pc
+                     ON pc.project_instance_id = pi.id AND pc.user_id = $2
+                   WHERE pis.status = 'open'
+                     AND pis.due_date IS NOT NULL
+                     AND pis.due_date != ''
+                     AND pis.due_date < $1
+                     AND (pi.owner_id = $2 OR pc.user_id IS NOT NULL)
+                   ORDER BY pis.due_date ASC, pi.created_at ASC`;
+
+    if (env.dbClient === 'postgres') {
+      const result = await getPostgresPool().query<PlannerStepRow>(query, [date, userId]);
+      return result.rows.map(stepRowToPlannerTask);
+    }
+
+    const rows = getDb()
+      .prepare(query.replace(/\$1/g, '?').replace(/\$2/g, '?'))
+      .all(userId, userId, date, userId) as PlannerStepRow[];
     return rows.map(stepRowToPlannerTask);
   }
 
@@ -234,34 +258,25 @@ export class ProjectInstancesRepository {
       .run(row.remaining === 0 ? 'done' : 'active', instanceId);
   }
 
-  findAll(userId?: number): ProjectInstance[] {
-    const rows = (userId != null
-      ? getDb()
-          .prepare(
-            `SELECT * FROM project_instances
-             WHERE owner_id = ?
-             ORDER BY created_at DESC`,
-          )
-          .all(userId)
-      : getDb()
-          .prepare('SELECT * FROM project_instances ORDER BY created_at DESC')
-          .all()) as InstanceRow[];
+  findAll(userId: number): ProjectInstance[] {
+    const rows = getDb()
+      .prepare(
+        `SELECT * FROM project_instances
+         WHERE owner_id = ?
+         ORDER BY created_at DESC`,
+      )
+      .all(userId) as InstanceRow[];
     return rows.map((row) => rowToInstance(row, this.getSteps(row.id)));
   }
 
-  async findAllAsync(userId?: number): Promise<ProjectInstance[]> {
+  async findAllAsync(userId: number): Promise<ProjectInstance[]> {
     if (env.dbClient === 'postgres') {
-      const result =
-        userId != null
-          ? await getPostgresPool().query<InstanceRow>(
-              `SELECT * FROM project_instances
-               WHERE owner_id = $1
-               ORDER BY created_at DESC`,
-              [userId],
-            )
-          : await getPostgresPool().query<InstanceRow>(
-              'SELECT * FROM project_instances ORDER BY created_at DESC',
-            );
+      const result = await getPostgresPool().query<InstanceRow>(
+        `SELECT * FROM project_instances
+         WHERE owner_id = $1
+         ORDER BY created_at DESC`,
+        [userId],
+      );
       return Promise.all(
         result.rows.map(async (row) =>
           rowToInstance(row, await this.getStepsAsync(row.id)),
@@ -271,40 +286,49 @@ export class ProjectInstancesRepository {
     return this.findAll(userId);
   }
 
-  findByTemplateId(templateId: string, userId?: number): ProjectInstance[] {
-    const rows = (userId != null
-      ? getDb()
-          .prepare(
-            `SELECT * FROM project_instances
-             WHERE template_id = ? AND owner_id = ?
-             ORDER BY anchor_date DESC`,
-          )
-          .all(templateId, userId)
-      : getDb()
-          .prepare(
-            'SELECT * FROM project_instances WHERE template_id = ? ORDER BY anchor_date DESC',
-          )
-          .all(templateId)) as InstanceRow[];
+  findAllIncludingLegacy(): ProjectInstance[] {
+    const rows = getDb()
+      .prepare('SELECT * FROM project_instances ORDER BY created_at DESC')
+      .all() as InstanceRow[];
+    return rows.map((row) => rowToInstance(row, this.getSteps(row.id)));
+  }
+
+  async findAllIncludingLegacyAsync(): Promise<ProjectInstance[]> {
+    if (env.dbClient === 'postgres') {
+      const result = await getPostgresPool().query<InstanceRow>(
+        'SELECT * FROM project_instances ORDER BY created_at DESC',
+      );
+      return Promise.all(
+        result.rows.map(async (row) =>
+          rowToInstance(row, await this.getStepsAsync(row.id)),
+        ),
+      );
+    }
+    return this.findAllIncludingLegacy();
+  }
+
+  findByTemplateId(templateId: string, userId: number): ProjectInstance[] {
+    const rows = getDb()
+      .prepare(
+        `SELECT * FROM project_instances
+         WHERE template_id = ? AND owner_id = ?
+         ORDER BY anchor_date DESC`,
+      )
+      .all(templateId, userId) as InstanceRow[];
     return rows.map((row) => rowToInstance(row, this.getSteps(row.id)));
   }
 
   async findByTemplateIdAsync(
     templateId: string,
-    userId?: number,
+    userId: number,
   ): Promise<ProjectInstance[]> {
     if (env.dbClient === 'postgres') {
-      const result =
-        userId != null
-          ? await getPostgresPool().query<InstanceRow>(
-              `SELECT * FROM project_instances
-               WHERE template_id = $1 AND owner_id = $2
-               ORDER BY anchor_date DESC`,
-              [templateId, userId],
-            )
-          : await getPostgresPool().query<InstanceRow>(
-              'SELECT * FROM project_instances WHERE template_id = $1 ORDER BY anchor_date DESC',
-              [templateId],
-            );
+      const result = await getPostgresPool().query<InstanceRow>(
+        `SELECT * FROM project_instances
+         WHERE template_id = $1 AND owner_id = $2
+         ORDER BY anchor_date DESC`,
+        [templateId, userId],
+      );
       return Promise.all(
         result.rows.map(async (row) =>
           rowToInstance(row, await this.getStepsAsync(row.id)),
@@ -314,34 +338,50 @@ export class ProjectInstancesRepository {
     return this.findByTemplateId(templateId, userId);
   }
 
-  findById(id: string, userId?: number): ProjectInstance {
-    const row = (userId != null
-      ? getDb()
-          .prepare(
-            `SELECT * FROM project_instances
-             WHERE id = ? AND owner_id = ?`,
-          )
-          .get(id, userId)
-      : getDb()
-          .prepare('SELECT * FROM project_instances WHERE id = ?')
-          .get(id)) as InstanceRow | undefined;
+  findByTemplateIdIncludingLegacy(templateId: string): ProjectInstance[] {
+    const rows = getDb()
+      .prepare(
+        'SELECT * FROM project_instances WHERE template_id = ? ORDER BY anchor_date DESC',
+      )
+      .all(templateId) as InstanceRow[];
+    return rows.map((row) => rowToInstance(row, this.getSteps(row.id)));
+  }
+
+  async findByTemplateIdIncludingLegacyAsync(
+    templateId: string,
+  ): Promise<ProjectInstance[]> {
+    if (env.dbClient === 'postgres') {
+      const result = await getPostgresPool().query<InstanceRow>(
+        'SELECT * FROM project_instances WHERE template_id = $1 ORDER BY anchor_date DESC',
+        [templateId],
+      );
+      return Promise.all(
+        result.rows.map(async (row) =>
+          rowToInstance(row, await this.getStepsAsync(row.id)),
+        ),
+      );
+    }
+    return this.findByTemplateIdIncludingLegacy(templateId);
+  }
+
+  findById(id: string, userId: number): ProjectInstance {
+    const row = getDb()
+      .prepare(
+        `SELECT * FROM project_instances
+         WHERE id = ? AND owner_id = ?`,
+      )
+      .get(id, userId) as InstanceRow | undefined;
     if (!row) throw AppError.notFound('ProjectInstance');
     return rowToInstance(row, this.getSteps(id));
   }
 
-  async findByIdAsync(id: string, userId?: number): Promise<ProjectInstance> {
+  async findByIdAsync(id: string, userId: number): Promise<ProjectInstance> {
     if (env.dbClient === 'postgres') {
-      const result =
-        userId != null
-          ? await getPostgresPool().query<InstanceRow>(
-              `SELECT * FROM project_instances
-               WHERE id = $1 AND owner_id = $2`,
-              [id, userId],
-            )
-          : await getPostgresPool().query<InstanceRow>(
-              'SELECT * FROM project_instances WHERE id = $1',
-              [id],
-            );
+      const result = await getPostgresPool().query<InstanceRow>(
+        `SELECT * FROM project_instances
+         WHERE id = $1 AND owner_id = $2`,
+        [id, userId],
+      );
       const row = result.rows[0];
       if (!row) throw AppError.notFound('ProjectInstance');
       return rowToInstance(row, await this.getStepsAsync(id));
@@ -349,28 +389,42 @@ export class ProjectInstancesRepository {
     return this.findById(id, userId);
   }
 
+  findByIdIncludingLegacy(id: string): ProjectInstance {
+    const row = getDb()
+      .prepare('SELECT * FROM project_instances WHERE id = ?')
+      .get(id) as InstanceRow | undefined;
+    if (!row) throw AppError.notFound('ProjectInstance');
+    return rowToInstance(row, this.getSteps(id));
+  }
+
+  async findByIdIncludingLegacyAsync(id: string): Promise<ProjectInstance> {
+    if (env.dbClient === 'postgres') {
+      const result = await getPostgresPool().query<InstanceRow>(
+        'SELECT * FROM project_instances WHERE id = $1',
+        [id],
+      );
+      const row = result.rows[0];
+      if (!row) throw AppError.notFound('ProjectInstance');
+      return rowToInstance(row, await this.getStepsAsync(id));
+    }
+    return this.findByIdIncludingLegacy(id);
+  }
+
   findByTemplateAndAnchor(
     templateId: string,
     anchorDate: string,
-    name?: string | null,
-    userId?: number | null,
+    name: string | null,
+    userId: number,
   ): ProjectInstance | null {
-    const row = (userId != null
-      ? getDb()
-          .prepare(
-            `SELECT * FROM project_instances
-             WHERE template_id = ?
-               AND anchor_date = ?
-               AND COALESCE(name, '') = COALESCE(?, '')
-               AND owner_id = ?`,
-          )
-          .get(templateId, anchorDate, name ?? null, userId)
-      : getDb()
-          .prepare(
-            `SELECT * FROM project_instances
-             WHERE template_id = ? AND anchor_date = ? AND COALESCE(name, '') = COALESCE(?, '')`,
-          )
-          .get(templateId, anchorDate, name ?? null)) as InstanceRow | undefined;
+    const row = getDb()
+      .prepare(
+        `SELECT * FROM project_instances
+         WHERE template_id = ?
+           AND anchor_date = ?
+           AND COALESCE(name, '') = COALESCE(?, '')
+           AND owner_id = ?`,
+      )
+      .get(templateId, anchorDate, name ?? null, userId) as InstanceRow | undefined;
     if (!row) return null;
     return rowToInstance(row, this.getSteps(row.id));
   }
@@ -378,30 +432,38 @@ export class ProjectInstancesRepository {
   async findByTemplateAndAnchorAsync(
     templateId: string,
     anchorDate: string,
-    name?: string | null,
-    userId?: number | null,
+    name: string | null,
+    userId: number,
   ): Promise<ProjectInstance | null> {
     if (env.dbClient === 'postgres') {
-      const result =
-        userId != null
-          ? await getPostgresPool().query<InstanceRow>(
-              `SELECT * FROM project_instances
-               WHERE template_id = $1
-                 AND anchor_date = $2
-                 AND COALESCE(name, '') = COALESCE($3, '')
-                 AND owner_id = $4`,
-              [templateId, anchorDate, name ?? null, userId],
-            )
-          : await getPostgresPool().query<InstanceRow>(
-              `SELECT * FROM project_instances
-               WHERE template_id = $1 AND anchor_date = $2 AND COALESCE(name, '') = COALESCE($3, '')`,
-              [templateId, anchorDate, name ?? null],
-            );
+      const result = await getPostgresPool().query<InstanceRow>(
+        `SELECT * FROM project_instances
+         WHERE template_id = $1
+           AND anchor_date = $2
+           AND COALESCE(name, '') = COALESCE($3, '')
+           AND owner_id = $4`,
+        [templateId, anchorDate, name ?? null, userId],
+      );
       const row = result.rows[0];
       if (!row) return null;
       return rowToInstance(row, await this.getStepsAsync(row.id));
     }
     return this.findByTemplateAndAnchor(templateId, anchorDate, name, userId);
+  }
+
+  findByTemplateAndAnchorIncludingLegacy(
+    templateId: string,
+    anchorDate: string,
+    name?: string | null,
+  ): ProjectInstance | null {
+    const row = getDb()
+      .prepare(
+        `SELECT * FROM project_instances
+         WHERE template_id = ? AND anchor_date = ? AND COALESCE(name, '') = COALESCE(?, '')`,
+      )
+      .get(templateId, anchorDate, name ?? null) as InstanceRow | undefined;
+    if (!row) return null;
+    return rowToInstance(row, this.getSteps(row.id));
   }
 
   createWithSteps(
@@ -446,7 +508,7 @@ export class ProjectInstancesRepository {
       }
     })();
 
-    return this.findById(instanceId);
+    return this.findByIdIncludingLegacy(instanceId);
   }
 
   async createWithStepsAsync(
@@ -480,7 +542,7 @@ export class ProjectInstancesRepository {
           ],
         );
       }
-      return this.findByIdAsync(instanceId);
+      return this.findByIdIncludingLegacyAsync(instanceId);
     }
     return this.createWithSteps(templateId, anchorDate, name, ownerId, steps);
   }
@@ -619,31 +681,23 @@ export class ProjectInstancesRepository {
     this.deleteByTemplateId(templateId, userId);
   }
 
-  delete(instanceId: string, userId?: number): void {
+  delete(instanceId: string, userId: number): void {
     this.findById(instanceId, userId);
-    const result = (userId != null
-      ? getDb()
-          .prepare(
-            'DELETE FROM project_instances WHERE id = ? AND owner_id = ?',
-          )
-          .run(instanceId, userId)
-      : getDb().prepare('DELETE FROM project_instances WHERE id = ?').run(instanceId));
+    const result = getDb()
+      .prepare(
+        'DELETE FROM project_instances WHERE id = ? AND owner_id = ?',
+      )
+      .run(instanceId, userId);
     if (result.changes === 0) throw AppError.notFound('ProjectInstance');
   }
 
-  async deleteAsync(instanceId: string, userId?: number): Promise<void> {
+  async deleteAsync(instanceId: string, userId: number): Promise<void> {
     if (env.dbClient === 'postgres') {
       await this.findByIdAsync(instanceId, userId);
-      const result =
-        userId != null
-          ? await getPostgresPool().query(
-              'DELETE FROM project_instances WHERE id = $1 AND owner_id = $2',
-              [instanceId, userId],
-            )
-          : await getPostgresPool().query(
-              'DELETE FROM project_instances WHERE id = $1',
-              [instanceId],
-            );
+      const result = await getPostgresPool().query(
+        'DELETE FROM project_instances WHERE id = $1 AND owner_id = $2',
+        [instanceId, userId],
+      );
       if (result.rowCount === 0) throw AppError.notFound('ProjectInstance');
       return;
     }

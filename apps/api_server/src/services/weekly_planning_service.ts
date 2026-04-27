@@ -53,7 +53,7 @@ export class WeeklyPlanningService {
   private readonly tasksRepo = new TasksRepository();
   private readonly projectInstancesRepo = new ProjectInstancesRepository();
 
-  async assemblePlan(weekLabel: string, userId?: number): Promise<WeeklyPlan> {
+  async assemblePlan(weekLabel: string, userId: number): Promise<WeeklyPlan> {
     const weekStart = parseWeekLabel(weekLabel);
     const weekEnd = new Date(weekStart);
     weekEnd.setUTCDate(weekStart.getUTCDate() + 6);
@@ -82,6 +82,7 @@ export class WeeklyPlanningService {
     const dueProjectSteps = await this.projectInstancesRepo.findPlannerStepsDueInRangeAsync(
       startStr,
       endStr,
+      userId,
     );
 
     for (const task of dueProjectSteps) {
@@ -140,11 +141,11 @@ export class WeeklyPlanningService {
     const backlog = await this.tasksRepo.findBacklogAsync(startStr, userId);
 
     backlog.push(
-      ...(await this.projectInstancesRepo.findPlannerOpenStepsWithoutDueDateAsync()),
+      ...(await this.projectInstancesRepo.findPlannerOpenStepsWithoutDueDateAsync(userId)),
     );
 
     backlog.push(
-      ...(await this.projectInstancesRepo.findPlannerOpenStepsBeforeDateAsync(startStr)),
+      ...(await this.projectInstancesRepo.findPlannerOpenStepsBeforeDateAsync(startStr, userId)),
     );
 
     for (const day of days) {
