@@ -43,6 +43,7 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
       month INTEGER,
       steps_json TEXT NOT NULL DEFAULT '[]',
       enabled BOOLEAN NOT NULL DEFAULT TRUE,
+      sequential BOOLEAN NOT NULL DEFAULT FALSE,
       owner_id INTEGER REFERENCES users(id),
       created_at TEXT NOT NULL DEFAULT (${UTC_TEXT_NOW})
     );
@@ -303,6 +304,7 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
 
     ALTER TABLE recurring_task_rules ADD COLUMN IF NOT EXISTS steps_json TEXT NOT NULL DEFAULT '[]';
     ALTER TABLE recurring_task_rules ADD COLUMN IF NOT EXISTS enabled BOOLEAN NOT NULL DEFAULT TRUE;
+    ALTER TABLE recurring_task_rules ADD COLUMN IF NOT EXISTS sequential BOOLEAN NOT NULL DEFAULT FALSE;
     ALTER TABLE recurring_task_rules ADD COLUMN IF NOT EXISTS owner_id INTEGER REFERENCES users(id);
 
     ALTER TABLE project_templates ADD COLUMN IF NOT EXISTS owner_id INTEGER REFERENCES users(id) ON DELETE CASCADE;
