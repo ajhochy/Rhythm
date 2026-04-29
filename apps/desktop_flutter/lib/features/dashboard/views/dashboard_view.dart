@@ -165,9 +165,13 @@ class _DashboardBodyState extends State<_DashboardBody> {
                         workspaceMembers: workspaceMembers,
                       ),
                       const SizedBox(height: RhythmSpacing.lg),
-                      const _SectionLabel(
+                      const RhythmSectionHeader(
                         title: 'Planning',
                         subtitle: 'What needs attention this week and today',
+                        dense: true,
+                        padding: EdgeInsets.symmetric(
+                          horizontal: RhythmSpacing.xxs,
+                        ),
                       ),
                       const SizedBox(height: RhythmSpacing.sm),
                       _buildOverviewGrid(
@@ -838,52 +842,6 @@ class _DashboardBodyState extends State<_DashboardBody> {
   }
   // -------------------------------------------------------------------------
   // Add task bar
-}
-
-class _SectionLabel extends StatelessWidget {
-  const _SectionLabel({required this.title, required this.subtitle});
-
-  final String title;
-  final String subtitle;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = context.rhythm;
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 4),
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                        fontWeight: FontWeight.w700,
-                        color: colors.textPrimary,
-                        letterSpacing: 0,
-                      ),
-                ),
-                const SizedBox(height: RhythmSpacing.xxs),
-                Text(
-                  subtitle,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context)
-                      .textTheme
-                      .bodySmall
-                      ?.copyWith(color: colors.textSecondary),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
 }
 
 class _HeroEyebrow extends StatelessWidget {
