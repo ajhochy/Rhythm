@@ -7,6 +7,7 @@ import { authRouter } from './routes/auth_routes';
 import { automationCatalogRouter } from './routes/automation_catalog_routes';
 import { automationRulesRouter } from './routes/automation_rules_routes';
 import { facilitiesRouter } from './routes/facilities_routes';
+import { dashboardRouter } from './routes/dashboard_routes';
 import { healthRouter } from './routes/health_routes';
 import { integrationsRouter } from './routes/integrations_routes';
 import { messagesRouter } from './routes/messages_routes';
@@ -42,6 +43,7 @@ export function createApp() {
   app.use(express.json());
 
   app.use('/health', healthRouter);
+  app.use('/dashboard', dashboardRouter);
   app.use('/auth', authRouter);
   app.use('/automation-catalog', automationCatalogRouter);
   app.use('/automation-rules', automationRulesRouter);
