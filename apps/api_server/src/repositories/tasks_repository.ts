@@ -2,7 +2,7 @@ import { env } from '../config/env';
 import { v4 as uuidv4 } from 'uuid';
 import { getDb, getPostgresPool } from '../database/db';
 import { AppError } from '../errors/app_error';
-import type { CreateTaskDto, Task, UpdateTaskDto } from '../models/task';
+import type { CreateTaskDto, Task, TaskCollaborator, UpdateTaskDto } from '../models/task';
 
 interface TaskRow {
   id: string;
@@ -42,9 +42,25 @@ function rowToTask(row: TaskRow): Task {
     ownerId: row.owner_id,
     workspaceId: row.workspace_id ?? null,
     isShared: Boolean(row.is_shared),
+    collaborators: [],
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
+}
+
+function attachCollaboratorsToTasks(
+  tasks: Task[],
+  collabRows: Array<{ task_id: string; user_id: number; name: string; photo_url: string | null }>,
+): void {
+  const byTaskId = new Map<string, TaskCollaborator[]>();
+  for (const r of collabRows) {
+    let arr = byTaskId.get(r.task_id);
+    if (!arr) { arr = []; byTaskId.set(r.task_id, arr); }
+    arr.push({ userId: r.user_id, name: r.name, photoUrl: r.photo_url });
+  }
+  for (const task of tasks) {
+    task.collaborators = byTaskId.get(task.id) ?? [];
+  }
 }
 
 const TASK_SELECT = `
@@ -89,7 +105,19 @@ export class TasksRepository {
          ORDER BY tasks.due_date ASC, tasks.scheduled_order ASC, tasks.created_at ASC`,
         [userId, userId, userId],
       );
-      return result.rows.map(rowToTask);
+      const tasks = result.rows.map(rowToTask);
+      if (tasks.length > 0) {
+        const ids = tasks.map((t) => t.id);
+        const cr = await getPostgresPool().query<{ task_id: string; user_id: number; name: string; photo_url: string | null }>(
+          `SELECT tc.task_id, u.id AS user_id, u.name, u.photo_url
+           FROM task_collaborators tc
+           JOIN users u ON u.id = tc.user_id
+           WHERE tc.task_id = ANY($1)`,
+          [ids],
+        );
+        attachCollaboratorsToTasks(tasks, cr.rows);
+      }
+      return tasks;
     }
 
     return this.findAll(userId);
@@ -117,7 +145,20 @@ export class TasksRepository {
          ORDER BY tasks.due_date ASC, tasks.scheduled_order ASC, tasks.created_at ASC`,
       )
       .all(userId, userId, userId) as TaskRow[];
-    return rows.map(rowToTask);
+    const tasks = rows.map(rowToTask);
+    if (tasks.length > 0) {
+      const placeholders = tasks.map(() => '?').join(',');
+      const collabRows = getDb()
+        .prepare(
+          `SELECT tc.task_id, u.id AS user_id, u.name, u.photo_url
+           FROM task_collaborators tc
+           JOIN users u ON u.id = tc.user_id
+           WHERE tc.task_id IN (${placeholders})`,
+        )
+        .all(...tasks.map((t) => t.id)) as Array<{ task_id: string; user_id: number; name: string; photo_url: string | null }>;
+      attachCollaboratorsToTasks(tasks, collabRows);
+    }
+    return tasks;
   }
 
   async findAllIncludingLegacyAsync(): Promise<Task[]> {
@@ -151,7 +192,16 @@ export class TasksRepository {
       );
       const row = result.rows[0];
       if (!row) throw AppError.notFound('Task');
-      return rowToTask(row);
+      const task = rowToTask(row);
+      const cr = await getPostgresPool().query<{ task_id: string; user_id: number; name: string; photo_url: string | null }>(
+        `SELECT tc.task_id, u.id AS user_id, u.name, u.photo_url
+         FROM task_collaborators tc
+         JOIN users u ON u.id = tc.user_id
+         WHERE tc.task_id = $1`,
+        [id],
+      );
+      attachCollaboratorsToTasks([task], cr.rows);
+      return task;
     }
 
     return this.findById(id, userId);
@@ -166,7 +216,17 @@ export class TasksRepository {
       )
       .get(userId, id, userId) as TaskRow | undefined;
     if (!row) throw AppError.notFound('Task');
-    return rowToTask(row);
+    const task = rowToTask(row);
+    const collabRows = getDb()
+      .prepare(
+        `SELECT tc.task_id, u.id AS user_id, u.name, u.photo_url
+         FROM task_collaborators tc
+         JOIN users u ON u.id = tc.user_id
+         WHERE tc.task_id = ?`,
+      )
+      .all(id) as Array<{ task_id: string; user_id: number; name: string; photo_url: string | null }>;
+    attachCollaboratorsToTasks([task], collabRows);
+    return task;
   }
 
   async findByIdIncludingLegacyAsync(id: string): Promise<Task> {

@@ -140,4 +140,50 @@ describe('Tasks permissions', () => {
     const collaboratorTasks = await readJson(collaboratorListResponse) as Array<{ id: string }>;
     expect(collaboratorTasks.map((visibleTask) => visibleTask.id)).toEqual([task.id]);
   });
+
+  it('includes collaborators inline in GET /tasks and GET /tasks/:id', async () => {
+    const owner = usersRepo.create({ name: 'Owner', email: 'inline-owner@example.com' });
+    const collab = usersRepo.create({ name: 'Collab', email: 'inline-collab@example.com' });
+    const ownerHeaders = await authHeaderFor(owner.id);
+
+    const createRes = await fetch(`${baseUrl}/tasks`, {
+      method: 'POST',
+      headers: { ...ownerHeaders, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: 'Shared task' }),
+    });
+    const created = await readJson(createRes) as { id: string; collaborators: unknown[] };
+    expect(created.collaborators).toEqual([]);
+
+    await fetch(`${baseUrl}/tasks/${created.id}/collaborators`, {
+      method: 'POST',
+      headers: { ...ownerHeaders, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId: collab.id }),
+    });
+
+    const listRes = await fetch(`${baseUrl}/tasks`, { headers: ownerHeaders });
+    const tasks = await readJson(listRes) as Array<{ id: string; collaborators: Array<{ userId: number; name: string }> }>;
+    const found = tasks.find((t) => t.id === created.id);
+    expect(found?.collaborators).toEqual([expect.objectContaining({ userId: collab.id, name: 'Collab' })]);
+
+    const detailRes = await fetch(`${baseUrl}/tasks/${created.id}`, { headers: ownerHeaders });
+    const detail = await readJson(detailRes) as { collaborators: Array<{ userId: number; name: string }> };
+    expect(detail.collaborators).toEqual([expect.objectContaining({ userId: collab.id, name: 'Collab' })]);
+  });
+
+  it('owner-visible tasks have collaborators; owner-only tasks return empty collaborators array', async () => {
+    const owner = usersRepo.create({ name: 'Owner2', email: 'owner2@example.com' });
+    const ownerHeaders = await authHeaderFor(owner.id);
+
+    const createRes = await fetch(`${baseUrl}/tasks`, {
+      method: 'POST',
+      headers: { ...ownerHeaders, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ title: 'No collaborators task' }),
+    });
+    const created = await readJson(createRes) as { id: string };
+
+    const listRes = await fetch(`${baseUrl}/tasks`, { headers: ownerHeaders });
+    const tasks = await readJson(listRes) as Array<{ id: string; collaborators: unknown[] }>;
+    const found = tasks.find((t) => t.id === created.id);
+    expect(found?.collaborators).toEqual([]);
+  });
 });
