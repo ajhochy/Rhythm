@@ -64,7 +64,6 @@ void main() {
       () async {
     final controller = DashboardController(
       _FakeDashboardRepository(_FakeDashboardHandoffDataSource()),
-      now: () => DateTime(2026, 4, 9),
     );
 
     await controller.load();
@@ -80,7 +79,6 @@ void main() {
     () async {
       final controller = DashboardController(
         _FakeDashboardRepository(_FakeDashboardStableOrderingDataSource()),
-        now: () => DateTime(2026, 4, 9),
       );
 
       await controller.load();
