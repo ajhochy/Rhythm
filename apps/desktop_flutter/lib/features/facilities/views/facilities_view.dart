@@ -1172,17 +1172,24 @@ class _FacilitiesOverview extends StatelessWidget {
             .where((facility) => facility.building == selectedBuilding)
             .toList();
     final reservations = controller.overviewReservations;
-    final groupedReservations = <String, Map<String, List<Reservation>>>{};
+    final dayKeyedReservations = <DateTime, Map<String, List<Reservation>>>{};
+    final undatedReservations = <String, List<Reservation>>{};
     for (final reservation in reservations) {
       final start = _parseReservationDateTime(reservation.startTime);
-      final key = start == null
-          ? 'No Date'
-          : '${_formatDateShort(start)}, ${start.year}';
-      final roomGroups = groupedReservations.putIfAbsent(key, () => {});
+      if (start == null) {
+        undatedReservations
+            .putIfAbsent(_reservationGroupKey(reservation), () => [])
+            .add(reservation);
+        continue;
+      }
+      final dayKey = _startOfDay(start);
+      final roomGroups = dayKeyedReservations.putIfAbsent(dayKey, () => {});
       roomGroups
           .putIfAbsent(_reservationGroupKey(reservation), () => [])
           .add(reservation);
     }
+    final sortedDayEntries = dayKeyedReservations.entries.toList()
+      ..sort((a, b) => a.key.compareTo(b.key));
     final setupReservations = reservations
         .where((reservation) => reservation.notes?.trim().isNotEmpty == true)
         .toList();
@@ -1191,6 +1198,14 @@ class _FacilitiesOverview extends StatelessWidget {
     final externallyManagedReservations = reservations
         .where((reservation) => !reservation.createdByRhythm)
         .toList();
+    final buildingsInUse = reservations
+        .map((reservation) {
+          final facility = _facilityForReservation(controller, reservation);
+          return facility?.building;
+        })
+        .whereType<String>()
+        .where((building) => building.isNotEmpty)
+        .toSet();
 
     final bodyChildren = <Widget>[
       Container(
@@ -1236,8 +1251,14 @@ class _FacilitiesOverview extends StatelessWidget {
                     _HeaderPill(
                       icon: Icons.event_note_outlined,
                       label:
-                          '${reservations.length} ${reservations.length == 1 ? 'reservation' : 'reservations'}',
+                          '${reservations.length} ${reservations.length == 1 ? 'booking' : 'bookings'}',
                     ),
+                    if (buildingsInUse.isNotEmpty)
+                      _HeaderPill(
+                        icon: Icons.apartment_outlined,
+                        label:
+                            '${buildingsInUse.length} ${buildingsInUse.length == 1 ? 'building' : 'buildings'}',
+                      ),
                     _HeaderPill(
                       icon: Icons.warning_amber_outlined,
                       label:
@@ -1358,6 +1379,25 @@ class _FacilitiesOverview extends StatelessWidget {
         ),
       ),
       const SizedBox(height: 16),
+      if (range == _OverviewRange.week) ...[
+        _WeekStripBar(
+          weekStart: rangeStart,
+          dayCounts: {
+            for (final entry in dayKeyedReservations.entries)
+              entry.key: entry.value.length,
+          },
+          dayConflicts: {
+            for (final entry in dayKeyedReservations.entries)
+              entry.key: entry.value.values
+                  .expand((list) => list)
+                  .where(
+                    (reservation) => reservation.isConflicted,
+                  )
+                  .isNotEmpty,
+          },
+        ),
+        const SizedBox(height: 16),
+      ],
       _OverviewSignalPanel(
         controller: controller,
         reservations: reservations,
@@ -1395,29 +1435,44 @@ class _FacilitiesOverview extends StatelessWidget {
         ),
       );
     } else {
-      bodyChildren.addAll(
-        groupedReservations.entries.map((entry) {
-          final clusters =
-              entry.value.values.map(_ReservationCluster.new).toList()
-                ..sort((a, b) {
-                  final aStart = a.start;
-                  final bStart = b.start;
-                  if (aStart == null && bStart == null) return 0;
-                  if (aStart == null) return 1;
-                  if (bStart == null) return -1;
-                  return aStart.compareTo(bStart);
-                });
-          return Padding(
+      for (final entry in sortedDayEntries) {
+        final clusters =
+            entry.value.values.map(_ReservationCluster.new).toList()
+              ..sort((a, b) {
+                final aStart = a.start;
+                final bStart = b.start;
+                if (aStart == null && bStart == null) return 0;
+                if (aStart == null) return 1;
+                if (bStart == null) return -1;
+                return aStart.compareTo(bStart);
+              });
+        bodyChildren.add(
+          Padding(
             padding: const EdgeInsets.only(bottom: 16),
             child: _OverviewDayGroup(
-              title: entry.key,
+              date: entry.key,
               clusters: clusters,
               facilities: controller.facilities,
               controller: controller,
             ),
-          );
-        }),
-      );
+          ),
+        );
+      }
+      if (undatedReservations.isNotEmpty) {
+        final clusters =
+            undatedReservations.values.map(_ReservationCluster.new).toList();
+        bodyChildren.add(
+          Padding(
+            padding: const EdgeInsets.only(bottom: 16),
+            child: _OverviewDayGroup(
+              date: null,
+              clusters: clusters,
+              facilities: controller.facilities,
+              controller: controller,
+            ),
+          ),
+        );
+      }
     }
 
     return ListView(
@@ -1946,13 +2001,13 @@ class _AttentionReservationRow extends StatelessWidget {
 
 class _OverviewDayGroup extends StatelessWidget {
   const _OverviewDayGroup({
-    required this.title,
+    required this.date,
     required this.clusters,
     required this.facilities,
     required this.controller,
   });
 
-  final String title;
+  final DateTime? date;
   final List<_ReservationCluster> clusters;
   final List<Facility> facilities;
   final FacilitiesController controller;
@@ -1962,35 +2017,302 @@ class _OverviewDayGroup extends StatelessWidget {
     final facilitiesById = {
       for (final facility in facilities) facility.id: facility,
     };
+    final colors = context.rhythm;
+    final today = _startOfDay(DateTime.now());
+    final isToday = date != null && _startOfDay(date!) == today;
+    final isTomorrow = date != null &&
+        _startOfDay(date!) == today.add(const Duration(days: 1));
+    final hasConflicts = clusters.any((cluster) => cluster.isConflicted);
+
+    final headerLeading = date == null
+        ? Text(
+            'Time TBD',
+            style: TextStyle(
+              fontSize: 16,
+              fontWeight: FontWeight.w700,
+              color: colors.textPrimary,
+            ),
+          )
+        : Row(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              _DayMedallion(date: date!, highlighted: isToday),
+              const SizedBox(width: 12),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    _kWeekdayNames[date!.weekday - 1],
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                      color: colors.textPrimary,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    '${_kMonthNames[date!.month - 1]} ${date!.day}, ${date!.year}',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: colors.textSecondary,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          );
+
     return Container(
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        color: context.rhythm.surfaceRaised.withValues(alpha: 0.96),
+        color: colors.surfaceRaised.withValues(alpha: 0.96),
         borderRadius: BorderRadius.circular(RhythmRadius.xl),
-        border: Border.all(color: context.rhythm.borderSubtle),
+        border: Border.all(color: colors.borderSubtle),
         boxShadow: RhythmElevation.panel,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            title,
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w700,
-              color: context.rhythm.textPrimary,
-            ),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Expanded(child: headerLeading),
+              Wrap(
+                spacing: 8,
+                runSpacing: 6,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  if (isToday)
+                    const _InlineInfoPill(
+                      label: 'Today',
+                      tone: _OverviewMetricTone.attention,
+                    )
+                  else if (isTomorrow)
+                    const _InlineInfoPill(label: 'Tomorrow'),
+                  if (hasConflicts)
+                    const _InlineInfoPill(
+                      label: 'Has conflicts',
+                      tone: _OverviewMetricTone.danger,
+                    ),
+                  _InlineInfoPill(
+                    label:
+                        '${clusters.length} ${clusters.length == 1 ? 'booking' : 'bookings'}',
+                  ),
+                ],
+              ),
+            ],
           ),
-          const SizedBox(height: 12),
-          ...clusters.map(
-            (cluster) => Padding(
-              padding: const EdgeInsets.only(bottom: 14),
+          const SizedBox(height: 14),
+          ...List.generate(clusters.length, (i) {
+            return Padding(
+              padding:
+                  EdgeInsets.only(bottom: i == clusters.length - 1 ? 0 : 12),
               child: _OverviewReservationClusterRow(
-                cluster: cluster,
+                cluster: clusters[i],
                 controller: controller,
                 facilitiesById: facilitiesById,
               ),
+            );
+          }),
+        ],
+      ),
+    );
+  }
+}
+
+class _DayMedallion extends StatelessWidget {
+  const _DayMedallion({required this.date, required this.highlighted});
+
+  final DateTime date;
+  final bool highlighted;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.rhythm;
+    final background = highlighted
+        ? colors.accent.withValues(alpha: 0.12)
+        : colors.surfaceMuted;
+    final foreground = highlighted ? colors.accent : colors.textPrimary;
+    return Container(
+      width: 48,
+      height: 52,
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: highlighted
+              ? colors.accent.withValues(alpha: 0.32)
+              : colors.borderSubtle,
+        ),
+      ),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Text(
+            _kWeekdayNames[date.weekday - 1].substring(0, 3).toUpperCase(),
+            style: TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.w700,
+              color: foreground.withValues(alpha: 0.85),
+              letterSpacing: 0.6,
             ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            '${date.day}',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w800,
+              color: foreground,
+              height: 1.0,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _WeekStripBar extends StatelessWidget {
+  const _WeekStripBar({
+    required this.weekStart,
+    required this.dayCounts,
+    required this.dayConflicts,
+  });
+
+  final DateTime weekStart;
+  final Map<DateTime, int> dayCounts;
+  final Map<DateTime, bool> dayConflicts;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.rhythm;
+    final today = _startOfDay(DateTime.now());
+    final start = _startOfDay(weekStart);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: colors.surfaceRaised.withValues(alpha: 0.96),
+        borderRadius: BorderRadius.circular(RhythmRadius.xl),
+        border: Border.all(color: colors.borderSubtle),
+        boxShadow: RhythmElevation.panel,
+      ),
+      child: Row(
+        children: List.generate(7, (i) {
+          final day = start.add(Duration(days: i));
+          final dayKey = _startOfDay(day);
+          final count = dayCounts[dayKey] ?? 0;
+          final hasConflict = dayConflicts[dayKey] ?? false;
+          final isToday = dayKey == today;
+          return Expanded(
+            child: Padding(
+              padding: EdgeInsets.only(right: i == 6 ? 0 : 8),
+              child: _WeekStripCell(
+                date: day,
+                count: count,
+                hasConflict: hasConflict,
+                isToday: isToday,
+              ),
+            ),
+          );
+        }),
+      ),
+    );
+  }
+}
+
+class _WeekStripCell extends StatelessWidget {
+  const _WeekStripCell({
+    required this.date,
+    required this.count,
+    required this.hasConflict,
+    required this.isToday,
+  });
+
+  final DateTime date;
+  final int count;
+  final bool hasConflict;
+  final bool isToday;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.rhythm;
+    final hasBookings = count > 0;
+    final Color background;
+    final Color border;
+    final Color titleColor;
+    if (isToday) {
+      background = colors.accent.withValues(alpha: 0.12);
+      border = colors.accent.withValues(alpha: 0.32);
+      titleColor = colors.accent;
+    } else if (hasBookings) {
+      background = colors.surfaceMuted;
+      border = colors.borderSubtle;
+      titleColor = colors.textPrimary;
+    } else {
+      background = colors.canvas.withValues(alpha: 0.45);
+      border = colors.borderSubtle;
+      titleColor = colors.textMuted;
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: border),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Text(
+                _kWeekdayNames[date.weekday - 1].substring(0, 3).toUpperCase(),
+                style: TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 0.6,
+                  color: titleColor.withValues(alpha: 0.85),
+                ),
+              ),
+              const Spacer(),
+              if (hasConflict)
+                Container(
+                  width: 6,
+                  height: 6,
+                  decoration: BoxDecoration(
+                    color: colors.danger,
+                    shape: BoxShape.circle,
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            '${date.day}',
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w800,
+              height: 1.0,
+              color: titleColor,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            hasBookings
+                ? '$count ${count == 1 ? 'booking' : 'bookings'}'
+                : 'No bookings',
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              color: hasBookings ? colors.textSecondary : colors.textMuted,
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
           ),
         ],
       ),
@@ -2049,6 +2371,38 @@ class _InlineInfoPill extends StatelessWidget {
   }
 }
 
+class _ClusterMetaLine extends StatelessWidget {
+  const _ClusterMetaLine({required this.icon, required this.text});
+
+  final IconData icon;
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.rhythm;
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(top: 1),
+          child: Icon(icon, size: 13, color: colors.textMuted),
+        ),
+        const SizedBox(width: 6),
+        Expanded(
+          child: Text(
+            text,
+            style: TextStyle(
+              fontSize: 12,
+              color: colors.textSecondary,
+              height: 1.35,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 class _OverviewReservationClusterRow extends StatelessWidget {
   const _OverviewReservationClusterRow({
     required this.cluster,
@@ -2080,39 +2434,55 @@ class _OverviewReservationClusterRow extends StatelessWidget {
         .toSet()
         .toList()
       ..sort();
-    final facilityLabel = buildingNames.isEmpty
-        ? roomLabel
-        : '$roomLabel · ${buildingNames.join(', ')}';
     final conflictCount =
         cluster.reservations.where((item) => item.isConflicted).length;
     final noteCount = cluster.reservations
         .where((item) => item.notes?.trim().isNotEmpty == true)
         .length;
-
+    final colors = context.rhythm;
+    final buildingLabel = buildingNames.join(', ');
     return InkWell(
       onTap: () => _showReservationDetails(context, controller, representative),
       borderRadius: BorderRadius.circular(16),
       child: Container(
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
-          color: context.rhythm.canvas.withValues(alpha: 0.5),
+          color: colors.canvas.withValues(alpha: 0.5),
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: context.rhythm.borderSubtle),
+          border: Border.all(
+            color: cluster.isConflicted
+                ? colors.danger.withValues(alpha: 0.45)
+                : colors.borderSubtle,
+          ),
         ),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             SizedBox(
-              width: 118,
-              child: Text(
-                start != null
-                    ? '${_formatTimeOnly(start)}${end != null ? '\n${_formatTimeOnly(end)}' : ''}'
-                    : 'Time TBD',
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  color: context.rhythm.textPrimary,
-                ),
+              width: 96,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    start != null ? _formatTimeOnly(start) : 'Time TBD',
+                    style: TextStyle(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w800,
+                      color: colors.textPrimary,
+                      height: 1.1,
+                    ),
+                  ),
+                  if (end != null) ...[
+                    const SizedBox(height: 2),
+                    Text(
+                      'to ${_formatTimeOnly(end)}',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: colors.textSecondary,
+                      ),
+                    ),
+                  ],
+                ],
               ),
             ),
             const SizedBox(width: 14),
@@ -2127,9 +2497,9 @@ class _OverviewReservationClusterRow extends StatelessWidget {
                         child: Text(
                           cluster.title,
                           style: TextStyle(
-                            fontSize: 13,
+                            fontSize: 14,
                             fontWeight: FontWeight.w700,
-                            color: context.rhythm.textPrimary,
+                            color: colors.textPrimary,
                           ),
                         ),
                       ),
@@ -2165,34 +2535,26 @@ class _OverviewReservationClusterRow extends StatelessWidget {
                       ],
                     ],
                   ),
-                  const SizedBox(height: 4),
-                  Text(
-                    facilityLabel,
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: context.rhythm.textSecondary,
-                    ),
+                  const SizedBox(height: 6),
+                  _ClusterMetaLine(
+                    icon: Icons.meeting_room_outlined,
+                    text: roomLabel,
                   ),
+                  if (buildingLabel.isNotEmpty) ...[
+                    const SizedBox(height: 2),
+                    _ClusterMetaLine(
+                      icon: Icons.apartment_outlined,
+                      text: buildingLabel,
+                    ),
+                  ],
                   const SizedBox(height: 2),
-                  Text(
-                    'Requester: ${cluster.requesterName}',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: context.rhythm.textSecondary,
-                    ),
+                  _ClusterMetaLine(
+                    icon: Icons.person_outline,
+                    text: cluster.createdByName != null &&
+                            cluster.createdByName != cluster.requesterName
+                        ? '${cluster.requesterName} · booked by ${cluster.createdByName}'
+                        : cluster.requesterName,
                   ),
-                  if (cluster.createdByName != null &&
-                      cluster.createdByName != cluster.requesterName)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 2),
-                      child: Text(
-                        'Booked by ${cluster.createdByName}',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: context.rhythm.textSecondary,
-                        ),
-                      ),
-                    ),
                   if (cluster.notes != null && cluster.notes!.isNotEmpty)
                     Padding(
                       padding: const EdgeInsets.only(top: 8),
@@ -2204,12 +2566,25 @@ class _OverviewReservationClusterRow extends StatelessWidget {
                           borderRadius: BorderRadius.circular(12),
                           border: Border.all(color: const Color(0xFFF4D6A3)),
                         ),
-                        child: Text(
-                          cluster.notes!,
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: context.rhythm.textSecondary,
-                          ),
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Icon(
+                              Icons.sticky_note_2_outlined,
+                              size: 14,
+                              color: Color(0xFFB54708),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                cluster.notes!,
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: colors.textSecondary,
+                                ),
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                     ),
@@ -2220,7 +2595,7 @@ class _OverviewReservationClusterRow extends StatelessWidget {
                         'Rooms: $roomLabel',
                         style: TextStyle(
                           fontSize: 12,
-                          color: context.rhythm.textSecondary,
+                          color: colors.textSecondary,
                         ),
                       ),
                     ),
