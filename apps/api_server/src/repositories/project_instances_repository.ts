@@ -76,6 +76,7 @@ function stepRowToPlannerTask(row: {
     sourceId: row.instance_id,
     sourceName: row.instance_name ?? null,
     ownerId: null,
+    collaborators: [],
     createdAt: '',
     updatedAt: '',
   };
