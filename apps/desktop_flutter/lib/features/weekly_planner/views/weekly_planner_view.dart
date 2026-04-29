@@ -1226,18 +1226,20 @@ class _TaskTile extends StatelessWidget {
                                 compact: true,
                               ),
                             if (ownerName != null)
-                              _TaskMetaPill(
+                              RhythmMetaChip(
                                 icon: Icons.person_outline,
                                 label: ownerName,
                                 color: _plannerMutedTextColor(
                                     context, visualStyle),
+                                maxWidth: 128,
                               ),
                             if (task.sourceType != null || hasSourceName)
-                              _TaskMetaPill(
+                              RhythmMetaChip(
                                 icon: _sourceIcon(task.sourceType),
                                 label: _sourceLabelForTask(task),
                                 color:
                                     _plannerAccentColor(context, visualStyle),
+                                maxWidth: 128,
                               ),
                           ],
                         ),
@@ -1305,52 +1307,6 @@ class _TaskTile extends StatelessWidget {
       }
     }
     return 'User $ownerId';
-  }
-}
-
-class _TaskMetaPill extends StatelessWidget {
-  const _TaskMetaPill({
-    required this.icon,
-    required this.label,
-    required this.color,
-  });
-
-  final IconData icon;
-  final String label;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) {
-    return ConstrainedBox(
-      constraints: const BoxConstraints(maxWidth: 128),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-        decoration: BoxDecoration(
-          color: color.withValues(alpha: 0.13),
-          borderRadius: BorderRadius.circular(RhythmRadius.pill),
-          border: Border.all(color: color.withValues(alpha: 0.22)),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 11, color: color),
-            const SizedBox(width: 4),
-            Flexible(
-              child: Text(
-                label,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                      color: color,
-                      fontWeight: FontWeight.w700,
-                      height: 1,
-                    ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
   }
 }
 
