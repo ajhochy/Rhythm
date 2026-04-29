@@ -133,6 +133,7 @@ export class WeeklyPlanningService {
         endsAt: event.endAt,
         isAllDay: event.isAllDay,
         ownerId: event.ownerId,
+        collaborators: [],
         createdAt: event.createdAt,
         updatedAt: event.updatedAt,
       });

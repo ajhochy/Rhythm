@@ -2028,6 +2028,12 @@ class _HandoffPreviewRow extends StatelessWidget {
                           tone: tone,
                           compact: true,
                         ),
+                      if (task.isShared || task.collaborators.isNotEmpty)
+                        const RhythmBadge(
+                          label: 'Shared',
+                          tone: RhythmBadgeTone.accent,
+                          compact: true,
+                        ),
                     ],
                   ),
                 ],

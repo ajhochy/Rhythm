@@ -1,3 +1,9 @@
+export interface TaskCollaborator {
+  userId: number;
+  name: string;
+  photoUrl: string | null;
+}
+
 export interface Task {
   id: string;
   title: string;
@@ -16,6 +22,7 @@ export interface Task {
   ownerId: number | null;
   workspaceId?: number | null;
   isShared?: boolean;
+  collaborators: TaskCollaborator[];
   createdAt: string;
   updatedAt: string;
 }
