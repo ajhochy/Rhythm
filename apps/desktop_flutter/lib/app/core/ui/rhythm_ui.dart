@@ -1,5 +1,6 @@
 export 'rhythm_badge.dart';
 export 'rhythm_button.dart';
+export 'rhythm_compact_row.dart';
 export 'rhythm_detail_pane.dart';
 export 'rhythm_disclosure.dart';
 export 'rhythm_dialog.dart';
@@ -8,8 +9,10 @@ export 'focus_business_widgets.dart';
 export 'rhythm_filter_bar.dart';
 export 'rhythm_inspector.dart';
 export 'rhythm_menu_button.dart';
+export 'rhythm_meta_chip.dart';
 export 'rhythm_panel.dart';
 export 'rhythm_search_field.dart';
+export 'rhythm_section_header.dart';
 export 'rhythm_segmented_control.dart';
 export 'rhythm_surface.dart';
 export 'rhythm_toolbar.dart';

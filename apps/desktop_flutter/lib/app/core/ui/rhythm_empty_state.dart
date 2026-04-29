@@ -16,6 +16,26 @@ class RhythmEmptyState extends StatelessWidget {
     this.tone = RhythmEmptyStateTone.empty,
   });
 
+  /// Loading placeholder. Renders a subdued spinner with a short label.
+  const RhythmEmptyState.loading({
+    super.key,
+    this.title = 'Loading…',
+    this.message,
+  }) : icon = null,
+       actionLabel = null,
+       onAction = null,
+       tone = RhythmEmptyStateTone.loading;
+
+  /// Error state with an optional retry action.
+  const RhythmEmptyState.error({
+    super.key,
+    this.title = 'Something went wrong',
+    this.message,
+    this.icon = Icons.error_outline,
+    this.actionLabel,
+    this.onAction,
+  }) : tone = RhythmEmptyStateTone.error;
+
   final String title;
   final String? message;
   final IconData? icon;
@@ -56,19 +76,18 @@ class RhythmEmptyState extends StatelessWidget {
                 title,
                 textAlign: TextAlign.center,
                 style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      color: colors.textPrimary,
-                      fontWeight: FontWeight.w700,
-                    ),
+                  color: colors.textPrimary,
+                  fontWeight: FontWeight.w700,
+                ),
               ),
               if (message != null) ...[
                 const SizedBox(height: RhythmSpacing.xs),
                 Text(
                   message!,
                   textAlign: TextAlign.center,
-                  style: Theme.of(context)
-                      .textTheme
-                      .bodySmall
-                      ?.copyWith(color: colors.textSecondary),
+                  style: Theme.of(
+                    context,
+                  ).textTheme.bodySmall?.copyWith(color: colors.textSecondary),
                 ),
               ],
               if (actionLabel != null && onAction != null) ...[
