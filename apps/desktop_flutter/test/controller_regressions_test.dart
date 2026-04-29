@@ -206,6 +206,7 @@ DashboardSummary _buildSummary({
   required int openCount,
   int thisWeekRemainingCount = 0,
   int thisWeekTotalCount = 0,
+  List<Task> recent = const [],
   List<DashboardRhythmProgress> rhythms = const [],
   List<DashboardProjectProgress> projects = const [],
 }) =>
@@ -218,7 +219,7 @@ DashboardSummary _buildSummary({
         thisWeekRemainingCount: thisWeekRemainingCount,
         thisWeekTotalCount: thisWeekTotalCount,
         unscheduledCount: 0,
-        recent: const [],
+        recent: recent,
         pastDue: const [],
         today: const [],
         thisWeek: const [],
@@ -246,6 +247,15 @@ class _FakeDashboardDataSource extends DashboardDataSource {
       openCount: openCount,
       thisWeekRemainingCount: 1,
       thisWeekTotalCount: 1,
+      recent: [
+        Task(
+          id: '2',
+          title: 'Recent task',
+          status: 'open',
+          createdAt: '2026-03-31T00:00:00.000Z',
+          updatedAt: '2026-03-31T00:00:00.000Z',
+        ),
+      ],
       rhythms: [
         DashboardRhythmProgress(
           id: 'rule-1',
@@ -295,73 +305,97 @@ class _FakeDashboardNextWeekDataSource extends _FakeDashboardDataSource {
 
 class _FakeDashboardHandoffDataSource extends _FakeDashboardDataSource {
   @override
-  Future<List<Task>> fetchTasks() async {
+  Future<DashboardSummary> fetchSummary() async {
     loadCount += 1;
-    return [
-      Task(
-        id: 'solo',
-        title: 'Solo task',
-        status: 'open',
-        dueDate: '2026-04-09',
-        createdAt: '2026-04-08T00:00:00.000Z',
-        updatedAt: '2026-04-08T00:00:00.000Z',
-      ),
-      Task(
-        id: 'shared-due',
-        title: 'Shared due task',
-        status: 'open',
-        dueDate: '2026-04-10',
-        ownerId: 1,
-        isShared: true,
-        createdAt: '2026-04-08T00:00:00.000Z',
-        updatedAt: '2026-04-08T00:00:00.000Z',
-      ),
-      Task(
-        id: 'collaborative-unscheduled',
-        title: 'Collaborative task',
-        status: 'open',
-        ownerId: 2,
-        collaborators: const [
-          TaskCollaborator(userId: 1, name: 'Alice'),
+    return DashboardSummary(
+      tasks: DashboardSummaryTaskSlice(
+        openCount: 3,
+        pastDueCount: 0,
+        todayRemainingCount: 1,
+        todayTotalCount: 1,
+        thisWeekRemainingCount: 0,
+        thisWeekTotalCount: 0,
+        unscheduledCount: 1,
+        recent: const [],
+        pastDue: const [],
+        today: [
+          Task(
+            id: 'shared-due',
+            title: 'Shared due task',
+            status: 'open',
+            dueDate: '2026-04-09',
+            ownerId: 1,
+            isShared: true,
+            createdAt: '2026-04-08T00:00:00.000Z',
+            updatedAt: '2026-04-08T00:00:00.000Z',
+          ),
         ],
-        createdAt: '2026-04-08T00:00:00.000Z',
-        updatedAt: '2026-04-08T00:01:00.000Z',
+        thisWeek: const [],
+        unscheduled: [
+          Task(
+            id: 'collaborative-unscheduled',
+            title: 'Collaborative task',
+            status: 'open',
+            ownerId: 2,
+            collaborators: [TaskCollaborator(userId: 1, name: 'Alice')],
+            createdAt: '2026-04-08T00:00:00.000Z',
+            updatedAt: '2026-04-08T00:01:00.000Z',
+          ),
+        ],
       ),
-      Task(
-        id: 'shared-done',
-        title: 'Completed shared task',
-        status: 'done',
-        ownerId: 1,
-        isShared: true,
-        createdAt: '2026-04-08T00:00:00.000Z',
-        updatedAt: '2026-04-08T00:02:00.000Z',
+      rhythms: const [],
+      projects: const [],
+      messages: DashboardSummaryMessageSlice(
+        threadCount: 0,
+        unreadPreviews: const [],
       ),
-    ];
+    );
   }
 }
 
 class _FakeDashboardStableOrderingDataSource extends _FakeDashboardDataSource {
   @override
-  Future<List<Task>> fetchTasks() async {
+  Future<DashboardSummary> fetchSummary() async {
     loadCount += 1;
-    return [
-      Task(
-        id: 'early',
-        title: 'First task',
-        status: 'open',
-        dueDate: '2026-04-09',
-        createdAt: '2026-04-08T00:00:00.000Z',
-        updatedAt: '2026-04-09T12:00:00.000Z',
+    return DashboardSummary(
+      tasks: DashboardSummaryTaskSlice(
+        openCount: 2,
+        pastDueCount: 0,
+        todayRemainingCount: 2,
+        todayTotalCount: 2,
+        thisWeekRemainingCount: 0,
+        thisWeekTotalCount: 0,
+        unscheduledCount: 0,
+        recent: const [],
+        pastDue: const [],
+        today: [
+          Task(
+            id: 'early',
+            title: 'First task',
+            status: 'open',
+            dueDate: '2026-04-09',
+            createdAt: '2026-04-08T00:00:00.000Z',
+            updatedAt: '2026-04-09T12:00:00.000Z',
+          ),
+          Task(
+            id: 'late',
+            title: 'Edited task',
+            status: 'open',
+            dueDate: '2026-04-09',
+            createdAt: '2026-04-08T01:00:00.000Z',
+            updatedAt: '2026-04-09T23:59:00.000Z',
+          ),
+        ],
+        thisWeek: const [],
+        unscheduled: const [],
       ),
-      Task(
-        id: 'late',
-        title: 'Edited task',
-        status: 'open',
-        dueDate: '2026-04-09',
-        createdAt: '2026-04-08T01:00:00.000Z',
-        updatedAt: '2026-04-09T23:59:00.000Z',
+      rhythms: const [],
+      projects: const [],
+      messages: DashboardSummaryMessageSlice(
+        threadCount: 0,
+        unreadPreviews: const [],
       ),
-    ];
+    );
   }
 }
 
