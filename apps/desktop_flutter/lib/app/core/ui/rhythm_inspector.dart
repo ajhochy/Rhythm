@@ -3,13 +3,13 @@ import 'package:flutter/material.dart';
 import '../../../features/projects/models/project_instance.dart';
 import '../../../features/tasks/models/task.dart';
 import '../../../features/tasks/models/task_collaborator.dart';
-import '../../../shared/widgets/rhythm_date_button.dart';
-import '../../../shared/widgets/rhythm_assignee_field.dart';
 import '../../../shared/widgets/workspace_member_picker.dart';
 import '../formatters/date_formatters.dart';
 import '../tasks/task_visual_style.dart';
 import '../workspace/workspace_models.dart';
+import 'rhythm_assignee_field.dart';
 import 'rhythm_button.dart';
+import 'rhythm_date_button.dart';
 import 'tokens/rhythm_theme.dart';
 
 typedef RhythmTaskCollaboratorUpdate = Future<List<TaskCollaborator>> Function(

@@ -1,12 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
-import '../../app/core/formatters/date_formatters.dart';
-import '../../app/core/ui/rhythm_ui.dart';
-import '../../app/core/workspace/workspace_controller.dart';
-import '../../app/core/workspace/workspace_models.dart';
-import 'rhythm_date_button.dart';
-import 'workspace_member_picker.dart';
+import '../../../shared/widgets/workspace_member_picker.dart';
+import '../formatters/date_formatters.dart';
+import '../workspace/workspace_controller.dart';
+import '../workspace/workspace_models.dart';
+import 'rhythm_ui.dart';
 
 typedef RhythmTaskCreateCallback = void Function(
   String title, {

@@ -3,7 +3,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../app/core/formatters/date_formatters.dart';
-import '../../../shared/widgets/rhythm_task_create_bar.dart';
 import '../../../app/core/auth/auth_session_service.dart';
 import '../../../app/core/ui/rhythm_ui.dart';
 import '../../../app/core/workspace/workspace_controller.dart';

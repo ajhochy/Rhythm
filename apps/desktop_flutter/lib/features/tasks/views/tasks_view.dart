@@ -8,7 +8,6 @@ import '../../../app/core/widgets/error_banner.dart';
 import '../../../app/core/workspace/workspace_controller.dart';
 import '../../../app/core/workspace/workspace_models.dart';
 import '../../../shared/widgets/collaborators_row.dart';
-import '../../../shared/widgets/rhythm_task_create_bar.dart';
 import '../controllers/tasks_controller.dart';
 import '../data/collaborators_data_source.dart';
 import '../models/task.dart';

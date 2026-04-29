@@ -15,7 +15,6 @@ import '../../../app/core/ui/rhythm_ui.dart';
 import '../../../app/core/workspace/workspace_controller.dart';
 import '../../../app/core/workspace/workspace_models.dart';
 import '../../../shared/widgets/collaborators_row.dart';
-import '../../../shared/widgets/rhythm_assignee_field.dart';
 import '../../tasks/data/collaborators_data_source.dart';
 
 class ProjectsView extends StatefulWidget {

@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../../app/core/formatters/date_formatters.dart';
+import '../formatters/date_formatters.dart';
 
 class RhythmDateButton extends StatelessWidget {
   const RhythmDateButton({

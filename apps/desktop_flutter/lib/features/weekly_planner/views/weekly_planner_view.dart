@@ -8,12 +8,10 @@ import '../../../app/core/widgets/error_banner.dart';
 import '../../../app/core/workspace/workspace_controller.dart';
 import '../../../app/core/workspace/workspace_models.dart';
 import '../../../shared/widgets/collaborators_row.dart';
-import '../../../shared/widgets/rhythm_assignee_field.dart';
 import '../../tasks/models/task.dart';
 import '../controllers/weekly_planner_controller.dart';
 import '../models/weekly_plan.dart';
 import '../../tasks/data/collaborators_data_source.dart';
-import '../../../app/core/ui/rhythm_task_create_dialog.dart';
 
 class WeeklyPlannerView extends StatefulWidget {
   const WeeklyPlannerView({super.key});

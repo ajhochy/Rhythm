@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 
-import '../../app/core/ui/rhythm_ui.dart';
-import '../../app/core/workspace/workspace_models.dart';
-import 'workspace_member_picker.dart';
+import '../../../shared/widgets/workspace_member_picker.dart';
+import '../workspace/workspace_models.dart';
+import 'rhythm_ui.dart';
 
 class RhythmAssigneeField extends StatelessWidget {
   const RhythmAssigneeField({
