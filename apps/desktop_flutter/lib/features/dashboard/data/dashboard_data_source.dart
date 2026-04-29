@@ -12,12 +12,24 @@ import '../../projects/models/project_template.dart';
 import '../../tasks/models/recurring_task_rule.dart';
 import '../../tasks/models/task.dart';
 import '../../tasks/models/task_collaborator.dart';
+import '../models/dashboard_overview_models.dart';
 
 class DashboardDataSource {
   DashboardDataSource({String? baseUrl})
       : _baseUrl = baseUrl ?? AppConstants.apiBaseUrl;
 
   final String _baseUrl;
+
+  Future<DashboardSummary> fetchSummary() async {
+    final response = await http.get(
+      Uri.parse('$_baseUrl/dashboard/summary'),
+      headers: AuthSessionStore.headers(),
+    );
+    assertOk(response);
+    return DashboardSummary.fromJson(
+      jsonDecode(response.body) as Map<String, dynamic>,
+    );
+  }
 
   // Collaborators are included inline in the /tasks response; no per-task
   // follow-up requests are needed during dashboard load.
