@@ -90,8 +90,7 @@ class DashboardController extends ChangeNotifier {
         ..._todayTasks,
         ..._thisWeekTasks,
         ..._unscheduledTasks,
-      }.where(_hasOpenHandoffContext).toList()
-        ..sort(_compareTasks);
+      }.where(_hasOpenHandoffContext).toList()..sort(_compareTasks);
 
       _activeProjects = summary.projects;
       _activeProjectsCount = summary.projects.length;
@@ -240,7 +239,6 @@ class DashboardController extends ChangeNotifier {
     if (value == null) return null;
     return DateTime(value.year, value.month, value.day);
   }
-
 
   Task? _findTaskById(String id) {
     for (final task in [
