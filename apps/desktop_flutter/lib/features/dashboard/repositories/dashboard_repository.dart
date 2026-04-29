@@ -6,10 +6,14 @@ import '../../tasks/models/task.dart';
 import '../data/dashboard_data_source.dart';
 import '../models/dashboard_overview_models.dart';
 
+export '../models/dashboard_overview_models.dart' show DashboardSummary;
+
 class DashboardRepository {
   DashboardRepository(this._dataSource);
 
   final DashboardDataSource _dataSource;
+
+  Future<DashboardSummary> getSummary() => _dataSource.fetchSummary();
 
   Future<List<Task>> getTasks() => _dataSource.fetchTasks();
 
