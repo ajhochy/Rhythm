@@ -2028,6 +2028,12 @@ class _HandoffPreviewRow extends StatelessWidget {
                           tone: tone,
                           compact: true,
                         ),
+                      if (task.isShared || task.collaborators.isNotEmpty)
+                        const _TaskBadge(
+                          label: 'Shared',
+                          backgroundColor: Color(0x144F6AF5),
+                          foregroundColor: Color(0xFF4F6AF5),
+                        ),
                     ],
                   ),
                 ],

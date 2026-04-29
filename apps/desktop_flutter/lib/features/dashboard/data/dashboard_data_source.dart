@@ -19,6 +19,8 @@ class DashboardDataSource {
 
   final String _baseUrl;
 
+  // Collaborators are included inline in the /tasks response; no per-task
+  // follow-up requests are needed during dashboard load.
   Future<List<Task>> fetchTasks() async {
     final response = await http.get(
       Uri.parse('$_baseUrl/tasks'),
