@@ -11,6 +11,7 @@ import 'app/core/notifications/local_notification_service.dart';
 import 'app/core/server/api_server_controller.dart';
 import 'app/core/server/api_server_service.dart';
 import 'app/core/services/server_config_service.dart';
+import 'app/core/services/theme_mode_service.dart';
 import 'app/core/updates/update_controller.dart';
 import 'app/core/updates/update_service.dart';
 import 'app/theme/app_theme.dart';
@@ -66,9 +67,11 @@ void main() async {
     await windowManager.focus();
   });
 
-  // Load persisted server URL before runApp.
+  // Load persisted server URL and appearance before runApp.
   final serverConfigService = ServerConfigService();
   await serverConfigService.load();
+  final themeModeService = ThemeModeService();
+  await themeModeService.load();
 
   // Create the server controller and kick off startup before runApp so the
   // service object is available immediately. The UI shows a loading screen
@@ -90,6 +93,7 @@ void main() async {
       localNotificationService: localNotificationService,
       serverController: serverController,
       serverConfigService: serverConfigService,
+      themeModeService: themeModeService,
     ),
   );
 }
@@ -101,12 +105,14 @@ class RhythmApp extends StatelessWidget {
     required this.localNotificationService,
     required this.serverController,
     required this.serverConfigService,
+    required this.themeModeService,
   });
 
   final AuthSessionService authSessionService;
   final LocalNotificationService localNotificationService;
   final ApiServerController serverController;
   final ServerConfigService serverConfigService;
+  final ThemeModeService themeModeService;
 
   @override
   Widget build(BuildContext context) {
@@ -116,6 +122,7 @@ class RhythmApp extends StatelessWidget {
         ChangeNotifierProvider.value(value: serverController),
         ChangeNotifierProvider.value(value: serverConfigService),
         ChangeNotifierProvider.value(value: authSessionService),
+        ChangeNotifierProvider.value(value: themeModeService),
         ChangeNotifierProvider(
           create: (_) => TasksController(
             TasksRepository(TasksLocalDataSource(baseUrl: baseUrl)),
@@ -184,11 +191,15 @@ class RhythmApp extends StatelessWidget {
           ),
         ),
       ],
-      child: MaterialApp(
-        title: AppConstants.appName,
-        debugShowCheckedModeBanner: false,
-        theme: AppTheme.light(),
-        home: const AppShell(),
+      child: Consumer<ThemeModeService>(
+        builder: (_, modeService, __) => MaterialApp(
+          title: AppConstants.appName,
+          debugShowCheckedModeBanner: false,
+          theme: AppTheme.light(),
+          darkTheme: AppTheme.dark(),
+          themeMode: modeService.themeMode,
+          home: const AppShell(),
+        ),
       ),
     );
   }

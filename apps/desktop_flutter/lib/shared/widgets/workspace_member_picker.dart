@@ -95,3 +95,42 @@ class _WorkspaceMemberLabel extends StatelessWidget {
     return trimmed[0].toUpperCase();
   }
 }
+
+Future<WorkspaceMember?> showWorkspaceMemberPickerDialog(
+  BuildContext context, {
+  required List<WorkspaceMember> candidates,
+  String title = 'Select person',
+}) async {
+  if (candidates.isEmpty) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('No other workspace members to add')),
+    );
+    return null;
+  }
+  return showDialog<WorkspaceMember>(
+    context: context,
+    builder: (ctx) => SimpleDialog(
+      title: Text(title),
+      children: [
+        for (final member in candidates)
+          SimpleDialogOption(
+            onPressed: () => Navigator.pop(ctx, member),
+            child: Row(
+              children: [
+                CircleAvatar(
+                  radius: 14,
+                  backgroundColor: const Color(0xFF4F6AF5),
+                  child: Text(
+                    member.name.isNotEmpty ? member.name[0].toUpperCase() : '?',
+                    style: const TextStyle(fontSize: 11, color: Colors.white),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(child: Text(member.name)),
+              ],
+            ),
+          ),
+      ],
+    ),
+  );
+}

@@ -36,6 +36,7 @@ class DashboardController extends ChangeNotifier {
   List<Task> _thisWeekTasks = [];
   List<Task> _todayTasks = [];
   List<Task> _unscheduledTasks = [];
+  List<Task> _handoffTasks = [];
   List<DashboardRhythmProgress> _activeRhythms = [];
   List<DashboardProjectProgress> _activeProjects = [];
   List<DashboardUnreadMessagePreview> _unreadMessages = [];
@@ -58,6 +59,7 @@ class DashboardController extends ChangeNotifier {
   List<Task> get thisWeekTasks => _thisWeekTasks;
   List<Task> get todayTasks => _todayTasks;
   List<Task> get unscheduledTasks => _unscheduledTasks;
+  List<Task> get handoffTasks => _handoffTasks;
   List<DashboardRhythmProgress> get activeRhythms => _activeRhythms;
   List<DashboardProjectProgress> get activeProjects => _activeProjects;
   List<DashboardUnreadMessagePreview> get unreadMessages => _unreadMessages;
@@ -94,6 +96,8 @@ class DashboardController extends ChangeNotifier {
         ..sort(_compareTasks);
       _unscheduledTasks = tasks.where(_isUnscheduled).toList()
         ..sort((a, b) => b.id.compareTo(a.id));
+      _handoffTasks = tasks.where(_hasOpenHandoffContext).toList()
+        ..sort(_compareTasks);
       _pastDueTaskCount = _pastDueTasks.length;
       _todayTasksRemainingCount = _todayTasks.length;
       _todayTasksTotalCount = tasks
@@ -132,9 +136,19 @@ class DashboardController extends ChangeNotifier {
 
   Future<void> refresh() => load();
 
-  Future<void> createTask(String title, {String? dueDate}) async {
+  Future<void> createTask(
+    String title, {
+    String? notes,
+    String? dueDate,
+    int? collaboratorId,
+  }) async {
     try {
-      await _repository.createTask(title, dueDate: dueDate);
+      await _repository.createTask(
+        title,
+        notes: notes,
+        dueDate: dueDate,
+        collaboratorId: collaboratorId,
+      );
       await refresh();
     } catch (e) {
       _errorMessage = e.toString();
@@ -147,6 +161,73 @@ class DashboardController extends ChangeNotifier {
     if (task == null) return;
     try {
       await _repository.toggleTaskDone(id, task.status);
+      await refresh();
+    } catch (e) {
+      _errorMessage = e.toString();
+      notifyListeners();
+    }
+  }
+
+  Future<void> updateTask(
+    String id, {
+    String? title,
+    String? notes,
+    String? dueDate,
+    String? scheduledDate,
+    bool includeNotes = false,
+    bool includeDueDate = false,
+    bool includeScheduledDate = false,
+  }) async {
+    try {
+      await _repository.updateTask(
+        id,
+        title: title,
+        notes: notes,
+        dueDate: dueDate,
+        scheduledDate: scheduledDate,
+        includeNotes: includeNotes,
+        includeDueDate: includeDueDate,
+        includeScheduledDate: includeScheduledDate,
+      );
+      await refresh();
+    } catch (e) {
+      _errorMessage = e.toString();
+      notifyListeners();
+    }
+  }
+
+  Future<void> toggleProjectStepDone(String stepId, bool currentlyDone) async {
+    try {
+      await _repository.updateProjectInstanceStepStatus(
+        stepId,
+        currentlyDone ? 'open' : 'done',
+      );
+      await refresh();
+    } catch (e) {
+      _errorMessage = e.toString();
+      notifyListeners();
+    }
+  }
+
+  Future<void> updateProjectStep(
+    String stepId, {
+    String? title,
+    String? dueDate,
+    String? status,
+    String? notes,
+    int? assigneeId,
+    bool includeNotes = false,
+  }) async {
+    try {
+      await _repository.updateProjectInstanceStep(
+        stepId,
+        title: title,
+        dueDate: dueDate,
+        status: status,
+        notes: notes,
+        assigneeId: assigneeId,
+        includeNotes: includeNotes,
+      );
       await refresh();
     } catch (e) {
       _errorMessage = e.toString();
@@ -209,6 +290,19 @@ class DashboardController extends ChangeNotifier {
           .map((step) => step.dueDate)
           .whereType<String>()
           .toList();
+      final openSteps =
+          sortedSteps.where((step) => step.status != 'done').toList();
+      final nextStep = openSteps.isEmpty
+          ? null
+          : DashboardProjectStepPreview(
+              id: openSteps.first.id,
+              title: openSteps.first.title,
+              status: openSteps.first.status,
+              dueDate: openSteps.first.dueDate,
+              notes: openSteps.first.notes,
+              assigneeId: openSteps.first.assigneeId,
+              assigneeName: openSteps.first.assigneeName,
+            );
       summaries.add(
         DashboardProjectProgress(
           id: instance.id,
@@ -217,7 +311,29 @@ class DashboardController extends ChangeNotifier {
               '$completed of ${sortedSteps.length} step${sortedSteps.length == 1 ? '' : 's'} complete',
           completedCount: completed,
           totalCount: sortedSteps.length,
+          nextStep: nextStep,
+          nextStepTitle: openSteps.isEmpty ? null : openSteps.first.title,
           nextDueDate: nextDueDates.isEmpty ? null : nextDueDates.first,
+          onDeckSteps: openSteps
+              .skip(1)
+              .take(3)
+              .map(
+                (step) => DashboardProjectStepPreview(
+                  id: step.id,
+                  title: step.title,
+                  status: step.status,
+                  dueDate: step.dueDate,
+                  notes: step.notes,
+                  assigneeId: step.assigneeId,
+                  assigneeName: step.assigneeName,
+                ),
+              )
+              .toList(),
+          ownerId: instance.ownerId,
+          collaboratorNames: instance.collaborators
+              .map((collaborator) => collaborator.name.trim())
+              .where((name) => name.isNotEmpty)
+              .toList(),
         ),
       );
     }
@@ -268,6 +384,11 @@ class DashboardController extends ChangeNotifier {
       task.dueDate == null &&
       task.scheduledDate == null;
 
+  static bool _hasOpenHandoffContext(Task task) {
+    if (task.status == 'done') return false;
+    return task.isShared || task.collaborators.isNotEmpty;
+  }
+
   Future<List<DashboardProjectProgress>> _loadProjectSummaries() async {
     try {
       final results = await Future.wait([
@@ -290,10 +411,14 @@ class DashboardController extends ChangeNotifier {
     final bDate = _taskPriorityDate(b) ?? DateTime(9999);
     final dateCompare = aDate.compareTo(bDate);
     if (dateCompare != 0) return dateCompare;
-    final aUpdated = DateTime.tryParse(a.updatedAt) ?? DateTime(9999);
-    final bUpdated = DateTime.tryParse(b.updatedAt) ?? DateTime(9999);
-    final updatedCompare = aUpdated.compareTo(bUpdated);
-    if (updatedCompare != 0) return updatedCompare;
+    final orderCompare = (a.scheduledOrder ?? 10000000).compareTo(
+      b.scheduledOrder ?? 10000000,
+    );
+    if (orderCompare != 0) return orderCompare;
+    final aCreated = DateTime.tryParse(a.createdAt) ?? DateTime(9999);
+    final bCreated = DateTime.tryParse(b.createdAt) ?? DateTime(9999);
+    final createdCompare = aCreated.compareTo(bCreated);
+    if (createdCompare != 0) return createdCompare;
     return a.id.compareTo(b.id);
   }
 
@@ -334,6 +459,7 @@ class DashboardController extends ChangeNotifier {
       ..._thisWeekTasks,
       ..._todayTasks,
       ..._unscheduledTasks,
+      ..._handoffTasks,
     ]) {
       if (task.id == id) return task;
     }

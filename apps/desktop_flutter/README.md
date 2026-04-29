@@ -15,7 +15,9 @@ flutter run -d macos \
   --dart-define=GOOGLE_DESKTOP_CLIENT_ID=<desktop-google-client-id>
 ```
 
-For the most reliable local launch path during development, use:
+By default, local Flutter builds use the hosted API at
+`https://api.vcrcapps.com`. For a local embedded API/database launch path during
+development, use:
 
 ```bash
 ./tools/dev/launch_desktop_current.sh
@@ -26,13 +28,14 @@ That script:
 - builds the current macOS debug app
 - launches a fresh copied app bundle at `/private/tmp/Rhythm Current.app`
 
-This avoids Dock icon cache issues and keeps the desktop app pointed at the same runtime database each time.
+This avoids Dock icon cache issues and keeps the desktop app pointed at the same
+runtime database each time.
 
 For Google Sign-In, the desktop app now expects `GOOGLE_DESKTOP_CLIENT_ID` as a Dart define. The packaged API must trust the same Firebase Apple client ID through `GOOGLE_AUTH_CLIENT_ID`.
 
 ## Hosted vs local runtime
 
-Desktop builds can choose between:
+Desktop builds default to hosted API mode and can choose between:
 
 - local embedded API mode
 - hosted API mode
@@ -45,17 +48,15 @@ Useful Dart defines:
 Examples:
 
 ```bash
+# Hosted/shared environment (default)
+flutter run -d macos \
+  --dart-define=GOOGLE_DESKTOP_CLIENT_ID=<desktop-google-client-id>
+
 # Local development
 flutter run -d macos \
   --dart-define=GOOGLE_DESKTOP_CLIENT_ID=<desktop-google-client-id> \
   --dart-define=RHYTHM_SERVER_URL=http://localhost:4000 \
   --dart-define=RHYTHM_USE_EMBEDDED_API=true
-
-# Hosted/shared environment
-flutter run -d macos \
-  --dart-define=GOOGLE_DESKTOP_CLIENT_ID=<desktop-google-client-id> \
-  --dart-define=RHYTHM_SERVER_URL=https://api.vcrcapps.com \
-  --dart-define=RHYTHM_USE_EMBEDDED_API=false
 ```
 
 ## Beta Distribution
@@ -65,7 +66,7 @@ flutter run -d macos \
 
 ### Packaged Beta Smoke Checklist
 - Install the DMG or ZIP artifact from the latest `Desktop Release` run.
-- Launch the packaged app and confirm the bundled API server starts without `flutter run`.
+- Launch the packaged app and confirm it reaches the hosted API without `flutter run`.
 - Sign in with Google and verify the app opens past the login gate.
 - Quit and relaunch the packaged app; confirm the session restores.
 - Open Messages, send/read a conversation across two users, and verify unread badges update.

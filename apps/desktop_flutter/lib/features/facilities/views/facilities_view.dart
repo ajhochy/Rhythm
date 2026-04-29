@@ -1,20 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../../app/core/ui/tokens/rhythm_theme.dart';
 import '../../../app/core/widgets/error_banner.dart';
-import '../../../app/theme/rhythm_tokens.dart';
 import '../controllers/facilities_controller.dart';
 import '../models/facility.dart';
 import '../models/reservation.dart';
 import '../models/reservation_series.dart';
-
-const _kCanvas = RhythmTokens.background;
-const _kCanvasAccent = RhythmTokens.backgroundAccent;
-const _kSurface = RhythmTokens.surfaceStrong;
-const _kBorder = RhythmTokens.borderSoft;
-const _kTextPrimary = RhythmTokens.textPrimary;
-const _kTextSecondary = RhythmTokens.textSecondary;
-const _kSurfaceMuted = RhythmTokens.surfaceMuted;
 
 enum _FacilitiesMode { book, overview }
 
@@ -57,18 +49,20 @@ class _FacilitiesViewState extends State<FacilitiesView> {
     return Consumer<FacilitiesController>(
       builder: (context, controller, _) {
         return Container(
-          color: _kCanvas,
+          color: context.rhythm.canvas,
           child: Stack(
             children: [
-              const Positioned(
+              Positioned(
                 top: -90,
                 right: -90,
-                child: _AmbientOrb(color: _kCanvasAccent, size: 220),
+                child:
+                    _AmbientOrb(color: context.rhythm.accentMuted, size: 220),
               ),
-              const Positioned(
+              Positioned(
                 bottom: -110,
                 left: -70,
-                child: _AmbientOrb(color: _kCanvasAccent, size: 180),
+                child:
+                    _AmbientOrb(color: context.rhythm.accentMuted, size: 180),
               ),
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -185,21 +179,21 @@ class _FacilitiesViewState extends State<FacilitiesView> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Delete space?'),
+        title: Text('Delete space?'),
         content: Text(
           'This will remove ${facility.name} and its room schedule from the app.',
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Cancel'),
+            child: Text('Cancel'),
           ),
           FilledButton(
             onPressed: () => Navigator.of(context).pop(true),
             style: FilledButton.styleFrom(
               backgroundColor: const Color(0xFFB42318),
             ),
-            child: const Text('Delete'),
+            child: Text('Delete'),
           ),
         ],
       ),
@@ -633,14 +627,14 @@ Future<void> _deleteReservationWithConfirmation(
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(false),
-          child: const Text('Cancel'),
+          child: Text('Cancel'),
         ),
         FilledButton(
           onPressed: () => Navigator.of(context).pop(true),
           style: FilledButton.styleFrom(
             backgroundColor: const Color(0xFFB42318),
           ),
-          child: const Text('Delete'),
+          child: Text('Delete'),
         ),
       ],
     ),
@@ -663,21 +657,21 @@ Future<void> _deleteSeriesWithConfirmation(
   final confirmed = await showDialog<bool>(
     context: context,
     builder: (context) => AlertDialog(
-      title: const Text('Delete recurring series?'),
-      content: const Text(
+      title: Text('Delete recurring series?'),
+      content: Text(
         'This will delete the entire recurring series and all generated reservations.',
       ),
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(false),
-          child: const Text('Cancel'),
+          child: Text('Cancel'),
         ),
         FilledButton(
           onPressed: () => Navigator.of(context).pop(true),
           style: FilledButton.styleFrom(
             backgroundColor: const Color(0xFFB42318),
           ),
-          child: const Text('Delete series'),
+          child: Text('Delete series'),
         ),
       ],
     ),
@@ -823,10 +817,10 @@ class _FacilitiesHeader extends StatelessWidget {
         width: double.infinity,
         padding: const EdgeInsets.all(22),
         decoration: BoxDecoration(
-          color: _kSurface.withValues(alpha: 0.92),
-          borderRadius: BorderRadius.circular(RhythmTokens.radiusL),
-          border: Border.all(color: _kBorder),
-          boxShadow: RhythmTokens.shadow,
+          color: context.rhythm.surfaceRaised.withValues(alpha: 0.92),
+          borderRadius: BorderRadius.circular(RhythmRadius.xl),
+          border: Border.all(color: context.rhythm.borderSubtle),
+          boxShadow: RhythmElevation.panel,
         ),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -835,22 +829,22 @@ class _FacilitiesHeader extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text(
+                  Text(
                     'Facilities',
                     style: TextStyle(
                       fontSize: 28,
                       height: 1.05,
                       fontWeight: FontWeight.w700,
-                      color: _kTextPrimary,
+                      color: context.rhythm.textPrimary,
                     ),
                   ),
                   const SizedBox(height: 8),
-                  const Text(
+                  Text(
                     'Reserve shared spaces, equipment, and rooms from one quiet workspace.',
                     style: TextStyle(
                       fontSize: 13,
                       height: 1.45,
-                      color: _kTextSecondary,
+                      color: context.rhythm.textSecondary,
                     ),
                   ),
                   const SizedBox(height: 14),
@@ -875,8 +869,8 @@ class _FacilitiesHeader extends StatelessWidget {
             const SizedBox(width: 16),
             FilledButton.icon(
               onPressed: onReserve,
-              icon: const Icon(Icons.add, size: 18),
-              label: const Text('Reserve Space'),
+              icon: Icon(Icons.add, size: 18),
+              label: Text('Reserve Space'),
             ),
           ],
         ),
@@ -941,10 +935,10 @@ class _FacilityDialogState extends State<_FacilityDialog> {
       child: Container(
         constraints: const BoxConstraints(maxWidth: 520),
         decoration: BoxDecoration(
-          color: _kSurface,
-          borderRadius: BorderRadius.circular(RhythmTokens.radiusL),
-          border: Border.all(color: _kBorder),
-          boxShadow: RhythmTokens.shadow,
+          color: context.rhythm.surfaceRaised,
+          borderRadius: BorderRadius.circular(RhythmRadius.xl),
+          border: Border.all(color: context.rhythm.borderSubtle),
+          boxShadow: RhythmElevation.panel,
         ),
         child: Padding(
           padding: const EdgeInsets.all(24),
@@ -956,10 +950,10 @@ class _FacilityDialogState extends State<_FacilityDialog> {
               children: [
                 Text(
                   isEditing ? 'Edit space' : 'Add space',
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 22,
                     fontWeight: FontWeight.w700,
-                    color: _kTextPrimary,
+                    color: context.rhythm.textPrimary,
                   ),
                 ),
                 const SizedBox(height: 6),
@@ -967,16 +961,16 @@ class _FacilityDialogState extends State<_FacilityDialog> {
                   isEditing
                       ? 'Update the room details used for scheduling and overview filters.'
                       : 'Create a room or facility so reservations can be scheduled against it.',
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 13,
                     height: 1.45,
-                    color: _kTextSecondary,
+                    color: context.rhythm.textSecondary,
                   ),
                 ),
                 const SizedBox(height: 20),
                 TextFormField(
                   controller: _nameController,
-                  decoration: _overviewDecoration('Room name *'),
+                  decoration: _overviewDecoration(context, 'Room name *'),
                   validator: (value) => value == null || value.trim().isEmpty
                       ? 'Room name is required'
                       : null,
@@ -986,7 +980,7 @@ class _FacilityDialogState extends State<_FacilityDialog> {
                   initialValue: _addingNewBuilding
                       ? _newBuildingValue
                       : (currentBuilding.isEmpty ? null : currentBuilding),
-                  decoration: _overviewDecoration('Building'),
+                  decoration: _overviewDecoration(context, 'Building'),
                   items: [
                     const DropdownMenuItem<String>(
                       value: null,
@@ -1019,7 +1013,8 @@ class _FacilityDialogState extends State<_FacilityDialog> {
                   const SizedBox(height: 14),
                   TextFormField(
                     controller: _buildingController,
-                    decoration: _overviewDecoration('New building name'),
+                    decoration:
+                        _overviewDecoration(context, 'New building name'),
                     validator: (value) {
                       if (!_addingNewBuilding) return null;
                       return value == null || value.trim().isEmpty
@@ -1031,7 +1026,7 @@ class _FacilityDialogState extends State<_FacilityDialog> {
                 const SizedBox(height: 14),
                 TextFormField(
                   controller: _descriptionController,
-                  decoration: _overviewDecoration('Description'),
+                  decoration: _overviewDecoration(context, 'Description'),
                   maxLines: 3,
                 ),
                 const SizedBox(height: 20),
@@ -1040,7 +1035,7 @@ class _FacilityDialogState extends State<_FacilityDialog> {
                     TextButton(
                       onPressed:
                           _saving ? null : () => Navigator.of(context).pop(),
-                      child: const Text('Cancel'),
+                      child: Text('Cancel'),
                     ),
                     const Spacer(),
                     FilledButton(
@@ -1201,10 +1196,10 @@ class _FacilitiesOverview extends StatelessWidget {
       Container(
         padding: const EdgeInsets.all(18),
         decoration: BoxDecoration(
-          color: _kSurface.withValues(alpha: 0.96),
-          borderRadius: BorderRadius.circular(RhythmTokens.radiusL),
-          border: Border.all(color: _kBorder),
-          boxShadow: RhythmTokens.shadow,
+          color: context.rhythm.surfaceRaised.withValues(alpha: 0.96),
+          borderRadius: BorderRadius.circular(RhythmRadius.xl),
+          border: Border.all(color: context.rhythm.borderSubtle),
+          boxShadow: RhythmElevation.panel,
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -1215,20 +1210,20 @@ class _FacilitiesOverview extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text(
+                      Text(
                         'Facilities overview',
                         style: TextStyle(
                           fontSize: 18,
                           fontWeight: FontWeight.w700,
-                          color: _kTextPrimary,
+                          color: context.rhythm.textPrimary,
                         ),
                       ),
                       const SizedBox(height: 4),
                       Text(
                         _formatRangeLabel(rangeStart, rangeEnd),
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 13,
-                          color: _kTextSecondary,
+                          color: context.rhythm.textSecondary,
                         ),
                       ),
                     ],
@@ -1282,13 +1277,13 @@ class _FacilitiesOverview extends StatelessWidget {
                 ),
                 OutlinedButton.icon(
                   onPressed: () => onShiftRange(-1),
-                  icon: const Icon(Icons.chevron_left),
-                  label: const Text('Back'),
+                  icon: Icon(Icons.chevron_left),
+                  label: Text('Back'),
                 ),
                 OutlinedButton.icon(
                   onPressed: () => onShiftRange(1),
-                  icon: const Icon(Icons.chevron_right),
-                  label: const Text('Forward'),
+                  icon: Icon(Icons.chevron_right),
+                  label: Text('Forward'),
                 ),
               ],
             ),
@@ -1302,8 +1297,8 @@ class _FacilitiesOverview extends StatelessWidget {
                   child: DropdownButtonFormField<String?>(
                     isExpanded: true,
                     value: selectedBuilding,
-                    decoration: _overviewDecoration('Building'),
-                    dropdownColor: _kSurface,
+                    decoration: _overviewDecoration(context, 'Building'),
+                    dropdownColor: context.rhythm.surfaceRaised,
                     items: [
                       const DropdownMenuItem<String?>(
                         value: null,
@@ -1324,8 +1319,8 @@ class _FacilitiesOverview extends StatelessWidget {
                   child: DropdownButtonFormField<int?>(
                     isExpanded: true,
                     value: selectedFacilityId,
-                    decoration: _overviewDecoration('Room'),
-                    dropdownColor: _kSurface,
+                    decoration: _overviewDecoration(context, 'Room'),
+                    dropdownColor: context.rhythm.surfaceRaised,
                     items: [
                       const DropdownMenuItem<int?>(
                         value: null,
@@ -1432,18 +1427,18 @@ class _FacilitiesOverview extends StatelessWidget {
   }
 }
 
-InputDecoration _overviewDecoration(String label) {
+InputDecoration _overviewDecoration(BuildContext context, String label) {
   return InputDecoration(
     labelText: label,
     filled: true,
-    fillColor: _kCanvas.withValues(alpha: 0.45),
+    fillColor: context.rhythm.canvas.withValues(alpha: 0.45),
     border: OutlineInputBorder(
       borderRadius: BorderRadius.circular(16),
-      borderSide: const BorderSide(color: _kBorder),
+      borderSide: BorderSide(color: context.rhythm.borderSubtle),
     ),
     enabledBorder: OutlineInputBorder(
       borderRadius: BorderRadius.circular(16),
-      borderSide: const BorderSide(color: _kBorder),
+      borderSide: BorderSide(color: context.rhythm.borderSubtle),
     ),
     contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
   );
@@ -1466,10 +1461,10 @@ class _OverviewDateField extends StatelessWidget {
       onTap: () => onTap(),
       borderRadius: BorderRadius.circular(16),
       child: InputDecorator(
-        decoration: _overviewDecoration(label),
+        decoration: _overviewDecoration(context, label),
         child: Text(
           value,
-          style: const TextStyle(fontSize: 14, color: _kTextPrimary),
+          style: TextStyle(fontSize: 14, color: context.rhythm.textPrimary),
         ),
       ),
     );
@@ -1488,28 +1483,28 @@ class _RecurringInfoCard extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: _kCanvas.withValues(alpha: 0.45),
+        color: context.rhythm.canvas.withValues(alpha: 0.45),
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: _kBorder),
+        border: Border.all(color: context.rhythm.borderSubtle),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
             title,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 12,
               fontWeight: FontWeight.w700,
-              color: _kTextPrimary,
+              color: context.rhythm.textPrimary,
             ),
           ),
           const SizedBox(height: 4),
           Text(
             body,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 12,
               height: 1.4,
-              color: _kTextSecondary,
+              color: context.rhythm.textSecondary,
             ),
           ),
         ],
@@ -1561,7 +1556,7 @@ class _GroupedReservationSummaryDialog extends StatelessWidget {
                 const SizedBox(height: 8),
               ],
               if (conflictMessages.isNotEmpty) ...[
-                const Text(
+                Text(
                   'Conflicts',
                   style: TextStyle(fontWeight: FontWeight.w700),
                 ),
@@ -1571,18 +1566,19 @@ class _GroupedReservationSummaryDialog extends StatelessWidget {
                     padding: const EdgeInsets.only(bottom: 6),
                     child: Text(
                       message,
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 12,
-                        color: _kTextSecondary,
+                        color: context.rhythm.textSecondary,
                       ),
                     ),
                   ),
                 ),
               ],
               if (!hasChanges)
-                const Text(
+                Text(
                   'No changes were applied.',
-                  style: TextStyle(fontSize: 12, color: _kTextSecondary),
+                  style: TextStyle(
+                      fontSize: 12, color: context.rhythm.textSecondary),
                 ),
             ],
           ),
@@ -1591,7 +1587,7 @@ class _GroupedReservationSummaryDialog extends StatelessWidget {
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Close'),
+          child: Text('Close'),
         ),
       ],
     );
@@ -1606,7 +1602,7 @@ class _RecurringSummaryDialog extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: const Text('Recurring reservation created'),
+      title: Text('Recurring reservation created'),
       content: SizedBox(
         width: 420,
         child: Column(
@@ -1618,7 +1614,7 @@ class _RecurringSummaryDialog extends StatelessWidget {
             ),
             if (result.conflicts.isNotEmpty) ...[
               const SizedBox(height: 16),
-              const Text(
+              Text(
                 'Conflicted dates',
                 style: TextStyle(fontWeight: FontWeight.w700),
               ),
@@ -1628,9 +1624,9 @@ class _RecurringSummaryDialog extends StatelessWidget {
                   padding: const EdgeInsets.only(bottom: 6),
                   child: Text(
                     _formatRecurringConflictMessage(context, conflict),
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 12,
-                      color: _kTextSecondary,
+                      color: context.rhythm.textSecondary,
                     ),
                   ),
                 ),
@@ -1642,7 +1638,7 @@ class _RecurringSummaryDialog extends StatelessWidget {
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Close'),
+          child: Text('Close'),
         ),
       ],
     );
@@ -1726,20 +1722,20 @@ class _OverviewSignalPanel extends StatelessWidget {
           width: double.infinity,
           padding: const EdgeInsets.all(18),
           decoration: BoxDecoration(
-            color: _kSurface.withValues(alpha: 0.96),
-            borderRadius: BorderRadius.circular(RhythmTokens.radiusL),
-            border: Border.all(color: _kBorder),
-            boxShadow: RhythmTokens.shadow,
+            color: context.rhythm.surfaceRaised.withValues(alpha: 0.96),
+            borderRadius: BorderRadius.circular(RhythmRadius.xl),
+            border: Border.all(color: context.rhythm.borderSubtle),
+            boxShadow: RhythmElevation.panel,
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text(
+              Text(
                 'Attention needed',
                 style: TextStyle(
                   fontSize: 16,
                   fontWeight: FontWeight.w700,
-                  color: _kTextPrimary,
+                  color: context.rhythm.textPrimary,
                 ),
               ),
               const SizedBox(height: 4),
@@ -1747,18 +1743,19 @@ class _OverviewSignalPanel extends StatelessWidget {
                 controller.isFacilitiesManager
                     ? 'Use this queue to catch conflicts, setup notes, and imported calendar changes quickly.'
                     : 'High-signal reservations are surfaced here for easier scanning.',
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 12,
-                  color: _kTextSecondary,
+                  color: context.rhythm.textSecondary,
                   height: 1.4,
                 ),
               ),
               const SizedBox(height: 14),
               if (highlightReservations.isEmpty &&
                   externallyManagedReservations.isEmpty)
-                const Text(
+                Text(
                   'No conflicts, setup notes, or imported external changes in this range.',
-                  style: TextStyle(fontSize: 12, color: _kTextSecondary),
+                  style: TextStyle(
+                      fontSize: 12, color: context.rhythm.textSecondary),
                 )
               else ...[
                 ...highlightReservations.map(
@@ -1829,9 +1826,9 @@ class _OverviewMetricCard extends StatelessWidget {
         accent = const Color(0xFFB42318);
         break;
       case _OverviewMetricTone.neutral:
-        background = _kSurface.withValues(alpha: 0.96);
-        border = _kBorder;
-        accent = RhythmTokens.accent;
+        background = context.rhythm.surfaceRaised.withValues(alpha: 0.96);
+        border = context.rhythm.borderSubtle;
+        accent = context.rhythm.accent;
         break;
     }
 
@@ -1850,28 +1847,28 @@ class _OverviewMetricCard extends StatelessWidget {
           const SizedBox(height: 14),
           Text(
             title,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 12,
               fontWeight: FontWeight.w600,
-              color: _kTextSecondary,
+              color: context.rhythm.textSecondary,
             ),
           ),
           const SizedBox(height: 4),
           Text(
             value,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 24,
               fontWeight: FontWeight.w700,
-              color: _kTextPrimary,
+              color: context.rhythm.textPrimary,
             ),
           ),
           const SizedBox(height: 4),
           Text(
             subtitle,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 11,
               height: 1.4,
-              color: _kTextSecondary,
+              color: context.rhythm.textSecondary,
             ),
           ),
         ],
@@ -1910,9 +1907,9 @@ class _AttentionReservationRow extends StatelessWidget {
         width: double.infinity,
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: _kCanvas.withValues(alpha: 0.5),
+          color: context.rhythm.canvas.withValues(alpha: 0.5),
           borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: _kBorder),
+          border: Border.all(color: context.rhythm.borderSubtle),
         ),
         child: Row(
           children: [
@@ -1922,24 +1919,24 @@ class _AttentionReservationRow extends StatelessWidget {
                 children: [
                   Text(
                     reservation.title,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 13,
                       fontWeight: FontWeight.w700,
-                      color: _kTextPrimary,
+                      color: context.rhythm.textPrimary,
                     ),
                   ),
                   const SizedBox(height: 4),
                   Text(
                     '${facility?.name ?? 'Room #${reservation.facilityId}'} · ${parts.join(' · ')}',
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 12,
-                      color: _kTextSecondary,
+                      color: context.rhythm.textSecondary,
                     ),
                   ),
                 ],
               ),
             ),
-            const Icon(Icons.chevron_right, color: _kTextSecondary),
+            Icon(Icons.chevron_right, color: context.rhythm.textSecondary),
           ],
         ),
       ),
@@ -1968,20 +1965,20 @@ class _OverviewDayGroup extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        color: _kSurface.withValues(alpha: 0.96),
-        borderRadius: BorderRadius.circular(RhythmTokens.radiusL),
-        border: Border.all(color: _kBorder),
-        boxShadow: RhythmTokens.shadow,
+        color: context.rhythm.surfaceRaised.withValues(alpha: 0.96),
+        borderRadius: BorderRadius.circular(RhythmRadius.xl),
+        border: Border.all(color: context.rhythm.borderSubtle),
+        boxShadow: RhythmElevation.panel,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
             title,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 16,
               fontWeight: FontWeight.w700,
-              color: _kTextPrimary,
+              color: context.rhythm.textPrimary,
             ),
           ),
           const SizedBox(height: 12),
@@ -2027,9 +2024,9 @@ class _InlineInfoPill extends StatelessWidget {
         foreground = const Color(0xFFB42318);
         break;
       case _OverviewMetricTone.neutral:
-        background = _kSurface.withValues(alpha: 0.6);
-        border = _kBorder;
-        foreground = _kTextSecondary;
+        background = context.rhythm.surfaceRaised.withValues(alpha: 0.6);
+        border = context.rhythm.borderSubtle;
+        foreground = context.rhythm.textSecondary;
         break;
     }
 
@@ -2098,9 +2095,9 @@ class _OverviewReservationClusterRow extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.all(14),
         decoration: BoxDecoration(
-          color: _kCanvas.withValues(alpha: 0.5),
+          color: context.rhythm.canvas.withValues(alpha: 0.5),
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: _kBorder),
+          border: Border.all(color: context.rhythm.borderSubtle),
         ),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -2111,10 +2108,10 @@ class _OverviewReservationClusterRow extends StatelessWidget {
                 start != null
                     ? '${_formatTimeOnly(start)}${end != null ? '\n${_formatTimeOnly(end)}' : ''}'
                     : 'Time TBD',
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 12,
                   fontWeight: FontWeight.w600,
-                  color: _kTextPrimary,
+                  color: context.rhythm.textPrimary,
                 ),
               ),
             ),
@@ -2129,10 +2126,10 @@ class _OverviewReservationClusterRow extends StatelessWidget {
                       Expanded(
                         child: Text(
                           cluster.title,
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontSize: 13,
                             fontWeight: FontWeight.w700,
-                            color: _kTextPrimary,
+                            color: context.rhythm.textPrimary,
                           ),
                         ),
                       ),
@@ -2171,17 +2168,17 @@ class _OverviewReservationClusterRow extends StatelessWidget {
                   const SizedBox(height: 4),
                   Text(
                     facilityLabel,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 12,
-                      color: _kTextSecondary,
+                      color: context.rhythm.textSecondary,
                     ),
                   ),
                   const SizedBox(height: 2),
                   Text(
                     'Requester: ${cluster.requesterName}',
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 12,
-                      color: _kTextSecondary,
+                      color: context.rhythm.textSecondary,
                     ),
                   ),
                   if (cluster.createdByName != null &&
@@ -2190,9 +2187,9 @@ class _OverviewReservationClusterRow extends StatelessWidget {
                       padding: const EdgeInsets.only(top: 2),
                       child: Text(
                         'Booked by ${cluster.createdByName}',
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 12,
-                          color: _kTextSecondary,
+                          color: context.rhythm.textSecondary,
                         ),
                       ),
                     ),
@@ -2209,9 +2206,9 @@ class _OverviewReservationClusterRow extends StatelessWidget {
                         ),
                         child: Text(
                           cluster.notes!,
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontSize: 12,
-                            color: _kTextSecondary,
+                            color: context.rhythm.textSecondary,
                           ),
                         ),
                       ),
@@ -2221,9 +2218,9 @@ class _OverviewReservationClusterRow extends StatelessWidget {
                       padding: const EdgeInsets.only(top: 8),
                       child: Text(
                         'Rooms: $roomLabel',
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 12,
-                          color: _kTextSecondary,
+                          color: context.rhythm.textSecondary,
                         ),
                       ),
                     ),
@@ -2247,7 +2244,7 @@ class _OverviewReservationClusterRow extends StatelessWidget {
                     ),
                     child: Text(
                       cluster.isPartiallyConflicted ? 'Partial' : 'Conflict',
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 11,
                         fontWeight: FontWeight.w700,
                         color: Color(0xFFB42318),
@@ -2344,14 +2341,15 @@ class _OverviewReservationClusterRow extends StatelessWidget {
                   child: Container(
                     padding: const EdgeInsets.all(8),
                     decoration: BoxDecoration(
-                      color: _kSurface.withValues(alpha: 0.6),
+                      color:
+                          context.rhythm.surfaceRaised.withValues(alpha: 0.6),
                       borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: _kBorder),
+                      border: Border.all(color: context.rhythm.borderSubtle),
                     ),
-                    child: const Icon(
+                    child: Icon(
                       Icons.more_horiz,
                       size: 18,
-                      color: _kTextSecondary,
+                      color: context.rhythm.textSecondary,
                     ),
                   ),
                 ),
@@ -2378,10 +2376,10 @@ class _SeriesBadge extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
         decoration: BoxDecoration(
-          color: RhythmTokens.accentSoft,
+          color: context.rhythm.accentMuted,
           borderRadius: BorderRadius.circular(999),
           border: Border.all(
-            color: RhythmTokens.accent.withValues(alpha: 0.16),
+            color: context.rhythm.accent.withValues(alpha: 0.16),
           ),
         ),
         child: Text(
@@ -2389,7 +2387,7 @@ class _SeriesBadge extends StatelessWidget {
           style: TextStyle(
             fontSize: 10,
             fontWeight: FontWeight.w700,
-            color: RhythmTokens.accent.withValues(alpha: 0.9),
+            color: context.rhythm.accent.withValues(alpha: 0.9),
           ),
         ),
       ),
@@ -2461,14 +2459,14 @@ class _RoomsManagerBar extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        color: _kSurface.withValues(alpha: 0.96),
-        borderRadius: BorderRadius.circular(RhythmTokens.radiusL),
-        border: Border.all(color: _kBorder),
-        boxShadow: RhythmTokens.shadow,
+        color: context.rhythm.surfaceRaised.withValues(alpha: 0.96),
+        borderRadius: BorderRadius.circular(RhythmRadius.xl),
+        border: Border.all(color: context.rhythm.borderSubtle),
+        boxShadow: RhythmElevation.panel,
       ),
       child: Row(
         children: [
-          const Expanded(
+          Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -2477,13 +2475,14 @@ class _RoomsManagerBar extends StatelessWidget {
                   style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.w700,
-                    color: _kTextPrimary,
+                    color: context.rhythm.textPrimary,
                   ),
                 ),
                 SizedBox(height: 4),
                 Text(
                   'Add, edit, or remove rooms used for Facilities reservations.',
-                  style: TextStyle(fontSize: 12, color: _kTextSecondary),
+                  style: TextStyle(
+                      fontSize: 12, color: context.rhythm.textSecondary),
                 ),
               ],
             ),
@@ -2493,8 +2492,8 @@ class _RoomsManagerBar extends StatelessWidget {
             onPressed: () =>
                 (context.findAncestorStateOfType<_FacilitiesViewState>())
                     ?._showCreateFacilityDialog(context, controller),
-            icon: const Icon(Icons.meeting_room_outlined, size: 18),
-            label: const Text('Add Space'),
+            icon: Icon(Icons.meeting_room_outlined, size: 18),
+            label: Text('Add Space'),
           ),
         ],
       ),
@@ -2524,10 +2523,10 @@ class _FacilityCard extends StatelessWidget {
 
     return Container(
       decoration: BoxDecoration(
-        color: _kSurface.withValues(alpha: 0.96),
-        borderRadius: BorderRadius.circular(RhythmTokens.radiusL),
-        border: Border.all(color: _kBorder),
-        boxShadow: RhythmTokens.shadow,
+        color: context.rhythm.surfaceRaised.withValues(alpha: 0.96),
+        borderRadius: BorderRadius.circular(RhythmRadius.xl),
+        border: Border.all(color: context.rhythm.borderSubtle),
+        boxShadow: RhythmElevation.panel,
       ),
       child: Padding(
         padding: const EdgeInsets.all(18),
@@ -2540,10 +2539,10 @@ class _FacilityCard extends StatelessWidget {
                 Expanded(
                   child: Text(
                     facility.name,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.w700,
-                      color: _kTextPrimary,
+                      color: context.rhythm.textPrimary,
                     ),
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
@@ -2588,14 +2587,15 @@ class _FacilityCard extends StatelessWidget {
                     child: Container(
                       padding: const EdgeInsets.all(8),
                       decoration: BoxDecoration(
-                        color: _kSurface.withValues(alpha: 0.6),
+                        color:
+                            context.rhythm.surfaceRaised.withValues(alpha: 0.6),
                         borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: _kBorder),
+                        border: Border.all(color: context.rhythm.borderSubtle),
                       ),
-                      child: const Icon(
+                      child: Icon(
                         Icons.more_horiz,
                         size: 18,
-                        color: _kTextSecondary,
+                        color: context.rhythm.textSecondary,
                       ),
                     ),
                   ),
@@ -2607,10 +2607,10 @@ class _FacilityCard extends StatelessWidget {
                 facility.description!.isNotEmpty) ...[
               Text(
                 facility.description!,
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 13,
                   height: 1.4,
-                  color: _kTextSecondary,
+                  color: context.rhythm.textSecondary,
                 ),
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
@@ -2620,18 +2620,18 @@ class _FacilityCard extends StatelessWidget {
               const SizedBox(height: 10),
               Row(
                 children: [
-                  const Icon(
+                  Icon(
                     Icons.location_on_outlined,
                     size: 14,
-                    color: _kTextSecondary,
+                    color: context.rhythm.textSecondary,
                   ),
                   const SizedBox(width: 4),
                   Expanded(
                     child: Text(
                       facility.location!,
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 12,
-                        color: _kTextSecondary,
+                        color: context.rhythm.textSecondary,
                       ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
@@ -2644,18 +2644,18 @@ class _FacilityCard extends StatelessWidget {
               const SizedBox(height: 8),
               Row(
                 children: [
-                  const Icon(
+                  Icon(
                     Icons.apartment_outlined,
                     size: 14,
-                    color: _kTextSecondary,
+                    color: context.rhythm.textSecondary,
                   ),
                   const SizedBox(width: 4),
                   Expanded(
                     child: Text(
                       facility.building!,
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 12,
-                        color: _kTextSecondary,
+                        color: context.rhythm.textSecondary,
                       ),
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
@@ -2673,14 +2673,15 @@ class _FacilityCard extends StatelessWidget {
                   vertical: 12,
                 ),
                 decoration: BoxDecoration(
-                  color: _kSurfaceMuted,
+                  color: context.rhythm.surfaceMuted,
                   borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: _kBorder),
+                  border: Border.all(color: context.rhythm.borderSubtle),
                 ),
-                child: const Text(
+                child: Text(
                   'No upcoming reservations',
                   textAlign: TextAlign.center,
-                  style: TextStyle(fontSize: 12, color: _kTextSecondary),
+                  style: TextStyle(
+                      fontSize: 12, color: context.rhythm.textSecondary),
                 ),
               )
             else
@@ -2708,9 +2709,9 @@ class _FacilityCard extends StatelessWidget {
                         horizontal: 14,
                         vertical: 10,
                       ),
-                      textStyle: const TextStyle(fontSize: 13),
+                      textStyle: TextStyle(fontSize: 13),
                     ),
-                    child: const Text('Reserve'),
+                    child: Text('Reserve'),
                   ),
                 ),
               ],
@@ -2792,21 +2793,21 @@ class _HeaderPill extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
-        color: _kCanvas.withValues(alpha: 0.7),
+        color: context.rhythm.canvas.withValues(alpha: 0.7),
         borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: _kBorder),
+        border: Border.all(color: context.rhythm.borderSubtle),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 14, color: _kTextSecondary),
+          Icon(icon, size: 14, color: context.rhythm.textSecondary),
           const SizedBox(width: 6),
           Text(
             label,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 12,
               fontWeight: FontWeight.w600,
-              color: _kTextSecondary,
+              color: context.rhythm.textSecondary,
             ),
           ),
         ],
@@ -2824,12 +2825,12 @@ class _LoadingState extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 20),
         decoration: BoxDecoration(
-          color: _kSurface.withValues(alpha: 0.96),
-          borderRadius: BorderRadius.circular(RhythmTokens.radiusL),
-          border: Border.all(color: _kBorder),
-          boxShadow: RhythmTokens.shadow,
+          color: context.rhythm.surfaceRaised.withValues(alpha: 0.96),
+          borderRadius: BorderRadius.circular(RhythmRadius.xl),
+          border: Border.all(color: context.rhythm.borderSubtle),
+          boxShadow: RhythmElevation.panel,
         ),
-        child: const Row(
+        child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
             SizedBox(
@@ -2840,7 +2841,8 @@ class _LoadingState extends StatelessWidget {
             SizedBox(width: 12),
             Text(
               'Loading facilities',
-              style: TextStyle(fontSize: 13, color: _kTextSecondary),
+              style:
+                  TextStyle(fontSize: 13, color: context.rhythm.textSecondary),
             ),
           ],
         ),
@@ -2864,10 +2866,10 @@ class _EmptyFacilitiesState extends StatelessWidget {
           constraints: const BoxConstraints(maxWidth: 460),
           padding: const EdgeInsets.all(24),
           decoration: BoxDecoration(
-            color: _kSurface.withValues(alpha: 0.96),
-            borderRadius: BorderRadius.circular(RhythmTokens.radiusL),
-            border: Border.all(color: _kBorder),
-            boxShadow: RhythmTokens.shadow,
+            color: context.rhythm.surfaceRaised.withValues(alpha: 0.96),
+            borderRadius: BorderRadius.circular(RhythmRadius.xl),
+            border: Border.all(color: context.rhythm.borderSubtle),
+            boxShadow: RhythmElevation.panel,
           ),
           child: Column(
             mainAxisSize: MainAxisSize.min,
@@ -2876,32 +2878,32 @@ class _EmptyFacilitiesState extends StatelessWidget {
                 width: 56,
                 height: 56,
                 decoration: BoxDecoration(
-                  color: RhythmTokens.accentSoft,
+                  color: context.rhythm.accentMuted,
                   borderRadius: BorderRadius.circular(18),
                 ),
-                child: const Icon(
+                child: Icon(
                   Icons.meeting_room_outlined,
-                  color: RhythmTokens.accent,
+                  color: context.rhythm.accent,
                 ),
               ),
               const SizedBox(height: 16),
               Text(
                 title,
                 textAlign: TextAlign.center,
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 18,
                   fontWeight: FontWeight.w700,
-                  color: _kTextPrimary,
+                  color: context.rhythm.textPrimary,
                 ),
               ),
               const SizedBox(height: 8),
               Text(
                 body,
                 textAlign: TextAlign.center,
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 13,
                   height: 1.45,
-                  color: _kTextSecondary,
+                  color: context.rhythm.textSecondary,
                 ),
               ),
             ],
@@ -2932,7 +2934,7 @@ class _ReservationBadge extends StatelessWidget {
           borderRadius: BorderRadius.circular(999),
           border: Border.all(color: const Color(0xFFD3EEDC)),
         ),
-        child: const Text(
+        child: Text(
           'Available',
           style: TextStyle(
             fontSize: 11,
@@ -2984,9 +2986,9 @@ class _ReservationPreviewCard extends StatelessWidget {
         width: double.infinity,
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
         decoration: BoxDecoration(
-          color: _kCanvas.withValues(alpha: 0.55),
+          color: context.rhythm.canvas.withValues(alpha: 0.55),
           borderRadius: BorderRadius.circular(16),
-          border: Border.all(color: _kBorder),
+          border: Border.all(color: context.rhythm.borderSubtle),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -2999,10 +3001,10 @@ class _ReservationPreviewCard extends StatelessWidget {
                     reservation.title,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 12,
                       fontWeight: FontWeight.w700,
-                      color: _kTextPrimary,
+                      color: context.rhythm.textPrimary,
                     ),
                   ),
                 ),
@@ -3017,7 +3019,8 @@ class _ReservationPreviewCard extends StatelessWidget {
               reservation.requesterName,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontSize: 11, color: _kTextSecondary),
+              style:
+                  TextStyle(fontSize: 11, color: context.rhythm.textSecondary),
             ),
             if (reservation.createdByName != null &&
                 reservation.createdByName != reservation.requesterName) ...[
@@ -3026,7 +3029,8 @@ class _ReservationPreviewCard extends StatelessWidget {
                 'Booked by ${reservation.createdByName}',
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontSize: 11, color: _kTextSecondary),
+                style: TextStyle(
+                    fontSize: 11, color: context.rhythm.textSecondary),
               ),
             ],
             if (start != null) ...[
@@ -3035,7 +3039,8 @@ class _ReservationPreviewCard extends StatelessWidget {
                 '${_formatDateShort(start)} · ${_formatTimeOnly(start)}${end != null ? ' - ${_formatTimeOnly(end)}' : ''}',
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontSize: 11, color: _kTextSecondary),
+                style: TextStyle(
+                    fontSize: 11, color: context.rhythm.textSecondary),
               ),
             ],
             if (reservation.notes != null && reservation.notes!.isNotEmpty) ...[
@@ -3044,7 +3049,8 @@ class _ReservationPreviewCard extends StatelessWidget {
                 reservation.notes!,
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontSize: 11, color: _kTextSecondary),
+                style: TextStyle(
+                    fontSize: 11, color: context.rhythm.textSecondary),
               ),
             ],
             if (reservation.isConflicted) ...[
@@ -3062,7 +3068,7 @@ class _ReservationPreviewCard extends StatelessWidget {
                       : 'Conflict flagged',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 10,
                     fontWeight: FontWeight.w600,
                     color: Color(0xFFB42318),
@@ -3152,44 +3158,50 @@ class _ReservationDetailDialogState extends State<_ReservationDetailDialog> {
           children: [
             Text(
               reservation.title,
-              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
             ),
             const SizedBox(height: 8),
             Text(
               facility == null
                   ? 'Room #${reservation.facilityId}'
                   : '${facility.name}${facility.building?.isNotEmpty == true ? ' · ${facility.building}' : ''}',
-              style: const TextStyle(fontSize: 13, color: _kTextSecondary),
+              style:
+                  TextStyle(fontSize: 13, color: context.rhythm.textSecondary),
             ),
             if (isGroup) ...[
               const SizedBox(height: 8),
               Text(
                 'Rooms: ${roomNames.join(', ')}',
-                style: const TextStyle(fontSize: 13, color: _kTextSecondary),
+                style: TextStyle(
+                    fontSize: 13, color: context.rhythm.textSecondary),
               ),
             ],
             const SizedBox(height: 8),
             if (start != null)
               Text(
                 '${_formatDatePickerValue(start)} · ${_formatTimeOnly(start)}${end != null ? ' - ${_formatTimeOnly(end)}' : ''}',
-                style: const TextStyle(fontSize: 13, color: _kTextSecondary),
+                style: TextStyle(
+                    fontSize: 13, color: context.rhythm.textSecondary),
               ),
             const SizedBox(height: 8),
             Text(
               'Requester: ${reservation.requesterName}',
-              style: const TextStyle(fontSize: 13, color: _kTextSecondary),
+              style:
+                  TextStyle(fontSize: 13, color: context.rhythm.textSecondary),
             ),
             if (reservation.createdByName != null &&
                 reservation.createdByName != reservation.requesterName)
               Text(
                 'Booked by ${reservation.createdByName}',
-                style: const TextStyle(fontSize: 13, color: _kTextSecondary),
+                style: TextStyle(
+                    fontSize: 13, color: context.rhythm.textSecondary),
               ),
             if (reservation.notes != null && reservation.notes!.isNotEmpty) ...[
               const SizedBox(height: 10),
               Text(
                 reservation.notes!,
-                style: const TextStyle(fontSize: 13, color: _kTextSecondary),
+                style: TextStyle(
+                    fontSize: 13, color: context.rhythm.textSecondary),
               ),
             ],
             const SizedBox(height: 12),
@@ -3203,10 +3215,11 @@ class _ReservationDetailDialogState extends State<_ReservationDetailDialog> {
                   ? const LinearProgressIndicator(minHeight: 2)
                   : _series != null
                       ? _SeriesInfoPanel(series: _series!)
-                      : const Text(
+                      : Text(
                           'This reservation belongs to a recurring series.',
-                          style:
-                              TextStyle(fontSize: 13, color: _kTextSecondary),
+                          style: TextStyle(
+                              fontSize: 13,
+                              color: context.rhythm.textSecondary),
                         ),
           ],
         ),
@@ -3239,7 +3252,7 @@ class _ReservationDetailDialogState extends State<_ReservationDetailDialog> {
           ),
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Close'),
+          child: Text('Close'),
         ),
       ],
     );
@@ -3314,21 +3327,21 @@ class _ReservationDetailDialogState extends State<_ReservationDetailDialog> {
       final confirmed = await showDialog<bool>(
         context: context,
         builder: (context) => AlertDialog(
-          title: const Text('Delete reservation group?'),
-          content: const Text(
+          title: Text('Delete reservation group?'),
+          content: Text(
             'This will remove the linked reservations from every selected room.',
           ),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(context).pop(false),
-              child: const Text('Cancel'),
+              child: Text('Cancel'),
             ),
             FilledButton(
               onPressed: () => Navigator.of(context).pop(true),
               style: FilledButton.styleFrom(
                 backgroundColor: const Color(0xFFB42318),
               ),
-              child: const Text('Delete'),
+              child: Text('Delete'),
             ),
           ],
         ),
@@ -3347,21 +3360,21 @@ class _ReservationDetailDialogState extends State<_ReservationDetailDialog> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Delete reservation?'),
-        content: const Text(
+        title: Text('Delete reservation?'),
+        content: Text(
           'This will remove this reservation from the room schedule.',
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Cancel'),
+            child: Text('Cancel'),
           ),
           FilledButton(
             onPressed: () => Navigator.of(context).pop(true),
             style: FilledButton.styleFrom(
               backgroundColor: const Color(0xFFB42318),
             ),
-            child: const Text('Delete'),
+            child: Text('Delete'),
           ),
         ],
       ),
@@ -3385,21 +3398,21 @@ class _ReservationDetailDialogState extends State<_ReservationDetailDialog> {
       final confirmed = await showDialog<bool>(
         context: context,
         builder: (context) => AlertDialog(
-          title: const Text('Delete reservation group?'),
-          content: const Text(
+          title: Text('Delete reservation group?'),
+          content: Text(
             'This will delete every linked room reservation in the group.',
           ),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(context).pop(false),
-              child: const Text('Cancel'),
+              child: Text('Cancel'),
             ),
             FilledButton(
               onPressed: () => Navigator.of(context).pop(true),
               style: FilledButton.styleFrom(
                 backgroundColor: const Color(0xFFB42318),
               ),
-              child: const Text('Delete group'),
+              child: Text('Delete group'),
             ),
           ],
         ),
@@ -3416,21 +3429,21 @@ class _ReservationDetailDialogState extends State<_ReservationDetailDialog> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Delete recurring series?'),
-        content: const Text(
+        title: Text('Delete recurring series?'),
+        content: Text(
           'This will delete the entire recurring series and all generated reservations.',
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Cancel'),
+            child: Text('Cancel'),
           ),
           FilledButton(
             onPressed: () => Navigator.of(context).pop(true),
             style: FilledButton.styleFrom(
               backgroundColor: const Color(0xFFB42318),
             ),
-            child: const Text('Delete series'),
+            child: Text('Delete series'),
           ),
         ],
       ),
@@ -3457,13 +3470,13 @@ class _SeriesInfoPanel extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: _kCanvas.withValues(alpha: 0.45),
+        color: context.rhythm.canvas.withValues(alpha: 0.45),
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: _kBorder),
+        border: Border.all(color: context.rhythm.borderSubtle),
       ),
       child: Text(
         'Recurring series: ${series.title} · ${series.recurrenceType}',
-        style: const TextStyle(fontSize: 12, color: _kTextSecondary),
+        style: TextStyle(fontSize: 12, color: context.rhythm.textSecondary),
       ),
     );
   }
@@ -3487,21 +3500,21 @@ class _GroupedReservationInfoPanel extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: _kCanvas.withValues(alpha: 0.45),
+        color: context.rhythm.canvas.withValues(alpha: 0.45),
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: _kBorder),
+        border: Border.all(color: context.rhythm.borderSubtle),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
+          Text(
             'Grouped reservation',
             style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
           ),
           const SizedBox(height: 4),
           Text(
             'Rooms: ${roomNames.join(', ')}',
-            style: const TextStyle(fontSize: 12, color: _kTextSecondary),
+            style: TextStyle(fontSize: 12, color: context.rhythm.textSecondary),
           ),
           if (conflicts > 0) ...[
             const SizedBox(height: 4),
@@ -3509,7 +3522,8 @@ class _GroupedReservationInfoPanel extends StatelessWidget {
               conflicts == reservations.length
                   ? 'All grouped rooms are flagged with conflicts.'
                   : 'Some grouped rooms are flagged with conflicts.',
-              style: const TextStyle(fontSize: 12, color: _kTextSecondary),
+              style:
+                  TextStyle(fontSize: 12, color: context.rhythm.textSecondary),
             ),
           ],
         ],
@@ -3767,10 +3781,10 @@ class _ReservationDialogState extends State<_ReservationDialog> {
       child: Container(
         constraints: const BoxConstraints(maxWidth: 560),
         decoration: BoxDecoration(
-          color: _kSurface,
-          borderRadius: BorderRadius.circular(RhythmTokens.radiusL),
-          border: Border.all(color: _kBorder),
-          boxShadow: RhythmTokens.shadow,
+          color: context.rhythm.surfaceRaised,
+          borderRadius: BorderRadius.circular(RhythmRadius.xl),
+          border: Border.all(color: context.rhythm.borderSubtle),
+          boxShadow: RhythmElevation.panel,
         ),
         child: Padding(
           padding: const EdgeInsets.all(24),
@@ -3788,12 +3802,12 @@ class _ReservationDialogState extends State<_ReservationDialog> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            const Text(
+                            Text(
                               'Reserve space',
                               style: TextStyle(
                                 fontSize: 22,
                                 fontWeight: FontWeight.w700,
-                                color: _kTextPrimary,
+                                color: context.rhythm.textPrimary,
                               ),
                             ),
                             const SizedBox(height: 6),
@@ -3803,10 +3817,10 @@ class _ReservationDialogState extends State<_ReservationDialog> {
                                   : _selectedFacilityIds.length > 1
                                       ? 'Capture the booking details for ${_selectedFacilityIds.length} selected rooms.'
                                       : 'Capture the booking details for ${widget.preselectedFacility!.name}.',
-                              style: const TextStyle(
+                              style: TextStyle(
                                 fontSize: 13,
                                 height: 1.45,
-                                color: _kTextSecondary,
+                                color: context.rhythm.textSecondary,
                               ),
                             ),
                           ],
@@ -3819,16 +3833,17 @@ class _ReservationDialogState extends State<_ReservationDialog> {
                           vertical: 6,
                         ),
                         decoration: BoxDecoration(
-                          color: _kCanvas.withValues(alpha: 0.7),
+                          color: context.rhythm.canvas.withValues(alpha: 0.7),
                           borderRadius: BorderRadius.circular(999),
-                          border: Border.all(color: _kBorder),
+                          border:
+                              Border.all(color: context.rhythm.borderSubtle),
                         ),
                         child: Text(
                           chipLabel,
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontSize: 11,
                             fontWeight: FontWeight.w600,
-                            color: _kTextSecondary,
+                            color: context.rhythm.textSecondary,
                           ),
                         ),
                       ),
@@ -3946,17 +3961,18 @@ class _ReservationDialogState extends State<_ReservationDialog> {
                     SwitchListTile.adaptive(
                       value: _isRecurring,
                       contentPadding: EdgeInsets.zero,
-                      title: const Text(
+                      title: Text(
                         'Recurring reservation',
                         style: TextStyle(
                           fontSize: 14,
                           fontWeight: FontWeight.w600,
-                          color: _kTextPrimary,
+                          color: context.rhythm.textPrimary,
                         ),
                       ),
-                      subtitle: const Text(
+                      subtitle: Text(
                         'Create a weekly, bi-weekly, monthly, or custom-date series.',
-                        style: TextStyle(fontSize: 12, color: _kTextSecondary),
+                        style: TextStyle(
+                            fontSize: 12, color: context.rhythm.textSecondary),
                       ),
                       onChanged: (value) {
                         setState(() {
@@ -4023,8 +4039,8 @@ class _ReservationDialogState extends State<_ReservationDialog> {
                             );
                           }),
                           ActionChip(
-                            avatar: const Icon(Icons.add, size: 16),
-                            label: const Text('Add date'),
+                            avatar: Icon(Icons.add, size: 16),
+                            label: Text('Add date'),
                             onPressed: _addCustomDate,
                           ),
                         ],
@@ -4058,7 +4074,7 @@ class _ReservationDialogState extends State<_ReservationDialog> {
                       TextButton(
                         onPressed:
                             _saving ? null : () => Navigator.pop(context),
-                        child: const Text('Cancel'),
+                        child: Text('Cancel'),
                       ),
                       const Spacer(),
                       FilledButton(
@@ -4533,14 +4549,14 @@ class _ReservationDialogState extends State<_ReservationDialog> {
       labelText: label,
       hintText: hintText,
       filled: true,
-      fillColor: _kCanvas.withValues(alpha: 0.45),
+      fillColor: context.rhythm.canvas.withValues(alpha: 0.45),
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(16),
-        borderSide: const BorderSide(color: _kBorder),
+        borderSide: BorderSide(color: context.rhythm.borderSubtle),
       ),
       enabledBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(16),
-        borderSide: const BorderSide(color: _kBorder),
+        borderSide: BorderSide(color: context.rhythm.borderSubtle),
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(16),
@@ -4567,9 +4583,9 @@ class _RoomSelectionSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (facilities.isEmpty) {
-      return const Text(
+      return Text(
         'No rooms are available yet.',
-        style: TextStyle(fontSize: 12, color: _kTextSecondary),
+        style: TextStyle(fontSize: 12, color: context.rhythm.textSecondary),
       );
     }
 
@@ -4586,46 +4602,47 @@ class _RoomSelectionSection extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: _kCanvas.withValues(alpha: 0.45),
+        color: context.rhythm.canvas.withValues(alpha: 0.45),
         borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: _kBorder),
+        border: Border.all(color: context.rhythm.borderSubtle),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              const Expanded(
+              Expanded(
                 child: Text(
                   'Rooms *',
                   style: TextStyle(
                     fontSize: 13,
                     fontWeight: FontWeight.w700,
-                    color: _kTextPrimary,
+                    color: context.rhythm.textPrimary,
                   ),
                 ),
               ),
               Text(
                 '${selectedFacilityIds.length} selected',
-                style: const TextStyle(fontSize: 12, color: _kTextSecondary),
+                style: TextStyle(
+                    fontSize: 12, color: context.rhythm.textSecondary),
               ),
               const SizedBox(width: 8),
               TextButton(
                 onPressed: enabled
                     ? () => onChanged(facilities.map((f) => f.id).toSet())
                     : null,
-                child: const Text('Select all'),
+                child: Text('Select all'),
               ),
               TextButton(
                 onPressed: enabled ? () => onChanged(<int>{}) : null,
-                child: const Text('Clear'),
+                child: Text('Clear'),
               ),
             ],
           ),
           const SizedBox(height: 4),
-          const Text(
+          Text(
             'Check one room for a normal booking or several rooms for a linked reservation group.',
-            style: TextStyle(fontSize: 12, color: _kTextSecondary),
+            style: TextStyle(fontSize: 12, color: context.rhythm.textSecondary),
           ),
           const SizedBox(height: 12),
           ...grouped.entries.map(
@@ -4637,15 +4654,16 @@ class _RoomSelectionSection extends StatelessWidget {
                 childrenPadding: const EdgeInsets.only(left: 6, top: 4),
                 title: Text(
                   entry.key,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 13,
                     fontWeight: FontWeight.w600,
-                    color: _kTextPrimary,
+                    color: context.rhythm.textPrimary,
                   ),
                 ),
                 subtitle: Text(
                   '${entry.value.length} ${entry.value.length == 1 ? 'room' : 'rooms'}',
-                  style: const TextStyle(fontSize: 11, color: _kTextSecondary),
+                  style: TextStyle(
+                      fontSize: 11, color: context.rhythm.textSecondary),
                 ),
                 children: [
                   ...entry.value.map(
@@ -4667,18 +4685,18 @@ class _RoomSelectionSection extends StatelessWidget {
                       controlAffinity: ListTileControlAffinity.leading,
                       title: Text(
                         facility.name,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 12,
-                          color: _kTextPrimary,
+                          color: context.rhythm.textPrimary,
                         ),
                       ),
                       subtitle: Text(
                         facility.description?.isNotEmpty == true
                             ? facility.description!
                             : 'Add this room to the reservation group',
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 11,
-                          color: _kTextSecondary,
+                          color: context.rhythm.textSecondary,
                         ),
                       ),
                     ),
@@ -4740,10 +4758,12 @@ class FacilitiesAvailabilityPanel extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: _kCanvas.withValues(alpha: 0.45),
+        color: context.rhythm.canvas.withValues(alpha: 0.45),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: hasConflict ? const Color(0xFFF4C7C7) : _kBorder,
+          color: hasConflict
+              ? const Color(0xFFF4C7C7)
+              : context.rhythm.borderSubtle,
         ),
       ),
       child: Column(
@@ -4753,10 +4773,10 @@ class FacilitiesAvailabilityPanel extends StatelessWidget {
             selectedRoomCount == 1
                 ? 'Availability for ${selectedFacilities.first.name}'
                 : 'Availability for $selectedRoomCount selected rooms',
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 13,
               fontWeight: FontWeight.w700,
-              color: _kTextPrimary,
+              color: context.rhythm.textPrimary,
             ),
           ),
           const SizedBox(height: 4),
@@ -4766,7 +4786,7 @@ class FacilitiesAvailabilityPanel extends StatelessWidget {
                 : selectedRoomCount == 1
                     ? '${_formatDatePickerValue(selectedDate!)} · ${roomStatuses.first.dayReservations.length} existing ${roomStatuses.first.dayReservations.length == 1 ? 'reservation' : 'reservations'}'
                     : '${_formatDatePickerValue(selectedDate!)} · $selectedRoomCount rooms selected',
-            style: const TextStyle(fontSize: 12, color: _kTextSecondary),
+            style: TextStyle(fontSize: 12, color: context.rhythm.textSecondary),
           ),
           if (hasSelectedSlot) ...[
             const SizedBox(height: 10),
@@ -4802,9 +4822,10 @@ class FacilitiesAvailabilityPanel extends StatelessWidget {
           ],
           if (showRecurringHint) ...[
             const SizedBox(height: 10),
-            const Text(
+            Text(
               'Recurring conflicts are checked across the full series when you save. This preview only covers the selected date.',
-              style: TextStyle(fontSize: 12, color: _kTextSecondary),
+              style:
+                  TextStyle(fontSize: 12, color: context.rhythm.textSecondary),
             ),
           ],
           if (roomStatuses.isNotEmpty) ...[
@@ -4896,19 +4917,21 @@ class _RoomAvailabilitySummary extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: _kSurface.withValues(alpha: 0.4),
+        color: context.rhythm.surfaceRaised.withValues(alpha: 0.4),
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
-          color: conflicts.isNotEmpty ? const Color(0xFFF4C7C7) : _kBorder,
+          color: conflicts.isNotEmpty
+              ? const Color(0xFFF4C7C7)
+              : context.rhythm.borderSubtle,
         ),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Icon(
+          Icon(
             Icons.meeting_room_outlined,
             size: 16,
-            color: _kTextSecondary,
+            color: context.rhythm.textSecondary,
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -4917,10 +4940,10 @@ class _RoomAvailabilitySummary extends StatelessWidget {
               children: [
                 Text(
                   facility.name,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.w700,
-                    color: _kTextPrimary,
+                    color: context.rhythm.textPrimary,
                   ),
                 ),
                 const SizedBox(height: 2),
@@ -4930,7 +4953,8 @@ class _RoomAvailabilitySummary extends StatelessWidget {
                       : reservations.isEmpty
                           ? 'No reservations on this date'
                           : '${reservations.length} reservation${reservations.length == 1 ? '' : 's'} on this date',
-                  style: const TextStyle(fontSize: 11, color: _kTextSecondary),
+                  style: TextStyle(
+                      fontSize: 11, color: context.rhythm.textSecondary),
                 ),
                 if (reservations.isNotEmpty) ...[
                   const SizedBox(height: 6),
@@ -4961,7 +4985,7 @@ class _RoomAvailabilitySummary extends StatelessWidget {
                 conflicts.length == reservations.length
                     ? 'Conflict'
                     : 'Partial',
-                style: const TextStyle(
+                style: TextStyle(
                   fontSize: 10,
                   fontWeight: FontWeight.w700,
                   color: Color(0xFFB42318),
@@ -4994,10 +5018,12 @@ class _AvailabilityReservationRow extends StatelessWidget {
       decoration: BoxDecoration(
         color: isConflicting
             ? const Color(0xFFFDECEC)
-            : _kSurface.withValues(alpha: 0.4),
+            : context.rhythm.surfaceRaised.withValues(alpha: 0.4),
         borderRadius: BorderRadius.circular(12),
         border: Border.all(
-          color: isConflicting ? const Color(0xFFF4C7C7) : _kBorder,
+          color: isConflicting
+              ? const Color(0xFFF4C7C7)
+              : context.rhythm.borderSubtle,
         ),
       ),
       child: Row(
@@ -5012,7 +5038,9 @@ class _AvailabilityReservationRow extends StatelessWidget {
               style: TextStyle(
                 fontSize: 11,
                 fontWeight: FontWeight.w600,
-                color: isConflicting ? const Color(0xFFB42318) : _kTextPrimary,
+                color: isConflicting
+                    ? const Color(0xFFB42318)
+                    : context.rhythm.textPrimary,
               ),
             ),
           ),
@@ -5023,22 +5051,23 @@ class _AvailabilityReservationRow extends StatelessWidget {
               children: [
                 Text(
                   reservation.title,
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.w700,
-                    color: _kTextPrimary,
+                    color: context.rhythm.textPrimary,
                   ),
                 ),
                 const SizedBox(height: 2),
                 Text(
                   reservation.requesterName,
-                  style: const TextStyle(fontSize: 11, color: _kTextSecondary),
+                  style: TextStyle(
+                      fontSize: 11, color: context.rhythm.textSecondary),
                 ),
               ],
             ),
           ),
           if (isConflicting)
-            const Text(
+            Text(
               'Overlap',
               style: TextStyle(
                 fontSize: 10,

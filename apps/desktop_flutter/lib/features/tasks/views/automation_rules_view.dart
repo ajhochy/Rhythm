@@ -3,8 +3,8 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../../app/core/ui/tokens/rhythm_theme.dart';
 import '../../../app/core/widgets/error_banner.dart';
-import '../../../app/theme/rhythm_tokens.dart';
 import '../../integrations/models/integration_account.dart';
 import '../../integrations/models/planning_center_task_options.dart';
 import '../controllers/automation_rules_controller.dart';
@@ -53,7 +53,7 @@ class _AutomationRulesViewState extends State<AutomationRulesView> {
           });
 
         return Scaffold(
-          backgroundColor: RhythmTokens.background,
+          backgroundColor: context.rhythm.canvas,
           body: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -183,17 +183,17 @@ class _OverviewHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       padding: const EdgeInsets.fromLTRB(24, 24, 24, 16),
-      decoration: const BoxDecoration(
-        color: RhythmTokens.surfaceStrong,
-        border: Border(bottom: BorderSide(color: RhythmTokens.borderSoft)),
-        boxShadow: RhythmTokens.shadow,
+      decoration: BoxDecoration(
+        color: context.rhythm.surfaceRaised,
+        border: Border(bottom: BorderSide(color: context.rhythm.borderSubtle)),
+        boxShadow: RhythmElevation.panel,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              const Expanded(
+              Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -202,21 +202,21 @@ class _OverviewHeader extends StatelessWidget {
                       style: TextStyle(
                         fontSize: 24,
                         fontWeight: FontWeight.w700,
-                        color: RhythmTokens.textPrimary,
+                        color: context.rhythm.textPrimary,
                       ),
                     ),
                     SizedBox(height: 4),
                     Text(
                       'Create sync-driven automations from Planning Center, Calendar, Gmail, and Rhythm.',
-                      style: TextStyle(color: RhythmTokens.textSecondary),
+                      style: TextStyle(color: context.rhythm.textSecondary),
                     ),
                   ],
                 ),
               ),
               FilledButton.icon(
                 onPressed: onCreate,
-                icon: const Icon(Icons.add, size: 18),
-                label: const Text('New automation'),
+                icon: Icon(Icons.add, size: 18),
+                label: Text('New automation'),
               ),
             ],
           ),
@@ -254,24 +254,24 @@ class _StatCard extends StatelessWidget {
       width: 180,
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: RhythmTokens.surfaceMuted,
-        borderRadius: BorderRadius.circular(RhythmTokens.radiusM),
-        border: Border.all(color: RhythmTokens.borderSoft),
+        color: context.rhythm.surfaceMuted,
+        borderRadius: BorderRadius.circular(RhythmRadius.lg),
+        border: Border.all(color: context.rhythm.borderSubtle),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
             label,
-            style: const TextStyle(color: RhythmTokens.textSecondary),
+            style: TextStyle(color: context.rhythm.textSecondary),
           ),
           const SizedBox(height: 6),
           Text(
             value,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 18,
               fontWeight: FontWeight.w700,
-              color: RhythmTokens.textPrimary,
+              color: context.rhythm.textPrimary,
             ),
           ),
         ],
@@ -292,10 +292,10 @@ class _EmptyState extends StatelessWidget {
         constraints: const BoxConstraints(maxWidth: 520),
         padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 18),
         decoration: BoxDecoration(
-          color: RhythmTokens.surfaceStrong,
-          borderRadius: BorderRadius.circular(RhythmTokens.radiusL),
-          border: Border.all(color: RhythmTokens.borderSoft),
-          boxShadow: RhythmTokens.shadow,
+          color: context.rhythm.surfaceRaised,
+          borderRadius: BorderRadius.circular(RhythmRadius.xl),
+          border: Border.all(color: context.rhythm.borderSubtle),
+          boxShadow: RhythmElevation.panel,
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -304,36 +304,36 @@ class _EmptyState extends StatelessWidget {
               width: 40,
               height: 40,
               decoration: BoxDecoration(
-                color: RhythmTokens.accentSoft,
-                borderRadius: BorderRadius.circular(RhythmTokens.radiusM),
+                color: context.rhythm.accentMuted,
+                borderRadius: BorderRadius.circular(RhythmRadius.lg),
               ),
-              child: const Icon(
+              child: Icon(
                 Icons.bolt_outlined,
                 size: 20,
-                color: RhythmTokens.accent,
+                color: context.rhythm.accent,
               ),
             ),
             const SizedBox(height: 10),
-            const Text(
+            Text(
               'No automations yet',
               style: TextStyle(
                 fontSize: 16,
                 fontWeight: FontWeight.w600,
-                color: RhythmTokens.textPrimary,
+                color: context.rhythm.textPrimary,
               ),
             ),
             const SizedBox(height: 6),
-            const Text(
+            Text(
               'Connect providers, sync data, and create rules from external metadata.',
               maxLines: 2,
-              style: TextStyle(color: RhythmTokens.textSecondary),
+              style: TextStyle(color: context.rhythm.textSecondary),
               textAlign: TextAlign.center,
             ),
             const SizedBox(height: 12),
             FilledButton.icon(
               onPressed: onCreate,
-              icon: const Icon(Icons.add),
-              label: const Text('Create automation'),
+              icon: Icon(Icons.add),
+              label: Text('Create automation'),
             ),
           ],
         ),
@@ -366,10 +366,10 @@ class _RuleGroup extends StatelessWidget {
         children: [
           Text(
             _labelForSource(source),
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 16,
               fontWeight: FontWeight.w700,
-              color: RhythmTokens.textPrimary,
+              color: context.rhythm.textPrimary,
             ),
           ),
           const SizedBox(height: 4),
@@ -377,7 +377,7 @@ class _RuleGroup extends StatelessWidget {
             account == null
                 ? 'Internal Rhythm rules'
                 : '${account.accountLabel ?? account.providerDisplayName ?? account.provider} · ${account.syncSupportMode ?? 'manual'} sync',
-            style: const TextStyle(color: RhythmTokens.textSecondary),
+            style: TextStyle(color: context.rhythm.textSecondary),
           ),
           const SizedBox(height: 12),
           ...rules.map(
@@ -445,13 +445,13 @@ class _RuleCard extends StatelessWidget {
         _labelForSource(rule.source);
     return Card(
       elevation: 0,
-      color: RhythmTokens.surfaceStrong,
+      color: context.rhythm.surfaceRaised,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(RhythmTokens.radiusM),
-        side: const BorderSide(color: RhythmTokens.borderSoft),
+        borderRadius: BorderRadius.circular(RhythmRadius.lg),
+        side: BorderSide(color: context.rhythm.borderSubtle),
       ),
       child: InkWell(
-        borderRadius: BorderRadius.circular(RhythmTokens.radiusM),
+        borderRadius: BorderRadius.circular(RhythmRadius.lg),
         onTap: onInspect,
         child: Padding(
           padding: const EdgeInsets.all(16),
@@ -466,16 +466,16 @@ class _RuleCard extends StatelessWidget {
                   children: [
                     Text(
                       rule.name,
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 15,
                         fontWeight: FontWeight.w700,
-                        color: RhythmTokens.textPrimary,
+                        color: context.rhythm.textPrimary,
                       ),
                     ),
                     const SizedBox(height: 6),
                     Text(
                       '${trigger?.label ?? rule.triggerKey} -> ${action?.label ?? rule.actionType}',
-                      style: const TextStyle(color: RhythmTokens.accent),
+                      style: TextStyle(color: context.rhythm.accent),
                     ),
                     const SizedBox(height: 8),
                     Wrap(
@@ -512,8 +512,8 @@ class _RuleCard extends StatelessWidget {
                       const SizedBox(height: 10),
                       Text(
                         _previewLabel(rule.previewSample!),
-                        style: const TextStyle(
-                          color: RhythmTokens.textSecondary,
+                        style: TextStyle(
+                          color: context.rhythm.textSecondary,
                         ),
                       ),
                     ],
@@ -530,7 +530,7 @@ class _RuleCard extends StatelessWidget {
                           height: 16,
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
-                      : const Icon(Icons.sync_outlined, size: 16),
+                      : Icon(Icons.sync_outlined, size: 16),
                   label: Text(rule.source == 'rhythm' ? 'Trigger' : 'Resync'),
                   style: OutlinedButton.styleFrom(
                     visualDensity: VisualDensity.compact,
@@ -539,15 +539,15 @@ class _RuleCard extends StatelessWidget {
               ),
               IconButton(
                 onPressed: onInspect,
-                icon: const Icon(Icons.visibility_outlined),
+                icon: Icon(Icons.visibility_outlined),
               ),
               IconButton(
                 onPressed: onEdit,
-                icon: const Icon(Icons.edit_outlined),
+                icon: Icon(Icons.edit_outlined),
               ),
               IconButton(
                 onPressed: onDelete,
-                icon: const Icon(Icons.delete_outline),
+                icon: Icon(Icons.delete_outline),
               ),
             ],
           ),
@@ -613,7 +613,7 @@ class _AutomationPreviewDialog extends StatelessWidget {
             ),
             if (sample != null) ...[
               const SizedBox(height: 16),
-              const Text(
+              Text(
                 'Latest sample',
                 style: TextStyle(fontWeight: FontWeight.w700),
               ),
@@ -622,9 +622,9 @@ class _AutomationPreviewDialog extends StatelessWidget {
                 width: double.infinity,
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: RhythmTokens.surfaceMuted,
-                  borderRadius: BorderRadius.circular(RhythmTokens.radiusM),
-                  border: Border.all(color: RhythmTokens.borderSoft),
+                  color: context.rhythm.surfaceMuted,
+                  borderRadius: BorderRadius.circular(RhythmRadius.lg),
+                  border: Border.all(color: context.rhythm.borderSubtle),
                 ),
                 child: Text(
                   sample.entries
@@ -640,7 +640,7 @@ class _AutomationPreviewDialog extends StatelessWidget {
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(context),
-          child: const Text('Close'),
+          child: Text('Close'),
         ),
       ],
     );
@@ -658,20 +658,20 @@ class _MetaChip extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
-        color: RhythmTokens.surfaceMuted,
+        color: context.rhythm.surfaceMuted,
         borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: RhythmTokens.borderSoft),
+        border: Border.all(color: context.rhythm.borderSubtle),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 14, color: RhythmTokens.textSecondary),
+          Icon(icon, size: 14, color: context.rhythm.textSecondary),
           const SizedBox(width: 6),
           Text(
             label,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 12,
-              color: RhythmTokens.textPrimary,
+              color: context.rhythm.textPrimary,
             ),
           ),
         ],
@@ -964,23 +964,23 @@ class _AutomationBuilderDialogState extends State<_AutomationBuilderDialog> {
                 const SizedBox(height: 10),
                 Text(
                   _validationError!,
-                  style: const TextStyle(color: Colors.redAccent),
+                  style: TextStyle(color: Colors.redAccent),
                 ),
               ],
               const SizedBox(height: 18),
               _stepTitle('2. Trigger'),
               if (isPco) ...[
-                const Text(
+                Text(
                   'Select one or more triggers:',
-                  style: TextStyle(color: RhythmTokens.textSecondary),
+                  style: TextStyle(color: context.rhythm.textSecondary),
                 ),
                 const SizedBox(height: 8),
                 Card(
                   elevation: 0,
-                  color: RhythmTokens.surfaceMuted,
+                  color: context.rhythm.surfaceMuted,
                   shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(RhythmTokens.radiusM),
-                    side: const BorderSide(color: RhythmTokens.borderSoft),
+                    borderRadius: BorderRadius.circular(RhythmRadius.lg),
+                    side: BorderSide(color: context.rhythm.borderSubtle),
                   ),
                   child: SizedBox(
                     height: 200,
@@ -995,8 +995,8 @@ class _AutomationBuilderDialogState extends State<_AutomationBuilderDialog> {
                           title: Text(item.label),
                           subtitle: Text(
                             item.description,
-                            style: const TextStyle(
-                              color: RhythmTokens.textSecondary,
+                            style: TextStyle(
+                              color: context.rhythm.textSecondary,
                               fontSize: 12,
                             ),
                           ),
@@ -1055,7 +1055,7 @@ class _AutomationBuilderDialogState extends State<_AutomationBuilderDialog> {
                   const SizedBox(height: 8),
                   Text(
                     trigger.description,
-                    style: const TextStyle(color: RhythmTokens.textSecondary),
+                    style: TextStyle(color: context.rhythm.textSecondary),
                   ),
                   const SizedBox(height: 12),
                   ..._buildTriggerFields(trigger),
@@ -1097,9 +1097,9 @@ class _AutomationBuilderDialogState extends State<_AutomationBuilderDialog> {
                 width: double.infinity,
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: RhythmTokens.surfaceMuted,
-                  borderRadius: BorderRadius.circular(RhythmTokens.radiusM),
-                  border: Border.all(color: RhythmTokens.borderSoft),
+                  color: context.rhythm.surfaceMuted,
+                  borderRadius: BorderRadius.circular(RhythmRadius.lg),
+                  border: Border.all(color: context.rhythm.borderSubtle),
                 ),
                 child: Text(_reviewSummary(trigger)),
               ),
@@ -1110,7 +1110,7 @@ class _AutomationBuilderDialogState extends State<_AutomationBuilderDialog> {
       actions: [
         TextButton(
           onPressed: () => Navigator.pop(context),
-          child: const Text('Cancel'),
+          child: Text('Cancel'),
         ),
         FilledButton(
           onPressed: () {
@@ -1154,7 +1154,7 @@ class _AutomationBuilderDialogState extends State<_AutomationBuilderDialog> {
         padding: const EdgeInsets.only(bottom: 8),
         child: Text(
           text,
-          style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
+          style: TextStyle(fontWeight: FontWeight.w700, fontSize: 15),
         ),
       );
 
@@ -1200,9 +1200,9 @@ class _AutomationBuilderDialogState extends State<_AutomationBuilderDialog> {
     final fields = _conditionFields();
     return [
       if (_conditions.isEmpty)
-        const Text(
+        Text(
           'No conditions — automation runs for every matched signal.',
-          style: TextStyle(color: RhythmTokens.textSecondary),
+          style: TextStyle(color: context.rhythm.textSecondary),
         ),
       for (int i = 0; i < _conditions.length; i++) ...[
         if (i > 0) const SizedBox(height: 8),
@@ -1219,8 +1219,8 @@ class _AutomationBuilderDialogState extends State<_AutomationBuilderDialog> {
             ),
           );
         }),
-        icon: const Icon(Icons.add, size: 16),
-        label: const Text('Add condition'),
+        icon: Icon(Icons.add, size: 16),
+        label: Text('Add condition'),
       ),
     ];
   }
@@ -1279,8 +1279,8 @@ class _AutomationBuilderDialogState extends State<_AutomationBuilderDialog> {
           ),
         ),
         IconButton(
-          icon: const Icon(Icons.remove_circle_outline, size: 18),
-          color: RhythmTokens.textSecondary,
+          icon: Icon(Icons.remove_circle_outline, size: 18),
+          color: context.rhythm.textSecondary,
           onPressed: () => setState(() {
             _conditions[index].value.dispose();
             _conditions.removeAt(index);
@@ -1321,16 +1321,16 @@ class _AutomationBuilderDialogState extends State<_AutomationBuilderDialog> {
       final options = widget.controller.planningCenterTaskOptions;
       return [
         if (options == null)
-          const Text(
+          Text(
             'Connect Planning Center to filter by team.',
-            style: TextStyle(color: RhythmTokens.textSecondary),
+            style: TextStyle(color: context.rhythm.textSecondary),
           )
         else ...[
-          const Text(
+          Text(
             'Teams (optional, multi-select):',
             style: TextStyle(
               fontWeight: FontWeight.w600,
-              color: RhythmTokens.textPrimary,
+              color: context.rhythm.textPrimary,
             ),
           ),
           const SizedBox(height: 8),
@@ -1365,11 +1365,11 @@ class _AutomationBuilderDialogState extends State<_AutomationBuilderDialog> {
             }).toList(),
           ),
           const SizedBox(height: 12),
-          const Text(
+          Text(
             'Positions (optional, multi-select):',
             style: TextStyle(
               fontWeight: FontWeight.w600,
-              color: RhythmTokens.textPrimary,
+              color: context.rhythm.textPrimary,
             ),
           ),
           const SizedBox(height: 8),
@@ -1446,7 +1446,7 @@ class _AutomationBuilderDialogState extends State<_AutomationBuilderDialog> {
         const SizedBox(height: 12),
         SwitchListTile(
           contentPadding: EdgeInsets.zero,
-          title: const Text('All-day only'),
+          title: Text('All-day only'),
           value: _allDayOnly,
           onChanged: (value) => setState(() => _allDayOnly = value),
         ),
@@ -1585,9 +1585,9 @@ class _AutomationBuilderDialogState extends State<_AutomationBuilderDialog> {
       width: double.infinity,
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: RhythmTokens.surfaceMuted,
-        borderRadius: BorderRadius.circular(RhythmTokens.radiusM),
-        border: Border.all(color: RhythmTokens.borderSoft),
+        color: context.rhythm.surfaceMuted,
+        borderRadius: BorderRadius.circular(RhythmRadius.lg),
+        border: Border.all(color: context.rhythm.borderSubtle),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,

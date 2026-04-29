@@ -11,6 +11,7 @@ import '../../projects/models/project_instance.dart';
 import '../../projects/models/project_template.dart';
 import '../../tasks/models/recurring_task_rule.dart';
 import '../../tasks/models/task.dart';
+import '../../tasks/models/task_collaborator.dart';
 
 class DashboardDataSource {
   DashboardDataSource({String? baseUrl})
@@ -25,7 +26,9 @@ class DashboardDataSource {
     );
     assertOk(response);
     final list = jsonDecode(response.body) as List<dynamic>;
-    return list.map((j) => Task.fromJson(j as Map<String, dynamic>)).toList();
+    final tasks =
+        list.map((j) => Task.fromJson(j as Map<String, dynamic>)).toList();
+    return _withCollaborators(tasks);
   }
 
   Future<List<RecurringTaskRule>> fetchRecurringRules() async {
@@ -76,17 +79,31 @@ class DashboardDataSource {
         .toList();
   }
 
-  Future<Task> createTask(String title, {String? dueDate}) async {
+  Future<Task> createTask(
+    String title, {
+    String? notes,
+    String? dueDate,
+  }) async {
     final response = await http.post(
       Uri.parse('$_baseUrl/tasks'),
       headers: AuthSessionStore.headers(json: true),
       body: jsonEncode({
         'title': title,
+        if (notes != null && notes.isNotEmpty) 'notes': notes,
         if (dueDate != null) 'dueDate': dueDate,
       }),
     );
     assertOk(response);
     return Task.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
+  }
+
+  Future<void> addCollaboratorToTask(String taskId, int userId) async {
+    final response = await http.post(
+      Uri.parse('$_baseUrl/tasks/$taskId/collaborators'),
+      headers: AuthSessionStore.headers(json: true),
+      body: jsonEncode({'userId': userId}),
+    );
+    assertOk(response);
   }
 
   Future<Task> toggleTaskDone(String id, String currentStatus) async {
@@ -100,6 +117,64 @@ class DashboardDataSource {
     return Task.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
   }
 
+  Future<Task> updateTask(
+    String id, {
+    String? title,
+    String? notes,
+    String? dueDate,
+    String? scheduledDate,
+    bool includeNotes = false,
+    bool includeDueDate = false,
+    bool includeScheduledDate = false,
+  }) async {
+    final response = await http.patch(
+      Uri.parse('$_baseUrl/tasks/$id'),
+      headers: AuthSessionStore.headers(json: true),
+      body: jsonEncode({
+        if (title != null) 'title': title,
+        if (includeNotes || notes != null) 'notes': notes,
+        if (includeDueDate || dueDate != null) 'dueDate': dueDate,
+        if (includeScheduledDate || scheduledDate != null)
+          'scheduledDate': scheduledDate,
+      }),
+    );
+    assertOk(response);
+    return Task.fromJson(jsonDecode(response.body) as Map<String, dynamic>);
+  }
+
+  Future<ProjectInstanceStep> updateProjectInstanceStepStatus(
+    String stepId,
+    String status,
+  ) async {
+    return updateProjectInstanceStep(stepId, status: status);
+  }
+
+  Future<ProjectInstanceStep> updateProjectInstanceStep(
+    String stepId, {
+    String? title,
+    String? dueDate,
+    String? status,
+    String? notes,
+    int? assigneeId,
+    bool includeNotes = false,
+  }) async {
+    final response = await http.patch(
+      Uri.parse('$_baseUrl/project-instances/steps/$stepId'),
+      headers: AuthSessionStore.headers(json: true),
+      body: jsonEncode({
+        if (title != null) 'title': title,
+        if (dueDate != null) 'dueDate': dueDate,
+        if (status != null) 'status': status,
+        if (includeNotes || notes != null) 'notes': notes,
+        if (assigneeId != null) 'assigneeId': assigneeId,
+      }),
+    );
+    assertOk(response);
+    return ProjectInstanceStep.fromJson(
+      jsonDecode(response.body) as Map<String, dynamic>,
+    );
+  }
+
   Future<List<Message>> getMessages(int threadId) async {
     final response = await http.get(
       Uri.parse('$_baseUrl/message-threads/$threadId/messages'),
@@ -110,5 +185,28 @@ class DashboardDataSource {
     return list
         .map((j) => Message.fromJson(j as Map<String, dynamic>))
         .toList();
+  }
+
+  Future<List<Task>> _withCollaborators(List<Task> tasks) async {
+    return Future.wait(tasks.map(_withTaskCollaborators));
+  }
+
+  Future<Task> _withTaskCollaborators(Task task) async {
+    try {
+      final response = await http.get(
+        Uri.parse('$_baseUrl/tasks/${task.id}/collaborators'),
+        headers: AuthSessionStore.headers(),
+      );
+      assertOk(response);
+      final list = jsonDecode(response.body) as List<dynamic>;
+      final collaborators = list
+          .map(
+            (item) => TaskCollaborator.fromJson(item as Map<String, dynamic>),
+          )
+          .toList();
+      return task.copyWith(collaborators: collaborators);
+    } catch (_) {
+      return task;
+    }
   }
 }

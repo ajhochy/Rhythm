@@ -99,6 +99,9 @@ class Task {
     int? scheduledOrder,
     bool? locked,
     String? status,
+    int? ownerId,
+    bool? isShared,
+    List<TaskCollaborator>? collaborators,
   }) {
     return Task(
       id: id,
@@ -115,6 +118,9 @@ class Task {
       startsAt: startsAt,
       endsAt: endsAt,
       isAllDay: isAllDay,
+      ownerId: ownerId ?? this.ownerId,
+      isShared: isShared ?? this.isShared,
+      collaborators: collaborators ?? this.collaborators,
       createdAt: createdAt,
       updatedAt: updatedAt,
     );

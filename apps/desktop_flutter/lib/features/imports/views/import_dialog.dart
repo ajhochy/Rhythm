@@ -328,7 +328,7 @@ class _PromptTab extends StatelessWidget {
                     child: SelectableText(
                       prompt.trim(),
                       style: const TextStyle(
-                        fontFamily: 'monospace',
+                        fontFamily: 'JetBrainsMono',
                         fontSize: 12,
                       ),
                     ),
@@ -395,7 +395,7 @@ class _ImportTab extends StatelessWidget {
                 contentPadding: const EdgeInsets.all(12),
                 errorText: errorMessage,
               ),
-              style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
+              style: const TextStyle(fontFamily: 'JetBrainsMono', fontSize: 12),
             ),
           ),
         ],
