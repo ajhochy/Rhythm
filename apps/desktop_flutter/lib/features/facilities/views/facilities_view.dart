@@ -89,7 +89,7 @@ class _FacilitiesViewState extends State<FacilitiesView> {
                     ),
                   Expanded(
                     child: _mode == _FacilitiesMode.book
-                        ? _FacilitiesGrid(controller: controller)
+                        ? _FacilitiesRoomsView(controller: controller)
                         : _FacilitiesOverview(
                             controller: controller,
                             range: _overviewRange,
@@ -2770,8 +2770,8 @@ class _SeriesBadge extends StatelessWidget {
   }
 }
 
-class _FacilitiesGrid extends StatelessWidget {
-  const _FacilitiesGrid({required this.controller});
+class _FacilitiesRoomsView extends StatelessWidget {
+  const _FacilitiesRoomsView({required this.controller});
 
   final FacilitiesController controller;
 
@@ -2790,6 +2790,8 @@ class _FacilitiesGrid extends StatelessWidget {
       );
     }
 
+    final groups = _groupRoomsByBuilding(controller.facilities);
+
     return ListView(
       padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
       children: [
@@ -2797,30 +2799,59 @@ class _FacilitiesGrid extends StatelessWidget {
           _RoomsManagerBar(controller: controller),
           const SizedBox(height: 16),
         ],
-        GridView.builder(
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-            maxCrossAxisExtent: 380,
-            crossAxisSpacing: 16,
-            mainAxisSpacing: 16,
-            childAspectRatio: 1.18,
-          ),
-          itemCount: controller.facilities.length,
-          itemBuilder: (context, i) {
-            final facility = controller.facilities[i];
-            final reservations =
-                controller.reservationsByFacility[facility.id] ?? [];
-            return _FacilityCard(
-              facility: facility,
-              reservations: reservations,
-              controller: controller,
-            );
-          },
-        ),
+        for (var i = 0; i < groups.length; i++) ...[
+          _BuildingRoomGroup(group: groups[i], controller: controller),
+          if (i < groups.length - 1) const SizedBox(height: 14),
+        ],
       ],
     );
   }
+}
+
+class _RoomBuildingGroup {
+  const _RoomBuildingGroup({
+    required this.label,
+    required this.hasBuilding,
+    required this.rooms,
+  });
+
+  final String label;
+  final bool hasBuilding;
+  final List<Facility> rooms;
+}
+
+List<_RoomBuildingGroup> _groupRoomsByBuilding(List<Facility> facilities) {
+  final byBuilding = <String, List<Facility>>{};
+  final unassigned = <Facility>[];
+  for (final facility in facilities) {
+    final building = facility.building?.trim() ?? '';
+    if (building.isEmpty) {
+      unassigned.add(facility);
+    } else {
+      byBuilding.putIfAbsent(building, () => []).add(facility);
+    }
+  }
+
+  final sortedKeys = byBuilding.keys.toList()
+    ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+
+  int sortRooms(Facility a, Facility b) =>
+      a.name.toLowerCase().compareTo(b.name.toLowerCase());
+
+  final groups = <_RoomBuildingGroup>[];
+  for (final key in sortedKeys) {
+    final rooms = [...byBuilding[key]!]..sort(sortRooms);
+    groups.add(
+      _RoomBuildingGroup(label: key, hasBuilding: true, rooms: rooms),
+    );
+  }
+  if (unassigned.isNotEmpty) {
+    final rooms = [...unassigned]..sort(sortRooms);
+    groups.add(
+      _RoomBuildingGroup(label: 'Unassigned', hasBuilding: false, rooms: rooms),
+    );
+  }
+  return groups;
 }
 
 class _RoomsManagerBar extends StatelessWidget {
@@ -2877,254 +2908,596 @@ class _RoomsManagerBar extends StatelessWidget {
 }
 
 // ---------------------------------------------------------------------------
-// Facility Card
+// Building-grouped room management
 // ---------------------------------------------------------------------------
 
-class _FacilityCard extends StatelessWidget {
-  const _FacilityCard({
-    required this.facility,
-    required this.reservations,
-    required this.controller,
-  });
+class _BuildingRoomGroup extends StatelessWidget {
+  const _BuildingRoomGroup({required this.group, required this.controller});
 
-  final Facility facility;
-  final List<Reservation> reservations;
+  final _RoomBuildingGroup group;
   final FacilitiesController controller;
 
   @override
   Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    final previewReservation = _currentOrUpcomingReservation();
-
+    final colors = context.rhythm;
+    final rooms = group.rooms;
     return Container(
       decoration: BoxDecoration(
-        color: context.rhythm.surfaceRaised.withValues(alpha: 0.96),
+        color: colors.surfaceRaised.withValues(alpha: 0.96),
         borderRadius: BorderRadius.circular(RhythmRadius.xl),
-        border: Border.all(color: context.rhythm.borderSubtle),
+        border: Border.all(color: colors.borderSubtle),
         boxShadow: RhythmElevation.panel,
       ),
-      child: Padding(
-        padding: const EdgeInsets.all(18),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(
-                  child: Text(
-                    facility.name,
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w700,
-                      color: context.rhythm.textPrimary,
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-                const SizedBox(width: 10),
-                _ReservationBadge(count: reservations.length),
-                if (controller.isFacilitiesManager) ...[
-                  const SizedBox(width: 8),
-                  PopupMenuButton<_FacilityAction>(
-                    onSelected: (value) async {
-                      final viewState = context
-                          .findAncestorStateOfType<_FacilitiesViewState>();
-                      if (viewState == null) return;
-                      switch (value) {
-                        case _FacilityAction.edit:
-                          await viewState._showEditFacilityDialog(
-                            context,
-                            controller,
-                            facility,
-                          );
-                          break;
-                        case _FacilityAction.delete:
-                          await viewState._deleteFacilityWithConfirmation(
-                            context,
-                            controller,
-                            facility,
-                          );
-                          break;
-                      }
-                    },
-                    itemBuilder: (context) => const [
-                      PopupMenuItem(
-                        value: _FacilityAction.edit,
-                        child: Text('Edit space'),
-                      ),
-                      PopupMenuItem(
-                        value: _FacilityAction.delete,
-                        child: Text('Delete space'),
-                      ),
-                    ],
-                    child: Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color:
-                            context.rhythm.surfaceRaised.withValues(alpha: 0.6),
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: context.rhythm.borderSubtle),
-                      ),
-                      child: Icon(
-                        Icons.more_horiz,
-                        size: 18,
-                        color: context.rhythm.textSecondary,
-                      ),
-                    ),
-                  ),
-                ],
-              ],
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _BuildingHeader(group: group),
+          Container(height: 1, color: colors.borderSubtle),
+          for (var i = 0; i < rooms.length; i++) ...[
+            _RoomManagementRow(
+              facility: rooms[i],
+              controller: controller,
+              isLast: i == rooms.length - 1,
             ),
-            const SizedBox(height: 8),
-            if (facility.description != null &&
-                facility.description!.isNotEmpty) ...[
-              Text(
-                facility.description!,
-                style: TextStyle(
-                  fontSize: 13,
-                  height: 1.4,
-                  color: context.rhythm.textSecondary,
-                ),
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
+            if (i < rooms.length - 1)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: Container(height: 1, color: colors.borderSubtle),
               ),
-            ],
-            if (facility.location != null && facility.location!.isNotEmpty) ...[
-              const SizedBox(height: 10),
-              Row(
-                children: [
-                  Icon(
-                    Icons.location_on_outlined,
-                    size: 14,
-                    color: context.rhythm.textSecondary,
-                  ),
-                  const SizedBox(width: 4),
-                  Expanded(
-                    child: Text(
-                      facility.location!,
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: context.rhythm.textSecondary,
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                ],
-              ),
-            ],
-            if (facility.building != null && facility.building!.isNotEmpty) ...[
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  Icon(
-                    Icons.apartment_outlined,
-                    size: 14,
-                    color: context.rhythm.textSecondary,
-                  ),
-                  const SizedBox(width: 4),
-                  Expanded(
-                    child: Text(
-                      facility.building!,
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: context.rhythm.textSecondary,
-                      ),
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                ],
-              ),
-            ],
-            const SizedBox(height: 14),
-            if (previewReservation == null)
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 12,
-                ),
-                decoration: BoxDecoration(
-                  color: context.rhythm.surfaceMuted,
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: context.rhythm.borderSubtle),
-                ),
-                child: Text(
-                  'No upcoming reservations',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                      fontSize: 12, color: context.rhythm.textSecondary),
-                ),
-              )
-            else
-              _ReservationPreviewCard(
-                reservation: previewReservation,
-                series: _seriesForReservation(controller, previewReservation),
-                onTap: () => _showReservationDetails(
-                  context,
-                  controller,
-                  previewReservation,
-                ),
-              ),
-            const Spacer(),
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton(
-                    onPressed: () => _showReserveDialog(context),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: cs.primary,
-                      side: BorderSide(
-                        color: cs.primary.withValues(alpha: 0.2),
-                      ),
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 14,
-                        vertical: 10,
-                      ),
-                      textStyle: TextStyle(fontSize: 13),
-                    ),
-                    child: Text('Reserve'),
-                  ),
-                ),
-              ],
-            ),
           ],
-        ),
+        ],
       ),
     );
   }
+}
 
-  Reservation? _currentOrUpcomingReservation() {
-    final candidates = reservations.where((reservation) {
-      final end = _parseReservationDateTime(reservation.endTime);
-      if (end == null) return false;
-      return !end.isBefore(DateTime.now());
-    }).toList()
-      ..sort((a, b) {
-        final aStart = _parseReservationDateTime(a.startTime);
-        final bStart = _parseReservationDateTime(b.startTime);
-        if (aStart == null && bStart == null) return 0;
-        if (aStart == null) return 1;
-        if (bStart == null) return -1;
-        return aStart.compareTo(bStart);
-      });
+class _BuildingHeader extends StatelessWidget {
+  const _BuildingHeader({required this.group});
 
-    return candidates.isEmpty ? null : candidates.first;
+  final _RoomBuildingGroup group;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.rhythm;
+    final theme = Theme.of(context);
+    final iconColor = group.hasBuilding ? colors.accent : colors.textSecondary;
+    final iconBackground =
+        group.hasBuilding ? colors.accentMuted : colors.surfaceMuted;
+    final roomCount = group.rooms.length;
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 16, 20, 14),
+      child: Row(
+        children: [
+          Container(
+            width: 36,
+            height: 36,
+            decoration: BoxDecoration(
+              color: iconBackground,
+              borderRadius: BorderRadius.circular(RhythmRadius.md),
+            ),
+            child: Icon(
+              group.hasBuilding ? Icons.apartment_outlined : Icons.help_outline,
+              size: 18,
+              color: iconColor,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  group.label,
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    color: colors.textPrimary,
+                    fontWeight: FontWeight.w700,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  '$roomCount ${roomCount == 1 ? 'room' : 'rooms'}',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: colors.textSecondary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _RoomManagementRow extends StatefulWidget {
+  const _RoomManagementRow({
+    required this.facility,
+    required this.controller,
+    required this.isLast,
+  });
+
+  final Facility facility;
+  final FacilitiesController controller;
+  final bool isLast;
+
+  @override
+  State<_RoomManagementRow> createState() => _RoomManagementRowState();
+}
+
+class _RoomManagementRowState extends State<_RoomManagementRow> {
+  bool _hovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.rhythm;
+    final theme = Theme.of(context);
+    final reservations =
+        widget.controller.reservationsByFacility[widget.facility.id] ??
+            const [];
+    final upcomingCount = _countUpcomingReservations(reservations);
+    final detailLine = _buildRoomDetailLine(widget.facility);
+
+    final background = _hovered
+        ? colors.surfaceMuted.withValues(alpha: 0.6)
+        : Colors.transparent;
+
+    return MouseRegion(
+      cursor: SystemMouseCursors.click,
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() => _hovered = false),
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () => _showRoomDetails(context),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 120),
+          curve: Curves.easeOut,
+          color: background,
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Container(
+                width: 32,
+                height: 32,
+                decoration: BoxDecoration(
+                  color: colors.surfaceMuted,
+                  borderRadius: BorderRadius.circular(RhythmRadius.sm),
+                  border: Border.all(color: colors.borderSubtle),
+                ),
+                child: Icon(
+                  Icons.meeting_room_outlined,
+                  size: 16,
+                  color: colors.textSecondary,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      widget.facility.name,
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: colors.textPrimary,
+                        fontWeight: FontWeight.w600,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    if (detailLine != null) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        detailLine,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: colors.textSecondary,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              const SizedBox(width: 12),
+              _RoomReservationsChip(count: upcomingCount),
+              const SizedBox(width: 12),
+              OutlinedButton(
+                onPressed: () => _showReserveDialog(context),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: colors.accent,
+                  side: BorderSide(
+                    color: colors.accent.withValues(alpha: 0.25),
+                  ),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 8,
+                  ),
+                  textStyle: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                child: const Text('Reserve'),
+              ),
+              if (widget.controller.isFacilitiesManager) ...[
+                const SizedBox(width: 6),
+                PopupMenuButton<_FacilityAction>(
+                  tooltip: 'Manage room',
+                  onSelected: (value) async {
+                    final viewState =
+                        context.findAncestorStateOfType<_FacilitiesViewState>();
+                    if (viewState == null) return;
+                    switch (value) {
+                      case _FacilityAction.edit:
+                        await viewState._showEditFacilityDialog(
+                          context,
+                          widget.controller,
+                          widget.facility,
+                        );
+                        break;
+                      case _FacilityAction.delete:
+                        await viewState._deleteFacilityWithConfirmation(
+                          context,
+                          widget.controller,
+                          widget.facility,
+                        );
+                        break;
+                    }
+                  },
+                  itemBuilder: (context) => const [
+                    PopupMenuItem(
+                      value: _FacilityAction.edit,
+                      child: Text('Edit room'),
+                    ),
+                    PopupMenuItem(
+                      value: _FacilityAction.delete,
+                      child: Text('Delete room'),
+                    ),
+                  ],
+                  child: Container(
+                    padding: const EdgeInsets.all(6),
+                    decoration: BoxDecoration(
+                      color: colors.surfaceMuted,
+                      borderRadius: BorderRadius.circular(RhythmRadius.sm),
+                      border: Border.all(color: colors.borderSubtle),
+                    ),
+                    child: Icon(
+                      Icons.more_horiz,
+                      size: 16,
+                      color: colors.textSecondary,
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   Future<void> _showReserveDialog(BuildContext context) async {
     await showDialog<void>(
       context: context,
       builder: (_) => _ReservationDialog(
-        controller: controller,
-        facilities: controller.facilities,
-        preselectedFacility: facility,
+        controller: widget.controller,
+        facilities: widget.controller.facilities,
+        preselectedFacility: widget.facility,
       ),
     );
   }
+
+  Future<void> _showRoomDetails(BuildContext context) async {
+    await showDialog<void>(
+      context: context,
+      builder: (_) => _RoomDetailDialog(
+        facility: widget.facility,
+        controller: widget.controller,
+      ),
+    );
+  }
+}
+
+class _RoomReservationsChip extends StatelessWidget {
+  const _RoomReservationsChip({required this.count});
+
+  final int count;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.rhythm;
+    final theme = Theme.of(context);
+
+    final foreground = count == 0 ? colors.success : colors.accent;
+    final label = count == 0
+        ? 'Available'
+        : '$count ${count == 1 ? 'upcoming' : 'upcoming'}';
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: foreground.withValues(alpha: 0.13),
+        borderRadius: BorderRadius.circular(RhythmRadius.pill),
+        border: Border.all(color: foreground.withValues(alpha: 0.22)),
+      ),
+      child: Text(
+        label,
+        style: theme.textTheme.labelSmall?.copyWith(
+          color: foreground,
+          fontWeight: FontWeight.w700,
+          height: 1,
+        ),
+      ),
+    );
+  }
+}
+
+class _RoomDetailDialog extends StatelessWidget {
+  const _RoomDetailDialog({required this.facility, required this.controller});
+
+  final Facility facility;
+  final FacilitiesController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.rhythm;
+    final theme = Theme.of(context);
+    final reservations =
+        controller.reservationsByFacility[facility.id] ?? const [];
+    final upcoming = _upcomingReservationsSorted(reservations).take(5).toList();
+    final hasDescription = (facility.description?.trim().isNotEmpty ?? false);
+    final hasLocation = (facility.location?.trim().isNotEmpty ?? false);
+    final hasBuilding = (facility.building?.trim().isNotEmpty ?? false);
+
+    return Dialog(
+      backgroundColor: colors.surfaceRaised,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(RhythmRadius.xl),
+      ),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 480),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(24, 22, 24, 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Container(
+                    width: 40,
+                    height: 40,
+                    decoration: BoxDecoration(
+                      color: colors.accentMuted,
+                      borderRadius: BorderRadius.circular(RhythmRadius.md),
+                    ),
+                    child: Icon(
+                      Icons.meeting_room_outlined,
+                      size: 20,
+                      color: colors.accent,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          facility.name,
+                          style: theme.textTheme.titleMedium?.copyWith(
+                            color: colors.textPrimary,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        if (hasBuilding) ...[
+                          const SizedBox(height: 2),
+                          Text(
+                            facility.building!,
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: colors.textSecondary,
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    icon: const Icon(Icons.close, size: 18),
+                    tooltip: 'Close',
+                  ),
+                ],
+              ),
+              if (hasLocation) ...[
+                const SizedBox(height: 16),
+                _RoomDetailRow(
+                  icon: Icons.location_on_outlined,
+                  label: facility.location!,
+                ),
+              ],
+              if (hasDescription) ...[
+                const SizedBox(height: 14),
+                Text(
+                  'Description',
+                  style: theme.textTheme.labelSmall?.copyWith(
+                    color: colors.textMuted,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0.4,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  facility.description!,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: colors.textSecondary,
+                    height: 1.4,
+                  ),
+                ),
+              ],
+              const SizedBox(height: 18),
+              Text(
+                upcoming.isEmpty
+                    ? 'Upcoming reservations'
+                    : 'Next ${upcoming.length == 1 ? 'reservation' : '${upcoming.length} reservations'}',
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: colors.textMuted,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 0.4,
+                ),
+              ),
+              const SizedBox(height: 8),
+              if (upcoming.isEmpty)
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 12,
+                  ),
+                  decoration: BoxDecoration(
+                    color: colors.surfaceMuted,
+                    borderRadius: BorderRadius.circular(RhythmRadius.md),
+                    border: Border.all(color: colors.borderSubtle),
+                  ),
+                  child: Text(
+                    'No upcoming reservations.',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: colors.textSecondary,
+                    ),
+                  ),
+                )
+              else
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    for (var i = 0; i < upcoming.length; i++) ...[
+                      _ReservationPreviewCard(
+                        reservation: upcoming[i],
+                        series: _seriesForReservation(controller, upcoming[i]),
+                        onTap: () {
+                          Navigator.of(context).pop();
+                          _showReservationDetails(
+                            context,
+                            controller,
+                            upcoming[i],
+                          );
+                        },
+                      ),
+                      if (i < upcoming.length - 1) const SizedBox(height: 8),
+                    ],
+                  ],
+                ),
+              const SizedBox(height: 20),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  TextButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    child: const Text('Close'),
+                  ),
+                  const SizedBox(width: 8),
+                  FilledButton.icon(
+                    onPressed: () {
+                      Navigator.of(context).pop();
+                      showDialog<void>(
+                        context: context,
+                        builder: (_) => _ReservationDialog(
+                          controller: controller,
+                          facilities: controller.facilities,
+                          preselectedFacility: facility,
+                        ),
+                      );
+                    },
+                    icon: const Icon(Icons.event_available_outlined, size: 16),
+                    label: const Text('Reserve this room'),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _RoomDetailRow extends StatelessWidget {
+  const _RoomDetailRow({required this.icon, required this.label});
+
+  final IconData icon;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = context.rhythm;
+    final theme = Theme.of(context);
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, size: 16, color: colors.textSecondary),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(
+            label,
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: colors.textSecondary,
+              height: 1.3,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+String? _buildRoomDetailLine(Facility facility) {
+  final parts = <String>[];
+  final location = facility.location?.trim();
+  final description = facility.description?.trim();
+  if (location != null && location.isNotEmpty) {
+    parts.add(location);
+  }
+  if (description != null && description.isNotEmpty) {
+    parts.add(description);
+  }
+  if (parts.isEmpty) return null;
+  return parts.join(' · ');
+}
+
+int _countUpcomingReservations(List<Reservation> reservations) {
+  final now = DateTime.now();
+  var count = 0;
+  for (final reservation in reservations) {
+    final end = _parseReservationDateTime(reservation.endTime);
+    if (end == null) continue;
+    if (!end.isBefore(now)) count++;
+  }
+  return count;
+}
+
+List<Reservation> _upcomingReservationsSorted(List<Reservation> reservations) {
+  final now = DateTime.now();
+  final upcoming = reservations.where((reservation) {
+    final end = _parseReservationDateTime(reservation.endTime);
+    if (end == null) return false;
+    return !end.isBefore(now);
+  }).toList()
+    ..sort((a, b) {
+      final aStart = _parseReservationDateTime(a.startTime);
+      final bStart = _parseReservationDateTime(b.startTime);
+      if (aStart == null && bStart == null) return 0;
+      if (aStart == null) return 1;
+      if (bStart == null) return -1;
+      return aStart.compareTo(bStart);
+    });
+  return upcoming;
 }
 
 enum _FacilityAction { edit, delete }
@@ -3283,56 +3656,6 @@ class _EmptyFacilitiesState extends StatelessWidget {
               ),
             ],
           ),
-        ),
-      ),
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Reservation count badge
-// ---------------------------------------------------------------------------
-
-class _ReservationBadge extends StatelessWidget {
-  const _ReservationBadge({required this.count});
-
-  final int count;
-
-  @override
-  Widget build(BuildContext context) {
-    final cs = Theme.of(context).colorScheme;
-    if (count == 0) {
-      return Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-        decoration: BoxDecoration(
-          color: const Color(0xFFEAF7EF),
-          borderRadius: BorderRadius.circular(999),
-          border: Border.all(color: const Color(0xFFD3EEDC)),
-        ),
-        child: Text(
-          'Available',
-          style: TextStyle(
-            fontSize: 11,
-            fontWeight: FontWeight.w600,
-            color: Color(0xFF15803D),
-          ),
-        ),
-      );
-    }
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-      decoration: BoxDecoration(
-        color: cs.primary.withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: cs.primary.withValues(alpha: 0.14)),
-      ),
-      child: Text(
-        '$count ${count == 1 ? 'reservation' : 'reservations'}',
-        style: TextStyle(
-          fontSize: 11,
-          fontWeight: FontWeight.w600,
-          color: cs.primary,
         ),
       ),
     );
