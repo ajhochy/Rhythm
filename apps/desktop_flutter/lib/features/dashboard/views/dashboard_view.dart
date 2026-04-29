@@ -1903,263 +1903,45 @@ class _HandoffPreviewRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors = context.rhythm;
     final tone = _handoffTone(task, currentUserId);
-    final accent = _toneColor(colors, tone);
     final label = _handoffLabel(task, currentUserId, workspaceMembers);
     final peopleLabel =
         _handoffPeopleLabel(task, currentUserId, workspaceMembers);
 
-    return InkWell(
+    return RhythmPreviewRow(
+      eyebrow: label,
+      title: task.title,
+      leadingIcon: Icons.group_outlined,
+      tone: tone,
       onTap: onTap,
-      borderRadius: BorderRadius.circular(RhythmRadius.md),
-      child: Container(
-        margin: const EdgeInsets.symmetric(vertical: 4),
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
-        decoration: BoxDecoration(
-          color: colors.surfaceMuted.withValues(alpha: 0.78),
-          borderRadius: BorderRadius.circular(RhythmRadius.md),
-          border: Border.all(color: accent.withValues(alpha: 0.2)),
-        ),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Container(
-              width: 28,
-              height: 28,
-              decoration: BoxDecoration(
-                color: accent.withValues(alpha: 0.12),
-                borderRadius: BorderRadius.circular(RhythmRadius.sm),
-                border: Border.all(color: accent.withValues(alpha: 0.22)),
-              ),
-              child: Icon(Icons.group_outlined, size: 15, color: accent),
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    label,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: 11.5,
-                      color: accent,
-                      fontWeight: FontWeight.w800,
-                    ),
-                  ),
-                  const SizedBox(height: 3),
-                  Text(
-                    task.title,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: 12.5,
-                      color: colors.textPrimary,
-                      fontWeight: FontWeight.w700,
-                      height: 1.25,
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  Wrap(
-                    spacing: 6,
-                    runSpacing: 6,
-                    children: [
-                      if (peopleLabel != null)
-                        RhythmBadge(
-                          label: peopleLabel,
-                          icon: Icons.people_outline,
-                          tone: RhythmBadgeTone.neutral,
-                          compact: true,
-                        ),
-                      if (task.dueDate != null)
-                        RhythmBadge(
-                          label:
-                              'Due ${DateFormatters.fullDate(task.dueDate, fallback: task.dueDate!)}',
-                          tone: RhythmBadgeTone.neutral,
-                          compact: true,
-                        ),
-                      if (task.sourceType != null)
-                        RhythmBadge(
-                          label: _taskSourceLabel(task),
-                          tone: tone,
-                          compact: true,
-                        ),
-                      if (task.isShared || task.collaborators.isNotEmpty)
-                        const RhythmBadge(
-                          label: 'Shared',
-                          tone: RhythmBadgeTone.accent,
-                          compact: true,
-                        ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _ProgressPreviewRow extends StatelessWidget {
-  const _ProgressPreviewRow({
-    required this.item,
-    required this.onTap,
-    required this.tone,
-  });
-
-  final DashboardProgressItem item;
-  final VoidCallback onTap;
-  final RhythmBadgeTone tone;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = context.rhythm;
-    final accent = _toneColor(colors, tone);
-    final title = item.title;
-    final subtitle = item.subtitle;
-    final progress = item.progress.clamp(0.0, 1.0);
-    final completedCount = item.completedCount;
-    final totalCount = item.totalCount;
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(16),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 10),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    title,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: 13.5,
-                      fontWeight: FontWeight.w700,
-                      color: colors.textPrimary,
-                    ),
-                  ),
-                ),
-                Text(
-                  '$completedCount/$totalCount',
-                  style: TextStyle(fontSize: 12, color: colors.textSecondary),
-                ),
-              ],
-            ),
-            const SizedBox(height: 4),
-            LinearProgressIndicator(
-              value: progress,
-              minHeight: 7,
-              backgroundColor: colors.surfaceMuted,
-              valueColor: AlwaysStoppedAnimation<Color>(accent),
-              borderRadius: BorderRadius.circular(999),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              subtitle,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                fontSize: 12,
-                color: colors.textSecondary,
-                height: 1.35,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _UnreadMessagePreviewRow extends StatelessWidget {
-  const _UnreadMessagePreviewRow({
-    required this.preview,
-    required this.onTap,
-    required this.tone,
-  });
-
-  final DashboardUnreadMessagePreview preview;
-  final VoidCallback onTap;
-  final RhythmBadgeTone tone;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = context.rhythm;
-    final accent = _toneColor(colors, tone);
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(RhythmRadius.md),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 10),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Container(
-              width: 4,
-              height: 30,
-              margin: const EdgeInsets.only(top: 1),
-              decoration: BoxDecoration(color: accent, shape: BoxShape.circle),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          preview.senderName,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontSize: 13.5,
-                            fontWeight: FontWeight.w700,
-                            color: colors.textPrimary,
-                          ),
-                        ),
-                      ),
-                      RhythmBadge(
-                        label: '${preview.unreadCount}',
-                        tone: tone,
-                        compact: true,
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 3),
-                  Text(
-                    preview.preview,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: colors.textSecondary,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    preview.threadTitle,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: 11,
-                      color: colors.textMuted,
-                      height: 1.25,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
-        ),
-      ),
+      metadata: [
+        if (peopleLabel != null)
+          RhythmBadge(
+            label: peopleLabel,
+            icon: Icons.people_outline,
+            tone: RhythmBadgeTone.neutral,
+            compact: true,
+          ),
+        if (task.dueDate != null)
+          RhythmBadge(
+            label:
+                'Due ${DateFormatters.fullDate(task.dueDate, fallback: task.dueDate!)}',
+            tone: RhythmBadgeTone.neutral,
+            compact: true,
+          ),
+        if (task.sourceType != null)
+          RhythmBadge(
+            label: _taskSourceLabel(task),
+            tone: tone,
+            compact: true,
+          ),
+        if (task.isShared || task.collaborators.isNotEmpty)
+          const RhythmBadge(
+            label: 'Shared',
+            tone: RhythmBadgeTone.accent,
+            compact: true,
+          ),
+      ],
     );
   }
 }

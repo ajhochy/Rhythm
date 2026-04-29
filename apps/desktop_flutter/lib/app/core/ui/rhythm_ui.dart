@@ -11,6 +11,7 @@ export 'rhythm_inspector.dart';
 export 'rhythm_menu_button.dart';
 export 'rhythm_meta_chip.dart';
 export 'rhythm_panel.dart';
+export 'rhythm_preview_row.dart';
 export 'rhythm_search_field.dart';
 export 'rhythm_section_header.dart';
 export 'rhythm_segmented_control.dart';
