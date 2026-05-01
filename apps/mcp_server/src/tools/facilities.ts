@@ -1,6 +1,6 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { apiGet, apiPost, toolResult, toolError } from '../api_client.js';
+import { apiGet, apiPost, toolResult, toolError, decodeHtml } from '../api_client.js';
 import { registerTool } from './_tool.js';
 
 export function registerFacilityTools(server: McpServer, apiUrl: string, apiToken: string) {
@@ -30,11 +30,11 @@ export function registerFacilityTools(server: McpServer, apiUrl: string, apiToke
     async ({ facility_id, title, requester_name, start_time, end_time, notes }: { facility_id: number; title: string; requester_name: string; start_time: string; end_time: string; notes?: string }) => {
       try {
         const reservation = await apiPost<unknown>(apiUrl, apiToken, `/facilities/${facility_id}/reservations`, {
-          title,
-          requesterName: requester_name,
+          title: decodeHtml(title),
+          requesterName: decodeHtml(requester_name),
           startTime: start_time,
           endTime: end_time,
-          ...(notes !== undefined && { notes }),
+          ...(notes !== undefined && { notes: decodeHtml(notes) }),
         });
         return toolResult(JSON.stringify(reservation, null, 2));
       } catch (err) {

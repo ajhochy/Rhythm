@@ -1,6 +1,6 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { apiGet, apiPost, apiPatch, toolResult, toolError } from '../api_client.js';
+import { apiGet, apiPost, apiPatch, toolResult, toolError, decodeHtml } from '../api_client.js';
 import { registerTool } from './_tool.js';
 
 export function registerProjectTools(server: McpServer, apiUrl: string, apiToken: string) {
@@ -26,8 +26,8 @@ export function registerProjectTools(server: McpServer, apiUrl: string, apiToken
     async ({ name, description }: { name: string; description?: string }) => {
       try {
         const template = await apiPost<unknown>(apiUrl, apiToken, '/project-templates', {
-          name,
-          ...(description !== undefined && { description }),
+          name: decodeHtml(name),
+          ...(description !== undefined && { description: decodeHtml(description) }),
         });
         return toolResult(JSON.stringify(template, null, 2));
       } catch (err) {
@@ -48,9 +48,9 @@ export function registerProjectTools(server: McpServer, apiUrl: string, apiToken
     async ({ template_id, title, offset_days, offset_description, sort_order }: { template_id: string; title: string; offset_days: number; offset_description?: string; sort_order?: number }) => {
       try {
         const step = await apiPost<unknown>(apiUrl, apiToken, `/project-templates/${template_id}/steps`, {
-          title,
+          title: decodeHtml(title),
           offsetDays: offset_days,
-          ...(offset_description !== undefined && { offsetDescription: offset_description }),
+          ...(offset_description !== undefined && { offsetDescription: decodeHtml(offset_description) }),
           ...(sort_order !== undefined && { sortOrder: sort_order }),
         });
         return toolResult(JSON.stringify(step, null, 2));
@@ -72,7 +72,7 @@ export function registerProjectTools(server: McpServer, apiUrl: string, apiToken
         const instance = await apiPost<unknown>(apiUrl, apiToken, '/project-instances', {
           templateId: template_id,
           anchorDate: anchor_date,
-          ...(name !== undefined && { name }),
+          ...(name !== undefined && { name: decodeHtml(name) }),
         });
         return toolResult(JSON.stringify(instance, null, 2));
       } catch (err) {
