@@ -25,13 +25,17 @@ class CollaboratorsDataSource {
         .toList();
   }
 
-  Future<void> addToTask(String taskId, int userId) async {
+  Future<List<TaskCollaborator>> addToTask(String taskId, int userId) async {
     final response = await http.post(
       Uri.parse('$_baseUrl/tasks/$taskId/collaborators'),
       headers: AuthSessionStore.headers(json: true),
       body: jsonEncode({'userId': userId}),
     );
     assertOk(response);
+    final list = jsonDecode(response.body) as List<dynamic>;
+    return list
+        .map((item) => TaskCollaborator.fromJson(item as Map<String, dynamic>))
+        .toList();
   }
 
   Future<void> removeFromTask(String taskId, int userId) async {

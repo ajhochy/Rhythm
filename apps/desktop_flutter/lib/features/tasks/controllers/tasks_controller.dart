@@ -35,12 +35,14 @@ class TasksController extends ChangeNotifier {
     String title, {
     String? notes,
     String? dueDate,
+    int? collaboratorId,
   }) async {
     try {
       final task = await _repository.create(
         title,
         notes: notes,
         dueDate: dueDate,
+        collaboratorId: collaboratorId,
       );
       _tasks = [..._tasks, task];
       _status = TasksStatus.idle;
@@ -58,6 +60,10 @@ class TasksController extends ChangeNotifier {
     String? title,
     String? notes,
     String? dueDate,
+    String? scheduledDate,
+    bool includeNotes = false,
+    bool includeDueDate = false,
+    bool includeScheduledDate = false,
   }) async {
     try {
       final updated = await _repository.update(
@@ -65,8 +71,18 @@ class TasksController extends ChangeNotifier {
         title: title,
         notes: notes,
         dueDate: dueDate,
+        scheduledDate: scheduledDate,
+        includeNotes: includeNotes,
+        includeDueDate: includeDueDate,
+        includeScheduledDate: includeScheduledDate,
       );
-      _tasks = _tasks.map((t) => t.id == id ? updated : t).toList();
+      _tasks = _tasks
+          .map(
+            (t) => t.id == id
+                ? updated.copyWith(collaborators: t.collaborators)
+                : t,
+          )
+          .toList();
       _status = TasksStatus.idle;
       _errorMessage = null;
       notifyListeners();

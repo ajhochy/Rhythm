@@ -6,10 +6,14 @@ import '../../tasks/models/task.dart';
 import '../data/dashboard_data_source.dart';
 import '../models/dashboard_overview_models.dart';
 
+export '../models/dashboard_overview_models.dart' show DashboardSummary;
+
 class DashboardRepository {
   DashboardRepository(this._dataSource);
 
   final DashboardDataSource _dataSource;
+
+  Future<DashboardSummary> getSummary() => _dataSource.fetchSummary();
 
   Future<List<Task>> getTasks() => _dataSource.fetchTasks();
 
@@ -25,11 +29,71 @@ class DashboardRepository {
   Future<List<MessageThread>> getMessageThreads() =>
       _dataSource.fetchMessageThreads();
 
-  Future<Task> createTask(String title, {String? dueDate}) =>
-      _dataSource.createTask(title, dueDate: dueDate);
+  Future<Task> createTask(
+    String title, {
+    String? notes,
+    String? dueDate,
+    int? collaboratorId,
+  }) async {
+    final task = await _dataSource.createTask(
+      title,
+      notes: notes,
+      dueDate: dueDate,
+    );
+    if (collaboratorId != null) {
+      await _dataSource.addCollaboratorToTask(task.id, collaboratorId);
+    }
+    return task;
+  }
 
   Future<Task> toggleTaskDone(String id, String currentStatus) =>
       _dataSource.toggleTaskDone(id, currentStatus);
+
+  Future<Task> updateTask(
+    String id, {
+    String? title,
+    String? notes,
+    String? dueDate,
+    String? scheduledDate,
+    bool includeNotes = false,
+    bool includeDueDate = false,
+    bool includeScheduledDate = false,
+  }) =>
+      _dataSource.updateTask(
+        id,
+        title: title,
+        notes: notes,
+        dueDate: dueDate,
+        scheduledDate: scheduledDate,
+        includeNotes: includeNotes,
+        includeDueDate: includeDueDate,
+        includeScheduledDate: includeScheduledDate,
+      );
+
+  Future<ProjectInstanceStep> updateProjectInstanceStepStatus(
+    String stepId,
+    String status,
+  ) =>
+      _dataSource.updateProjectInstanceStepStatus(stepId, status);
+
+  Future<ProjectInstanceStep> updateProjectInstanceStep(
+    String stepId, {
+    String? title,
+    String? dueDate,
+    String? status,
+    String? notes,
+    int? assigneeId,
+    bool includeNotes = false,
+  }) =>
+      _dataSource.updateProjectInstanceStep(
+        stepId,
+        title: title,
+        dueDate: dueDate,
+        status: status,
+        notes: notes,
+        assigneeId: assigneeId,
+        includeNotes: includeNotes,
+      );
 
   /// Builds unread message previews using an already-fetched [threads] list
   /// to avoid a redundant HTTP call to /message-threads.

@@ -1,9 +1,5 @@
 import 'package:flutter/foundation.dart';
 
-import '../../messages/models/message_thread.dart';
-import '../../projects/models/project_instance.dart';
-import '../../projects/models/project_template.dart';
-import '../../tasks/models/recurring_task_rule.dart';
 import '../../tasks/models/task.dart';
 import '../models/dashboard_overview_models.dart';
 import '../repositories/dashboard_repository.dart';
@@ -11,11 +7,9 @@ import '../repositories/dashboard_repository.dart';
 enum DashboardStatus { loading, ready, error }
 
 class DashboardController extends ChangeNotifier {
-  DashboardController(this._repository, {DateTime Function()? now})
-      : _now = now ?? DateTime.now;
+  DashboardController(this._repository);
 
   final DashboardRepository _repository;
-  final DateTime Function() _now;
 
   DashboardStatus _status = DashboardStatus.loading;
   String? _errorMessage;
@@ -36,6 +30,7 @@ class DashboardController extends ChangeNotifier {
   List<Task> _thisWeekTasks = [];
   List<Task> _todayTasks = [];
   List<Task> _unscheduledTasks = [];
+  List<Task> _handoffTasks = [];
   List<DashboardRhythmProgress> _activeRhythms = [];
   List<DashboardProjectProgress> _activeProjects = [];
   List<DashboardUnreadMessagePreview> _unreadMessages = [];
@@ -58,6 +53,7 @@ class DashboardController extends ChangeNotifier {
   List<Task> get thisWeekTasks => _thisWeekTasks;
   List<Task> get todayTasks => _todayTasks;
   List<Task> get unscheduledTasks => _unscheduledTasks;
+  List<Task> get handoffTasks => _handoffTasks;
   List<DashboardRhythmProgress> get activeRhythms => _activeRhythms;
   List<DashboardProjectProgress> get activeProjects => _activeProjects;
   List<DashboardUnreadMessagePreview> get unreadMessages => _unreadMessages;
@@ -69,58 +65,39 @@ class DashboardController extends ChangeNotifier {
     _errorMessage = null;
     notifyListeners();
     try {
-      final results = await Future.wait([
-        _repository.getTasks(),
-        _repository.getRecurringRules(),
-        _repository.getMessageThreads(),
-      ]);
+      final summary = await _repository.getSummary();
+      final t = summary.tasks;
 
-      final tasks = results[0] as List<Task>;
-      final rules = results[1] as List<RecurringTaskRule>;
-      final threads = results[2] as List<MessageThread>;
+      _openTaskCount = t.openCount;
+      _pastDueTaskCount = t.pastDueCount;
+      _todayTasksRemainingCount = t.todayRemainingCount;
+      _todayTasksTotalCount = t.todayTotalCount;
+      _thisWeekTasksRemainingCount = t.thisWeekRemainingCount;
+      _thisWeekTasksTotalCount = t.thisWeekTotalCount;
+      _dueThisWeekCount = t.thisWeekRemainingCount;
+      _unscheduledTaskCount = t.unscheduledCount;
+      _recentTasks = t.recent;
+      _pastDueTasks = t.pastDue;
+      _todayTasks = t.today;
+      _thisWeekTasks = t.thisWeek;
+      _unscheduledTasks = t.unscheduled;
 
-      final now = _now();
-      final today = _stripDate(now)!;
-      final weekEnd = _endOfIsoWeek(today);
+      _activeRhythms = summary.rhythms;
+      _activeRhythmsCount = summary.rhythms.length;
 
-      _openTaskCount = tasks.where((t) => t.status != 'done').length;
-      _pastDueTasks = tasks.where((t) => _isPastDue(t, today)).toList()
+      _handoffTasks = {
+        ..._pastDueTasks,
+        ..._todayTasks,
+        ..._thisWeekTasks,
+        ..._unscheduledTasks,
+      }.where(_hasOpenHandoffContext).toList()
         ..sort(_compareTasks);
-      _todayTasks = tasks.where((t) => _isDueToday(t, today)).toList()
-        ..sort(_compareTasks);
-      _thisWeekTasks = tasks
-          .where((t) => _isDueThisWeek(t, today, weekEnd))
-          .toList()
-        ..sort(_compareTasks);
-      _unscheduledTasks = tasks.where(_isUnscheduled).toList()
-        ..sort((a, b) => b.id.compareTo(a.id));
-      _pastDueTaskCount = _pastDueTasks.length;
-      _todayTasksRemainingCount = _todayTasks.length;
-      _todayTasksTotalCount = tasks
-          .where((task) => _isDueToday(task, today, includeDone: true))
-          .length;
-      _thisWeekTasksRemainingCount = _thisWeekTasks.length;
-      _thisWeekTasksTotalCount = tasks
-          .where(
-            (task) => _isDueThisWeek(task, today, weekEnd, includeDone: true),
-          )
-          .length;
-      _unscheduledTaskCount = _unscheduledTasks.length;
-      _dueThisWeekCount = _thisWeekTasksRemainingCount;
 
-      _activeRhythms = _buildRhythmSummaries(tasks, rules);
-      _activeProjects = await _loadProjectSummaries();
-      _activeRhythmsCount = _activeRhythms.length;
-      _activeProjectsCount = _activeProjects.length;
+      _activeProjects = summary.projects;
+      _activeProjectsCount = summary.projects.length;
 
-      _messageThreadCount = threads.length;
-      _unreadMessages = await _repository.getUnreadMessagePreviews(
-        threads: threads,
-      );
-
-      final sortedRecent = tasks.where((task) => task.status != 'done').toList()
-        ..sort(_compareTasks);
-      _recentTasks = sortedRecent.take(5).toList();
+      _messageThreadCount = summary.messages.threadCount;
+      _unreadMessages = summary.messages.unreadPreviews;
 
       _status = DashboardStatus.ready;
     } catch (e) {
@@ -132,9 +109,19 @@ class DashboardController extends ChangeNotifier {
 
   Future<void> refresh() => load();
 
-  Future<void> createTask(String title, {String? dueDate}) async {
+  Future<void> createTask(
+    String title, {
+    String? notes,
+    String? dueDate,
+    int? collaboratorId,
+  }) async {
     try {
-      await _repository.createTask(title, dueDate: dueDate);
+      await _repository.createTask(
+        title,
+        notes: notes,
+        dueDate: dueDate,
+        collaboratorId: collaboratorId,
+      );
       await refresh();
     } catch (e) {
       _errorMessage = e.toString();
@@ -154,135 +141,76 @@ class DashboardController extends ChangeNotifier {
     }
   }
 
-  List<DashboardRhythmProgress> _buildRhythmSummaries(
-    List<Task> tasks,
-    List<RecurringTaskRule> rules,
-  ) {
-    final summaries = <DashboardRhythmProgress>[];
-    for (final rule in rules) {
-      if (!rule.enabled) continue;
-      final ruleTasks = tasks
-          .where(
-            (task) =>
-                task.sourceType == 'recurring_rule' &&
-                task.sourceId != null &&
-                (task.sourceId == rule.id ||
-                    task.sourceId!.startsWith('${rule.id}:')),
-          )
-          .toList()
-        ..sort(_compareTasks);
-      final completed = ruleTasks.where((task) => task.status == 'done').length;
-      summaries.add(
-        DashboardRhythmProgress(
-          id: rule.id,
-          title: rule.title,
-          subtitle: rule.patternDescription,
-          completedCount: completed,
-          totalCount: ruleTasks.length,
-        ),
-      );
-    }
-    summaries.sort((a, b) {
-      final progressCompare = a.progress.compareTo(b.progress);
-      if (progressCompare != 0) return progressCompare;
-      return a.title.toLowerCase().compareTo(b.title.toLowerCase());
-    });
-    return summaries;
-  }
-
-  List<DashboardProjectProgress> _buildProjectSummaries(
-    List<ProjectInstance> instances,
-    Map<String, ProjectTemplate> templatesById,
-  ) {
-    final summaries = <DashboardProjectProgress>[];
-    for (final instance in instances) {
-      if (instance.status == 'done') continue;
-      final sortedSteps = [...instance.steps]..sort(_compareProjectSteps);
-      final completed =
-          sortedSteps.where((step) => step.status == 'done').length;
-      final template = templatesById[instance.templateId];
-      final title = instance.name?.trim().isNotEmpty == true
-          ? instance.name!.trim()
-          : template?.name ?? 'Project ${instance.anchorDate}';
-      final nextDueDates = sortedSteps
-          .where((step) => step.status != 'done')
-          .map((step) => step.dueDate)
-          .whereType<String>()
-          .toList();
-      summaries.add(
-        DashboardProjectProgress(
-          id: instance.id,
-          title: title,
-          subtitle:
-              '$completed of ${sortedSteps.length} step${sortedSteps.length == 1 ? '' : 's'} complete',
-          completedCount: completed,
-          totalCount: sortedSteps.length,
-          nextDueDate: nextDueDates.isEmpty ? null : nextDueDates.first,
-        ),
-      );
-    }
-    summaries.sort((a, b) {
-      final aDue = DateTime.tryParse(a.nextDueDate ?? '') ?? DateTime(9999);
-      final bDue = DateTime.tryParse(b.nextDueDate ?? '') ?? DateTime(9999);
-      final dueCompare = aDue.compareTo(bDue);
-      if (dueCompare != 0) return dueCompare;
-      final progressCompare = a.progress.compareTo(b.progress);
-      if (progressCompare != 0) return progressCompare;
-      return a.title.toLowerCase().compareTo(b.title.toLowerCase());
-    });
-    return summaries;
-  }
-
-  static bool _isPastDue(Task task, DateTime today) {
-    if (task.status == 'done') return false;
-    final date = _taskPriorityDate(task);
-    return date != null && date.isBefore(today);
-  }
-
-  static bool _isDueToday(
-    Task task,
-    DateTime today, {
-    bool includeDone = false,
-  }) {
-    if (!includeDone && task.status == 'done') return false;
-    final date = _taskPriorityDate(task);
-    return date != null &&
-        date.year == today.year &&
-        date.month == today.month &&
-        date.day == today.day;
-  }
-
-  static bool _isDueThisWeek(
-    Task task,
-    DateTime today,
-    DateTime weekEnd, {
-    bool includeDone = false,
-  }) {
-    if (!includeDone && task.status == 'done') return false;
-    final date = _taskPriorityDate(task);
-    return date != null && date.isAfter(today) && !date.isAfter(weekEnd);
-  }
-
-  static bool _isUnscheduled(Task task) =>
-      task.status != 'done' &&
-      task.dueDate == null &&
-      task.scheduledDate == null;
-
-  Future<List<DashboardProjectProgress>> _loadProjectSummaries() async {
+  Future<void> updateTask(
+    String id, {
+    String? title,
+    String? notes,
+    String? dueDate,
+    String? scheduledDate,
+    bool includeNotes = false,
+    bool includeDueDate = false,
+    bool includeScheduledDate = false,
+  }) async {
     try {
-      final results = await Future.wait([
-        _repository.getProjectTemplates(),
-        _repository.getProjectInstances(),
-      ]);
-      final templates = results[0] as List<ProjectTemplate>;
-      final projectInstances = results[1] as List<ProjectInstance>;
-      final templatesById = {
-        for (final template in templates) template.id: template,
-      };
-      return _buildProjectSummaries(projectInstances, templatesById);
-    } catch (_) {
-      return const [];
+      await _repository.updateTask(
+        id,
+        title: title,
+        notes: notes,
+        dueDate: dueDate,
+        scheduledDate: scheduledDate,
+        includeNotes: includeNotes,
+        includeDueDate: includeDueDate,
+        includeScheduledDate: includeScheduledDate,
+      );
+      await refresh();
+    } catch (e) {
+      _errorMessage = e.toString();
+      notifyListeners();
     }
+  }
+
+  Future<void> toggleProjectStepDone(String stepId, bool currentlyDone) async {
+    try {
+      await _repository.updateProjectInstanceStepStatus(
+        stepId,
+        currentlyDone ? 'open' : 'done',
+      );
+      await refresh();
+    } catch (e) {
+      _errorMessage = e.toString();
+      notifyListeners();
+    }
+  }
+
+  Future<void> updateProjectStep(
+    String stepId, {
+    String? title,
+    String? dueDate,
+    String? status,
+    String? notes,
+    int? assigneeId,
+    bool includeNotes = false,
+  }) async {
+    try {
+      await _repository.updateProjectInstanceStep(
+        stepId,
+        title: title,
+        dueDate: dueDate,
+        status: status,
+        notes: notes,
+        assigneeId: assigneeId,
+        includeNotes: includeNotes,
+      );
+      await refresh();
+    } catch (e) {
+      _errorMessage = e.toString();
+      notifyListeners();
+    }
+  }
+
+  static bool _hasOpenHandoffContext(Task task) {
+    if (task.status == 'done') return false;
+    return task.isShared || task.collaborators.isNotEmpty;
   }
 
   static int _compareTasks(Task a, Task b) {
@@ -290,22 +218,13 @@ class DashboardController extends ChangeNotifier {
     final bDate = _taskPriorityDate(b) ?? DateTime(9999);
     final dateCompare = aDate.compareTo(bDate);
     if (dateCompare != 0) return dateCompare;
-    final aUpdated = DateTime.tryParse(a.updatedAt) ?? DateTime(9999);
-    final bUpdated = DateTime.tryParse(b.updatedAt) ?? DateTime(9999);
-    final updatedCompare = aUpdated.compareTo(bUpdated);
-    if (updatedCompare != 0) return updatedCompare;
-    return a.id.compareTo(b.id);
-  }
-
-  static int _compareProjectSteps(
-    ProjectInstanceStep a,
-    ProjectInstanceStep b,
-  ) {
-    final aDate = DateTime.tryParse(a.dueDate) ?? DateTime(9999);
-    final bDate = DateTime.tryParse(b.dueDate) ?? DateTime(9999);
-    final compare = aDate.compareTo(bDate);
-    if (compare != 0) return compare;
-    return a.title.toLowerCase().compareTo(b.title.toLowerCase());
+    final orderCompare = (a.scheduledOrder ?? 10000000).compareTo(
+      b.scheduledOrder ?? 10000000,
+    );
+    if (orderCompare != 0) return orderCompare;
+    final aCreated = DateTime.tryParse(a.createdAt) ?? DateTime(9999);
+    final bCreated = DateTime.tryParse(b.createdAt) ?? DateTime(9999);
+    return aCreated.compareTo(bCreated);
   }
 
   static DateTime? _taskPriorityDate(Task task) {
@@ -322,18 +241,13 @@ class DashboardController extends ChangeNotifier {
     return DateTime(value.year, value.month, value.day);
   }
 
-  static DateTime _endOfIsoWeek(DateTime date) {
-    final normalized = _stripDate(date)!;
-    final daysUntilSunday = DateTime.daysPerWeek - normalized.weekday;
-    return normalized.add(Duration(days: daysUntilSunday));
-  }
-
   Task? _findTaskById(String id) {
     for (final task in [
       ..._recentTasks,
       ..._thisWeekTasks,
       ..._todayTasks,
       ..._unscheduledTasks,
+      ..._handoffTasks,
     ]) {
       if (task.id == id) return task;
     }

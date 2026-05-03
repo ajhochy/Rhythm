@@ -79,6 +79,7 @@ function stepRowToPlannerTask(row: {
     sourceName: row.instance_name ?? null,
     ownerId: row.owner_id,
     isShared: Boolean(row.is_shared),
+    collaborators: [],
     createdAt: '',
     updatedAt: '',
   };

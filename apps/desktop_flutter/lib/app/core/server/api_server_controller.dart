@@ -11,7 +11,7 @@ class ApiServerController extends ChangeNotifier {
   final String serverUrl;
   static const useEmbeddedServer = bool.fromEnvironment(
     'RHYTHM_USE_EMBEDDED_API',
-    defaultValue: true,
+    defaultValue: false,
   );
   ServerStatus _status = ServerStatus.starting;
   String? _errorMessage;

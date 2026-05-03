@@ -4,7 +4,7 @@ import 'package:provider/provider.dart';
 import '../../../features/messages/controllers/messages_controller.dart';
 import '../../../features/settings/views/settings_view.dart';
 import '../constants/app_constants.dart';
-import '../../theme/rhythm_tokens.dart';
+import '../ui/tokens/rhythm_theme.dart';
 
 class NavigationSidebar extends StatelessWidget {
   const NavigationSidebar({
@@ -36,9 +36,11 @@ class NavigationSidebar extends StatelessWidget {
     return AnimatedContainer(
       duration: const Duration(milliseconds: 180),
       width: collapsed ? 76 : 260,
-      decoration: const BoxDecoration(
-        color: RhythmTokens.surfaceMuted,
-        border: Border(right: BorderSide(color: RhythmTokens.borderSoft)),
+      decoration: BoxDecoration(
+        color: context.rhythm.surfaceMuted,
+        border: Border(
+          right: BorderSide(color: context.rhythm.borderSubtle),
+        ),
       ),
       padding: EdgeInsets.fromLTRB(
         collapsed ? 10 : 16,
@@ -55,10 +57,10 @@ class NavigationSidebar extends StatelessWidget {
               vertical: collapsed ? 10 : 14,
             ),
             decoration: BoxDecoration(
-              color: RhythmTokens.surfaceStrong,
-              borderRadius: BorderRadius.circular(RhythmTokens.radiusL),
-              border: Border.all(color: RhythmTokens.borderSoft),
-              boxShadow: RhythmTokens.shadow,
+              color: context.rhythm.surfaceRaised,
+              borderRadius: BorderRadius.circular(RhythmRadius.xl),
+              border: Border.all(color: context.rhythm.borderSubtle),
+              boxShadow: RhythmElevation.panel,
             ),
             child: Row(
               mainAxisAlignment: collapsed
@@ -70,7 +72,7 @@ class NavigationSidebar extends StatelessWidget {
                   height: 30,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    border: Border.all(color: RhythmTokens.borderSoft),
+                    border: Border.all(color: context.rhythm.borderSubtle),
                     image: const DecorationImage(
                       image: AssetImage('assets/branding/rhythm_logo.png'),
                       fit: BoxFit.cover,
@@ -79,11 +81,11 @@ class NavigationSidebar extends StatelessWidget {
                 ),
                 if (!collapsed) ...[
                   const SizedBox(width: 10),
-                  const Expanded(
+                  Expanded(
                     child: Text(
                       'Rhythm',
                       style: TextStyle(
-                        color: RhythmTokens.textPrimary,
+                        color: context.rhythm.textPrimary,
                         fontSize: 18,
                         fontWeight: FontWeight.w700,
                         letterSpacing: -0.2,
@@ -101,10 +103,10 @@ class NavigationSidebar extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   if (!collapsed) ...[
-                    const Text(
+                    Text(
                       'Workspace',
                       style: TextStyle(
-                        color: RhythmTokens.textMuted,
+                        color: context.rhythm.textMuted,
                         fontSize: 11,
                         fontWeight: FontWeight.w700,
                         letterSpacing: 1.2,
@@ -158,6 +160,40 @@ class _NavItemTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final iconWithBadge = Stack(
+      clipBehavior: Clip.none,
+      children: [
+        Icon(
+          item.icon,
+          color:
+              isSelected ? context.rhythm.accent : context.rhythm.textSecondary,
+          size: 18,
+        ),
+        if ((badgeCount ?? 0) > 0)
+          Positioned(
+            right: -7,
+            top: -7,
+            child: Container(
+              padding: const EdgeInsets.symmetric(
+                horizontal: 5,
+                vertical: 1,
+              ),
+              decoration: BoxDecoration(
+                color: context.rhythm.danger,
+                borderRadius: BorderRadius.circular(999),
+              ),
+              child: Text(
+                '${badgeCount!}',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 10,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
     final tile = AnimatedContainer(
       duration: const Duration(milliseconds: 160),
       padding: EdgeInsets.symmetric(
@@ -165,75 +201,44 @@ class _NavItemTile extends StatelessWidget {
         vertical: collapsed ? 12 : 11,
       ),
       decoration: BoxDecoration(
-        color: RhythmTokens.surfaceStrong,
-        borderRadius: BorderRadius.circular(RhythmTokens.radiusM),
+        color: context.rhythm.surfaceRaised,
+        borderRadius: BorderRadius.circular(RhythmRadius.lg),
         border: Border.all(
-          color: isSelected ? RhythmTokens.accentSoft : RhythmTokens.borderSoft,
+          color: isSelected
+              ? context.rhythm.accentMuted
+              : context.rhythm.borderSubtle,
         ),
-        boxShadow: isSelected ? RhythmTokens.shadow : const [],
+        boxShadow: isSelected ? RhythmElevation.panel : const [],
       ),
-      child: Row(
-        mainAxisAlignment:
-            collapsed ? MainAxisAlignment.center : MainAxisAlignment.start,
-        children: [
-          Stack(
-            clipBehavior: Clip.none,
-            children: [
-              Icon(
-                item.icon,
-                color: isSelected
-                    ? RhythmTokens.accent
-                    : RhythmTokens.textSecondary,
-                size: 18,
-              ),
-              if ((badgeCount ?? 0) > 0)
-                Positioned(
-                  right: -7,
-                  top: -7,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 5,
-                      vertical: 1,
-                    ),
-                    decoration: BoxDecoration(
-                      color: RhythmTokens.danger,
-                      borderRadius: BorderRadius.circular(999),
-                    ),
-                    child: Text(
-                      '${badgeCount!}',
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 10,
-                        fontWeight: FontWeight.w700,
-                      ),
+      child: collapsed
+          ? Center(child: iconWithBadge)
+          : Row(
+              children: [
+                iconWithBadge,
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    item.label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: isSelected
+                          ? context.rhythm.textPrimary
+                          : context.rhythm.textSecondary,
+                      fontWeight:
+                          isSelected ? FontWeight.w700 : FontWeight.w500,
                     ),
                   ),
                 ),
-            ],
-          ),
-          if (!collapsed) ...[
-            const SizedBox(width: 10),
-            Expanded(
-              child: Text(
-                item.label,
-                style: TextStyle(
-                  color: isSelected
-                      ? RhythmTokens.textPrimary
-                      : RhythmTokens.textSecondary,
-                  fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
-                ),
-              ),
+              ],
             ),
-          ],
-        ],
-      ),
     );
 
     return Tooltip(
       message: item.label,
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(RhythmTokens.radiusM),
+        borderRadius: BorderRadius.circular(RhythmRadius.lg),
         child: tile,
       ),
     );
@@ -247,6 +252,11 @@ class _SettingsButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final icon = Icon(
+      Icons.settings_outlined,
+      color: context.rhythm.textSecondary,
+      size: 18,
+    );
     return Tooltip(
       message: 'Settings',
       child: InkWell(
@@ -255,35 +265,33 @@ class _SettingsButton extends StatelessWidget {
             context,
           ).push(MaterialPageRoute<void>(builder: (_) => const SettingsView()));
         },
-        borderRadius: BorderRadius.circular(RhythmTokens.radiusM),
+        borderRadius: BorderRadius.circular(RhythmRadius.lg),
         child: Container(
           padding: EdgeInsets.symmetric(
             horizontal: collapsed ? 0 : 12,
             vertical: 12,
           ),
           decoration: BoxDecoration(
-            color: RhythmTokens.surfaceStrong,
-            borderRadius: BorderRadius.circular(RhythmTokens.radiusM),
-            border: Border.all(color: RhythmTokens.borderSoft),
+            color: context.rhythm.surfaceRaised,
+            borderRadius: BorderRadius.circular(RhythmRadius.lg),
+            border: Border.all(color: context.rhythm.borderSubtle),
           ),
-          child: Row(
-            mainAxisAlignment:
-                collapsed ? MainAxisAlignment.center : MainAxisAlignment.start,
-            children: [
-              const Icon(
-                Icons.settings_outlined,
-                color: RhythmTokens.textSecondary,
-                size: 18,
-              ),
-              if (!collapsed) ...[
-                const SizedBox(width: 10),
-                const Text(
-                  'Settings',
-                  style: TextStyle(color: RhythmTokens.textSecondary),
+          child: collapsed
+              ? Center(child: icon)
+              : Row(
+                  children: [
+                    icon,
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        'Settings',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(color: context.rhythm.textSecondary),
+                      ),
+                    ),
+                  ],
                 ),
-              ],
-            ],
-          ),
         ),
       ),
     );

@@ -1,6 +1,6 @@
 class AppConstants {
   static const String appName = 'Rhythm';
-  static const String apiBaseUrl = 'http://localhost:4000';
+  static const String apiBaseUrl = 'https://api.vcrcapps.com';
 
   // Navigation indices — must match the order of _items in NavigationSidebar.
   static const int navDashboard = 0;
