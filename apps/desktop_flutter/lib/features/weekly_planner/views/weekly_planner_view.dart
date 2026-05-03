@@ -956,7 +956,16 @@ class _DayColumnState extends State<_DayColumn> {
                         .where(
                           (t) => t.sourceType != 'calendar_shadow_event',
                         )
-                        .toList();
+                        .toList()
+                      ..sort((a, b) {
+                        final aOrder = a.scheduledOrder ?? 10000000;
+                        final bOrder = b.scheduledOrder ?? 10000000;
+                        final cmp = aOrder.compareTo(bOrder);
+                        if (cmp != 0) return cmp;
+                        return a.title.toLowerCase().compareTo(
+                              b.title.toLowerCase(),
+                            );
+                      });
 
                     final hasContent =
                         combinedEvents.isNotEmpty || regularTasks.isNotEmpty;

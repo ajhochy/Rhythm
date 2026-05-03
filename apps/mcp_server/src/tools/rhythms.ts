@@ -1,6 +1,6 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { apiGet, apiPost, apiPatch, apiDelete, toolResult, toolError } from '../api_client.js';
+import { apiGet, apiPost, apiPatch, apiDelete, toolResult, toolError, decodeHtml } from '../api_client.js';
 import { registerTool } from './_tool.js';
 
 export function registerRhythmTools(server: McpServer, apiUrl: string, apiToken: string) {
@@ -32,7 +32,7 @@ export function registerRhythmTools(server: McpServer, apiUrl: string, apiToken:
     async ({ title, frequency, day_of_week, day_of_month, month }: { title: string; frequency: string; day_of_week?: string; day_of_month?: number; month?: number }) => {
       try {
         const rhythm = await apiPost<unknown>(apiUrl, apiToken, '/recurring-rules', {
-          title,
+          title: decodeHtml(title),
           frequency,
           ...(day_of_week !== undefined && { dayOfWeek: day_of_week }),
           ...(day_of_month !== undefined && { dayOfMonth: day_of_month }),
@@ -59,7 +59,7 @@ export function registerRhythmTools(server: McpServer, apiUrl: string, apiToken:
     async ({ id, title, frequency, day_of_week, day_of_month, month, enabled }: { id: string; title?: string; frequency?: string; day_of_week?: string; day_of_month?: number | null; month?: number | null; enabled?: boolean }) => {
       try {
         const body: Record<string, unknown> = {};
-        if (title !== undefined) body.title = title;
+        if (title !== undefined) body.title = decodeHtml(title);
         if (frequency !== undefined) body.frequency = frequency;
         if (day_of_week !== undefined) body.dayOfWeek = day_of_week;
         if (day_of_month !== undefined) body.dayOfMonth = day_of_month;

@@ -8,6 +8,7 @@ export const projectInstancesRouter = Router();
 projectInstancesRouter.use(requireAuth);
 
 projectInstancesRouter.get('/', controller.getAllInstances.bind(controller));
+projectInstancesRouter.post('/', controller.createInstance.bind(controller));
 projectInstancesRouter.patch('/steps/:stepId', controller.updateInstanceStep.bind(controller));
 projectInstancesRouter.delete('/:id', controller.deleteInstance.bind(controller));
 projectInstancesRouter.get('/:id/collaborators', controller.getCollaborators.bind(controller));

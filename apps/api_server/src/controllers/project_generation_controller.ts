@@ -32,6 +32,30 @@ export class ProjectGenerationController {
     }
   }
 
+  async createInstance(req: Request, res: Response, next: NextFunction) {
+    try {
+      const { templateId, anchorDate, name } = req.body as Record<string, unknown>;
+      if (!templateId || typeof templateId !== 'string') {
+        throw AppError.badRequest('templateId is required');
+      }
+      if (!anchorDate || typeof anchorDate !== 'string') {
+        throw AppError.badRequest('anchorDate (YYYY-MM-DD) is required');
+      }
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(anchorDate)) {
+        throw AppError.badRequest('anchorDate must be in YYYY-MM-DD format');
+      }
+      const instance = await service.generateAsync(
+        templateId,
+        anchorDate,
+        typeof name === 'string' ? name : null,
+        req.auth!.user.id,
+      );
+      res.status(201).json(instance);
+    } catch (err) {
+      next(err);
+    }
+  }
+
   async getAllInstances(req: Request, res: Response, next: NextFunction) {
     try {
       const { templateId } = req.query as Record<string, string>;

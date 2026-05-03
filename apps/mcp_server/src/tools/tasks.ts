@@ -1,6 +1,6 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { apiGet, apiPost, apiPatch, apiDelete, toolResult, toolError } from '../api_client.js';
+import { apiGet, apiPost, apiPatch, apiDelete, toolResult, toolError, decodeHtml } from '../api_client.js';
 import { registerTool } from './_tool.js';
 
 export function registerTaskTools(server: McpServer, apiUrl: string, apiToken: string) {
@@ -36,8 +36,8 @@ export function registerTaskTools(server: McpServer, apiUrl: string, apiToken: s
     async ({ title, notes, due_date }: { title: string; notes?: string; due_date?: string }) => {
       try {
         const task = await apiPost<unknown>(apiUrl, apiToken, '/tasks', {
-          title,
-          ...(notes !== undefined && { notes }),
+          title: decodeHtml(title),
+          ...(notes !== undefined && { notes: decodeHtml(notes) }),
           ...(due_date !== undefined && { dueDate: due_date }),
         });
         return toolResult(JSON.stringify(task, null, 2));
@@ -59,8 +59,8 @@ export function registerTaskTools(server: McpServer, apiUrl: string, apiToken: s
     async ({ id, title, notes, due_date, status }: { id: string; title?: string; notes?: string; due_date?: string | null; status?: string }) => {
       try {
         const body: Record<string, unknown> = {};
-        if (title !== undefined) body.title = title;
-        if (notes !== undefined) body.notes = notes;
+        if (title !== undefined) body.title = decodeHtml(title);
+        if (notes !== undefined) body.notes = decodeHtml(notes);
         if (due_date !== undefined) body.dueDate = due_date;
         if (status !== undefined) body.status = status;
         const task = await apiPatch<unknown>(apiUrl, apiToken, `/tasks/${id}`, body);

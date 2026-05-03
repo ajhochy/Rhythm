@@ -1,6 +1,6 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import { apiGet, apiPost, toolResult, toolError } from '../api_client.js';
+import { apiGet, apiPost, toolResult, toolError, decodeHtml } from '../api_client.js';
 import { registerTool } from './_tool.js';
 
 export function registerMessageTools(server: McpServer, apiUrl: string, apiToken: string) {
@@ -30,7 +30,7 @@ export function registerMessageTools(server: McpServer, apiUrl: string, apiToken
     async ({ title, participant_ids, thread_type }: { title: string; participant_ids?: number[]; thread_type?: string }) => {
       try {
         const thread = await apiPost<unknown>(apiUrl, apiToken, '/message-threads', {
-          title,
+          title: decodeHtml(title),
           ...(participant_ids !== undefined && { participantIds: participant_ids }),
           ...(thread_type !== undefined && { threadType: thread_type }),
         });
@@ -49,7 +49,7 @@ export function registerMessageTools(server: McpServer, apiUrl: string, apiToken
     },
     async ({ thread_id, body }: { thread_id: number; body: string }) => {
       try {
-        const message = await apiPost<unknown>(apiUrl, apiToken, `/message-threads/${thread_id}/messages`, { body });
+        const message = await apiPost<unknown>(apiUrl, apiToken, `/message-threads/${thread_id}/messages`, { body: decodeHtml(body) });
         return toolResult(JSON.stringify(message, null, 2));
       } catch (err) {
         return toolError(err);

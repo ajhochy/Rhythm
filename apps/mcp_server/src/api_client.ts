@@ -73,6 +73,17 @@ export async function apiDelete(
   }
 }
 
+/** Decode HTML entities that the model may inject into tool call arguments (e.g. & → &amp;). */
+export function decodeHtml(s: string): string {
+  return s
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&apos;/g, "'");
+}
+
 /** Convenience: wraps a tool handler so errors always return isError content. */
 export function toolResult(text: string) {
   return { content: [{ type: 'text' as const, text }] };
