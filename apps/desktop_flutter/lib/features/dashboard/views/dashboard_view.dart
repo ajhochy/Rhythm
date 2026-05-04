@@ -1834,56 +1834,91 @@ class _TaskPreviewRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.rhythm;
+    final isDone = task.status == 'done';
     final tone = _taskTone(task, showPastDue: showPastDue);
     final accent = _toneColor(colors, tone);
-    final description = task.notes?.trim().isNotEmpty == true
-        ? task.notes!.trim()
-        : [
-            if (task.scheduledDate != null)
-              'Scheduled ${DateFormatters.fullDate(task.scheduledDate, fallback: task.scheduledDate!)}',
-            if (task.dueDate != null)
-              'Due ${DateFormatters.fullDate(task.dueDate, fallback: task.dueDate!)}',
-            if (task.sourceName?.trim().isNotEmpty == true)
-              'From ${task.sourceName!.trim()}',
-            if (task.scheduledDate == null &&
-                task.dueDate == null &&
-                task.sourceName?.trim().isNotEmpty != true)
-              'Open the planner for details and next steps.',
-          ].join(' · ');
+    final isPastDue = showPastDue && _isPastDue(task);
+    final dueLabel = task.dueDate != null
+        ? DateFormatters.fullDate(task.dueDate, fallback: task.dueDate!)
+        : null;
+    final sourceName = task.sourceName?.trim();
+    final hasSourceName = sourceName != null && sourceName.isNotEmpty;
+
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: FocusBusinessTaskListItem(
-        title: task.title,
-        description: description,
-        checked: task.status == 'done',
-        onChanged: (_) => onTap(),
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: GestureDetector(
         onTap: onTap,
-        backgroundColor: colors.surfaceMuted.withValues(alpha: 0.62),
-        borderColor: accent.withValues(alpha: 0.18),
-        accentColor: accent,
-        pills: [
-          if (showPastDue && _isPastDue(task))
-            const FocusBusinessPill(
-              label: 'Past due',
-              tone: RhythmBadgeTone.danger,
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: isDone
+                ? colors.surfaceMuted.withValues(alpha: 0.45)
+                : accent.withValues(alpha: 0.09),
+            border: Border(left: BorderSide(color: accent, width: 3)),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: Checkbox(
+                    value: isDone,
+                    onChanged: (_) => onTap(),
+                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    visualDensity:
+                        const VisualDensity(horizontal: -4, vertical: -4),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        task.title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              fontWeight: FontWeight.w600,
+                              fontSize: 13,
+                              decoration:
+                                  isDone ? TextDecoration.lineThrough : null,
+                              color: isDone
+                                  ? colors.textMuted
+                                  : colors.textPrimary,
+                            ),
+                      ),
+                      if (hasSourceName)
+                        Text(
+                          sourceName,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style:
+                              Theme.of(context).textTheme.labelSmall?.copyWith(
+                                    color: colors.textMuted,
+                                    fontSize: 11,
+                                  ),
+                        ),
+                    ],
+                  ),
+                ),
+                if (dueLabel != null) ...[
+                  const SizedBox(width: 6),
+                  RhythmMetaChip(
+                    label: dueLabel,
+                    icon: Icons.flag_outlined,
+                    tone: isPastDue
+                        ? RhythmMetaChipTone.danger
+                        : RhythmMetaChipTone.neutral,
+                  ),
+                ],
+              ],
             ),
-          if (task.dueDate != null)
-            FocusBusinessPill(
-              label:
-                  'Due ${DateFormatters.fullDate(task.dueDate, fallback: task.dueDate!)}',
-              tone: RhythmBadgeTone.neutral,
-            ),
-          if (task.scheduledDate != null)
-            FocusBusinessPill(
-              label:
-                  'Scheduled ${DateFormatters.fullDate(task.scheduledDate, fallback: task.scheduledDate!)}',
-              tone: RhythmBadgeTone.neutral,
-            ),
-          if (task.sourceName?.trim().isNotEmpty == true)
-            FocusBusinessPill(label: task.sourceName!.trim(), tone: tone)
-          else if (task.sourceType != null)
-            FocusBusinessPill(label: _taskSourceLabel(task), tone: tone),
-        ],
+          ),
+        ),
       ),
     );
   }
