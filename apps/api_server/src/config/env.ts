@@ -75,4 +75,6 @@ export const env = {
     }
     return parsed;
   })(),
+  resendApiKey: process.env.RESEND_API_KEY ?? '',
+  emailFromAddress: process.env.EMAIL_FROM_ADDRESS ?? 'Rhythm <onboarding@resend.dev>',
 };

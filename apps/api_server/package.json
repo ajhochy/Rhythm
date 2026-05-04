@@ -19,6 +19,7 @@
     "express": "^4.19.2",
     "node-cron": "^3.0.3",
     "pg": "^8.20.0",
+    "resend": "^6.12.2",
     "uuid": "^13.0.0"
   },
   "devDependencies": {
