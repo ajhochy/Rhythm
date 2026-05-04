@@ -1093,17 +1093,6 @@ class _TaskTile extends StatelessWidget {
     final isShadowEvent = task.sourceType == 'calendar_shadow_event';
     final visualStyle = TaskVisualStyles.resolve(task);
     final shadowTimeLabel = isShadowEvent ? _shadowEventLabel(task) : null;
-    final isPastDue = DateFormatters.isPastDue(
-      dueDate: task.dueDate,
-      scheduledDate: task.scheduledDate,
-      isDone: isDone,
-    );
-    final workspaceMembers = context.watch<WorkspaceController>().members;
-    final ownerName = _ownerName(task.ownerId, workspaceMembers);
-    final sourceName = task.sourceName?.trim();
-    final hasSourceName = sourceName != null && sourceName.isNotEmpty;
-    final notesPreview = task.notes?.trim();
-    final hasNotes = notesPreview != null && notesPreview.isNotEmpty;
     final colors = context.rhythm;
     return GestureDetector(
       onTap: () => controller.selectTask(task.id),
@@ -1111,17 +1100,12 @@ class _TaskTile extends StatelessWidget {
           isShadowEvent ? null : () => controller.toggleTaskSelection(task.id),
       child: LayoutBuilder(
         builder: (context, constraints) {
-          final showContext = !compact || constraints.maxWidth >= 118;
-          final showNotes =
-              hasNotes && (!compact || constraints.maxWidth >= 142);
           return AnimatedContainer(
             duration: const Duration(milliseconds: 120),
-            margin: compact
-                ? const EdgeInsets.symmetric(horizontal: 8, vertical: 2)
-                : const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
             padding: EdgeInsets.symmetric(
               horizontal: compact ? 8 : 10,
-              vertical: compact ? 8 : 11,
+              vertical: compact ? 8 : 5,
             ),
             decoration: BoxDecoration(
               color: isSelected || isMultiSelected
@@ -1138,7 +1122,7 @@ class _TaskTile extends StatelessWidget {
                   : const [],
             ),
             child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
+              crossAxisAlignment: CrossAxisAlignment.center,
               children: [
                 if (isShadowEvent)
                   Container(
@@ -1188,9 +1172,8 @@ class _TaskTile extends StatelessWidget {
                         ),
                       Text(
                         task.title,
-                        maxLines: compact ? 4 : 3,
+                        maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        softWrap: true,
                         style: (compact
                                 ? Theme.of(context).textTheme.labelSmall
                                 : Theme.of(context).textTheme.bodySmall)
@@ -1205,66 +1188,6 @@ class _TaskTile extends StatelessWidget {
                           height: compact ? 1.18 : 1.25,
                         ),
                       ),
-                      if (showContext &&
-                          (isPastDue ||
-                              isDone ||
-                              ownerName != null ||
-                              task.sourceType != null ||
-                              hasSourceName)) ...[
-                        const SizedBox(height: 6),
-                        Wrap(
-                          spacing: 5,
-                          runSpacing: 5,
-                          children: [
-                            if (isPastDue)
-                              const RhythmBadge(
-                                label: 'Past due',
-                                tone: RhythmBadgeTone.danger,
-                                compact: true,
-                              ),
-                            if (isDone)
-                              const RhythmBadge(
-                                label: 'Done',
-                                tone: RhythmBadgeTone.success,
-                                compact: true,
-                              ),
-                            if (ownerName != null)
-                              RhythmMetaChip(
-                                icon: Icons.person_outline,
-                                label: ownerName,
-                                color: _plannerMutedTextColor(
-                                    context, visualStyle),
-                                maxWidth: 128,
-                              ),
-                            if (task.sourceType != null || hasSourceName)
-                              RhythmMetaChip(
-                                icon: _sourceIcon(task.sourceType),
-                                label: _sourceLabelForTask(task),
-                                color:
-                                    _plannerAccentColor(context, visualStyle),
-                                maxWidth: 128,
-                              ),
-                          ],
-                        ),
-                      ],
-                      if (showNotes) ...[
-                        const SizedBox(height: 6),
-                        Text(
-                          notesPreview,
-                          maxLines: compact ? 2 : 3,
-                          overflow: TextOverflow.ellipsis,
-                          style:
-                              Theme.of(context).textTheme.labelSmall?.copyWith(
-                                    color: isDone
-                                        ? colors.textMuted
-                                        : _plannerMutedTextColor(
-                                            context,
-                                            visualStyle,
-                                          ),
-                                    height: 1.25,
-                                  ),
-                        ),
-                      ],
                     ],
                   ),
                 ),
@@ -1300,39 +1223,6 @@ class _TaskTile extends StatelessWidget {
       ),
     );
   }
-
-  String? _ownerName(int? ownerId, List<WorkspaceMember> workspaceMembers) {
-    if (ownerId == null) return null;
-    for (final member in workspaceMembers) {
-      if (member.userId == ownerId) {
-        final name = member.name.trim();
-        return name.isEmpty ? member.email.trim() : name;
-      }
-    }
-    return 'User $ownerId';
-  }
-}
-
-IconData _sourceIcon(String? sourceType) => switch (sourceType) {
-      'automation_rule' => Icons.auto_awesome,
-      'planning_center_signal' => Icons.groups_2_outlined,
-      'calendar_shadow_event' => Icons.event_available_outlined,
-      'project_step' => Icons.folder_open_outlined,
-      'recurring_rule' => Icons.repeat,
-      _ => Icons.link,
-    };
-
-String _sourceLabelForTask(Task task) {
-  final sourceName = task.sourceName?.trim();
-  if (sourceName != null && sourceName.isNotEmpty) return sourceName;
-  return switch (task.sourceType) {
-    'automation_rule' => 'Automation',
-    'planning_center_signal' => 'Planning Center',
-    'calendar_shadow_event' => 'Calendar',
-    'project_step' => 'Project',
-    'recurring_rule' => 'Rhythm',
-    _ => 'Source',
-  };
 }
 
 // ---------------------------------------------------------------------------
@@ -1969,15 +1859,6 @@ Color _plannerTextColor(BuildContext context, TaskVisualStyle visualStyle) {
     return visualStyle.text;
   }
   return colors.textPrimary;
-}
-
-Color _plannerMutedTextColor(
-    BuildContext context, TaskVisualStyle visualStyle) {
-  final colors = context.rhythm;
-  if (Theme.of(context).brightness != Brightness.dark) {
-    return visualStyle.mutedText;
-  }
-  return Color.lerp(colors.textSecondary, visualStyle.accent, 0.2)!;
 }
 
 Color _plannerAccentColor(BuildContext context, TaskVisualStyle visualStyle) {
