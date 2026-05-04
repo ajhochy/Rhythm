@@ -4,6 +4,8 @@ export interface TaskCollaborator {
   photoUrl: string | null;
 }
 
+export type TaskStatus = 'open' | 'in_progress' | 'waiting_for_reply' | 'done';
+
 export interface Task {
   id: string;
   title: string;
@@ -12,7 +14,7 @@ export interface Task {
   scheduledDate: string | null;
   scheduledOrder: number | null;
   locked: boolean;
-  status: 'open' | 'done';
+  status: TaskStatus;
   sourceType: string | null;
   sourceId: string | null;
   sourceName: string | null;
@@ -31,7 +33,7 @@ export interface CreateTaskDto {
   title: string;
   notes?: string | null;
   dueDate?: string | null;
-  status?: 'open' | 'done';
+  status?: TaskStatus;
   scheduledDate?: string | null;
   scheduledOrder?: number | null;
   locked?: boolean;
@@ -44,7 +46,7 @@ export interface UpdateTaskDto {
   title?: string;
   notes?: string | null;
   dueDate?: string | null;
-  status?: 'open' | 'done';
+  status?: TaskStatus;
   scheduledDate?: string | null;
   scheduledOrder?: number | null;
   locked?: boolean;
