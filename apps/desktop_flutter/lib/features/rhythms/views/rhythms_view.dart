@@ -318,12 +318,21 @@ class _RuleTile extends StatelessWidget {
 // ---------------------------------------------------------------------------
 
 class _StepEditorModel {
-  _StepEditorModel({required this.id, String? title, this.assigneeId})
-      : titleController = TextEditingController(text: title ?? '');
+  _StepEditorModel({
+    required this.id,
+    String? title,
+    this.assigneeId,
+    this.dayOfWeek,
+    this.dayOfMonth,
+    this.month,
+  }) : titleController = TextEditingController(text: title ?? '');
 
   final String id;
   final TextEditingController titleController;
   int? assigneeId;
+  int? dayOfWeek;
+  int? dayOfMonth;
+  int? month;
 
   void dispose() => titleController.dispose();
 
@@ -332,6 +341,9 @@ class _StepEditorModel {
       id: id,
       title: titleController.text.trim(),
       assigneeId: assigneeId,
+      dayOfWeek: dayOfWeek,
+      dayOfMonth: dayOfMonth,
+      month: month,
     );
   }
 }
@@ -537,8 +549,15 @@ class _CreateRuleDialogState extends State<_CreateRuleDialog> {
                     for (var i = 0; i < _steps.length; i++) ...[
                       _StepEditorRow(
                         step: _steps[i],
+                        frequency: _frequency,
                         onAssigneeChanged: (value) =>
                             setState(() => _steps[i].assigneeId = value),
+                        onDayOfWeekChanged: (value) =>
+                            setState(() => _steps[i].dayOfWeek = value),
+                        onDayOfMonthChanged: (value) =>
+                            setState(() => _steps[i].dayOfMonth = value),
+                        onMonthChanged: (value) =>
+                            setState(() => _steps[i].month = value),
                         onRemove: () {
                           setState(() {
                             _steps[i].dispose();
@@ -660,6 +679,9 @@ class _EditRuleDialogState extends State<_EditRuleDialog> {
           id: step.id,
           title: step.title,
           assigneeId: step.assigneeId,
+          dayOfWeek: step.dayOfWeek,
+          dayOfMonth: step.dayOfMonth,
+          month: step.month,
         ),
       ),
     );
@@ -822,8 +844,15 @@ class _EditRuleDialogState extends State<_EditRuleDialog> {
                     for (var i = 0; i < _steps.length; i++) ...[
                       _StepEditorRow(
                         step: _steps[i],
+                        frequency: _frequency,
                         onAssigneeChanged: (value) =>
                             setState(() => _steps[i].assigneeId = value),
+                        onDayOfWeekChanged: (value) =>
+                            setState(() => _steps[i].dayOfWeek = value),
+                        onDayOfMonthChanged: (value) =>
+                            setState(() => _steps[i].dayOfMonth = value),
+                        onMonthChanged: (value) =>
+                            setState(() => _steps[i].month = value),
                         onRemove: () {
                           setState(() {
                             _steps[i].dispose();
@@ -889,13 +918,46 @@ class _EditRuleDialogState extends State<_EditRuleDialog> {
 class _StepEditorRow extends StatelessWidget {
   const _StepEditorRow({
     required this.step,
+    required this.frequency,
     required this.onAssigneeChanged,
+    required this.onDayOfWeekChanged,
+    required this.onDayOfMonthChanged,
+    required this.onMonthChanged,
     required this.onRemove,
   });
 
   final _StepEditorModel step;
+  final String frequency;
   final ValueChanged<int?> onAssigneeChanged;
+  final ValueChanged<int> onDayOfWeekChanged;
+  final ValueChanged<int> onDayOfMonthChanged;
+  final ValueChanged<int> onMonthChanged;
   final VoidCallback onRemove;
+
+  static const _weekdays = [
+    'Sunday',
+    'Monday',
+    'Tuesday',
+    'Wednesday',
+    'Thursday',
+    'Friday',
+    'Saturday',
+  ];
+
+  static const _months = [
+    'January',
+    'February',
+    'March',
+    'April',
+    'May',
+    'June',
+    'July',
+    'August',
+    'September',
+    'October',
+    'November',
+    'December',
+  ];
 
   @override
   Widget build(BuildContext context) {
@@ -941,6 +1003,50 @@ class _StepEditorRow extends StatelessWidget {
             selectedUserId: step.assigneeId,
             onChanged: onAssigneeChanged,
           ),
+          if (frequency == 'weekly') ...[
+            const SizedBox(height: 12),
+            DropdownButtonFormField<int>(
+              value: step.dayOfWeek,
+              decoration: const InputDecoration(
+                labelText: 'Day of Week',
+                border: OutlineInputBorder(),
+              ),
+              items: [
+                for (var i = 0; i < _weekdays.length; i++)
+                  DropdownMenuItem(value: i, child: Text(_weekdays[i])),
+              ],
+              onChanged: (v) {
+                if (v != null) onDayOfWeekChanged(v);
+              },
+            ),
+          ] else if (frequency == 'monthly') ...[
+            const SizedBox(height: 12),
+            _DayOfMonthField(
+              value: step.dayOfMonth ?? 1,
+              onChanged: onDayOfMonthChanged,
+            ),
+          ] else if (frequency == 'annual') ...[
+            const SizedBox(height: 12),
+            DropdownButtonFormField<int>(
+              value: step.month,
+              decoration: const InputDecoration(
+                labelText: 'Month',
+                border: OutlineInputBorder(),
+              ),
+              items: [
+                for (var i = 0; i < _months.length; i++)
+                  DropdownMenuItem(value: i + 1, child: Text(_months[i])),
+              ],
+              onChanged: (v) {
+                if (v != null) onMonthChanged(v);
+              },
+            ),
+            const SizedBox(height: 12),
+            _DayOfMonthField(
+              value: step.dayOfMonth ?? 1,
+              onChanged: onDayOfMonthChanged,
+            ),
+          ],
         ],
       ),
     );
