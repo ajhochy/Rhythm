@@ -3,6 +3,9 @@ export interface RecurringTaskRuleStep {
   title: string;
   assigneeId: number | null;
   assigneeName?: string | null;
+  dayOfWeek?: number | null;
+  dayOfMonth?: number | null;
+  month?: number | null;
 }
 
 export interface RhythmCollaborator {
