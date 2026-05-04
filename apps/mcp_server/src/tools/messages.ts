@@ -62,4 +62,22 @@ export function registerMessageTools(server: McpServer, apiUrl: string, apiToken
       }
     },
   );
+
+  registerTool(server, 'rhythm_get_task_thread',
+    'Find the message thread linked to a specific task. Returns the thread object or null.',
+    { task_id: z.string().describe('The task ID to look up.') },
+    async ({ task_id }: { task_id: string }) => {
+      try {
+        const threads = await apiGet<unknown[]>(
+          apiUrl,
+          apiToken,
+          `/message-threads?task_id=${encodeURIComponent(task_id)}`,
+        );
+        const thread = Array.isArray(threads) && threads.length > 0 ? threads[0] : null;
+        return toolResult(JSON.stringify(thread, null, 2));
+      } catch (err) {
+        return toolError(err);
+      }
+    },
+  );
 }
