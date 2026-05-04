@@ -525,6 +525,12 @@ export class TasksRepository {
       });
     }
 
+    // User has marked this externally-tracked task as done. Don't reopen
+    // or otherwise mutate it on subsequent automation syncs.
+    if (existing.status === 'done') {
+      return existing;
+    }
+
     return this.updateAsync(existing.id, {
       title: data.title,
       notes: data.notes ?? null,
@@ -547,6 +553,12 @@ export class TasksRepository {
         ...data,
         status: data.status ?? 'open',
       });
+    }
+
+    // User has marked this externally-tracked task as done. Don't reopen
+    // or otherwise mutate it on subsequent automation syncs.
+    if (existing.status === 'done') {
+      return existing;
     }
 
     return this.update(existing.id, {
