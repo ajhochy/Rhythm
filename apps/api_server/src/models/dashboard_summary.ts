@@ -28,6 +28,16 @@ export interface DashboardRhythmSummary {
   items: DashboardRhythmItem[];
 }
 
+export interface DashboardProjectStepPreview {
+  id: string;
+  title: string;
+  status: string;
+  dueDate: string | null;
+  notes: string | null;
+  assigneeId: number | null;
+  assigneeName: string | null;
+}
+
 export interface DashboardProjectItem {
   id: string;
   title: string;
@@ -35,6 +45,9 @@ export interface DashboardProjectItem {
   completedCount: number;
   totalCount: number;
   nextDueDate: string | null;
+  onDeckSteps: DashboardProjectStepPreview[];
+  ownerId: number | null;
+  collaboratorNames: string[];
 }
 
 export interface DashboardProjectSummary {
