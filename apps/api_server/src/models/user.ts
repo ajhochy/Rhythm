@@ -6,6 +6,7 @@ export interface User {
   photoUrl: string | null;
   role: string;
   isFacilitiesManager: boolean;
+  emailNotificationsEnabled: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -17,6 +18,7 @@ export interface CreateUserDto {
   photoUrl?: string | null;
   role?: string;
   isFacilitiesManager?: boolean;
+  emailNotificationsEnabled?: boolean;
 }
 
 export interface UpdateUserDto {
@@ -26,4 +28,5 @@ export interface UpdateUserDto {
   photoUrl?: string | null;
   role?: string;
   isFacilitiesManager?: boolean;
+  emailNotificationsEnabled?: boolean;
 }

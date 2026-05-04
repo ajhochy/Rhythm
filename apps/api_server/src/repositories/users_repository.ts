@@ -12,6 +12,7 @@ interface UserRow {
   photo_url: string | null;
   role: string;
   is_facilities_manager: number;
+  email_notifications_enabled: number | boolean;
   created_at: string;
   updated_at: string;
 }
@@ -22,6 +23,11 @@ function rowToUser(row: UserRow): User {
       ? row.is_facilities_manager
       : row.is_facilities_manager === 1;
 
+  const emailNotificationsEnabled =
+    typeof row.email_notifications_enabled === 'boolean'
+      ? row.email_notifications_enabled
+      : row.email_notifications_enabled === 1;
+
   return {
     id: row.id,
     name: row.name,
@@ -30,6 +36,7 @@ function rowToUser(row: UserRow): User {
     photoUrl: row.photo_url,
     role: row.role,
     isFacilitiesManager,
+    emailNotificationsEnabled,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -121,8 +128,8 @@ export class UsersRepository {
   async createAsync(data: CreateUserDto): Promise<User> {
     if (env.dbClient === 'postgres') {
       const result = await getPostgresPool().query<UserRow>(
-        `INSERT INTO users (name, email, google_sub, photo_url, role, is_facilities_manager)
-         VALUES ($1, $2, $3, $4, $5, $6)
+        `INSERT INTO users (name, email, google_sub, photo_url, role, is_facilities_manager, email_notifications_enabled)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
          RETURNING *`,
         [
           data.name,
@@ -131,6 +138,7 @@ export class UsersRepository {
           data.photoUrl ?? null,
           data.role ?? 'member',
           data.isFacilitiesManager ?? false,
+          data.emailNotificationsEnabled ?? true,
         ],
       );
       return rowToUser(result.rows[0]);
@@ -142,7 +150,7 @@ export class UsersRepository {
   create(data: CreateUserDto): User {
     const result = getDb()
       .prepare(
-        `INSERT INTO users (name, email, google_sub, photo_url, role, is_facilities_manager) VALUES (?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO users (name, email, google_sub, photo_url, role, is_facilities_manager, email_notifications_enabled) VALUES (?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         data.name,
@@ -151,6 +159,7 @@ export class UsersRepository {
         data.photoUrl ?? null,
         data.role ?? 'member',
         data.isFacilitiesManager ? 1 : 0,
+        (data.emailNotificationsEnabled ?? true) ? 1 : 0,
       );
     return this.findById(result.lastInsertRowid as number);
   }
@@ -167,8 +176,9 @@ export class UsersRepository {
                 photo_url = $4,
                 role = $5,
                 is_facilities_manager = $6,
-                updated_at = $7
-          WHERE id = $8
+                email_notifications_enabled = $7,
+                updated_at = $8
+          WHERE id = $9
           RETURNING *`,
         [
           data.name ?? existing.name,
@@ -179,6 +189,9 @@ export class UsersRepository {
           data.isFacilitiesManager !== undefined
             ? data.isFacilitiesManager
             : existing.isFacilitiesManager,
+          data.emailNotificationsEnabled !== undefined
+            ? data.emailNotificationsEnabled
+            : existing.emailNotificationsEnabled,
           now,
           id,
         ],
@@ -194,7 +207,7 @@ export class UsersRepository {
     const now = new Date().toISOString();
     getDb()
       .prepare(
-        `UPDATE users SET name = ?, email = ?, google_sub = ?, photo_url = ?, role = ?, is_facilities_manager = ?, updated_at = ? WHERE id = ?`,
+        `UPDATE users SET name = ?, email = ?, google_sub = ?, photo_url = ?, role = ?, is_facilities_manager = ?, email_notifications_enabled = ?, updated_at = ? WHERE id = ?`,
       )
       .run(
         data.name ?? existing.name,
@@ -205,6 +218,9 @@ export class UsersRepository {
         data.isFacilitiesManager !== undefined
             ? (data.isFacilitiesManager ? 1 : 0)
             : (existing.isFacilitiesManager ? 1 : 0),
+        data.emailNotificationsEnabled !== undefined
+            ? (data.emailNotificationsEnabled ? 1 : 0)
+            : (existing.emailNotificationsEnabled ? 1 : 0),
         now,
         id,
       );
