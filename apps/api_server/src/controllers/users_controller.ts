@@ -57,6 +57,20 @@ export class UsersController {
     }
   }
 
+  async updateMyPreferences(req: Request, res: Response, next: NextFunction) {
+    try {
+      const userId = req.auth!.user.id;
+      const { emailNotificationsEnabled } = req.body as Record<string, unknown>;
+      if (typeof emailNotificationsEnabled !== 'boolean') {
+        throw AppError.badRequest('emailNotificationsEnabled must be a boolean');
+      }
+      const user = await repo.updateAsync(userId, { emailNotificationsEnabled });
+      res.json(user);
+    } catch (err) {
+      next(err);
+    }
+  }
+
   async update(req: Request, res: Response, next: NextFunction) {
     try {
       this.requireAdmin(req);
