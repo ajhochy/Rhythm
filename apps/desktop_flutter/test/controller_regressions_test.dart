@@ -251,7 +251,7 @@ class _FakeDashboardDataSource extends DashboardDataSource {
         Task(
           id: '2',
           title: 'Recent task',
-          status: 'open',
+          status: TaskStatus.open,
           createdAt: '2026-03-31T00:00:00.000Z',
           updatedAt: '2026-03-31T00:00:00.000Z',
         ),
@@ -284,7 +284,7 @@ class _FakeDashboardDataSource extends DashboardDataSource {
     return Task(
       id: id,
       title: 'Recent task',
-      status: 'done',
+      status: TaskStatus.done,
       createdAt: '2026-03-31T00:00:00.000Z',
       updatedAt: '2026-03-31T00:00:00.000Z',
     );
@@ -322,7 +322,7 @@ class _FakeDashboardHandoffDataSource extends _FakeDashboardDataSource {
           Task(
             id: 'shared-due',
             title: 'Shared due task',
-            status: 'open',
+            status: TaskStatus.open,
             dueDate: '2026-04-09',
             ownerId: 1,
             isShared: true,
@@ -335,7 +335,7 @@ class _FakeDashboardHandoffDataSource extends _FakeDashboardDataSource {
           Task(
             id: 'collaborative-unscheduled',
             title: 'Collaborative task',
-            status: 'open',
+            status: TaskStatus.open,
             ownerId: 2,
             collaborators: [TaskCollaborator(userId: 1, name: 'Alice')],
             createdAt: '2026-04-08T00:00:00.000Z',
@@ -372,7 +372,7 @@ class _FakeDashboardStableOrderingDataSource extends _FakeDashboardDataSource {
           Task(
             id: 'early',
             title: 'First task',
-            status: 'open',
+            status: TaskStatus.open,
             dueDate: '2026-04-09',
             createdAt: '2026-04-08T00:00:00.000Z',
             updatedAt: '2026-04-09T12:00:00.000Z',
@@ -380,7 +380,7 @@ class _FakeDashboardStableOrderingDataSource extends _FakeDashboardDataSource {
           Task(
             id: 'late',
             title: 'Edited task',
-            status: 'open',
+            status: TaskStatus.open,
             dueDate: '2026-04-09',
             createdAt: '2026-04-08T01:00:00.000Z',
             updatedAt: '2026-04-09T23:59:00.000Z',

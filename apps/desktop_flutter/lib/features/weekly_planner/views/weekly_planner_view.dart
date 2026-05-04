@@ -119,7 +119,8 @@ class _WeeklyPlannerViewState extends State<WeeklyPlannerView> {
       ),
       onToggleStatus: task.sourceType == 'calendar_shadow_event'
           ? null
-          : () => controller.toggleTaskDone(task, task.status == 'done'),
+          : () =>
+              controller.toggleTaskDone(task, task.status == TaskStatus.done),
       onAddCollaborator: task.sourceType == 'calendar_shadow_event'
           ? null
           : (userId) async {
@@ -372,7 +373,7 @@ class _PlannerBody extends StatelessWidget {
 
     final visibleBacklog = showCompleted
         ? plan.backlog
-        : plan.backlog.where((t) => t.status != 'done').toList();
+        : plan.backlog.where((t) => t.status != TaskStatus.done).toList();
     final showBacklogPane = visibleBacklog.isNotEmpty;
 
     return LayoutBuilder(
@@ -453,7 +454,7 @@ class _BacklogPane extends StatelessWidget {
   Widget build(BuildContext context) {
     final backlog = showCompleted
         ? plan.backlog
-        : plan.backlog.where((t) => t.status != 'done').toList();
+        : plan.backlog.where((t) => t.status != TaskStatus.done).toList();
     final colors = context.rhythm;
     return RhythmSurface(
       tone: RhythmSurfaceTone.muted,
@@ -760,7 +761,7 @@ class _DayColumnState extends State<_DayColumn> {
     final colors = context.rhythm;
     final displayTasks = widget.showCompleted
         ? widget.tasks
-        : widget.tasks.where((t) => t.status != 'done').toList();
+        : widget.tasks.where((t) => t.status != TaskStatus.done).toList();
     final addButton = Padding(
       padding: const EdgeInsets.fromLTRB(8, 8, 8, 8),
       child: InkWell(
@@ -1045,7 +1046,7 @@ class _TaskTile extends StatelessWidget {
   Widget _card(BuildContext context) {
     final isSelected = controller.selectedTaskId == task.id;
     final isMultiSelected = controller.selectedTaskIds.contains(task.id);
-    final isDone = task.status == 'done';
+    final isDone = task.status == TaskStatus.done;
     final isShadowEvent = task.sourceType == 'calendar_shadow_event';
     final visualStyle = TaskVisualStyles.resolve(task);
     final shadowTimeLabel = isShadowEvent ? _shadowEventLabel(task) : null;
@@ -1295,7 +1296,7 @@ class _DetailPaneState extends State<_DetailPane> {
   @override
   Widget build(BuildContext context) {
     final task = widget.task;
-    final isDone = task.status == 'done';
+    final isDone = task.status == TaskStatus.done;
     final isShadowEvent = task.sourceType == 'calendar_shadow_event';
     final timeLabel = _shadowEventLabel(task);
     final workspaceMembers = context.watch<WorkspaceController>().members;
@@ -1824,7 +1825,7 @@ Color _plannerSurfaceColor(
   if (Theme.of(context).brightness != Brightness.dark) {
     return visualStyle.background;
   }
-  if (task.status == 'done') {
+  if (task.status == TaskStatus.done) {
     return colors.surfaceMuted.withValues(alpha: 0.72);
   }
   return Color.lerp(colors.surfaceRaised, visualStyle.accent, 0.12)!;
@@ -1839,7 +1840,7 @@ Color _plannerBorderColor(
   if (Theme.of(context).brightness != Brightness.dark) {
     return visualStyle.border;
   }
-  if (task.status == 'done') {
+  if (task.status == TaskStatus.done) {
     return colors.border;
   }
   return Color.lerp(colors.border, visualStyle.accent, 0.38)!;

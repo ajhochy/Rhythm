@@ -23,7 +23,7 @@ class TaskVisualStyle {
 
 class TaskVisualStyles {
   static TaskVisualStyle resolve(Task task, {DateTime? today}) {
-    final isDone = task.status == 'done';
+    final isDone = task.status == TaskStatus.done;
     final isPastDue = DateFormatters.isPastDue(
       dueDate: task.dueDate,
       scheduledDate: task.scheduledDate,

@@ -76,7 +76,7 @@ class WeeklyPlanDataSource {
         ? Task(
             id: asString(body['id']) ?? '',
             title: asString(body['title']) ?? '',
-            status: asString(body['status']) ?? 'open',
+            status: TaskStatusJson.fromJson(asString(body['status']) ?? 'open'),
             createdAt: '',
             updatedAt: '',
             notes: asString(body['notes']),

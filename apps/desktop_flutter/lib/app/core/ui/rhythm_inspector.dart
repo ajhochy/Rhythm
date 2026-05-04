@@ -429,7 +429,7 @@ class _RhythmTaskInspectorState extends State<_RhythmTaskInspector> {
           : 'Review context, coordinate with collaborators, and edit the work when needed.',
       icon: _readOnly
           ? Icons.event_note_outlined
-          : widget.task.status == 'done'
+          : widget.task.status == TaskStatus.done
               ? Icons.task_alt
               : Icons.radio_button_unchecked,
       onIconTap: _readOnly || widget.onToggleStatus == null
@@ -442,8 +442,8 @@ class _RhythmTaskInspectorState extends State<_RhythmTaskInspector> {
       headerPills: [
         _headerPill(
           context,
-          widget.task.status == 'done' ? 'Done' : 'Open',
-          widget.task.status == 'done'
+          widget.task.status == TaskStatus.done ? 'Done' : 'Open',
+          widget.task.status == TaskStatus.done
               ? colors.success
               : visualStyle.accent.withValues(alpha: 0.95),
         ),
@@ -628,7 +628,8 @@ class _RhythmTaskInspectorState extends State<_RhythmTaskInspector> {
               children: [
                 _MetaRow(
                   label: 'Status',
-                  value: widget.task.status == 'done' ? 'Done' : 'Open',
+                  value:
+                      widget.task.status == TaskStatus.done ? 'Done' : 'Open',
                 ),
                 if (sourceLabel != null)
                   _MetaRow(label: 'Source', value: sourceLabel),

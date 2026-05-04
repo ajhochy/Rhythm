@@ -110,7 +110,9 @@ class _TasksViewState extends State<TasksView> {
   List<Task> _visibleTasks(TasksController controller) {
     final tasks = _showCompleted
         ? controller.tasks.toList()
-        : controller.tasks.where((task) => task.status != 'done').toList();
+        : controller.tasks
+            .where((task) => task.status != TaskStatus.done)
+            .toList();
     final query = _searchQuery.trim().toLowerCase();
     if (query.isNotEmpty) {
       return tasks.where((task) {
@@ -316,7 +318,7 @@ class _TasksViewState extends State<TasksView> {
     final completed = <Task>[];
 
     for (final task in tasks) {
-      if (task.status == 'done') {
+      if (task.status == TaskStatus.done) {
         completed.add(task);
         continue;
       }
@@ -451,7 +453,7 @@ class _TasksViewState extends State<TasksView> {
 
   Widget _buildTaskRow(Task task, TasksController controller) {
     final colors = context.rhythm;
-    final isDone = task.status == 'done';
+    final isDone = task.status == TaskStatus.done;
     final visualStyle = TaskVisualStyles.resolve(task);
     final isPastDue = DateFormatters.isPastDue(
       dueDate: task.dueDate,

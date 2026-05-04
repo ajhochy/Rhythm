@@ -617,7 +617,7 @@ class _DashboardBodyState extends State<_DashboardBody> {
   }) {
     return FocusOnDeckItem(
       title: task.title,
-      checked: task.status == 'done',
+      checked: task.status == TaskStatus.done,
       onChanged: (_) => widget.controller.toggleTaskDone(task.id),
       onTap: () => _showTaskEditDialog(task),
       avatarLabel: _onDeckTaskPersonLabel(
@@ -1633,7 +1633,7 @@ class _ProgressFeatureDetails extends StatelessWidget {
 }
 
 bool _isPastDue(Task task) {
-  if (task.status == 'done') return false;
+  if (task.status == TaskStatus.done) return false;
   final date = _taskPriorityDate(task);
   if (date == null) return false;
   final today = DateTime.now();
@@ -1879,7 +1879,7 @@ class _TaskPreviewRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.rhythm;
-    final isDone = task.status == 'done';
+    final isDone = task.status == TaskStatus.done;
     final tone = _taskTone(task, showPastDue: showPastDue);
     final accent = _toneColor(colors, tone);
     final isPastDue = showPastDue && _isPastDue(task);
@@ -1985,7 +1985,7 @@ class _HandoffPreviewRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.rhythm;
-    final isDone = task.status == 'done';
+    final isDone = task.status == TaskStatus.done;
     final tone = _handoffTone(task, currentUserId);
     final accent = _toneColor(colors, tone);
     final dueLabel = task.dueDate != null
