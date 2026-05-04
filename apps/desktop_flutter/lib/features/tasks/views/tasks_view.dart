@@ -524,6 +524,21 @@ class _TasksViewState extends State<TasksView> {
                   ],
                 ),
               ),
+              if (task.status == TaskStatus.inProgress) ...[
+                const SizedBox(width: 6),
+                const RhythmMetaChip(
+                  label: 'In progress',
+                  icon: Icons.autorenew,
+                  color: Color(0xFF4F6AF5),
+                ),
+              ] else if (task.status == TaskStatus.waitingForReply) ...[
+                const SizedBox(width: 6),
+                const RhythmMetaChip(
+                  label: 'Awaiting reply',
+                  icon: Icons.hourglass_top_outlined,
+                  color: Color(0xFFF59E0B),
+                ),
+              ],
               if (dueLabel != null) ...[
                 const SizedBox(width: 6),
                 RhythmMetaChip(
