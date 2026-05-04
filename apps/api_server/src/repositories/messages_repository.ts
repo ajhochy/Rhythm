@@ -14,6 +14,7 @@ interface ThreadRow {
   id: number;
   title: string;
   thread_type: string;
+  task_id: string | null;
   created_by: number | null;
   created_at: string;
   updated_at: string;
@@ -39,6 +40,7 @@ function rowToThread(row: ThreadSummaryRow): MessageThread {
     id: row.id,
     title: row.title,
     threadType: (row.thread_type ?? 'direct') as 'direct' | 'group',
+    taskId: row.task_id ?? null,
     createdBy: row.created_by,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -145,7 +147,10 @@ export class MessagesRepository {
     return row?.id ?? null;
   }
 
-  findAllThreadsForUser(userId: number): MessageThread[] {
+  findAllThreadsForUser(userId: number, opts?: { taskId?: string }): MessageThread[] {
+    const taskIdFilter = opts?.taskId != null ? ` AND t.task_id = ?` : '';
+    const params: unknown[] = [userId, userId, userId];
+    if (opts?.taskId != null) params.push(opts.taskId);
     const rows = getDb()
       .prepare(
         `SELECT
@@ -167,15 +172,18 @@ export class MessagesRepository {
          FROM message_threads t
          JOIN thread_participants tp
            ON tp.thread_id = t.id
-         WHERE tp.user_id = ?
+         WHERE tp.user_id = ?${taskIdFilter}
          ORDER BY t.updated_at DESC`,
       )
-      .all(userId, userId, userId) as ThreadSummaryRow[];
+      .all(...params) as ThreadSummaryRow[];
     return rows.map((row) => this.withParticipants(rowToThread(row)));
   }
 
-  async findAllThreadsForUserAsync(userId: number): Promise<MessageThread[]> {
+  async findAllThreadsForUserAsync(userId: number, opts?: { taskId?: string }): Promise<MessageThread[]> {
     if (env.dbClient === 'postgres') {
+      const taskIdFilter = opts?.taskId != null ? ` AND t.task_id = $2` : '';
+      const params: unknown[] = [userId];
+      if (opts?.taskId != null) params.push(opts.taskId);
       const result = await getPostgresPool().query<ThreadSummaryRow>(
         `SELECT
            t.*,
@@ -196,15 +204,15 @@ export class MessagesRepository {
          FROM message_threads t
          JOIN thread_participants tp
            ON tp.thread_id = t.id
-         WHERE tp.user_id = $1
+         WHERE tp.user_id = $1${taskIdFilter}
          ORDER BY t.updated_at DESC`,
-        [userId],
+        params,
       );
       return Promise.all(
         result.rows.map((row) => this.withParticipantsAsync(rowToThread(row))),
       );
     }
-    return this.findAllThreadsForUser(userId);
+    return this.findAllThreadsForUser(userId, opts);
   }
 
   findThreadByIdForUser(id: number, userId: number): MessageThread {
@@ -269,6 +277,16 @@ export class MessagesRepository {
     return this.findThreadByIdForUser(id, userId);
   }
 
+  findByTaskId(taskId: string, userId: number): MessageThread | null {
+    const rows = this.findAllThreadsForUser(userId, { taskId });
+    return rows[0] ?? null;
+  }
+
+  async findByTaskIdAsync(taskId: string, userId: number): Promise<MessageThread | null> {
+    const rows = await this.findAllThreadsForUserAsync(userId, { taskId });
+    return rows[0] ?? null;
+  }
+
   createThread(data: CreateThreadDto): MessageThread {
     const threadType = data.threadType ?? 'direct';
     const participantIds = Array.from(
@@ -290,13 +308,14 @@ export class MessagesRepository {
     const participantUsers = participantIds.map((id) => this.usersRepo.findById(id));
     const title = data.title ?? participantUsers.map((user) => user.name).join(', ');
 
+    const taskId = data.taskId ?? null;
     const now = new Date().toISOString();
     const result = getDb()
       .prepare(
-        `INSERT INTO message_threads (title, thread_type, created_by, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?)`,
+        `INSERT INTO message_threads (title, thread_type, task_id, created_by, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?)`,
       )
-      .run(title, threadType, data.createdBy, now, now);
+      .run(title, threadType, taskId, data.createdBy, now, now);
 
     const threadId = result.lastInsertRowid as number;
     const insertParticipant = getDb().prepare(
@@ -344,12 +363,13 @@ export class MessagesRepository {
       );
       const title = data.title ?? participantUsers.map((user) => user.name).join(', ');
 
+      const taskId = data.taskId ?? null;
       const now = new Date().toISOString();
       const threadResult = await getPostgresPool().query<{ id: number }>(
-        `INSERT INTO message_threads (title, thread_type, created_by, created_at, updated_at)
-         VALUES ($1, $2, $3, $4, $5)
+        `INSERT INTO message_threads (title, thread_type, task_id, created_by, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6)
          RETURNING id`,
-        [title, threadType, data.createdBy, now, now],
+        [title, threadType, taskId, data.createdBy, now, now],
       );
       const threadId = threadResult.rows[0].id;
 
