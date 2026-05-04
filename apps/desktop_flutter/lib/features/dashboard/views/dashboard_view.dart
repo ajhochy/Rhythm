@@ -373,20 +373,29 @@ class _DashboardBodyState extends State<_DashboardBody> {
         final cardWidth = constraints.maxWidth < 1180
             ? constraints.maxWidth
             : (constraints.maxWidth - gap) / 2;
+        final pastDueItems = [
+          ...c.pastDueTasks,
+          ...c.projectStepPastDueTasks,
+        ];
+        final todayItems = [...c.todayTasks, ...c.projectStepTodayTasks];
+        final thisWeekItems = [
+          ...c.thisWeekTasks,
+          ...c.projectStepThisWeekTasks,
+        ];
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            if (c.pastDueTasks.isNotEmpty) ...[
+            if (pastDueItems.isNotEmpty) ...[
               SizedBox(
                 width: constraints.maxWidth,
                 child: _TaskListCard(
                   title: 'Past Due Tasks',
-                  countLabel: '${c.pastDueTaskCount} past due',
-                  items: c.pastDueTasks,
+                  countLabel: '${pastDueItems.length} past due',
+                  items: pastDueItems,
                   emptyLabel: 'Nothing past due.',
                   tone: RhythmBadgeTone.danger,
                   onTapHeader: widget.openWeeklyPlanner,
-                  onTapTask: _showTaskEditDialog,
+                  onTapTask: _showAnyTaskEditDialog,
                   showPastDue: true,
                 ),
               ),
@@ -410,12 +419,12 @@ class _DashboardBodyState extends State<_DashboardBody> {
                   width: cardWidth,
                   child: _TaskListCard(
                     title: "Today's Tasks",
-                    countLabel: '${c.todayTasksRemainingCount} left',
-                    items: c.todayTasks,
+                    countLabel: '${todayItems.length} left',
+                    items: todayItems,
                     emptyLabel: 'No tasks scheduled for today.',
                     tone: RhythmBadgeTone.accent,
                     onTapHeader: widget.openWeeklyPlanner,
-                    onTapTask: _showTaskEditDialog,
+                    onTapTask: _showAnyTaskEditDialog,
                     showPastDue: true,
                   ),
                 ),
@@ -423,12 +432,12 @@ class _DashboardBodyState extends State<_DashboardBody> {
                   width: cardWidth,
                   child: _TaskListCard(
                     title: "This Week's Tasks",
-                    countLabel: '${c.thisWeekTasksRemainingCount} left',
-                    items: c.thisWeekTasks,
+                    countLabel: '${thisWeekItems.length} left',
+                    items: thisWeekItems,
                     emptyLabel: 'No tasks due this week.',
                     tone: RhythmBadgeTone.success,
                     onTapHeader: widget.openWeeklyPlanner,
-                    onTapTask: _showTaskEditDialog,
+                    onTapTask: _showAnyTaskEditDialog,
                     showPastDue: true,
                   ),
                 ),
@@ -460,6 +469,42 @@ class _DashboardBodyState extends State<_DashboardBody> {
     await context.read<MessagesController>().selectThread(preview.threadId);
     if (!mounted) return;
     widget.openMessages();
+  }
+
+  Future<void> _showAnyTaskEditDialog(Task task) async {
+    final step = widget.controller.findProjectStep(task.id);
+    if (step != null) {
+      final projectName =
+          widget.controller.projectStepProjectName(task.id) ?? '';
+      await showRhythmProjectStepInspector(
+        context,
+        step: ProjectInstanceStep(
+          id: step.id,
+          instanceId: step.instanceId,
+          stepId: step.stepId,
+          title: step.title,
+          dueDate: step.dueDate,
+          status: step.status,
+          notes: step.notes,
+          assigneeId: step.assigneeId,
+          assigneeName: step.assigneeName,
+        ),
+        projectTitle: projectName,
+        projectOwnerLabel: null,
+        projectCollaborators: const [],
+        workspaceMembers: context.read<WorkspaceController>().members,
+        onSaveDetails: (request) => widget.controller.updateProjectStep(
+          step.id,
+          title: request.title,
+          dueDate: request.dueDate,
+          notes: request.notes,
+          assigneeId: request.assigneeId,
+          includeNotes: true,
+        ),
+      );
+      return;
+    }
+    await _showTaskEditDialog(task);
   }
 
   Future<void> _showTaskEditDialog(Task task) async {

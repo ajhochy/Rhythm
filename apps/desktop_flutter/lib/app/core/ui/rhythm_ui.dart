@@ -1,4 +1,5 @@
 export 'focus_business_widgets.dart';
+export 'rhythm_color_legend.dart';
 export 'rhythm_assignee_field.dart';
 export 'rhythm_badge.dart';
 export 'rhythm_button.dart';

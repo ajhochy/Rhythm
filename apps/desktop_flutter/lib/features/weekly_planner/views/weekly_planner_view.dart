@@ -182,6 +182,14 @@ class _WeekHeader extends StatelessWidget {
             ),
           ],
         ),
+        const RhythmColorLegend(
+          items: [
+            (Color(0xFFDC5B58), 'Past due'),
+            (Color(0xFFE29A3A), 'Today'),
+            (Color(0xFF4E5FE0), 'Rhythm'),
+            (Color(0xFF2E7FC4), 'Project'),
+          ],
+        ),
       ],
       actions: [
         RhythmButton.icon(
