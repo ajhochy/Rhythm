@@ -27,6 +27,9 @@ class _WeeklyPlannerViewState extends State<WeeklyPlannerView> {
   @override
   void initState() {
     super.initState();
+    debugPrint('[planner] device tz: ${DateTime.now().timeZoneName} '
+        'offset=${DateTime.now().timeZoneOffset} | '
+        'sample parse: ${DateTime.tryParse("2026-05-04T09:30:00-07:00")?.toUtc().toLocal()}');
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<WeeklyPlannerController>().load();
       context.read<WorkspaceController>().loadMembers();
@@ -1873,7 +1876,9 @@ DateTime? parsePlannerEventDateTime(String? value) {
   if (value == null || value.trim().isEmpty) return null;
   final parsed = DateTime.tryParse(value.trim());
   if (parsed == null) return null;
-  return parsed.isUtc ? parsed.toLocal() : parsed;
+  // Normalize: convert to UTC, then to local. Idempotent for both
+  // UTC-marked and offset-suffixed strings; correctly handles naive too.
+  return parsed.toUtc().toLocal();
 }
 
 String _formatClockTime(DateTime dateTime) {
