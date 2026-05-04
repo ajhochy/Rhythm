@@ -4,6 +4,8 @@ import { TasksRepository } from '../repositories/tasks_repository';
 import { NotificationsRepository } from '../repositories/notifications_repository';
 import { NotificationService } from '../services/notification_service';
 import { RecurringTaskRulesRepository } from '../repositories/recurring_task_rules_repository';
+import { ClaudeTriggersRepository } from '../repositories/claude_triggers_repository';
+import { env } from '../config/env';
 
 const VALID_STATUSES = ['open', 'in_progress', 'waiting_for_reply', 'done'] as const;
 type ValidStatus = (typeof VALID_STATUSES)[number];
@@ -11,6 +13,7 @@ type ValidStatus = (typeof VALID_STATUSES)[number];
 const repo = new TasksRepository();
 const rulesRepo = new RecurringTaskRulesRepository();
 const notifService = new NotificationService(new NotificationsRepository());
+const claudeTriggersRepo = new ClaudeTriggersRepository();
 
 export class TasksController {
   async getAll(req: Request, res: Response, next: NextFunction) {
@@ -156,6 +159,9 @@ export class TasksController {
         userId,
         actorId,
       );
+      if (env.claudeUserId != null && userId === env.claudeUserId) {
+        await claudeTriggersRepo.insertAsync(req.params.id, actorId);
+      }
       res.status(201).json(await repo.listCollaboratorsAsync(req.params.id));
     } catch (err) {
       next(err);

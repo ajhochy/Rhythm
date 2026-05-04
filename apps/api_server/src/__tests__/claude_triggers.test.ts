@@ -89,4 +89,59 @@ describe('Claude triggers endpoints', () => {
     const remaining = getDb().prepare(`SELECT COUNT(*) AS c FROM pending_claude_triggers`).get() as { c: number };
     expect(remaining.c).toBe(0);
   });
+
+  it('writes a pending trigger when Claude is added as a collaborator', async () => {
+    const owner = usersRepo.create({ name: 'O', email: 'o3@x.com' });
+    const task = tasksRepo.create({ title: 'Trigger me', ownerId: owner.id });
+
+    const headers = await authHeaderFor(owner.id);
+    const res = await fetch(`${baseUrl}/tasks/${task.id}/collaborators`, {
+      method: 'POST',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId: claudeId }),
+    });
+    expect(res.status).toBe(201);
+
+    const triggers = getDb().prepare(`SELECT * FROM pending_claude_triggers`).all() as any[];
+    expect(triggers).toHaveLength(1);
+    expect(triggers[0].task_id).toBe(task.id);
+    expect(triggers[0].triggered_by_user_id).toBe(owner.id);
+  });
+
+  it('does NOT write a trigger when a non-Claude collaborator is added', async () => {
+    const owner = usersRepo.create({ name: 'O', email: 'o4@x.com' });
+    const other = usersRepo.create({ name: 'X', email: 'x@x.com' });
+    const task = tasksRepo.create({ title: 'No trigger', ownerId: owner.id });
+
+    const headers = await authHeaderFor(owner.id);
+    await fetch(`${baseUrl}/tasks/${task.id}/collaborators`, {
+      method: 'POST',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId: other.id }),
+    });
+
+    const triggers = getDb().prepare(`SELECT * FROM pending_claude_triggers`).all() as any[];
+    expect(triggers).toHaveLength(0);
+  });
+
+  it('repeated add/remove/add of Claude produces only one trigger row', async () => {
+    const owner = usersRepo.create({ name: 'O', email: 'o5@x.com' });
+    const task = tasksRepo.create({ title: 'Idempotent', ownerId: owner.id });
+    const headers = await authHeaderFor(owner.id);
+
+    await fetch(`${baseUrl}/tasks/${task.id}/collaborators`, {
+      method: 'POST',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId: claudeId }),
+    });
+    await fetch(`${baseUrl}/tasks/${task.id}/collaborators/${claudeId}`, { method: 'DELETE', headers });
+    await fetch(`${baseUrl}/tasks/${task.id}/collaborators`, {
+      method: 'POST',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId: claudeId }),
+    });
+
+    const triggers = getDb().prepare(`SELECT * FROM pending_claude_triggers WHERE task_id = ?`).all(task.id) as any[];
+    expect(triggers).toHaveLength(1);
+  });
 });
