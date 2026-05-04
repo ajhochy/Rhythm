@@ -1,17 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
-import '../../../app/core/auth/auth_session_service.dart';
-import '../../../app/core/formatters/date_formatters.dart';
 import '../../../app/core/widgets/error_banner.dart';
 import '../../../app/core/workspace/workspace_controller.dart';
-import '../../../app/core/workspace/workspace_models.dart';
 import '../../../app/core/ui/rhythm_dialog.dart';
 import '../../../app/core/ui/tokens/rhythm_theme.dart';
 import '../controllers/rhythms_controller.dart';
 import '../data/rhythms_data_source.dart';
 import '../../../features/tasks/models/recurring_task_rule.dart';
-import '../../../features/tasks/services/recurrence_service.dart';
 import '../../../shared/widgets/workspace_member_picker.dart';
 
 class RhythmsView extends StatefulWidget {
@@ -197,7 +193,7 @@ class _RulesList extends StatelessWidget {
   }
 }
 
-class _RuleTile extends StatefulWidget {
+class _RuleTile extends StatelessWidget {
   const _RuleTile({
     required this.rule,
     required this.onDelete,
@@ -210,25 +206,8 @@ class _RuleTile extends StatefulWidget {
   final RhythmsDataSource dataSource;
 
   @override
-  State<_RuleTile> createState() => _RuleTileState();
-}
-
-class _RuleTileState extends State<_RuleTile> {
-  bool _expanded = false;
-
-  @override
   Widget build(BuildContext context) {
-    final dimmed = !widget.rule.enabled;
-    final currentUserId = AuthSessionService.instance.currentUser?.id;
-    final isOwner =
-        widget.rule.ownerId != null && widget.rule.ownerId == currentUserId;
-    final previewDates = RecurrenceService()
-        .previewNextDates(widget.rule, DateTime.now(), count: 3)
-        .map(
-          (d) =>
-              '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}',
-        )
-        .toList();
+    final dimmed = !rule.enabled;
 
     return Card(
       elevation: 0,
@@ -238,255 +217,75 @@ class _RuleTileState extends State<_RuleTile> {
         side: BorderSide(color: context.rhythm.borderSubtle),
       ),
       child: Padding(
-        padding: const EdgeInsets.all(18),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+        child: Row(
           children: [
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Container(
-                  width: 40,
-                  height: 40,
-                  decoration: BoxDecoration(
-                    color: dimmed
-                        ? context.rhythm.surfaceMuted
-                        : context.rhythm.accentMuted,
-                    borderRadius: BorderRadius.circular(RhythmRadius.md),
-                    border: Border.all(color: context.rhythm.borderSubtle),
-                  ),
-                  child: Icon(
-                    Icons.repeat,
-                    size: 20,
-                    color: dimmed
-                        ? context.rhythm.textMuted
-                        : context.rhythm.accent,
-                  ),
-                ),
-                const SizedBox(width: 14),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              widget.rule.title,
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .titleMedium
-                                  ?.copyWith(
-                                    color: dimmed
-                                        ? context.rhythm.textMuted
-                                        : context.rhythm.textPrimary,
-                                    fontWeight: FontWeight.w700,
-                                    letterSpacing: -0.2,
-                                  ),
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          _StatusChip(enabled: widget.rule.enabled),
-                        ],
-                      ),
-                      const SizedBox(height: 6),
-                      Text(
-                        widget.rule.patternDescription,
-                        style: Theme.of(
-                          context,
-                        ).textTheme.bodySmall?.copyWith(
-                              color: context.rhythm.textSecondary,
-                            ),
-                      ),
-                      if (widget.rule.progress != null) ...[
-                        const SizedBox(height: 12),
-                        _ProgressStrip(rule: widget.rule),
-                      ],
-                    ],
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Switch(
-                  value: widget.rule.enabled,
-                  onChanged: (_) => widget.controller.toggleEnabled(
-                    widget.rule.id,
-                    enabled: !widget.rule.enabled,
-                  ),
-                ),
-              ],
-            ),
-            if (widget.rule.collaborators.isNotEmpty || isOwner) ...[
-              const SizedBox(height: 12),
-              _RhythmCollaboratorsRow(
-                rule: widget.rule,
-                isOwner: isOwner,
-                dataSource: widget.dataSource,
-                onChanged: () => widget.controller.load(),
+            Container(
+              width: 36,
+              height: 36,
+              decoration: BoxDecoration(
+                color: dimmed
+                    ? context.rhythm.surfaceMuted
+                    : context.rhythm.accentMuted,
+                borderRadius: BorderRadius.circular(RhythmRadius.md),
+                border: Border.all(color: context.rhythm.borderSubtle),
               ),
-            ],
-            const SizedBox(height: 14),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              crossAxisAlignment: WrapCrossAlignment.center,
-              children: [
-                TextButton.icon(
-                  onPressed: () => setState(() => _expanded = !_expanded),
-                  style: TextButton.styleFrom(
-                    foregroundColor: context.rhythm.textPrimary,
-                    backgroundColor: context.rhythm.surfaceMuted,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 10,
-                    ),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(RhythmRadius.md),
-                    ),
-                  ),
-                  icon: Icon(
-                    _expanded ? Icons.expand_less : Icons.expand_more,
-                    size: 16,
-                  ),
-                  label: Text(_expanded ? 'Hide preview' : 'Preview'),
-                ),
-                OutlinedButton.icon(
-                  onPressed: () => _showEditDialog(context),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: context.rhythm.textPrimary,
-                    side: BorderSide(color: context.rhythm.border),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 10,
-                    ),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(RhythmRadius.md),
-                    ),
-                  ),
-                  icon: const Icon(Icons.edit_outlined, size: 16),
-                  label: const Text('Edit'),
-                ),
-                IconButton(
-                  icon: const Icon(Icons.delete_outline, size: 18),
-                  onPressed: () => _confirmDelete(context),
-                  tooltip: 'Delete rule',
-                ),
-              ],
-            ),
-            AnimatedCrossFade(
-              firstChild: const SizedBox.shrink(),
-              secondChild: Padding(
-                padding: const EdgeInsets.only(top: 14),
-                child: Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(14),
-                  decoration: BoxDecoration(
-                    color: context.rhythm.surfaceMuted,
-                    borderRadius: BorderRadius.circular(RhythmRadius.md),
-                    border: Border.all(color: context.rhythm.borderSubtle),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      if (widget.rule.steps.isNotEmpty) ...[
-                        Row(
-                          children: [
-                            Icon(
-                              Icons.route_outlined,
-                              size: 14,
-                              color: context.rhythm.textMuted,
-                            ),
-                            const SizedBox(width: 6),
-                            Text(
-                              'Workflow steps',
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .labelMedium
-                                  ?.copyWith(
-                                    color: context.rhythm.textSecondary,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 10),
-                        Column(
-                          children: widget.rule.steps
-                              .asMap()
-                              .entries
-                              .map(
-                                (entry) => Padding(
-                                  padding: const EdgeInsets.only(bottom: 8),
-                                  child: _WorkflowStepTile(
-                                    step: entry.value,
-                                    stepIndex: entry.key,
-                                    isSequential: widget.rule.sequential,
-                                  ),
-                                ),
-                              )
-                              .toList(),
-                        ),
-                        const SizedBox(height: 8),
-                      ],
-                      Row(
-                        children: [
-                          Icon(
-                            Icons.calendar_today_outlined,
-                            size: 14,
-                            color: context.rhythm.textMuted,
-                          ),
-                          const SizedBox(width: 6),
-                          Text(
-                            'Next occurrences',
-                            style: Theme.of(context)
-                                .textTheme
-                                .labelMedium
-                                ?.copyWith(
-                                  color: context.rhythm.textSecondary,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 10),
-                      Wrap(
-                        spacing: 8,
-                        runSpacing: 8,
-                        children: previewDates
-                            .map(
-                              (date) => Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 10,
-                                  vertical: 7,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: context.rhythm.surfaceRaised,
-                                  borderRadius: BorderRadius.circular(999),
-                                  border: Border.all(
-                                    color: context.rhythm.borderSubtle,
-                                  ),
-                                ),
-                                child: Text(
-                                  DateFormatters.fullDate(date, fallback: date),
-                                  style: Theme.of(context)
-                                      .textTheme
-                                      .labelSmall
-                                      ?.copyWith(
-                                        color: context.rhythm.textSecondary,
-                                        fontWeight: FontWeight.w600,
-                                      ),
-                                ),
-                              ),
-                            )
-                            .toList(),
-                      ),
-                    ],
-                  ),
-                ),
+              child: Icon(
+                Icons.repeat,
+                size: 18,
+                color:
+                    dimmed ? context.rhythm.textMuted : context.rhythm.accent,
               ),
-              crossFadeState: _expanded
-                  ? CrossFadeState.showSecond
-                  : CrossFadeState.showFirst,
-              duration: const Duration(milliseconds: 180),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    rule.title,
+                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                          color: dimmed
+                              ? context.rhythm.textMuted
+                              : context.rhythm.textPrimary,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: -0.2,
+                        ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  Text(
+                    rule.patternDescription,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: context.rhythm.textSecondary,
+                        ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+              ),
+            ),
+            Switch(
+              value: rule.enabled,
+              onChanged: (_) => controller.toggleEnabled(
+                rule.id,
+                enabled: !rule.enabled,
+              ),
+            ),
+            IconButton(
+              icon: const Icon(Icons.edit_outlined, size: 16),
+              onPressed: () => _showEditDialog(context),
+              tooltip: 'Edit rule',
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+            ),
+            IconButton(
+              icon: const Icon(Icons.delete_outline, size: 16),
+              onPressed: () => _confirmDelete(context),
+              tooltip: 'Delete rule',
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
             ),
           ],
         ),
@@ -497,8 +296,7 @@ class _RuleTileState extends State<_RuleTile> {
   Future<void> _showEditDialog(BuildContext context) async {
     await showDialog<void>(
       context: context,
-      builder: (_) =>
-          _EditRuleDialog(rule: widget.rule, controller: widget.controller),
+      builder: (_) => _EditRuleDialog(rule: rule, controller: controller),
     );
   }
 
@@ -507,319 +305,11 @@ class _RuleTileState extends State<_RuleTile> {
       context,
       title: 'Delete Rule',
       message:
-          'Delete "${widget.rule.title}"? This will not remove already-generated tasks.',
+          'Delete "${rule.title}"? This will not remove already-generated tasks.',
       confirmLabel: 'Delete',
       destructive: true,
     );
-    if (confirmed == true) widget.onDelete();
-  }
-}
-
-class _ProgressStrip extends StatelessWidget {
-  const _ProgressStrip({required this.rule});
-
-  final RecurringTaskRule rule;
-
-  @override
-  Widget build(BuildContext context) {
-    final progress = rule.progress;
-    if (progress == null) return const SizedBox.shrink();
-    final percent = (progress.completionRatio * 100).round().clamp(0, 100);
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            _InlineMetric(
-              label: 'Remaining',
-              value: '${progress.remainingCount}',
-              color: context.rhythm.accent,
-            ),
-            const SizedBox(width: 8),
-            _InlineMetric(
-              label: 'Personal',
-              value: '${progress.personalRemainingCount}',
-              color: context.rhythm.warning,
-            ),
-            const SizedBox(width: 8),
-            _InlineMetric(
-              label: 'Complete',
-              value: '$percent%',
-              color: context.rhythm.accent,
-            ),
-            const SizedBox(width: 8),
-            if (progress.waitingOnUserName != null)
-              Flexible(
-                child: _InlineMetric(
-                  label: 'Waiting on',
-                  value: progress.waitingOnUserName!,
-                  color: context.rhythm.textSecondary,
-                ),
-              ),
-          ],
-        ),
-        const SizedBox(height: 8),
-        ClipRRect(
-          borderRadius: BorderRadius.circular(999),
-          child: LinearProgressIndicator(
-            minHeight: 7,
-            value: progress.totalCount == 0 ? 0 : progress.completionRatio,
-            backgroundColor: context.rhythm.borderSubtle,
-            valueColor: AlwaysStoppedAnimation<Color>(context.rhythm.accent),
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _RhythmCollaboratorsRow extends StatelessWidget {
-  const _RhythmCollaboratorsRow({
-    required this.rule,
-    required this.isOwner,
-    required this.dataSource,
-    required this.onChanged,
-  });
-
-  final RecurringTaskRule rule;
-  final bool isOwner;
-  final RhythmsDataSource dataSource;
-  final VoidCallback onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    final workspaceMembers = context.watch<WorkspaceController>().members;
-    final collaboratorIds = rule.collaborators.map((c) => c.userId).toSet();
-    final currentUserId = AuthSessionService.instance.currentUser?.id;
-    final candidates = workspaceMembers
-        .where(
-          (member) =>
-              member.userId != rule.ownerId &&
-              !collaboratorIds.contains(member.userId) &&
-              member.userId != currentUserId,
-        )
-        .toList();
-
-    if (rule.collaborators.isEmpty && !isOwner) {
-      return const SizedBox.shrink();
-    }
-
-    return Row(
-      children: [
-        Expanded(
-          child: Wrap(
-            spacing: 6,
-            runSpacing: 6,
-            children: [
-              ...rule.collaborators.map(
-                (collaborator) => Tooltip(
-                  message:
-                      '${collaborator.name}${isOwner ? ' (long-press to remove)' : ''}',
-                  child: GestureDetector(
-                    onLongPress: isOwner
-                        ? () =>
-                            _confirmRemoveCollaborator(context, collaborator)
-                        : null,
-                    child: CircleAvatar(
-                      radius: 13,
-                      backgroundImage: collaborator.photoUrl != null
-                          ? NetworkImage(collaborator.photoUrl!)
-                          : null,
-                      backgroundColor: context.rhythm.accentMuted,
-                      child: collaborator.photoUrl == null
-                          ? Text(
-                              _initialFor(collaborator.name),
-                              style: TextStyle(
-                                fontSize: 10,
-                                color: context.rhythm.accent,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            )
-                          : null,
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-        if (isOwner)
-          IconButton(
-            icon: const Icon(Icons.person_add_outlined, size: 18),
-            tooltip: 'Add collaborator',
-            onPressed: () => _showAddCollaboratorDialog(context, candidates),
-            padding: EdgeInsets.zero,
-            constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
-          ),
-      ],
-    );
-  }
-
-  Future<void> _confirmRemoveCollaborator(
-    BuildContext context,
-    RhythmCollaborator collaborator,
-  ) async {
-    final confirmed = await RhythmDialog.confirm(
-      context,
-      title: 'Remove collaborator',
-      message: 'Remove ${collaborator.name} from this rhythm?',
-      confirmLabel: 'Remove',
-      destructive: false,
-    );
-    if (confirmed != true) return;
-    await dataSource.removeCollaborator(rule.id, collaborator.userId);
-    onChanged();
-  }
-
-  Future<void> _showAddCollaboratorDialog(
-    BuildContext context,
-    List<WorkspaceMember> candidates,
-  ) async {
-    if (candidates.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('No other workspace members to add')),
-      );
-      return;
-    }
-
-    final selected = await showWorkspaceMemberPickerDialog(
-      context,
-      candidates: candidates,
-      title: 'Add collaborator',
-    );
-    if (selected == null) return;
-    await dataSource.addCollaborator(rule.id, selected.userId);
-    onChanged();
-  }
-}
-
-class _InlineMetric extends StatelessWidget {
-  const _InlineMetric({
-    required this.label,
-    required this.value,
-    required this.color,
-  });
-
-  final String label;
-  final String value;
-  final Color color;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.08),
-        borderRadius: BorderRadius.circular(RhythmRadius.md),
-        border: Border.all(color: color.withValues(alpha: 0.14)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            label,
-            style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                  color: context.rhythm.textMuted,
-                  fontWeight: FontWeight.w600,
-                ),
-          ),
-          const SizedBox(height: 2),
-          Text(
-            value,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                  color: color,
-                  fontWeight: FontWeight.w700,
-                ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _WorkflowStepTile extends StatelessWidget {
-  const _WorkflowStepTile({
-    required this.step,
-    this.stepIndex = 0,
-    this.isSequential = false,
-  });
-
-  final RecurringTaskRuleStep step;
-  final int stepIndex;
-  final bool isSequential;
-
-  @override
-  Widget build(BuildContext context) {
-    final assignee = step.assigneeName?.trim().isNotEmpty == true
-        ? step.assigneeName!
-        : 'Unassigned';
-    final isLocked = isSequential && stepIndex > 0;
-
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        color: isLocked
-            ? context.rhythm.surfaceMuted
-            : context.rhythm.surfaceRaised,
-        borderRadius: BorderRadius.circular(RhythmRadius.md),
-        border: Border.all(color: context.rhythm.borderSubtle),
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 22,
-            height: 22,
-            decoration: BoxDecoration(
-              color: isLocked
-                  ? const Color(0xFFE5E7EB)
-                  : context.rhythm.accentMuted,
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Icon(
-              isLocked ? Icons.lock_outline : Icons.checklist,
-              size: 13,
-              color:
-                  isLocked ? context.rhythm.textMuted : context.rhythm.accent,
-            ),
-          ),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  step.title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                        color: isLocked
-                            ? context.rhythm.textMuted
-                            : context.rhythm.textPrimary,
-                        fontWeight: FontWeight.w700,
-                      ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  isLocked ? 'Waiting for previous step' : assignee,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(
-                    context,
-                  ).textTheme.labelSmall?.copyWith(
-                        color: context.rhythm.textMuted,
-                      ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
+    if (confirmed == true) onDelete();
   }
 }
 
@@ -1396,12 +886,6 @@ class _EditRuleDialogState extends State<_EditRuleDialog> {
   }
 }
 
-String _initialFor(String value) {
-  final trimmed = value.trim();
-  if (trimmed.isEmpty) return '?';
-  return trimmed[0].toUpperCase();
-}
-
 class _StepEditorRow extends StatelessWidget {
   const _StepEditorRow({
     required this.step,
@@ -1556,37 +1040,6 @@ class _EmptyState extends StatelessWidget {
             ),
           ],
         ),
-      ),
-    );
-  }
-}
-
-class _StatusChip extends StatelessWidget {
-  const _StatusChip({required this.enabled});
-
-  final bool enabled;
-
-  @override
-  Widget build(BuildContext context) {
-    final background =
-        enabled ? context.rhythm.accentMuted : context.rhythm.surfaceMuted;
-    final foreground =
-        enabled ? context.rhythm.accent : context.rhythm.textSecondary;
-    final label = enabled ? 'Enabled' : 'Paused';
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: background,
-        borderRadius: BorderRadius.circular(999),
-        border: Border.all(color: context.rhythm.borderSubtle),
-      ),
-      child: Text(
-        label,
-        style: Theme.of(context).textTheme.labelSmall?.copyWith(
-              color: foreground,
-              fontWeight: FontWeight.w700,
-            ),
       ),
     );
   }

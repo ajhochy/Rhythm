@@ -4,7 +4,6 @@ import '../../../app/core/auth/auth_session_store.dart';
 import '../../../app/core/constants/app_constants.dart';
 import '../../../app/core/utils/http_utils.dart';
 import '../models/task.dart';
-import '../models/task_collaborator.dart';
 
 class TasksLocalDataSource {
   TasksLocalDataSource({String? baseUrl})
@@ -21,7 +20,7 @@ class TasksLocalDataSource {
     final list = jsonDecode(response.body) as List<dynamic>;
     final tasks =
         list.map((j) => Task.fromJson(j as Map<String, dynamic>)).toList();
-    return _withCollaborators(tasks);
+    return tasks;
   }
 
   Future<Task> create(
@@ -89,28 +88,5 @@ class TasksLocalDataSource {
       headers: AuthSessionStore.headers(),
     );
     assertOk(response);
-  }
-
-  Future<List<Task>> _withCollaborators(List<Task> tasks) async {
-    return Future.wait(tasks.map(_withTaskCollaborators));
-  }
-
-  Future<Task> _withTaskCollaborators(Task task) async {
-    try {
-      final response = await http.get(
-        Uri.parse('$_baseUrl/tasks/${task.id}/collaborators'),
-        headers: AuthSessionStore.headers(),
-      );
-      assertOk(response);
-      final list = jsonDecode(response.body) as List<dynamic>;
-      final collaborators = list
-          .map(
-            (item) => TaskCollaborator.fromJson(item as Map<String, dynamic>),
-          )
-          .toList();
-      return task.copyWith(collaborators: collaborators);
-    } catch (_) {
-      return task;
-    }
   }
 }

@@ -46,8 +46,26 @@ class WeeklyPlan {
 
   /// Tasks to display in a day column.
   /// scheduledDate takes priority; falls back to dueDate.
-  List<Task> tasksForDate(String date) => days
-      .expand((d) => d.tasks)
-      .where((t) => (t.scheduledDate ?? t.dueDate) == date)
-      .toList();
+  /// Multi-day calendar events also appear in every day column they span.
+  List<Task> tasksForDate(String date) {
+    return days.expand((d) => d.tasks).where((t) {
+      final primaryDate = t.scheduledDate ?? t.dueDate;
+      if (primaryDate == date) return true;
+
+      if (t.sourceType == 'calendar_shadow_event' &&
+          t.startsAt != null &&
+          t.endsAt != null) {
+        final startDate = t.startsAt!.substring(0, 10);
+        final endDate = t.endsAt!.substring(0, 10);
+        final afterStart = date.compareTo(startDate) > 0;
+        // All-day events use an exclusive end (Google Calendar convention).
+        final beforeEnd = t.isAllDay
+            ? date.compareTo(endDate) < 0
+            : date.compareTo(endDate) <= 0;
+        if (afterStart && beforeEnd) return true;
+      }
+
+      return false;
+    }).toList();
+  }
 }

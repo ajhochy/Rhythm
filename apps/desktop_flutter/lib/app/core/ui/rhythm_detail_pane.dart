@@ -35,7 +35,10 @@ class RhythmDetailPane extends StatelessWidget {
           children: [
             if (title != null || subtitle != null || actions.isNotEmpty)
               Padding(
-                padding: const EdgeInsets.all(RhythmSpacing.md),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: RhythmSpacing.md,
+                  vertical: 4,
+                ),
                 child: Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [

@@ -163,6 +163,15 @@ class _DashboardBodyState extends State<_DashboardBody> {
                         currentUserId: currentUserId,
                         workspaceMembers: workspaceMembers,
                       ),
+                      if (c.unreadMessages.isNotEmpty) ...[
+                        const SizedBox(height: RhythmSpacing.md),
+                        _UnreadOverviewCard(
+                          items: c.unreadMessages,
+                          onTapHeader: widget.openMessages,
+                          onTapItem: (preview) =>
+                              _openMessageThread(context, preview),
+                        ),
+                      ],
                       const SizedBox(height: RhythmSpacing.lg),
                       const RhythmSectionHeader(
                         title: 'Planning',
@@ -309,12 +318,6 @@ class _DashboardBodyState extends State<_DashboardBody> {
             onTap: widget.openWeeklyPlanner,
           );
 
-          final unreadCard = _UnreadOverviewCard(
-            items: c.unreadMessages,
-            onTapHeader: widget.openMessages,
-            onTapItem: (preview) => _openMessageThread(context, preview),
-          );
-
           final projectCards = _buildProjectMetricCards(
             c,
             currentUserId: currentUserId,
@@ -324,7 +327,6 @@ class _DashboardBodyState extends State<_DashboardBody> {
             todayCard,
             thisWeekCard,
             ...projectCards,
-            unreadCard,
           ];
           return Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -371,20 +373,29 @@ class _DashboardBodyState extends State<_DashboardBody> {
         final cardWidth = constraints.maxWidth < 1180
             ? constraints.maxWidth
             : (constraints.maxWidth - gap) / 2;
+        final pastDueItems = [
+          ...c.pastDueTasks,
+          ...c.projectStepPastDueTasks,
+        ];
+        final todayItems = [...c.todayTasks, ...c.projectStepTodayTasks];
+        final thisWeekItems = [
+          ...c.thisWeekTasks,
+          ...c.projectStepThisWeekTasks,
+        ];
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            if (c.pastDueTasks.isNotEmpty) ...[
+            if (pastDueItems.isNotEmpty) ...[
               SizedBox(
                 width: constraints.maxWidth,
                 child: _TaskListCard(
                   title: 'Past Due Tasks',
-                  countLabel: '${c.pastDueTaskCount} past due',
-                  items: c.pastDueTasks,
+                  countLabel: '${pastDueItems.length} past due',
+                  items: pastDueItems,
                   emptyLabel: 'Nothing past due.',
                   tone: RhythmBadgeTone.danger,
                   onTapHeader: widget.openWeeklyPlanner,
-                  onTapTask: (_) => widget.openWeeklyPlanner(),
+                  onTapTask: _showAnyTaskEditDialog,
                   showPastDue: true,
                 ),
               ),
@@ -401,19 +412,19 @@ class _DashboardBodyState extends State<_DashboardBody> {
                     currentUserId: currentUserId,
                     workspaceMembers: workspaceMembers,
                     onTapHeader: widget.openWeeklyPlanner,
-                    onTapTask: (_) => widget.openWeeklyPlanner(),
+                    onTapTask: _showTaskEditDialog,
                   ),
                 ),
                 SizedBox(
                   width: cardWidth,
                   child: _TaskListCard(
                     title: "Today's Tasks",
-                    countLabel: '${c.todayTasksRemainingCount} left',
-                    items: c.todayTasks,
+                    countLabel: '${todayItems.length} left',
+                    items: todayItems,
                     emptyLabel: 'No tasks scheduled for today.',
                     tone: RhythmBadgeTone.accent,
                     onTapHeader: widget.openWeeklyPlanner,
-                    onTapTask: (_) => widget.openWeeklyPlanner(),
+                    onTapTask: _showAnyTaskEditDialog,
                     showPastDue: true,
                   ),
                 ),
@@ -421,12 +432,12 @@ class _DashboardBodyState extends State<_DashboardBody> {
                   width: cardWidth,
                   child: _TaskListCard(
                     title: "This Week's Tasks",
-                    countLabel: '${c.thisWeekTasksRemainingCount} left',
-                    items: c.thisWeekTasks,
+                    countLabel: '${thisWeekItems.length} left',
+                    items: thisWeekItems,
                     emptyLabel: 'No tasks due this week.',
                     tone: RhythmBadgeTone.success,
                     onTapHeader: widget.openWeeklyPlanner,
-                    onTapTask: (_) => widget.openWeeklyPlanner(),
+                    onTapTask: _showAnyTaskEditDialog,
                     showPastDue: true,
                   ),
                 ),
@@ -439,7 +450,7 @@ class _DashboardBodyState extends State<_DashboardBody> {
                     emptyLabel: 'No unscheduled tasks.',
                     tone: RhythmBadgeTone.neutral,
                     onTapHeader: widget.openWeeklyPlanner,
-                    onTapTask: (_) => widget.openWeeklyPlanner(),
+                    onTapTask: _showTaskEditDialog,
                     showPastDue: false,
                   ),
                 ),
@@ -458,6 +469,42 @@ class _DashboardBodyState extends State<_DashboardBody> {
     await context.read<MessagesController>().selectThread(preview.threadId);
     if (!mounted) return;
     widget.openMessages();
+  }
+
+  Future<void> _showAnyTaskEditDialog(Task task) async {
+    final step = widget.controller.findProjectStep(task.id);
+    if (step != null) {
+      final projectName =
+          widget.controller.projectStepProjectName(task.id) ?? '';
+      await showRhythmProjectStepInspector(
+        context,
+        step: ProjectInstanceStep(
+          id: step.id,
+          instanceId: step.instanceId,
+          stepId: step.stepId,
+          title: step.title,
+          dueDate: step.dueDate,
+          status: step.status,
+          notes: step.notes,
+          assigneeId: step.assigneeId,
+          assigneeName: step.assigneeName,
+        ),
+        projectTitle: projectName,
+        projectOwnerLabel: null,
+        projectCollaborators: const [],
+        workspaceMembers: context.read<WorkspaceController>().members,
+        onSaveDetails: (request) => widget.controller.updateProjectStep(
+          step.id,
+          title: request.title,
+          dueDate: request.dueDate,
+          notes: request.notes,
+          assigneeId: request.assigneeId,
+          includeNotes: true,
+        ),
+      );
+      return;
+    }
+    await _showTaskEditDialog(task);
   }
 
   Future<void> _showTaskEditDialog(Task task) async {
@@ -1832,56 +1879,91 @@ class _TaskPreviewRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = context.rhythm;
+    final isDone = task.status == 'done';
     final tone = _taskTone(task, showPastDue: showPastDue);
     final accent = _toneColor(colors, tone);
-    final description = task.notes?.trim().isNotEmpty == true
-        ? task.notes!.trim()
-        : [
-            if (task.scheduledDate != null)
-              'Scheduled ${DateFormatters.fullDate(task.scheduledDate, fallback: task.scheduledDate!)}',
-            if (task.dueDate != null)
-              'Due ${DateFormatters.fullDate(task.dueDate, fallback: task.dueDate!)}',
-            if (task.sourceName?.trim().isNotEmpty == true)
-              'From ${task.sourceName!.trim()}',
-            if (task.scheduledDate == null &&
-                task.dueDate == null &&
-                task.sourceName?.trim().isNotEmpty != true)
-              'Open the planner for details and next steps.',
-          ].join(' · ');
+    final isPastDue = showPastDue && _isPastDue(task);
+    final dueLabel = task.dueDate != null
+        ? DateFormatters.fullDate(task.dueDate, fallback: task.dueDate!)
+        : null;
+    final sourceName = task.sourceName?.trim();
+    final hasSourceName = sourceName != null && sourceName.isNotEmpty;
+
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: FocusBusinessTaskListItem(
-        title: task.title,
-        description: description,
-        checked: task.status == 'done',
-        onChanged: (_) => onTap(),
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: GestureDetector(
         onTap: onTap,
-        backgroundColor: colors.surfaceMuted.withValues(alpha: 0.62),
-        borderColor: accent.withValues(alpha: 0.18),
-        accentColor: accent,
-        pills: [
-          if (showPastDue && _isPastDue(task))
-            const FocusBusinessPill(
-              label: 'Past due',
-              tone: RhythmBadgeTone.danger,
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: isDone
+                ? colors.surfaceMuted.withValues(alpha: 0.45)
+                : accent.withValues(alpha: 0.09),
+            border: Border(left: BorderSide(color: accent, width: 3)),
+          ),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: Checkbox(
+                    value: isDone,
+                    onChanged: (_) => onTap(),
+                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    visualDensity:
+                        const VisualDensity(horizontal: -4, vertical: -4),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        task.title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              fontWeight: FontWeight.w600,
+                              fontSize: 13,
+                              decoration:
+                                  isDone ? TextDecoration.lineThrough : null,
+                              color: isDone
+                                  ? colors.textMuted
+                                  : colors.textPrimary,
+                            ),
+                      ),
+                      if (hasSourceName)
+                        Text(
+                          sourceName,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style:
+                              Theme.of(context).textTheme.labelSmall?.copyWith(
+                                    color: colors.textMuted,
+                                    fontSize: 11,
+                                  ),
+                        ),
+                    ],
+                  ),
+                ),
+                if (dueLabel != null) ...[
+                  const SizedBox(width: 6),
+                  RhythmMetaChip(
+                    label: dueLabel,
+                    icon: Icons.flag_outlined,
+                    tone: isPastDue
+                        ? RhythmMetaChipTone.danger
+                        : RhythmMetaChipTone.neutral,
+                  ),
+                ],
+              ],
             ),
-          if (task.dueDate != null)
-            FocusBusinessPill(
-              label:
-                  'Due ${DateFormatters.fullDate(task.dueDate, fallback: task.dueDate!)}',
-              tone: RhythmBadgeTone.neutral,
-            ),
-          if (task.scheduledDate != null)
-            FocusBusinessPill(
-              label:
-                  'Scheduled ${DateFormatters.fullDate(task.scheduledDate, fallback: task.scheduledDate!)}',
-              tone: RhythmBadgeTone.neutral,
-            ),
-          if (task.sourceName?.trim().isNotEmpty == true)
-            FocusBusinessPill(label: task.sourceName!.trim(), tone: tone)
-          else if (task.sourceType != null)
-            FocusBusinessPill(label: _taskSourceLabel(task), tone: tone),
-        ],
+          ),
+        ),
       ),
     );
   }

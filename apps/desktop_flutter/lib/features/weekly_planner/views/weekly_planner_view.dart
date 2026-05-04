@@ -155,18 +155,14 @@ class _WeekHeader extends StatelessWidget {
     final label = _formatWeekLabel(controller.currentWeekLabel);
     final hasSelection = controller.selectedTaskIds.isNotEmpty;
     return RhythmToolbar(
-      title: 'Weekly Planner',
-      subtitle: 'A quieter workspace for the week ahead.',
       leading: RhythmBadge(
         label: label,
         icon: Icons.calendar_today_outlined,
         tone: RhythmBadgeTone.accent,
       ),
-      padding: const EdgeInsets.fromLTRB(
-        RhythmSpacing.md,
-        RhythmSpacing.sm,
-        RhythmSpacing.md,
-        RhythmSpacing.sm,
+      padding: const EdgeInsets.symmetric(
+        horizontal: RhythmSpacing.md,
+        vertical: 4,
       ),
       filters: [
         RhythmSegmentedControl<bool>(
@@ -184,6 +180,14 @@ class _WeekHeader extends StatelessWidget {
               label: 'All',
               icon: Icons.visibility,
             ),
+          ],
+        ),
+        const RhythmColorLegend(
+          items: [
+            (Color(0xFFDC5B58), 'Past due'),
+            (Color(0xFFE29A3A), 'Today'),
+            (Color(0xFF4E5FE0), 'Rhythm'),
+            (Color(0xFF2E7FC4), 'Project'),
           ],
         ),
       ],
@@ -454,44 +458,18 @@ class _BacklogPane extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
+            padding: const EdgeInsets.fromLTRB(10, 4, 10, 4),
             child: Row(
               children: [
-                SizedBox(
-                  width: 28,
-                  height: 28,
-                  child: RhythmSurface(
-                    tone: RhythmSurfaceTone.raised,
-                    borderRadius: BorderRadius.circular(RhythmRadius.sm),
-                    child: Center(
-                      child: Icon(
-                        Icons.inbox_outlined,
-                        size: 16,
-                        color: colors.accent,
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 10),
+                Icon(Icons.inbox_outlined, size: 14, color: colors.accent),
+                const SizedBox(width: 6),
                 Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Backlog',
-                        style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                              color: colors.textPrimary,
-                              fontWeight: FontWeight.w700,
-                            ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        'Tasks waiting to be scheduled',
-                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                              color: colors.textSecondary,
-                            ),
-                      ),
-                    ],
+                  child: Text(
+                    'Backlog',
+                    style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                          color: colors.textPrimary,
+                          fontWeight: FontWeight.w700,
+                        ),
                   ),
                 ),
                 if (backlog.isNotEmpty)
@@ -676,44 +654,22 @@ class _DayColumnsPane extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
+            padding: const EdgeInsets.fromLTRB(10, 4, 10, 4),
             child: Row(
               children: [
-                SizedBox(
-                  width: 28,
-                  height: 28,
-                  child: RhythmSurface(
-                    tone: RhythmSurfaceTone.muted,
-                    borderRadius: BorderRadius.circular(RhythmRadius.sm),
-                    child: Center(
-                      child: Icon(
-                        Icons.calendar_view_week_outlined,
-                        size: 16,
-                        color: colors.accent,
-                      ),
-                    ),
-                  ),
+                Icon(
+                  Icons.calendar_view_week_outlined,
+                  size: 14,
+                  color: colors.accent,
                 ),
-                const SizedBox(width: 10),
+                const SizedBox(width: 6),
                 Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'This week',
-                        style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                              color: colors.textPrimary,
-                              fontWeight: FontWeight.w700,
-                            ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        'Scheduled work across the week',
-                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                              color: colors.textSecondary,
-                            ),
-                      ),
-                    ],
+                  child: Text(
+                    'This week',
+                    style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                          color: colors.textPrimary,
+                          fontWeight: FontWeight.w700,
+                        ),
                   ),
                 ),
               ],
@@ -862,7 +818,8 @@ class _DayColumnState extends State<_DayColumn> {
             children: [
               Container(
                 width: double.infinity,
-                padding: const EdgeInsets.fromLTRB(10, 12, 10, 10),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                 decoration: BoxDecoration(
                   color: today ? colors.surfaceRaised : colors.surfaceMuted,
                   border: Border(
@@ -873,56 +830,46 @@ class _DayColumnState extends State<_DayColumn> {
                     ),
                   ),
                 ),
-                child: Column(
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Text(
-                          widget.dayName,
-                          style: Theme.of(context)
-                              .textTheme
-                              .labelSmall
-                              ?.copyWith(
-                                fontWeight: FontWeight.w700,
-                                letterSpacing: 0.3,
-                                color:
-                                    today ? colors.accent : colors.textPrimary,
-                              ),
-                        ),
-                        if (today) ...[
-                          const SizedBox(width: 6),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 6,
-                              vertical: 2,
-                            ),
-                            decoration: BoxDecoration(
-                              color: colors.accentMuted,
-                              borderRadius:
-                                  BorderRadius.circular(RhythmRadius.sm),
-                            ),
-                            child: Text(
-                              'Today',
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .labelSmall
-                                  ?.copyWith(
-                                    color: colors.accent,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                            ),
+                    Text(
+                      widget.dayName,
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: 0.3,
+                            color: today ? colors.accent : colors.textPrimary,
                           ),
-                        ],
-                      ],
                     ),
-                    const SizedBox(height: 3),
+                    const SizedBox(width: 4),
                     Text(
                       _shortDate(),
                       style: Theme.of(context).textTheme.labelSmall?.copyWith(
                             color: today ? colors.accent : colors.textSecondary,
                           ),
                     ),
+                    if (today) ...[
+                      const SizedBox(width: 4),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 5,
+                          vertical: 1,
+                        ),
+                        decoration: BoxDecoration(
+                          color: colors.accentMuted,
+                          borderRadius: BorderRadius.circular(RhythmRadius.sm),
+                        ),
+                        child: Text(
+                          'Today',
+                          style:
+                              Theme.of(context).textTheme.labelSmall?.copyWith(
+                                    color: colors.accent,
+                                    fontWeight: FontWeight.w600,
+                                    fontSize: 9,
+                                  ),
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ),
@@ -983,6 +930,7 @@ class _DayColumnState extends State<_DayColumn> {
                           _EventsBar(
                             events: combinedEvents,
                             controller: widget.controller,
+                            columnDate: widget.date,
                           ),
                         Expanded(
                           child: SingleChildScrollView(
@@ -1092,17 +1040,6 @@ class _TaskTile extends StatelessWidget {
     final isShadowEvent = task.sourceType == 'calendar_shadow_event';
     final visualStyle = TaskVisualStyles.resolve(task);
     final shadowTimeLabel = isShadowEvent ? _shadowEventLabel(task) : null;
-    final isPastDue = DateFormatters.isPastDue(
-      dueDate: task.dueDate,
-      scheduledDate: task.scheduledDate,
-      isDone: isDone,
-    );
-    final workspaceMembers = context.watch<WorkspaceController>().members;
-    final ownerName = _ownerName(task.ownerId, workspaceMembers);
-    final sourceName = task.sourceName?.trim();
-    final hasSourceName = sourceName != null && sourceName.isNotEmpty;
-    final notesPreview = task.notes?.trim();
-    final hasNotes = notesPreview != null && notesPreview.isNotEmpty;
     final colors = context.rhythm;
     return GestureDetector(
       onTap: () => controller.selectTask(task.id),
@@ -1110,17 +1047,12 @@ class _TaskTile extends StatelessWidget {
           isShadowEvent ? null : () => controller.toggleTaskSelection(task.id),
       child: LayoutBuilder(
         builder: (context, constraints) {
-          final showContext = !compact || constraints.maxWidth >= 118;
-          final showNotes =
-              hasNotes && (!compact || constraints.maxWidth >= 142);
           return AnimatedContainer(
             duration: const Duration(milliseconds: 120),
-            margin: compact
-                ? const EdgeInsets.symmetric(horizontal: 8, vertical: 2)
-                : const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
             padding: EdgeInsets.symmetric(
               horizontal: compact ? 8 : 10,
-              vertical: compact ? 8 : 11,
+              vertical: compact ? 8 : 5,
             ),
             decoration: BoxDecoration(
               color: isSelected || isMultiSelected
@@ -1137,7 +1069,7 @@ class _TaskTile extends StatelessWidget {
                   : const [],
             ),
             child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
+              crossAxisAlignment: CrossAxisAlignment.center,
               children: [
                 if (isShadowEvent)
                   Container(
@@ -1187,9 +1119,8 @@ class _TaskTile extends StatelessWidget {
                         ),
                       Text(
                         task.title,
-                        maxLines: compact ? 4 : 3,
+                        maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        softWrap: true,
                         style: (compact
                                 ? Theme.of(context).textTheme.labelSmall
                                 : Theme.of(context).textTheme.bodySmall)
@@ -1204,66 +1135,6 @@ class _TaskTile extends StatelessWidget {
                           height: compact ? 1.18 : 1.25,
                         ),
                       ),
-                      if (showContext &&
-                          (isPastDue ||
-                              isDone ||
-                              ownerName != null ||
-                              task.sourceType != null ||
-                              hasSourceName)) ...[
-                        const SizedBox(height: 6),
-                        Wrap(
-                          spacing: 5,
-                          runSpacing: 5,
-                          children: [
-                            if (isPastDue)
-                              const RhythmBadge(
-                                label: 'Past due',
-                                tone: RhythmBadgeTone.danger,
-                                compact: true,
-                              ),
-                            if (isDone)
-                              const RhythmBadge(
-                                label: 'Done',
-                                tone: RhythmBadgeTone.success,
-                                compact: true,
-                              ),
-                            if (ownerName != null)
-                              RhythmMetaChip(
-                                icon: Icons.person_outline,
-                                label: ownerName,
-                                color: _plannerMutedTextColor(
-                                    context, visualStyle),
-                                maxWidth: 128,
-                              ),
-                            if (task.sourceType != null || hasSourceName)
-                              RhythmMetaChip(
-                                icon: _sourceIcon(task.sourceType),
-                                label: _sourceLabelForTask(task),
-                                color:
-                                    _plannerAccentColor(context, visualStyle),
-                                maxWidth: 128,
-                              ),
-                          ],
-                        ),
-                      ],
-                      if (showNotes) ...[
-                        const SizedBox(height: 6),
-                        Text(
-                          notesPreview,
-                          maxLines: compact ? 2 : 3,
-                          overflow: TextOverflow.ellipsis,
-                          style:
-                              Theme.of(context).textTheme.labelSmall?.copyWith(
-                                    color: isDone
-                                        ? colors.textMuted
-                                        : _plannerMutedTextColor(
-                                            context,
-                                            visualStyle,
-                                          ),
-                                    height: 1.25,
-                                  ),
-                        ),
-                      ],
                     ],
                   ),
                 ),
@@ -1299,39 +1170,6 @@ class _TaskTile extends StatelessWidget {
       ),
     );
   }
-
-  String? _ownerName(int? ownerId, List<WorkspaceMember> workspaceMembers) {
-    if (ownerId == null) return null;
-    for (final member in workspaceMembers) {
-      if (member.userId == ownerId) {
-        final name = member.name.trim();
-        return name.isEmpty ? member.email.trim() : name;
-      }
-    }
-    return 'User $ownerId';
-  }
-}
-
-IconData _sourceIcon(String? sourceType) => switch (sourceType) {
-      'automation_rule' => Icons.auto_awesome,
-      'planning_center_signal' => Icons.groups_2_outlined,
-      'calendar_shadow_event' => Icons.event_available_outlined,
-      'project_step' => Icons.folder_open_outlined,
-      'recurring_rule' => Icons.repeat,
-      _ => Icons.link,
-    };
-
-String _sourceLabelForTask(Task task) {
-  final sourceName = task.sourceName?.trim();
-  if (sourceName != null && sourceName.isNotEmpty) return sourceName;
-  return switch (task.sourceType) {
-    'automation_rule' => 'Automation',
-    'planning_center_signal' => 'Planning Center',
-    'calendar_shadow_event' => 'Calendar',
-    'project_step' => 'Project',
-    'recurring_rule' => 'Rhythm',
-    _ => 'Source',
-  };
 }
 
 // ---------------------------------------------------------------------------
@@ -1855,9 +1693,14 @@ class _MiniMoveButton extends StatelessWidget {
 // ---------------------------------------------------------------------------
 
 class _EventsBar extends StatelessWidget {
-  const _EventsBar({required this.events, required this.controller});
+  const _EventsBar({
+    required this.events,
+    required this.controller,
+    required this.columnDate,
+  });
   final List<Task> events;
   final WeeklyPlannerController controller;
+  final String columnDate;
 
   @override
   Widget build(BuildContext context) {
@@ -1874,9 +1717,14 @@ class _EventsBar extends StatelessWidget {
         children: events.map((event) {
           final visualStyle = TaskVisualStyles.resolve(event);
           final isAllDay = event.isAllDay;
+          final isContinuation =
+              (event.scheduledDate ?? event.dueDate) != columnDate;
           final String pillText;
           final String tooltipText;
-          if (isAllDay) {
+          if (isContinuation) {
+            pillText = '→ ${event.title}';
+            tooltipText = 'Continues · ${event.title}';
+          } else if (isAllDay) {
             pillText = event.title;
             tooltipText = 'All day · ${event.title}';
           } else {
@@ -1958,15 +1806,6 @@ Color _plannerTextColor(BuildContext context, TaskVisualStyle visualStyle) {
     return visualStyle.text;
   }
   return colors.textPrimary;
-}
-
-Color _plannerMutedTextColor(
-    BuildContext context, TaskVisualStyle visualStyle) {
-  final colors = context.rhythm;
-  if (Theme.of(context).brightness != Brightness.dark) {
-    return visualStyle.mutedText;
-  }
-  return Color.lerp(colors.textSecondary, visualStyle.accent, 0.2)!;
 }
 
 Color _plannerAccentColor(BuildContext context, TaskVisualStyle visualStyle) {

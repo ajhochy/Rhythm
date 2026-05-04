@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 
+import '../../projects/models/project_instance.dart';
 import '../../tasks/models/task.dart';
 import '../models/dashboard_overview_models.dart';
 import '../repositories/dashboard_repository.dart';
@@ -35,6 +36,12 @@ class DashboardController extends ChangeNotifier {
   List<DashboardProjectProgress> _activeProjects = [];
   List<DashboardUnreadMessagePreview> _unreadMessages = [];
 
+  List<Task> _projectStepPastDueTasks = [];
+  List<Task> _projectStepTodayTasks = [];
+  List<Task> _projectStepThisWeekTasks = [];
+  final Map<String, ({ProjectInstanceStep step, String projectName})>
+      _projectStepRegistry = {};
+
   DashboardStatus get status => _status;
   String? get errorMessage => _errorMessage;
   int get openTaskCount => _openTaskCount;
@@ -59,6 +66,15 @@ class DashboardController extends ChangeNotifier {
   List<DashboardUnreadMessagePreview> get unreadMessages => _unreadMessages;
   DashboardProjectProgress? get soonestProject =>
       _activeProjects.isEmpty ? null : _activeProjects.first;
+
+  List<Task> get projectStepPastDueTasks => _projectStepPastDueTasks;
+  List<Task> get projectStepTodayTasks => _projectStepTodayTasks;
+  List<Task> get projectStepThisWeekTasks => _projectStepThisWeekTasks;
+
+  ProjectInstanceStep? findProjectStep(String id) =>
+      _projectStepRegistry[id]?.step;
+  String? projectStepProjectName(String id) =>
+      _projectStepRegistry[id]?.projectName;
 
   Future<void> load() async {
     _status = DashboardStatus.loading;
@@ -105,6 +121,64 @@ class DashboardController extends ChangeNotifier {
       _status = DashboardStatus.error;
     }
     notifyListeners();
+    await _loadProjectSteps();
+  }
+
+  Future<void> _loadProjectSteps() async {
+    try {
+      final instances = await _repository.getProjectInstances();
+      _projectStepRegistry.clear();
+      _projectStepPastDueTasks = [];
+      _projectStepTodayTasks = [];
+      _projectStepThisWeekTasks = [];
+
+      final now = DateTime.now();
+      final todayDate = DateTime(now.year, now.month, now.day);
+      final weekStart =
+          todayDate.subtract(Duration(days: todayDate.weekday - 1));
+      final weekEnd = weekStart.add(const Duration(days: 6));
+
+      for (final instance in instances) {
+        if (instance.status == 'done' || instance.status == 'completed') {
+          continue;
+        }
+        final projectName = instance.name ?? 'Project';
+        for (final step in instance.steps) {
+          if (step.status == 'done') continue;
+          if (step.dueDate.isEmpty) continue;
+
+          final parsed = DateTime.tryParse(step.dueDate);
+          if (parsed == null) continue;
+          final taskDate = DateTime(parsed.year, parsed.month, parsed.day);
+
+          final syntheticTask = Task(
+            id: step.id,
+            title: step.title,
+            status: step.status,
+            sourceType: 'project_step',
+            sourceName: projectName,
+            dueDate: step.dueDate,
+            notes: step.notes,
+            createdAt: '',
+            updatedAt: '',
+          );
+
+          _projectStepRegistry[step.id] =
+              (step: step, projectName: projectName);
+
+          if (taskDate.isBefore(todayDate)) {
+            _projectStepPastDueTasks.add(syntheticTask);
+          } else if (taskDate == todayDate) {
+            _projectStepTodayTasks.add(syntheticTask);
+          } else if (!taskDate.isAfter(weekEnd)) {
+            _projectStepThisWeekTasks.add(syntheticTask);
+          }
+        }
+      }
+      notifyListeners();
+    } catch (_) {
+      // Non-critical: don't surface project step errors in dashboard status
+    }
   }
 
   Future<void> refresh() => load();
