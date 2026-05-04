@@ -686,6 +686,10 @@ export function runMigrations(db: Database.Database): void {
   if (!threadColsP7.includes('thread_type')) {
     db.exec(`ALTER TABLE message_threads ADD COLUMN thread_type TEXT NOT NULL DEFAULT 'direct'`);
   }
+  if (!threadColsP7.includes('task_id')) {
+    db.exec(`ALTER TABLE message_threads ADD COLUMN task_id TEXT REFERENCES tasks(id) ON DELETE SET NULL`);
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_message_threads_task_id ON message_threads(task_id)`);
+  }
 
   // Phase 8: step assignees + rhythm collaborators
   const templateStepCols = (db.pragma('table_info(project_template_steps)') as { name: string }[]).map((c) => c.name);
@@ -722,4 +726,16 @@ export function runMigrations(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_notifications_recipient
       ON notifications(recipient_user_id, read_at);
   `);
+
+  // Claude collaborator trigger queue
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS pending_claude_triggers (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+      triggered_by_user_id INTEGER REFERENCES users(id),
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE(task_id)
+    )
+  `);
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_pending_claude_triggers_created_at ON pending_claude_triggers(created_at)`);
 }

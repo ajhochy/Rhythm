@@ -406,6 +406,8 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
   await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS workspace_id INTEGER REFERENCES workspaces(id)`);
   await pool.query(`ALTER TABLE messages ADD COLUMN IF NOT EXISTS sender_photo_url TEXT`);
   await pool.query(`ALTER TABLE message_threads ADD COLUMN IF NOT EXISTS thread_type TEXT NOT NULL DEFAULT 'direct'`);
+  await pool.query(`ALTER TABLE message_threads ADD COLUMN IF NOT EXISTS task_id TEXT REFERENCES tasks(id) ON DELETE SET NULL`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_message_threads_task_id ON message_threads(task_id)`);
 
   // Phase 8: step assignees + rhythm collaborators
   await pool.query(`ALTER TABLE project_template_steps ADD COLUMN IF NOT EXISTS assignee_id INTEGER REFERENCES users(id) ON DELETE SET NULL`);
@@ -436,4 +438,16 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
     CREATE INDEX IF NOT EXISTS idx_notifications_recipient
       ON notifications(recipient_user_id, read_at)
   `);
+
+  // Claude collaborator trigger queue
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS pending_claude_triggers (
+      id SERIAL PRIMARY KEY,
+      task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+      triggered_by_user_id INTEGER REFERENCES users(id),
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE(task_id)
+    )
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_pending_claude_triggers_created_at ON pending_claude_triggers(created_at)`);
 }
