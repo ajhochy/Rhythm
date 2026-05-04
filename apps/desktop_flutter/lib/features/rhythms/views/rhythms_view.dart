@@ -364,6 +364,7 @@ class _CreateRuleDialogState extends State<_CreateRuleDialog> {
   int _month = 1;
   bool _sequential = false;
   bool _saving = false;
+  String? _errorText;
   final List<_StepEditorModel> _steps = [];
 
   static const _weekdays = [
@@ -430,7 +431,23 @@ class _CreateRuleDialogState extends State<_CreateRuleDialog> {
                   DropdownMenuItem(value: 'monthly', child: Text('Monthly')),
                   DropdownMenuItem(value: 'annual', child: Text('Annual')),
                 ],
-                onChanged: (v) => setState(() => _frequency = v!),
+                onChanged: (v) {
+                  setState(() {
+                    _frequency = v!;
+                    _errorText = null;
+                    // Re-default any missing per-step fields for the new frequency.
+                    for (final step in _steps) {
+                      if (_frequency == 'weekly') {
+                        step.dayOfWeek ??= _dayOfWeek;
+                      } else if (_frequency == 'monthly') {
+                        step.dayOfMonth ??= _dayOfMonth;
+                      } else if (_frequency == 'annual') {
+                        step.month ??= _month;
+                        step.dayOfMonth ??= _dayOfMonth;
+                      }
+                    }
+                  });
+                },
               ),
               const SizedBox(height: 16),
               if (_frequency == 'weekly') ...[
@@ -447,11 +464,25 @@ class _CreateRuleDialogState extends State<_CreateRuleDialog> {
                   ),
                   onChanged: (v) => setState(() => _dayOfWeek = v!),
                 ),
+                const SizedBox(height: 6),
+                Text(
+                  'Used when this rhythm has no steps. Otherwise each step picks its own day.',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: context.rhythm.textMuted,
+                      ),
+                ),
               ],
               if (_frequency == 'monthly') ...[
                 _DayOfMonthField(
                   value: _dayOfMonth,
                   onChanged: (v) => setState(() => _dayOfMonth = v),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'Used when this rhythm has no steps. Otherwise each step picks its own day.',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: context.rhythm.textMuted,
+                      ),
                 ),
               ],
               if (_frequency == 'annual') ...[
@@ -472,6 +503,13 @@ class _CreateRuleDialogState extends State<_CreateRuleDialog> {
                 _DayOfMonthField(
                   value: _dayOfMonth,
                   onChanged: (v) => setState(() => _dayOfMonth = v),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'Used when this rhythm has no steps. Otherwise each step picks its own day.',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: context.rhythm.textMuted,
+                      ),
                 ),
               ],
               const SizedBox(height: 18),
@@ -506,7 +544,16 @@ class _CreateRuleDialogState extends State<_CreateRuleDialog> {
                     onPressed: () {
                       setState(() {
                         _steps.add(
-                          _StepEditorModel(id: _newStepId(_steps.length)),
+                          _StepEditorModel(
+                            id: _newStepId(_steps.length),
+                            dayOfWeek:
+                                _frequency == 'weekly' ? _dayOfWeek : null,
+                            dayOfMonth: (_frequency == 'monthly' ||
+                                    _frequency == 'annual')
+                                ? _dayOfMonth
+                                : null,
+                            month: _frequency == 'annual' ? _month : null,
+                          ),
                         );
                       });
                     },
@@ -574,6 +621,17 @@ class _CreateRuleDialogState extends State<_CreateRuleDialog> {
         ),
       ),
       actions: [
+        if (_errorText != null)
+          Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: Text(
+              _errorText!,
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.error,
+                fontSize: 13,
+              ),
+            ),
+          ),
         TextButton(
           onPressed: _saving ? null : () => Navigator.pop(context),
           child: const Text('Cancel'),
@@ -596,6 +654,25 @@ class _CreateRuleDialogState extends State<_CreateRuleDialog> {
     return 'step-${DateTime.now().microsecondsSinceEpoch}-$index';
   }
 
+  bool _validateSteps() {
+    final nonEmpty = _steps.where(
+      (s) => s.titleController.text.trim().isNotEmpty,
+    );
+    for (final step in nonEmpty) {
+      if (_frequency == 'weekly' && step.dayOfWeek == null) {
+        return false;
+      }
+      if (_frequency == 'monthly' && step.dayOfMonth == null) {
+        return false;
+      }
+      if (_frequency == 'annual' &&
+          (step.month == null || step.dayOfMonth == null)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
   Future<void> _save() async {
     final title = _titleController.text.trim();
     if (title.isEmpty) return;
@@ -605,7 +682,17 @@ class _CreateRuleDialogState extends State<_CreateRuleDialog> {
         .where((step) => step.title.trim().isNotEmpty)
         .toList();
 
-    setState(() => _saving = true);
+    if (steps.isNotEmpty && !_validateSteps()) {
+      setState(() {
+        _errorText = 'Each step must have the required day field(s) set.';
+      });
+      return;
+    }
+
+    setState(() {
+      _saving = true;
+      _errorText = null;
+    });
     await widget.controller.createRule(
       title: title,
       frequency: _frequency,
@@ -638,6 +725,7 @@ class _EditRuleDialogState extends State<_EditRuleDialog> {
   late int _month;
   late bool _sequential;
   bool _saving = false;
+  String? _errorText;
   final List<_StepEditorModel> _steps = [];
 
   static const _weekdays = [
@@ -679,9 +767,10 @@ class _EditRuleDialogState extends State<_EditRuleDialog> {
           id: step.id,
           title: step.title,
           assigneeId: step.assigneeId,
-          dayOfWeek: step.dayOfWeek,
-          dayOfMonth: step.dayOfMonth,
-          month: step.month,
+          // For legacy steps with null day fields, default from rhythm-level.
+          dayOfWeek: step.dayOfWeek ?? widget.rule.dayOfWeek,
+          dayOfMonth: step.dayOfMonth ?? widget.rule.dayOfMonth,
+          month: step.month ?? widget.rule.month,
         ),
       ),
     );
@@ -727,10 +816,26 @@ class _EditRuleDialogState extends State<_EditRuleDialog> {
                   DropdownMenuItem(value: 'monthly', child: Text('Monthly')),
                   DropdownMenuItem(value: 'annual', child: Text('Annual')),
                 ],
-                onChanged: (v) => setState(() => _frequency = v!),
+                onChanged: (v) {
+                  setState(() {
+                    _frequency = v!;
+                    _errorText = null;
+                    // Re-default any missing per-step fields for the new frequency.
+                    for (final step in _steps) {
+                      if (_frequency == 'weekly') {
+                        step.dayOfWeek ??= _dayOfWeek;
+                      } else if (_frequency == 'monthly') {
+                        step.dayOfMonth ??= _dayOfMonth;
+                      } else if (_frequency == 'annual') {
+                        step.month ??= _month;
+                        step.dayOfMonth ??= _dayOfMonth;
+                      }
+                    }
+                  });
+                },
               ),
               const SizedBox(height: 16),
-              if (_frequency == 'weekly')
+              if (_frequency == 'weekly') ...[
                 DropdownButtonFormField<int>(
                   value: _dayOfWeek,
                   decoration: const InputDecoration(
@@ -744,11 +849,27 @@ class _EditRuleDialogState extends State<_EditRuleDialog> {
                   ),
                   onChanged: (v) => setState(() => _dayOfWeek = v!),
                 ),
-              if (_frequency == 'monthly')
+                const SizedBox(height: 6),
+                Text(
+                  'Used when this rhythm has no steps. Otherwise each step picks its own day.',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: context.rhythm.textMuted,
+                      ),
+                ),
+              ],
+              if (_frequency == 'monthly') ...[
                 _DayOfMonthField(
                   value: _dayOfMonth,
                   onChanged: (v) => setState(() => _dayOfMonth = v),
                 ),
+                const SizedBox(height: 6),
+                Text(
+                  'Used when this rhythm has no steps. Otherwise each step picks its own day.',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: context.rhythm.textMuted,
+                      ),
+                ),
+              ],
               if (_frequency == 'annual') ...[
                 DropdownButtonFormField<int>(
                   value: _month,
@@ -767,6 +888,13 @@ class _EditRuleDialogState extends State<_EditRuleDialog> {
                 _DayOfMonthField(
                   value: _dayOfMonth,
                   onChanged: (v) => setState(() => _dayOfMonth = v),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'Used when this rhythm has no steps. Otherwise each step picks its own day.',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: context.rhythm.textMuted,
+                      ),
                 ),
               ],
               const SizedBox(height: 18),
@@ -801,7 +929,16 @@ class _EditRuleDialogState extends State<_EditRuleDialog> {
                     onPressed: () {
                       setState(() {
                         _steps.add(
-                          _StepEditorModel(id: _newStepId(_steps.length)),
+                          _StepEditorModel(
+                            id: _newStepId(_steps.length),
+                            dayOfWeek:
+                                _frequency == 'weekly' ? _dayOfWeek : null,
+                            dayOfMonth: (_frequency == 'monthly' ||
+                                    _frequency == 'annual')
+                                ? _dayOfMonth
+                                : null,
+                            month: _frequency == 'annual' ? _month : null,
+                          ),
                         );
                       });
                     },
@@ -869,6 +1006,17 @@ class _EditRuleDialogState extends State<_EditRuleDialog> {
         ),
       ),
       actions: [
+        if (_errorText != null)
+          Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: Text(
+              _errorText!,
+              style: TextStyle(
+                color: Theme.of(context).colorScheme.error,
+                fontSize: 13,
+              ),
+            ),
+          ),
         TextButton(
           onPressed: _saving ? null : () => Navigator.pop(context),
           child: const Text('Cancel'),
@@ -891,6 +1039,25 @@ class _EditRuleDialogState extends State<_EditRuleDialog> {
     return 'step-${DateTime.now().microsecondsSinceEpoch}-$index';
   }
 
+  bool _validateSteps() {
+    final nonEmpty = _steps.where(
+      (s) => s.titleController.text.trim().isNotEmpty,
+    );
+    for (final step in nonEmpty) {
+      if (_frequency == 'weekly' && step.dayOfWeek == null) {
+        return false;
+      }
+      if (_frequency == 'monthly' && step.dayOfMonth == null) {
+        return false;
+      }
+      if (_frequency == 'annual' &&
+          (step.month == null || step.dayOfMonth == null)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
   Future<void> _save() async {
     final title = _titleController.text.trim();
     if (title.isEmpty) return;
@@ -898,7 +1065,18 @@ class _EditRuleDialogState extends State<_EditRuleDialog> {
         .map((step) => step.toStep())
         .where((step) => step.title.trim().isNotEmpty)
         .toList();
-    setState(() => _saving = true);
+
+    if (steps.isNotEmpty && !_validateSteps()) {
+      setState(() {
+        _errorText = 'Each step must have the required day field(s) set.';
+      });
+      return;
+    }
+
+    setState(() {
+      _saving = true;
+      _errorText = null;
+    });
     await widget.controller.updateRule(
       widget.rule.id,
       title: title,
