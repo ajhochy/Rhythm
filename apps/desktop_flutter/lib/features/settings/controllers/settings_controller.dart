@@ -15,6 +15,9 @@ class SettingsController extends ChangeNotifier {
   String? _usersErrorMessage;
   final Set<int> _savingUserIds = <int>{};
 
+  bool _emailNotificationsEnabled = true;
+  bool get emailNotificationsEnabled => _emailNotificationsEnabled;
+
   SettingsUsersStatus get usersStatus => _usersStatus;
   List<AuthUser> get users => _users;
   String? get usersErrorMessage => _usersErrorMessage;
@@ -74,6 +77,24 @@ class SettingsController extends ChangeNotifier {
     } finally {
       _savingUserIds.remove(userId);
       notifyListeners();
+    }
+  }
+
+  void initFromUser(AuthUser user) {
+    _emailNotificationsEnabled = user.emailNotificationsEnabled;
+    notifyListeners();
+  }
+
+  Future<void> setEmailNotifications(bool enabled) async {
+    final previous = _emailNotificationsEnabled;
+    _emailNotificationsEnabled = enabled;
+    notifyListeners();
+    try {
+      await _repository.updateEmailNotifications(enabled);
+    } catch (e) {
+      _emailNotificationsEnabled = previous;
+      notifyListeners();
+      rethrow;
     }
   }
 }

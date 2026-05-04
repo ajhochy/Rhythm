@@ -16,6 +16,7 @@ import '../../../features/integrations/models/integration_account.dart';
 import '../../../features/integrations/views/integrations_view.dart';
 import '../../../features/projects/views/projects_view.dart';
 import '../../../features/rhythms/views/rhythms_view.dart';
+import '../../../features/settings/controllers/settings_controller.dart';
 import '../../../features/settings/views/settings_view.dart';
 import '../../../features/tasks/views/automation_rules_view.dart';
 import '../../../features/messages/views/messages_view.dart';
@@ -706,6 +707,10 @@ class _AuthGateState extends State<_AuthGate> {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted) return;
         context.read<MessagesController>().loadThreads();
+        final user = context.read<AuthSessionService>().currentUser;
+        if (user != null) {
+          context.read<SettingsController>().initFromUser(user);
+        }
       });
     }
     if (!auth.isAuthenticated) {
