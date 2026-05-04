@@ -169,6 +169,8 @@ class _TasksViewState extends State<TasksView> {
             (Color(0xFFE29A3A), 'Today'),
             (Color(0xFF4E5FE0), 'Rhythm'),
             (Color(0xFF2E7FC4), 'Project'),
+            (Color(0xFF0D9B87), 'Automation'),
+            (Color(0xFFC1602A), 'Planning Center'),
           ],
         ),
       ],
