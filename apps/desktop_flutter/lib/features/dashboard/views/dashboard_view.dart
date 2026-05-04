@@ -163,6 +163,15 @@ class _DashboardBodyState extends State<_DashboardBody> {
                         currentUserId: currentUserId,
                         workspaceMembers: workspaceMembers,
                       ),
+                      if (c.unreadMessages.isNotEmpty) ...[
+                        const SizedBox(height: RhythmSpacing.md),
+                        _UnreadOverviewCard(
+                          items: c.unreadMessages,
+                          onTapHeader: widget.openMessages,
+                          onTapItem: (preview) =>
+                              _openMessageThread(context, preview),
+                        ),
+                      ],
                       const SizedBox(height: RhythmSpacing.lg),
                       const RhythmSectionHeader(
                         title: 'Planning',
@@ -309,12 +318,6 @@ class _DashboardBodyState extends State<_DashboardBody> {
             onTap: widget.openWeeklyPlanner,
           );
 
-          final unreadCard = _UnreadOverviewCard(
-            items: c.unreadMessages,
-            onTapHeader: widget.openMessages,
-            onTapItem: (preview) => _openMessageThread(context, preview),
-          );
-
           final projectCards = _buildProjectMetricCards(
             c,
             currentUserId: currentUserId,
@@ -324,7 +327,6 @@ class _DashboardBodyState extends State<_DashboardBody> {
             todayCard,
             thisWeekCard,
             ...projectCards,
-            unreadCard,
           ];
           return Column(
             crossAxisAlignment: CrossAxisAlignment.start,
