@@ -140,4 +140,34 @@ describe('Tasks permissions', () => {
     const collaboratorTasks = await readJson(collaboratorListResponse) as Array<{ id: string }>;
     expect(collaboratorTasks.map((visibleTask) => visibleTask.id)).toEqual([task.id]);
   });
+
+  it('accepts in_progress and waiting_for_reply as valid task statuses', async () => {
+    const user = usersRepo.create({ name: 'User', email: 'u@x.com' });
+    const task = tasksRepo.create({ title: 'T', ownerId: user.id });
+    const headers = await authHeaderFor(user.id);
+
+    for (const status of ['in_progress', 'waiting_for_reply', 'done']) {
+      const res = await fetch(`${baseUrl}/tasks/${task.id}`, {
+        method: 'PATCH',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status }),
+      });
+      expect(res.status).toBe(200);
+      const updated = await readJson(res);
+      expect(updated.status).toBe(status);
+    }
+  });
+
+  it('rejects invalid task status values', async () => {
+    const user = usersRepo.create({ name: 'User', email: 'u2@x.com' });
+    const task = tasksRepo.create({ title: 'T', ownerId: user.id });
+    const headers = await authHeaderFor(user.id);
+
+    const res = await fetch(`${baseUrl}/tasks/${task.id}`, {
+      method: 'PATCH',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'bogus' }),
+    });
+    expect(res.status).toBe(400);
+  });
 });

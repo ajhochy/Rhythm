@@ -5,6 +5,9 @@ import { NotificationsRepository } from '../repositories/notifications_repositor
 import { NotificationService } from '../services/notification_service';
 import { RecurringTaskRulesRepository } from '../repositories/recurring_task_rules_repository';
 
+const VALID_STATUSES = ['open', 'in_progress', 'waiting_for_reply', 'done'] as const;
+type ValidStatus = (typeof VALID_STATUSES)[number];
+
 const repo = new TasksRepository();
 const rulesRepo = new RecurringTaskRulesRepository();
 const notifService = new NotificationService(new NotificationsRepository());
@@ -32,11 +35,14 @@ export class TasksController {
       if (!title || typeof title !== 'string') {
         throw AppError.badRequest('title is required');
       }
+      if (status !== undefined && !VALID_STATUSES.includes(status as ValidStatus)) {
+        throw AppError.badRequest(`status must be one of: ${VALID_STATUSES.join(', ')}`);
+      }
       const task = await repo.createAsync({
         title,
         notes: (notes as string) ?? null,
         dueDate: (dueDate as string) ?? null,
-        status: status as 'open' | 'done',
+        status: status as ValidStatus,
         ownerId: req.auth!.user.id,
       });
       res.status(201).json(task);
@@ -48,14 +54,18 @@ export class TasksController {
   async update(req: Request, res: Response, next: NextFunction) {
     try {
       const actorId = req.auth!.user.id;
+      const data = req.body as Record<string, unknown>;
+
+      if (data.status !== undefined && !VALID_STATUSES.includes(data.status as ValidStatus)) {
+        throw AppError.badRequest(`status must be one of: ${VALID_STATUSES.join(', ')}`);
+      }
+
       const existing = await repo.findByIdAsync(req.params.id, actorId);
       const updated = await repo.updateAsync(
         req.params.id,
-        req.body as Record<string, unknown>,
+        data,
         actorId,
       );
-
-      const data = req.body as Record<string, unknown>;
 
       // Notify on assignment
       if (
