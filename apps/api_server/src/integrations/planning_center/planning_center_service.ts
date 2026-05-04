@@ -557,7 +557,9 @@ export class PlanningCenterService {
             : `${entry.people.length} people`;
       return {
         sourceId: `planning_center:declined:${plan.id}:${entry.ids.join('-')}`,
-        title: `Replace ${entry.positionName} for ${plan.title}`,
+        title: entry.people.length === 1
+          ? `Replace ${entry.people[0]} — ${entry.positionName} for ${plan.title}`
+          : `Replace ${entry.people.length} people — ${entry.positionName} for ${plan.title}`,
         notes:
           `${peopleLabel} declined the ${entry.positionName} invitation` +
           ` in Planning Center for ${plan.serviceTypeName} on ${plan.planDate}.`,
@@ -605,7 +607,7 @@ export class PlanningCenterService {
 
         signals.push({
           sourceId: `planning_center:unconfirmed:${plan.id}:${resource.id}`,
-          title: `Confirm ${positionName} for ${plan.title}`,
+          title: `Confirm ${personName} — ${positionName} for ${plan.title}`,
           notes:
             `${personName} is still unconfirmed for the ${positionName}` +
             ` assignment in Planning Center for ${plan.serviceTypeName} on ${plan.planDate}.`,
