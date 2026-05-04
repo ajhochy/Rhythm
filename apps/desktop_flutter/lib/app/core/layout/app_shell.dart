@@ -504,22 +504,13 @@ class _TopRightAccountClusterState extends State<_TopRightAccountCluster> {
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  CircleAvatar(
+                  _RhythmAvatar(
+                    photoUrl: user.photoUrl,
+                    initials: _initialsFor(user.name),
+                    userId: '${user.id}',
                     radius: 18,
                     backgroundColor: context.rhythm.accentMuted,
-                    backgroundImage: user.photoUrl != null
-                        ? NetworkImage(user.photoUrl!)
-                        : null,
-                    child: user.photoUrl == null
-                        ? Text(
-                            _initialsFor(user.name),
-                            style: TextStyle(
-                              color: context.rhythm.accent,
-                              fontSize: 12,
-                              fontWeight: FontWeight.w700,
-                            ),
-                          )
-                        : null,
+                    initialsColor: context.rhythm.accent,
                   ),
                   const SizedBox(width: 10),
                   ConstrainedBox(
@@ -573,6 +564,82 @@ String _initialsFor(String name) {
       .toList();
   if (parts.isEmpty) return '?';
   return parts.map((part) => part[0].toUpperCase()).join();
+}
+
+/// A circular avatar that displays a network photo when available and falls back
+/// to initials on load failure or when [photoUrl] is null.
+class _RhythmAvatar extends StatefulWidget {
+  const _RhythmAvatar({
+    required this.photoUrl,
+    required this.initials,
+    required this.userId,
+    required this.radius,
+    required this.backgroundColor,
+    required this.initialsColor,
+  });
+
+  final String? photoUrl;
+  final String initials;
+  final String userId;
+  final double radius;
+  final Color backgroundColor;
+  final Color initialsColor;
+
+  @override
+  State<_RhythmAvatar> createState() => _RhythmAvatarState();
+}
+
+class _RhythmAvatarState extends State<_RhythmAvatar> {
+  bool _imageError = false;
+
+  Widget _initialsWidget() {
+    return Container(
+      width: widget.radius * 2,
+      height: widget.radius * 2,
+      decoration: BoxDecoration(
+        color: widget.backgroundColor,
+        shape: BoxShape.circle,
+      ),
+      alignment: Alignment.center,
+      child: Text(
+        widget.initials,
+        style: TextStyle(
+          color: widget.initialsColor,
+          fontSize: widget.radius * 0.67,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (widget.photoUrl == null || _imageError) {
+      return _initialsWidget();
+    }
+
+    return ClipOval(
+      child: SizedBox(
+        width: widget.radius * 2,
+        height: widget.radius * 2,
+        child: Image.network(
+          widget.photoUrl!,
+          fit: BoxFit.cover,
+          errorBuilder: (context, error, stackTrace) {
+            debugPrint(
+              '[RhythmAvatar] Failed to load photo for user ${widget.userId}: '
+              '${widget.photoUrl} — $error',
+            );
+            // Rebuild with initials fallback.
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (mounted) setState(() => _imageError = true);
+            });
+            return _initialsWidget();
+          },
+        ),
+      ),
+    );
+  }
 }
 
 class _ShellBackdrop extends StatelessWidget {
