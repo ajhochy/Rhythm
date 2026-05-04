@@ -21,6 +21,7 @@ class _TasksViewState extends State<TasksView> {
   final _searchController = TextEditingController();
   bool _showCompleted = false;
   String _searchQuery = '';
+  String? _activeTimeFilter; // null = all, 'today', 'week', 'month'
 
   @override
   void initState() {
@@ -163,6 +164,35 @@ class _TasksViewState extends State<TasksView> {
             ),
           ],
         ),
+        RhythmSegmentedControl<String?>(
+          compact: true,
+          value: _activeTimeFilter,
+          onChanged: (value) => setState(
+            () => _activeTimeFilter = _activeTimeFilter == value ? null : value,
+          ),
+          segments: const [
+            RhythmSegment(
+              value: null,
+              label: 'All',
+              icon: Icons.format_list_bulleted,
+            ),
+            RhythmSegment(
+              value: 'today',
+              label: 'Today',
+              icon: Icons.today_outlined,
+            ),
+            RhythmSegment(
+              value: 'week',
+              label: 'This Week',
+              icon: Icons.calendar_view_week_outlined,
+            ),
+            RhythmSegment(
+              value: 'month',
+              label: 'This Month',
+              icon: Icons.calendar_month_outlined,
+            ),
+          ],
+        ),
         RhythmColorLegend(
           items: const [
             (Color(0xFFDC5B58), 'Past due'),
@@ -221,6 +251,26 @@ class _TasksViewState extends State<TasksView> {
       );
     }
     final groups = _groupTasksByTime(visibleTasks);
+    if (groups.isEmpty && _activeTimeFilter != null) {
+      final (filterTitle, filterIcon) = switch (_activeTimeFilter) {
+        'today' => ('No tasks due today', Icons.today_outlined),
+        'week' => ('No tasks due this week', Icons.calendar_view_week_outlined),
+        'month' => (
+            'No tasks due this month',
+            Icons.calendar_month_outlined,
+          ),
+        _ => ('No tasks to show', Icons.checklist_outlined),
+      };
+      return SliverFillRemaining(
+        hasScrollBody: false,
+        child: _buildEmptyState(
+          title: filterTitle,
+          message:
+              'All caught up! No tasks fall in this time window right now.',
+          icon: filterIcon,
+        ),
+      );
+    }
     return SliverPadding(
       padding: const EdgeInsets.fromLTRB(
         RhythmSpacing.md,
@@ -304,7 +354,7 @@ class _TasksViewState extends State<TasksView> {
       }
     }
 
-    return [
+    final allGroups = [
       _TaskGroup(
         title: 'Past Due',
         subtitle: 'Needs attention',
@@ -318,6 +368,7 @@ class _TasksViewState extends State<TasksView> {
         icon: Icons.today_outlined,
         tone: RhythmBadgeTone.warning,
         tasks: todayTasks,
+        timeFilterKey: 'today',
       ),
       _TaskGroup(
         title: 'This Week',
@@ -325,6 +376,7 @@ class _TasksViewState extends State<TasksView> {
         icon: Icons.calendar_view_week_outlined,
         tone: RhythmBadgeTone.info,
         tasks: thisWeek,
+        timeFilterKey: 'week',
       ),
       _TaskGroup(
         title: 'This Month',
@@ -332,6 +384,7 @@ class _TasksViewState extends State<TasksView> {
         icon: Icons.calendar_month_outlined,
         tone: RhythmBadgeTone.neutral,
         tasks: thisMonth,
+        timeFilterKey: 'month',
       ),
       _TaskGroup(
         title: 'No Due Date',
@@ -347,7 +400,16 @@ class _TasksViewState extends State<TasksView> {
         tone: RhythmBadgeTone.success,
         tasks: completed,
       ),
-    ].where((group) => group.tasks.isNotEmpty).toList();
+    ];
+
+    if (_activeTimeFilter != null) {
+      return allGroups
+          .where((g) => g.timeFilterKey == _activeTimeFilter)
+          .where((g) => g.tasks.isNotEmpty)
+          .toList();
+    }
+
+    return allGroups.where((group) => group.tasks.isNotEmpty).toList();
   }
 
   Widget _buildTaskGroup(_TaskGroup group, TasksController controller) {
@@ -552,6 +614,7 @@ class _TaskGroup {
     required this.icon,
     required this.tone,
     required this.tasks,
+    this.timeFilterKey,
   });
 
   final String title;
@@ -559,6 +622,10 @@ class _TaskGroup {
   final IconData icon;
   final RhythmBadgeTone tone;
   final List<Task> tasks;
+
+  /// Matches the `_activeTimeFilter` value; null means the group is not
+  /// directly addressable by the time filter buttons.
+  final String? timeFilterKey;
 }
 
 String? _compactDate(String? isoDate) {
