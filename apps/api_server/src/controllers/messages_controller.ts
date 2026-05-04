@@ -7,7 +7,8 @@ const repo = new MessagesRepository();
 export class MessagesController {
   async getAllThreads(req: Request, res: Response, next: NextFunction) {
     try {
-      res.json(await repo.findAllThreadsForUserAsync(req.auth!.user.id));
+      const taskId = typeof req.query['task_id'] === 'string' ? req.query['task_id'] : undefined;
+      res.json(await repo.findAllThreadsForUserAsync(req.auth!.user.id, taskId != null ? { taskId } : undefined));
     } catch (err) {
       next(err);
     }
@@ -19,9 +20,13 @@ export class MessagesController {
         participantIds,
         threadType,
         title,
+        taskId,
       } = req.body as Record<string, unknown>;
       if (!Array.isArray(participantIds) || participantIds.length === 0) {
         throw AppError.badRequest('participantIds is required');
+      }
+      if (taskId !== undefined && taskId !== null && typeof taskId !== 'string') {
+        throw AppError.badRequest('taskId must be a string when provided');
       }
       const thread = await repo.createThreadAsync({
         createdBy: req.auth!.user.id,
@@ -31,6 +36,7 @@ export class MessagesController {
             ? threadType
             : undefined,
         title: typeof title === 'string' && title.trim() ? title.trim() : undefined,
+        taskId: typeof taskId === 'string' ? taskId : null,
       });
       res.status(201).json(thread);
     } catch (err) {

@@ -1,5 +1,8 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import type { AddressInfo } from 'node:net';
+
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import Database from 'better-sqlite3';
+import { createApp } from '../app';
 import { runMigrations } from '../database/migrations';
 import { setDb } from '../database/db';
 import { AuthService } from '../services/auth_service';
@@ -10,6 +13,11 @@ import { UsersRepository } from '../repositories/users_repository';
 import { MessagesRepository } from '../repositories/messages_repository';
 import { ProjectInstancesRepository } from '../repositories/project_instances_repository';
 import { ProjectTemplatesRepository } from '../repositories/project_templates_repository';
+
+async function readJson(response: Response) {
+  const text = await response.text();
+  return text ? JSON.parse(text) : null;
+}
 
 function makeDb() {
   const db = new Database(':memory:');
@@ -256,5 +264,81 @@ describe('Auth and ownership flows', () => {
     expect(first.email).toBe('rhythm-bot@rhythm.local');
     expect(first.role).toBe('system');
     expect(second.id).toBe(first.id);
+  });
+});
+
+describe('Message threads task_id API', () => {
+  let usersRepo: UsersRepository;
+  let sessionsRepo: SessionsRepository;
+  let tasksRepo: TasksRepository;
+  let baseUrl: string;
+  let closeServer: () => Promise<void>;
+
+  beforeEach(async () => {
+    setDb(makeDb());
+    usersRepo = new UsersRepository();
+    sessionsRepo = new SessionsRepository();
+    tasksRepo = new TasksRepository();
+
+    const server = createApp().listen(0);
+    await new Promise<void>((resolve) => server.once('listening', () => resolve()));
+    const address = server.address() as AddressInfo;
+    baseUrl = `http://127.0.0.1:${address.port}`;
+    closeServer = () =>
+      new Promise<void>((resolve, reject) => {
+        server.close((error) => (error ? reject(error) : resolve()));
+      });
+  });
+
+  afterEach(async () => {
+    await closeServer();
+  });
+
+  async function authHeaderFor(userId: number) {
+    const session = await sessionsRepo.createAsync(userId);
+    return { Authorization: `Bearer ${session.token}` };
+  }
+
+  it('persists task_id on message_threads when provided', async () => {
+    const owner = usersRepo.create({ name: 'Owner', email: 'owner@x.com' });
+    const claude = usersRepo.create({ name: 'Claude', email: 'claude@x.com' });
+    const task = tasksRepo.create({ title: 'Fix bug', ownerId: owner.id });
+
+    const headers = await authHeaderFor(owner.id);
+    const res = await fetch(`${baseUrl}/message-threads`, {
+      method: 'POST',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        participantIds: [owner.id, claude.id],
+        threadType: 'direct',
+        taskId: task.id,
+      }),
+    });
+    const thread = await readJson(res);
+    expect(res.status).toBe(201);
+    expect(thread.taskId).toBe(task.id);
+  });
+
+  it('GET /message-threads?task_id=X returns only the thread linked to that task', async () => {
+    const owner = usersRepo.create({ name: 'Owner2', email: 'owner2@x.com' });
+    const claude = usersRepo.create({ name: 'Claude2', email: 'claude2@x.com' });
+    const task = tasksRepo.create({ title: 'T', ownerId: owner.id });
+
+    const headers = await authHeaderFor(owner.id);
+    await fetch(`${baseUrl}/message-threads`, {
+      method: 'POST',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ participantIds: [owner.id, claude.id], threadType: 'direct', taskId: task.id }),
+    });
+    await fetch(`${baseUrl}/message-threads`, {
+      method: 'POST',
+      headers: { ...headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ participantIds: [owner.id, claude.id], threadType: 'direct', title: 'Unrelated' }),
+    });
+
+    const res = await fetch(`${baseUrl}/message-threads?task_id=${task.id}`, { headers });
+    const threads = await readJson(res);
+    expect(threads).toHaveLength(1);
+    expect(threads[0].taskId).toBe(task.id);
   });
 });

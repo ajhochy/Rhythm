@@ -7,6 +7,7 @@ import type {
   DashboardSummary,
   DashboardRhythmItem,
   DashboardProjectItem,
+  DashboardProjectStepPreview,
   DashboardUnreadPreview,
 } from '../models/dashboard_summary';
 import type { Task } from '../models/task';
@@ -148,7 +149,22 @@ export class DashboardSummaryService {
     const templatesById = new Map<string, ProjectTemplate>(
       templates.map((t) => [t.id, t]),
     );
-    const projectItems: DashboardProjectItem[] = buildProjectItems(instances, templatesById);
+
+    // Pre-fetch collaborators for all active instances
+    const activeInstances = instances.filter((i) => i.status !== 'done');
+    const collaboratorsByInstance = new Map<string, string[]>();
+    await Promise.all(
+      activeInstances.map(async (inst) => {
+        const collabs = await this.projectInstancesRepo.listCollaboratorsAsync(inst.id);
+        collaboratorsByInstance.set(inst.id, collabs.map((c) => c.name));
+      }),
+    );
+
+    const projectItems: DashboardProjectItem[] = buildProjectItems(
+      instances,
+      templatesById,
+      collaboratorsByInstance,
+    );
 
     // ── Messages ───────────────────────────────────────────────────────────────
     const unreadThreads = threads
@@ -205,30 +221,75 @@ export class DashboardSummaryService {
 function buildProjectItems(
   instances: ProjectInstance[],
   templatesById: Map<string, ProjectTemplate>,
+  collaboratorsByInstance: Map<string, string[]>,
 ): DashboardProjectItem[] {
   const items: DashboardProjectItem[] = [];
   for (const instance of instances) {
     if (instance.status === 'done') continue;
-    const sortedSteps = [...instance.steps].sort((a, b) => {
-      const aDate = a.dueDate ? new Date(a.dueDate).getTime() : 9e15;
-      const bDate = b.dueDate ? new Date(b.dueDate).getTime() : 9e15;
-      return aDate - bDate || a.title.localeCompare(b.title);
-    });
-    const completed = sortedSteps.filter((s) => s.status === 'done').length;
+
     const template = templatesById.get(instance.templateId);
+
+    // Build a sort-order map from template steps (stepId → sort_order)
+    const templateStepOrder = new Map<string, number>();
+    if (template) {
+      for (const ts of template.steps) {
+        templateStepOrder.set(ts.id, ts.sortOrder);
+      }
+    }
+
+    // Sort instance steps by template sort_order, then by step id for stability
+    const sortedByOrder = [...instance.steps].sort((a, b) => {
+      const aOrder = templateStepOrder.get(a.stepId) ?? 9999;
+      const bOrder = templateStepOrder.get(b.stepId) ?? 9999;
+      if (aOrder !== bOrder) return aOrder - bOrder;
+      return a.id.localeCompare(b.id);
+    });
+
+    const completed = sortedByOrder.filter((s) => s.status === 'done').length;
     const title =
       instance.name?.trim() || template?.name || `Project ${instance.anchorDate}`;
-    const nextDueDates = sortedSteps
+
+    // For nextDueDate, still sort open steps by due date
+    const openStepsByDate = [...instance.steps]
       .filter((s) => s.status !== 'done')
-      .map((s) => s.dueDate)
-      .filter(Boolean) as string[];
+      .sort((a, b) => {
+        const aDate = a.dueDate ? new Date(a.dueDate).getTime() : 9e15;
+        const bDate = b.dueDate ? new Date(b.dueDate).getTime() : 9e15;
+        return aDate - bDate;
+      });
+    const nextDueDate = openStepsByDate.find((s) => s.dueDate)?.dueDate ?? null;
+
+    // On-deck: top 5 open steps ordered by template sort_order
+    const onDeckSteps: DashboardProjectStepPreview[] = sortedByOrder
+      .filter((s) => s.status !== 'done')
+      .slice(0, 5)
+      .map((s) => ({
+        id: s.id,
+        title: s.title,
+        status: s.status,
+        dueDate: s.dueDate ?? null,
+        notes: s.notes ?? null,
+        assigneeId: s.assigneeId ?? null,
+        assigneeName: s.assigneeName ?? null,
+      }));
+
+    // Collaborator names: from project_collaborators + distinct step assignees
+    const collaboratorNames = collaboratorsByInstance.get(instance.id) ?? [];
+    const assigneeNames = onDeckSteps
+      .map((s) => s.assigneeName)
+      .filter((n): n is string => n != null);
+    const allNames = [...new Set([...collaboratorNames, ...assigneeNames])];
+
     items.push({
       id: instance.id,
       title,
-      subtitle: `${completed} of ${sortedSteps.length} step${sortedSteps.length === 1 ? '' : 's'} complete`,
+      subtitle: `${completed} of ${sortedByOrder.length} step${sortedByOrder.length === 1 ? '' : 's'} complete`,
       completedCount: completed,
-      totalCount: sortedSteps.length,
-      nextDueDate: nextDueDates[0] ?? null,
+      totalCount: sortedByOrder.length,
+      nextDueDate,
+      onDeckSteps,
+      ownerId: instance.ownerId ?? null,
+      collaboratorNames: allNames,
     });
   }
   items.sort((a, b) => {

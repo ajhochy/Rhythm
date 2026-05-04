@@ -429,7 +429,7 @@ class _RhythmTaskInspectorState extends State<_RhythmTaskInspector> {
           : 'Review context, coordinate with collaborators, and edit the work when needed.',
       icon: _readOnly
           ? Icons.event_note_outlined
-          : widget.task.status == 'done'
+          : widget.task.status == TaskStatus.done
               ? Icons.task_alt
               : Icons.radio_button_unchecked,
       onIconTap: _readOnly || widget.onToggleStatus == null
@@ -442,10 +442,8 @@ class _RhythmTaskInspectorState extends State<_RhythmTaskInspector> {
       headerPills: [
         _headerPill(
           context,
-          widget.task.status == 'done' ? 'Done' : 'Open',
-          widget.task.status == 'done'
-              ? colors.success
-              : visualStyle.accent.withValues(alpha: 0.95),
+          _statusLabel(widget.task.status),
+          _statusColor(widget.task.status, colors.success),
         ),
         if (sourceLabel != null) _headerPill(context, sourceLabel, colors.info),
         if (_primaryDate != null)
@@ -628,7 +626,7 @@ class _RhythmTaskInspectorState extends State<_RhythmTaskInspector> {
               children: [
                 _MetaRow(
                   label: 'Status',
-                  value: widget.task.status == 'done' ? 'Done' : 'Open',
+                  value: _statusLabel(widget.task.status),
                 ),
                 if (sourceLabel != null)
                   _MetaRow(label: 'Source', value: sourceLabel),
@@ -1052,4 +1050,30 @@ String _initial(String label) {
   final trimmed = label.trim();
   if (trimmed.isEmpty) return '?';
   return trimmed[0].toUpperCase();
+}
+
+String _statusLabel(TaskStatus status) {
+  switch (status) {
+    case TaskStatus.open:
+      return 'Open';
+    case TaskStatus.inProgress:
+      return 'In progress';
+    case TaskStatus.waitingForReply:
+      return 'Awaiting reply';
+    case TaskStatus.done:
+      return 'Done';
+  }
+}
+
+Color _statusColor(TaskStatus status, Color successColor) {
+  switch (status) {
+    case TaskStatus.open:
+      return const Color(0xFF6B7280);
+    case TaskStatus.inProgress:
+      return const Color(0xFF4F6AF5);
+    case TaskStatus.waitingForReply:
+      return const Color(0xFFF59E0B);
+    case TaskStatus.done:
+      return successColor;
+  }
 }

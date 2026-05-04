@@ -65,4 +65,14 @@ export const env = {
       .split(',')
       .map((value) => value.trim().toLowerCase())
       .filter((value) => value.length > 0),
+  claudeUserId: (() => {
+    const raw = process.env.CLAUDE_USER_ID;
+    if (!raw) return null;
+    const parsed = Number(raw);
+    if (!Number.isFinite(parsed) || !Number.isInteger(parsed)) {
+      console.warn(`[env] CLAUDE_USER_ID="${raw}" is not a valid integer — treating as null`);
+      return null;
+    }
+    return parsed;
+  })(),
 };

@@ -180,15 +180,27 @@ class DashboardProjectProgress implements DashboardProgressItem {
     this.collaboratorNames = const [],
   });
 
-  factory DashboardProjectProgress.fromJson(Map<String, dynamic> json) =>
-      DashboardProjectProgress(
-        id: json['id'] as String,
-        title: json['title'] as String,
-        subtitle: json['subtitle'] as String? ?? '',
-        completedCount: (json['completedCount'] as num?)?.toInt() ?? 0,
-        totalCount: (json['totalCount'] as num?)?.toInt() ?? 0,
-        nextDueDate: json['nextDueDate'] as String?,
-      );
+  factory DashboardProjectProgress.fromJson(Map<String, dynamic> json) {
+    final rawOnDeck = (json['onDeckSteps'] as List<dynamic>?) ?? [];
+    final onDeck = rawOnDeck
+        .map((j) =>
+            DashboardProjectStepPreview.fromJson(j as Map<String, dynamic>))
+        .toList();
+    final rawCollaborators =
+        (json['collaboratorNames'] as List<dynamic>?) ?? [];
+    final collaborators = rawCollaborators.map((n) => n as String).toList();
+    return DashboardProjectProgress(
+      id: json['id'] as String,
+      title: json['title'] as String,
+      subtitle: json['subtitle'] as String? ?? '',
+      completedCount: (json['completedCount'] as num?)?.toInt() ?? 0,
+      totalCount: (json['totalCount'] as num?)?.toInt() ?? 0,
+      nextDueDate: json['nextDueDate'] as String?,
+      onDeckSteps: onDeck,
+      ownerId: (json['ownerId'] as num?)?.toInt(),
+      collaboratorNames: collaborators,
+    );
+  }
 
   @override
   final String id;
@@ -223,6 +235,17 @@ class DashboardProjectStepPreview {
     this.assigneeId,
     this.assigneeName,
   });
+
+  factory DashboardProjectStepPreview.fromJson(Map<String, dynamic> json) =>
+      DashboardProjectStepPreview(
+        id: json['id'] as String,
+        title: json['title'] as String,
+        status: json['status'] as String? ?? 'open',
+        dueDate: json['dueDate'] as String? ?? '',
+        notes: json['notes'] as String?,
+        assigneeId: (json['assigneeId'] as num?)?.toInt(),
+        assigneeName: json['assigneeName'] as String?,
+      );
 
   final String id;
   final String title;

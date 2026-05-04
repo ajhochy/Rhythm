@@ -19,6 +19,7 @@ import { usersRouter } from './routes/users_routes';
 import { weeklyPlanRouter } from './routes/weekly_plan_routes';
 import { workspaceRouter } from './routes/workspace_routes';
 import { notificationsRouter } from './routes/notifications_routes';
+import claudeTriggersRouter from './routes/claude_triggers_routes';
 
 export function createApp() {
   const app = express();
@@ -58,6 +59,7 @@ export function createApp() {
   app.use('/facilities', facilitiesRouter);
   app.use('/workspaces', workspaceRouter);
   app.use('/notifications', notificationsRouter);
+  app.use('/claude-triggers', claudeTriggersRouter);
 
   app.use(errorHandler);
 

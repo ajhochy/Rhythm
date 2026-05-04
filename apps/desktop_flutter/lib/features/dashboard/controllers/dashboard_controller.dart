@@ -154,7 +154,7 @@ class DashboardController extends ChangeNotifier {
           final syntheticTask = Task(
             id: step.id,
             title: step.title,
-            status: step.status,
+            status: TaskStatusJson.fromJson(step.status),
             sourceType: 'project_step',
             sourceName: projectName,
             dueDate: step.dueDate,
@@ -207,7 +207,7 @@ class DashboardController extends ChangeNotifier {
     final task = _findTaskById(id);
     if (task == null) return;
     try {
-      await _repository.toggleTaskDone(id, task.status);
+      await _repository.toggleTaskDone(id, task.status.toJson());
       await refresh();
     } catch (e) {
       _errorMessage = e.toString();
@@ -283,7 +283,7 @@ class DashboardController extends ChangeNotifier {
   }
 
   static bool _hasOpenHandoffContext(Task task) {
-    if (task.status == 'done') return false;
+    if (task.status == TaskStatus.done) return false;
     return task.isShared || task.collaborators.isNotEmpty;
   }
 
