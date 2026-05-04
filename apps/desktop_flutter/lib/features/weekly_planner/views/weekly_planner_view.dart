@@ -983,6 +983,7 @@ class _DayColumnState extends State<_DayColumn> {
                           _EventsBar(
                             events: combinedEvents,
                             controller: widget.controller,
+                            columnDate: widget.date,
                           ),
                         Expanded(
                           child: SingleChildScrollView(
@@ -1855,9 +1856,14 @@ class _MiniMoveButton extends StatelessWidget {
 // ---------------------------------------------------------------------------
 
 class _EventsBar extends StatelessWidget {
-  const _EventsBar({required this.events, required this.controller});
+  const _EventsBar({
+    required this.events,
+    required this.controller,
+    required this.columnDate,
+  });
   final List<Task> events;
   final WeeklyPlannerController controller;
+  final String columnDate;
 
   @override
   Widget build(BuildContext context) {
@@ -1874,9 +1880,14 @@ class _EventsBar extends StatelessWidget {
         children: events.map((event) {
           final visualStyle = TaskVisualStyles.resolve(event);
           final isAllDay = event.isAllDay;
+          final isContinuation =
+              (event.scheduledDate ?? event.dueDate) != columnDate;
           final String pillText;
           final String tooltipText;
-          if (isAllDay) {
+          if (isContinuation) {
+            pillText = '→ ${event.title}';
+            tooltipText = 'Continues · ${event.title}';
+          } else if (isAllDay) {
             pillText = event.title;
             tooltipText = 'All day · ${event.title}';
           } else {
