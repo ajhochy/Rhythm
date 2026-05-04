@@ -54,7 +54,10 @@ export function registerTaskTools(server: McpServer, apiUrl: string, apiToken: s
       title: z.string().optional().describe('New title.'),
       notes: z.string().optional().describe('New notes.'),
       due_date: z.string().nullable().optional().describe('New due date (YYYY-MM-DD) or null to clear it.'),
-      status: z.enum(['open', 'done']).optional().describe('New status.'),
+      status: z
+        .enum(['open', 'in_progress', 'waiting_for_reply', 'done'])
+        .optional()
+        .describe('New status. Values: open, in_progress, waiting_for_reply, done.'),
     },
     async ({ id, title, notes, due_date, status }: { id: string; title?: string; notes?: string; due_date?: string | null; status?: string }) => {
       try {
