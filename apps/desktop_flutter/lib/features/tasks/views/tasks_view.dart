@@ -6,8 +6,6 @@ import '../../../app/core/tasks/task_visual_style.dart';
 import '../../../app/core/ui/rhythm_ui.dart';
 import '../../../app/core/widgets/error_banner.dart';
 import '../../../app/core/workspace/workspace_controller.dart';
-import '../../../app/core/workspace/workspace_models.dart';
-import '../../../shared/widgets/collaborators_row.dart';
 import '../controllers/tasks_controller.dart';
 import '../data/collaborators_data_source.dart';
 import '../models/task.dart';
@@ -576,7 +574,6 @@ class _TasksViewState extends State<TasksView> {
   Widget _buildTaskRow(Task task, TasksController controller) {
     final colors = context.rhythm;
     final isDone = task.status == 'done';
-    final hasNotes = task.notes != null && task.notes!.trim().isNotEmpty;
     final visualStyle = TaskVisualStyles.resolve(task);
     final isPastDue = DateFormatters.isPastDue(
       dueDate: task.dueDate,
@@ -584,121 +581,104 @@ class _TasksViewState extends State<TasksView> {
       isDone: isDone,
     );
     final dueLabel = _compactDate(task.dueDate);
-    final scheduledLabel =
-        task.scheduledDate == null ? null : _compactDate(task.scheduledDate);
-    final members = context.read<WorkspaceController>().members;
-    final ownerName = _ownerName(task.ownerId, members);
-    final description = hasNotes
-        ? task.notes!.trim()
-        : [
-            if (scheduledLabel != null) 'Scheduled $scheduledLabel',
-            if (dueLabel != null) 'Due $dueLabel',
-            if (task.sourceName?.trim().isNotEmpty == true)
-              'From ${task.sourceName!.trim()}',
-            if (task.sourceName?.trim().isNotEmpty != true &&
-                scheduledLabel == null &&
-                dueLabel == null)
-              'No note yet. Open the task to add context or next steps.',
-          ].join(' · ');
-    final pills = <FocusBusinessPill>[
-      if (isDone)
-        const FocusBusinessPill(
-          label: 'Done',
-          tone: RhythmBadgeTone.success,
-          icon: Icons.check_circle_outline,
-        )
-      else if (isPastDue)
-        const FocusBusinessPill(
-          label: 'Past due',
-          tone: RhythmBadgeTone.danger,
-          icon: Icons.warning_amber_rounded,
-        )
-      else
-        const FocusBusinessPill(
-          label: 'Open',
-          tone: RhythmBadgeTone.neutral,
-          icon: Icons.radio_button_unchecked,
-        ),
-      if (scheduledLabel != null)
-        FocusBusinessPill(
-          label: scheduledLabel,
-          tone: RhythmBadgeTone.info,
-          icon: Icons.event_available_outlined,
-        ),
-      if (dueLabel != null)
-        FocusBusinessPill(
-          label: dueLabel,
-          tone: isPastDue ? RhythmBadgeTone.warning : RhythmBadgeTone.neutral,
-          icon: Icons.flag_outlined,
-        ),
-      if (task.sourceType != null)
-        FocusBusinessPill(
-          label: _sourceLabel(task),
-          tone: RhythmBadgeTone.accent,
-          icon: _sourceIcon(task.sourceType!),
-        ),
-      if (ownerName != null)
-        FocusBusinessPill(
-          label: ownerName,
-          tone: RhythmBadgeTone.neutral,
-          icon: Icons.person_outline,
-        ),
-    ];
+    final sourceName = task.sourceName?.trim();
+    final hasSourceName = sourceName != null && sourceName.isNotEmpty;
+    final accentColor = visualStyle.accent;
 
-    return Container(
-      constraints: const BoxConstraints(minHeight: 92),
-      child: FocusBusinessTaskListItem(
-        title: task.title,
-        description: description,
-        checked: isDone,
-        onChanged: (_) => controller.toggleDone(task.id),
-        onTap: () => _showEditDialog(task, controller),
-        backgroundColor: isDone
-            ? colors.surfaceMuted.withValues(alpha: 0.45)
-            : visualStyle.accent.withValues(alpha: 0.09),
-        borderColor: visualStyle.accent.withValues(alpha: isDone ? 0.14 : 0.24),
-        accentColor: visualStyle.accent,
-        pills: pills,
-        detailWidgets: [
-          if (task.ownerId != null)
-            CollaboratorsRow(
-              collaborators: task.collaborators,
-              ownerId: task.ownerId!,
-              workspaceMembers: members,
-              onAdd: (userId) async {
-                final ds = CollaboratorsDataSource();
-                await ds.addToTask(task.id, userId);
-                await controller.load();
-              },
-              onRemove: (userId) async {
-                final ds = CollaboratorsDataSource();
-                await ds.removeFromTask(task.id, userId);
-                await controller.load();
-              },
-            ),
-        ],
-        trailing: RhythmMenuButton<_TaskAction>(
-          items: const [
-            RhythmMenuAction(
-              value: _TaskAction.edit,
-              label: 'Inspect',
-              icon: Icons.edit_outlined,
-            ),
-            RhythmMenuAction(
-              value: _TaskAction.delete,
-              label: 'Delete',
-              icon: Icons.delete_outline,
-              destructive: true,
-            ),
-          ],
-          onSelected: (action) {
-            switch (action) {
-              case _TaskAction.edit:
-                _showEditDialog(task, controller);
-              case _TaskAction.delete:
-                _confirmDelete(task, controller);
-            }
-          },
+    return GestureDetector(
+      onTap: () => _showEditDialog(task, controller),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: isDone
+              ? colors.surfaceMuted.withValues(alpha: 0.45)
+              : accentColor.withValues(alpha: 0.09),
+          border: Border(
+            left: BorderSide(color: accentColor, width: 3),
+          ),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              SizedBox(
+                width: 16,
+                height: 16,
+                child: Checkbox(
+                  value: isDone,
+                  onChanged: (_) => controller.toggleDone(task.id),
+                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  visualDensity:
+                      const VisualDensity(horizontal: -4, vertical: -4),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      task.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            fontWeight: FontWeight.w600,
+                            fontSize: 13,
+                            decoration:
+                                isDone ? TextDecoration.lineThrough : null,
+                            color:
+                                isDone ? colors.textMuted : colors.textPrimary,
+                          ),
+                    ),
+                    if (hasSourceName)
+                      Text(
+                        sourceName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                              color: colors.textMuted,
+                              fontSize: 11,
+                            ),
+                      ),
+                  ],
+                ),
+              ),
+              if (dueLabel != null) ...[
+                const SizedBox(width: 6),
+                RhythmMetaChip(
+                  label: dueLabel,
+                  icon: Icons.flag_outlined,
+                  tone: isPastDue
+                      ? RhythmMetaChipTone.danger
+                      : RhythmMetaChipTone.neutral,
+                ),
+              ],
+              RhythmMenuButton<_TaskAction>(
+                items: const [
+                  RhythmMenuAction(
+                    value: _TaskAction.edit,
+                    label: 'Inspect',
+                    icon: Icons.edit_outlined,
+                  ),
+                  RhythmMenuAction(
+                    value: _TaskAction.delete,
+                    label: 'Delete',
+                    icon: Icons.delete_outline,
+                    destructive: true,
+                  ),
+                ],
+                onSelected: (action) {
+                  switch (action) {
+                    case _TaskAction.edit:
+                      _showEditDialog(task, controller);
+                    case _TaskAction.delete:
+                      _confirmDelete(task, controller);
+                  }
+                },
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -769,28 +749,6 @@ class _TaskGroup {
   final List<Task> tasks;
 }
 
-String _sourceLabel(Task task) {
-  if (task.sourceName != null && task.sourceName!.trim().isNotEmpty) {
-    return task.sourceName!.trim();
-  }
-  return switch (task.sourceType) {
-    'automation_rule' => 'Automation',
-    'planning_center_signal' => 'Planning Center',
-    'calendar_shadow_event' => 'Google Calendar',
-    'project_step' => 'Project',
-    'recurring_rule' => 'Rhythm',
-    _ => 'External',
-  };
-}
-
-String? _ownerName(int? ownerId, List<WorkspaceMember> members) {
-  if (ownerId == null) return null;
-  for (final member in members) {
-    if (member.userId == ownerId) return member.name;
-  }
-  return 'Owner #$ownerId';
-}
-
 String _sourceGroupTitle(Task task, String fallbackTitle) {
   final sourceName = task.sourceName?.trim();
   if (sourceName != null && sourceName.isNotEmpty) return sourceName;
@@ -809,15 +767,6 @@ String _sourceGroupSubtitle(List<Task> tasks) {
   final completed = tasks.length - openCount;
   return '$openCount open · $completed complete';
 }
-
-IconData _sourceIcon(String sourceType) => switch (sourceType) {
-      'automation_rule' => Icons.auto_awesome,
-      'planning_center_signal' => Icons.groups_2_outlined,
-      'calendar_shadow_event' => Icons.event_available_outlined,
-      'project_step' => Icons.folder_open_outlined,
-      'recurring_rule' => Icons.repeat,
-      _ => Icons.link,
-    };
 
 String? _compactDate(String? isoDate) {
   if (isoDate == null || isoDate.trim().isEmpty) return null;
