@@ -937,17 +937,23 @@ class _DayColumnState extends State<_DayColumn> {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.stretch,
                               children: [
-                                ...regularTasks.map(
-                                  (task) => Padding(
-                                    padding: const EdgeInsets.only(top: 6),
-                                    child: _TaskTile(
-                                      task: task,
-                                      controller: widget.controller,
-                                      draggable: true,
-                                      compact: true,
+                                for (var i = 0; i < regularTasks.length; i++)
+                                  _TaskReorderTarget(
+                                    task: regularTasks[i],
+                                    previousTask:
+                                        i > 0 ? regularTasks[i - 1] : null,
+                                    columnDate: widget.date,
+                                    controller: widget.controller,
+                                    child: Padding(
+                                      padding: const EdgeInsets.only(top: 6),
+                                      child: _TaskTile(
+                                        task: regularTasks[i],
+                                        controller: widget.controller,
+                                        draggable: true,
+                                        compact: true,
+                                      ),
                                     ),
                                   ),
-                                ),
                                 addButton,
                               ],
                             ),
@@ -1019,8 +1025,6 @@ class _TaskTile extends StatelessWidget {
           ),
           child: Text(
             task.title,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
             style: Theme.of(context)
                 .textTheme
                 .bodySmall
@@ -1052,7 +1056,7 @@ class _TaskTile extends StatelessWidget {
             margin: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
             padding: EdgeInsets.symmetric(
               horizontal: compact ? 8 : 10,
-              vertical: compact ? 8 : 5,
+              vertical: compact ? 6 : 4,
             ),
             decoration: BoxDecoration(
               color: isSelected || isMultiSelected
@@ -1069,7 +1073,7 @@ class _TaskTile extends StatelessWidget {
                   : const [],
             ),
             child: Row(
-              crossAxisAlignment: CrossAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 if (isShadowEvent)
                   Container(
@@ -1119,8 +1123,6 @@ class _TaskTile extends StatelessWidget {
                         ),
                       Text(
                         task.title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
                         style: (compact
                                 ? Theme.of(context).textTheme.labelSmall
                                 : Theme.of(context).textTheme.bodySmall)
@@ -1132,29 +1134,12 @@ class _TaskTile extends StatelessWidget {
                               : _plannerTextColor(context, visualStyle),
                           fontSize: compact ? 11 : null,
                           fontWeight: FontWeight.w700,
-                          height: compact ? 1.18 : 1.25,
+                          height: compact ? 1.25 : 1.3,
                         ),
                       ),
                     ],
                   ),
                 ),
-                if (!isShadowEvent && compact) ...[
-                  const SizedBox(width: 6),
-                  Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      _MiniMoveButton(
-                        icon: Icons.keyboard_arrow_up,
-                        onPressed: () => controller.moveTaskEarlier(task),
-                      ),
-                      const SizedBox(height: 4),
-                      _MiniMoveButton(
-                        icon: Icons.keyboard_arrow_down,
-                        onPressed: () => controller.moveTaskLater(task),
-                      ),
-                    ],
-                  ),
-                ],
                 if (isMultiSelected && !compact) ...[
                   const SizedBox(width: 6),
                   Icon(Icons.done_all, size: 14, color: colors.accent),
@@ -1662,28 +1647,83 @@ class _DetailPaneState extends State<_DetailPane> {
 // Shared
 // ---------------------------------------------------------------------------
 
-class _MiniMoveButton extends StatelessWidget {
-  const _MiniMoveButton({required this.icon, required this.onPressed});
+// ---------------------------------------------------------------------------
+// Per-tile drop zone — shows an accent indicator on hover and re-positions
+// the dragged task above this tile by computing a midpoint scheduledOrder
+// between the previous task and this one.
+// ---------------------------------------------------------------------------
 
-  final IconData icon;
-  final VoidCallback onPressed;
+class _TaskReorderTarget extends StatelessWidget {
+  const _TaskReorderTarget({
+    required this.task,
+    required this.previousTask,
+    required this.columnDate,
+    required this.controller,
+    required this.child,
+  });
+
+  final Task task;
+  final Task? previousTask;
+  final String columnDate;
+  final WeeklyPlannerController controller;
+  final Widget child;
 
   @override
   Widget build(BuildContext context) {
     final colors = context.rhythm;
-    return InkWell(
-      onTap: onPressed,
-      borderRadius: BorderRadius.circular(RhythmRadius.pill),
-      child: Container(
-        width: 18,
-        height: 18,
-        decoration: BoxDecoration(
-          color: colors.surfaceMuted,
-          borderRadius: BorderRadius.circular(RhythmRadius.pill),
-          border: Border.all(color: colors.borderSubtle),
-        ),
-        child: Icon(icon, size: 12, color: colors.textSecondary),
-      ),
+    return DragTarget<Task>(
+      onWillAcceptWithDetails: (details) {
+        final dragged = details.data;
+        if (dragged.id == task.id) return false;
+        if (dragged.id == previousTask?.id) return false;
+        return true;
+      },
+      onAcceptWithDetails: (details) {
+        final dragged = details.data;
+        final targetOrder = task.scheduledOrder ?? 10000000;
+        final previousOrder =
+            previousTask?.scheduledOrder ?? (targetOrder - 10000);
+        final newOrder = ((previousOrder + targetOrder) / 2).round();
+        final isProjectStep = dragged.sourceType == 'project_step';
+        if (isProjectStep) {
+          controller.updateTask(
+            dragged,
+            dueDate: columnDate,
+            scheduledOrder: newOrder,
+          );
+        } else if (dragged.dueDate == null && dragged.scheduledDate == null) {
+          // Coming from backlog — set both dates so it lives on this day.
+          controller.updateTask(
+            dragged,
+            dueDate: columnDate,
+            scheduledDate: columnDate,
+            scheduledOrder: newOrder,
+          );
+        } else {
+          controller.updateTask(
+            dragged,
+            scheduledDate: columnDate,
+            scheduledOrder: newOrder,
+          );
+        }
+      },
+      builder: (context, candidates, _) {
+        final hovering = candidates.isNotEmpty;
+        return Column(
+          children: [
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 100),
+              height: hovering ? 2 : 0,
+              margin: const EdgeInsets.symmetric(horizontal: 8),
+              decoration: BoxDecoration(
+                color: hovering ? colors.accent : Colors.transparent,
+                borderRadius: BorderRadius.circular(RhythmRadius.pill),
+              ),
+            ),
+            child,
+          ],
+        );
+      },
     );
   }
 }
