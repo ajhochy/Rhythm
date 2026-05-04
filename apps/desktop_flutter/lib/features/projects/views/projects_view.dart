@@ -26,7 +26,7 @@ class ProjectsView extends StatefulWidget {
 
 class _ProjectsViewState extends State<ProjectsView> {
   ProjectTemplate? _selected;
-  bool _showActiveProjects = false;
+  bool _showActiveProjects = true;
   List<ProjectInstance> _activeInstances = [];
   bool _activeInstancesLoaded = false;
   String? _activeInstancesError;
