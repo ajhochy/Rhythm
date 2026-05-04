@@ -1984,45 +1984,90 @@ class _HandoffPreviewRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = context.rhythm;
+    final isDone = task.status == 'done';
     final tone = _handoffTone(task, currentUserId);
-    final label = _handoffLabel(task, currentUserId, workspaceMembers);
-    final peopleLabel =
-        _handoffPeopleLabel(task, currentUserId, workspaceMembers);
+    final accent = _toneColor(colors, tone);
+    final dueLabel = task.dueDate != null
+        ? DateFormatters.fullDate(task.dueDate, fallback: task.dueDate!)
+        : null;
+    final sourceName = task.sourceName?.trim();
+    final hasSourceName = sourceName != null && sourceName.isNotEmpty;
 
-    return RhythmPreviewRow(
-      eyebrow: label,
-      title: task.title,
-      leadingIcon: Icons.group_outlined,
-      tone: tone,
-      onTap: onTap,
-      metadata: [
-        if (peopleLabel != null)
-          RhythmBadge(
-            label: peopleLabel,
-            icon: Icons.people_outline,
-            tone: RhythmBadgeTone.neutral,
-            compact: true,
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: GestureDetector(
+        onTap: onTap,
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: isDone
+                ? colors.surfaceMuted.withValues(alpha: 0.45)
+                : accent.withValues(alpha: 0.09),
+            border: Border(left: BorderSide(color: accent, width: 3)),
           ),
-        if (task.dueDate != null)
-          RhythmBadge(
-            label:
-                'Due ${DateFormatters.fullDate(task.dueDate, fallback: task.dueDate!)}',
-            tone: RhythmBadgeTone.neutral,
-            compact: true,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: Checkbox(
+                    value: isDone,
+                    onChanged: (_) => onTap(),
+                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    visualDensity:
+                        const VisualDensity(horizontal: -4, vertical: -4),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        task.title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              fontWeight: FontWeight.w600,
+                              fontSize: 13,
+                              decoration:
+                                  isDone ? TextDecoration.lineThrough : null,
+                              color: isDone
+                                  ? colors.textMuted
+                                  : colors.textPrimary,
+                            ),
+                      ),
+                      if (hasSourceName)
+                        Text(
+                          sourceName,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style:
+                              Theme.of(context).textTheme.labelSmall?.copyWith(
+                                    color: colors.textMuted,
+                                    fontSize: 11,
+                                  ),
+                        ),
+                    ],
+                  ),
+                ),
+                if (dueLabel != null) ...[
+                  const SizedBox(width: 6),
+                  RhythmMetaChip(
+                    label: dueLabel,
+                    icon: Icons.flag_outlined,
+                    tone: RhythmMetaChipTone.neutral,
+                  ),
+                ],
+              ],
+            ),
           ),
-        if (task.sourceType != null)
-          RhythmBadge(
-            label: _taskSourceLabel(task),
-            tone: tone,
-            compact: true,
-          ),
-        if (task.isShared || task.collaborators.isNotEmpty)
-          const RhythmBadge(
-            label: 'Shared',
-            tone: RhythmBadgeTone.accent,
-            compact: true,
-          ),
-      ],
+        ),
+      ),
     );
   }
 }
