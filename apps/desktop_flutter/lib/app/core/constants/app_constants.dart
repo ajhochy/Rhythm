@@ -12,4 +12,8 @@ class AppConstants {
   static const int navFacilities = 6;
   static const int navAutomations = 7;
   static const int navIntegrations = 8;
+  static const int navAgents = 9;
+
+  static const String agentLocalBaseUrl = 'http://localhost:4000';
+  static const String agentLocalWsUrl = 'ws://localhost:4000/ws/agents';
 }
