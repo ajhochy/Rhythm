@@ -77,46 +77,18 @@ export interface SpawnOpts {
 }
 
 /**
- * Spawns the agent binary for the given session.
- * Throws if node-pty failed to load or the binary is not on PATH.
+ * Attaches onData / onExit handlers to an already-spawned PTY terminal.
+ * Shared by `spawn` and `resume` so the lifecycle logic is not duplicated.
  */
-export function spawn(opts: SpawnOpts): void {
-  if (!pty) {
-    throw new Error(
-      `node-pty failed to load: ${ptyLoadError?.message ?? 'unknown error'}. ` +
-        `Ensure native binaries were compiled for the current Node version (try: node-gyp rebuild).`,
-    );
-  }
-
-  const binaryName = BINARY_NAME[opts.session.agentKind];
-  const binary = resolveBinary(binaryName);
-  if (!binary) {
-    throw new Error(`${opts.session.agentKind} binary ('${binaryName}') not found in PATH`);
-  }
-
-  const term = pty.spawn(binary, [], {
-    name: 'xterm-256color',
-    cols: opts.cols ?? 120,
-    rows: opts.rows ?? 30,
-    cwd: opts.session.cwd,
-    env: { ...process.env, TERM: 'xterm-256color' } as Record<string, string>,
-  });
-
-  const sess: PtySession = {
-    id: opts.session.id,
-    agentKind: opts.session.agentKind,
-    pty: term,
-    cwd: opts.session.cwd,
-    chunks: [],
-    chunksSize: 0,
-    sessionToken: null,
-    preCaptureBuffer: '',
-    lastOutAt: Date.now(),
-    lastInAt: Date.now(),
-    burstStart: 0,
-    working: false,
-  };
-  sessions.set(opts.session.id, sess);
+function _attachSession(
+  term: import('node-pty').IPty,
+  sess: PtySession,
+  cols: number,
+  rows: number,
+): void {
+  // Store the PTY reference and register in the live-sessions map
+  sess.pty = term;
+  sessions.set(sess.id, sess);
 
   const repo = new AgentSessionsRepository();
   const transcript = new TranscriptService();
@@ -147,10 +119,10 @@ export function spawn(opts: SpawnOpts): void {
         const m = sess.preCaptureBuffer.match(re);
         if (m?.[1]) {
           sess.sessionToken = m[1];
-          repo.updateToken(opts.session.id, m[1]);
+          repo.updateToken(sess.id, m[1]);
           emitAppEvent({
             event: 'agent.session_token_captured',
-            sessionId: opts.session.id,
+            sessionId: sess.id,
             token: m[1],
           });
         }
@@ -158,28 +130,137 @@ export function spawn(opts: SpawnOpts): void {
     }
 
     // Persist transcript — fire-and-forget so SQLite writes don't backpressure the PTY
-    void transcript.recordOutput(opts.session.id, data);
+    void transcript.recordOutput(sess.id, data);
 
     // Broadcast to all WebSocket clients
-    broadcast({ v: 1, type: 'output', id: opts.session.id, data });
+    broadcast({ v: 1, type: 'output', id: sess.id, data });
   });
 
   term.onExit(() => {
     const wasResumable = !!sess.sessionToken;
-    repo.updateStatus(opts.session.id, wasResumable ? 'resumable' : 'closed');
-    sessions.delete(opts.session.id);
+    repo.updateStatus(sess.id, wasResumable ? 'resumable' : 'closed');
+    sessions.delete(sess.id);
     broadcast({
       v: 1,
       type: 'session.closed',
-      id: opts.session.id,
+      id: sess.id,
       resumable: wasResumable,
     });
     emitAppEvent({
       event: 'agent.session_closed',
-      sessionId: opts.session.id,
+      sessionId: sess.id,
       resumable: wasResumable,
     });
   });
+
+  // Suppress unused-variable warnings — cols/rows are consumed by the caller
+  void cols;
+  void rows;
+}
+
+/**
+ * Spawns the agent binary for the given session.
+ * Throws if node-pty failed to load or the binary is not on PATH.
+ */
+export function spawn(opts: SpawnOpts): void {
+  if (!pty) {
+    throw new Error(
+      `node-pty failed to load: ${ptyLoadError?.message ?? 'unknown error'}. ` +
+        `Ensure native binaries were compiled for the current Node version (try: node-gyp rebuild).`,
+    );
+  }
+
+  const binaryName = BINARY_NAME[opts.session.agentKind];
+  const binary = resolveBinary(binaryName);
+  if (!binary) {
+    throw new Error(`${opts.session.agentKind} binary ('${binaryName}') not found in PATH`);
+  }
+
+  const cols = opts.cols ?? 120;
+  const rows = opts.rows ?? 30;
+
+  const term = pty.spawn(binary, [], {
+    name: 'xterm-256color',
+    cols,
+    rows,
+    cwd: opts.session.cwd,
+    env: { ...process.env, TERM: 'xterm-256color' } as Record<string, string>,
+  });
+
+  const sess: PtySession = {
+    id: opts.session.id,
+    agentKind: opts.session.agentKind,
+    pty: term,
+    cwd: opts.session.cwd,
+    chunks: [],
+    chunksSize: 0,
+    sessionToken: null,
+    preCaptureBuffer: '',
+    lastOutAt: Date.now(),
+    lastInAt: Date.now(),
+    burstStart: 0,
+    working: false,
+  };
+
+  _attachSession(term, sess, cols, rows);
+}
+
+/**
+ * Re-spawns a previously closed session using its captured session token.
+ * Throws for codex (no stable resume CLI in v1), missing token, or if pty
+ * failed to load.
+ */
+export function resume(sessionId: string, dbSession: AgentSession): void {
+  if (dbSession.agentKind === 'codex') {
+    throw new Error('codex resume not supported in v1');
+  }
+
+  if (!pty) {
+    throw new Error(
+      `node-pty failed to load: ${ptyLoadError?.message ?? 'unknown error'}. ` +
+        `Ensure native binaries were compiled for the current Node version (try: node-gyp rebuild).`,
+    );
+  }
+
+  if (!dbSession.sessionToken) {
+    throw new Error('Session token missing — cannot resume');
+  }
+
+  const binaryName = BINARY_NAME[dbSession.agentKind];
+  const binary = resolveBinary(binaryName);
+  if (!binary) {
+    throw new Error(`${dbSession.agentKind} binary ('${binaryName}') not found in PATH`);
+  }
+
+  const args = ['--resume', dbSession.sessionToken];
+  const cols = 120;
+  const rows = 30;
+
+  const term = pty.spawn(binary, args, {
+    name: 'xterm-256color',
+    cols,
+    rows,
+    cwd: dbSession.cwd,
+    env: { ...process.env, TERM: 'xterm-256color' } as Record<string, string>,
+  });
+
+  const sess: PtySession = {
+    id: sessionId,
+    agentKind: dbSession.agentKind,
+    pty: term,
+    cwd: dbSession.cwd,
+    chunks: [],
+    chunksSize: 0,
+    // Preserve the known token so it won't be re-captured from scratch
+    sessionToken: dbSession.sessionToken,
+    preCaptureBuffer: '',
+    lastOutAt: Date.now(),
+    lastInAt: Date.now(),
+    burstStart: 0,
+    working: false,
+  };
+
+  _attachSession(term, sess, cols, rows);
 }
 
 /** Forward keyboard input to the PTY. */

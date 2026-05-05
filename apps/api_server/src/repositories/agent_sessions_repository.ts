@@ -122,7 +122,7 @@ export class AgentSessionsRepository {
 
   deleteOlderThan(cutoffIso: string): number {
     const result = getDb()
-      .prepare(`DELETE FROM agent_sessions WHERE created_at < ?`)
+      .prepare(`DELETE FROM agent_sessions WHERE status = 'closed' AND created_at < ?`)
       .run(cutoffIso);
     return result.changes;
   }

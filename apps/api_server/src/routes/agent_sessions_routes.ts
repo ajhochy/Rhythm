@@ -12,3 +12,4 @@ agentSessionsRouter.get('/:id', controller.getOne.bind(controller));
 agentSessionsRouter.post('/', controller.create.bind(controller));
 agentSessionsRouter.delete('/:id', controller.remove.bind(controller));
 agentSessionsRouter.get('/:id/messages', controller.listMessages.bind(controller));
+agentSessionsRouter.post('/:id/resume', controller.resume.bind(controller));

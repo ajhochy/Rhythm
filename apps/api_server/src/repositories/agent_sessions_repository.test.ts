@@ -117,14 +117,30 @@ describe('AgentSessionsRepository', () => {
     expect(result).toBeNull();
   });
 
-  it('deleteOlderThan removes old sessions and returns count', () => {
-    repo.insert({ agentKind: 'claude-code', taskId: null, cwd: '/a', name: 'A' });
-    repo.insert({ agentKind: 'claude-code', taskId: null, cwd: '/b', name: 'B' });
+  it('deleteOlderThan removes old CLOSED sessions and returns count', () => {
+    const s1 = repo.insert({ agentKind: 'claude-code', taskId: null, cwd: '/a', name: 'A' });
+    const s2 = repo.insert({ agentKind: 'claude-code', taskId: null, cwd: '/b', name: 'B' });
+    // Mark both closed — deleteOlderThan only prunes closed sessions
+    repo.markClosed(s1.id);
+    repo.markClosed(s2.id);
 
-    // Use a future cutoff to delete all sessions
+    // Use a future cutoff to delete all closed sessions
     const cutoff = new Date(Date.now() + 60_000).toISOString();
     const deleted = repo.deleteOlderThan(cutoff);
     expect(deleted).toBe(2);
     expect(repo.listAll()).toHaveLength(0);
+  });
+
+  it('deleteOlderThan does NOT remove active or resumable sessions', () => {
+    const s1 = repo.insert({ agentKind: 'claude-code', taskId: null, cwd: '/a', name: 'A' });
+    const s2 = repo.insert({ agentKind: 'claude-code', taskId: null, cwd: '/b', name: 'B' });
+    // s1 stays in 'starting'; s2 is resumable
+    repo.updateStatus(s2.id, 'resumable');
+    repo.updateToken(s2.id, 'tok123');
+
+    const cutoff = new Date(Date.now() + 60_000).toISOString();
+    const deleted = repo.deleteOlderThan(cutoff);
+    expect(deleted).toBe(0);
+    expect(repo.listAll()).toHaveLength(2);
   });
 });

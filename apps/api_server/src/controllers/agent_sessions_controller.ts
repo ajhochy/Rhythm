@@ -112,6 +112,41 @@ export class AgentSessionsController {
     }
   }
 
+  resume(req: Request, res: Response, next: NextFunction): void {
+    try {
+      const session = repo.findById(req.params.id);
+      if (!session) throw AppError.notFound('AgentSession');
+
+      if (session.agentKind === 'codex') {
+        throw AppError.badRequest('codex resume not supported in v1');
+      }
+
+      if (session.status !== 'resumable' || !session.sessionToken) {
+        throw AppError.badRequest(
+          'Session is not resumable — status must be "resumable" and session_token must be present',
+        );
+      }
+
+      if (ptyRunner.isAlive(session.id)) {
+        throw AppError.badRequest('Session is already running');
+      }
+
+      try {
+        ptyRunner.resume(session.id, session);
+      } catch (resumeErr) {
+        const message =
+          resumeErr instanceof Error ? resumeErr.message : 'Failed to resume agent session';
+        throw AppError.badRequest(message);
+      }
+
+      repo.updateStatus(session.id, 'starting');
+      const updated = repo.findById(session.id)!;
+      res.status(200).json(updated);
+    } catch (err) {
+      next(err);
+    }
+  }
+
   listMessages(req: Request, res: Response, next: NextFunction): void {
     try {
       const session = repo.findById(req.params.id);
