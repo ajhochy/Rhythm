@@ -113,6 +113,38 @@ export class GoogleOAuthService {
     return { tokens, profile };
   }
 
+  async exchangeMobileCode(options: {
+    code: string;
+    codeVerifier: string;
+    redirectUri: string;
+    clientId: string;
+  }): Promise<{
+    tokens: GoogleTokenResponse;
+    profile: GoogleUserInfo;
+  }> {
+    const params = new URLSearchParams({
+      code: options.code,
+      client_id: options.clientId,
+      code_verifier: options.codeVerifier,
+      redirect_uri: options.redirectUri,
+      grant_type: 'authorization_code',
+    });
+    const response = await fetch(GOOGLE_TOKEN_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: params,
+    });
+
+    if (!response.ok) {
+      const text = await response.text();
+      throw AppError.badRequest(`Google token exchange failed: ${text}`);
+    }
+
+    const tokens = (await response.json()) as GoogleTokenResponse;
+    const profile = await this.fetchUserInfo(tokens.access_token);
+    return { tokens, profile };
+  }
+
   async storeDesktopIntegration(
     ownerId: number,
     tokens: GoogleTokenResponse,

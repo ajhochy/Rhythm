@@ -11,6 +11,10 @@ authRouter.post(
   '/google/desktop-exchange',
   controller.googleDesktopExchange.bind(controller),
 );
+authRouter.post(
+  '/google/mobile-exchange',
+  controller.googleMobileExchange.bind(controller),
+);
 authRouter.get('/me', requireAuth, controller.me.bind(controller));
 authRouter.post('/logout', requireAuth, controller.logout.bind(controller));
 authRouter.get('/google/begin', controller.beginGoogleOAuth.bind(controller));
