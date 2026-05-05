@@ -74,6 +74,29 @@ class TasksController extends ChangeNotifier {
 
   Future<void> refresh() => load();
 
+  Future<Task?> createTask({
+    required String title,
+    String? notes,
+    String? dueDate,
+  }) async {
+    try {
+      final task = await _repository.create(
+        title: title,
+        notes: notes,
+        dueDate: dueDate,
+      );
+      _tasks = List.of(_tasks)..add(task);
+      _errorMessage = null;
+      notifyListeners();
+      return task;
+    } catch (e) {
+      _errorMessage = e.toString();
+      _status = TasksStatus.error;
+      notifyListeners();
+      return null;
+    }
+  }
+
   Future<void> toggleDone(String taskId) async {
     final index = _tasks.indexWhere((t) => t.id == taskId);
     if (index == -1) return;
