@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
 import '../../../../features/tasks/views/quick_add_view.dart';
 import '../../../../features/tasks/views/today_view.dart';
+import '../notifications/notification_navigation_service.dart';
 import '../ui/tokens/rhythm_theme.dart';
 
 /// Root shell shown after successful authentication.
@@ -18,9 +20,29 @@ class AppShell extends StatefulWidget {
 class _AppShellState extends State<AppShell> {
   int _currentIndex = 0;
 
+  /// Task id to highlight in [TodayView], set from a notification tap.
+  String? _highlightTaskId;
+
   /// Key used to call [QuickAddViewState.requestTitleFocus] when the Add tab
   /// becomes active.
   final _quickAddKey = GlobalKey<QuickAddViewState>();
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // React to notification taps by switching to Today and passing the id.
+    final navService = context.watch<NotificationNavigationService>();
+    final pending = navService.pendingTaskId;
+    if (pending != null && pending != _highlightTaskId) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        setState(() {
+          _currentIndex = 0;
+          _highlightTaskId = pending;
+        });
+      });
+    }
+  }
 
   void _onTabTap(int index) {
     final wasOnAdd = _currentIndex == 1;
@@ -33,12 +55,22 @@ class _AppShellState extends State<AppShell> {
     }
   }
 
+  void _onHighlightHandled() {
+    context.read<NotificationNavigationService>().clear();
+    setState(() {
+      _highlightTaskId = null;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final colors = context.rhythm;
 
     final tabs = [
-      const TodayView(),
+      TodayView(
+        highlightTaskId: _highlightTaskId,
+        onHighlightHandled: _onHighlightHandled,
+      ),
       QuickAddView(
         key: _quickAddKey,
         onTaskCreated: () => setState(() => _currentIndex = 0),

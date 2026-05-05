@@ -7,6 +7,7 @@ import 'app/core/auth/mobile_google_oauth_client.dart';
 import 'app/core/layout/app_shell.dart';
 import 'app/core/layout/splash_screen.dart';
 import 'app/core/notifications/local_notification_service.dart';
+import 'app/core/notifications/notification_navigation_service.dart';
 import 'app/core/services/server_config_service.dart';
 import 'app/theme/app_theme.dart';
 import 'features/auth/views/login_screen.dart';
@@ -44,6 +45,12 @@ Future<void> main() async {
   final notificationService = LocalNotificationService();
   await notificationService.initialize();
 
+  // 5b. Create the notification navigation service and consume any cold-start
+  //     payload BEFORE runApp so TodayView sees it on first build.
+  final notificationNavService =
+      NotificationNavigationService(notificationService);
+  await notificationNavService.consumeColdStart();
+
   // 6. Load reminder preferences.
   final reminderPrefsService = ReminderPreferencesService();
   await reminderPrefsService.load();
@@ -66,6 +73,9 @@ Future<void> main() async {
         ChangeNotifierProvider<TasksController>.value(value: tasksController),
         // LocalNotificationService exposed for schedulers (permissions deferred).
         Provider<LocalNotificationService>.value(value: notificationService),
+        ChangeNotifierProvider<NotificationNavigationService>.value(
+          value: notificationNavService,
+        ),
         ChangeNotifierProvider<ReminderPreferencesService>.value(
           value: reminderPrefsService,
         ),
