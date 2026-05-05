@@ -6,6 +6,7 @@ import 'app/core/auth/auth_session_service.dart';
 import 'app/core/auth/mobile_google_oauth_client.dart';
 import 'app/core/layout/app_shell.dart';
 import 'app/core/layout/splash_screen.dart';
+import 'app/core/notifications/local_notification_service.dart';
 import 'app/core/services/server_config_service.dart';
 import 'app/theme/app_theme.dart';
 import 'features/auth/views/login_screen.dart';
@@ -37,6 +38,10 @@ Future<void> main() async {
   final tasksRepository = TasksRepository(tasksDataSource);
   final tasksController = TasksController(tasksRepository);
 
+  // 5. Initialize local notification service.
+  final notificationService = LocalNotificationService();
+  await notificationService.initialize();
+
   runApp(
     MultiProvider(
       providers: [
@@ -44,6 +49,8 @@ Future<void> main() async {
         ChangeNotifierProvider<AuthSessionService>.value(value: authSession),
         // TasksController is wired here; load() is triggered by the Today view.
         ChangeNotifierProvider<TasksController>.value(value: tasksController),
+        // LocalNotificationService exposed for schedulers (permissions deferred).
+        Provider<LocalNotificationService>.value(value: notificationService),
       ],
       child: const RhythmMobileApp(),
     ),
