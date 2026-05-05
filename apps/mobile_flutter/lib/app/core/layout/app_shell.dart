@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../../../features/settings/views/settings_view.dart';
 import '../../../../features/tasks/views/quick_add_view.dart';
 import '../../../../features/tasks/views/today_view.dart';
 import '../notifications/notification_navigation_service.dart';
@@ -75,7 +76,7 @@ class _AppShellState extends State<AppShell> {
         key: _quickAddKey,
         onTaskCreated: () => setState(() => _currentIndex = 0),
       ),
-      const Center(child: Text('Settings')),
+      const SettingsView(),
     ];
 
     return Scaffold(
