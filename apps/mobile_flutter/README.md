@@ -8,11 +8,22 @@ Flutter mobile companion app for Rhythm — a productivity platform for church s
 # Install dependencies
 flutter pub get
 
-# Run on a connected device or simulator
-flutter run -d <device>
+# Run on a connected device or simulator (Google sign-in requires --dart-define)
+flutter run -d <device> \
+  --dart-define=GOOGLE_MOBILE_CLIENT_ID=<your-google-oauth-client-id> \
+  --dart-define=GOOGLE_MOBILE_REDIRECT_URI=com.rhythmapp.mobile:/oauth-callback
 ```
 
 List available devices with `flutter devices`.
+
+### Google OAuth `--dart-define` values
+
+| Key | Description |
+|-----|-------------|
+| `GOOGLE_MOBILE_CLIENT_ID` | Google OAuth 2.0 client ID for iOS/Android (from Google Cloud Console). Use an **iOS** client ID on iOS and an **Android** client ID on Android. |
+| `GOOGLE_MOBILE_REDIRECT_URI` | Deep-link redirect URI registered in Google Cloud Console. Default: `com.rhythmapp.mobile:/oauth-callback` |
+
+These values are never committed to source control. The app will throw a `StateError` at sign-in time if they are missing.
 
 ## Default API
 
