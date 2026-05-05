@@ -18,6 +18,9 @@ import '../../../features/projects/views/projects_view.dart';
 import '../../../features/rhythms/views/rhythms_view.dart';
 import '../../../features/settings/controllers/settings_controller.dart';
 import '../../../features/settings/views/settings_view.dart';
+import '../../../features/agents/views/agents_view.dart';
+import '../agents/agent_bubble_overlay.dart';
+import '../agents/overlay_controller.dart';
 import '../../../features/tasks/views/automation_rules_view.dart';
 import '../../../features/messages/views/messages_view.dart';
 import '../../../features/tasks/views/tasks_view.dart';
@@ -69,6 +72,8 @@ class _AppShellState extends State<AppShell> with WindowListener {
     final authStatus = context.watch<AuthSessionService>().status;
     final messagesController = context.read<MessagesController>();
     final notifController = context.watch<NotificationsController>();
+    // Watch OverlayController so we react to pendingNavIndex changes.
+    context.watch<OverlayController>();
     final enablePolling = serverStatus == ServerStatus.ready &&
         authStatus == AuthStatus.authenticated;
     final isMessagesScreenActive = enablePolling && _selectedIndex == 5;
@@ -96,6 +101,13 @@ class _AppShellState extends State<AppShell> with WindowListener {
         if (index >= 0) {
           setState(() => _selectedIndex = index);
         }
+      }
+
+      // Handle pending navigation from the agent bubble overlay
+      final overlayNav = context.read<OverlayController>().pendingNavIndex;
+      if (overlayNav != null) {
+        context.read<OverlayController>().clearPendingNavIndex();
+        setState(() => _selectedIndex = overlayNav);
       }
     });
 
@@ -206,7 +218,7 @@ class _ServerFailedView extends StatelessWidget {
 
 // Current order: Dashboard(0), Weekly Planner(1), Tasks(2), Rhythms(3),
 //                Projects(4), Messages(5), Facilities(6),
-//                Automations(7), Integrations(8)
+//                Automations(7), Integrations(8), Agents(9)
 class _AppContent extends StatelessWidget {
   const _AppContent({
     required this.selectedIndex,
@@ -239,6 +251,7 @@ class _AppContent extends StatelessWidget {
       const FacilitiesView(),
       const AutomationRulesView(),
       const IntegrationsView(),
+      const AgentsView(),
     ];
     return Scaffold(
       backgroundColor: context.rhythm.canvas,
@@ -308,6 +321,7 @@ class _AppContent extends StatelessWidget {
               ),
             ],
           ),
+          const AgentBubbleOverlayLayer(),
         ],
       ),
     );

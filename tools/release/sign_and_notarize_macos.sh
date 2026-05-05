@@ -83,8 +83,9 @@ sed "s/\$(AppIdentifierPrefix)/${APPLE_TEAM_ID}./" "${ENTITLEMENTS_PATH}" > "${P
 # Sign nested frameworks and binaries from the inside out with Hardened Runtime.
 # codesign --deep does NOT propagate --options runtime to nested items, so we
 # must sign each one explicitly before signing the top-level bundle.
-# This includes .node native addons (e.g. better_sqlite3.node) bundled in
-# Contents/Resources — Apple requires all native binaries to be signed.
+# This includes .node native addons (e.g. better_sqlite3.node, pty.node from
+# node-pty) bundled in Contents/Resources — Apple requires all native binaries
+# to be signed.
 while IFS= read -r -d '' item; do
   codesign --force --options runtime --timestamp \
     --sign "${IDENTITY_SHA}" \

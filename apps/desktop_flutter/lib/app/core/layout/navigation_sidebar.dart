@@ -28,6 +28,7 @@ class NavigationSidebar extends StatelessWidget {
     _NavItem(icon: Icons.meeting_room_outlined, label: 'Facilities'),
     _NavItem(icon: Icons.auto_awesome, label: 'Automations'),
     _NavItem(icon: Icons.link, label: 'Integrations'),
+    _NavItem(icon: Icons.smart_toy_outlined, label: 'Agents'),
   ];
 
   @override

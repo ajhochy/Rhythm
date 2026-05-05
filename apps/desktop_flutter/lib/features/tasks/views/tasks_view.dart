@@ -605,6 +605,8 @@ class _TasksViewState extends State<TasksView> {
         includeNotes: true,
         includeDueDate: true,
         includeScheduledDate: true,
+        includePreferredAgent: true,
+        preferredAgent: request.preferredAgent,
       ),
       onToggleStatus: () => controller.toggleDone(task.id),
       onAddCollaborator: (userId) async {

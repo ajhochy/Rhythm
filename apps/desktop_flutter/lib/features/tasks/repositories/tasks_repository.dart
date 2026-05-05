@@ -14,12 +14,14 @@ class TasksRepository {
     String? dueDate,
     int? ownerId,
     int? collaboratorId,
+    String? preferredAgent,
   }) async {
     final task = await _dataSource.create(
       title,
       notes: notes,
       dueDate: dueDate,
       ownerId: ownerId,
+      preferredAgent: preferredAgent,
     );
     if (collaboratorId != null) {
       await _dataSource.addCollaborator(task.id, collaboratorId);
@@ -39,6 +41,8 @@ class TasksRepository {
     bool includeDueDate = false,
     bool includeScheduledDate = false,
     bool includeOwnerId = false,
+    bool includePreferredAgent = false,
+    String? preferredAgent,
   }) =>
       _dataSource.update(
         id,
@@ -52,6 +56,8 @@ class TasksRepository {
         includeDueDate: includeDueDate,
         includeScheduledDate: includeScheduledDate,
         includeOwnerId: includeOwnerId,
+        includePreferredAgent: includePreferredAgent,
+        preferredAgent: preferredAgent,
       );
 
   Future<void> delete(String id) => _dataSource.delete(id);

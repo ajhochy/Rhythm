@@ -1,0 +1,278 @@
+import 'dart:async';
+
+import 'package:flutter/foundation.dart';
+
+import '../models/agent_session.dart';
+import '../models/agent_session_message.dart';
+import '../models/agent_ws_message.dart';
+import '../repositories/agents_repository.dart';
+
+enum AgentsLoadStatus { idle, loading, error }
+
+class PendingTrigger {
+  PendingTrigger({
+    required this.taskId,
+    required this.taskTitle,
+    required this.arrivedAt,
+  });
+
+  final String taskId;
+  final String taskTitle;
+  final DateTime arrivedAt;
+}
+
+class AgentsController extends ChangeNotifier {
+  AgentsController(this._repository, {required this.isLocalServer});
+
+  final AgentsRepository _repository;
+
+  /// Whether the app is pointed at a local server.
+  /// When false the UI shows a "local server required" notice instead of trying
+  /// to connect.
+  final bool isLocalServer;
+
+  AgentsLoadStatus _status = AgentsLoadStatus.idle;
+  String? _error;
+
+  List<AgentSession> _sessions = [];
+  List<AgentSession> _resumable = [];
+  String? _selectedSessionId;
+  List<AgentSessionMessage> _transcript = [];
+
+  /// Live PTY output buffer keyed by session id.
+  /// Plain string concatenation; capped at ~200 KB to prevent unbounded growth.
+  final Map<String, String> _liveOutputBuffer = {};
+
+  /// Keyed by session id; true when the agent is actively running a command.
+  final Map<String, bool> _working = {};
+
+  final List<PendingTrigger> _pendingTriggers = [];
+
+  StreamSubscription<AgentWsMessage>? _wsSub;
+
+  // --------------------------------------------------------------------------
+  // Getters
+  // --------------------------------------------------------------------------
+
+  AgentsLoadStatus get status => _status;
+  String? get error => _error;
+  List<AgentSession> get sessions => List.unmodifiable(_sessions);
+  List<AgentSession> get resumable => List.unmodifiable(_resumable);
+  String? get selectedSessionId => _selectedSessionId;
+
+  AgentSession? get selectedSession =>
+      _sessions.firstWhereOrNull((s) => s.id == _selectedSessionId) ??
+      _resumable.firstWhereOrNull((s) => s.id == _selectedSessionId);
+
+  List<AgentSessionMessage> get transcript => List.unmodifiable(_transcript);
+
+  String liveOutputFor(String sessionId) => _liveOutputBuffer[sessionId] ?? '';
+
+  bool isWorking(String sessionId) => _working[sessionId] ?? false;
+
+  List<PendingTrigger> get pendingTriggers =>
+      List.unmodifiable(_pendingTriggers);
+
+  // --------------------------------------------------------------------------
+  // Lifecycle
+  // --------------------------------------------------------------------------
+
+  Future<void> initialize() async {
+    if (!isLocalServer) {
+      // No local server → skip WebSocket connect; UI guard handles display.
+      return;
+    }
+    await _repository.connect();
+    _wsSub = _repository.messages.listen(_onWsMessage);
+    await load();
+  }
+
+  // --------------------------------------------------------------------------
+  // REST operations
+  // --------------------------------------------------------------------------
+
+  Future<void> load() async {
+    _status = AgentsLoadStatus.loading;
+    notifyListeners();
+    try {
+      final result = await _repository.listSessions();
+      _sessions = result
+          .where((s) =>
+              s.status != AgentSessionStatus.closed &&
+              s.status != AgentSessionStatus.resumable)
+          .toList();
+      _resumable = result
+          .where((s) => s.status == AgentSessionStatus.resumable)
+          .toList();
+      _status = AgentsLoadStatus.idle;
+      _error = null;
+    } catch (e) {
+      _status = AgentsLoadStatus.error;
+      _error = e.toString();
+    }
+    notifyListeners();
+  }
+
+  Future<AgentSession?> createSession({
+    required AgentKind agentKind,
+    String? taskId,
+    required String cwd,
+    required String name,
+  }) async {
+    try {
+      final session = await _repository.createSession(
+        agentKind: agentKind,
+        taskId: taskId,
+        cwd: cwd,
+        name: name,
+      );
+      _sessions = [..._sessions, session];
+      notifyListeners();
+      return session;
+    } catch (e) {
+      _error = e.toString();
+      notifyListeners();
+      return null;
+    }
+  }
+
+  Future<void> closeSession(String id) async {
+    try {
+      await _repository.closeSession(id);
+      // The `session.closed` WS message will update state.
+    } catch (e) {
+      _error = e.toString();
+      notifyListeners();
+    }
+  }
+
+  Future<void> resumeSession(String id) async {
+    try {
+      final session = await _repository.resumeSession(id);
+      _resumable = _resumable.where((s) => s.id != id).toList();
+      _sessions = [..._sessions, session];
+      _liveOutputBuffer.remove(id);
+      notifyListeners();
+    } catch (e) {
+      _error = e.toString();
+      notifyListeners();
+    }
+  }
+
+  // --------------------------------------------------------------------------
+  // WebSocket send helpers
+  // --------------------------------------------------------------------------
+
+  void sendInput(String sessionId, String data) {
+    _repository.send({'type': 'session.input', 'id': sessionId, 'data': data});
+  }
+
+  void resize(String sessionId, int cols, int rows) {
+    _repository.send({
+      'type': 'session.resize',
+      'id': sessionId,
+      'cols': cols,
+      'rows': rows,
+    });
+  }
+
+  // --------------------------------------------------------------------------
+  // Session selection
+  // --------------------------------------------------------------------------
+
+  Future<void> selectSession(String id) async {
+    _selectedSessionId = id;
+    _transcript = [];
+    notifyListeners();
+    try {
+      final result = await _repository.getSession(id);
+      if (_selectedSessionId == id) {
+        _transcript = result.messages;
+        notifyListeners();
+      }
+      _repository.send({'type': 'session.subscribe', 'id': id});
+    } catch (e) {
+      _error = e.toString();
+      notifyListeners();
+    }
+  }
+
+  // --------------------------------------------------------------------------
+  // Pending triggers
+  // --------------------------------------------------------------------------
+
+  void dismissTrigger(String taskId) {
+    _pendingTriggers.removeWhere((t) => t.taskId == taskId);
+    notifyListeners();
+  }
+
+  // --------------------------------------------------------------------------
+  // WebSocket message handler
+  // --------------------------------------------------------------------------
+
+  void _onWsMessage(AgentWsMessage msg) {
+    if (msg is SessionsListMessage) {
+      _sessions = msg.sessions
+          .where((s) =>
+              s.status != AgentSessionStatus.closed &&
+              s.status != AgentSessionStatus.resumable)
+          .toList();
+      _resumable = [
+        ...msg.sessions.where((s) => s.status == AgentSessionStatus.resumable),
+        ...msg.resumable,
+      ];
+    } else if (msg is SessionCreatedMessage) {
+      if (!_sessions.any((s) => s.id == msg.session.id)) {
+        _sessions = [..._sessions, msg.session];
+      }
+    } else if (msg is SessionClosedMessage) {
+      final closed = _sessions.firstWhereOrNull((s) => s.id == msg.id);
+      _sessions = _sessions.where((s) => s.id != msg.id).toList();
+      if (closed != null && msg.resumable) {
+        _resumable = [
+          ..._resumable,
+          closed.copyWith(status: AgentSessionStatus.resumable),
+        ];
+      }
+    } else if (msg is SessionStatusMessage) {
+      _working[msg.id] = msg.working;
+    } else if (msg is OutputMessage) {
+      final prev = _liveOutputBuffer[msg.id] ?? '';
+      final next = prev + msg.data;
+      _liveOutputBuffer[msg.id] = next.length > 200 * 1024
+          ? next.substring(next.length - 150 * 1024)
+          : next;
+    } else if (msg is TriggerFiredMessage) {
+      _pendingTriggers.add(PendingTrigger(
+        taskId: msg.taskId,
+        taskTitle: msg.taskTitle,
+        arrivedAt: DateTime.now(),
+      ));
+    }
+    notifyListeners();
+  }
+
+  // --------------------------------------------------------------------------
+  // Dispose
+  // --------------------------------------------------------------------------
+
+  @override
+  void dispose() {
+    _wsSub?.cancel();
+    _repository.dispose();
+    super.dispose();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Extension helper
+// ---------------------------------------------------------------------------
+
+extension _IterableWhereOrNull<T> on Iterable<T> {
+  T? firstWhereOrNull(bool Function(T) test) {
+    for (final e in this) {
+      if (test(e)) return e;
+    }
+    return null;
+  }
+}

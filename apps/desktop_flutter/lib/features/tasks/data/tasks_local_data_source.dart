@@ -28,6 +28,7 @@ class TasksLocalDataSource {
     String? notes,
     String? dueDate,
     int? ownerId,
+    String? preferredAgent,
   }) async {
     final response = await http.post(
       Uri.parse('$_baseUrl/tasks'),
@@ -37,6 +38,7 @@ class TasksLocalDataSource {
         if (notes != null && notes.isNotEmpty) 'notes': notes,
         if (dueDate != null) 'dueDate': dueDate,
         if (ownerId != null) 'ownerId': ownerId,
+        'preferredAgent': preferredAgent,
       }),
     );
     assertOk(response);
@@ -55,6 +57,8 @@ class TasksLocalDataSource {
     bool includeDueDate = false,
     bool includeScheduledDate = false,
     bool includeOwnerId = false,
+    bool includePreferredAgent = false,
+    String? preferredAgent,
   }) async {
     final response = await http.patch(
       Uri.parse('$_baseUrl/tasks/$id'),
@@ -67,6 +71,7 @@ class TasksLocalDataSource {
           'scheduledDate': scheduledDate,
         if (status != null) 'status': status,
         if (includeOwnerId) 'ownerId': ownerId,
+        if (includePreferredAgent) 'preferredAgent': preferredAgent,
       }),
     );
     assertOk(response);

@@ -1,3 +1,4 @@
+import http from 'http';
 import path from 'path';
 import { config as loadDotenv } from 'dotenv';
 
@@ -6,14 +7,27 @@ import { config as loadDotenv } from 'dotenv';
 loadDotenv({ path: path.join(__dirname, '..', '.env') });
 
 async function main() {
-  const [{ createApp }, { initDb }, { startRecurrenceGenerationJob }, { startSyncOrchestratorJob }, { logger }] =
-    await Promise.all([
-      import('./app'),
-      import('./database/db'),
-      import('./jobs/recurrence_generation_job'),
-      import('./jobs/sync_orchestrator_job'),
-      import('./utils/logger'),
-    ]);
+  const [
+    { createApp },
+    { initDb },
+    { startRecurrenceGenerationJob },
+    { startSyncOrchestratorJob },
+    { logger },
+    { attachWsGateway },
+    { startSessionTokenWatcher },
+    { startAgentStatusService },
+    { startAgentSessionReaperJob },
+  ] = await Promise.all([
+    import('./app'),
+    import('./database/db'),
+    import('./jobs/recurrence_generation_job'),
+    import('./jobs/sync_orchestrator_job'),
+    import('./utils/logger'),
+    import('./services/ws_gateway'),
+    import('./services/pty_runner'),
+    import('./services/agent_status_service'),
+    import('./jobs/agent_session_reaper_job'),
+  ]);
 
   const port = Number(process.env.PORT ?? 4000);
 
@@ -22,10 +36,16 @@ async function main() {
 
   startRecurrenceGenerationJob();
   startSyncOrchestratorJob();
+  startSessionTokenWatcher();
 
   const app = createApp();
 
-  app.listen(port, () => {
+  const httpServer = http.createServer(app);
+  attachWsGateway(httpServer);
+  startAgentStatusService();
+  startAgentSessionReaperJob();
+
+  httpServer.listen(port, () => {
     logger.info(`Rhythm API listening on port ${port}`);
   });
 }

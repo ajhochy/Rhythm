@@ -20,6 +20,7 @@ import { weeklyPlanRouter } from './routes/weekly_plan_routes';
 import { workspaceRouter } from './routes/workspace_routes';
 import { notificationsRouter } from './routes/notifications_routes';
 import claudeTriggersRouter from './routes/claude_triggers_routes';
+import { agentSessionsRouter } from './routes/agent_sessions_routes';
 
 export function createApp() {
   const app = express();
@@ -60,6 +61,7 @@ export function createApp() {
   app.use('/workspaces', workspaceRouter);
   app.use('/notifications', notificationsRouter);
   app.use('/claude-triggers', claudeTriggersRouter);
+  app.use('/agent-sessions', agentSessionsRouter);
 
   app.use(errorHandler);
 

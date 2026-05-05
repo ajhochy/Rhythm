@@ -452,4 +452,7 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
     )
   `);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_pending_claude_triggers_created_at ON pending_claude_triggers(created_at)`);
+
+  // tasks.preferred_agent — dual-DB additive column (agent_sessions tables are SQLite-only)
+  await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS preferred_agent TEXT`);
 }
