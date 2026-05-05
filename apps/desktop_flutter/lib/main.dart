@@ -52,6 +52,9 @@ import 'app/core/workspace/workspace_repository.dart';
 import 'features/notifications/controllers/notifications_controller.dart';
 import 'features/notifications/data/notifications_data_source.dart';
 import 'features/notifications/repositories/notifications_repository.dart';
+import 'features/agents/controllers/agents_controller.dart';
+import 'features/agents/data/agents_data_source.dart';
+import 'features/agents/repositories/agents_repository.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -194,6 +197,16 @@ class RhythmApp extends StatelessWidget {
           create: (_) => NotificationsController(
             NotificationsRepository(NotificationsDataSource(baseUrl: baseUrl)),
           ),
+        ),
+        ChangeNotifierProvider(
+          create: (_) {
+            final isLocal =
+                serverConfigService.url.startsWith('http://localhost') ||
+                    serverConfigService.url.startsWith('http://127.0.0.1');
+            final ds = AgentsDataSource();
+            final repo = AgentsRepository(ds);
+            return AgentsController(repo, isLocalServer: isLocal)..initialize();
+          },
         ),
       ],
       child: Consumer<ThemeModeService>(
