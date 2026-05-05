@@ -1,7 +1,13 @@
 FROM node:20-bookworm-slim AS base
 WORKDIR /app
 
-FROM base AS deps
+# Stage with toolchain for compiling native modules (node-pty, better-sqlite3 fallback).
+FROM base AS build-tools
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends python3 make g++ \
+ && rm -rf /var/lib/apt/lists/*
+
+FROM build-tools AS deps
 COPY package.json package-lock.json ./
 RUN npm ci
 
@@ -10,13 +16,18 @@ COPY tsconfig.json ./
 COPY src ./src
 RUN npm run build
 
+# Production-only deps in their own stage so the runtime image stays slim
+# and we only compile native modules once (here).
+FROM build-tools AS prod-deps
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev && npm cache clean --force
+
 FROM base AS runtime
 ENV NODE_ENV=production
 WORKDIR /app
 
 COPY package.json package-lock.json ./
-RUN npm ci --omit=dev && npm cache clean --force
-
+COPY --from=prod-deps /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 
 RUN mkdir -p /data
