@@ -55,6 +55,7 @@ import 'features/notifications/repositories/notifications_repository.dart';
 import 'features/agents/controllers/agents_controller.dart';
 import 'features/agents/data/agents_data_source.dart';
 import 'features/agents/repositories/agents_repository.dart';
+import 'app/core/agents/overlay_controller.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -207,6 +208,9 @@ class RhythmApp extends StatelessWidget {
             final repo = AgentsRepository(ds);
             return AgentsController(repo, isLocalServer: isLocal)..initialize();
           },
+        ),
+        ChangeNotifierProvider(
+          create: (ctx) => OverlayController(ctx.read<AgentsController>()),
         ),
       ],
       child: Consumer<ThemeModeService>(

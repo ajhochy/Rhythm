@@ -19,6 +19,8 @@ import '../../../features/rhythms/views/rhythms_view.dart';
 import '../../../features/settings/controllers/settings_controller.dart';
 import '../../../features/settings/views/settings_view.dart';
 import '../../../features/agents/views/agents_view.dart';
+import '../agents/agent_bubble_overlay.dart';
+import '../agents/overlay_controller.dart';
 import '../../../features/tasks/views/automation_rules_view.dart';
 import '../../../features/messages/views/messages_view.dart';
 import '../../../features/tasks/views/tasks_view.dart';
@@ -70,6 +72,8 @@ class _AppShellState extends State<AppShell> with WindowListener {
     final authStatus = context.watch<AuthSessionService>().status;
     final messagesController = context.read<MessagesController>();
     final notifController = context.watch<NotificationsController>();
+    // Watch OverlayController so we react to pendingNavIndex changes.
+    context.watch<OverlayController>();
     final enablePolling = serverStatus == ServerStatus.ready &&
         authStatus == AuthStatus.authenticated;
     final isMessagesScreenActive = enablePolling && _selectedIndex == 5;
@@ -97,6 +101,13 @@ class _AppShellState extends State<AppShell> with WindowListener {
         if (index >= 0) {
           setState(() => _selectedIndex = index);
         }
+      }
+
+      // Handle pending navigation from the agent bubble overlay
+      final overlayNav = context.read<OverlayController>().pendingNavIndex;
+      if (overlayNav != null) {
+        context.read<OverlayController>().clearPendingNavIndex();
+        setState(() => _selectedIndex = overlayNav);
       }
     });
 
@@ -310,6 +321,7 @@ class _AppContent extends StatelessWidget {
               ),
             ],
           ),
+          const AgentBubbleOverlayLayer(),
         ],
       ),
     );
