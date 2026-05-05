@@ -10,6 +10,8 @@ import 'app/core/notifications/local_notification_service.dart';
 import 'app/core/services/server_config_service.dart';
 import 'app/theme/app_theme.dart';
 import 'features/auth/views/login_screen.dart';
+import 'features/reminders/services/reminder_preferences_service.dart';
+import 'features/reminders/services/reminder_scheduler.dart';
 import 'features/tasks/controllers/tasks_controller.dart';
 import 'features/tasks/data/tasks_data_source.dart';
 import 'features/tasks/repositories/tasks_repository.dart';
@@ -42,6 +44,19 @@ Future<void> main() async {
   final notificationService = LocalNotificationService();
   await notificationService.initialize();
 
+  // 6. Load reminder preferences.
+  final reminderPrefsService = ReminderPreferencesService();
+  await reminderPrefsService.load();
+
+  // 7. Wire scheduler — re-schedules whenever tasks or prefs change.
+  final scheduler = ReminderScheduler(
+    tasksController: tasksController,
+    notificationService: notificationService,
+    preferencesService: reminderPrefsService,
+  );
+  tasksController.addListener(scheduler.reschedule);
+  reminderPrefsService.addListener(scheduler.reschedule);
+
   runApp(
     MultiProvider(
       providers: [
@@ -51,14 +66,45 @@ Future<void> main() async {
         ChangeNotifierProvider<TasksController>.value(value: tasksController),
         // LocalNotificationService exposed for schedulers (permissions deferred).
         Provider<LocalNotificationService>.value(value: notificationService),
+        ChangeNotifierProvider<ReminderPreferencesService>.value(
+          value: reminderPrefsService,
+        ),
+        Provider<ReminderScheduler>.value(value: scheduler),
       ],
-      child: const RhythmMobileApp(),
+      child: RhythmMobileApp(scheduler: scheduler),
     ),
   );
 }
 
-class RhythmMobileApp extends StatelessWidget {
-  const RhythmMobileApp({super.key});
+class RhythmMobileApp extends StatefulWidget {
+  const RhythmMobileApp({super.key, required this.scheduler});
+
+  final ReminderScheduler scheduler;
+
+  @override
+  State<RhythmMobileApp> createState() => _RhythmMobileAppState();
+}
+
+class _RhythmMobileAppState extends State<RhythmMobileApp>
+    with WidgetsBindingObserver {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      widget.scheduler.reschedule();
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
