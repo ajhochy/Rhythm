@@ -81,15 +81,23 @@ Future<void> main() async {
         ),
         Provider<ReminderScheduler>.value(value: scheduler),
       ],
-      child: RhythmMobileApp(scheduler: scheduler),
+      child: RhythmMobileApp(
+        scheduler: scheduler,
+        tasksController: tasksController,
+      ),
     ),
   );
 }
 
 class RhythmMobileApp extends StatefulWidget {
-  const RhythmMobileApp({super.key, required this.scheduler});
+  const RhythmMobileApp({
+    super.key,
+    required this.scheduler,
+    required this.tasksController,
+  });
 
   final ReminderScheduler scheduler;
+  final TasksController tasksController;
 
   @override
   State<RhythmMobileApp> createState() => _RhythmMobileAppState();
@@ -97,6 +105,10 @@ class RhythmMobileApp extends StatefulWidget {
 
 class _RhythmMobileAppState extends State<RhythmMobileApp>
     with WidgetsBindingObserver {
+  /// Timestamp of the last foreground-resume refresh. Used to debounce
+  /// duplicate refreshes when the app is re-opened within 5 seconds.
+  DateTime? _lastRefresh;
+
   @override
   void initState() {
     super.initState();
@@ -112,7 +124,14 @@ class _RhythmMobileAppState extends State<RhythmMobileApp>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
-      widget.scheduler.reschedule();
+      final now = DateTime.now();
+      final last = _lastRefresh;
+      if (last == null || now.difference(last).inSeconds >= 5) {
+        _lastRefresh = now;
+        // Refresh tasks without blocking the UI — load() is async.
+        widget.tasksController.load();
+        widget.scheduler.reschedule();
+      }
     }
   }
 

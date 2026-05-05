@@ -30,6 +30,19 @@ These values are never committed to source control. The app will throw a `StateE
 The app connects to the hosted Rhythm API at `https://api.vcrcapps.com` by default.
 No backend changes are required — the mobile app consumes the same endpoints as the desktop client.
 
+## Sync model
+
+The mobile app uses the same hosted Rhythm API (`https://api.vcrcapps.com`) as the desktop client — there is no separate mobile backend.
+
+Data is kept current in two ways:
+
+1. **Pull-to-refresh** — drag down on the Today view to manually fetch the latest task list from the server.
+2. **Foreground resume** — when the app returns to the foreground after being backgrounded, it automatically calls `tasksController.load()` to refresh the task list. This is debounced: if a refresh already fired within the last 5 seconds, the duplicate call is skipped.
+
+There is no real-time push or background sync in the MVP. The app does not receive server-sent events or WebSocket notifications.
+
+**Cross-device workflow:** A task created on the desktop appears on mobile after the next refresh (pull-to-refresh or foregrounding the app). A task completed on mobile appears as done on desktop after the next desktop refresh.
+
 ## Platform Requirements
 
 - iOS: 13.0+
