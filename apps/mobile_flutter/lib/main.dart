@@ -9,6 +9,9 @@ import 'app/core/layout/splash_screen.dart';
 import 'app/core/services/server_config_service.dart';
 import 'app/theme/app_theme.dart';
 import 'features/auth/views/login_screen.dart';
+import 'features/tasks/controllers/tasks_controller.dart';
+import 'features/tasks/data/tasks_data_source.dart';
+import 'features/tasks/repositories/tasks_repository.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -29,11 +32,18 @@ Future<void> main() async {
   );
   await authSession.restoreSession();
 
+  // 4. Construct tasks layer.
+  final tasksDataSource = TasksDataSource(baseUrl: baseUrl);
+  final tasksRepository = TasksRepository(tasksDataSource);
+  final tasksController = TasksController(tasksRepository);
+
   runApp(
     MultiProvider(
       providers: [
         ChangeNotifierProvider<ServerConfigService>.value(value: serverConfig),
         ChangeNotifierProvider<AuthSessionService>.value(value: authSession),
+        // TasksController is wired here; load() is triggered by the Today view.
+        ChangeNotifierProvider<TasksController>.value(value: tasksController),
       ],
       child: const RhythmMobileApp(),
     ),
