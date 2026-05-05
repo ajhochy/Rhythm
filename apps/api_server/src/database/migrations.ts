@@ -166,6 +166,7 @@ export function runMigrations(db: Database.Database): void {
       photo_url TEXT,
       role TEXT NOT NULL DEFAULT 'member',
       is_facilities_manager INTEGER NOT NULL DEFAULT 0,
+      email_notifications_enabled INTEGER NOT NULL DEFAULT 1,
       password_hash TEXT,
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
@@ -335,6 +336,12 @@ export function runMigrations(db: Database.Database): void {
   if (!userCols.includes('is_facilities_manager')) {
     db.exec(
       `ALTER TABLE users ADD COLUMN is_facilities_manager INTEGER NOT NULL DEFAULT 0`,
+    );
+  }
+  const userColsP9 = (db.pragma('table_info(users)') as { name: string }[]).map((c) => c.name);
+  if (!userColsP9.includes('email_notifications_enabled')) {
+    db.exec(
+      `ALTER TABLE users ADD COLUMN email_notifications_enabled INTEGER NOT NULL DEFAULT 1`,
     );
   }
 

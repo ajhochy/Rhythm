@@ -89,11 +89,32 @@ function normalizeStep(step: unknown, fallbackIndex: number): RecurringTaskRuleS
       : typeof record.assigneeId === 'string' && record.assigneeId.trim() !== ''
         ? Number(record.assigneeId)
         : null;
+  const dayOfWeek =
+    typeof record.dayOfWeek === 'number'
+      ? record.dayOfWeek
+      : typeof record.dayOfWeek === 'string' && record.dayOfWeek.trim() !== ''
+        ? Number(record.dayOfWeek)
+        : null;
+  const dayOfMonth =
+    typeof record.dayOfMonth === 'number'
+      ? record.dayOfMonth
+      : typeof record.dayOfMonth === 'string' && record.dayOfMonth.trim() !== ''
+        ? Number(record.dayOfMonth)
+        : null;
+  const month =
+    typeof record.month === 'number'
+      ? record.month
+      : typeof record.month === 'string' && record.month.trim() !== ''
+        ? Number(record.month)
+        : null;
   return {
     id,
     title,
     assigneeId: Number.isFinite(assigneeId as number) ? (assigneeId as number) : null,
     assigneeName: typeof record.assigneeName === 'string' ? record.assigneeName : null,
+    dayOfWeek: Number.isFinite(dayOfWeek as number) ? (dayOfWeek as number) : null,
+    dayOfMonth: Number.isFinite(dayOfMonth as number) ? (dayOfMonth as number) : null,
+    month: Number.isFinite(month as number) ? (month as number) : null,
   };
 }
 
@@ -103,6 +124,9 @@ function serializeSteps(steps?: RecurringTaskRuleStep[]): string {
       id: step.id.trim().length > 0 ? step.id.trim() : `step-${index + 1}-${uuidv4()}`,
       title: step.title.trim(),
       assigneeId: step.assigneeId ?? null,
+      dayOfWeek: step.dayOfWeek ?? null,
+      dayOfMonth: step.dayOfMonth ?? null,
+      month: step.month ?? null,
     })),
   );
 }

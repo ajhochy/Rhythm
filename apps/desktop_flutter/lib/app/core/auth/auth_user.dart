@@ -8,6 +8,7 @@ class AuthUser {
     required this.role,
     this.isFacilitiesManager = false,
     this.photoUrl,
+    this.emailNotificationsEnabled = true,
   });
 
   final int id;
@@ -16,6 +17,7 @@ class AuthUser {
   final String role;
   final bool isFacilitiesManager;
   final String? photoUrl;
+  final bool emailNotificationsEnabled;
 
   bool get isAdmin => role == 'admin' || role == 'system';
 
@@ -29,6 +31,8 @@ class AuthUser {
           _asBool(json['is_facilities_manager']) ??
           false,
       photoUrl: _asString(json['photoUrl']) ?? _asString(json['photo_url']),
+      emailNotificationsEnabled:
+          json['emailNotificationsEnabled'] as bool? ?? true,
     );
   }
 }

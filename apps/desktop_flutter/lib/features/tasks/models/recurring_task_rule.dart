@@ -29,6 +29,9 @@ class RecurringTaskRuleStep {
     required this.title,
     this.assigneeId,
     this.assigneeName,
+    this.dayOfWeek,
+    this.dayOfMonth,
+    this.month,
   });
 
   factory RecurringTaskRuleStep.fromJson(Map<String, dynamic> json) {
@@ -37,6 +40,9 @@ class RecurringTaskRuleStep {
       title: asString(json['title']) ?? '',
       assigneeId: asInt(json['assigneeId']),
       assigneeName: asString(json['assigneeName']),
+      dayOfWeek: asInt(json['dayOfWeek']),
+      dayOfMonth: asInt(json['dayOfMonth']),
+      month: asInt(json['month']),
     );
   }
 
@@ -44,11 +50,17 @@ class RecurringTaskRuleStep {
   final String title;
   final int? assigneeId;
   final String? assigneeName;
+  final int? dayOfWeek;
+  final int? dayOfMonth;
+  final int? month;
 
   Map<String, dynamic> toJson() => {
         'id': id,
         'title': title,
         'assigneeId': assigneeId,
+        'dayOfWeek': dayOfWeek,
+        'dayOfMonth': dayOfMonth,
+        'month': month,
       };
 }
 

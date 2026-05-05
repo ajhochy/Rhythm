@@ -76,7 +76,7 @@ describe('Phase 8 collaboration APIs', () => {
         title: 'Sunday Prep',
         frequency: 'weekly',
         dayOfWeek: 0,
-        steps: [{ title: 'Prep charts' }],
+        steps: [{ title: 'Prep charts', dayOfWeek: 0 }],
       }),
     });
     expect(createResponse.status).toBe(201);

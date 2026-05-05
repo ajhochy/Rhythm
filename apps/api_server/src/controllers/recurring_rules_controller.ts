@@ -62,6 +62,9 @@ export class RecurringRulesController {
         throw AppError.badRequest('frequency must be weekly, monthly, or annual');
       }
 
+      const parsedSteps = parseSteps(steps);
+      validateSteps(frequency as 'weekly' | 'monthly' | 'annual', parsedSteps);
+
       const rule = await repo.createAsync({
         title,
         frequency: frequency as 'weekly' | 'monthly' | 'annual',
@@ -69,7 +72,7 @@ export class RecurringRulesController {
         dayOfMonth: dayOfMonth as number ?? null,
         month: month as number ?? null,
         ownerId: req.auth!.user.id,
-        steps: parseSteps(steps),
+        steps: parsedSteps,
         sequential: sequential === true,
       });
 
@@ -91,6 +94,20 @@ export class RecurringRulesController {
     try {
       const body = req.body as Record<string, unknown>;
       const userId = req.auth!.user.id;
+
+      // Validate steps if present in the request body
+      if ('steps' in body) {
+        const parsedSteps = parseSteps(body.steps);
+        let effectiveFrequency: 'weekly' | 'monthly' | 'annual';
+        if (body.frequency && VALID_FREQUENCIES.includes(body.frequency as never)) {
+          effectiveFrequency = body.frequency as 'weekly' | 'monthly' | 'annual';
+        } else {
+          const existing = await repo.findByIdAsync(req.params.id, userId);
+          effectiveFrequency = existing.frequency;
+        }
+        validateSteps(effectiveFrequency, parsedSteps);
+      }
+
       const rule = await repo.updateAsync(req.params.id, body, userId);
       await tasksRepo.deleteFutureOpenBySourceIdAsync('recurring_rule', rule.id);
       if (rule.enabled) {
@@ -242,6 +259,35 @@ export class RecurringRulesController {
   }
 }
 
+function validateSteps(
+  frequency: 'weekly' | 'monthly' | 'annual',
+  steps: RecurringTaskRuleStep[],
+): void {
+  if (steps.length === 0) return;
+
+  for (let i = 0; i < steps.length; i++) {
+    const step = steps[i];
+    const stepLabel = `Step ${i + 1}`;
+
+    if (frequency === 'weekly') {
+      if (step.dayOfWeek == null || !Number.isInteger(step.dayOfWeek) || step.dayOfWeek < 0 || step.dayOfWeek > 6) {
+        throw AppError.badRequest(`${stepLabel} requires dayOfWeek (0-6) for weekly rhythms`);
+      }
+    } else if (frequency === 'monthly') {
+      if (step.dayOfMonth == null || !Number.isInteger(step.dayOfMonth) || step.dayOfMonth < 1 || step.dayOfMonth > 31) {
+        throw AppError.badRequest(`${stepLabel} requires dayOfMonth (1-31) for monthly rhythms`);
+      }
+    } else if (frequency === 'annual') {
+      if (step.month == null || !Number.isInteger(step.month) || step.month < 1 || step.month > 12) {
+        throw AppError.badRequest(`${stepLabel} requires month (1-12) for annual rhythms`);
+      }
+      if (step.dayOfMonth == null || !Number.isInteger(step.dayOfMonth) || step.dayOfMonth < 1 || step.dayOfMonth > 31) {
+        throw AppError.badRequest(`${stepLabel} requires dayOfMonth (1-31) for annual rhythms`);
+      }
+    }
+  }
+}
+
 function parseSteps(raw: unknown): RecurringTaskRuleStep[] {
   if (!Array.isArray(raw)) return [];
   return raw
@@ -264,9 +310,25 @@ function normalizeStep(step: unknown, index: number): RecurringTaskRuleStep | nu
       : typeof record.assigneeId === 'string' && record.assigneeId.trim() !== ''
         ? Number(record.assigneeId)
         : null;
+  const dayOfWeek =
+    typeof record.dayOfWeek === 'number' && Number.isFinite(record.dayOfWeek)
+      ? record.dayOfWeek
+      : null;
+  const dayOfMonth =
+    typeof record.dayOfMonth === 'number' && Number.isFinite(record.dayOfMonth)
+      ? record.dayOfMonth
+      : null;
+  const month =
+    typeof record.month === 'number' && Number.isFinite(record.month)
+      ? record.month
+      : null;
+
   return {
     id,
     title,
     assigneeId: Number.isFinite(assigneeId as number) ? (assigneeId as number) : null,
+    dayOfWeek,
+    dayOfMonth,
+    month,
   };
 }

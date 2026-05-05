@@ -41,6 +41,7 @@ import 'features/messages/data/messages_data_source.dart';
 import 'features/messages/repositories/messages_repository.dart';
 import 'features/settings/controllers/settings_controller.dart';
 import 'features/settings/data/settings_data_source.dart';
+import 'features/settings/data/user_preferences_data_source.dart';
 import 'features/settings/repositories/settings_repository.dart';
 import 'features/weekly_planner/controllers/weekly_planner_controller.dart';
 import 'features/weekly_planner/data/weekly_plan_data_source.dart';
@@ -177,7 +178,11 @@ class RhythmApp extends StatelessWidget {
         ),
         ChangeNotifierProvider(
           create: (_) => SettingsController(
-            SettingsRepository(SettingsDataSource(baseUrl: baseUrl)),
+            SettingsRepository(
+              SettingsDataSource(baseUrl: baseUrl),
+              userPreferencesDataSource:
+                  UserPreferencesDataSource(baseUrl: baseUrl),
+            ),
           ),
         ),
         ChangeNotifierProvider(

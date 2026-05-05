@@ -373,6 +373,56 @@ class _SettingsViewState extends State<SettingsView> {
               ],
             ),
           ),
+          const SizedBox(height: 24),
+          Text(
+            'NOTIFICATIONS',
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: context.rhythm.textSecondary,
+              letterSpacing: 0.8,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Container(
+            decoration: BoxDecoration(
+              color: context.rhythm.surfaceRaised,
+              borderRadius: BorderRadius.circular(RhythmRadius.xl),
+              border: Border.all(color: context.rhythm.borderSubtle),
+              boxShadow: RhythmElevation.panel,
+            ),
+            child: SwitchListTile(
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 20,
+                vertical: 8,
+              ),
+              title: Text(
+                'Email notifications',
+                style: TextStyle(
+                  fontWeight: FontWeight.w600,
+                  color: context.rhythm.textPrimary,
+                ),
+              ),
+              subtitle: Text(
+                "Get an email when you're assigned a task or added as a collaborator",
+                style: TextStyle(
+                  fontSize: 13,
+                  color: context.rhythm.textSecondary,
+                ),
+              ),
+              value: settingsController.emailNotificationsEnabled,
+              onChanged: (value) async {
+                try {
+                  await settingsController.setEmailNotifications(value);
+                } catch (e) {
+                  if (!mounted) return;
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('Failed to update: $e')),
+                  );
+                }
+              },
+            ),
+          ),
         ],
       ),
     );
