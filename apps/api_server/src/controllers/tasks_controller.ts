@@ -8,6 +8,7 @@ import { ClaudeTriggersRepository } from '../repositories/claude_triggers_reposi
 import { env } from '../config/env';
 import { EmailService } from '../services/email_service';
 import { UsersRepository } from '../repositories/users_repository';
+import { emitAppEvent } from '../utils/app_events';
 
 const VALID_STATUSES = ['open', 'in_progress', 'waiting_for_reply', 'done'] as const;
 type ValidStatus = (typeof VALID_STATUSES)[number];
@@ -185,6 +186,12 @@ export class TasksController {
       }
       if (env.claudeUserId != null && userId === env.claudeUserId) {
         await claudeTriggersRepo.insertAsync(req.params.id, actorId);
+        emitAppEvent({
+          event: 'claude.trigger',
+          taskId: req.params.id,
+          taskTitle: task.title,
+          triggeredByUserId: actorId,
+        });
       }
       res.status(201).json(await repo.listCollaboratorsAsync(req.params.id));
     } catch (err) {
