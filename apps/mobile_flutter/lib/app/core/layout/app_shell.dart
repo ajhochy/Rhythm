@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../../features/tasks/views/today_view.dart';
 import '../ui/tokens/rhythm_theme.dart';
 
 /// Root shell shown after successful authentication.
@@ -17,7 +18,7 @@ class _AppShellState extends State<AppShell> {
   int _currentIndex = 0;
 
   static const _tabs = [
-    Center(child: Text('Today')),
+    TodayView(),
     Center(child: Text('Add')),
     Center(child: Text('Settings')),
   ];
