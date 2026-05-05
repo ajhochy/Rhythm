@@ -745,4 +745,40 @@ export function runMigrations(db: Database.Database): void {
     )
   `);
   db.exec(`CREATE INDEX IF NOT EXISTS idx_pending_claude_triggers_created_at ON pending_claude_triggers(created_at)`);
+
+  // Agent Sessions (SQLite-only — intentionally local-device, no Postgres path)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS agent_sessions (
+      id TEXT PRIMARY KEY,
+      task_id TEXT REFERENCES tasks(id) ON DELETE SET NULL,
+      agent_kind TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'starting',
+      session_token TEXT,
+      cwd TEXT NOT NULL,
+      name TEXT NOT NULL,
+      last_preview TEXT,
+      last_activity_at TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_agent_sessions_task_id ON agent_sessions(task_id);
+    CREATE INDEX IF NOT EXISTS idx_agent_sessions_status ON agent_sessions(status);
+
+    CREATE TABLE IF NOT EXISTS agent_session_messages (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      session_id TEXT NOT NULL REFERENCES agent_sessions(id) ON DELETE CASCADE,
+      role TEXT NOT NULL,
+      raw_text TEXT NOT NULL,
+      stripped_text TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_agent_session_messages_session_id
+      ON agent_session_messages(session_id, created_at);
+  `);
+
+  // tasks.preferred_agent — dual-DB: SQLite pragma-guarded ALTER; Postgres uses ADD COLUMN IF NOT EXISTS
+  const taskColsAgentSession = (db.pragma('table_info(tasks)') as { name: string }[]).map((c) => c.name);
+  if (!taskColsAgentSession.includes('preferred_agent')) {
+    db.exec(`ALTER TABLE tasks ADD COLUMN preferred_agent TEXT`);
+  }
 }
