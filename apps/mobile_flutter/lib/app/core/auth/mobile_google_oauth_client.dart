@@ -11,8 +11,9 @@ import 'oauth_client.dart';
 /// Drives Google OAuth 2.0 PKCE authorization-code flow on iOS and Android
 /// using [FlutterAppAuth]. After obtaining the authorization code and verifier
 /// from the system browser, it POSTs to the backend's
-/// `POST /auth/google/desktop-exchange` endpoint (the same one the desktop
-/// client uses) to exchange the code for a session token.
+/// `POST /auth/google/mobile-exchange` endpoint to exchange the code for a
+/// session token. This endpoint is PKCE-only (no client_secret) and is
+/// designed for public iOS/Android clients.
 ///
 /// Required build-time defines (pass via `--dart-define`):
 ///   - `GOOGLE_MOBILE_CLIENT_ID` — your Google OAuth 2.0 client ID for mobile
@@ -92,12 +93,13 @@ class MobileGoogleOAuthClient implements OAuthClient {
     }
 
     final exchangeResponse = await http.post(
-      Uri.parse('$_baseUrl/auth/google/desktop-exchange'),
+      Uri.parse('$_baseUrl/auth/google/mobile-exchange'),
       headers: {'Content-Type': 'application/json'},
       body: jsonEncode({
         'code': code,
         'codeVerifier': codeVerifier,
         'redirectUri': _redirectUri,
+        'clientId': _clientId,
       }),
     );
 
