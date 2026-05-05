@@ -52,6 +52,7 @@ class Task {
     this.ownerId,
     this.isShared = false,
     this.collaborators = const [],
+    this.preferredAgent,
   });
 
   factory Task.fromJson(Map<String, dynamic> json) {
@@ -79,6 +80,7 @@ class Task {
           .toList(),
       createdAt: asString(json['createdAt']) ?? '',
       updatedAt: asString(json['updatedAt']) ?? '',
+      preferredAgent: asString(json['preferredAgent']),
     );
   }
 
@@ -102,6 +104,9 @@ class Task {
   final String createdAt;
   final String updatedAt;
 
+  /// Preferred agent for this task. One of 'claude-code', 'codex', or null.
+  final String? preferredAgent;
+
   Map<String, dynamic> toJson() => {
         'id': id,
         'title': title,
@@ -119,6 +124,7 @@ class Task {
         'isAllDay': isAllDay,
         'createdAt': createdAt,
         'updatedAt': updatedAt,
+        'preferredAgent': preferredAgent,
       };
 
   Task copyWith({
@@ -132,6 +138,7 @@ class Task {
     int? ownerId,
     bool? isShared,
     List<TaskCollaborator>? collaborators,
+    Object? preferredAgent = _sentinel,
   }) {
     return Task(
       id: id,
@@ -153,6 +160,11 @@ class Task {
       collaborators: collaborators ?? this.collaborators,
       createdAt: createdAt,
       updatedAt: updatedAt,
+      preferredAgent: identical(preferredAgent, _sentinel)
+          ? this.preferredAgent
+          : preferredAgent as String?,
     );
   }
 }
+
+const Object _sentinel = Object();

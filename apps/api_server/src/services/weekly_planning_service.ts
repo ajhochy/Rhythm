@@ -136,6 +136,7 @@ export class WeeklyPlanningService {
         collaborators: [],
         createdAt: event.createdAt,
         updatedAt: event.updatedAt,
+        preferredAgent: null,
       });
     }
 

@@ -1411,6 +1411,11 @@ class _NewSessionDialogState extends State<_NewSessionDialog> {
               ],
               onChanged: (task) => setState(() {
                 _selectedTask = task;
+                if (task != null && task.preferredAgent != null) {
+                  _agentKind = task.preferredAgent == 'codex'
+                      ? AgentKind.codex
+                      : AgentKind.claudeCode;
+                }
               }),
             ),
             const SizedBox(height: 14),

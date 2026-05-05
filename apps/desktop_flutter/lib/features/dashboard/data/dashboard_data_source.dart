@@ -140,6 +140,8 @@ class DashboardDataSource {
     bool includeNotes = false,
     bool includeDueDate = false,
     bool includeScheduledDate = false,
+    bool includePreferredAgent = false,
+    String? preferredAgent,
   }) async {
     final response = await http.patch(
       Uri.parse('$_baseUrl/tasks/$id'),
@@ -150,6 +152,7 @@ class DashboardDataSource {
         if (includeDueDate || dueDate != null) 'dueDate': dueDate,
         if (includeScheduledDate || scheduledDate != null)
           'scheduledDate': scheduledDate,
+        if (includePreferredAgent) 'preferredAgent': preferredAgent,
       }),
     );
     assertOk(response);

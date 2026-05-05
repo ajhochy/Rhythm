@@ -64,6 +64,8 @@ class TasksController extends ChangeNotifier {
     bool includeNotes = false,
     bool includeDueDate = false,
     bool includeScheduledDate = false,
+    bool includePreferredAgent = false,
+    String? preferredAgent,
   }) async {
     try {
       final updated = await _repository.update(
@@ -75,6 +77,8 @@ class TasksController extends ChangeNotifier {
         includeNotes: includeNotes,
         includeDueDate: includeDueDate,
         includeScheduledDate: includeScheduledDate,
+        includePreferredAgent: includePreferredAgent,
+        preferredAgent: preferredAgent,
       );
       _tasks = _tasks
           .map(

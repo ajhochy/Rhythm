@@ -27,6 +27,7 @@ export interface Task {
   collaborators: TaskCollaborator[];
   createdAt: string;
   updatedAt: string;
+  preferredAgent: string | null;
 }
 
 export interface CreateTaskDto {
@@ -40,6 +41,7 @@ export interface CreateTaskDto {
   sourceType?: string | null;
   sourceId?: string | null;
   ownerId?: number | null;
+  preferredAgent?: string | null;
 }
 
 export interface UpdateTaskDto {
@@ -51,4 +53,5 @@ export interface UpdateTaskDto {
   scheduledOrder?: number | null;
   locked?: boolean;
   ownerId?: number | null;
+  preferredAgent?: string | null;
 }

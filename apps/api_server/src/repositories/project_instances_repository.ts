@@ -82,6 +82,7 @@ function stepRowToPlannerTask(row: {
     collaborators: [],
     createdAt: '',
     updatedAt: '',
+    preferredAgent: null,
   };
 }
 

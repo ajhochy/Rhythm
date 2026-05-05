@@ -224,6 +224,8 @@ class DashboardController extends ChangeNotifier {
     bool includeNotes = false,
     bool includeDueDate = false,
     bool includeScheduledDate = false,
+    bool includePreferredAgent = false,
+    String? preferredAgent,
   }) async {
     try {
       await _repository.updateTask(
@@ -235,6 +237,8 @@ class DashboardController extends ChangeNotifier {
         includeNotes: includeNotes,
         includeDueDate: includeDueDate,
         includeScheduledDate: includeScheduledDate,
+        includePreferredAgent: includePreferredAgent,
+        preferredAgent: preferredAgent,
       );
       await refresh();
     } catch (e) {

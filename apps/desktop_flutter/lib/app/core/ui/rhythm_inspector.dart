@@ -22,12 +22,16 @@ class RhythmTaskInspectorSaveRequest {
     required this.notes,
     required this.dueDate,
     required this.scheduledDate,
+    required this.preferredAgent,
   });
 
   final String title;
   final String? notes;
   final String? dueDate;
   final String? scheduledDate;
+
+  /// One of 'claude-code', 'codex', or null.
+  final String? preferredAgent;
 }
 
 class RhythmProjectStepInspectorSaveRequest {
@@ -385,6 +389,7 @@ class _RhythmTaskInspectorState extends State<_RhythmTaskInspector> {
   late List<TaskCollaborator> _collaborators;
   late String? _primaryDate;
   late bool _usesScheduledDate;
+  late String? _preferredAgent;
   bool _editing = false;
   bool _saving = false;
   bool _updatingCollaborators = false;
@@ -401,6 +406,7 @@ class _RhythmTaskInspectorState extends State<_RhythmTaskInspector> {
         (widget.task.scheduledDate != null || widget.task.dueDate == null);
     _primaryDate =
         _usesScheduledDate ? widget.task.scheduledDate : widget.task.dueDate;
+    _preferredAgent = widget.task.preferredAgent;
   }
 
   @override
@@ -484,6 +490,7 @@ class _RhythmTaskInspectorState extends State<_RhythmTaskInspector> {
                       _primaryDate = _usesScheduledDate
                           ? widget.task.scheduledDate
                           : widget.task.dueDate;
+                      _preferredAgent = widget.task.preferredAgent;
                     });
                   },
             label: 'Cancel',
@@ -620,6 +627,42 @@ class _RhythmTaskInspectorState extends State<_RhythmTaskInspector> {
           ),
           const SizedBox(height: 18),
           _InspectorSection(
+            title: 'Automation',
+            subtitle: 'Default agent preference for this task.',
+            child: _editing && !_readOnly
+                ? DropdownButtonFormField<String?>(
+                    value: _preferredAgent,
+                    decoration: const InputDecoration(
+                      labelText: 'Default agent for this task',
+                      border: OutlineInputBorder(),
+                      isDense: true,
+                      contentPadding:
+                          EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    ),
+                    items: const [
+                      DropdownMenuItem<String?>(
+                        value: null,
+                        child: Text('None'),
+                      ),
+                      DropdownMenuItem<String?>(
+                        value: 'claude-code',
+                        child: Text('Claude Code'),
+                      ),
+                      DropdownMenuItem<String?>(
+                        value: 'codex',
+                        child: Text('Codex'),
+                      ),
+                    ],
+                    onChanged: (value) =>
+                        setState(() => _preferredAgent = value),
+                  )
+                : _MetaRow(
+                    label: 'Default agent',
+                    value: _preferredAgentLabel(_preferredAgent),
+                  ),
+          ),
+          const SizedBox(height: 18),
+          _InspectorSection(
             title: 'Metadata',
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -713,6 +756,7 @@ class _RhythmTaskInspectorState extends State<_RhythmTaskInspector> {
           dueDate: _usesScheduledDate ? widget.task.dueDate : _primaryDate,
           scheduledDate:
               _usesScheduledDate ? _primaryDate : widget.task.scheduledDate,
+          preferredAgent: _preferredAgent,
         ),
       );
       if (mounted) Navigator.of(context).pop();
@@ -1075,5 +1119,16 @@ Color _statusColor(TaskStatus status, Color successColor) {
       return const Color(0xFFF59E0B);
     case TaskStatus.done:
       return successColor;
+  }
+}
+
+String _preferredAgentLabel(String? preferredAgent) {
+  switch (preferredAgent) {
+    case 'claude-code':
+      return 'Claude Code';
+    case 'codex':
+      return 'Codex';
+    default:
+      return 'None';
   }
 }

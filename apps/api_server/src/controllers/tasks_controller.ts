@@ -13,6 +13,19 @@ import { emitAppEvent } from '../utils/app_events';
 const VALID_STATUSES = ['open', 'in_progress', 'waiting_for_reply', 'done'] as const;
 type ValidStatus = (typeof VALID_STATUSES)[number];
 
+const VALID_PREFERRED_AGENTS = ['claude-code', 'codex'] as const;
+type ValidPreferredAgent = (typeof VALID_PREFERRED_AGENTS)[number];
+
+function validatePreferredAgent(value: unknown): string | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value !== 'string' || !VALID_PREFERRED_AGENTS.includes(value as ValidPreferredAgent)) {
+    throw AppError.badRequest(
+      `preferredAgent must be one of: ${VALID_PREFERRED_AGENTS.join(', ')}, or null`,
+    );
+  }
+  return value;
+}
+
 const repo = new TasksRepository();
 const rulesRepo = new RecurringTaskRulesRepository();
 const notifService = new NotificationService(new NotificationsRepository());
@@ -39,19 +52,21 @@ export class TasksController {
 
   async create(req: Request, res: Response, next: NextFunction) {
     try {
-      const { title, notes, dueDate, status } = req.body as Record<string, unknown>;
+      const { title, notes, dueDate, status, preferredAgent } = req.body as Record<string, unknown>;
       if (!title || typeof title !== 'string') {
         throw AppError.badRequest('title is required');
       }
       if (status !== undefined && !VALID_STATUSES.includes(status as ValidStatus)) {
         throw AppError.badRequest(`status must be one of: ${VALID_STATUSES.join(', ')}`);
       }
+      const validatedPreferredAgent = validatePreferredAgent(preferredAgent);
       const task = await repo.createAsync({
         title,
         notes: (notes as string) ?? null,
         dueDate: (dueDate as string) ?? null,
         status: status as ValidStatus,
         ownerId: req.auth!.user.id,
+        preferredAgent: validatedPreferredAgent,
       });
       res.status(201).json(task);
     } catch (err) {
@@ -68,10 +83,17 @@ export class TasksController {
         throw AppError.badRequest(`status must be one of: ${VALID_STATUSES.join(', ')}`);
       }
 
+      // Validate preferredAgent if provided; inject the validated value back so
+      // the repository receives a clean string | null (not undefined).
+      const patchData: Record<string, unknown> = { ...data };
+      if ('preferredAgent' in data) {
+        patchData.preferredAgent = validatePreferredAgent(data.preferredAgent);
+      }
+
       const existing = await repo.findByIdAsync(req.params.id, actorId);
       const updated = await repo.updateAsync(
         req.params.id,
-        data,
+        patchData as Parameters<typeof repo.updateAsync>[1],
         actorId,
       );
 

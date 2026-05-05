@@ -21,6 +21,7 @@ interface TaskRow {
   is_shared?: number | null;
   created_at: string;
   updated_at: string;
+  preferred_agent: string | null;
 }
 
 function rowToTask(row: TaskRow): Task {
@@ -45,6 +46,7 @@ function rowToTask(row: TaskRow): Task {
     collaborators: [],
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    preferredAgent: row.preferred_agent ?? null,
   };
 }
 
@@ -458,9 +460,10 @@ export class TasksRepository {
       await getPostgresPool().query(
         `INSERT INTO tasks (
           id, title, notes, due_date, scheduled_date, locked, status,
-          scheduled_order, source_type, source_id, owner_id, created_at, updated_at
+          scheduled_order, source_type, source_id, owner_id, preferred_agent,
+          created_at, updated_at
         )
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)`,
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)`,
         [
           id,
           data.title,
@@ -473,6 +476,7 @@ export class TasksRepository {
           data.sourceType ?? null,
           data.sourceId ?? null,
           data.ownerId ?? null,
+          data.preferredAgent ?? null,
           now,
           now,
         ],
@@ -490,9 +494,10 @@ export class TasksRepository {
       .prepare(
         `INSERT INTO tasks (
           id, title, notes, due_date, scheduled_date, locked, status,
-          scheduled_order, source_type, source_id, owner_id, created_at, updated_at
+          scheduled_order, source_type, source_id, owner_id, preferred_agent,
+          created_at, updated_at
         )
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         id,
@@ -506,6 +511,7 @@ export class TasksRepository {
         data.sourceType ?? null,
         data.sourceId ?? null,
         data.ownerId ?? null,
+        data.preferredAgent ?? null,
         now,
         now,
       );
@@ -724,6 +730,10 @@ export class TasksRepository {
         data.scheduledDate === '' ? null : data.scheduledDate;
       const nextScheduledOrder =
         data.scheduledOrder === null ? null : data.scheduledOrder;
+      const nextPreferredAgent =
+        data.preferredAgent === undefined
+          ? existing.preferredAgent
+          : data.preferredAgent;
       await getPostgresPool().query(
         `UPDATE tasks
          SET title = $1,
@@ -734,8 +744,9 @@ export class TasksRepository {
              scheduled_order = $6,
              locked = $7,
              owner_id = $8,
-             updated_at = $9
-         WHERE id = $10`,
+             preferred_agent = $9,
+             updated_at = $10
+         WHERE id = $11`,
         [
           data.title ?? existing.title,
           nextNotes !== undefined ? nextNotes : existing.notes,
@@ -749,6 +760,7 @@ export class TasksRepository {
             : existing.scheduledOrder,
           data.locked !== undefined ? data.locked : existing.locked,
           data.ownerId !== undefined ? data.ownerId : existing.ownerId,
+          nextPreferredAgent,
           now,
           id,
         ],
@@ -773,11 +785,16 @@ export class TasksRepository {
       data.scheduledDate === '' ? null : data.scheduledDate;
     const nextScheduledOrder =
       data.scheduledOrder === null ? null : data.scheduledOrder;
+    const nextPreferredAgent =
+      data.preferredAgent === undefined
+        ? existing.preferredAgent
+        : data.preferredAgent;
     getDb()
       .prepare(
         `UPDATE tasks
          SET title = ?, notes = ?, due_date = ?, status = ?,
-             scheduled_date = ?, scheduled_order = ?, locked = ?, owner_id = ?, updated_at = ?
+             scheduled_date = ?, scheduled_order = ?, locked = ?, owner_id = ?,
+             preferred_agent = ?, updated_at = ?
          WHERE id = ?`,
       )
       .run(
@@ -793,6 +810,7 @@ export class TasksRepository {
             : existing.scheduledOrder,
         data.locked !== undefined ? (data.locked ? 1 : 0) : (existing.locked ? 1 : 0),
         data.ownerId !== undefined ? data.ownerId : existing.ownerId,
+        nextPreferredAgent,
         now,
         id,
       );

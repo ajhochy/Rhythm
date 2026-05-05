@@ -522,6 +522,8 @@ class _DashboardBodyState extends State<_DashboardBody> {
         includeNotes: true,
         includeDueDate: true,
         includeScheduledDate: true,
+        includePreferredAgent: true,
+        preferredAgent: request.preferredAgent,
       ),
       onToggleStatus: () => widget.controller.toggleTaskDone(task.id),
       onAddCollaborator: (userId) async {
