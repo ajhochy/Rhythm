@@ -4,6 +4,7 @@ import { AgentSessionsRepository } from '../repositories/agent_sessions_reposito
 import { AgentSessionMessagesRepository } from '../repositories/agent_session_messages_repository';
 import { getDb } from '../database/db';
 import type { AgentKind, CreateAgentSessionDto } from '../models/agent_session';
+import * as ptyRunner from '../services/pty_runner';
 
 const VALID_AGENT_KINDS: AgentKind[] = ['claude-code', 'codex'];
 
@@ -71,6 +72,20 @@ export class AgentSessionsController {
       };
 
       const session = repo.insert(dto);
+
+      // Spawn the PTY — if the binary is missing or node-pty fails, roll back
+      // the row and return 400 so the client gets a clear error.
+      const cols = typeof req.body.cols === 'number' ? (req.body.cols as number) : undefined;
+      const rows = typeof req.body.rows === 'number' ? (req.body.rows as number) : undefined;
+      try {
+        ptyRunner.spawn({ session, cols, rows });
+      } catch (spawnErr) {
+        repo.markClosed(session.id);
+        const message =
+          spawnErr instanceof Error ? spawnErr.message : 'Failed to spawn agent binary';
+        throw AppError.badRequest(message);
+      }
+
       res.status(201).json(session);
     } catch (err) {
       next(err);
@@ -81,7 +96,16 @@ export class AgentSessionsController {
     try {
       const session = repo.findById(req.params.id);
       if (!session) throw AppError.notFound('AgentSession');
-      repo.markClosed(session.id);
+
+      // Kill the live PTY if running; the onExit handler will update the DB row
+      // and broadcast session.closed asynchronously.
+      ptyRunner.kill(session.id);
+
+      // If the PTY was not alive (already exited), ensure the row is marked closed.
+      if (!ptyRunner.isAlive(session.id)) {
+        repo.markClosed(session.id);
+      }
+
       res.status(204).end();
     } catch (err) {
       next(err);

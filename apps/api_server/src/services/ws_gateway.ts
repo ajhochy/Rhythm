@@ -2,6 +2,7 @@ import http from 'http';
 import { WebSocketServer, WebSocket } from 'ws';
 import { appEvents } from '../utils/app_events';
 import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
+import * as ptyRunner from './pty_runner';
 
 export interface WsMessage {
   v: 1;
@@ -37,6 +38,21 @@ export function attachWsGateway(server: http.Server): WebSocketServer {
       );
     } catch {
       // DB may not be ready yet (e.g. tests) — ignore
+    }
+
+    // Replay ring-buffer output for all currently-live PTY sessions
+    // so a freshly connecting client sees recent terminal output.
+    for (const sessionId of ptyRunner.listAlive()) {
+      const buffered = ptyRunner.getBuffer(sessionId);
+      if (buffered.length > 0) {
+        try {
+          ws.send(
+            JSON.stringify({ v: 1, type: 'output', id: sessionId, data: buffered, replay: true }),
+          );
+        } catch {
+          // ignore
+        }
+      }
     }
 
     ws.on('message', (raw) => handleClientMessage(ws, raw));
@@ -81,12 +97,33 @@ function handleClientMessage(ws: WebSocket, raw: import('ws').RawData): void {
   }
 
   switch (msg?.type) {
-    case 'session.input':
-    case 'session.resize':
-    case 'session.subscribe':
-      // PTY hookup lands in issue #371. For now log and acknowledge silently.
-      console.log(`[ws_gateway] stub handler for type: ${msg.type as string}`);
+    case 'session.input': {
+      const id = msg.id as string | undefined;
+      const data = msg.data as string | undefined;
+      if (id && typeof data === 'string') {
+        ptyRunner.sendInput(id, data);
+      }
       return;
+    }
+    case 'session.resize': {
+      const id = msg.id as string | undefined;
+      const cols = msg.cols as number | undefined;
+      const rows = msg.rows as number | undefined;
+      if (id && typeof cols === 'number' && typeof rows === 'number') {
+        ptyRunner.resize(id, cols, rows);
+      }
+      return;
+    }
+    case 'session.subscribe': {
+      const id = msg.id as string | undefined;
+      if (id) {
+        const buffered = ptyRunner.getBuffer(id);
+        ws.send(
+          JSON.stringify({ v: 1, type: 'output', id, data: buffered, replay: true }),
+        );
+      }
+      return;
+    }
     default:
       ws.send(JSON.stringify({ v: 1, type: 'error', message: `unknown type: ${String(msg?.type)}` }));
   }

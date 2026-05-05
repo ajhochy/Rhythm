@@ -14,6 +14,7 @@ async function main() {
     { startSyncOrchestratorJob },
     { logger },
     { attachWsGateway },
+    { startSessionTokenWatcher },
   ] = await Promise.all([
     import('./app'),
     import('./database/db'),
@@ -21,6 +22,7 @@ async function main() {
     import('./jobs/sync_orchestrator_job'),
     import('./utils/logger'),
     import('./services/ws_gateway'),
+    import('./services/pty_runner'),
   ]);
 
   const port = Number(process.env.PORT ?? 4000);
@@ -30,6 +32,7 @@ async function main() {
 
   startRecurrenceGenerationJob();
   startSyncOrchestratorJob();
+  startSessionTokenWatcher();
 
   const app = createApp();
 
