@@ -16,7 +16,7 @@ import 'oauth_client.dart';
 ///
 /// Required build-time defines (pass via `--dart-define`):
 ///   - `GOOGLE_MOBILE_CLIENT_ID` — your Google OAuth 2.0 client ID for mobile
-///   - `GOOGLE_MOBILE_REDIRECT_URI` — e.g. `com.rhythmapp.mobile:/oauth-callback`
+///   - `GOOGLE_MOBILE_REDIRECT_URI` — e.g. `org.visaliacrc.rhythm.mobile:/oauth-callback`
 class MobileGoogleOAuthClient implements OAuthClient {
   MobileGoogleOAuthClient({
     String? baseUrl,

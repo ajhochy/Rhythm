@@ -6,7 +6,7 @@ plugins {
 }
 
 android {
-    namespace = "com.rhythmapp.mobile.mobile_flutter"
+    namespace = "org.visaliacrc.rhythm.mobile"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
@@ -21,14 +21,14 @@ android {
 
     defaultConfig {
         // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
-        applicationId = "com.rhythmapp.mobile.mobile_flutter"
+        applicationId = "org.visaliacrc.rhythm.mobile"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = 21
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
-        manifestPlaceholders["appAuthRedirectScheme"] = "com.rhythmapp.mobile"
+        manifestPlaceholders["appAuthRedirectScheme"] = "org.visaliacrc.rhythm.mobile"
     }
 
     buildTypes {
