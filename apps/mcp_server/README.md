@@ -95,6 +95,29 @@ Expected response: Rhythm API status and the email address your token authentica
 | `rhythm_send_message` | Send a message to a thread |
 | `rhythm_list_facilities` | List facilities |
 | `rhythm_create_reservation` | Reserve a facility for a time window |
+| `rhythm_list_automations` | List automation rules (optionally filter to enabled) |
+| `rhythm_get_automation` | Fetch a single automation rule by ID |
+| `rhythm_create_automation` | Create an automation rule (use catalog tools first) |
+| `rhythm_update_automation` | Update fields on an automation rule |
+| `rhythm_delete_automation` | Permanently delete an automation rule |
+| `rhythm_preview_automation` | Inspect last evaluation results / matched signal sample |
+| `rhythm_resync_automation` | Manually re-evaluate a rule against fresh signals |
+| `rhythm_list_automation_triggers` | Catalog: trigger types + configSchema for connected sources |
+| `rhythm_list_automation_actions` | Catalog: action types + configSchema |
+| `rhythm_list_automation_providers` | Catalog: provider sources connected for the user |
+
+### Automations
+
+To create or update an automation rule, call the catalog tools first to discover
+valid identifiers and required config shapes:
+
+1. `rhythm_list_automation_providers` — see which sources you can use (e.g. `planning_center`, `google_calendar`, `gmail`, plus `rhythm` built-ins).
+2. `rhythm_list_automation_triggers` — find a `triggerKey` matching your chosen source, and read its `configSchema` for required `triggerConfig` fields.
+3. `rhythm_list_automation_actions` — pick an `actionType` and read its `configSchema` for required `actionConfig` fields.
+
+Then call `rhythm_create_automation` with the discovered keys and configs. Use
+`rhythm_preview_automation` to inspect the last matched signal sample, and
+`rhythm_resync_automation` to manually re-evaluate against fresh signals.
 
 ## Troubleshooting
 
