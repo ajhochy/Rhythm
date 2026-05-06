@@ -339,7 +339,7 @@ class _SettingsViewState extends State<SettingsView> {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  'Use http://localhost:4000 for local, or your hosted server URL.',
+                  'Use http://localhost:4001 for local, or your hosted server URL.',
                   style: TextStyle(
                     fontSize: 13,
                     color: context.rhythm.textSecondary,
@@ -349,7 +349,7 @@ class _SettingsViewState extends State<SettingsView> {
                 TextFormField(
                   controller: _urlController,
                   decoration: const InputDecoration(
-                    hintText: 'http://localhost:4000',
+                    hintText: 'http://localhost:4001',
                     isDense: true,
                   ),
                   keyboardType: TextInputType.url,
