@@ -164,6 +164,57 @@ Synology-side requirement:
 
 - a one-time `docker login ghcr.io` with a token that can read the package
 
+## Schema migrations
+
+### How migrations are applied on production
+
+The API server runs `runPostgresBootstrap()` at startup
+(`apps/api_server/src/database/postgres_bootstrap.ts`). Every `ALTER TABLE … ADD
+COLUMN IF NOT EXISTS` statement in that file is idempotent — it is safe to restart
+the container and re-run it against an existing database. New columns are added
+automatically the next time the container starts.
+
+No manual `psql` intervention is required for columns added via `postgres_bootstrap.ts`.
+Simply deploy the new image (follow **Routine update summary** above) and restart.
+
+### Columns added by milestone
+
+| Column | Table | SQL | Added in |
+|--------|-------|-----|----------|
+| `preferred_agent` | `tasks` | `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS preferred_agent TEXT;` | Phase 5 — issue #405 |
+
+#### Applying `preferred_agent` to an existing production database manually
+
+If the container was not restarted after the image containing issue #405 was
+deployed, run the following once via `docker exec`:
+
+```bash
+ssh <user>@<synology-ip>
+sudo docker exec -it rhythm-api psql "$DATABASE_URL" \
+  -c "ALTER TABLE tasks ADD COLUMN IF NOT EXISTS preferred_agent TEXT;"
+```
+
+Or, if using SQLite (legacy single-node deploys):
+
+```bash
+sudo docker exec -it rhythm-api sqlite3 /data/rhythm.db \
+  "ALTER TABLE tasks ADD COLUMN preferred_agent TEXT;"
+```
+
+Verify:
+
+```bash
+# Postgres
+sudo docker exec -it rhythm-api psql "$DATABASE_URL" -c "\d tasks"
+
+# SQLite
+sudo docker exec -it rhythm-api sqlite3 /data/rhythm.db ".schema tasks"
+```
+
+Existing rows will have `preferred_agent = NULL` after the migration. PATCHing a
+task with `{ "preferredAgent": "claude" }` against `https://api.vcrcapps.com`
+should return 200 and persist the value.
+
 ## Notes
 
 - The current production-ready deployment path still assumes SQLite.
