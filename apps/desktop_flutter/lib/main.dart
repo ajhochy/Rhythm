@@ -218,16 +218,12 @@ class RhythmApp extends StatelessWidget {
           create: (ctx) => OverlayController(ctx.read<AgentsController>()),
         ),
         ChangeNotifierProvider(
-          create: (ctx) {
-            final watcher = AgentTriggerWatcher(
-              serverConfigService: serverConfigService,
-              authSessionService: authSessionService,
-              agentServerController: agentServerController,
-              agentsController: ctx.read<AgentsController>(),
-            );
-            watcher.start();
-            return watcher;
-          },
+          create: (ctx) => AgentTriggerWatcher(
+            serverConfigService: serverConfigService,
+            authSessionService: authSessionService,
+            agentServerController: agentServerController,
+            agentsController: ctx.read<AgentsController>(),
+          ),
         ),
       ],
       child: Consumer<ThemeModeService>(
