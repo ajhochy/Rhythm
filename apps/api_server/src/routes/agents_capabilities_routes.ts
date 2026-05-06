@@ -1,7 +1,11 @@
 import { exec } from 'child_process';
 import { Router, Request, Response } from 'express';
+import { requireAuth } from '../middleware/auth_middleware';
+import { env } from '../config/env';
 
 export const agentsCapabilitiesRouter = Router();
+
+if (!env.agentLocal) agentsCapabilitiesRouter.use(requireAuth);
 
 function detectBinary(name: string): Promise<boolean> {
   return new Promise((resolve) => {

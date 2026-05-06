@@ -77,4 +77,5 @@ export const env = {
   })(),
   resendApiKey: process.env.RESEND_API_KEY ?? '',
   emailFromAddress: process.env.EMAIL_FROM_ADDRESS ?? 'Rhythm <onboarding@resend.dev>',
+  agentLocal: process.env.AGENT_LOCAL === 'true',
 };
