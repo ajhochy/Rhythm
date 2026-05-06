@@ -10,6 +10,7 @@ import { registerMessageTools } from './tools/messages.js';
 import { registerFacilityTools } from './tools/facilities.js';
 import { registerDashboardTools } from './tools/dashboard.js';
 import { registerClaudeTriggerTools } from './tools/claude_triggers.js';
+import { registerAutomationTools } from './tools/automations.js';
 
 const RHYTHM_API_URL = process.env.RHYTHM_API_URL ?? 'https://api.vcrcapps.com';
 const RHYTHM_API_TOKEN = process.env.RHYTHM_API_TOKEN ?? '';
@@ -36,6 +37,7 @@ registerMessageTools(server, RHYTHM_API_URL, RHYTHM_API_TOKEN);
 registerFacilityTools(server, RHYTHM_API_URL, RHYTHM_API_TOKEN);
 registerDashboardTools(server, RHYTHM_API_URL, RHYTHM_API_TOKEN);
 registerClaudeTriggerTools(server, RHYTHM_API_URL, RHYTHM_API_TOKEN);
+registerAutomationTools(server, RHYTHM_API_URL, RHYTHM_API_TOKEN);
 
 // Connect over stdio (Claude Desktop / Claude Code MCP transport)
 const transport = new StdioServerTransport();
