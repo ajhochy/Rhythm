@@ -2,7 +2,6 @@ import type { NextFunction, Request, Response } from 'express';
 import { AppError } from '../errors/app_error';
 import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
 import { AgentSessionMessagesRepository } from '../repositories/agent_session_messages_repository';
-import { getDb } from '../database/db';
 import type { AgentKind, CreateAgentSessionDto } from '../models/agent_session';
 import * as ptyRunner from '../services/pty_runner';
 
@@ -35,7 +34,7 @@ export class AgentSessionsController {
 
   create(req: Request, res: Response, next: NextFunction): void {
     try {
-      const { agentKind, taskId, cwd, name } = req.body as Record<string, unknown>;
+      const { agentKind, taskId, taskTitle, cwd, name } = req.body as Record<string, unknown>;
 
       if (!agentKind || typeof agentKind !== 'string') {
         throw AppError.badRequest('agentKind is required');
@@ -56,17 +55,16 @@ export class AgentSessionsController {
         if (typeof taskId !== 'string') {
           throw AppError.badRequest('taskId must be a string');
         }
-        const taskRow = getDb()
-          .prepare(`SELECT id FROM tasks WHERE id = ?`)
-          .get(taskId);
-        if (!taskRow) {
-          throw AppError.badRequest(`Task with id '${taskId}' does not exist`);
-        }
+      }
+
+      if (taskTitle !== undefined && taskTitle !== null && typeof taskTitle !== 'string') {
+        throw AppError.badRequest('taskTitle must be a string');
       }
 
       const dto: CreateAgentSessionDto = {
         agentKind: agentKind as AgentKind,
         taskId: taskId != null ? (taskId as string) : null,
+        taskTitle: taskTitle != null ? (taskTitle as string) : null,
         cwd: cwd.trim(),
         name: name.trim(),
       };

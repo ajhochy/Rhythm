@@ -4,6 +4,7 @@ export type AgentSessionStatus = 'starting' | 'working' | 'idle' | 'resumable' |
 export interface AgentSession {
   id: string;
   taskId: string | null;
+  taskTitle: string | null;
   agentKind: AgentKind;
   status: AgentSessionStatus;
   sessionToken: string | null;
@@ -27,6 +28,7 @@ export interface AgentSessionMessage {
 export interface CreateAgentSessionDto {
   agentKind: AgentKind;
   taskId: string | null;
+  taskTitle?: string | null;
   cwd: string;
   name: string;
 }

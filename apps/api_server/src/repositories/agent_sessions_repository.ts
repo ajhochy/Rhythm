@@ -8,6 +8,7 @@ import type {
 interface AgentSessionRow {
   id: string;
   task_id: string | null;
+  task_title: string | null;
   agent_kind: string;
   status: string;
   session_token: string | null;
@@ -23,6 +24,7 @@ function rowToModel(row: AgentSessionRow): AgentSession {
   return {
     id: row.id,
     taskId: row.task_id,
+    taskTitle: row.task_title ?? null,
     agentKind: row.agent_kind as AgentSession['agentKind'],
     status: row.status as AgentSessionStatus,
     sessionToken: row.session_token,
@@ -41,10 +43,10 @@ export class AgentSessionsRepository {
     const now = new Date().toISOString();
     getDb()
       .prepare(
-        `INSERT INTO agent_sessions (id, task_id, agent_kind, status, cwd, name, created_at, updated_at)
-         VALUES (?, ?, ?, 'starting', ?, ?, ?, ?)`,
+        `INSERT INTO agent_sessions (id, task_id, task_title, agent_kind, status, cwd, name, created_at, updated_at)
+         VALUES (?, ?, ?, ?, 'starting', ?, ?, ?, ?)`,
       )
-      .run(id, dto.taskId ?? null, dto.agentKind, dto.cwd, dto.name, now, now);
+      .run(id, dto.taskId ?? null, dto.taskTitle ?? null, dto.agentKind, dto.cwd, dto.name, now, now);
     return this.findById(id)!;
   }
 
