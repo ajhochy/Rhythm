@@ -56,6 +56,7 @@ import 'features/agents/controllers/agents_controller.dart';
 import 'features/agents/data/agents_data_source.dart';
 import 'features/agents/repositories/agents_repository.dart';
 import 'app/core/agents/agent_server_controller.dart';
+import 'app/core/agents/agent_trigger_watcher.dart';
 import 'app/core/agents/overlay_controller.dart';
 
 void main() async {
@@ -215,6 +216,18 @@ class RhythmApp extends StatelessWidget {
         ),
         ChangeNotifierProvider(
           create: (ctx) => OverlayController(ctx.read<AgentsController>()),
+        ),
+        ChangeNotifierProvider(
+          create: (ctx) {
+            final watcher = AgentTriggerWatcher(
+              serverConfigService: serverConfigService,
+              authSessionService: authSessionService,
+              agentServerController: agentServerController,
+              agentsController: ctx.read<AgentsController>(),
+            );
+            watcher.start();
+            return watcher;
+          },
         ),
       ],
       child: Consumer<ThemeModeService>(

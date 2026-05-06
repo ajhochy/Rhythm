@@ -205,6 +205,33 @@ class AgentsController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Handles an incoming trigger received from production polling.
+  ///
+  /// The trigger [map] must contain at least `taskId` and `taskTitle` keys.
+  /// If a trigger with the same `taskId` is already pending it is ignored so
+  /// that a failed DELETE does not create duplicate bubbles.
+  Future<void> handleIncomingTrigger(Map<String, dynamic> trigger) async {
+    final taskId = trigger['taskId'] as String? ??
+        trigger['task_id'] as String? ??
+        trigger['id']?.toString();
+    final taskTitle = trigger['taskTitle'] as String? ??
+        trigger['task_title'] as String? ??
+        trigger['title'] as String? ??
+        '';
+
+    if (taskId == null || taskId.isEmpty) return;
+
+    // Deduplicate — if the trigger is already pending, skip.
+    if (_pendingTriggers.any((t) => t.taskId == taskId)) return;
+
+    _pendingTriggers.add(PendingTrigger(
+      taskId: taskId,
+      taskTitle: taskTitle,
+      arrivedAt: DateTime.now(),
+    ));
+    notifyListeners();
+  }
+
   // --------------------------------------------------------------------------
   // WebSocket message handler
   // --------------------------------------------------------------------------
