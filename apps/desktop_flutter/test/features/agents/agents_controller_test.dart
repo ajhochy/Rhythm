@@ -1,11 +1,51 @@
 import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:rhythm_desktop/app/core/agents/agent_server_controller.dart';
+import 'package:rhythm_desktop/app/core/server/api_server_service.dart';
 import 'package:rhythm_desktop/features/agents/controllers/agents_controller.dart';
 import 'package:rhythm_desktop/features/agents/models/agent_session.dart';
 import 'package:rhythm_desktop/features/agents/models/agent_session_message.dart';
 import 'package:rhythm_desktop/features/agents/models/agent_ws_message.dart';
 import 'package:rhythm_desktop/features/agents/repositories/agents_repository.dart';
+
+// ---------------------------------------------------------------------------
+// Fake AgentServerController
+// ---------------------------------------------------------------------------
+
+class _FakeApiServerService extends ApiServerService {
+  @override
+  Future<bool> start() async => true;
+
+  @override
+  Future<void> stop() async {}
+}
+
+/// A minimal stub of [AgentServerController] that exposes configurable
+/// [isReady] / [hasAnyAgent] so tests can control the capability gate without
+/// spinning up a real server process.
+class _FakeAgentServerController extends AgentServerController {
+  _FakeAgentServerController({
+    required bool ready,
+    required bool anyAgent,
+  })  : _ready = ready,
+        _anyAgent = anyAgent,
+        super(_FakeApiServerService());
+
+  final bool _ready;
+  final bool _anyAgent;
+
+  @override
+  bool get isReady => _ready;
+
+  @override
+  bool get hasAnyAgent => _anyAgent;
+
+  @override
+  Future<void> initialize() async {
+    // No-op — do not actually spawn a server process.
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Fake repository
@@ -106,7 +146,10 @@ void main() {
 
   setUp(() {
     fakeRepo = _FakeAgentsRepository();
-    controller = AgentsController(fakeRepo, isLocalServer: true);
+    controller = AgentsController(
+      fakeRepo,
+      _FakeAgentServerController(ready: true, anyAgent: true),
+    );
   });
 
   tearDown(() {
@@ -150,11 +193,14 @@ void main() {
       expect(controller.resumable.first.id, 'resumable');
     });
 
-    test('does not connect when isLocalServer is false', () async {
-      final remoteController = AgentsController(fakeRepo, isLocalServer: false);
-      addTearDown(remoteController.dispose);
+    test('does not connect when agent server is not ready', () async {
+      final notReadyController = AgentsController(
+        fakeRepo,
+        _FakeAgentServerController(ready: false, anyAgent: false),
+      );
+      addTearDown(notReadyController.dispose);
 
-      await remoteController.initialize();
+      await notReadyController.initialize();
 
       expect(fakeRepo.connectCalled, isFalse);
     });

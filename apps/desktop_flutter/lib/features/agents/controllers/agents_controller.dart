@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 
+import '../../../app/core/agents/agent_server_controller.dart';
 import '../models/agent_session.dart';
 import '../models/agent_session_message.dart';
 import '../models/agent_ws_message.dart';
@@ -22,14 +23,10 @@ class PendingTrigger {
 }
 
 class AgentsController extends ChangeNotifier {
-  AgentsController(this._repository, {required this.isLocalServer});
+  AgentsController(this._repository, this._agentServerController);
 
   final AgentsRepository _repository;
-
-  /// Whether the app is pointed at a local server.
-  /// When false the UI shows a "local server required" notice instead of trying
-  /// to connect.
-  final bool isLocalServer;
+  final AgentServerController _agentServerController;
 
   AgentsLoadStatus _status = AgentsLoadStatus.idle;
   String? _error;
@@ -78,8 +75,10 @@ class AgentsController extends ChangeNotifier {
   // --------------------------------------------------------------------------
 
   Future<void> initialize() async {
-    if (!isLocalServer) {
-      // No local server → skip WebSocket connect; UI guard handles display.
+    if (!_agentServerController.isReady ||
+        !_agentServerController.hasAnyAgent) {
+      // Agent server not ready or no CLI installed → skip WebSocket connect;
+      // UI guard handles display.
       return;
     }
     await _repository.connect();

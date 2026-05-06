@@ -208,12 +208,9 @@ class RhythmApp extends StatelessWidget {
         ),
         ChangeNotifierProvider(
           create: (_) {
-            final isLocal =
-                serverConfigService.url.startsWith('http://localhost') ||
-                    serverConfigService.url.startsWith('http://127.0.0.1');
             final ds = AgentsDataSource();
             final repo = AgentsRepository(ds);
-            return AgentsController(repo, isLocalServer: isLocal)..initialize();
+            return AgentsController(repo, agentServerController)..initialize();
           },
         ),
         ChangeNotifierProvider(
