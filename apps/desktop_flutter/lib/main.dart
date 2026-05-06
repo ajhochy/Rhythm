@@ -55,6 +55,7 @@ import 'features/notifications/repositories/notifications_repository.dart';
 import 'features/agents/controllers/agents_controller.dart';
 import 'features/agents/data/agents_data_source.dart';
 import 'features/agents/repositories/agents_repository.dart';
+import 'app/core/agents/agent_server_controller.dart';
 import 'app/core/agents/overlay_controller.dart';
 
 void main() async {
@@ -85,6 +86,8 @@ void main() async {
     ApiServerService(),
     serverUrl: serverConfigService.url,
   )..initialize();
+  final agentServerController = AgentServerController(ApiServerService())
+    ..initialize();
   final authSessionService = AuthSessionService(
     AuthDataSource(baseUrl: serverConfigService.url),
     googleClient: DesktopGoogleOAuthClient(baseUrl: serverConfigService.url),
@@ -97,6 +100,7 @@ void main() async {
       authSessionService: authSessionService,
       localNotificationService: localNotificationService,
       serverController: serverController,
+      agentServerController: agentServerController,
       serverConfigService: serverConfigService,
       themeModeService: themeModeService,
     ),
@@ -109,6 +113,7 @@ class RhythmApp extends StatelessWidget {
     required this.authSessionService,
     required this.localNotificationService,
     required this.serverController,
+    required this.agentServerController,
     required this.serverConfigService,
     required this.themeModeService,
   });
@@ -116,6 +121,7 @@ class RhythmApp extends StatelessWidget {
   final AuthSessionService authSessionService;
   final LocalNotificationService localNotificationService;
   final ApiServerController serverController;
+  final AgentServerController agentServerController;
   final ServerConfigService serverConfigService;
   final ThemeModeService themeModeService;
 
@@ -125,6 +131,7 @@ class RhythmApp extends StatelessWidget {
     return MultiProvider(
       providers: [
         ChangeNotifierProvider.value(value: serverController),
+        ChangeNotifierProvider.value(value: agentServerController),
         ChangeNotifierProvider.value(value: serverConfigService),
         ChangeNotifierProvider.value(value: authSessionService),
         ChangeNotifierProvider.value(value: themeModeService),
