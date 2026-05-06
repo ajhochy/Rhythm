@@ -4,7 +4,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 class ServerConfigService extends ChangeNotifier {
   static const _key = 'server_url';
   static const _cloudUrl = 'https://api.vcrcapps.com';
-  static const _legacyLocalUrl = 'http://localhost:4001';
+  static const _legacyLocalUrl = 'http://localhost:4000';
   static const _definedDefaultUrl = String.fromEnvironment(
     'RHYTHM_SERVER_URL',
     defaultValue: _cloudUrl,
