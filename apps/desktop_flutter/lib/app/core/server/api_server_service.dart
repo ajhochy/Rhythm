@@ -52,7 +52,12 @@ class ApiServerService {
       serverInfo.executable,
       serverInfo.args,
       workingDirectory: serverInfo.workingDir,
-      environment: {...Platform.environment, 'PORT': '4001', 'DB_PATH': dbPath},
+      environment: {
+        ...Platform.environment,
+        'PORT': '4001',
+        'DB_PATH': dbPath,
+        'AGENT_LOCAL': 'true',
+      },
     );
 
     _process!.stdout
