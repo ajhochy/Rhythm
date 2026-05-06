@@ -6,6 +6,7 @@ import '../../../features/agents/models/agent_session.dart';
 import '../../../features/agents/models/agent_session_message.dart';
 import '../constants/app_constants.dart';
 import '../ui/tokens/rhythm_theme.dart';
+import 'agent_server_controller.dart';
 import 'overlay_controller.dart';
 
 // ---------------------------------------------------------------------------
@@ -18,10 +19,13 @@ class AgentBubbleOverlayLayer extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final overlay = context.watch<OverlayController>();
-    final agents = context.watch<AgentsController>();
+    final agentServerController = context.watch<AgentServerController>();
 
-    // Capability gate: only show when using local server.
-    if (!agents.isLocalServer) return const SizedBox.shrink();
+    // Capability gate: only show when the agent server is ready and at least
+    // one supported CLI is installed.
+    if (!agentServerController.isReady || !agentServerController.hasAnyAgent) {
+      return const SizedBox.shrink();
+    }
     if (overlay.totalCount == 0) return const SizedBox.shrink();
 
     return Positioned(

@@ -45,6 +45,41 @@ export class ClaudeTriggersRepository {
     return rows.map(this.rowToModel);
   }
 
+  async listForUser(userId: number): Promise<PendingClaudeTrigger[]> {
+    const sql = `
+      SELECT pct.id, pct.task_id, pct.triggered_by_user_id, pct.created_at,
+             t.title AS task_title, t.notes AS task_notes, t.owner_id AS task_owner_id
+      FROM pending_claude_triggers pct
+      JOIN tasks t ON t.id = pct.task_id
+      WHERE pct.triggered_by_user_id = $1
+      ORDER BY pct.created_at ASC
+    `;
+    if (env.dbClient === 'postgres') {
+      const r = await getPostgresPool().query(sql, [userId]);
+      return r.rows.map(this.rowToModel);
+    }
+    const sqliteSql = sql.replace('$1', '?');
+    const rows = getDb().prepare(sqliteSql).all(userId) as any[];
+    return rows.map(this.rowToModel);
+  }
+
+  async findByIdAndUser(id: number, userId: number): Promise<PendingClaudeTrigger | null> {
+    const sql = `
+      SELECT pct.id, pct.task_id, pct.triggered_by_user_id, pct.created_at,
+             t.title AS task_title, t.notes AS task_notes, t.owner_id AS task_owner_id
+      FROM pending_claude_triggers pct
+      JOIN tasks t ON t.id = pct.task_id
+      WHERE pct.id = $1 AND pct.triggered_by_user_id = $2
+    `;
+    if (env.dbClient === 'postgres') {
+      const r = await getPostgresPool().query(sql, [id, userId]);
+      return r.rows.length > 0 ? this.rowToModel(r.rows[0]) : null;
+    }
+    const sqliteSql = sql.replace('$1', '?').replace('$2', '?');
+    const row = getDb().prepare(sqliteSql).get(id, userId) as any | undefined;
+    return row ? this.rowToModel(row) : null;
+  }
+
   async deleteAsync(id: number): Promise<boolean> {
     if (env.dbClient === 'postgres') {
       const r = await getPostgresPool().query(

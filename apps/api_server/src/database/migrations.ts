@@ -781,4 +781,11 @@ export function runMigrations(db: Database.Database): void {
   if (!taskColsAgentSession.includes('preferred_agent')) {
     db.exec(`ALTER TABLE tasks ADD COLUMN preferred_agent TEXT`);
   }
+
+  // agent_sessions.task_title — store display title alongside task_id so the local server
+  // can show meaningful session names without round-tripping to production for the task record.
+  const agentSessionCols = (db.pragma('table_info(agent_sessions)') as { name: string }[]).map((c) => c.name);
+  if (!agentSessionCols.includes('task_title')) {
+    db.exec(`ALTER TABLE agent_sessions ADD COLUMN task_title TEXT`);
+  }
 }

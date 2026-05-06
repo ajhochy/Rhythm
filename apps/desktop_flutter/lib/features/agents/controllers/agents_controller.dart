@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 
+import '../../../app/core/agents/agent_server_controller.dart';
 import '../models/agent_session.dart';
 import '../models/agent_session_message.dart';
 import '../models/agent_ws_message.dart';
@@ -22,14 +23,10 @@ class PendingTrigger {
 }
 
 class AgentsController extends ChangeNotifier {
-  AgentsController(this._repository, {required this.isLocalServer});
+  AgentsController(this._repository, this._agentServerController);
 
   final AgentsRepository _repository;
-
-  /// Whether the app is pointed at a local server.
-  /// When false the UI shows a "local server required" notice instead of trying
-  /// to connect.
-  final bool isLocalServer;
+  final AgentServerController _agentServerController;
 
   AgentsLoadStatus _status = AgentsLoadStatus.idle;
   String? _error;
@@ -78,8 +75,10 @@ class AgentsController extends ChangeNotifier {
   // --------------------------------------------------------------------------
 
   Future<void> initialize() async {
-    if (!isLocalServer) {
-      // No local server → skip WebSocket connect; UI guard handles display.
+    if (!_agentServerController.isReady ||
+        !_agentServerController.hasAnyAgent) {
+      // Agent server not ready or no CLI installed → skip WebSocket connect;
+      // UI guard handles display.
       return;
     }
     await _repository.connect();
@@ -203,6 +202,33 @@ class AgentsController extends ChangeNotifier {
 
   void dismissTrigger(String taskId) {
     _pendingTriggers.removeWhere((t) => t.taskId == taskId);
+    notifyListeners();
+  }
+
+  /// Handles an incoming trigger received from production polling.
+  ///
+  /// The trigger [map] must contain at least `taskId` and `taskTitle` keys.
+  /// If a trigger with the same `taskId` is already pending it is ignored so
+  /// that a failed DELETE does not create duplicate bubbles.
+  Future<void> handleIncomingTrigger(Map<String, dynamic> trigger) async {
+    final taskId = trigger['taskId'] as String? ??
+        trigger['task_id'] as String? ??
+        trigger['id']?.toString();
+    final taskTitle = trigger['taskTitle'] as String? ??
+        trigger['task_title'] as String? ??
+        trigger['title'] as String? ??
+        '';
+
+    if (taskId == null || taskId.isEmpty) return;
+
+    // Deduplicate — if the trigger is already pending, skip.
+    if (_pendingTriggers.any((t) => t.taskId == taskId)) return;
+
+    _pendingTriggers.add(PendingTrigger(
+      taskId: taskId,
+      taskTitle: taskTitle,
+      arrivedAt: DateTime.now(),
+    ));
     notifyListeners();
   }
 

@@ -20,6 +20,8 @@ import '../../../features/settings/controllers/settings_controller.dart';
 import '../../../features/settings/views/settings_view.dart';
 import '../../../features/agents/views/agents_view.dart';
 import '../agents/agent_bubble_overlay.dart';
+import '../agents/agent_server_controller.dart';
+import '../agents/agent_trigger_watcher.dart';
 import '../agents/overlay_controller.dart';
 import '../../../features/tasks/views/automation_rules_view.dart';
 import '../../../features/messages/views/messages_view.dart';
@@ -69,13 +71,16 @@ class _AppShellState extends State<AppShell> with WindowListener {
   @override
   Widget build(BuildContext context) {
     final serverStatus = context.watch<ApiServerController>().status;
+    final agentServerController = context.watch<AgentServerController>();
     final authStatus = context.watch<AuthSessionService>().status;
     final messagesController = context.read<MessagesController>();
     final notifController = context.watch<NotificationsController>();
+    final triggerWatcher = context.read<AgentTriggerWatcher>();
     // Watch OverlayController so we react to pendingNavIndex changes.
     context.watch<OverlayController>();
     final enablePolling = serverStatus == ServerStatus.ready &&
         authStatus == AuthStatus.authenticated;
+    final enableAgentWatcher = enablePolling && agentServerController.isReady;
     final isMessagesScreenActive = enablePolling && _selectedIndex == 5;
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -86,6 +91,11 @@ class _AppShellState extends State<AppShell> with WindowListener {
         notifController.startPolling();
       } else {
         notifController.stopPolling();
+      }
+      if (enableAgentWatcher) {
+        triggerWatcher.start();
+      } else {
+        triggerWatcher.stop();
       }
 
       // Handle pending navigation from tapping a notification

@@ -5,6 +5,7 @@ class ServerConfigService extends ChangeNotifier {
   static const _key = 'server_url';
   static const _cloudUrl = 'https://api.vcrcapps.com';
   static const _legacyLocalUrl = 'http://localhost:4000';
+  static const _legacyAgentLocalUrl = 'http://localhost:4001';
   static const _definedDefaultUrl = String.fromEnvironment(
     'RHYTHM_SERVER_URL',
     defaultValue: _cloudUrl,
@@ -18,8 +19,10 @@ class ServerConfigService extends ChangeNotifier {
   Future<void> load() async {
     final prefs = await SharedPreferences.getInstance();
     final savedUrl = prefs.getString(_key);
+    final isLegacyLocalhost =
+        savedUrl == _legacyLocalUrl || savedUrl == _legacyAgentLocalUrl;
     final shouldMigrateLegacyLocalhost =
-        savedUrl == _legacyLocalUrl && defaultUrl != _legacyLocalUrl;
+        isLegacyLocalhost && defaultUrl != savedUrl;
     if (savedUrl == null || shouldMigrateLegacyLocalhost) {
       _url = defaultUrl;
       await prefs.setString(_key, _url);

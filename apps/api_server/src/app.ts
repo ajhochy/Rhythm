@@ -21,6 +21,7 @@ import { workspaceRouter } from './routes/workspace_routes';
 import { notificationsRouter } from './routes/notifications_routes';
 import claudeTriggersRouter from './routes/claude_triggers_routes';
 import { agentSessionsRouter } from './routes/agent_sessions_routes';
+import { agentsCapabilitiesRouter } from './routes/agents_capabilities_routes';
 
 export function createApp() {
   const app = express();
@@ -45,6 +46,8 @@ export function createApp() {
   app.use(express.json());
 
   app.use('/health', healthRouter);
+  // NOTE: /agents/capabilities is unauthenticated for now; Phase 3.1 will add the AGENT_LOCAL bypass.
+  app.use('/agents/capabilities', agentsCapabilitiesRouter);
   app.use('/dashboard', dashboardRouter);
   app.use('/auth', authRouter);
   app.use('/automation-catalog', automationCatalogRouter);

@@ -52,20 +52,21 @@ describe('Claude triggers endpoints', () => {
     return { Authorization: `Bearer ${session.token}` };
   }
 
-  it('returns 403 for non-claude users', async () => {
+  it('returns 200 with empty array for any authenticated user with no triggers', async () => {
     const u = usersRepo.create({ name: 'U', email: 'u@x.com' });
     const headers = await authHeaderFor(u.id);
     const res = await fetch(`${baseUrl}/claude-triggers`, { headers });
-    expect(res.status).toBe(403);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual([]);
   });
 
-  it('returns the queue for claude user', async () => {
+  it('returns triggers scoped to the authenticated user', async () => {
     const owner = usersRepo.create({ name: 'O', email: 'o@x.com' });
     const task = tasksRepo.create({ title: 'Test task', ownerId: owner.id });
     getDb().prepare(`INSERT INTO pending_claude_triggers (task_id, triggered_by_user_id) VALUES (?, ?)`)
       .run(task.id, owner.id);
 
-    const headers = await authHeaderFor(claudeId);
+    const headers = await authHeaderFor(owner.id);
     const res = await fetch(`${baseUrl}/claude-triggers`, { headers });
     expect(res.status).toBe(200);
     const triggers = await res.json() as Array<{ taskId: string; taskTitle: string }>;
@@ -77,12 +78,12 @@ describe('Claude triggers endpoints', () => {
   it('deletes a trigger', async () => {
     const owner = usersRepo.create({ name: 'O', email: 'o2@x.com' });
     const task = tasksRepo.create({ title: 'T', ownerId: owner.id });
-    getDb().prepare(`INSERT INTO pending_claude_triggers (task_id) VALUES (?)`)
-      .run(task.id);
+    getDb().prepare(`INSERT INTO pending_claude_triggers (task_id, triggered_by_user_id) VALUES (?, ?)`)
+      .run(task.id, owner.id);
     const r = getDb().prepare(`SELECT id FROM pending_claude_triggers WHERE task_id = ?`)
       .get(task.id) as { id: number };
 
-    const headers = await authHeaderFor(claudeId);
+    const headers = await authHeaderFor(owner.id);
     const res = await fetch(`${baseUrl}/claude-triggers/${r.id}`, { method: 'DELETE', headers });
     expect(res.status).toBe(204);
 

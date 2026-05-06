@@ -5,9 +5,10 @@ import { ClaudeTriggersRepository } from '../repositories/claude_triggers_reposi
 const repo = new ClaudeTriggersRepository();
 
 export class ClaudeTriggersController {
-  async list(_req: Request, res: Response, next: NextFunction) {
+  async list(req: Request, res: Response, next: NextFunction) {
     try {
-      res.json(await repo.listAllAsync());
+      const userId = req.auth!.user.id;
+      res.json(await repo.listForUser(userId));
     } catch (err) { next(err); }
   }
 
@@ -15,8 +16,10 @@ export class ClaudeTriggersController {
     try {
       const id = Number(req.params.id);
       if (!Number.isFinite(id)) throw AppError.badRequest('id must be a number');
-      const ok = await repo.deleteAsync(id);
-      if (!ok) throw AppError.notFound('Trigger');
+      const userId = req.auth!.user.id;
+      const trigger = await repo.findByIdAndUser(id, userId);
+      if (!trigger) throw AppError.notFound('Trigger');
+      await repo.deleteAsync(id);
       res.status(204).end();
     } catch (err) { next(err); }
   }

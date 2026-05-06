@@ -204,7 +204,7 @@ Three screens are planned as separate PRs. Nav placeholders exist in `app_shell.
 
 ```bash
 # API server (dev)
-cd apps/api_server && npm run dev      # Runs on :4000, hot-reloads with tsx
+cd apps/api_server && npm run dev      # Runs on :4000 by default; set PORT=4001 to match the agent server port
 
 # Flutter desktop app
 cd apps/desktop_flutter && flutter run -d macos
@@ -214,6 +214,43 @@ cd apps/web && npm run dev             # Runs on :5173
 ```
 
 **DB path (local):** `~/Library/Application Support/Rhythm/rhythm.db`
+
+---
+
+## Dual-Endpoint Architecture (Production + Local Agent Server)
+
+Rhythm runs two API servers simultaneously. They own separate data and must never be conflated.
+
+### Production API — `https://api.vcrcapps.com`
+
+- Owns all user-facing data: tasks, projects, rhythms, messages, facilities, users, and `claude-triggers`.
+- URL is user-configurable via Settings → Server URL and persisted by `ServerConfigService`.
+- Data source: production Postgres (hosted).
+- All feature data sources pass `serverConfigService.url` as their `baseUrl`.
+
+### Local Agent Server — `http://localhost:4001`
+
+- Always running; started on app launch by `AgentServerController` (file: `agent_server_controller.dart`).
+- Hosts agent-specific endpoints:
+  - `GET/POST /agent-sessions` — list and create agent sessions
+  - `GET/POST /agent-sessions/:id/messages` — messages within a session
+  - `GET /agents/capabilities` — which agents (`claude`, `codex`) are available
+  - `ws://localhost:4001/ws/agents` — WebSocket gateway for real-time agent I/O
+- Auth is bypassed when the server is started with `AGENT_LOCAL=true` in its environment.
+- Data source: local SQLite (never synced to production).
+- Port 4001 is intentional — port 4000 is reserved for CLIdeck on the same dev machines.
+
+### Capability Detection
+
+`AgentServerController` calls `GET /agents/capabilities` after the local server is ready. The server performs `which claude` / `which codex` via a login shell (same `/bin/zsh -l -c` strategy as `_findNode` in `ApiServerService`). Results are surfaced through `AgentServerController.isAgentAvailable(kind)`.
+
+### Trigger Polling
+
+`AgentTriggerWatcher` polls the **production** endpoint `GET /claude-triggers` every 10 seconds, authenticated with the user's session token. When a trigger arrives the watcher hands it to the local agent server and acknowledges it on production. This keeps trigger delivery on the production path while execution stays local.
+
+### Rule: do not couple agent traffic to `serverConfigService.url`
+
+Agent data sources hard-code `http://localhost:4001` (via `AppConstants.agentLocalBaseUrl`). Changing the production server URL in Settings must never affect the agent server address. This is the architectural intent that replaced the old "is URL localhost?" gating.
 
 ---
 
@@ -247,3 +284,4 @@ cd apps/desktop_flutter && flutter run -d macos
 - **`better-sqlite3` ABI** — Must be compiled with the same Node version the app will use at runtime. `prebuild-install` often downloads wrong binary. Use `node-gyp rebuild` if ABI mismatch.
 - **`dart format .`** — Always run before committing. CI fails on format violations (`--set-exit-if-changed`).
 - **`flutter analyze --no-fatal-infos`** — Must pass before opening a PR.
+- **Local agent server auth bypass** — The embedded `api_server` process is started with `AGENT_LOCAL=true` in its environment. This disables JWT validation on agent endpoints. Never expose port 4001 externally; the bypass is intentional and scoped to localhost-only traffic.

@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../../app/core/agents/agent_server_controller.dart';
 import '../../../app/core/ui/tokens/rhythm_theme.dart';
 import '../../tasks/controllers/tasks_controller.dart';
 import '../../tasks/models/task.dart';
@@ -22,13 +23,21 @@ class _AgentsViewState extends State<AgentsView> {
 
   @override
   Widget build(BuildContext context) {
-    final controller = context.watch<AgentsController>();
+    // Watch AgentsController so the view rebuilds when session state changes.
+    context.watch<AgentsController>();
+    final agentServerController = context.watch<AgentServerController>();
 
-    // Capability guard — no local server.
-    if (!controller.isLocalServer) {
-      return _LocalServerRequired();
+    // Capability guard — server failed.
+    if (agentServerController.status == AgentServerStatus.failed) {
+      return const _AgentServerUnavailable();
     }
 
+    // Capability guard — server ok but no CLI installed.
+    if (agentServerController.isReady && !agentServerController.hasAnyAgent) {
+      return const _NoCLIDetected();
+    }
+
+    // Still starting — show the main view (sessions will be empty).
     return Scaffold(
       backgroundColor: context.rhythm.canvas,
       body: Container(
@@ -65,10 +74,65 @@ class _AgentsViewState extends State<AgentsView> {
 }
 
 // ---------------------------------------------------------------------------
-// Capability guard card
+// Capability guard cards
 // ---------------------------------------------------------------------------
 
-class _LocalServerRequired extends StatelessWidget {
+class _AgentServerUnavailable extends StatelessWidget {
+  const _AgentServerUnavailable();
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: context.rhythm.canvas,
+      body: Center(
+        child: Container(
+          width: 440,
+          padding: const EdgeInsets.all(32),
+          decoration: BoxDecoration(
+            color: context.rhythm.surfaceRaised,
+            borderRadius: BorderRadius.circular(RhythmRadius.xl),
+            border: Border.all(color: context.rhythm.border),
+            boxShadow: RhythmElevation.panel,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.error_outline,
+                size: 40,
+                color: context.rhythm.danger,
+              ),
+              const SizedBox(height: 16),
+              Text(
+                'Agent server unavailable',
+                style: TextStyle(
+                  fontSize: 17,
+                  fontWeight: FontWeight.w700,
+                  color: context.rhythm.textPrimary,
+                ),
+              ),
+              const SizedBox(height: 10),
+              Text(
+                'The agent server failed to start. Check Settings → Agent Server '
+                'to diagnose the issue.',
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: 13,
+                  color: context.rhythm.textSecondary,
+                  height: 1.45,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _NoCLIDetected extends StatelessWidget {
+  const _NoCLIDetected();
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -93,7 +157,7 @@ class _LocalServerRequired extends StatelessWidget {
               ),
               const SizedBox(height: 16),
               Text(
-                'Local server required',
+                'No supported AI CLI detected',
                 style: TextStyle(
                   fontSize: 17,
                   fontWeight: FontWeight.w700,
@@ -102,8 +166,7 @@ class _LocalServerRequired extends StatelessWidget {
               ),
               const SizedBox(height: 10),
               Text(
-                'Agent sessions require the local Rhythm server. Switch to the '
-                'local server in Settings to use this feature.',
+                'Install Claude Code or Codex CLI to use agent sessions.',
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   fontSize: 13,
@@ -135,6 +198,9 @@ class _SessionListPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final controller = context.watch<AgentsController>();
+    final agentServerController = context.watch<AgentServerController>();
+    final canStartSession =
+        agentServerController.isReady && agentServerController.hasAnyAgent;
 
     return Container(
       width: 320,
@@ -148,7 +214,8 @@ class _SessionListPanel extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _SessionListHeader(
-            onNewSession: () => _showNewSessionDialog(context),
+            onNewSession:
+                canStartSession ? () => _showNewSessionDialog(context) : null,
           ),
           Divider(height: 1, color: context.rhythm.borderSubtle),
           Expanded(
@@ -234,7 +301,10 @@ class _SessionListPanel extends StatelessWidget {
         value: context.read<AgentsController>(),
         child: ChangeNotifierProvider.value(
           value: context.read<TasksController>(),
-          child: const _NewSessionDialog(),
+          child: ChangeNotifierProvider.value(
+            value: context.read<AgentServerController>(),
+            child: const _NewSessionDialog(),
+          ),
         ),
       ),
     );
@@ -244,7 +314,7 @@ class _SessionListPanel extends StatelessWidget {
 class _SessionListHeader extends StatelessWidget {
   const _SessionListHeader({required this.onNewSession});
 
-  final VoidCallback onNewSession;
+  final VoidCallback? onNewSession;
 
   @override
   Widget build(BuildContext context) {
@@ -275,29 +345,31 @@ class _SessionListHeader extends StatelessWidget {
               ],
             ),
           ),
-          FilledButton.tonal(
-            onPressed: onNewSession,
-            style: FilledButton.styleFrom(
-              backgroundColor: context.rhythm.accentMuted,
-              foregroundColor: context.rhythm.accent,
-              elevation: 0,
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(RhythmRadius.md),
+          if (onNewSession != null)
+            FilledButton.tonal(
+              onPressed: onNewSession,
+              style: FilledButton.styleFrom(
+                backgroundColor: context.rhythm.accentMuted,
+                foregroundColor: context.rhythm.accent,
+                elevation: 0,
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(RhythmRadius.md),
+                ),
+              ),
+              child: const Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.add, size: 16),
+                  SizedBox(width: 4),
+                  Text(
+                    'New',
+                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+                  ),
+                ],
               ),
             ),
-            child: const Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(Icons.add, size: 16),
-                SizedBox(width: 4),
-                Text(
-                  'New',
-                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
-                ),
-              ],
-            ),
-          ),
         ],
       ),
     );
@@ -1280,9 +1352,26 @@ class _NewSessionDialogState extends State<_NewSessionDialog> {
   @override
   Widget build(BuildContext context) {
     final tasksController = context.watch<TasksController>();
+    final agentServerController = context.watch<AgentServerController>();
     final tasks = tasksController.tasks
         .where((t) => t.status != TaskStatus.done)
         .toList();
+
+    final claudeAvailable =
+        agentServerController.isAgentAvailable('claude-code');
+    final codexAvailable = agentServerController.isAgentAvailable('codex');
+
+    // If the currently selected kind becomes unavailable, fall back to
+    // whichever is available.
+    if (_agentKind == AgentKind.claudeCode &&
+        !claudeAvailable &&
+        codexAvailable) {
+      _agentKind = AgentKind.codex;
+    } else if (_agentKind == AgentKind.codex &&
+        !codexAvailable &&
+        claudeAvailable) {
+      _agentKind = AgentKind.claudeCode;
+    }
 
     return AlertDialog(
       backgroundColor: context.rhythm.surfaceRaised,
@@ -1332,45 +1421,50 @@ class _NewSessionDialogState extends State<_NewSessionDialog> {
             ),
             const SizedBox(height: 14),
 
-            // Agent kind
-            Text(
-              'Agent',
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-                color: context.rhythm.textSecondary,
+            // Agent kind — only show available options
+            if (claudeAvailable || codexAvailable) ...[
+              Text(
+                'Agent',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: context.rhythm.textSecondary,
+                ),
               ),
-            ),
-            const SizedBox(height: 6),
-            Container(
-              decoration: BoxDecoration(
-                color: context.rhythm.surfaceMuted,
-                borderRadius: BorderRadius.circular(RhythmRadius.md),
-                border: Border.all(color: context.rhythm.borderSubtle),
+              const SizedBox(height: 6),
+              Container(
+                decoration: BoxDecoration(
+                  color: context.rhythm.surfaceMuted,
+                  borderRadius: BorderRadius.circular(RhythmRadius.md),
+                  border: Border.all(color: context.rhythm.borderSubtle),
+                ),
+                child: Row(
+                  children: [
+                    if (claudeAvailable)
+                      Expanded(
+                        child: _AgentToggleButton(
+                          label: 'Claude Code',
+                          selected: _agentKind == AgentKind.claudeCode,
+                          color: const Color(0xFF6B46C1),
+                          onTap: () =>
+                              setState(() => _agentKind = AgentKind.claudeCode),
+                        ),
+                      ),
+                    if (codexAvailable)
+                      Expanded(
+                        child: _AgentToggleButton(
+                          label: 'Codex',
+                          selected: _agentKind == AgentKind.codex,
+                          color: const Color(0xFF059669),
+                          onTap: () =>
+                              setState(() => _agentKind = AgentKind.codex),
+                        ),
+                      ),
+                  ],
+                ),
               ),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: _AgentToggleButton(
-                      label: 'Claude Code',
-                      selected: _agentKind == AgentKind.claudeCode,
-                      color: const Color(0xFF6B46C1),
-                      onTap: () =>
-                          setState(() => _agentKind = AgentKind.claudeCode),
-                    ),
-                  ),
-                  Expanded(
-                    child: _AgentToggleButton(
-                      label: 'Codex',
-                      selected: _agentKind == AgentKind.codex,
-                      color: const Color(0xFF059669),
-                      onTap: () => setState(() => _agentKind = AgentKind.codex),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 14),
+              const SizedBox(height: 14),
+            ],
 
             // Task selector (optional)
             Text(

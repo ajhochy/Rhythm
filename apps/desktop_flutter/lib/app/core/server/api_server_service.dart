@@ -26,7 +26,7 @@ class ApiServerService {
   Future<bool> start() async {
     final existing = await _isServerReady();
     if (existing) {
-      stdout.writeln('[ApiServerService] Reusing existing server on :4000.');
+      stdout.writeln('[ApiServerService] Reusing existing server on :4001.');
       return true;
     }
 
@@ -52,7 +52,12 @@ class ApiServerService {
       serverInfo.executable,
       serverInfo.args,
       workingDirectory: serverInfo.workingDir,
-      environment: {...Platform.environment, 'PORT': '4000', 'DB_PATH': dbPath},
+      environment: {
+        ...Platform.environment,
+        'PORT': '4001',
+        'DB_PATH': dbPath,
+        'AGENT_LOCAL': 'true',
+      },
     );
 
     _process!.stdout
@@ -97,7 +102,7 @@ class ApiServerService {
   }
 
   Future<bool> _isServerReady() async {
-    return checkHealth('http://localhost:4000');
+    return checkHealth('http://localhost:4001');
   }
 
   Future<String?> _findNode() async {
