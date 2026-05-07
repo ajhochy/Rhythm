@@ -1,0 +1,13 @@
+
+> rhythm-api-server@0.1.0 test
+> vitest run
+
+
+ RUN  v4.1.1 /Users/ajhochhalter/Documents/Rhythm/apps/api_server
+
+
+ Test Files  23 passed (23)
+      Tests  169 passed (169)
+   Start at  13:30:02
+   Duration  1.61s (transform 4.99s, setup 0ms, import 10.14s, tests 2.78s, environment 2ms)
+

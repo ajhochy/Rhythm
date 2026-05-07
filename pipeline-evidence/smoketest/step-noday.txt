@@ -1,0 +1,11 @@
+HTTP/1.1 400 Bad Request
+X-Powered-By: Express
+Vary: Origin
+Content-Type: application/json; charset=utf-8
+Content-Length: 95
+ETag: W/"5f-TVTki8oMd1mlkzuNSFs8JnvmOuE"
+Date: Thu, 07 May 2026 20:31:22 GMT
+Connection: keep-alive
+Keep-Alive: timeout=5
+
+{"error":{"code":"BAD_REQUEST","message":"Step 1 requires dayOfWeek (0-6) for weekly rhythms"}}

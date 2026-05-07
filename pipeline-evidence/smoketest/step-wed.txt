@@ -1,0 +1,11 @@
+HTTP/1.1 201 Created
+X-Powered-By: Express
+Vary: Origin
+Content-Type: application/json; charset=utf-8
+Content-Length: 159
+ETag: W/"9f-SW+1ACqXazWwLY28cXOUjmqozY8"
+Date: Thu, 07 May 2026 20:31:22 GMT
+Connection: keep-alive
+Keep-Alive: timeout=5
+
+{"id":"step-2-4d0cb21f-efcb-4ae6-ae18-0f6d3a32d6c7","title":"Mid-week prep","assigneeId":null,"assigneeName":null,"dayOfWeek":3,"dayOfMonth":null,"month":null}

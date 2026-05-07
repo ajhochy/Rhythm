@@ -133,6 +133,63 @@ export class RecurringRulesController {
     }
   }
 
+  async addStep(req: Request, res: Response, next: NextFunction) {
+    try {
+      const userId = req.auth!.user.id;
+      const existing = await repo.findByIdAsync(req.params.id, userId);
+      const body = req.body as Record<string, unknown>;
+      const title = typeof body.title === 'string' ? body.title.trim() : '';
+      if (!title) throw AppError.badRequest('title is required');
+
+      const rawStep = {
+        title,
+        assigneeId: body.assigneeId ?? body.assignee_id ?? null,
+        dayOfWeek: body.dayOfWeek ?? body.day_of_week,
+        dayOfMonth: body.dayOfMonth ?? body.day_of_month,
+        month: body.month,
+      };
+
+      const newStep = normalizeStep(rawStep, existing.steps.length);
+      if (!newStep) throw AppError.badRequest('Invalid step payload');
+
+      validateSteps(existing.frequency, [newStep]);
+
+      const sortOrderRaw = body.sortOrder ?? body.sort_order;
+      let position = existing.steps.length;
+      if (typeof sortOrderRaw === 'number' && Number.isFinite(sortOrderRaw) && Number.isInteger(sortOrderRaw)) {
+        if (sortOrderRaw >= 0 && sortOrderRaw <= existing.steps.length) {
+          position = sortOrderRaw;
+        }
+      } else if (typeof sortOrderRaw === 'string' && /^[0-9]+$/.test(sortOrderRaw.trim())) {
+        const parsed = Number(sortOrderRaw.trim());
+        if (parsed >= 0 && parsed <= existing.steps.length) {
+          position = parsed;
+        }
+      }
+
+      const nextSteps = [...existing.steps];
+      nextSteps.splice(position, 0, newStep);
+
+      const rule = await repo.updateAsync(req.params.id, { steps: nextSteps }, userId);
+
+      await tasksRepo.deleteFutureOpenBySourceIdAsync('recurring_rule', rule.id);
+      if (rule.enabled) {
+        const weeks = parseInt(process.env.RECURRENCE_LOOKAHEAD_WEEKS ?? '', 10);
+        const lookahead = isNaN(weeks) ? DEFAULT_LOOKAHEAD_WEEKS : weeks;
+        const from = new Date();
+        const to = new Date();
+        to.setUTCDate(to.getUTCDate() + lookahead * 7);
+        await recurrenceService.generateInstances(rule, from, to);
+      }
+
+      const decorated = await this.decorateRule(rule, userId);
+      const persisted = decorated.steps.find((s) => s.id === newStep.id) ?? newStep;
+      res.status(201).json(persisted);
+    } catch (err) {
+      next(err);
+    }
+  }
+
   async getCollaborators(req: Request, res: Response, next: NextFunction) {
     try {
       await repo.findByIdAsync(req.params.id, req.auth!.user.id);
@@ -310,10 +367,7 @@ function normalizeStep(step: unknown, index: number): RecurringTaskRuleStep | nu
       : typeof record.assigneeId === 'string' && record.assigneeId.trim() !== ''
         ? Number(record.assigneeId)
         : null;
-  const dayOfWeek =
-    typeof record.dayOfWeek === 'number' && Number.isFinite(record.dayOfWeek)
-      ? record.dayOfWeek
-      : null;
+  const dayOfWeek = coerceDayOfWeek(record.dayOfWeek ?? record.day_of_week);
   const dayOfMonth =
     typeof record.dayOfMonth === 'number' && Number.isFinite(record.dayOfMonth)
       ? record.dayOfMonth
@@ -331,4 +385,38 @@ function normalizeStep(step: unknown, index: number): RecurringTaskRuleStep | nu
     dayOfMonth,
     month,
   };
+}
+
+const DAY_OF_WEEK_NAMES: Record<string, number> = {
+  sunday: 0,
+  sun: 0,
+  monday: 1,
+  mon: 1,
+  tuesday: 2,
+  tue: 2,
+  wednesday: 3,
+  wed: 3,
+  thursday: 4,
+  thu: 4,
+  friday: 5,
+  fri: 5,
+  saturday: 6,
+  sat: 6,
+};
+
+function coerceDayOfWeek(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value) && Number.isInteger(value) && value >= 0 && value <= 6) {
+    return value;
+  }
+  if (typeof value === 'string') {
+    const trimmed = value.trim().toLowerCase();
+    if (trimmed === '') return null;
+    if (/^[0-6]$/.test(trimmed)) {
+      return Number(trimmed);
+    }
+    if (Object.prototype.hasOwnProperty.call(DAY_OF_WEEK_NAMES, trimmed)) {
+      return DAY_OF_WEEK_NAMES[trimmed];
+    }
+  }
+  return null;
 }
