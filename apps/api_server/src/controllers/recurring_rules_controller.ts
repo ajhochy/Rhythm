@@ -332,3 +332,37 @@ function normalizeStep(step: unknown, index: number): RecurringTaskRuleStep | nu
     month,
   };
 }
+
+const DAY_OF_WEEK_NAMES: Record<string, number> = {
+  sunday: 0,
+  sun: 0,
+  monday: 1,
+  mon: 1,
+  tuesday: 2,
+  tue: 2,
+  wednesday: 3,
+  wed: 3,
+  thursday: 4,
+  thu: 4,
+  friday: 5,
+  fri: 5,
+  saturday: 6,
+  sat: 6,
+};
+
+function coerceDayOfWeek(value: unknown): number | null {
+  if (typeof value === 'number' && Number.isFinite(value) && Number.isInteger(value) && value >= 0 && value <= 6) {
+    return value;
+  }
+  if (typeof value === 'string') {
+    const trimmed = value.trim().toLowerCase();
+    if (trimmed === '') return null;
+    if (/^[0-6]$/.test(trimmed)) {
+      return Number(trimmed);
+    }
+    if (Object.prototype.hasOwnProperty.call(DAY_OF_WEEK_NAMES, trimmed)) {
+      return DAY_OF_WEEK_NAMES[trimmed];
+    }
+  }
+  return null;
+}
