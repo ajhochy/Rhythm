@@ -3,6 +3,35 @@ import { z } from 'zod';
 import { apiGet, apiPost, apiPatch, apiDelete, toolResult, toolError, decodeHtml } from '../api_client.js';
 import { registerTool } from './_tool.js';
 
+const DAY_OF_WEEK_MAP: Record<string, number> = {
+  sunday: 0,
+  sun: 0,
+  monday: 1,
+  mon: 1,
+  tuesday: 2,
+  tue: 2,
+  tues: 2,
+  wednesday: 3,
+  wed: 3,
+  thursday: 4,
+  thu: 4,
+  thur: 4,
+  thurs: 4,
+  friday: 5,
+  fri: 5,
+  saturday: 6,
+  sat: 6,
+};
+
+export function parseDayOfWeek(input: string | undefined): number | null | undefined {
+  if (input === undefined) return undefined;
+  const normalized = input.trim().toLowerCase();
+  if (normalized in DAY_OF_WEEK_MAP) {
+    return DAY_OF_WEEK_MAP[normalized];
+  }
+  throw new Error('Invalid day_of_week: "' + input + '". Expected Sunday..Saturday.');
+}
+
 export function registerRhythmTools(server: McpServer, apiUrl: string, apiToken: string) {
   registerTool(server, 'rhythm_list_rhythms',
     'List all recurring rules (rhythms).',
