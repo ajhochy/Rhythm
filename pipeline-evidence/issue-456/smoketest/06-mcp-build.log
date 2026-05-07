@@ -1,0 +1,5 @@
+> @ajhochy/rhythm-mcp-server@0.4.0 build
+> tsc -p tsconfig.json --noCheck
+
+EXIT CODE: 0
+BUILD: SUCCESS

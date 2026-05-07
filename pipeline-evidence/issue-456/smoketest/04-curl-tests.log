@@ -1,0 +1,21 @@
+=== CURL TESTS FOR ISSUE-456 SMOKETEST ===
+Date: Thu May  7 14:48:15 PDT 2026
+
+=== SETUP: Token obtained from SQLite sessions table (user_id=2) ===
+TOKEN: 1542dc0e-271a-4b32-8382-1071934ebe4c
+
+=== STEP 1: CREATE WEEKLY RHYTHM ===
+{"id":"df77c00a-fcf5-45fd-9af6-0842e68a1ca8","title":"Smoketest Rhythm 2","frequency":"weekly","dayOfWeek":"Monday","dayOfMonth":null,"month":null,"enabled":true,"sequential":false,"ownerId":2,"steps":[],"collaborators":[],"createdAt":"2026-05-07T21:48:15.293Z","progress":{"totalCount":0,"completedCount":0,"remainingCount":0,"personalRemainingCount":0,"waitingOnUserId":null,"waitingOnUserName":null,"nextDueDate":null,"completionRatio":0}}
+HTTP_STATUS:201
+
+=== STEP 2a: POST STEP with day_of_week:Monday (expect 201) ===
+{"id":"step-2-3267377e-16be-40d7-bbc2-ca61d1d3f85d","title":"Smoketest Step","assigneeId":null,"assigneeName":null,"dayOfWeek":1,"dayOfMonth":null,"month":null}
+HTTP_STATUS:201
+
+=== STEP 2b: POST STEP without day_of_week (expect 400 BAD_REQUEST) ===
+{"error":{"code":"BAD_REQUEST","message":"Step 1 requires dayOfWeek (0-6) for weekly rhythms"}}
+HTTP_STATUS:400
+
+=== STEP 2c: POST STEP with bogus day_of_week:Foo (expect 400 BAD_REQUEST) ===
+{"error":{"code":"BAD_REQUEST","message":"Step 1 requires dayOfWeek (0-6) for weekly rhythms"}}
+HTTP_STATUS:400

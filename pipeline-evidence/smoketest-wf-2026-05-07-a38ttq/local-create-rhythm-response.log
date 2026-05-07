@@ -1,0 +1,11 @@
+HTTP/1.1 201 Created
+X-Powered-By: Express
+Vary: Origin
+Content-Type: application/json; charset=utf-8
+Content-Length: 448
+ETag: W/"1c0-Un8ggzFSufcVluMIMFM6SS/NQJc"
+Date: Thu, 07 May 2026 21:56:58 GMT
+Connection: keep-alive
+Keep-Alive: timeout=5
+
+{"id":"e2024caa-7e8a-4420-a512-5e00d28547a5","title":"Smoketest weekly a38ttq","frequency":"weekly","dayOfWeek":1,"dayOfMonth":null,"month":null,"enabled":true,"sequential":false,"ownerId":4,"steps":[],"collaborators":[],"createdAt":"2026-05-07T21:56:58.762Z","progress":{"totalCount":8,"completedCount":0,"remainingCount":8,"personalRemainingCount":8,"waitingOnUserId":null,"waitingOnUserName":null,"nextDueDate":"2026-05-11","completionRatio":0}}

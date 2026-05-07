@@ -1,0 +1,8 @@
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "{\n  \"id\": \"step-2-74ac3ce3-3f18-468e-b26c-bd72a880db32\",\n  \"title\": \"Tuesday after legacy null\",\n  \"assigneeId\": null,\n  \"assigneeName\": null,\n  \"dayOfWeek\": 2,\n  \"dayOfMonth\": null,\n  \"month\": null\n}"
+    }
+  ]
+}

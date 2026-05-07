@@ -1,0 +1,11 @@
+HTTP/1.1 500 Internal Server Error
+X-Powered-By: Express
+Vary: Origin
+Content-Type: application/json; charset=utf-8
+Content-Length: 124
+ETag: W/"7c-ix8ncSb92rnvI8l0SYJ3PjG4Ppc"
+Date: Thu, 07 May 2026 21:57:41 GMT
+Connection: keep-alive
+Keep-Alive: timeout=5
+
+{"error":{"code":"INTERNAL_ERROR","message":"Internal server error","correlationId":"8877f7bf-1246-4316-8f12-c58f8d2962eb"}}

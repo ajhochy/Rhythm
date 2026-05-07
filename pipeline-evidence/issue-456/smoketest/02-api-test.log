@@ -1,0 +1,100 @@
+the module (for instance, using `npm rebuild` or `npm install`).[39m
+[90m [2m❯[22m bindings ../../node_modules/bindings/bindings.js:[2m112:48[22m[39m
+[90m [2m❯[22m new Database ../../node_modules/better-sqlite3/lib/database.js:[2m48:64[22m[39m
+[36m [2m❯[22m makeDb src/services/facilities_booking_service.test.ts:[2m13:14[22m[39m
+    [90m 11|[39m
+    [90m 12|[39m [35mfunction[39m [34mmakeDb[39m() {
+    [90m 13|[39m   [35mconst[39m db [33m=[39m [35mnew[39m [33mDatabase[39m([32m':memory:'[39m)[33m;[39m
+    [90m   |[39m              [31m^[39m
+    [90m 14|[39m   db[33m.[39m[34mpragma[39m([32m'foreign_keys = ON'[39m)[33m;[39m
+    [90m 15|[39m   db[33m.[39m[34mpragma[39m([32m'journal_mode = WAL'[39m)[33m;[39m
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[24/162]⎯[22m[39m
+
+[41m[1m FAIL [22m[49m src/services/recurrence_service.test.ts[2m > [22mRecurrenceService[2m > [22m0-step rhythm (legacy / no steps)[2m > [22mweekly: produces one task per week on the specified day of week
+[41m[1m FAIL [22m[49m src/services/recurrence_service.test.ts[2m > [22mRecurrenceService[2m > [22m0-step rhythm (legacy / no steps)[2m > [22mmonthly: produces one task per month on the specified day
+[41m[1m FAIL [22m[49m src/services/recurrence_service.test.ts[2m > [22mRecurrenceService[2m > [22m0-step rhythm (legacy / no steps)[2m > [22mannual: produces one task per year on the specified date
+[41m[1m FAIL [22m[49m src/services/recurrence_service.test.ts[2m > [22mRecurrenceService[2m > [22m0-step rhythm (legacy / no steps)[2m > [22midempotent: repeated calls produce no duplicates
+[41m[1m FAIL [22m[49m src/services/recurrence_service.test.ts[2m > [22mRecurrenceService[2m > [22mweekly rhythm with steps (Mon / Wed / Fri)[2m > [22mgenerates 3 tasks per week with correct individual due dates
+[41m[1m FAIL [22m[49m src/services/recurrence_service.test.ts[2m > [22mRecurrenceService[2m > [22mweekly rhythm with steps (Mon / Wed / Fri)[2m > [22mgenerates 6 tasks over two weeks
+[41m[1m FAIL [22m[49m src/services/recurrence_service.test.ts[2m > [22mRecurrenceService[2m > [22mweekly rhythm with steps (Mon / Wed / Fri)[2m > [22midempotent: second call within same window creates nothing new
+[41m[1m FAIL [22m[49m src/services/recurrence_service.test.ts[2m > [22mRecurrenceService[2m > [22mmonthly rhythm with steps (day 5, day 20)[2m > [22mgenerates 2 tasks per month with correct dates
+[41m[1m FAIL [22m[49m src/services/recurrence_service.test.ts[2m > [22mRecurrenceService[2m > [22mmonthly rhythm with steps (day 5, day 20)[2m > [22mgenerates 4 tasks over two months
+[41m[1m FAIL [22m[49m src/services/recurrence_service.test.ts[2m > [22mRecurrenceService[2m > [22mannual rhythm with steps (Jan 15, Mar 1)[2m > [22mgenerates 2 tasks per year on their respective dates
+[41m[1m FAIL [22m[49m src/services/recurrence_service.test.ts[2m > [22mRecurrenceService[2m > [22mannual rhythm with steps (Jan 15, Mar 1)[2m > [22mgenerates 4 tasks over two years
+[41m[1m FAIL [22m[49m src/services/recurrence_service.test.ts[2m > [22mRecurrenceService[2m > [22mfallback to rhythm-level fields when step day is null[2m > [22mweekly step with null dayOfWeek falls back to rule.dayOfWeek
+[41m[1m FAIL [22m[49m src/services/recurrence_service.test.ts[2m > [22mRecurrenceService[2m > [22mfallback to rhythm-level fields when step day is null[2m > [22mmonthly step with null dayOfMonth falls back to rule.dayOfMonth
+[41m[1m FAIL [22m[49m src/services/recurrence_service.test.ts[2m > [22mRecurrenceService[2m > [22mfallback to rhythm-level fields when step day is null[2m > [22mannual step with null month/dayOfMonth falls back to rule-level fields
+[41m[1m FAIL [22m[49m src/services/recurrence_service.test.ts[2m > [22mRecurrenceService[2m > [22mstep dates outside the lookahead window are not created
+[41m[1m FAIL [22m[49m src/services/recurrence_service.test.ts[2m > [22mRecurrenceService[2m > [22mreturns empty array when rule has no ownerId
+[31m[1mError[22m: The module '/Users/ajhochhalter/Documents/Rhythm/node_modules/better-sqlite3/build/Release/better_sqlite3.node'
+was compiled against a different Node.js version using
+NODE_MODULE_VERSION 127. This version of Node.js requires
+NODE_MODULE_VERSION 137. Please try re-compiling or re-installing
+the module (for instance, using `npm rebuild` or `npm install`).[39m
+[90m [2m❯[22m bindings ../../node_modules/bindings/bindings.js:[2m112:48[22m[39m
+[90m [2m❯[22m new Database ../../node_modules/better-sqlite3/lib/database.js:[2m48:64[22m[39m
+[36m [2m❯[22m src/services/recurrence_service.test.ts:[2m39:14[22m[39m
+    [90m 37|[39m
+    [90m 38|[39m [34mbeforeEach[39m(() [33m=>[39m {
+    [90m 39|[39m   [35mconst[39m db [33m=[39m [35mnew[39m [33mDatabase[39m([32m':memory:'[39m)[33m;[39m
+    [90m   |[39m              [31m^[39m
+    [90m 40|[39m   [34mrunMigrations[39m(db)[33m;[39m
+    [90m 41|[39m   [34msetDb[39m(db)[33m;[39m
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[25/162]⎯[22m[39m
+
+[41m[1m FAIL [22m[49m src/services/rhythm_signal_generator_service.test.ts[2m > [22mRhythmSignalGeneratorService[2m > [22mgenerateTaskDueSignals returns signals for open tasks within lookahead window
+[41m[1m FAIL [22m[49m src/services/rhythm_signal_generator_service.test.ts[2m > [22mRhythmSignalGeneratorService[2m > [22mgenerateTaskDueSignals excludes completed tasks
+[41m[1m FAIL [22m[49m src/services/rhythm_signal_generator_service.test.ts[2m > [22mRhythmSignalGeneratorService[2m > [22mgenerateProjectStepDueSignals returns signals for open steps within lookahead
+[41m[1m FAIL [22m[49m src/services/rhythm_signal_generator_service.test.ts[2m > [22mRhythmSignalGeneratorService[2m > [22mdaysUntilDue payload is correct
+[31m[1mError[22m: The module '/Users/ajhochhalter/Documents/Rhythm/node_modules/better-sqlite3/build/Release/better_sqlite3.node'
+was compiled against a different Node.js version using
+NODE_MODULE_VERSION 127. This version of Node.js requires
+NODE_MODULE_VERSION 137. Please try re-compiling or re-installing
+the module (for instance, using `npm rebuild` or `npm install`).[39m
+[90m [2m❯[22m bindings ../../node_modules/bindings/bindings.js:[2m112:48[22m[39m
+[90m [2m❯[22m new Database ../../node_modules/better-sqlite3/lib/database.js:[2m48:64[22m[39m
+[36m [2m❯[22m src/services/rhythm_signal_generator_service.test.ts:[2m13:16[22m[39m
+    [90m 11|[39m [34mdescribe[39m([32m'RhythmSignalGeneratorService'[39m[33m,[39m () [33m=>[39m {
+    [90m 12|[39m   [34mbeforeEach[39m(() [33m=>[39m {
+    [90m 13|[39m     [35mconst[39m db [33m=[39m [35mnew[39m [33mDatabase[39m([32m':memory:'[39m)[33m;[39m
+    [90m   |[39m                [31m^[39m
+    [90m 14|[39m     [34mrunMigrations[39m(db)[33m;[39m
+    [90m 15|[39m     [34msetDb[39m(db)[33m;[39m
+
+[31m[2m⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[26/162]⎯[22m[39m
+
+
+[2m Test Files [22m [1m[31m19 failed[39m[22m[2m | [22m[1m[32m4 passed[39m[22m[90m (23)[39m
+[2m      Tests [22m [1m[31m136 failed[39m[22m[2m | [22m[1m[32m33 passed[39m[22m[90m (169)[39m
+[2m   Start at [22m 14:46:32
+[2m   Duration [22m 1.12s[2m (transform 3.81s, setup 0ms, import 7.10s, tests 487ms, environment 2ms)[22m
+
+npm error Lifecycle script `test` failed with error:
+npm error code 1
+npm error path /Users/ajhochhalter/Documents/Rhythm/apps/api_server
+npm error workspace rhythm-api-server@0.1.0
+npm error location /Users/ajhochhalter/Documents/Rhythm/apps/api_server
+npm error command failed
+npm error command sh -c vitest run
+
+--- ABI NOTE ---
+All 136 failures are due to better-sqlite3 ABI mismatch (NODE_MODULE_VERSION 127 vs 137 required).
+This is a pre-existing local issue. CI passes (CI compiles from source against correct Node).
+
+recurring_rule_steps.test.ts (4 tests): ALL 4 failed due to ABI — NOT a new/regression failure.
+
+--- POST-REBUILD RESULT ---
+After: npm rebuild better-sqlite3 (one run as prescribed)
+Test Files: 23 passed (23)
+Tests: 169 passed (169)
+
+recurring_rule_steps.test.ts post-rebuild:
+  PASS: creates a step with a string day_of_week (snake_case)
+  PASS: creates a step with an integer dayOfWeek (camelCase)
+  PASS: returns 400 when day_of_week is missing on a weekly rhythm
+  PASS: returns 404 for an unknown rhythm id
+
+CONCLUSION: recurring_rule_steps results fall within pre-existing ABI pattern.
+No regression from issue-456 changes.

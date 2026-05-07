@@ -84,6 +84,8 @@ Expected response: Rhythm API status and the email address your token authentica
 | `rhythm_create_rhythm` | Create a recurring rule |
 | `rhythm_update_rhythm` | Update or enable/disable a rhythm |
 | `rhythm_delete_rhythm` | Delete a rhythm |
+| `rhythm_add_rhythm_step` | Add a step to an existing rhythm (v0.4.0+: uses dedicated `POST /:id/steps`) |
+| `rhythm_delete_rhythm_step` | Remove a step from a rhythm |
 | `rhythm_list_project_templates` | List project templates |
 | `rhythm_create_project_template` | Create a project template |
 | `rhythm_add_project_step` | Add a step to a template |

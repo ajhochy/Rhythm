@@ -1,0 +1,22 @@
+Server startup status for issue-456 smoketest
+Date: 2026-05-07
+
+STEP 1: npm rebuild better-sqlite3 — SUCCESS (rebuilt dependencies successfully)
+STEP 2: PORT=4000 npm run dev — STARTED (PID: 36083)
+STEP 3: curl -sS http://localhost:4000/health
+
+RESULT: {"status":"ok","service":"rhythm-api-server"}
+HTTP STATUS: 200
+
+Server startup log (first 10 lines):
+> rhythm-api-server@0.1.0 dev
+> tsx watch src/server.ts
+
+[dotenv@17.3.1] injecting env (8) from .env
+[INFO] Database initialized
+[INFO] RecurrenceGenerationJob: scheduled with cron "0 0 * * 0", lookahead 8 weeks
+[INFO] SyncOrchestrator: scheduled with cron "*/30 * * * *"
+[INFO] AgentReaperJob: scheduled "0 4 * * *", retention 30 days
+[INFO] Rhythm API listening on port 4000
+
+STATUS: SERVER UP — proceeding with curl tests

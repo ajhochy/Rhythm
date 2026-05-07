@@ -1,0 +1,2 @@
+COMMAND   PID         USER   FD   TYPE             DEVICE SIZE/OFF NODE NAME
+node    36107 ajhochhalter  148u  IPv6 0xa1bfcff1ee9ce816      0t0  TCP *:4000 (LISTEN)

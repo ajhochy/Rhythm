@@ -1,6 +1,6 @@
 {
   "name": "@ajhochy/rhythm-mcp-server",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "MCP server for Rhythm — manage tasks, projects, and rhythms via Claude",
   "type": "commonjs",
   "main": "dist/index.js",

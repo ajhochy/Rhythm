@@ -1,0 +1,3 @@
+120:  registerTool(server, 'rhythm_add_rhythm_step',
+137:        const result = await apiPost(apiUrl, apiToken, `/recurring-rules/${rhythm_id}/steps`, body);
+145:  registerTool(server, 'rhythm_delete_rhythm_step',

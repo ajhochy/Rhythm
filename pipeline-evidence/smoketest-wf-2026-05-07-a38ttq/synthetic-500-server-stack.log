@@ -1,0 +1,40 @@
+[ERROR] Unhandled POST /recurring-rules [cid=8877f7bf-1246-4316-8f12-c58f8d2962eb] {
+  authUserId: null,
+  body: {},
+  params: {},
+  error: {
+    message: "Expected property name or '}' in JSON at position 1 (line 1 column 2)",
+    stack: "SyntaxError: Expected property name or '}' in JSON at position 1 (line 1 column 2)\n" +
+      '    at JSON.parse (<anonymous>)\n' +
+      '    at parse (/Users/ajhochhalter/Documents/Rhythm/apps/api_server/node_modules/body-parser/lib/types/json.js:92:19)\n' +
+      '    at /Users/ajhochhalter/Documents/Rhythm/apps/api_server/node_modules/body-parser/lib/read.js:128:18\n' +
+      '    at AsyncResource.runInAsyncScope (node:async_hooks:214:14)\n' +
+      '    at invokeCallback (/Users/ajhochhalter/Documents/Rhythm/apps/api_server/node_modules/raw-body/index.js:238:16)\n' +
+      '    at done (/Users/ajhochhalter/Documents/Rhythm/apps/api_server/node_modules/raw-body/index.js:227:7)\n' +
+      '    at IncomingMessage.onEnd (/Users/ajhochhalter/Documents/Rhythm/apps/api_server/node_modules/raw-body/index.js:287:7)\n' +
+      '    at IncomingMessage.emit (node:events:518:28)\n' +
+      '    at endReadableNT (node:internal/streams/readable:1698:12)\n' +
+      '    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)',
+    name: 'SyntaxError'
+  }
+}
+[ERROR] Unhandled POST / [cid=8d61cc76-2553-4e30-8700-05e14502ff97] {
+  authUserId: null,
+  body: {},
+  params: {},
+  error: {
+    message: 'request entity too large',
+    stack: 'PayloadTooLargeError: request entity too large\n' +
+      '    at readStream (/Users/ajhochhalter/Documents/Rhythm/apps/api_server/node_modules/raw-body/index.js:163:17)\n' +
+      '    at getRawBody (/Users/ajhochhalter/Documents/Rhythm/apps/api_server/node_modules/raw-body/index.js:116:12)\n' +
+      '    at read (/Users/ajhochhalter/Documents/Rhythm/apps/api_server/node_modules/body-parser/lib/read.js:79:3)\n' +
+
+--- startup ---
+
+> rhythm-api-server@0.1.0 dev
+> tsx watch src/server.ts
+
+[dotenv@17.3.1] injecting env (8) from .env -- tip: 🛠️  run anywhere with `dotenvx run -- yourcommand`
+[INFO] Database initialized
+[INFO] RecurrenceGenerationJob: scheduled with cron "0 0 * * 0", lookahead 8 weeks
+[INFO] SyncOrchestrator: scheduled with cron "*/30 * * * *"

@@ -1,0 +1,11 @@
+HTTP/1.1 201 Created
+X-Powered-By: Express
+Vary: Origin
+Content-Type: application/json; charset=utf-8
+Content-Length: 448
+ETag: W/"1c0-lqImwORn+DeCYYf0JlDniGB7wtw"
+Date: Thu, 07 May 2026 21:58:22 GMT
+Connection: keep-alive
+Keep-Alive: timeout=5
+
+{"id":"e84699b4-5961-4b2e-be99-3633aabf7cff","title":"Legacy null step weekly","frequency":"weekly","dayOfWeek":1,"dayOfMonth":null,"month":null,"enabled":true,"sequential":false,"ownerId":1,"steps":[],"collaborators":[],"createdAt":"2026-05-07T21:58:22.393Z","progress":{"totalCount":8,"completedCount":0,"remainingCount":8,"personalRemainingCount":8,"waitingOnUserId":null,"waitingOnUserName":null,"nextDueDate":"2026-05-11","completionRatio":0}}

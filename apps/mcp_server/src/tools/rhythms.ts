@@ -123,21 +123,19 @@ export function registerRhythmTools(server: McpServer, apiUrl: string, apiToken:
       rhythm_id: z.string().describe('Rhythm (recurring rule) ID.'),
       title: z.string().describe('Step label.'),
       day_of_week: z.string().optional().describe("Day this step surfaces, e.g. 'Monday' (required for weekly rhythms)."),
+      day_of_month: z.number().int().min(1).max(31).optional().describe('Day of month for monthly/annual rhythms.'),
+      month: z.number().int().min(1).max(12).optional().describe('Month (1–12) for annual rhythms only.'),
       sort_order: z.number().int().min(0).optional().describe('0-based insertion index in the steps array. Defaults to append.'),
     },
-    async ({ rhythm_id, title, day_of_week, sort_order }: { rhythm_id: string; title: string; day_of_week?: string; sort_order?: number }) => {
+    async ({ rhythm_id, title, day_of_week, day_of_month, month, sort_order }: { rhythm_id: string; title: string; day_of_week?: string; day_of_month?: number; month?: number; sort_order?: number }) => {
       try {
-        const dayOfWeekNum = parseDayOfWeek(day_of_week);
-        const rhythm = await apiGet<{ id: string; steps?: Array<{ id: string; title: string; assigneeId: number | null; dayOfWeek: number | null; dayOfMonth: number | null; month: number | null }>; [k: string]: unknown }>(apiUrl, apiToken, `/recurring-rules/${rhythm_id}`);
-        const newStep: { title: string; assigneeId: null; dayOfWeek: number | null; dayOfMonth: null; month: null } = { title: decodeHtml(title), assigneeId: null, dayOfWeek: dayOfWeekNum ?? null, dayOfMonth: null, month: null };
-        const newSteps: Array<{ title: string; assigneeId: number | null; dayOfWeek: number | null; dayOfMonth: number | null; month: number | null; id?: string }> = [...(rhythm.steps ?? [])];
-        if (typeof sort_order === 'number' && sort_order >= 0 && sort_order <= newSteps.length) {
-          newSteps.splice(sort_order, 0, newStep);
-        } else {
-          newSteps.push(newStep);
-        }
-        const updated = await apiPatch(apiUrl, apiToken, `/recurring-rules/${rhythm_id}`, { steps: newSteps });
-        return toolResult(JSON.stringify(updated, null, 2));
+        const body: Record<string, unknown> = { title: decodeHtml(title) };
+        if (day_of_week !== undefined) body.day_of_week = day_of_week;
+        if (day_of_month !== undefined) body.day_of_month = day_of_month;
+        if (month !== undefined) body.month = month;
+        if (sort_order !== undefined) body.sort_order = sort_order;
+        const result = await apiPost(apiUrl, apiToken, `/recurring-rules/${rhythm_id}/steps`, body);
+        return toolResult(JSON.stringify(result, null, 2));
       } catch (err) {
         return toolError(err);
       }
