@@ -1,3 +1,4 @@
+Thu May  7 10:33:29 PDT 2026
 3:exports.parseDayOfWeek = parseDayOfWeek;
 27:function parseDayOfWeek(input) {
 60:                ...(day_of_week !== undefined && { dayOfWeek: day_of_week }),
@@ -6,3 +7,4 @@
 118:            const dayOfWeekNum = parseDayOfWeek(day_of_week);
 120:            const newStep = { title: (0, api_client_js_1.decodeHtml)(title), assigneeId: null, dayOfWeek: dayOfWeekNum ?? null, dayOfMonth: null, month: null };
 135:    (0, _tool_js_1.registerTool)(server, 'rhythm_delete_rhythm_step', 'Delete a step from an existing rhythm by step ID.', {
+EXIT_STATUS=0

@@ -1,9 +1,4 @@
-Command: git diff --stat origin/main...HEAD -- apps/mcp_server/package.json apps/mcp_server/src/tools/rhythms.ts
- apps/mcp_server/package.json         |  2 +-
- apps/mcp_server/src/tools/rhythms.ts | 77 ++++++++++++++++++++++++++++++++++++
- 2 files changed, 78 insertions(+), 1 deletion(-)
-
-Command: git diff origin/main...HEAD -- apps/mcp_server/package.json apps/mcp_server/src/tools/rhythms.ts
+Thu May  7 10:32:51 PDT 2026
 diff --git a/apps/mcp_server/package.json b/apps/mcp_server/package.json
 index 9310eed..ee7bdbd 100644
 --- a/apps/mcp_server/package.json

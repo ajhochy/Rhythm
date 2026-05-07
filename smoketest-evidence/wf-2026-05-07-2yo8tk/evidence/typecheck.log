@@ -2,3 +2,5 @@
 > @ajhochy/rhythm-mcp-server@0.3.0 typecheck
 > tsc --noEmit
 
+
+EXIT_STATUS=0

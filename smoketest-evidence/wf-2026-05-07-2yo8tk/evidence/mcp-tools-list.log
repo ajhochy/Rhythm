@@ -1,67 +1,66 @@
 {
-  "count": 37,
-  "wanted": [
-    {
-      "name": "rhythm_add_rhythm_step",
-      "description": "Add a step to an existing rhythm (recurring rule). Steps surface on their assigned day_of_week for weekly rhythms.",
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "rhythm_id": {
-            "type": "string",
-            "description": "Rhythm (recurring rule) ID."
-          },
-          "title": {
-            "type": "string",
-            "description": "Step label."
-          },
-          "day_of_week": {
-            "type": "string",
-            "description": "Day this step surfaces, e.g. 'Monday' (required for weekly rhythms)."
-          },
-          "sort_order": {
-            "type": "integer",
-            "minimum": 0,
-            "description": "0-based insertion index in the steps array. Defaults to append."
-          }
+  "add": {
+    "name": "rhythm_add_rhythm_step",
+    "description": "Add a step to an existing rhythm (recurring rule). Steps surface on their assigned day_of_week for weekly rhythms.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "rhythm_id": {
+          "type": "string",
+          "description": "Rhythm (recurring rule) ID."
         },
-        "required": [
-          "rhythm_id",
-          "title"
-        ],
-        "additionalProperties": false,
-        "$schema": "http://json-schema.org/draft-07/schema#"
+        "title": {
+          "type": "string",
+          "description": "Step label."
+        },
+        "day_of_week": {
+          "type": "string",
+          "description": "Day this step surfaces, e.g. 'Monday' (required for weekly rhythms)."
+        },
+        "sort_order": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "0-based insertion index in the steps array. Defaults to append."
+        }
       },
-      "execution": {
-        "taskSupport": "forbidden"
-      }
+      "required": [
+        "rhythm_id",
+        "title"
+      ],
+      "additionalProperties": false,
+      "$schema": "http://json-schema.org/draft-07/schema#"
     },
-    {
-      "name": "rhythm_delete_rhythm_step",
-      "description": "Delete a step from an existing rhythm by step ID.",
-      "inputSchema": {
-        "type": "object",
-        "properties": {
-          "rhythm_id": {
-            "type": "string",
-            "description": "Rhythm (recurring rule) ID."
-          },
-          "step_id": {
-            "type": "string",
-            "description": "Step ID to remove from the rhythm."
-          }
-        },
-        "required": [
-          "rhythm_id",
-          "step_id"
-        ],
-        "additionalProperties": false,
-        "$schema": "http://json-schema.org/draft-07/schema#"
-      },
-      "execution": {
-        "taskSupport": "forbidden"
-      }
+    "execution": {
+      "taskSupport": "forbidden"
     }
-  ]
+  },
+  "del": {
+    "name": "rhythm_delete_rhythm_step",
+    "description": "Delete a step from an existing rhythm by step ID.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "rhythm_id": {
+          "type": "string",
+          "description": "Rhythm (recurring rule) ID."
+        },
+        "step_id": {
+          "type": "string",
+          "description": "Step ID to remove from the rhythm."
+        }
+      },
+      "required": [
+        "rhythm_id",
+        "step_id"
+      ],
+      "additionalProperties": false,
+      "$schema": "http://json-schema.org/draft-07/schema#"
+    },
+    "execution": {
+      "taskSupport": "forbidden"
+    }
+  }
 }
 ASSERTIONS PASSED: rhythm step tools are discoverable with expected schemas.
+
+EXIT_STATUS=0
