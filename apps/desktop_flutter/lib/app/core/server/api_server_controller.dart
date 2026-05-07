@@ -9,10 +9,6 @@ class ApiServerController extends ChangeNotifier {
 
   final ApiServerService _service;
   final String serverUrl;
-  static const useEmbeddedServer = bool.fromEnvironment(
-    'RHYTHM_USE_EMBEDDED_API',
-    defaultValue: false,
-  );
   ServerStatus _status = ServerStatus.starting;
   String? _errorMessage;
 
@@ -25,22 +21,11 @@ class ApiServerController extends ChangeNotifier {
     _errorMessage = null;
     notifyListeners();
 
-    if (!useEmbeddedServer) {
-      final ok = await _service.checkHealth(serverUrl);
-      _status = ok ? ServerStatus.ready : ServerStatus.failed;
-      if (!ok) {
-        _errorMessage =
-            'Could not reach the Rhythm server at $serverUrl. Check the hosted API URL and try again.';
-      }
-      notifyListeners();
-      return;
-    }
-
-    final ok = await _service.start();
-
+    final ok = await _service.checkHealth(serverUrl);
     _status = ok ? ServerStatus.ready : ServerStatus.failed;
     if (!ok) {
-      _errorMessage = 'Could not start the embedded Rhythm server.';
+      _errorMessage =
+          'Could not reach the Rhythm server at $serverUrl. Check the hosted API URL and try again.';
     }
     notifyListeners();
   }
@@ -49,9 +34,6 @@ class ApiServerController extends ChangeNotifier {
 
   @override
   void dispose() {
-    if (useEmbeddedServer) {
-      _service.stop();
-    }
     super.dispose();
   }
 }

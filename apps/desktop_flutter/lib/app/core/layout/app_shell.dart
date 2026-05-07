@@ -62,9 +62,6 @@ class _AppShellState extends State<AppShell> with WindowListener {
 
   @override
   void onWindowClose() async {
-    if (ApiServerController.useEmbeddedServer) {
-      context.read<ApiServerController>().dispose();
-    }
     await windowManager.destroy();
   }
 
