@@ -1,0 +1,30 @@
+
+> rhythm-api-server@0.1.0 dev
+> tsx watch src/server.ts
+
+[dotenv@17.3.1] injecting env (8) from .env -- tip: ⚙️  enable debug logging with { debug: true }
+[INFO] Database initialized
+[INFO] RecurrenceGenerationJob: scheduled with cron "0 0 * * 0", lookahead 8 weeks
+[INFO] SyncOrchestrator: scheduled with cron "*/30 * * * *"
+[INFO] AgentReaperJob: scheduled "0 4 * * *", retention 30 days
+node:events:496
+      throw er; // Unhandled 'error' event
+      ^
+
+Error: listen EADDRINUSE: address already in use :::4000
+    at Server.setupListenHandle [as _listen2] (node:net:1940:16)
+    at listenInCluster (node:net:1997:12)
+    at Server.listen (node:net:2102:7)
+    at main (/Users/ajhochhalter/Documents/Rhythm/apps/api_server/src/server.ts:48:14)
+Emitted 'error' event on WebSocketServer instance at:
+    at Server.emit (node:events:518:28)
+    at emitErrorNT (node:net:1976:8)
+    at process.processTicksAndRejections (node:internal/process/task_queues:90:21) {
+  code: 'EADDRINUSE',
+  errno: -48,
+  syscall: 'listen',
+  address: '::',
+  port: 4000
+}
+
+Node.js v22.18.0

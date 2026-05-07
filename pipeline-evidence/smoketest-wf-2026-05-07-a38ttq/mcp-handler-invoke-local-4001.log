@@ -1,0 +1,10 @@
+registered rhythm_add_rhythm_step,rhythm_delete_rhythm_step
+rhythmId 5c101970-99ec-4dd7-8ecb-aefc5a133d67
+{
+  "content": [
+    {
+      "type": "text",
+      "text": "{\n  \"id\": \"step-1-e8dad9d2-22c7-40e7-ac94-9374b176beae\",\n  \"title\": \"Plan upcoming Sunday\",\n  \"assigneeId\": null,\n  \"assigneeName\": null,\n  \"dayOfWeek\": 1,\n  \"dayOfMonth\": null,\n  \"month\": null\n}"
+    }
+  ]
+}

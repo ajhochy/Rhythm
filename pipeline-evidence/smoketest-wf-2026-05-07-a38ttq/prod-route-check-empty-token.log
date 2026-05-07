@@ -1,0 +1,15 @@
+HTTP/2 401 
+date: Thu, 07 May 2026 21:56:58 GMT
+content-type: application/json; charset=utf-8
+content-length: 66
+etag: W/"42-rbyX4UPGPQ1gJi1cQrXlCwh9PrU"
+vary: Origin
+x-powered-by: Express
+cf-cache-status: DYNAMIC
+nel: {"report_to":"cf-nel","success_fraction":0.0,"max_age":604800}
+report-to: {"group":"cf-nel","max_age":604800,"endpoints":[{"url":"https://a.nel.cloudflare.com/report/v4?s=TnR857HvD0lI1fHQHgW80dQKHHC5F%2BzwBq7knZ%2FUypVmfwEwf83GVjkoK1PzNjJpgHBVTsB3kRJpLO3mKjsygZ0XaLzyxuCNXefhex6ViR6nsGizmBr8PB6zs068EpoTBl2Q"}]}
+server: cloudflare
+cf-ray: 9f837a4c2b8abe08-LAX
+alt-svc: h3=":443"; ma=86400
+
+{"error":{"code":"UNAUTHORIZED","message":"Missing bearer token"}}

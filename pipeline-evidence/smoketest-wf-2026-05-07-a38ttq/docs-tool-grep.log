@@ -1,0 +1,2 @@
+apps/mcp_server/README.md:87:| `rhythm_add_rhythm_step` | Add a step to an existing rhythm (v0.4.0+: uses dedicated `POST /:id/steps`) |
+apps/mcp_server/README.md:88:| `rhythm_delete_rhythm_step` | Remove a step from a rhythm |

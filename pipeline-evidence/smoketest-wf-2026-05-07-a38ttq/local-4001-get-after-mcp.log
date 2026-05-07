@@ -1,0 +1,11 @@
+HTTP/1.1 200 OK
+X-Powered-By: Express
+Vary: Origin
+Content-Type: application/json; charset=utf-8
+Content-Length: 611
+ETag: W/"263-vht67O1QeyonsYPudIeAX5FJiBY"
+Date: Thu, 07 May 2026 21:58:22 GMT
+Connection: keep-alive
+Keep-Alive: timeout=5
+
+{"id":"5c101970-99ec-4dd7-8ecb-aefc5a133d67","title":"MCP smoketest weekly","frequency":"weekly","dayOfWeek":1,"dayOfMonth":null,"month":null,"enabled":true,"sequential":false,"ownerId":1,"steps":[{"id":"step-1-e8dad9d2-22c7-40e7-ac94-9374b176beae","title":"Plan upcoming Sunday","assigneeId":null,"assigneeName":null,"dayOfWeek":1,"dayOfMonth":null,"month":null}],"collaborators":[],"createdAt":"2026-05-07T21:57:55.475Z","progress":{"totalCount":8,"completedCount":0,"remainingCount":8,"personalRemainingCount":8,"waitingOnUserId":null,"waitingOnUserName":null,"nextDueDate":"2026-05-11","completionRatio":0}}

@@ -1,0 +1,11 @@
+HTTP/1.1 200 OK
+X-Powered-By: Express
+Vary: Origin
+Content-Type: application/json; charset=utf-8
+Content-Length: 763
+ETag: W/"2fb-uNhf5oCdTNvuQh/ZtyeOXaUbDEA"
+Date: Thu, 07 May 2026 21:58:42 GMT
+Connection: keep-alive
+Keep-Alive: timeout=5
+
+{"id":"e84699b4-5961-4b2e-be99-3633aabf7cff","title":"Legacy null step weekly","frequency":"weekly","dayOfWeek":1,"dayOfMonth":null,"month":null,"enabled":true,"sequential":false,"ownerId":1,"steps":[{"id":"legacy-null-step","title":"Legacy missing DOW","assigneeId":null,"assigneeName":null,"dayOfWeek":null,"dayOfMonth":null,"month":null},{"id":"step-2-74ac3ce3-3f18-468e-b26c-bd72a880db32","title":"Tuesday after legacy null","assigneeId":null,"assigneeName":null,"dayOfWeek":2,"dayOfMonth":null,"month":null}],"collaborators":[],"createdAt":"2026-05-07T21:58:22.393Z","progress":{"totalCount":16,"completedCount":0,"remainingCount":16,"personalRemainingCount":16,"waitingOnUserId":null,"waitingOnUserName":null,"nextDueDate":"2026-05-11","completionRatio":0}}
