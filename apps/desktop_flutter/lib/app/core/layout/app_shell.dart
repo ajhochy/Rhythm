@@ -62,6 +62,7 @@ class _AppShellState extends State<AppShell> with WindowListener {
 
   @override
   void onWindowClose() async {
+    context.read<AgentServerController>().dispose();
     await windowManager.destroy();
   }
 
