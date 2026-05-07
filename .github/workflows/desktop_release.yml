@@ -122,6 +122,73 @@ jobs:
           test -d "$DEST/node_modules"
           test -f "$DEST/node_modules/better-sqlite3/package.json"
 
+      - name: Smoke-test bundled CLI server
+        shell: bash
+        run: |
+          set -u
+          SCRIPT="apps/desktop_flutter/build/macos/Build/Products/Release/Rhythm.app/Contents/Resources/api_server/dist/server.js"
+          if [ ! -f "$SCRIPT" ]; then
+            echo "::error::Bundled CLI server not found at $SCRIPT"
+            exit 1
+          fi
+          AGENT_LOCAL=true PORT=4002 DB_PATH="$RUNNER_TEMP/smoke.db" NODE_ENV=test node "$SCRIPT" &
+          PID=$!
+          cleanup() {
+            kill $PID 2>/dev/null || true
+            sleep 2
+            kill -9 $PID 2>/dev/null || true
+          }
+          trap cleanup EXIT
+
+          HEALTH_OK=0
+          HEALTH_BODY=""
+          for i in $(seq 1 60); do
+            if ! kill -0 $PID 2>/dev/null; then
+              echo "::error::Bundled CLI server process exited before /health responded"
+              exit 1
+            fi
+            if HEALTH_BODY=$(curl -fsS http://localhost:4002/health 2>/dev/null); then
+              HEALTH_OK=1
+              break
+            fi
+            perl -e 'select(undef,undef,undef,0.25)'
+          done
+
+          if [ "$HEALTH_OK" -ne 1 ]; then
+            echo "::error::Timed out waiting for /health (15s window)"
+            exit 1
+          fi
+          echo "/health 200: $HEALTH_BODY"
+
+          CAPS_BODY=$(curl -fsS http://localhost:4002/agents/capabilities)
+          CAPS_STATUS=$?
+          if [ $CAPS_STATUS -ne 0 ]; then
+            echo "::error::/agents/capabilities did not return 200"
+            exit 1
+          fi
+          echo "/agents/capabilities 200: $CAPS_BODY"
+
+          printf '%s' "$CAPS_BODY" | node -e '
+            let data = "";
+            process.stdin.on("data", (c) => data += c);
+            process.stdin.on("end", () => {
+              let parsed;
+              try { parsed = JSON.parse(data); } catch (e) {
+                console.error("Response is not valid JSON:", e.message);
+                process.exit(1);
+              }
+              if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+                console.error("Response is not a JSON object");
+                process.exit(1);
+              }
+              if (typeof parsed.claude !== "boolean" || typeof parsed.codex !== "boolean") {
+                console.error("Response missing boolean claude/codex keys:", JSON.stringify(parsed));
+                process.exit(1);
+              }
+              console.log("capabilities OK:", JSON.stringify(parsed));
+            });
+          '
+
       - name: Package macOS artifacts
         working-directory: apps/desktop_flutter
         run: ../../tools/release/package_macos.sh
