@@ -11,6 +11,7 @@ recurringRulesRouter.get('/:id', controller.getById.bind(controller));
 recurringRulesRouter.post('/', controller.create.bind(controller));
 recurringRulesRouter.patch('/:id', controller.update.bind(controller));
 recurringRulesRouter.delete('/:id', controller.remove.bind(controller));
+recurringRulesRouter.post('/:id/steps', controller.addStep.bind(controller));
 recurringRulesRouter.get('/:id/collaborators', controller.getCollaborators.bind(controller));
 recurringRulesRouter.post('/:id/collaborators', controller.addCollaborator.bind(controller));
 recurringRulesRouter.delete('/:id/collaborators/:userId', controller.removeCollaborator.bind(controller));
