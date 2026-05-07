@@ -1,0 +1,31 @@
+{
+  "server": {
+    "name": "rhythm",
+    "version": "0.2.0"
+  },
+  "totalTools": 37,
+  "addTool": {
+    "name": "rhythm_add_rhythm_step",
+    "required": [
+      "rhythm_id",
+      "title"
+    ],
+    "properties": [
+      "day_of_week",
+      "rhythm_id",
+      "sort_order",
+      "title"
+    ]
+  },
+  "deleteTool": {
+    "name": "rhythm_delete_rhythm_step",
+    "required": [
+      "rhythm_id",
+      "step_id"
+    ],
+    "properties": [
+      "rhythm_id",
+      "step_id"
+    ]
+  }
+}

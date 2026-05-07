@@ -1,0 +1,101 @@
+{
+  "addAssertions": {
+    "endpoint": "/recurring-rules/rhythm-123",
+    "authHeader": "Bearer mock-token",
+    "insertedIndex": 1,
+    "insertedTitle": "Prep & Review",
+    "insertedDayOfWeek": 4,
+    "insertedHasId": false,
+    "patchStepCount": 3
+  },
+  "deleteAssertions": {
+    "endpoint": "/recurring-rules/rhythm-123",
+    "removedStepStillPresent": false,
+    "remainingIds": [
+      "existing-1",
+      "generated-1"
+    ],
+    "responseText": "Step remove-me removed from rhythm rhythm-123."
+  },
+  "missingAssertions": {
+    "isError": true,
+    "responseText": "Error: Step does-not-exist not found on rhythm rhythm-123."
+  },
+  "requestLog": [
+    {
+      "method": "GET",
+      "url": "/recurring-rules/rhythm-123",
+      "auth": "Bearer mock-token",
+      "body": null
+    },
+    {
+      "method": "PATCH",
+      "url": "/recurring-rules/rhythm-123",
+      "auth": "Bearer mock-token",
+      "body": {
+        "steps": [
+          {
+            "id": "existing-1",
+            "title": "Existing One",
+            "assigneeId": null,
+            "dayOfWeek": 1,
+            "dayOfMonth": null,
+            "month": null
+          },
+          {
+            "title": "Prep & Review",
+            "assigneeId": null,
+            "dayOfWeek": 4,
+            "dayOfMonth": null,
+            "month": null
+          },
+          {
+            "id": "remove-me",
+            "title": "Remove Me",
+            "assigneeId": null,
+            "dayOfWeek": 5,
+            "dayOfMonth": null,
+            "month": null
+          }
+        ]
+      }
+    },
+    {
+      "method": "GET",
+      "url": "/recurring-rules/rhythm-123",
+      "auth": "Bearer mock-token",
+      "body": null
+    },
+    {
+      "method": "PATCH",
+      "url": "/recurring-rules/rhythm-123",
+      "auth": "Bearer mock-token",
+      "body": {
+        "steps": [
+          {
+            "id": "existing-1",
+            "title": "Existing One",
+            "assigneeId": null,
+            "dayOfWeek": 1,
+            "dayOfMonth": null,
+            "month": null
+          },
+          {
+            "id": "generated-1",
+            "title": "Prep & Review",
+            "assigneeId": null,
+            "dayOfWeek": 4,
+            "dayOfMonth": null,
+            "month": null
+          }
+        ]
+      }
+    },
+    {
+      "method": "GET",
+      "url": "/recurring-rules/rhythm-123",
+      "auth": "Bearer mock-token",
+      "body": null
+    }
+  ]
+}

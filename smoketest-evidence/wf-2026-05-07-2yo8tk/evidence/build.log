@@ -1,0 +1,4 @@
+
+> @ajhochy/rhythm-mcp-server@0.3.0 build
+> tsc -p tsconfig.json --noCheck
+
