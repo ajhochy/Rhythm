@@ -84,14 +84,15 @@ sed "s/\$(AppIdentifierPrefix)/${APPLE_TEAM_ID}./" "${ENTITLEMENTS_PATH}" > "${P
 # codesign --deep does NOT propagate --options runtime to nested items, so we
 # must sign each one explicitly before signing the top-level bundle.
 # This includes .node native addons (e.g. better_sqlite3.node, pty.node from
-# node-pty) bundled in Contents/Resources — Apple requires all native binaries
-# to be signed.
+# node-pty) and plain Mach-O helper executables (e.g. node-pty's spawn-helper)
+# bundled in Contents/Resources — Apple requires all native binaries to be
+# signed with Hardened Runtime and a secure timestamp.
 while IFS= read -r -d '' item; do
   codesign --force --options runtime --timestamp \
     --sign "${IDENTITY_SHA}" \
     "${item}"
 done < <(find "${APP_PATH}/Contents" \
-  \( -name "*.framework" -o -name "*.dylib" -o -name "*.so" -o -name "*.node" \) \
+  \( -name "*.framework" -o -name "*.dylib" -o -name "*.so" -o -name "*.node" -o -name "spawn-helper" \) \
   -print0 | sort -rz)
 
 codesign --force --options runtime --timestamp \
