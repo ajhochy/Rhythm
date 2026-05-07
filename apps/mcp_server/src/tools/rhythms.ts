@@ -143,4 +143,25 @@ export function registerRhythmTools(server: McpServer, apiUrl: string, apiToken:
       }
     },
   );
+
+  registerTool(server, 'rhythm_delete_rhythm_step',
+    'Delete a step from an existing rhythm by step ID.',
+    {
+      rhythm_id: z.string().describe('Rhythm (recurring rule) ID.'),
+      step_id: z.string().describe('Step ID to remove from the rhythm.'),
+    },
+    async ({ rhythm_id, step_id }: { rhythm_id: string; step_id: string }) => {
+      try {
+        const rhythm = await apiGet<{ id: string; steps?: Array<{ id: string; title: string; assigneeId: number | null; dayOfWeek: number | null; dayOfMonth: number | null; month: number | null }>; [k: string]: unknown }>(apiUrl, apiToken, `/recurring-rules/${rhythm_id}`);
+        const filtered = (rhythm.steps ?? []).filter(s => s.id !== step_id);
+        if (filtered.length === (rhythm.steps?.length ?? 0)) {
+          return toolError(new Error(`Step ${step_id} not found on rhythm ${rhythm_id}.`));
+        }
+        await apiPatch(apiUrl, apiToken, `/recurring-rules/${rhythm_id}`, { steps: filtered });
+        return toolResult(`Step ${step_id} removed from rhythm ${rhythm_id}.`);
+      } catch (err) {
+        return toolError(err);
+      }
+    },
+  );
 }
