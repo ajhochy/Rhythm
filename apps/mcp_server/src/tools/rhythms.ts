@@ -116,4 +116,31 @@ export function registerRhythmTools(server: McpServer, apiUrl: string, apiToken:
       }
     },
   );
+
+  registerTool(server, 'rhythm_add_rhythm_step',
+    "Add a step to an existing rhythm (recurring rule). Steps surface on their assigned day_of_week for weekly rhythms.",
+    {
+      rhythm_id: z.string().describe('Rhythm (recurring rule) ID.'),
+      title: z.string().describe('Step label.'),
+      day_of_week: z.string().optional().describe("Day this step surfaces, e.g. 'Monday' (required for weekly rhythms)."),
+      sort_order: z.number().int().min(0).optional().describe('0-based insertion index in the steps array. Defaults to append.'),
+    },
+    async ({ rhythm_id, title, day_of_week, sort_order }: { rhythm_id: string; title: string; day_of_week?: string; sort_order?: number }) => {
+      try {
+        const dayOfWeekNum = parseDayOfWeek(day_of_week);
+        const rhythm = await apiGet<{ id: string; steps?: Array<{ id: string; title: string; assigneeId: number | null; dayOfWeek: number | null; dayOfMonth: number | null; month: number | null }>; [k: string]: unknown }>(apiUrl, apiToken, `/recurring-rules/${rhythm_id}`);
+        const newStep: { title: string; assigneeId: null; dayOfWeek: number | null; dayOfMonth: null; month: null } = { title: decodeHtml(title), assigneeId: null, dayOfWeek: dayOfWeekNum ?? null, dayOfMonth: null, month: null };
+        const newSteps: Array<{ title: string; assigneeId: number | null; dayOfWeek: number | null; dayOfMonth: number | null; month: number | null; id?: string }> = [...(rhythm.steps ?? [])];
+        if (typeof sort_order === 'number' && sort_order >= 0 && sort_order <= newSteps.length) {
+          newSteps.splice(sort_order, 0, newStep);
+        } else {
+          newSteps.push(newStep);
+        }
+        const updated = await apiPatch(apiUrl, apiToken, `/recurring-rules/${rhythm_id}`, { steps: newSteps });
+        return toolResult(JSON.stringify(updated, null, 2));
+      } catch (err) {
+        return toolError(err);
+      }
+    },
+  );
 }
