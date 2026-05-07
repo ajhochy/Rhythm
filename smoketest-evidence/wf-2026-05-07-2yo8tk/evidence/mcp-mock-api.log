@@ -1,101 +1,86 @@
 {
-  "addAssertions": {
-    "endpoint": "/recurring-rules/rhythm-123",
-    "authHeader": "Bearer mock-token",
-    "insertedIndex": 1,
-    "insertedTitle": "Prep & Review",
-    "insertedDayOfWeek": 4,
-    "insertedHasId": false,
-    "patchStepCount": 3
+  "apiUrl": "http://127.0.0.1:55848",
+  "addResult": {
+    "content": [
+      {
+        "type": "text",
+        "text": "{\n  \"id\": \"rhythm-123\",\n  \"title\": \"Weekly checklist\",\n  \"steps\": [\n    {\n      \"id\": \"keep-first\",\n      \"title\": \"Keep First\",\n      \"assigneeId\": null,\n      \"dayOfWeek\": 1,\n      \"dayOfMonth\": null,\n      \"month\": null\n    },\n    {\n      \"title\": \"Prep & Review\",\n      \"assigneeId\": null,\n      \"dayOfWeek\": 4,\n      \"dayOfMonth\": null,\n      \"month\": null\n    },\n    {\n      \"id\": \"remove-me\",\n      \"title\": \"Remove Me\",\n      \"assigneeId\": null,\n      \"dayOfWeek\": 2,\n      \"dayOfMonth\": null,\n      \"month\": null\n    }\n  ]\n}"
+      }
+    ]
   },
-  "deleteAssertions": {
-    "endpoint": "/recurring-rules/rhythm-123",
-    "removedStepStillPresent": false,
-    "remainingIds": [
-      "existing-1",
-      "generated-1"
+  "deleteResult": {
+    "content": [
+      {
+        "type": "text",
+        "text": "Step remove-me removed from rhythm rhythm-123."
+      }
+    ]
+  },
+  "missingResult": {
+    "content": [
+      {
+        "type": "text",
+        "text": "Error: Step does-not-exist not found on rhythm rhythm-123."
+      }
     ],
-    "responseText": "Step remove-me removed from rhythm rhythm-123."
+    "isError": true
   },
-  "missingAssertions": {
-    "isError": true,
-    "responseText": "Error: Step does-not-exist not found on rhythm rhythm-123."
-  },
-  "requestLog": [
-    {
-      "method": "GET",
-      "url": "/recurring-rules/rhythm-123",
-      "auth": "Bearer mock-token",
-      "body": null
-    },
-    {
-      "method": "PATCH",
-      "url": "/recurring-rules/rhythm-123",
-      "auth": "Bearer mock-token",
-      "body": {
-        "steps": [
-          {
-            "id": "existing-1",
-            "title": "Existing One",
-            "assigneeId": null,
-            "dayOfWeek": 1,
-            "dayOfMonth": null,
-            "month": null
-          },
-          {
-            "title": "Prep & Review",
-            "assigneeId": null,
-            "dayOfWeek": 4,
-            "dayOfMonth": null,
-            "month": null
-          },
-          {
-            "id": "remove-me",
-            "title": "Remove Me",
-            "assigneeId": null,
-            "dayOfWeek": 5,
-            "dayOfMonth": null,
-            "month": null
-          }
-        ]
-      }
-    },
-    {
-      "method": "GET",
-      "url": "/recurring-rules/rhythm-123",
-      "auth": "Bearer mock-token",
-      "body": null
-    },
-    {
-      "method": "PATCH",
-      "url": "/recurring-rules/rhythm-123",
-      "auth": "Bearer mock-token",
-      "body": {
-        "steps": [
-          {
-            "id": "existing-1",
-            "title": "Existing One",
-            "assigneeId": null,
-            "dayOfWeek": 1,
-            "dayOfMonth": null,
-            "month": null
-          },
-          {
-            "id": "generated-1",
-            "title": "Prep & Review",
-            "assigneeId": null,
-            "dayOfWeek": 4,
-            "dayOfMonth": null,
-            "month": null
-          }
-        ]
-      }
-    },
-    {
-      "method": "GET",
-      "url": "/recurring-rules/rhythm-123",
-      "auth": "Bearer mock-token",
-      "body": null
+  "addPatch": {
+    "method": "PATCH",
+    "url": "/recurring-rules/rhythm-123",
+    "authorization": "Bearer mock-token",
+    "body": {
+      "steps": [
+        {
+          "id": "keep-first",
+          "title": "Keep First",
+          "assigneeId": null,
+          "dayOfWeek": 1,
+          "dayOfMonth": null,
+          "month": null
+        },
+        {
+          "title": "Prep & Review",
+          "assigneeId": null,
+          "dayOfWeek": 4,
+          "dayOfMonth": null,
+          "month": null
+        },
+        {
+          "id": "remove-me",
+          "title": "Remove Me",
+          "assigneeId": null,
+          "dayOfWeek": 2,
+          "dayOfMonth": null,
+          "month": null
+        }
+      ]
     }
-  ]
+  },
+  "deletePatch": {
+    "method": "PATCH",
+    "url": "/recurring-rules/rhythm-123",
+    "authorization": "Bearer mock-token",
+    "body": {
+      "steps": [
+        {
+          "id": "keep-first",
+          "title": "Keep First",
+          "assigneeId": null,
+          "dayOfWeek": 1,
+          "dayOfMonth": null,
+          "month": null
+        },
+        {
+          "title": "Prep & Review",
+          "assigneeId": null,
+          "dayOfWeek": 4,
+          "dayOfMonth": null,
+          "month": null
+        }
+      ]
+    }
+  },
+  "requestCount": 5
 }
+ASSERTIONS PASSED: add/delete rhythm step behavior matched expected API calls and MCP responses.

@@ -1,14 +1,14 @@
-## rhythm_add_rhythm_step...origin/rhythm_add_rhythm_step
+Command: git diff --stat origin/main...HEAD -- apps/mcp_server/package.json apps/mcp_server/src/tools/rhythms.ts
  apps/mcp_server/package.json         |  2 +-
  apps/mcp_server/src/tools/rhythms.ts | 77 ++++++++++++++++++++++++++++++++++++
  2 files changed, 78 insertions(+), 1 deletion(-)
-apps/mcp_server/package.json
-apps/mcp_server/src/tools/rhythms.ts
+
+Command: git diff origin/main...HEAD -- apps/mcp_server/package.json apps/mcp_server/src/tools/rhythms.ts
 diff --git a/apps/mcp_server/package.json b/apps/mcp_server/package.json
 index 9310eed..ee7bdbd 100644
 --- a/apps/mcp_server/package.json
 +++ b/apps/mcp_server/package.json
-@@ -1,39 +1,39 @@
+@@ -1,6 +1,6 @@
  {
    "name": "@ajhochy/rhythm-mcp-server",
 -  "version": "0.2.0",
@@ -16,46 +16,11 @@ index 9310eed..ee7bdbd 100644
    "description": "MCP server for Rhythm — manage tasks, projects, and rhythms via Claude",
    "type": "commonjs",
    "main": "dist/index.js",
-   "bin": {
-     "rhythm-mcp": "./dist/index.js"
-   },
-   "files": [
-     "dist",
-     "README.md"
-   ],
-   "scripts": {
-     "build": "tsc -p tsconfig.json --noCheck",
-     "typecheck": "tsc --noEmit",
-     "dev": "tsx src/index.ts",
-     "start": "node dist/index.js",
-     "test": "vitest run",
-     "test:watch": "vitest",
-     "prepare": "npm run build"
-   },
-   "publishConfig": {
-     "access": "public"
-   },
-   "engines": {
-     "node": ">=18"
-   },
-   "dependencies": {
-     "@modelcontextprotocol/sdk": "^1.12.0",
-     "zod": "^3.22.0"
-   },
-   "devDependencies": {
-     "@types/node": "^20.0.0",
-     "tsx": "^4.16.0",
-     "typescript": "^5.5.0",
-     "vitest": "^2.0.0"
-   }
- }
 diff --git a/apps/mcp_server/src/tools/rhythms.ts b/apps/mcp_server/src/tools/rhythms.ts
 index a6ec495..7ce97ca 100644
 --- a/apps/mcp_server/src/tools/rhythms.ts
 +++ b/apps/mcp_server/src/tools/rhythms.ts
-@@ -1,90 +1,167 @@
- import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
- import { z } from 'zod';
+@@ -3,6 +3,35 @@ import { z } from 'zod';
  import { apiGet, apiPost, apiPatch, apiDelete, toolResult, toolError, decodeHtml } from '../api_client.js';
  import { registerTool } from './_tool.js';
  
@@ -91,84 +56,7 @@ index a6ec495..7ce97ca 100644
  export function registerRhythmTools(server: McpServer, apiUrl: string, apiToken: string) {
    registerTool(server, 'rhythm_list_rhythms',
      'List all recurring rules (rhythms).',
-     {
-       enabled_only: z.boolean().optional().describe('If true, return only enabled rhythms.'),
-     },
-     async ({ enabled_only }: { enabled_only?: boolean }) => {
-       try {
-         const qs = enabled_only ? '?enabled=true' : '';
-         const rhythms = await apiGet<unknown[]>(apiUrl, apiToken, `/recurring-rules${qs}`);
-         return toolResult(JSON.stringify(rhythms, null, 2));
-       } catch (err) {
-         return toolError(err);
-       }
-     },
-   );
- 
-   registerTool(server, 'rhythm_create_rhythm',
-     "Create a new recurring rule. Use frequency 'annual' (not 'yearly').",
-     {
-       title: z.string().describe('Rhythm name.'),
-       frequency: z.enum(['weekly', 'monthly', 'annual']).describe("Recurrence frequency: 'weekly', 'monthly', or 'annual'."),
-       day_of_week: z.string().optional().describe("Day for weekly rhythms (e.g. 'Sunday', 'Monday')."),
-       day_of_month: z.number().int().min(1).max(31).optional().describe('Day of month for monthly/annual rhythms.'),
-       month: z.number().int().min(1).max(12).optional().describe('Month (1–12) for annual rhythms only.'),
-     },
-     async ({ title, frequency, day_of_week, day_of_month, month }: { title: string; frequency: string; day_of_week?: string; day_of_month?: number; month?: number }) => {
-       try {
-         const rhythm = await apiPost<unknown>(apiUrl, apiToken, '/recurring-rules', {
-           title: decodeHtml(title),
-           frequency,
-           ...(day_of_week !== undefined && { dayOfWeek: day_of_week }),
-           ...(day_of_month !== undefined && { dayOfMonth: day_of_month }),
-           ...(month !== undefined && { month }),
-         });
-         return toolResult(JSON.stringify(rhythm, null, 2));
-       } catch (err) {
-         return toolError(err);
-       }
-     },
-   );
- 
-   registerTool(server, 'rhythm_update_rhythm',
-     'Update an existing recurring rule.',
-     {
-       id: z.string().describe('Rhythm ID.'),
-       title: z.string().optional().describe('New title.'),
-       frequency: z.enum(['weekly', 'monthly', 'annual']).optional().describe('New frequency.'),
-       day_of_week: z.string().optional().describe('New day of week.'),
-       day_of_month: z.number().int().nullable().optional().describe('New day of month, or null to clear.'),
-       month: z.number().int().nullable().optional().describe('New month, or null to clear.'),
-       enabled: z.boolean().optional().describe('Enable or disable the rhythm.'),
-     },
-     async ({ id, title, frequency, day_of_week, day_of_month, month, enabled }: { id: string; title?: string; frequency?: string; day_of_week?: string; day_of_month?: number | null; month?: number | null; enabled?: boolean }) => {
-       try {
-         const body: Record<string, unknown> = {};
-         if (title !== undefined) body.title = decodeHtml(title);
-         if (frequency !== undefined) body.frequency = frequency;
-         if (day_of_week !== undefined) body.dayOfWeek = day_of_week;
-         if (day_of_month !== undefined) body.dayOfMonth = day_of_month;
-         if (month !== undefined) body.month = month;
-         if (enabled !== undefined) body.enabled = enabled;
-         const rhythm = await apiPatch<unknown>(apiUrl, apiToken, `/recurring-rules/${id}`, body);
-         return toolResult(JSON.stringify(rhythm, null, 2));
-       } catch (err) {
-         return toolError(err);
-       }
-     },
-   );
- 
-   registerTool(server, 'rhythm_delete_rhythm',
-     'Permanently delete a recurring rule.',
-     {
-       id: z.string().describe('Rhythm ID to delete.'),
-     },
-     async ({ id }: { id: string }) => {
-       try {
-         await apiDelete(apiUrl, apiToken, `/recurring-rules/${id}`);
-         return toolResult(`Rhythm ${id} deleted.`);
-       } catch (err) {
-         return toolError(err);
+@@ -87,4 +116,52 @@ export function registerRhythmTools(server: McpServer, apiUrl: string, apiToken:
        }
      },
    );
