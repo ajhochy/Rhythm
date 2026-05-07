@@ -1,3 +1,4 @@
+import os from 'os';
 import type { NextFunction, Request, Response } from 'express';
 import { AppError } from '../errors/app_error';
 import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
@@ -9,6 +10,16 @@ const VALID_AGENT_KINDS: AgentKind[] = ['claude-code', 'codex'];
 
 const repo = new AgentSessionsRepository();
 const messagesRepo = new AgentSessionMessagesRepository();
+
+/**
+ * Expands '~' at the start of a path string to the current user's home directory.
+ */
+function expandHome(path: string): string {
+  if (path === '~' || path.startsWith('~/')) {
+    return path.replace('~', os.homedir());
+  }
+  return path;
+}
 
 export class AgentSessionsController {
   list(_req: Request, res: Response, next: NextFunction): void {
@@ -65,7 +76,7 @@ export class AgentSessionsController {
         agentKind: agentKind as AgentKind,
         taskId: taskId != null ? (taskId as string) : null,
         taskTitle: taskTitle != null ? (taskTitle as string) : null,
-        cwd: cwd.trim(),
+        cwd: expandHome(cwd.trim()),
         name: name.trim(),
       };
 

@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -371,7 +373,7 @@ class _ExpandedTriggerBubble extends StatelessWidget {
       final session = await agents.createSession(
         agentKind: kind,
         taskId: entry.triggerTaskId,
-        cwd: '~/',
+        cwd: Platform.environment['HOME'] ?? '/',
         name: entry.label,
       );
       if (session != null) {
