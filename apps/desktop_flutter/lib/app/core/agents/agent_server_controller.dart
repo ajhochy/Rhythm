@@ -31,7 +31,8 @@ class AgentServerController extends ChangeNotifier {
     _capabilities = const {};
     notifyListeners();
 
-    final ok = await _service.start();
+    final result = await _service.start();
+    final ok = result.ok;
 
     _status = ok ? AgentServerStatus.ready : AgentServerStatus.failed;
     if (!ok) {
