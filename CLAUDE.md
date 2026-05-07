@@ -136,6 +136,7 @@ Base: `http://localhost:4000` (default, configurable)
 | PATCH/DELETE | /tasks/:id | Update / delete task |
 | GET/POST | /recurring-rules | List / create rhythms |
 | PATCH/DELETE | /recurring-rules/:id | Update / delete rhythm |
+| POST | /recurring-rules/:id/steps | Append a step to an existing rhythm |
 | GET/POST | /project-templates | List / create project templates |
 | GET/POST | /project-templates/:id/steps | List / add steps |
 | PATCH/DELETE | /project-templates/:id/steps/:stepId | Update / delete step |
