@@ -1,0 +1,11 @@
+HTTP/1.1 201 Created
+X-Powered-By: Express
+Vary: Origin
+Content-Type: application/json; charset=utf-8
+Content-Length: 166
+ETag: W/"a6-R3ONMRg7vCR6RbEiG+Tyl/NZZMs"
+Date: Thu, 07 May 2026 20:31:22 GMT
+Connection: keep-alive
+Keep-Alive: timeout=5
+
+{"id":"step-1-49b5b46c-e297-43b6-981e-de095ea84e8a","title":"Plan upcoming Sunday","assigneeId":null,"assigneeName":null,"dayOfWeek":1,"dayOfMonth":null,"month":null}
