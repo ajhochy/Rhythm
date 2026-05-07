@@ -1,9 +1,13 @@
+import 'dart:io' show Platform;
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../app/core/agents/agent_server_controller.dart';
+import '../../../app/core/server/api_server_service.dart';
 import '../../../app/core/auth/auth_session_service.dart';
 import '../../../app/core/auth/auth_user.dart';
 import '../../../app/core/services/server_config_service.dart';
@@ -904,8 +908,10 @@ class _AgentServerSection extends StatelessWidget {
           ),
           child: switch (controller.status) {
             AgentServerStatus.starting => const _AgentServerStarting(),
-            AgentServerStatus.failed => _AgentServerFailed(
+            AgentServerStatus.failed => AgentServerFailed(
                 errorMessage: controller.errorMessage,
+                failureReason: controller.failureReason,
+                stderrTail: controller.stderrTail,
                 onRetry: controller.retry,
               ),
             AgentServerStatus.ready => _AgentServerReady(
@@ -946,17 +952,59 @@ class _AgentServerStarting extends StatelessWidget {
   }
 }
 
-class _AgentServerFailed extends StatelessWidget {
-  const _AgentServerFailed({
+class AgentServerFailed extends StatefulWidget {
+  const AgentServerFailed({
+    super.key,
     required this.errorMessage,
     required this.onRetry,
+    this.failureReason,
+    this.stderrTail,
   });
 
   final String? errorMessage;
   final VoidCallback onRetry;
+  final AgentServerFailureReason? failureReason;
+  final String? stderrTail;
+
+  @override
+  State<AgentServerFailed> createState() => AgentServerFailedState();
+}
+
+class AgentServerFailedState extends State<AgentServerFailed> {
+  Future<void> _copyDiagnostics(BuildContext context) async {
+    final messenger = ScaffoldMessenger.of(context);
+    String version = 'unknown';
+    try {
+      final info = await PackageInfo.fromPlatform();
+      version = '${info.version}+${info.buildNumber}';
+    } catch (_) {
+      // PackageInfo can fail in tests; fall back to "unknown".
+    }
+    final reason = widget.failureReason?.name ?? 'unknown';
+    final body = StringBuffer()
+      ..writeln('Rhythm CLI server diagnostics')
+      ..writeln('----------------------------')
+      ..writeln('Reason: $reason')
+      ..writeln('Message: ${widget.errorMessage ?? ''}')
+      ..writeln('App version: $version')
+      ..writeln('macOS: ${Platform.operatingSystemVersion}')
+      ..writeln('Time: ${DateTime.now().toIso8601String()}')
+      ..writeln()
+      ..writeln('Stderr tail:')
+      ..writeln(widget.stderrTail ?? '(none)');
+    await Clipboard.setData(ClipboardData(text: body.toString()));
+    if (!mounted) return;
+    messenger.showSnackBar(
+      const SnackBar(
+        content: Text('Diagnostics copied to clipboard'),
+        duration: Duration(seconds: 2),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
+    final tail = widget.stderrTail;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -973,17 +1021,70 @@ class _AgentServerFailed extends StatelessWidget {
             ),
           ],
         ),
-        if (errorMessage != null) ...[
+        if (widget.errorMessage != null) ...[
           const SizedBox(height: 6),
           Text(
-            errorMessage!,
+            widget.errorMessage!,
             style: TextStyle(fontSize: 13, color: context.rhythm.danger),
           ),
         ],
+        if (tail != null) ...[
+          const SizedBox(height: 8),
+          Theme(
+            data: Theme.of(context).copyWith(
+              dividerColor: Colors.transparent,
+            ),
+            child: ExpansionTile(
+              tilePadding: EdgeInsets.zero,
+              childrenPadding: const EdgeInsets.only(top: 4, bottom: 4),
+              title: Text(
+                'Show technical details',
+                style: TextStyle(
+                  fontSize: 13,
+                  color: context.rhythm.textSecondary,
+                ),
+              ),
+              children: [
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: context.rhythm.surfaceMuted,
+                    borderRadius: BorderRadius.circular(RhythmRadius.md),
+                    border: Border.all(color: context.rhythm.borderSubtle),
+                  ),
+                  child: SelectableText(
+                    tail,
+                    style: TextStyle(
+                      fontFamily: 'monospace',
+                      fontFamilyFallback: const [
+                        'Menlo',
+                        'Monaco',
+                        'Courier',
+                      ],
+                      fontSize: 12,
+                      color: context.rhythm.textPrimary,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
         const SizedBox(height: 12),
-        OutlinedButton(
-          onPressed: onRetry,
-          child: const Text('Retry'),
+        Row(
+          children: [
+            OutlinedButton(
+              onPressed: widget.onRetry,
+              child: const Text('Retry'),
+            ),
+            const SizedBox(width: 8),
+            OutlinedButton.icon(
+              onPressed: () => _copyDiagnostics(context),
+              icon: const Icon(Icons.copy, size: 16),
+              label: const Text('Copy diagnostics'),
+            ),
+          ],
         ),
       ],
     );
