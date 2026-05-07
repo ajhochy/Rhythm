@@ -1273,7 +1273,7 @@ class _PendingTriggerBanner extends StatelessWidget {
     final session = await controller.createSession(
       agentKind: kind,
       taskId: trigger.taskId,
-      cwd: '~',
+      cwd: Platform.environment['HOME'] ?? '/',
       name: trigger.taskTitle,
     );
     if (session != null) {
@@ -1375,8 +1375,9 @@ class _NewSessionDialogState extends State<_NewSessionDialog> {
     final session = await controller.createSession(
       agentKind: _agentKind,
       taskId: _selectedTask?.id,
-      cwd:
-          _cwdController.text.trim().isEmpty ? '~' : _cwdController.text.trim(),
+      cwd: _cwdController.text.trim().isEmpty
+          ? (Platform.environment['HOME'] ?? '/')
+          : _cwdController.text.trim(),
       name: _nameController.text.trim(),
     );
 
