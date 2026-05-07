@@ -1,0 +1,106 @@
+Thu May  7 10:32:51 PDT 2026
+diff --git a/apps/mcp_server/package.json b/apps/mcp_server/package.json
+index 9310eed..ee7bdbd 100644
+--- a/apps/mcp_server/package.json
++++ b/apps/mcp_server/package.json
+@@ -1,6 +1,6 @@
+ {
+   "name": "@ajhochy/rhythm-mcp-server",
+-  "version": "0.2.0",
++  "version": "0.3.0",
+   "description": "MCP server for Rhythm — manage tasks, projects, and rhythms via Claude",
+   "type": "commonjs",
+   "main": "dist/index.js",
+diff --git a/apps/mcp_server/src/tools/rhythms.ts b/apps/mcp_server/src/tools/rhythms.ts
+index a6ec495..7ce97ca 100644
+--- a/apps/mcp_server/src/tools/rhythms.ts
++++ b/apps/mcp_server/src/tools/rhythms.ts
+@@ -3,6 +3,35 @@ import { z } from 'zod';
+ import { apiGet, apiPost, apiPatch, apiDelete, toolResult, toolError, decodeHtml } from '../api_client.js';
+ import { registerTool } from './_tool.js';
+ 
++const DAY_OF_WEEK_MAP: Record<string, number> = {
++  sunday: 0,
++  sun: 0,
++  monday: 1,
++  mon: 1,
++  tuesday: 2,
++  tue: 2,
++  tues: 2,
++  wednesday: 3,
++  wed: 3,
++  thursday: 4,
++  thu: 4,
++  thur: 4,
++  thurs: 4,
++  friday: 5,
++  fri: 5,
++  saturday: 6,
++  sat: 6,
++};
++
++export function parseDayOfWeek(input: string | undefined): number | null | undefined {
++  if (input === undefined) return undefined;
++  const normalized = input.trim().toLowerCase();
++  if (normalized in DAY_OF_WEEK_MAP) {
++    return DAY_OF_WEEK_MAP[normalized];
++  }
++  throw new Error('Invalid day_of_week: "' + input + '". Expected Sunday..Saturday.');
++}
++
+ export function registerRhythmTools(server: McpServer, apiUrl: string, apiToken: string) {
+   registerTool(server, 'rhythm_list_rhythms',
+     'List all recurring rules (rhythms).',
+@@ -87,4 +116,52 @@ export function registerRhythmTools(server: McpServer, apiUrl: string, apiToken:
+       }
+     },
+   );
++
++  registerTool(server, 'rhythm_add_rhythm_step',
++    "Add a step to an existing rhythm (recurring rule). Steps surface on their assigned day_of_week for weekly rhythms.",
++    {
++      rhythm_id: z.string().describe('Rhythm (recurring rule) ID.'),
++      title: z.string().describe('Step label.'),
++      day_of_week: z.string().optional().describe("Day this step surfaces, e.g. 'Monday' (required for weekly rhythms)."),
++      sort_order: z.number().int().min(0).optional().describe('0-based insertion index in the steps array. Defaults to append.'),
++    },
++    async ({ rhythm_id, title, day_of_week, sort_order }: { rhythm_id: string; title: string; day_of_week?: string; sort_order?: number }) => {
++      try {
++        const dayOfWeekNum = parseDayOfWeek(day_of_week);
++        const rhythm = await apiGet<{ id: string; steps?: Array<{ id: string; title: string; assigneeId: number | null; dayOfWeek: number | null; dayOfMonth: number | null; month: number | null }>; [k: string]: unknown }>(apiUrl, apiToken, `/recurring-rules/${rhythm_id}`);
++        const newStep: { title: string; assigneeId: null; dayOfWeek: number | null; dayOfMonth: null; month: null } = { title: decodeHtml(title), assigneeId: null, dayOfWeek: dayOfWeekNum ?? null, dayOfMonth: null, month: null };
++        const newSteps: Array<{ title: string; assigneeId: number | null; dayOfWeek: number | null; dayOfMonth: number | null; month: number | null; id?: string }> = [...(rhythm.steps ?? [])];
++        if (typeof sort_order === 'number' && sort_order >= 0 && sort_order <= newSteps.length) {
++          newSteps.splice(sort_order, 0, newStep);
++        } else {
++          newSteps.push(newStep);
++        }
++        const updated = await apiPatch(apiUrl, apiToken, `/recurring-rules/${rhythm_id}`, { steps: newSteps });
++        return toolResult(JSON.stringify(updated, null, 2));
++      } catch (err) {
++        return toolError(err);
++      }
++    },
++  );
++
++  registerTool(server, 'rhythm_delete_rhythm_step',
++    'Delete a step from an existing rhythm by step ID.',
++    {
++      rhythm_id: z.string().describe('Rhythm (recurring rule) ID.'),
++      step_id: z.string().describe('Step ID to remove from the rhythm.'),
++    },
++    async ({ rhythm_id, step_id }: { rhythm_id: string; step_id: string }) => {
++      try {
++        const rhythm = await apiGet<{ id: string; steps?: Array<{ id: string; title: string; assigneeId: number | null; dayOfWeek: number | null; dayOfMonth: number | null; month: number | null }>; [k: string]: unknown }>(apiUrl, apiToken, `/recurring-rules/${rhythm_id}`);
++        const filtered = (rhythm.steps ?? []).filter(s => s.id !== step_id);
++        if (filtered.length === (rhythm.steps?.length ?? 0)) {
++          return toolError(new Error(`Step ${step_id} not found on rhythm ${rhythm_id}.`));
++        }
++        await apiPatch(apiUrl, apiToken, `/recurring-rules/${rhythm_id}`, { steps: filtered });
++        return toolResult(`Step ${step_id} removed from rhythm ${rhythm_id}.`);
++      } catch (err) {
++        return toolError(err);
++      }
++    },
++  );
+ }
