@@ -310,10 +310,7 @@ function normalizeStep(step: unknown, index: number): RecurringTaskRuleStep | nu
       : typeof record.assigneeId === 'string' && record.assigneeId.trim() !== ''
         ? Number(record.assigneeId)
         : null;
-  const dayOfWeek =
-    typeof record.dayOfWeek === 'number' && Number.isFinite(record.dayOfWeek)
-      ? record.dayOfWeek
-      : null;
+  const dayOfWeek = coerceDayOfWeek(record.dayOfWeek ?? record.day_of_week);
   const dayOfMonth =
     typeof record.dayOfMonth === 'number' && Number.isFinite(record.dayOfMonth)
       ? record.dayOfMonth
