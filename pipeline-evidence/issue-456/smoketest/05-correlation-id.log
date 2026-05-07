@@ -1,0 +1,35 @@
+=== SYNTHETIC 500 / correlationId VERIFICATION ===
+Date: 2026-05-07
+
+TEST: POST malformed JSON body to trigger non-AppError 500
+COMMAND: curl -sS -w "\nHTTP_STATUS:%{http_code}" -X POST http://localhost:4000/recurring-rules \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d 'this is not json'
+
+RESPONSE BODY:
+{"error":{"code":"INTERNAL_ERROR","message":"Internal server error","correlationId":"a3df3976-8292-4096-900a-4c9a149133e8"}}
+HTTP_STATUS:500
+
+VERIFICATION:
+[PASS] Response contains correlationId: "a3df3976-8292-4096-900a-4c9a149133e8"
+[PASS] Response contains code: "INTERNAL_ERROR"
+[PASS] HTTP status is 500
+
+SERVER LOG (from /tmp/api-dev-server.log):
+[ERROR] Unhandled POST /recurring-rules [cid=a3df3976-8292-4096-900a-4c9a149133e8] {
+  authUserId: null,
+  body: {},
+  params: {},
+  error: {
+    message: `Unexpected token 't', "this is not json" is not valid JSON`,
+    stack: `SyntaxError: Unexpected token 't', "this is not json" is not valid JSON\n` +
+      '    at JSON.parse (<anonymous>)\n' +
+      '    at createStrictSyntaxError (...node_modules/body-parser/lib/types/json.js:169:10)\n' +
+      ...full stack trace present in log...
+    name: 'SyntaxError'
+  }
+}
+
+[PASS] Server log prints stack trace with matching correlationId.
+[PASS] error_handler correctly correlates client response with server log via correlationId.
