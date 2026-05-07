@@ -133,6 +133,63 @@ export class RecurringRulesController {
     }
   }
 
+  async addStep(req: Request, res: Response, next: NextFunction) {
+    try {
+      const userId = req.auth!.user.id;
+      const existing = await repo.findByIdAsync(req.params.id, userId);
+      const body = req.body as Record<string, unknown>;
+      const title = typeof body.title === 'string' ? body.title.trim() : '';
+      if (!title) throw AppError.badRequest('title is required');
+
+      const rawStep = {
+        title,
+        assigneeId: body.assigneeId ?? body.assignee_id ?? null,
+        dayOfWeek: body.dayOfWeek ?? body.day_of_week,
+        dayOfMonth: body.dayOfMonth ?? body.day_of_month,
+        month: body.month,
+      };
+
+      const newStep = normalizeStep(rawStep, existing.steps.length);
+      if (!newStep) throw AppError.badRequest('Invalid step payload');
+
+      validateSteps(existing.frequency, [newStep]);
+
+      const sortOrderRaw = body.sortOrder ?? body.sort_order;
+      let position = existing.steps.length;
+      if (typeof sortOrderRaw === 'number' && Number.isFinite(sortOrderRaw) && Number.isInteger(sortOrderRaw)) {
+        if (sortOrderRaw >= 0 && sortOrderRaw <= existing.steps.length) {
+          position = sortOrderRaw;
+        }
+      } else if (typeof sortOrderRaw === 'string' && /^[0-9]+$/.test(sortOrderRaw.trim())) {
+        const parsed = Number(sortOrderRaw.trim());
+        if (parsed >= 0 && parsed <= existing.steps.length) {
+          position = parsed;
+        }
+      }
+
+      const nextSteps = [...existing.steps];
+      nextSteps.splice(position, 0, newStep);
+
+      const rule = await repo.updateAsync(req.params.id, { steps: nextSteps }, userId);
+
+      await tasksRepo.deleteFutureOpenBySourceIdAsync('recurring_rule', rule.id);
+      if (rule.enabled) {
+        const weeks = parseInt(process.env.RECURRENCE_LOOKAHEAD_WEEKS ?? '', 10);
+        const lookahead = isNaN(weeks) ? DEFAULT_LOOKAHEAD_WEEKS : weeks;
+        const from = new Date();
+        const to = new Date();
+        to.setUTCDate(to.getUTCDate() + lookahead * 7);
+        await recurrenceService.generateInstances(rule, from, to);
+      }
+
+      const decorated = await this.decorateRule(rule, userId);
+      const persisted = decorated.steps.find((s) => s.id === newStep.id) ?? newStep;
+      res.status(201).json(persisted);
+    } catch (err) {
+      next(err);
+    }
+  }
+
   async getCollaborators(req: Request, res: Response, next: NextFunction) {
     try {
       await repo.findByIdAsync(req.params.id, req.auth!.user.id);
