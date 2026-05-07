@@ -1,0 +1,8 @@
+$ cd /Users/ajhochhalter/Documents/Rhythm/apps/mcp_server && npm run build
+
+> @ajhochy/rhythm-mcp-server@0.3.0 build
+> tsc -p tsconfig.json --noCheck
+
+Exit code: 0 (PASS)
+
+No test script found in package.json. Build-only verification performed.
