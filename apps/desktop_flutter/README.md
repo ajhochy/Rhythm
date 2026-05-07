@@ -33,31 +33,23 @@ runtime database each time.
 
 For Google Sign-In, the desktop app now expects `GOOGLE_DESKTOP_CLIENT_ID` as a Dart define. The packaged API must trust the same Firebase Apple client ID through `GOOGLE_AUTH_CLIENT_ID`.
 
-## Hosted vs local runtime
+## Runtime architecture
 
-Desktop builds default to hosted API mode and can choose between:
+The desktop app talks to two API servers:
 
-- local embedded API mode
-- hosted API mode
+- **Production API** (hosted at `https://api.vcrcapps.com`) — owns all user-facing data: tasks, projects, rhythms, messages, facilities, users. The URL is configurable at runtime via Settings → Server URL and persisted by `ServerConfigService`.
+- **Local CLI server** (`http://localhost:4001`) — a Node process bundled into the `.app` and spawned at launch by `AgentServerController`. Hosts agent endpoints (`/agent-sessions`, `/agents/capabilities`, `ws://localhost:4001/ws/agents`) and uses local SQLite. Always running; never points at production.
 
-Useful Dart defines:
+There is no longer an "embedded production API" build mode — the previous `RHYTHM_USE_EMBEDDED_API` / `RHYTHM_SERVER_URL` Dart defines have been removed.
 
-- `RHYTHM_SERVER_URL`
-- `RHYTHM_USE_EMBEDDED_API`
-
-Examples:
+Example:
 
 ```bash
-# Hosted/shared environment (default)
 flutter run -d macos \
   --dart-define=GOOGLE_DESKTOP_CLIENT_ID=<desktop-google-client-id>
-
-# Local development
-flutter run -d macos \
-  --dart-define=GOOGLE_DESKTOP_CLIENT_ID=<desktop-google-client-id> \
-  --dart-define=RHYTHM_SERVER_URL=http://localhost:4000 \
-  --dart-define=RHYTHM_USE_EMBEDDED_API=true
 ```
+
+To point at a different production API host during local dev, change it in Settings → Server URL inside the running app.
 
 ## Beta Distribution
 - Use the `Desktop Release` GitHub Actions workflow to build downloadable tester artifacts.

@@ -12,11 +12,6 @@ on:
         required: true
         default: true
         type: boolean
-      use_embedded_api:
-        description: 'Bundle and use the embedded local API instead of the hosted shared API'
-        required: true
-        default: false
-        type: boolean
       release_notes:
         description: 'Optional release notes override'
         required: false
@@ -45,8 +40,6 @@ jobs:
       PCO_APPLICATION_ID: ${{ secrets.PCO_APPLICATION_ID }}
       PCO_SECRET: ${{ secrets.PCO_SECRET }}
       PCO_REDIRECT_URI: ${{ secrets.PCO_REDIRECT_URI }}
-      RHYTHM_SERVER_URL: ${{ inputs.use_embedded_api && 'http://localhost:4000' || 'https://api.vcrcapps.com' }}
-      RHYTHM_USE_EMBEDDED_API: ${{ inputs.use_embedded_api && 'true' || 'false' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -65,8 +58,7 @@ jobs:
           flutter analyze --no-fatal-infos
           flutter test
 
-      - name: Build API server
-        if: ${{ inputs.use_embedded_api }}
+      - name: Build CLI server
         working-directory: apps/api_server
         run: |
           npm install
@@ -80,9 +72,7 @@ jobs:
           flutter build macos --release --config-only \
             --build-name="$RELEASE_VERSION" \
             --build-number="${{ github.run_number }}" \
-            --dart-define=GOOGLE_DESKTOP_CLIENT_ID="$GOOGLE_DESKTOP_CLIENT_ID" \
-            --dart-define=RHYTHM_SERVER_URL="$RHYTHM_SERVER_URL" \
-            --dart-define=RHYTHM_USE_EMBEDDED_API="$RHYTHM_USE_EMBEDDED_API"
+            --dart-define=GOOGLE_DESKTOP_CLIENT_ID="$GOOGLE_DESKTOP_CLIENT_ID"
 
       - name: Build macOS release
         working-directory: apps/desktop_flutter/macos
@@ -102,8 +92,7 @@ jobs:
           tools/release/verify_desktop_oauth_build.sh \
             apps/desktop_flutter/build/macos/Build/Products/Release/Rhythm.app
 
-      - name: Bundle API server into app
-        if: ${{ inputs.use_embedded_api }}
+      - name: Bundle CLI server into app
         working-directory: apps/desktop_flutter
         run: |
           APP="build/macos/Build/Products/Release/Rhythm.app"
@@ -116,14 +105,13 @@ jobs:
             cd "$DEST"
             npm install --omit=dev
           )
-          # Write OAuth secrets into a .env file loaded by the server at runtime
+          # Write OAuth secrets into a .env file loaded by the CLI server at runtime
           printf 'GOOGLE_CLIENT_ID=%s\nGOOGLE_AUTH_CLIENT_ID=%s\nGOOGLE_AUTH_CLIENT_SECRET=%s\nGOOGLE_CLIENT_SECRET=%s\nGOOGLE_REDIRECT_URI=%s\nPCO_APPLICATION_ID=%s\nPCO_SECRET=%s\nPCO_REDIRECT_URI=%s\n' \
             "$GOOGLE_CLIENT_ID" "$GOOGLE_AUTH_CLIENT_ID" "$GOOGLE_AUTH_CLIENT_SECRET" "$GOOGLE_CLIENT_SECRET" "$GOOGLE_REDIRECT_URI" \
             "$PCO_APPLICATION_ID" "$PCO_SECRET" "$PCO_REDIRECT_URI" \
             > "$DEST/.env"
 
-      - name: Verify bundled API payload
-        if: ${{ inputs.use_embedded_api }}
+      - name: Verify bundled CLI server payload
         working-directory: apps/desktop_flutter
         run: |
           DEST="build/macos/Build/Products/Release/Rhythm.app/Contents/Resources/api_server"
@@ -133,6 +121,73 @@ jobs:
           test -f "$DEST/.env"
           test -d "$DEST/node_modules"
           test -f "$DEST/node_modules/better-sqlite3/package.json"
+
+      - name: Smoke-test bundled CLI server
+        shell: bash
+        run: |
+          set -u
+          SCRIPT="apps/desktop_flutter/build/macos/Build/Products/Release/Rhythm.app/Contents/Resources/api_server/dist/server.js"
+          if [ ! -f "$SCRIPT" ]; then
+            echo "::error::Bundled CLI server not found at $SCRIPT"
+            exit 1
+          fi
+          AGENT_LOCAL=true PORT=4002 DB_PATH="$RUNNER_TEMP/smoke.db" NODE_ENV=test node "$SCRIPT" &
+          PID=$!
+          cleanup() {
+            kill $PID 2>/dev/null || true
+            sleep 2
+            kill -9 $PID 2>/dev/null || true
+          }
+          trap cleanup EXIT
+
+          HEALTH_OK=0
+          HEALTH_BODY=""
+          for i in $(seq 1 60); do
+            if ! kill -0 $PID 2>/dev/null; then
+              echo "::error::Bundled CLI server process exited before /health responded"
+              exit 1
+            fi
+            if HEALTH_BODY=$(curl -fsS http://localhost:4002/health 2>/dev/null); then
+              HEALTH_OK=1
+              break
+            fi
+            perl -e 'select(undef,undef,undef,0.25)'
+          done
+
+          if [ "$HEALTH_OK" -ne 1 ]; then
+            echo "::error::Timed out waiting for /health (15s window)"
+            exit 1
+          fi
+          echo "/health 200: $HEALTH_BODY"
+
+          CAPS_BODY=$(curl -fsS http://localhost:4002/agents/capabilities)
+          CAPS_STATUS=$?
+          if [ $CAPS_STATUS -ne 0 ]; then
+            echo "::error::/agents/capabilities did not return 200"
+            exit 1
+          fi
+          echo "/agents/capabilities 200: $CAPS_BODY"
+
+          printf '%s' "$CAPS_BODY" | node -e '
+            let data = "";
+            process.stdin.on("data", (c) => data += c);
+            process.stdin.on("end", () => {
+              let parsed;
+              try { parsed = JSON.parse(data); } catch (e) {
+                console.error("Response is not valid JSON:", e.message);
+                process.exit(1);
+              }
+              if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+                console.error("Response is not a JSON object");
+                process.exit(1);
+              }
+              if (typeof parsed.claude !== "boolean" || typeof parsed.codex !== "boolean") {
+                console.error("Response missing boolean claude/codex keys:", JSON.stringify(parsed));
+                process.exit(1);
+              }
+              console.log("capabilities OK:", JSON.stringify(parsed));
+            });
+          '
 
       - name: Package macOS artifacts
         working-directory: apps/desktop_flutter

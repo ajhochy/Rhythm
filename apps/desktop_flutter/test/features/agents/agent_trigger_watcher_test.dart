@@ -22,7 +22,8 @@ import 'package:rhythm_desktop/features/agents/repositories/agents_repository.da
 
 class _FakeApiServerService extends ApiServerService {
   @override
-  Future<bool> start() async => true;
+  Future<AgentServerStartResult> start() async =>
+      (ok: true, reason: null, stderrTail: null);
   @override
   Future<void> stop() async {}
 }

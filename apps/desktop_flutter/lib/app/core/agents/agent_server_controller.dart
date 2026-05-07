@@ -14,12 +14,34 @@ class AgentServerController extends ChangeNotifier {
 
   final ApiServerService _service;
   AgentServerStatus _status = AgentServerStatus.starting;
-  String? _errorMessage;
+  AgentServerFailureReason? _failureReason;
+  String? _stderrTail;
   Map<String, bool> _capabilities = const {};
 
   AgentServerStatus get status => _status;
   bool get isReady => _status == AgentServerStatus.ready;
-  String? get errorMessage => _errorMessage;
+  AgentServerFailureReason? get failureReason => _failureReason;
+  String? get stderrTail => _stderrTail;
+
+  String? get errorMessage {
+    switch (_failureReason) {
+      case AgentServerFailureReason.nodeNotFound:
+        return "Couldn't find Node.js on this Mac. Install Node 20 or newer "
+            'from nodejs.org and click Retry.';
+      case AgentServerFailureReason.bundleNotFound:
+        return 'The CLI server bundle is missing from this Rhythm install. '
+            'Please reinstall Rhythm from the latest release.';
+      case AgentServerFailureReason.spawnThrew:
+        return "Couldn't start the CLI server process. See technical details "
+            'below.';
+      case AgentServerFailureReason.healthCheckTimeout:
+        return "The CLI server started but didn't respond in time. See "
+            'technical details below.';
+      case null:
+        return null;
+    }
+  }
+
   Map<String, bool> get capabilities => _capabilities;
 
   bool isAgentAvailable(String kind) => _capabilities[kind] == true;
@@ -27,19 +49,18 @@ class AgentServerController extends ChangeNotifier {
 
   Future<void> initialize() async {
     _status = AgentServerStatus.starting;
-    _errorMessage = null;
+    _failureReason = null;
+    _stderrTail = null;
     _capabilities = const {};
     notifyListeners();
 
-    final ok = await _service.start();
-
-    _status = ok ? AgentServerStatus.ready : AgentServerStatus.failed;
-    if (!ok) {
-      _errorMessage = 'Could not start the local agent server.';
-    }
+    final result = await _service.start();
+    _status = result.ok ? AgentServerStatus.ready : AgentServerStatus.failed;
+    _failureReason = result.reason;
+    _stderrTail = result.stderrTail;
     notifyListeners();
 
-    if (ok) {
+    if (result.ok) {
       // Fire-and-forget; failures are non-fatal.
       unawaited(refreshCapabilities());
     }

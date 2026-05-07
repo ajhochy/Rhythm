@@ -29,7 +29,7 @@ class _AgentsViewState extends State<AgentsView> {
 
     // Capability guard — server failed.
     if (agentServerController.status == AgentServerStatus.failed) {
-      return const _AgentServerUnavailable();
+      return const AgentServerUnavailable();
     }
 
     // Capability guard — server ok but no CLI installed.
@@ -77,11 +77,14 @@ class _AgentsViewState extends State<AgentsView> {
 // Capability guard cards
 // ---------------------------------------------------------------------------
 
-class _AgentServerUnavailable extends StatelessWidget {
-  const _AgentServerUnavailable();
+class AgentServerUnavailable extends StatelessWidget {
+  const AgentServerUnavailable({super.key});
 
   @override
   Widget build(BuildContext context) {
+    final controller = context.watch<AgentServerController>();
+    final isStarting = controller.status == AgentServerStatus.starting;
+
     return Scaffold(
       backgroundColor: context.rhythm.canvas,
       body: Center(
@@ -120,6 +123,46 @@ class _AgentServerUnavailable extends StatelessWidget {
                   fontSize: 13,
                   color: context.rhythm.textSecondary,
                   height: 1.45,
+                ),
+              ),
+              const SizedBox(height: 16),
+              OutlinedButton(
+                onPressed: isStarting
+                    ? null
+                    : () => context.read<AgentServerController>().retry(),
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: context.rhythm.accent,
+                  side: BorderSide(color: context.rhythm.border),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 18,
+                    vertical: 10,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(RhythmRadius.md),
+                  ),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (isStarting) ...[
+                      SizedBox(
+                        width: 14,
+                        height: 14,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: context.rhythm.accent,
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                    ],
+                    const Text(
+                      'Retry',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ],

@@ -1,20 +1,52 @@
 # Agent Sessions — Manual Verification Matrix
 
 This checklist covers the five canonical scenarios for the dual-endpoint architecture
-(local agent server on port 4001 + production API at api.vcrcapps.com). Work through
-every scenario on a real macOS machine before merging the `agent-on-production` PR.
+(the bundled **CLI server** — the local Node process on port 4001 that talks to
+`claude`/`codex` — plus the hosted production API on Synology at api.vcrcapps.com).
+The bundled CLI server is a separate artifact from the hosted production API and
+must be verified inside the packaged `.app`, not from a dev checkout. Work through
+every scenario on a real macOS machine before publishing each release.
 
 **Before you start:**
 - Use a test account or clean workspace — do NOT run scenario 5 against real users' data.
-- Have the latest dev build running (`flutter run -d macos` from `apps/desktop_flutter`).
+- Download the **signed DMG** from the GitHub Release draft (or the local artifact
+  produced by `tools/release/sign_and_notarize_macos.sh`). Do not verify against
+  `flutter run -d macos` — `flutter run` resolves `apps/api_server` from the source
+  tree and will mask bundling regressions that only appear in the packaged `.app`.
+- Install `Rhythm.app` to `/Applications/` on a **clean macOS account** — not the
+  developer account that built the app. Gatekeeper attestation differs between the
+  signing account and a fresh user, so a clean account is the only honest test.
+- Launch `Rhythm.app` from `/Applications/` (Finder → Applications → Rhythm). Do
+  not launch from the DMG mount or a build directory.
 - If any scenario fails, file a follow-up issue with reproduction steps and link it here.
+
+---
+
+## Bundle existence pre-check
+
+Before working through any scenario, confirm the CLI server actually shipped inside
+the `.app`:
+
+```bash
+ls /Applications/Rhythm.app/Contents/Resources/api_server/dist/server.js
+```
+
+- [ ] The file exists and `ls` returns a path (not an error).
+
+**If the file is missing: STOP.** Do not publish this release. The CI smoke test
+should have caught this; the bundling workflow is broken. File a release-blocking
+issue, link it to this run, and halt verification until the bundle is fixed and a
+new DMG is produced.
 
 ---
 
 ## Scenario 1 — Happy path on production
 
 **Setup:** User signed in to api.vcrcapps.com. Local agent server running on 4001. Both
-`claude` and `codex` binaries are installed and on PATH.
+`claude` and `codex` binaries are installed and on PATH. On first launch, Settings →
+Agent Server should reach the green/running state within 5 seconds. If it's still
+spinning after 10 seconds or shows red, capture the **Copy diagnostics** output
+before retrying.
 
 - [ ] App launches and production data loads normally (tasks, projects, rhythms visible).
 - [ ] Settings → Agent Server row shows **green / running**.

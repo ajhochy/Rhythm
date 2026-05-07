@@ -2,11 +2,49 @@ import 'dart:io';
 
 import 'package:http/http.dart' as http;
 
+/// Distinct failure modes for [ApiServerService.start].
+enum AgentServerFailureReason {
+  nodeNotFound,
+  bundleNotFound,
+  spawnThrew,
+  healthCheckTimeout,
+}
+
+/// Result of attempting to start the local agent server.
+typedef AgentServerStartResult = ({
+  bool ok,
+  AgentServerFailureReason? reason,
+  String? stderrTail,
+});
+
 /// Manages the lifecycle of the local Node.js API server process.
 class ApiServerService {
   Process? _process;
 
+  /// Rolling buffer of recent stderr lines from the spawned server process.
+  /// Capped at 20 lines x 200 chars (~4 KB) to bound memory.
+  static const int _stderrBufferMaxLines = 20;
+  static const int _stderrBufferMaxLineChars = 200;
+  final List<String> _stderrBuffer = <String>[];
+
   bool get isRunning => _process != null;
+
+  void _appendStderr(String line) {
+    final trimmed =
+        line.endsWith('\n') ? line.substring(0, line.length - 1) : line;
+    final capped = trimmed.length > _stderrBufferMaxLineChars
+        ? trimmed.substring(0, _stderrBufferMaxLineChars)
+        : trimmed;
+    _stderrBuffer.add(capped);
+    if (_stderrBuffer.length > _stderrBufferMaxLines) {
+      _stderrBuffer.removeRange(
+        0,
+        _stderrBuffer.length - _stderrBufferMaxLines,
+      );
+    }
+  }
+
+  String _stderrTail() => _stderrBuffer.join('\n');
 
   Future<bool> checkHealth(String baseUrl) async {
     final normalized = baseUrl.trimRight().replaceAll(RegExp(r'/$'), '');
@@ -22,24 +60,35 @@ class ApiServerService {
   }
 
   /// Finds the node binary, starts the server process, and waits for it to
-  /// become healthy. Returns true if the server started successfully.
-  Future<bool> start() async {
+  /// become healthy. Returns a structured result describing success or the
+  /// specific failure mode encountered.
+  Future<AgentServerStartResult> start() async {
+    _stderrBuffer.clear();
+
     final existing = await _isServerReady();
     if (existing) {
       stdout.writeln('[ApiServerService] Reusing existing server on :4001.');
-      return true;
+      return (ok: true, reason: null, stderrTail: null);
     }
 
     final node = await _findNode();
     if (node == null) {
       stderr.writeln('[ApiServerService] Could not find node binary.');
-      return false;
+      return (
+        ok: false,
+        reason: AgentServerFailureReason.nodeNotFound,
+        stderrTail: null,
+      );
     }
 
     final serverInfo = await _findServer(node);
     if (serverInfo == null) {
       stderr.writeln('[ApiServerService] Could not locate api_server.');
-      return false;
+      return (
+        ok: false,
+        reason: AgentServerFailureReason.bundleNotFound,
+        stderrTail: null,
+      );
     }
 
     final dbPath = _dbPath();
@@ -48,31 +97,49 @@ class ApiServerService {
     );
     stdout.writeln('[ApiServerService] DB path: $dbPath');
 
-    _process = await Process.start(
-      serverInfo.executable,
-      serverInfo.args,
-      workingDirectory: serverInfo.workingDir,
-      environment: {
-        ...Platform.environment,
-        'PORT': '4001',
-        'DB_PATH': dbPath,
-        'AGENT_LOCAL': 'true',
-      },
-    );
+    try {
+      _process = await Process.start(
+        serverInfo.executable,
+        serverInfo.args,
+        workingDirectory: serverInfo.workingDir,
+        environment: {
+          ...Platform.environment,
+          'PORT': '4001',
+          'DB_PATH': dbPath,
+          'AGENT_LOCAL': 'true',
+        },
+      );
+    } catch (e) {
+      stderr.writeln('[ApiServerService] Process.start threw: $e');
+      return (
+        ok: false,
+        reason: AgentServerFailureReason.spawnThrew,
+        stderrTail: e.toString(),
+      );
+    }
 
     _process!.stdout
         .transform(const SystemEncoding().decoder)
         .listen((line) => stdout.write('[api_server] $line'));
-    _process!.stderr
-        .transform(const SystemEncoding().decoder)
-        .listen((line) => stderr.write('[api_server] $line'));
+    _process!.stderr.transform(const SystemEncoding().decoder).listen((line) {
+      stderr.write('[api_server] $line');
+      _appendStderr(line);
+    });
 
     _process!.exitCode.then((code) {
       stdout.writeln('[ApiServerService] Server exited with code $code');
       _process = null;
     });
 
-    return _waitForReady();
+    final ready = await _waitForReady();
+    if (ready) {
+      return (ok: true, reason: null, stderrTail: null);
+    }
+    return (
+      ok: false,
+      reason: AgentServerFailureReason.healthCheckTimeout,
+      stderrTail: _stderrTail(),
+    );
   }
 
   /// Terminates the server process.
