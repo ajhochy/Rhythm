@@ -4,5 +4,8 @@
   "private": true,
   "workspaces": [
     "apps/api_server"
-  ]
+  ],
+  "scripts": {
+    "postinstall": "node -e \"const{execSync}=require('child_process');['darwin-arm64','darwin-x64'].forEach(p=>{try{execSync('chmod +x node_modules/node-pty/prebuilds/'+p+'/spawn-helper')}catch(_){}});\""
+  }
 }
