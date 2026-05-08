@@ -677,4 +677,47 @@ export class FacilitiesController {
       next(err);
     }
   }
+
+  private parseAutomationFilters(req: Request): {
+    facilityId?: number;
+    startAfter?: string;
+    endBefore?: string;
+  } {
+    const filters: { facilityId?: number; startAfter?: string; endBefore?: string } = {};
+    const facilityIdRaw = req.query.facilityId;
+    if (typeof facilityIdRaw === 'string' && facilityIdRaw.trim().length > 0) {
+      const parsed = Number(facilityIdRaw);
+      if (Number.isFinite(parsed)) filters.facilityId = parsed;
+    }
+    const startAfterRaw = req.query.startAfter;
+    if (typeof startAfterRaw === 'string' && startAfterRaw.trim().length > 0) {
+      filters.startAfter = startAfterRaw;
+    }
+    const endBeforeRaw = req.query.endBefore;
+    if (typeof endBeforeRaw === 'string' && endBeforeRaw.trim().length > 0) {
+      filters.endBefore = endBeforeRaw;
+    }
+    return filters;
+  }
+
+  async previewAutomationReservations(req: Request, res: Response, next: NextFunction) {
+    try {
+      const filters = this.parseAutomationFilters(req);
+      const preview = await repo.previewAutomationReservationsAsync(filters);
+      res.json(preview);
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  async deleteAutomationReservations(req: Request, res: Response, next: NextFunction) {
+    try {
+      this.assertFacilitiesManager(req);
+      const filters = this.parseAutomationFilters(req);
+      const result = await repo.deleteAutomationReservationsAsync(filters);
+      res.json(result);
+    } catch (err) {
+      next(err);
+    }
+  }
 }
