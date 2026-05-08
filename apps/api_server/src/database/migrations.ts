@@ -747,10 +747,18 @@ export function runMigrations(db: Database.Database): void {
   db.exec(`CREATE INDEX IF NOT EXISTS idx_pending_claude_triggers_created_at ON pending_claude_triggers(created_at)`);
 
   // Agent Sessions (SQLite-only — intentionally local-device, no Postgres path)
+  //
+  // agent_kind TEXT — logical foreign key to agent_configs.id (not enforced at the SQLite level).
+  // Valid values are the id column of the agent_configs table (e.g. 'claude-code', 'codex',
+  // 'gemini-cli', 'opencode'). The migration block below normalises any historical variant
+  // spellings so that every row references a valid agent_configs.id after migrations run.
+  // Do NOT add a SQLite FOREIGN KEY constraint here — this repo does not enable FK enforcement
+  // globally, and doing so would cascade-affect unrelated tables.
   db.exec(`
     CREATE TABLE IF NOT EXISTS agent_sessions (
       id TEXT PRIMARY KEY,
       task_id TEXT REFERENCES tasks(id) ON DELETE SET NULL,
+      -- agent_kind references agent_configs.id (logical FK, not enforced at the DB level)
       agent_kind TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'starting',
       session_token TEXT,
@@ -867,5 +875,19 @@ export function runMigrations(db: Database.Database): void {
         'opencode',
         3
       );
+  `);
+
+  // Issue #483 — Normalise agent_sessions.agent_kind to valid agent_configs.id values.
+  // These UPDATEs are defensive: the listed legacy spellings should not exist in production
+  // data, but we cover the historical Dart wireValue surface to ensure every row is a valid
+  // logical FK reference after migrations run. Both statements are idempotent.
+  db.exec(`
+    UPDATE agent_sessions
+    SET agent_kind = 'claude-code'
+    WHERE agent_kind IN ('claude', 'claudeCode');
+
+    UPDATE agent_sessions
+    SET agent_kind = 'codex'
+    WHERE agent_kind IN ('codexCli');
   `);
 }

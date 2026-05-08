@@ -123,3 +123,123 @@ describe('agent_configs migration', () => {
     expect(count).toBe(4);
   });
 });
+
+describe('agent_sessions.agent_kind normalisation (issue #483)', () => {
+  it('normalises claudeCode to claude-code after migrations run', () => {
+    // Insert a legacy row BEFORE running migrations so we can verify the UPDATE fires.
+    // We use a raw DB without migrations first, insert the row, then run migrations.
+    const db = new Database(':memory:');
+    db.pragma('foreign_keys = OFF'); // skip FK enforcement so we can insert without full schema
+
+    // Create a minimal agent_sessions table with the legacy agent_kind value
+    db.exec(`
+      CREATE TABLE agent_sessions (
+        id TEXT PRIMARY KEY,
+        task_id TEXT,
+        agent_kind TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'starting',
+        session_token TEXT,
+        cwd TEXT NOT NULL,
+        name TEXT NOT NULL,
+        last_preview TEXT,
+        last_activity_at TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      )
+    `);
+    db.exec(`
+      INSERT INTO agent_sessions (id, agent_kind, cwd, name)
+      VALUES ('test-session-1', 'claudeCode', '/tmp', 'Legacy session')
+    `);
+
+    // Now run full migrations — the normalisation UPDATE should fire
+    runMigrations(db);
+
+    const row = db
+      .prepare(`SELECT agent_kind FROM agent_sessions WHERE id = 'test-session-1'`)
+      .get() as { agent_kind: string } | undefined;
+    expect(row).toBeDefined();
+    expect(row?.agent_kind).toBe('claude-code');
+  });
+
+  it('normalises codexCli to codex after migrations run', () => {
+    const db = new Database(':memory:');
+    db.pragma('foreign_keys = OFF');
+
+    db.exec(`
+      CREATE TABLE agent_sessions (
+        id TEXT PRIMARY KEY,
+        task_id TEXT,
+        agent_kind TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'starting',
+        session_token TEXT,
+        cwd TEXT NOT NULL,
+        name TEXT NOT NULL,
+        last_preview TEXT,
+        last_activity_at TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      )
+    `);
+    db.exec(`
+      INSERT INTO agent_sessions (id, agent_kind, cwd, name)
+      VALUES ('test-session-2', 'codexCli', '/tmp', 'Legacy codex session')
+    `);
+
+    runMigrations(db);
+
+    const row = db
+      .prepare(`SELECT agent_kind FROM agent_sessions WHERE id = 'test-session-2'`)
+      .get() as { agent_kind: string } | undefined;
+    expect(row).toBeDefined();
+    expect(row?.agent_kind).toBe('codex');
+  });
+
+  it('normalises legacy claude spelling to claude-code', () => {
+    const db = new Database(':memory:');
+    db.pragma('foreign_keys = OFF');
+
+    db.exec(`
+      CREATE TABLE agent_sessions (
+        id TEXT PRIMARY KEY,
+        task_id TEXT,
+        agent_kind TEXT NOT NULL,
+        status TEXT NOT NULL DEFAULT 'starting',
+        session_token TEXT,
+        cwd TEXT NOT NULL,
+        name TEXT NOT NULL,
+        last_preview TEXT,
+        last_activity_at TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      )
+    `);
+    db.exec(`
+      INSERT INTO agent_sessions (id, agent_kind, cwd, name)
+      VALUES ('test-session-3', 'claude', '/tmp', 'Legacy claude session')
+    `);
+
+    runMigrations(db);
+
+    const row = db
+      .prepare(`SELECT agent_kind FROM agent_sessions WHERE id = 'test-session-3'`)
+      .get() as { agent_kind: string } | undefined;
+    expect(row).toBeDefined();
+    expect(row?.agent_kind).toBe('claude-code');
+  });
+
+  it('already-normalised values are unchanged', () => {
+    const db = makeDb();
+    db.exec(`
+      INSERT INTO agent_sessions (id, agent_kind, cwd, name)
+      VALUES ('test-session-4', 'claude-code', '/tmp', 'Normal session')
+    `);
+    // Re-run migrations — idempotency check
+    runMigrations(db);
+
+    const row = db
+      .prepare(`SELECT agent_kind FROM agent_sessions WHERE id = 'test-session-4'`)
+      .get() as { agent_kind: string } | undefined;
+    expect(row?.agent_kind).toBe('claude-code');
+  });
+});
