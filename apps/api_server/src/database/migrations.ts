@@ -788,4 +788,84 @@ export function runMigrations(db: Database.Database): void {
   if (!agentSessionCols.includes('task_title')) {
     db.exec(`ALTER TABLE agent_sessions ADD COLUMN task_title TEXT`);
   }
+
+  // Agent Configs — user-configurable list of CLI agents (issue #481 / #466)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS agent_configs (
+      id TEXT PRIMARY KEY,
+      label TEXT NOT NULL,
+      icon TEXT NOT NULL,
+      command TEXT NOT NULL,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      is_agent INTEGER NOT NULL DEFAULT 1,
+      can_resume INTEGER NOT NULL DEFAULT 0,
+      resume_command TEXT,
+      session_id_pattern TEXT,
+      output_marker TEXT,
+      preset_id TEXT,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_agent_configs_enabled ON agent_configs(enabled);
+  `);
+
+  // Seed built-in preset rows (INSERT OR IGNORE keeps migration idempotent)
+  db.exec(`
+    INSERT OR IGNORE INTO agent_configs
+      (id, label, icon, command, is_agent, can_resume, resume_command, session_id_pattern, output_marker, preset_id, sort_order)
+    VALUES
+      (
+        'claude-code',
+        'Claude Code',
+        'assets/agents/claude-code.png',
+        'claude',
+        1,
+        1,
+        'claude --resume {{sessionId}}',
+        'Session ID:\\s+([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})',
+        '⏺',
+        'claude-code',
+        0
+      ),
+      (
+        'codex',
+        'Codex',
+        'assets/agents/codex.png',
+        'codex',
+        1,
+        0,
+        NULL,
+        NULL,
+        '•',
+        'codex',
+        1
+      ),
+      (
+        'gemini-cli',
+        'Gemini CLI',
+        'assets/agents/gemini-cli.png',
+        'gemini',
+        1,
+        0,
+        NULL,
+        NULL,
+        '✦',
+        'gemini-cli',
+        2
+      ),
+      (
+        'opencode',
+        'OpenCode',
+        'assets/agents/opencode.png',
+        'opencode',
+        1,
+        0,
+        NULL,
+        NULL,
+        '│',
+        'opencode',
+        3
+      );
+  `);
 }
