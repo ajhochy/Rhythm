@@ -5,6 +5,7 @@ import '../../../app/core/agents/agent_server_controller.dart';
 import '../../../app/core/ui/tokens/rhythm_theme.dart';
 import '../controllers/agent_configs_controller.dart';
 import '../widgets/agent_card.dart';
+import '../widgets/preset_picker.dart';
 
 class ManageAgentsView extends StatefulWidget {
   const ManageAgentsView({super.key});
@@ -51,26 +52,28 @@ class _ManageAgentsViewState extends State<ManageAgentsView> {
         actions: [
           Padding(
             padding: const EdgeInsets.only(right: 12),
-            child: TextButton.icon(
-              onPressed: () {
-                // Placeholder for #494
-              },
-              icon: Icon(Icons.add, size: 16, color: context.rhythm.accent),
-              label: Text(
-                'Add agent',
-                style: TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  color: context.rhythm.accent,
+            child: PresetPicker(
+              builder: (context, menuController, child) => TextButton.icon(
+                onPressed: () => menuController.isOpen
+                    ? menuController.close()
+                    : menuController.open(),
+                icon: Icon(Icons.add, size: 16, color: context.rhythm.accent),
+                label: Text(
+                  'Add agent',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: context.rhythm.accent,
+                  ),
                 ),
-              ),
-              style: TextButton.styleFrom(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 8,
-                ),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(RhythmRadius.md),
+                style: TextButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 8,
+                  ),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(RhythmRadius.md),
+                  ),
                 ),
               ),
             ),
@@ -83,11 +86,7 @@ class _ManageAgentsViewState extends State<ManageAgentsView> {
               child: CircularProgressIndicator(color: context.rhythm.accent),
             )
           : configs.isEmpty
-              ? _EmptyState(
-                  onAddAgent: () {
-                    // Placeholder for #494
-                  },
-                )
+              ? const _EmptyState()
               : ListView.builder(
                   padding: const EdgeInsets.all(20),
                   itemCount: configs.length,
@@ -113,9 +112,7 @@ class _ManageAgentsViewState extends State<ManageAgentsView> {
 // ---------------------------------------------------------------------------
 
 class _EmptyState extends StatelessWidget {
-  const _EmptyState({required this.onAddAgent});
-
-  final VoidCallback onAddAgent;
+  const _EmptyState();
 
   @override
   Widget build(BuildContext context) {
@@ -143,22 +140,27 @@ class _EmptyState extends StatelessWidget {
             style: TextStyle(fontSize: 13, color: context.rhythm.textSecondary),
           ),
           const SizedBox(height: 24),
-          FilledButton.icon(
-            onPressed: onAddAgent,
-            icon: const Icon(Icons.add, size: 16, color: Colors.white),
-            label: const Text(
-              'Add agent',
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-                color: Colors.white,
+          PresetPicker(
+            builder: (context, menuController, child) => FilledButton.icon(
+              onPressed: () => menuController.isOpen
+                  ? menuController.close()
+                  : menuController.open(),
+              icon: const Icon(Icons.add, size: 16, color: Colors.white),
+              label: const Text(
+                'Add agent',
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: Colors.white,
+                ),
               ),
-            ),
-            style: FilledButton.styleFrom(
-              backgroundColor: context.rhythm.accent,
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(RhythmRadius.pill),
+              style: FilledButton.styleFrom(
+                backgroundColor: context.rhythm.accent,
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(RhythmRadius.pill),
+                ),
               ),
             ),
           ),
