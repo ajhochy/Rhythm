@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../../app/core/services/server_config_service.dart';
 import '../../../app/core/ui/tokens/rhythm_theme.dart';
 import '../../../app/core/widgets/error_banner.dart';
 import '../controllers/facilities_controller.dart';
+import '../data/facilities_data_source.dart';
 import '../models/facility.dart';
 import '../models/reservation.dart';
 import '../models/reservation_series.dart';
@@ -145,6 +147,21 @@ class _FacilitiesViewState extends State<FacilitiesView> {
       builder: (_) => _ReservationDialog(
         controller: controller,
         facilities: controller.facilities,
+      ),
+    );
+  }
+
+  Future<void> _showAutomationCleanupDialog(
+    BuildContext context,
+    FacilitiesController controller,
+  ) async {
+    final serverConfig = context.read<ServerConfigService>();
+    await showDialog<void>(
+      context: context,
+      builder: (_) => _AutomationCleanupDialog(
+        facilities: controller.facilities,
+        baseUrl: serverConfig.url,
+        onCleanedUp: controller.loadFacilities,
       ),
     );
   }
@@ -2894,6 +2911,14 @@ class _RoomsManagerBar extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 16),
+          TextButton.icon(
+            onPressed: () =>
+                (context.findAncestorStateOfType<_FacilitiesViewState>())
+                    ?._showAutomationCleanupDialog(context, controller),
+            icon: Icon(Icons.cleaning_services_outlined, size: 18),
+            label: Text('Manage automation reservations'),
+          ),
+          const SizedBox(width: 8),
           OutlinedButton.icon(
             onPressed: () =>
                 (context.findAncestorStateOfType<_FacilitiesViewState>())
@@ -5774,6 +5799,260 @@ class _AvailabilityReservationRow extends StatelessWidget {
               ),
             ),
         ],
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Automation-reservation cleanup dialog
+// ---------------------------------------------------------------------------
+
+class _AutomationCleanupDialog extends StatefulWidget {
+  const _AutomationCleanupDialog({
+    required this.facilities,
+    required this.baseUrl,
+    required this.onCleanedUp,
+  });
+
+  final List<Facility> facilities;
+  final String baseUrl;
+  final VoidCallback onCleanedUp;
+
+  @override
+  State<_AutomationCleanupDialog> createState() =>
+      _AutomationCleanupDialogState();
+}
+
+class _AutomationCleanupDialogState extends State<_AutomationCleanupDialog> {
+  late final FacilitiesDataSource _dataSource;
+  AutomationReservationPreview? _preview;
+  bool _loading = true;
+  bool _deleting = false;
+  String? _error;
+  int? _facilityFilter;
+  DateTime? _startAfter;
+  DateTime? _endBefore;
+
+  @override
+  void initState() {
+    super.initState();
+    _dataSource = FacilitiesDataSource(baseUrl: widget.baseUrl);
+    _refreshPreview();
+  }
+
+  Future<void> _refreshPreview() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final preview = await _dataSource.previewAutomationReservations(
+        facilityId: _facilityFilter,
+        startAfter: _startAfter?.toUtc().toIso8601String(),
+        endBefore: _endBefore?.toUtc().toIso8601String(),
+      );
+      if (!mounted) return;
+      setState(() {
+        _preview = preview;
+        _loading = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = e.toString();
+        _loading = false;
+      });
+    }
+  }
+
+  Future<void> _doDelete() async {
+    setState(() => _deleting = true);
+    try {
+      final deleted = await _dataSource.deleteAutomationReservations(
+        facilityId: _facilityFilter,
+        startAfter: _startAfter?.toUtc().toIso8601String(),
+        endBefore: _endBefore?.toUtc().toIso8601String(),
+      );
+      if (!mounted) return;
+      Navigator.of(context).pop();
+      widget.onCleanedUp();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Deleted $deleted automation reservations.')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _error = e.toString();
+        _deleting = false;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Manage automation reservations'),
+      content: SizedBox(
+        width: 480,
+        child: _buildBody(context),
+      ),
+      actions: _buildActions(context),
+    );
+  }
+
+  Widget _buildBody(BuildContext context) {
+    if (_loading) {
+      return const SizedBox(
+        height: 80,
+        child: Center(child: CircularProgressIndicator()),
+      );
+    }
+    if (_error != null) {
+      return Text('Failed to load preview: $_error');
+    }
+    final preview = _preview!;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          preview.total == 0
+              ? 'No automation-created reservations to clean up.'
+              : 'This will permanently delete ${preview.total} '
+                  'reservation${preview.total == 1 ? '' : 's'} created by automation rules.',
+          style: const TextStyle(fontWeight: FontWeight.w600),
+        ),
+        if (preview.total > 0) ...[
+          const SizedBox(height: 12),
+          for (final entry in preview.byFacility)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 2),
+              child: Text('• ${entry.facilityName}: ${entry.count}'),
+            ),
+          const SizedBox(height: 16),
+          DropdownButtonFormField<int?>(
+            value: _facilityFilter,
+            isExpanded: true,
+            decoration: const InputDecoration(
+              labelText: 'Filter by facility (optional)',
+              border: OutlineInputBorder(),
+            ),
+            items: [
+              const DropdownMenuItem<int?>(
+                value: null,
+                child: Text('All facilities'),
+              ),
+              ...widget.facilities.map(
+                (f) => DropdownMenuItem<int?>(
+                  value: f.id,
+                  child: Text(f.name),
+                ),
+              ),
+            ],
+            onChanged: (value) {
+              setState(() => _facilityFilter = value);
+              _refreshPreview();
+            },
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(
+                child: _DatePickerField(
+                  label: 'Start after',
+                  value: _startAfter,
+                  onChanged: (date) {
+                    setState(() => _startAfter = date);
+                    _refreshPreview();
+                  },
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _DatePickerField(
+                  label: 'End before',
+                  value: _endBefore,
+                  onChanged: (date) {
+                    setState(() => _endBefore = date);
+                    _refreshPreview();
+                  },
+                ),
+              ),
+            ],
+          ),
+        ],
+      ],
+    );
+  }
+
+  List<Widget> _buildActions(BuildContext context) {
+    if (_loading) return [];
+    if (_preview == null || _preview!.total == 0) {
+      return [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Close'),
+        ),
+      ];
+    }
+    return [
+      TextButton(
+        onPressed: _deleting ? null : () => Navigator.of(context).pop(),
+        child: const Text('Cancel'),
+      ),
+      FilledButton(
+        style: FilledButton.styleFrom(backgroundColor: const Color(0xFFB42318)),
+        onPressed: _deleting ? null : _doDelete,
+        child: Text(
+          _deleting
+              ? 'Deleting…'
+              : 'Delete ${_preview!.total} reservation${_preview!.total == 1 ? '' : 's'}',
+        ),
+      ),
+    ];
+  }
+}
+
+class _DatePickerField extends StatelessWidget {
+  const _DatePickerField({
+    required this.label,
+    required this.value,
+    required this.onChanged,
+  });
+
+  final String label;
+  final DateTime? value;
+  final ValueChanged<DateTime?> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: () async {
+        final picked = await showDatePicker(
+          context: context,
+          initialDate: value ?? DateTime.now(),
+          firstDate: DateTime(2020),
+          lastDate: DateTime(2035),
+        );
+        if (picked != null || value != null) onChanged(picked);
+      },
+      child: InputDecorator(
+        decoration: InputDecoration(
+          labelText: label,
+          border: const OutlineInputBorder(),
+          suffixIcon: value != null
+              ? IconButton(
+                  icon: const Icon(Icons.clear, size: 16),
+                  onPressed: () => onChanged(null),
+                )
+              : null,
+        ),
+        child: Text(
+          value == null
+              ? 'Any'
+              : '${value!.year}-${value!.month.toString().padLeft(2, '0')}-${value!.day.toString().padLeft(2, '0')}',
+        ),
       ),
     );
   }

@@ -204,4 +204,99 @@ class FacilitiesDataSource {
     );
     assertOk(response);
   }
+
+  Future<AutomationReservationPreview> previewAutomationReservations({
+    int? facilityId,
+    String? startAfter,
+    String? endBefore,
+  }) async {
+    final query = <String, String>{};
+    if (facilityId != null) query['facilityId'] = '$facilityId';
+    if (startAfter != null && startAfter.isNotEmpty) {
+      query['startAfter'] = startAfter;
+    }
+    if (endBefore != null && endBefore.isNotEmpty) {
+      query['endBefore'] = endBefore;
+    }
+    final uri =
+        Uri.parse('$_baseUrl/facilities/automation-reservations/preview')
+            .replace(queryParameters: query.isEmpty ? null : query);
+    final response = await http.get(uri, headers: AuthSessionStore.headers());
+    assertOk(response);
+    return AutomationReservationPreview.fromJson(
+      jsonDecode(response.body) as Map<String, dynamic>,
+    );
+  }
+
+  Future<int> deleteAutomationReservations({
+    int? facilityId,
+    String? startAfter,
+    String? endBefore,
+  }) async {
+    final query = <String, String>{};
+    if (facilityId != null) query['facilityId'] = '$facilityId';
+    if (startAfter != null && startAfter.isNotEmpty) {
+      query['startAfter'] = startAfter;
+    }
+    if (endBefore != null && endBefore.isNotEmpty) {
+      query['endBefore'] = endBefore;
+    }
+    final uri = Uri.parse('$_baseUrl/facilities/automation-reservations')
+        .replace(queryParameters: query.isEmpty ? null : query);
+    final response =
+        await http.delete(uri, headers: AuthSessionStore.headers());
+    assertOk(response);
+    final body = jsonDecode(response.body) as Map<String, dynamic>;
+    return (body['deleted'] as num?)?.toInt() ?? 0;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Automation-reservation preview models
+// ---------------------------------------------------------------------------
+
+class AutomationReservationPreview {
+  const AutomationReservationPreview({
+    required this.total,
+    required this.byFacility,
+  });
+
+  final int total;
+  final List<AutomationReservationFacilityCount> byFacility;
+
+  factory AutomationReservationPreview.fromJson(Map<String, dynamic> json) {
+    final list = (json['byFacility'] as List<dynamic>? ?? const []);
+    return AutomationReservationPreview(
+      total: (json['total'] as num?)?.toInt() ?? 0,
+      byFacility: list
+          .map(
+            (item) => AutomationReservationFacilityCount.fromJson(
+              item as Map<String, dynamic>,
+            ),
+          )
+          .toList(),
+    );
+  }
+}
+
+class AutomationReservationFacilityCount {
+  const AutomationReservationFacilityCount({
+    required this.facilityId,
+    required this.facilityName,
+    required this.count,
+  });
+
+  final int facilityId;
+  final String facilityName;
+  final int count;
+
+  factory AutomationReservationFacilityCount.fromJson(
+    Map<String, dynamic> json,
+  ) {
+    return AutomationReservationFacilityCount(
+      facilityId: (json['facilityId'] as num?)?.toInt() ?? 0,
+      facilityName: (json['facilityName'] as String?) ?? '',
+      count: (json['count'] as num?)?.toInt() ?? 0,
+    );
+  }
 }
