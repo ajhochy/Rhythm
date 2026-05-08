@@ -23,6 +23,8 @@ abstract class AgentWsMessage {
         return TranscriptAppendMessage.fromJson(json);
       case 'trigger.fired':
         return TriggerFiredMessage.fromJson(json);
+      case 'notification.push':
+        return NotificationPushMessage.fromJson(json);
       case 'error':
         return WsErrorMessage.fromJson(json);
       default:
@@ -164,6 +166,26 @@ class TriggerFiredMessage extends AgentWsMessage {
       taskId: asString(json['taskId']) ?? '',
       taskTitle: asString(json['taskTitle']) ?? '',
       triggeredByUserId: asInt(json['triggeredByUserId']),
+    );
+  }
+}
+
+class NotificationPushMessage extends AgentWsMessage {
+  const NotificationPushMessage({
+    required this.id,
+    required this.title,
+    required this.body,
+  });
+
+  final int id;
+  final String title;
+  final String body;
+
+  factory NotificationPushMessage.fromJson(Map<String, dynamic> json) {
+    return NotificationPushMessage(
+      id: asInt(json['id']) ?? 0,
+      title: asString(json['title']) ?? '',
+      body: asString(json['body']) ?? '',
     );
   }
 }
