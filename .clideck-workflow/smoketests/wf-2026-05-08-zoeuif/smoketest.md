@@ -3,6 +3,25 @@
 Project: Rhythm (Flutter desktop app at `/Users/ajhochhalter/Documents/Rhythm/apps/desktop_flutter/`)
 Scope: Verify that agent start buttons in the trigger bubble surface inline error feedback when session creation fails, while preserving the success path. Strictly UI/error feedback — no loading states, no SnackBar.
 
+## Pre-flight required: export RHYTHM_LOCAL_SMOKE=1
+
+**Always run the following before `flutter run` smoke sessions** to prevent
+accidental DELETE requests against the production `claude-triggers` endpoint:
+
+```bash
+export RHYTHM_LOCAL_SMOKE=1
+```
+
+Or pass it as a dart-define:
+```bash
+flutter run -d macos --dart-define=RHYTHM_LOCAL_SMOKE=1
+```
+
+When set, `AgentTriggerWatcher` is silenced and logs
+`[AgentTriggerWatcher] RHYTHM_LOCAL_SMOKE=1 detected — watcher is disabled for this run.`
+
+---
+
 ## Pre-flight
 
 - [x] ❌ **Tooling clean**
