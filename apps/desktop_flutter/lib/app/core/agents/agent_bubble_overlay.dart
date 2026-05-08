@@ -367,7 +367,6 @@ class _ExpandedTriggerBubble extends StatefulWidget {
 }
 
 class _ExpandedTriggerBubbleState extends State<_ExpandedTriggerBubble> {
-  // ignore: unused_field — rendered in Issue #470
   String? _errorMessage;
 
   Future<void> startAgent(AgentKind kind) async {
@@ -396,7 +395,7 @@ class _ExpandedTriggerBubbleState extends State<_ExpandedTriggerBubble> {
 
     return Container(
       width: 360,
-      height: 220,
+      height: _errorMessage == null ? 220 : 260,
       decoration: BoxDecoration(
         color: context.rhythm.surfaceRaised,
         borderRadius: BorderRadius.circular(RhythmRadius.xl),
@@ -485,6 +484,19 @@ class _ExpandedTriggerBubbleState extends State<_ExpandedTriggerBubble> {
                 ),
               ],
             ),
+            if (_errorMessage != null) ...[
+              const SizedBox(height: 8),
+              Text(
+                _errorMessage!,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 11.5,
+                  color: context.rhythm.danger,
+                  height: 1.3,
+                ),
+              ),
+            ],
             const SizedBox(height: 8),
 
             // Dismiss link
