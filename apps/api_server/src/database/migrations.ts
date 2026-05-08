@@ -890,4 +890,39 @@ export function runMigrations(db: Database.Database): void {
     SET agent_kind = 'codex'
     WHERE agent_kind IN ('codexCli');
   `);
+
+  // Issue #497 — Verify Gemini CLI end-to-end and lock in seed values.
+  //
+  // Smoke-test findings (gemini 0.41.2, run 2026-05-08):
+  //   • `which gemini` → /usr/local/bin/gemini  ✓ on PATH
+  //   • command = 'gemini' is correct; the binary starts an interactive PTY session.
+  //   • output_marker = '✦' is confirmed: Gemini's docs list ✦ as its "Working" state
+  //     icon (see configuration.md: "Working: ✦"), making it the correct activity glyph.
+  //   • can_resume = 0 is intentional:
+  //       Gemini's default interactive mode uses React Ink for its TUI. The session ID
+  //       is an internal implementation detail — it does NOT appear as a parseable
+  //       plain-text line in the PTY stdout stream. `gemini --output-format stream-json`
+  //       DOES emit {"type":"init","session_id":"<UUID>",...}, but that mode collects all
+  //       stdin before processing (non-interactive), making it unsuitable for a live chat
+  //       PTY. The CLI supports `gemini --resume <UUID>`, but without a way to capture
+  //       the UUID from the PTY stream, server-side resume cannot be wired up. A future
+  //       enhancement could use `gemini --session-id <UUID>` at spawn time so Rhythm
+  //       supplies the UUID itself (session.id) rather than parsing it from output; that
+  //       would require a PTY-runner change and is tracked separately.
+  //   • session_id_pattern = NULL for the same reason as can_resume = 0.
+  //
+  // This UPDATE is idempotent — it re-asserts the same values that the seed INSERT set,
+  // ensuring any existing dev DB that ran the original seed is aligned with the verified
+  // values after this migration block executes.
+  db.exec(`
+    UPDATE agent_configs
+    SET
+      command        = 'gemini',
+      can_resume     = 0,
+      resume_command = NULL,
+      session_id_pattern = NULL,
+      output_marker  = '✦',
+      updated_at     = datetime('now')
+    WHERE id = 'gemini-cli';
+  `);
 }

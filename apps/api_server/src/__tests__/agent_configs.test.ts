@@ -96,6 +96,10 @@ describe('agent_configs migration', () => {
     expect(row?.label).toBe('Gemini CLI');
     expect(row?.command).toBe('gemini');
     expect(row?.can_resume).toBe(0);
+    // Interactive PTY mode does not emit a parseable session ID — see migration comment
+    // in migrations.ts (issue #497) for full rationale.
+    expect(row?.session_id_pattern).toBeNull();
+    expect(row?.resume_command).toBeNull();
     expect(row?.output_marker).toBe('✦');
     expect(row?.preset_id).toBe('gemini-cli');
   });
