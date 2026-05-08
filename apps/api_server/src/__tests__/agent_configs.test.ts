@@ -112,7 +112,11 @@ describe('agent_configs migration', () => {
     expect(row).toBeDefined();
     expect(row?.label).toBe('OpenCode');
     expect(row?.command).toBe('opencode');
-    expect(row?.can_resume).toBe(0);
+    // Issue #498: can_resume is 1 — opencode --session <id> successfully resumes sessions.
+    expect(row?.can_resume).toBe(1);
+    expect(row?.resume_command).toBe('opencode --session {{sessionId}}');
+    // session_id_pattern captures the ses_* ID emitted in every JSON event line.
+    expect(row?.session_id_pattern).toBe('(ses_[a-zA-Z0-9]{10,})');
     expect(row?.output_marker).toBe('│');
     expect(row?.preset_id).toBe('opencode');
   });

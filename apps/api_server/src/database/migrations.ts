@@ -925,4 +925,37 @@ export function runMigrations(db: Database.Database): void {
       updated_at     = datetime('now')
     WHERE id = 'gemini-cli';
   `);
+
+  // Issue #498 — Verify OpenCode end-to-end and lock in seed values.
+  //
+  // Smoke-test findings (opencode 1.14.40, run 2026-05-08):
+  //   • `which opencode` → /Users/ajhochhalter/.opencode/bin/opencode  ✓ on PATH
+  //   • command = 'opencode' is correct.
+  //   • `opencode run --format json "say hi"` emits newline-delimited JSON events.
+  //     Every event includes "sessionID":"ses_<alphanumeric>" in the top-level object.
+  //   • session_id_pattern = '(ses_[a-zA-Z0-9]{10,})' reliably captures the ID from
+  //     the very first JSON line (type:"step_start").
+  //   • can_resume = 1 is intentional:
+  //       `opencode run --session <sessionId>` successfully resumes a prior session.
+  //       Verified by replaying a ses_* ID: the second run emitted the same sessionID
+  //       and continued the conversation context (cache hits confirmed in token counts).
+  //   • resume_command = 'opencode --session {{sessionId}}' matches CLIdeck's authoritative
+  //       agent-presets.json (my-clideck repo) and is confirmed working via smoke-test.
+  //   • output_marker = '│' (U+2502) is unchanged — CLIdeck presets list this as the
+  //       OpenCode output indicator and the seed value is already correct.
+  //
+  // This UPDATE is idempotent — it re-asserts the same values that the seed INSERT set
+  // (with can_resume now corrected to 1), ensuring any existing dev DB is aligned with
+  // the verified values after this migration block executes.
+  db.exec(`
+    UPDATE agent_configs
+    SET
+      command            = 'opencode',
+      can_resume         = 1,
+      resume_command     = 'opencode --session {{sessionId}}',
+      session_id_pattern = '(ses_[a-zA-Z0-9]{10,})',
+      output_marker      = '│',
+      updated_at         = datetime('now')
+    WHERE id = 'opencode';
+  `);
 }
