@@ -212,11 +212,15 @@ class RhythmApp extends StatelessWidget {
           ),
         ),
         ChangeNotifierProvider(
-          create: (_) {
+          create: (ctx) {
             final ds = AgentsDataSource();
             final repo = AgentsRepository(ds);
-            final controller = AgentsController(repo, agentServerController)
-              ..initialize();
+            final controller = AgentsController(
+              repo,
+              agentServerController,
+              localNotificationService,
+              ctx.read<NotificationsController>(),
+            )..initialize();
             _maybeSeedDebugTrigger(controller);
             return controller;
           },
