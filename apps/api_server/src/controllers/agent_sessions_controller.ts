@@ -3,10 +3,9 @@ import type { NextFunction, Request, Response } from 'express';
 import { AppError } from '../errors/app_error';
 import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
 import { AgentSessionMessagesRepository } from '../repositories/agent_session_messages_repository';
+import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
 import type { AgentKind, CreateAgentSessionDto } from '../models/agent_session';
 import * as ptyRunner from '../services/pty_runner';
-
-const VALID_AGENT_KINDS: AgentKind[] = ['claude-code', 'codex'];
 
 const repo = new AgentSessionsRepository();
 const messagesRepo = new AgentSessionMessagesRepository();
@@ -50,9 +49,13 @@ export class AgentSessionsController {
       if (!agentKind || typeof agentKind !== 'string') {
         throw AppError.badRequest('agentKind is required');
       }
-      if (!VALID_AGENT_KINDS.includes(agentKind as AgentKind)) {
+      // Validate that a matching, enabled agent config exists
+      const agentConfig = new AgentConfigsRepository().getById(agentKind);
+      if (!agentConfig || !agentConfig.enabled) {
         throw AppError.badRequest(
-          `agentKind must be one of: ${VALID_AGENT_KINDS.join(', ')}`,
+          agentConfig
+            ? `Agent '${agentKind}' is disabled`
+            : `No agent config found for id '${agentKind}'`,
         );
       }
       if (!cwd || typeof cwd !== 'string' || cwd.trim() === '') {
@@ -125,10 +128,6 @@ export class AgentSessionsController {
     try {
       const session = repo.findById(req.params.id);
       if (!session) throw AppError.notFound('AgentSession');
-
-      if (session.agentKind === 'codex') {
-        throw AppError.badRequest('codex resume not supported in v1');
-      }
 
       if (session.status !== 'resumable' || !session.sessionToken) {
         throw AppError.badRequest(
