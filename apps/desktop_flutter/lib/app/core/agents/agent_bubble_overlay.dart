@@ -392,6 +392,10 @@ class _ExpandedTriggerBubbleState extends State<_ExpandedTriggerBubble> {
   @override
   Widget build(BuildContext context) {
     final overlay = context.read<OverlayController>();
+    final agentServer = context.watch<AgentServerController>();
+    final claudeAvailable = agentServer.isAgentAvailable('claude');
+    final codexAvailable = agentServer.isAgentAvailable('codex');
+    final hasAnyAgent = claudeAvailable || codexAvailable;
 
     return Container(
       width: 360,
@@ -465,25 +469,38 @@ class _ExpandedTriggerBubbleState extends State<_ExpandedTriggerBubble> {
             const Spacer(),
 
             // Action buttons
-            Row(
-              children: [
-                Expanded(
-                  child: _TriggerButton(
-                    label: 'Start with Claude',
-                    color: const Color(0xFF6B46C1),
-                    onPressed: () => startAgent(AgentKind.claudeCode),
-                  ),
+            if (hasAnyAgent)
+              Row(
+                children: [
+                  if (claudeAvailable)
+                    Expanded(
+                      child: _TriggerButton(
+                        label: 'Start with Claude',
+                        color: const Color(0xFF6B46C1),
+                        onPressed: () => startAgent(AgentKind.claudeCode),
+                      ),
+                    ),
+                  if (claudeAvailable && codexAvailable)
+                    const SizedBox(width: 8),
+                  if (codexAvailable)
+                    Expanded(
+                      child: _TriggerButton(
+                        label: 'Start with Codex',
+                        color: const Color(0xFF059669),
+                        onPressed: () => startAgent(AgentKind.codex),
+                      ),
+                    ),
+                ],
+              )
+            else
+              Text(
+                'No AI agents installed. Configure agents in Settings.',
+                style: TextStyle(
+                  fontSize: 11.5,
+                  color: context.rhythm.textSecondary,
+                  height: 1.35,
                 ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: _TriggerButton(
-                    label: 'Start with Codex',
-                    color: const Color(0xFF059669),
-                    onPressed: () => startAgent(AgentKind.codex),
-                  ),
-                ),
-              ],
-            ),
+              ),
             if (_errorMessage != null) ...[
               const SizedBox(height: 8),
               Text(
