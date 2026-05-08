@@ -1522,6 +1522,7 @@ class _NewSessionDialogState extends State<_NewSessionDialog> {
             const SizedBox(height: 6),
             DropdownButtonFormField<Task?>(
               value: _selectedTask,
+              isExpanded: true,
               dropdownColor: context.rhythm.surfaceRaised,
               decoration: _inputDecoration(context, hint: 'No task linked'),
               style: TextStyle(
