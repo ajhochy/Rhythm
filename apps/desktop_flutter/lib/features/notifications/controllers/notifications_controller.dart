@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
+import '../models/agent_notification.dart';
 import '../models/app_notification.dart';
 import '../repositories/notifications_repository.dart';
 
@@ -19,11 +20,18 @@ class NotificationsController extends ChangeNotifier {
 
   List<AppNotification> _notifications = [];
   Timer? _pollingTimer;
+  final List<AgentNotification> _agentNotifications = [];
   PendingNavigation? _pendingNavigation;
 
   List<AppNotification> get notifications => _notifications;
-  int get unreadCount => _notifications.length;
+  int get unreadCount => _notifications.length + unreadAgentCount;
   PendingNavigation? get pendingNavigation => _pendingNavigation;
+
+  List<AgentNotification> get agentNotifications =>
+      List.unmodifiable(_agentNotifications.reversed.toList());
+
+  int get unreadAgentCount =>
+      _agentNotifications.where((n) => !n.isRead).length;
 
   /// Start polling every 60 seconds. Call once when the app is ready.
   void startPolling() {
@@ -35,6 +43,20 @@ class NotificationsController extends ChangeNotifier {
   void stopPolling() {
     _pollingTimer?.cancel();
     _pollingTimer = null;
+  }
+
+  void pushAgentNotification({
+    required int id,
+    required String title,
+    required String body,
+  }) {
+    _agentNotifications.add(AgentNotification(
+      id: id,
+      title: title,
+      body: body,
+      receivedAt: DateTime.now(),
+    ));
+    notifyListeners();
   }
 
   Future<void> _poll() async {
@@ -58,6 +80,9 @@ class NotificationsController extends ChangeNotifier {
     try {
       await _repository.markAllRead();
       _notifications = [];
+      for (final n in _agentNotifications) {
+        n.isRead = true;
+      }
       notifyListeners();
     } catch (_) {}
   }

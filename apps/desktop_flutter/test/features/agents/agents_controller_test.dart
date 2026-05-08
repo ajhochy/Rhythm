@@ -2,12 +2,16 @@ import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:rhythm_desktop/app/core/agents/agent_server_controller.dart';
+import 'package:rhythm_desktop/app/core/notifications/local_notification_service.dart';
 import 'package:rhythm_desktop/app/core/server/api_server_service.dart';
 import 'package:rhythm_desktop/features/agents/controllers/agents_controller.dart';
 import 'package:rhythm_desktop/features/agents/models/agent_session.dart';
 import 'package:rhythm_desktop/features/agents/models/agent_session_message.dart';
 import 'package:rhythm_desktop/features/agents/models/agent_ws_message.dart';
 import 'package:rhythm_desktop/features/agents/repositories/agents_repository.dart';
+import 'package:rhythm_desktop/features/notifications/controllers/notifications_controller.dart';
+import 'package:rhythm_desktop/features/notifications/data/notifications_data_source.dart';
+import 'package:rhythm_desktop/features/notifications/repositories/notifications_repository.dart';
 
 // ---------------------------------------------------------------------------
 // Fake AgentServerController
@@ -121,6 +125,31 @@ class _FakeAgentsRepository implements AgentsRepository {
 }
 
 // ---------------------------------------------------------------------------
+// Fake notification dependencies
+// ---------------------------------------------------------------------------
+
+class _FakeLocalNotificationService extends LocalNotificationService {
+  @override
+  Future<void> showMessageNotification({
+    required int id,
+    required String title,
+    required String body,
+  }) async {}
+}
+
+class _FakeNotificationsController extends NotificationsController {
+  _FakeNotificationsController()
+      : super(NotificationsRepository(NotificationsDataSource()));
+
+  @override
+  void pushAgentNotification({
+    required int id,
+    required String title,
+    required String body,
+  }) {}
+}
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
@@ -142,6 +171,8 @@ AgentSession _makeSession(String id, AgentSessionStatus status) {
 // ---------------------------------------------------------------------------
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
   late _FakeAgentsRepository fakeRepo;
   late AgentsController controller;
 
@@ -150,6 +181,8 @@ void main() {
     controller = AgentsController(
       fakeRepo,
       _FakeAgentServerController(ready: true, anyAgent: true),
+      _FakeLocalNotificationService(),
+      _FakeNotificationsController(),
     );
   });
 
@@ -198,6 +231,8 @@ void main() {
       final notReadyController = AgentsController(
         fakeRepo,
         _FakeAgentServerController(ready: false, anyAgent: false),
+        _FakeLocalNotificationService(),
+        _FakeNotificationsController(),
       );
       addTearDown(notReadyController.dispose);
 

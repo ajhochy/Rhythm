@@ -12,6 +12,16 @@ facilitiesRouter.get(
   controller.getAllReservations.bind(controller),
 );
 facilitiesRouter.post('/', controller.create.bind(controller));
+// IMPORTANT: register these BEFORE the /:id-prefixed routes so Express
+// doesn't capture "automation-reservations" as a facility id.
+facilitiesRouter.get(
+  '/automation-reservations/preview',
+  controller.previewAutomationReservations.bind(controller),
+);
+facilitiesRouter.delete(
+  '/automation-reservations',
+  controller.deleteAutomationReservations.bind(controller),
+);
 facilitiesRouter.patch('/:id', controller.update.bind(controller));
 facilitiesRouter.delete('/:id', controller.remove.bind(controller));
 facilitiesRouter.get('/:id/reservations', controller.getReservations.bind(controller));

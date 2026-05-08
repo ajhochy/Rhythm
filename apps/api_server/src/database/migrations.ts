@@ -958,4 +958,15 @@ export function runMigrations(db: Database.Database): void {
       updated_at         = datetime('now')
     WHERE id = 'opencode';
   `);
+
+  // agent_notifications — local delivery store for MCP-initiated push notifications
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS agent_notifications (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      title TEXT NOT NULL,
+      body TEXT NOT NULL,
+      read_at TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )
+  `);
 }

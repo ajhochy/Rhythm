@@ -1,8 +1,11 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
 
 import '../../../app/core/agents/agent_server_controller.dart';
+import '../../../app/core/notifications/local_notification_service.dart';
+import '../../notifications/controllers/notifications_controller.dart';
 import '../models/agent_session.dart';
 import '../models/agent_session_message.dart';
 import '../models/agent_ws_message.dart';
@@ -22,11 +25,25 @@ class PendingTrigger {
   final DateTime arrivedAt;
 }
 
-class AgentsController extends ChangeNotifier {
-  AgentsController(this._repository, this._agentServerController);
+class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
+  AgentsController(
+    this._repository,
+    this._agentServerController,
+    this._notificationService,
+    this._notificationsController,
+  );
 
   final AgentsRepository _repository;
   final AgentServerController _agentServerController;
+  final LocalNotificationService _notificationService;
+  final NotificationsController _notificationsController;
+
+  AppLifecycleState _lifecycleState = AppLifecycleState.resumed;
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    _lifecycleState = state;
+  }
 
   AgentsLoadStatus _status = AgentsLoadStatus.idle;
   String? _error;
@@ -75,6 +92,7 @@ class AgentsController extends ChangeNotifier {
   // --------------------------------------------------------------------------
 
   Future<void> initialize() async {
+    WidgetsBinding.instance.addObserver(this);
     if (!_agentServerController.isReady ||
         !_agentServerController.hasAnyAgent) {
       // Agent server not ready or no CLI installed → skip WebSocket connect;
@@ -300,6 +318,19 @@ class AgentsController extends ChangeNotifier {
         taskTitle: msg.taskTitle,
         arrivedAt: DateTime.now(),
       ));
+    } else if (msg is NotificationPushMessage) {
+      _notificationsController.pushAgentNotification(
+        id: msg.id,
+        title: msg.title,
+        body: msg.body,
+      );
+      if (_lifecycleState != AppLifecycleState.resumed) {
+        _notificationService.showMessageNotification(
+          id: msg.id,
+          title: msg.title,
+          body: msg.body,
+        );
+      }
     }
     notifyListeners();
   }
@@ -310,6 +341,7 @@ class AgentsController extends ChangeNotifier {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _wsSub?.cancel();
     _repository.dispose();
     super.dispose();

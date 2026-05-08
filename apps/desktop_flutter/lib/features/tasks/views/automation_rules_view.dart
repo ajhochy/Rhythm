@@ -3,8 +3,11 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../../app/core/services/server_config_service.dart';
 import '../../../app/core/ui/tokens/rhythm_theme.dart';
 import '../../../app/core/widgets/error_banner.dart';
+import '../../facilities/data/facilities_data_source.dart';
+import '../../facilities/models/facility.dart';
 import '../../integrations/models/integration_account.dart';
 import '../../integrations/models/planning_center_task_options.dart';
 import '../controllers/automation_rules_controller.dart';
@@ -746,6 +749,9 @@ class _AutomationBuilderDialogState extends State<_AutomationBuilderDialog> {
   String? _selectedTemplateName;
   late final FocusNode _titleTemplateFocus;
   late final FocusNode _notesTemplateFocus;
+  List<Facility> _dialogFacilities = [];
+  int? _selectedFacilityId;
+  bool _facilitiesLoading = false;
 
   @override
   void initState() {
@@ -839,10 +845,18 @@ class _AutomationBuilderDialogState extends State<_AutomationBuilderDialog> {
           ),
         )
         .toList();
+    _selectedFacilityId = widget.existing?.actionConfig?['facilityId'] is int
+        ? widget.existing!.actionConfig!['facilityId'] as int
+        : (widget.existing?.actionConfig?['facilityId'] is num
+            ? (widget.existing!.actionConfig!['facilityId'] as num).toInt()
+            : null);
     _syncAccountSelectionWithSource();
     if (existing == null && _nameController.text.trim().isEmpty) {
       _nameController.text = _suggestedName();
     }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _loadFacilitiesIfNeeded();
+    });
   }
 
   @override
@@ -874,15 +888,18 @@ class _AutomationBuilderDialogState extends State<_AutomationBuilderDialog> {
     final trigger =
         triggers.where((item) => item.key == _selectedTriggerKey).firstOrNull;
     final isPco = _selectedSource == 'planning_center';
+    final isGoogleCalendar = _selectedSource == 'google_calendar';
     final availableActions = isPco
         ? widget.controller.actions
-            .where(
-              (item) =>
-                  item.key == 'create_task' ||
-                  item.key == 'create_project_from_template',
-            )
+            .where((item) =>
+                item.key == 'create_task' ||
+                item.key == 'create_project_from_template')
             .toList()
-        : widget.controller.actions;
+        : isGoogleCalendar
+            ? widget.controller.actions.toList()
+            : widget.controller.actions
+                .where((item) => item.key != 'create_reservation')
+                .toList();
     if (availableActions.isNotEmpty &&
         !availableActions.any((item) => item.key == _selectedActionType)) {
       _selectedActionType = availableActions.first.key;
@@ -1841,6 +1858,64 @@ class _AutomationBuilderDialogState extends State<_AutomationBuilderDialog> {
             template: _messageTemplateController.text,
           ),
         ];
+      case 'create_reservation':
+        return [
+          if (_facilitiesLoading)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 8),
+              child: LinearProgressIndicator(),
+            )
+          else if (_dialogFacilities.isEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              child: Text(
+                'No facilities available. Add a facility in the Facilities view first.',
+                style: TextStyle(color: context.rhythm.textSecondary),
+              ),
+            )
+          else
+            DropdownButtonFormField<int>(
+              value: _dialogFacilities.any((f) => f.id == _selectedFacilityId)
+                  ? _selectedFacilityId
+                  : null,
+              isExpanded: true,
+              decoration: const InputDecoration(
+                labelText: 'Room / facility',
+                border: OutlineInputBorder(),
+              ),
+              items: _dialogFacilities
+                  .map((f) => DropdownMenuItem<int>(
+                        value: f.id,
+                        child: Text(
+                          f.building == null
+                              ? f.name
+                              : '${f.building} — ${f.name}',
+                        ),
+                      ))
+                  .toList(),
+              onChanged: (value) => setState(() => _selectedFacilityId = value),
+            ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _titleTemplateController,
+            decoration: const InputDecoration(
+              labelText: 'Reservation title template',
+              border: OutlineInputBorder(),
+              helperText:
+                  'Defaults to the calendar event title. Use {{title}}, {{date}}.',
+            ),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _notesTemplateController,
+            minLines: 2,
+            maxLines: 4,
+            decoration: const InputDecoration(
+              labelText: 'Reservation notes (optional)',
+              border: OutlineInputBorder(),
+            ),
+          ),
+        ];
       default:
         return [
           TextField(
@@ -2009,6 +2084,10 @@ class _AutomationBuilderDialogState extends State<_AutomationBuilderDialog> {
     }
     if (_targetDay != null) config['targetDay'] = _targetDay;
     if (_targetDayOfWeek != null) config['targetDayOfWeek'] = _targetDayOfWeek;
+    if (_selectedActionType == 'create_reservation' &&
+        _selectedFacilityId != null) {
+      config['facilityId'] = _selectedFacilityId;
+    }
     return config.isEmpty ? null : config;
   }
 
@@ -2073,6 +2152,25 @@ class _AutomationBuilderDialogState extends State<_AutomationBuilderDialog> {
     _selectedAccountId = accounts.firstOrNull?.id;
   }
 
+  Future<void> _loadFacilitiesIfNeeded() async {
+    if (_dialogFacilities.isNotEmpty || _facilitiesLoading) return;
+    if (!mounted) return;
+    setState(() => _facilitiesLoading = true);
+    try {
+      final serverConfig = context.read<ServerConfigService>();
+      final dataSource = FacilitiesDataSource(baseUrl: serverConfig.url);
+      final facilities = await dataSource.getFacilities();
+      if (!mounted) return;
+      setState(() {
+        _dialogFacilities = facilities;
+        _facilitiesLoading = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _facilitiesLoading = false);
+    }
+  }
+
   String? _validateDraft() {
     if (_selectedSource != null && _selectedSource != 'rhythm') {
       final hasConnectedAccount = widget.controller.accounts.any(
@@ -2092,6 +2190,10 @@ class _AutomationBuilderDialogState extends State<_AutomationBuilderDialog> {
     if (_selectedActionType == 'send_notification' &&
         _messageTemplateController.text.trim().isEmpty) {
       return 'Notification automations need a message template.';
+    }
+    if (_selectedActionType == 'create_reservation' &&
+        _selectedFacilityId == null) {
+      return 'Pick a room for the reservation.';
     }
     return null;
   }

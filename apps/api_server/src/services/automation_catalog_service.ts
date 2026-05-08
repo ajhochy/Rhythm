@@ -154,6 +154,12 @@ const ACTIONS: AutomationActionCatalogItem[] = [
     description: 'Create or update a task with a scheduled weekday.',
     configSchema: { fields: ['titleTemplate', 'targetDay', 'dueDaysOffset'] },
   },
+  {
+    key: 'create_reservation',
+    label: 'Create reservation',
+    description: 'Book a Facilities room when a calendar event trigger matches.',
+    configSchema: { fields: ['facilityId', 'titleTemplate', 'notesTemplate'] },
+  },
 ];
 
 const PROVIDERS: AutomationProviderCatalogItem[] = [

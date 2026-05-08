@@ -341,7 +341,7 @@ export class FacilitiesRepository {
     return row ?? null;
   }
 
-  private async findReservationWindowConflictAsync(
+  async findReservationWindowConflictAsync(
     facilityId: number,
     startTime: string,
     endTime: string,
@@ -378,6 +378,20 @@ export class FacilitiesRepository {
       endTime,
       excludeReservationIds,
     );
+  }
+
+  async findByExternalEventIdAsync(externalEventId: string): Promise<Reservation | null> {
+    if (env.dbClient === 'postgres') {
+      const result = await getPostgresPool().query<ReservationRow>(
+        `${RESERVATION_SELECT} WHERE reservations.external_event_id = $1 LIMIT 1`,
+        [externalEventId],
+      );
+      return result.rows[0] ? rowToReservation(result.rows[0]) : null;
+    }
+    const row = getDb()
+      .prepare(`${RESERVATION_SELECT} WHERE reservations.external_event_id = ? LIMIT 1`)
+      .get(externalEventId) as ReservationRow | undefined;
+    return row ? rowToReservation(row) : null;
   }
 
   private assertReservationWindowAvailable(
@@ -1104,6 +1118,38 @@ export class FacilitiesRepository {
       };
     }
     return this.createReservationGroup(data);
+  }
+
+  async insertSingleReservationAsync(data: {
+    facility_id: number;
+    title: string;
+    requester_name: string;
+    requester_user_id: number | null;
+    created_by_user_id: number | null;
+    start_time: string;
+    end_time: string;
+    notes?: string | null;
+    external_event_id: string;
+    external_source: string;
+    created_by_rhythm?: boolean;
+  }): Promise<Reservation> {
+    return this.insertReservationAsync({
+      facility_id: data.facility_id,
+      group_id: null,
+      series_id: null,
+      title: data.title,
+      requester_name: data.requester_name,
+      requester_user_id: data.requester_user_id,
+      created_by_user_id: data.created_by_user_id,
+      start_time: data.start_time,
+      end_time: data.end_time,
+      notes: data.notes ?? null,
+      external_event_id: data.external_event_id,
+      external_source: data.external_source,
+      created_by_rhythm: data.created_by_rhythm ?? true,
+      is_conflicted: false,
+      conflict_reason: null,
+    });
   }
 
   createReservationSeries(data: CreateReservationSeriesDto): ReservationSeries {
@@ -1928,5 +1974,132 @@ export class FacilitiesRepository {
       return;
     }
     this.deleteReservationGroupsBySeriesId(seriesId);
+  }
+
+  async previewAutomationReservationsAsync(filters: {
+    facilityId?: number;
+    startAfter?: string;
+    endBefore?: string;
+  }): Promise<{
+    total: number;
+    byFacility: Array<{ facilityId: number; facilityName: string; count: number }>;
+  }> {
+    const conditions: string[] = [`reservations.external_source = 'automation_rule'`];
+    if (env.dbClient === 'postgres') {
+      const params: Array<string | number> = [];
+      if (filters.facilityId != null) {
+        params.push(filters.facilityId);
+        conditions.push(`reservations.facility_id = $${params.length}`);
+      }
+      if (filters.startAfter != null) {
+        params.push(filters.startAfter);
+        conditions.push(`reservations.start_time >= $${params.length}`);
+      }
+      if (filters.endBefore != null) {
+        params.push(filters.endBefore);
+        conditions.push(`reservations.end_time <= $${params.length}`);
+      }
+      const where = conditions.join(' AND ');
+      const result = await getPostgresPool().query<{
+        facility_id: number;
+        facility_name: string;
+        count: string;
+      }>(
+        `SELECT reservations.facility_id, facilities.name AS facility_name, COUNT(*)::text AS count
+         FROM reservations
+         JOIN facilities ON facilities.id = reservations.facility_id
+         WHERE ${where}
+         GROUP BY reservations.facility_id, facilities.name
+         ORDER BY facilities.name ASC`,
+        params,
+      );
+      const byFacility = result.rows.map((row) => ({
+        facilityId: row.facility_id,
+        facilityName: row.facility_name,
+        count: Number(row.count),
+      }));
+      const total = byFacility.reduce((sum, f) => sum + f.count, 0);
+      return { total, byFacility };
+    }
+
+    const sqliteParams: Array<string | number> = [];
+    if (filters.facilityId != null) {
+      sqliteParams.push(filters.facilityId);
+      conditions.push(`reservations.facility_id = ?`);
+    }
+    if (filters.startAfter != null) {
+      sqliteParams.push(filters.startAfter);
+      conditions.push(`reservations.start_time >= ?`);
+    }
+    if (filters.endBefore != null) {
+      sqliteParams.push(filters.endBefore);
+      conditions.push(`reservations.end_time <= ?`);
+    }
+    const where = conditions.join(' AND ');
+    const rows = getDb()
+      .prepare(
+        `SELECT reservations.facility_id AS facility_id,
+                facilities.name AS facility_name,
+                COUNT(*) AS count
+         FROM reservations
+         JOIN facilities ON facilities.id = reservations.facility_id
+         WHERE ${where}
+         GROUP BY reservations.facility_id, facilities.name
+         ORDER BY facilities.name ASC`,
+      )
+      .all(...sqliteParams) as Array<{ facility_id: number; facility_name: string; count: number }>;
+    const byFacility = rows.map((row) => ({
+      facilityId: row.facility_id,
+      facilityName: row.facility_name,
+      count: row.count,
+    }));
+    const total = byFacility.reduce((sum, f) => sum + f.count, 0);
+    return { total, byFacility };
+  }
+
+  async deleteAutomationReservationsAsync(filters: {
+    facilityId?: number;
+    startAfter?: string;
+    endBefore?: string;
+  }): Promise<{ deleted: number }> {
+    const conditions: string[] = [`external_source = 'automation_rule'`];
+    if (env.dbClient === 'postgres') {
+      const params: Array<string | number> = [];
+      if (filters.facilityId != null) {
+        params.push(filters.facilityId);
+        conditions.push(`facility_id = $${params.length}`);
+      }
+      if (filters.startAfter != null) {
+        params.push(filters.startAfter);
+        conditions.push(`start_time >= $${params.length}`);
+      }
+      if (filters.endBefore != null) {
+        params.push(filters.endBefore);
+        conditions.push(`end_time <= $${params.length}`);
+      }
+      const result = await getPostgresPool().query(
+        `DELETE FROM reservations WHERE ${conditions.join(' AND ')}`,
+        params,
+      );
+      return { deleted: result.rowCount ?? 0 };
+    }
+
+    const sqliteParams: Array<string | number> = [];
+    if (filters.facilityId != null) {
+      sqliteParams.push(filters.facilityId);
+      conditions.push(`facility_id = ?`);
+    }
+    if (filters.startAfter != null) {
+      sqliteParams.push(filters.startAfter);
+      conditions.push(`start_time >= ?`);
+    }
+    if (filters.endBefore != null) {
+      sqliteParams.push(filters.endBefore);
+      conditions.push(`end_time <= ?`);
+    }
+    const result = getDb()
+      .prepare(`DELETE FROM reservations WHERE ${conditions.join(' AND ')}`)
+      .run(...sqliteParams);
+    return { deleted: Number(result.changes) };
   }
 }

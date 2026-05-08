@@ -6,6 +6,7 @@ import { UsersRepository } from '../repositories/users_repository';
 import type { AutomationSignal } from '../models/automation_signal';
 import type { AutomationRule, Condition } from '../models/automation_rule';
 import { ProjectGenerationService } from './project_generation_service';
+import { FacilitiesBookingService } from './facilities_booking_service';
 
 interface EvaluationResult {
   matchedRules: number;
@@ -101,6 +102,7 @@ export class AutomationEngineService {
   private readonly usersRepo = new UsersRepository();
   private readonly templatesRepo = new ProjectTemplatesRepository();
   private readonly projectGeneration = new ProjectGenerationService();
+  private readonly bookingService = new FacilitiesBookingService();
 
   async evaluateSignals(
     source: AutomationRule['source'],
@@ -363,6 +365,8 @@ export class AutomationEngineService {
         return this.sendNotification(rule, signal);
       case 'create_project_from_template':
         return this.createProject(rule, signal);
+      case 'create_reservation':
+        return this.createReservationFromSignal(rule, signal);
       default:
         return false;
     }
@@ -427,6 +431,54 @@ export class AutomationEngineService {
       `${rule.name} matched ${asString(signal.payload.title) ?? asString(signal.payload.subject) ?? signal.signalType}.`;
     await this.messagesRepo.sendDirectMessageAsync(bot.id, rule.ownerId, message);
     return true;
+  }
+
+  private async createReservationFromSignal(
+    rule: AutomationRule,
+    signal: AutomationSignal,
+  ): Promise<boolean> {
+    // Skip all-day events — product decision per issue #149.
+    if (signal.payload.isAllDay === true) return false;
+
+    if (rule.ownerId == null) return false;
+
+    const config = rule.actionConfig ?? {};
+    const facilityId = asNumber(config.facilityId);
+    if (facilityId == null) return false;
+
+    const startAt = asString(signal.payload.startAt);
+    const endAt = asString(signal.payload.endAt);
+    if (startAt == null || endAt == null) return false;
+
+    const title =
+      interpolate(asString(config.titleTemplate) ?? '{{title}}', signal) ||
+      asString(signal.payload.title) ||
+      rule.name;
+    const notes = interpolate(asString(config.notesTemplate) ?? '', signal) || null;
+    const externalEventId = `${rule.id}:${signal.externalId}`;
+
+    const result = await this.bookingService.createSingleAutomationReservationAsync({
+      facilityId,
+      title,
+      notes,
+      startTime: startAt,
+      endTime: endAt,
+      ownerId: rule.ownerId,
+      externalEventId,
+    });
+
+    if (result.skippedReason === 'conflict' && result.conflict) {
+      const bot = await this.usersRepo.findOrCreateSystemBotAsync();
+      const message =
+        `Automation rule "${rule.name}" couldn't book "${title}" in ${result.conflict.facilityName}: ` +
+        `conflicts with "${result.conflict.conflictingTitle}" ` +
+        `(${result.conflict.startTime}–${result.conflict.endTime}).`;
+      await this.messagesRepo.sendDirectMessageAsync(bot.id, rule.ownerId, message);
+      return true;
+    }
+
+    // duplicate skip → silent. Action ran (returned true), even if it created nothing.
+    return result.skippedReason !== null || result.created != null;
   }
 
   private async createProject(

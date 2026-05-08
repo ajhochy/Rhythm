@@ -17,7 +17,8 @@ export type AutomationActionType =
   | 'create_project_from_template'
   | 'auto_schedule'
   | 'send_notification'
-  | 'tag_task';
+  | 'tag_task'
+  | 'create_reservation';
 
 export type AutomationRuleSource =
   | 'rhythm'

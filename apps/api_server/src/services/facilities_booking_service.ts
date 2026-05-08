@@ -10,6 +10,32 @@ import type {
   UpdateReservationSeriesDto,
 } from '../models/facility';
 import { FacilitiesRepository } from '../repositories/facilities_repository';
+import { UsersRepository } from '../repositories/users_repository';
+
+export interface AutomationReservationInput {
+  facilityId: number;
+  title: string;
+  notes: string | null;
+  startTime: string;
+  endTime: string;
+  ownerId: number;
+  externalEventId: string;
+}
+
+export type AutomationReservationSkipReason = 'duplicate' | 'conflict';
+
+export interface AutomationReservationConflict {
+  facilityName: string;
+  conflictingTitle: string;
+  startTime: string;
+  endTime: string;
+}
+
+export interface AutomationReservationResult {
+  created: Reservation | null;
+  skippedReason: AutomationReservationSkipReason | null;
+  conflict?: AutomationReservationConflict;
+}
 
 type ResolvedSeriesInput = {
   title: string;
@@ -32,6 +58,59 @@ type ResolvedSeriesFacilities = {
 
 export class FacilitiesBookingService {
   private readonly repo = new FacilitiesRepository();
+  private readonly usersRepo = new UsersRepository();
+
+  async createSingleAutomationReservationAsync(
+    input: AutomationReservationInput,
+  ): Promise<AutomationReservationResult> {
+    // 1. Dedup
+    const existing = await this.repo.findByExternalEventIdAsync(
+      input.externalEventId,
+    );
+    if (existing != null) {
+      return { created: null, skippedReason: 'duplicate' };
+    }
+
+    // 2. Conflict check
+    const facility = await this.repo.findByIdAsync(input.facilityId);
+    const conflict = await this.repo.findReservationWindowConflictAsync(
+      input.facilityId,
+      input.startTime,
+      input.endTime,
+    );
+    if (conflict != null) {
+      return {
+        created: null,
+        skippedReason: 'conflict',
+        conflict: {
+          facilityName: facility.name,
+          conflictingTitle: conflict.title,
+          startTime: conflict.start_time,
+          endTime: conflict.end_time,
+        },
+      };
+    }
+
+    // 3. Owner lookup
+    const owner = await this.usersRepo.findByIdAsync(input.ownerId);
+
+    // 4. Insert
+    const created = await this.repo.insertSingleReservationAsync({
+      facility_id: input.facilityId,
+      title: input.title,
+      requester_name: owner.name,
+      requester_user_id: input.ownerId,
+      created_by_user_id: input.ownerId,
+      start_time: input.startTime,
+      end_time: input.endTime,
+      notes: input.notes,
+      external_event_id: input.externalEventId,
+      external_source: 'automation_rule',
+      created_by_rhythm: true,
+    });
+
+    return { created, skippedReason: null };
+  }
 
   async createRecurringSeries(
     data: CreateReservationSeriesDto,

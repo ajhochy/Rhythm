@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, test } from 'vitest';
 import Database from 'better-sqlite3';
 
 import { setDb } from '../database/db';
@@ -290,5 +290,92 @@ describe('FacilitiesBookingService', () => {
     expect(
       facilitiesRepo.findReservationsByFacility(facilityId).map((item) => item.title),
     ).toEqual(['Independent Event']);
+  });
+});
+
+describe('FacilitiesBookingService.createSingleAutomationReservationAsync', () => {
+  let service: FacilitiesBookingService;
+  let repo: FacilitiesRepository;
+  let usersRepo: UsersRepository;
+  let ownerId: number;
+  let facilityId: number;
+
+  beforeEach(async () => {
+    const db = new Database(':memory:');
+    runMigrations(db);
+    setDb(db);
+    service = new FacilitiesBookingService();
+    repo = new FacilitiesRepository();
+    usersRepo = new UsersRepository();
+    const owner = usersRepo.create({ name: 'Alice', email: 'a@example.com' });
+    ownerId = owner.id;
+    const facility = await repo.createAsync({ name: 'Conf Room' });
+    facilityId = facility.id;
+  });
+
+  test('creates a reservation on a clean window', async () => {
+    const result = await service.createSingleAutomationReservationAsync({
+      facilityId,
+      title: 'Worship Committee',
+      notes: null,
+      startTime: '2026-05-15T14:00:00.000Z',
+      endTime: '2026-05-15T15:00:00.000Z',
+      ownerId,
+      externalEventId: 'rule-1:event-a',
+    });
+
+    expect(result.skippedReason).toBeNull();
+    expect(result.created).not.toBeNull();
+    expect(result.created!.requesterName).toBe('Alice');
+    expect(result.created!.externalEventId).toBe('rule-1:event-a');
+    expect(result.created!.externalSource).toBe('automation_rule');
+  });
+
+  test('returns duplicate skip when external_event_id already exists', async () => {
+    const input = {
+      facilityId,
+      title: 'Test',
+      notes: null,
+      startTime: '2026-05-15T14:00:00.000Z',
+      endTime: '2026-05-15T15:00:00.000Z',
+      ownerId,
+      externalEventId: 'rule-1:event-dup',
+    };
+    await service.createSingleAutomationReservationAsync(input);
+    const second = await service.createSingleAutomationReservationAsync(input);
+
+    expect(second.skippedReason).toBe('duplicate');
+    expect(second.created).toBeNull();
+  });
+
+  test('returns conflict skip with conflict details when room is blocked', async () => {
+    // Pre-book an overlapping reservation manually
+    await repo.insertSingleReservationAsync({
+      facility_id: facilityId,
+      title: 'Existing booking',
+      requester_name: 'Bob',
+      requester_user_id: ownerId,
+      created_by_user_id: ownerId,
+      start_time: '2026-05-15T14:30:00.000Z',
+      end_time: '2026-05-15T15:30:00.000Z',
+      external_event_id: 'manual-1',
+      external_source: 'manual',
+    });
+
+    const result = await service.createSingleAutomationReservationAsync({
+      facilityId,
+      title: 'Worship',
+      notes: null,
+      startTime: '2026-05-15T14:00:00.000Z',
+      endTime: '2026-05-15T15:00:00.000Z',
+      ownerId,
+      externalEventId: 'rule-1:event-c',
+    });
+
+    expect(result.skippedReason).toBe('conflict');
+    expect(result.created).toBeNull();
+    expect(result.conflict).toBeDefined();
+    expect(result.conflict!.conflictingTitle).toBe('Existing booking');
+    expect(result.conflict!.facilityName).toBe('Conf Room');
   });
 });
