@@ -5,6 +5,7 @@ import 'package:provider/provider.dart';
 
 import '../../../app/core/agents/agent_server_controller.dart';
 import '../../../app/core/ui/tokens/rhythm_theme.dart';
+import '../../agent_configs/views/manage_agents_view.dart';
 import '../../tasks/controllers/tasks_controller.dart';
 import '../../tasks/models/task.dart';
 import '../controllers/agents_controller.dart';
@@ -363,56 +364,97 @@ class _SessionListHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Agent Sessions',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w700,
-                    color: context.rhythm.textPrimary,
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Agent Sessions',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.w700,
+                        color: context.rhythm.textPrimary,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      'Claude Code and Codex terminal sessions',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: context.rhythm.textMuted,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (onNewSession != null)
+                FilledButton.tonal(
+                  onPressed: onNewSession,
+                  style: FilledButton.styleFrom(
+                    backgroundColor: context.rhythm.accentMuted,
+                    foregroundColor: context.rhythm.accent,
+                    elevation: 0,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 10,
+                    ),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(RhythmRadius.md),
+                    ),
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(Icons.add, size: 16),
+                      SizedBox(width: 4),
+                      Text(
+                        'New',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-                const SizedBox(height: 3),
-                Text(
-                  'Claude Code and Codex terminal sessions',
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: context.rhythm.textMuted,
-                  ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          TextButton.icon(
+            icon: Icon(
+              Icons.tune,
+              size: 15,
+              color: context.rhythm.textSecondary,
+            ),
+            label: Text(
+              'Manage agents',
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: context.rhythm.textSecondary,
+              ),
+            ),
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => const ManageAgentsView(),
                 ),
-              ],
+              );
+            },
+            style: TextButton.styleFrom(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+              minimumSize: Size.zero,
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(RhythmRadius.sm),
+              ),
             ),
           ),
-          if (onNewSession != null)
-            FilledButton.tonal(
-              onPressed: onNewSession,
-              style: FilledButton.styleFrom(
-                backgroundColor: context.rhythm.accentMuted,
-                foregroundColor: context.rhythm.accent,
-                elevation: 0,
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(RhythmRadius.md),
-                ),
-              ),
-              child: const Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(Icons.add, size: 16),
-                  SizedBox(width: 4),
-                  Text(
-                    'New',
-                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
-                  ),
-                ],
-              ),
-            ),
         ],
       ),
     );
