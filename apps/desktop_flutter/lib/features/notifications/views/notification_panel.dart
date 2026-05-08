@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 import '../../../app/core/ui/tokens/rhythm_theme.dart';
 import '../controllers/notifications_controller.dart';
 import '../models/app_notification.dart';
+import '../models/agent_notification.dart';
 
 class NotificationPanel extends StatelessWidget {
   const NotificationPanel({super.key});
@@ -11,6 +12,8 @@ class NotificationPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     final controller = context.watch<NotificationsController>();
     final notifications = controller.notifications;
+    final agentItems = controller.agentNotifications;
+    final hasAny = notifications.isNotEmpty || agentItems.isNotEmpty;
 
     return Material(
       elevation: 8,
@@ -28,24 +31,25 @@ class NotificationPanel extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            _PanelHeader(hasNotifications: notifications.isNotEmpty),
-            if (notifications.isEmpty)
+            _PanelHeader(hasNotifications: hasAny),
+            if (!hasAny)
               const _EmptyState()
             else
               Flexible(
-                child: ListView.separated(
+                child: ListView(
                   padding: EdgeInsets.zero,
                   shrinkWrap: true,
-                  itemCount: notifications.length,
-                  separatorBuilder: (context, __) => Divider(
-                    height: 1,
-                    color: context.rhythm.borderSubtle,
-                  ),
-                  itemBuilder: (context, index) {
-                    return _NotificationTile(
-                      notification: notifications[index],
-                    );
-                  },
+                  children: [
+                    for (final n in agentItems)
+                      _AgentNotificationTile(notification: n),
+                    if (agentItems.isNotEmpty && notifications.isNotEmpty)
+                      Divider(height: 1, color: context.rhythm.borderSubtle),
+                    for (int i = 0; i < notifications.length; i++) ...[
+                      _NotificationTile(notification: notifications[i]),
+                      if (i < notifications.length - 1)
+                        Divider(height: 1, color: context.rhythm.borderSubtle),
+                    ],
+                  ],
                 ),
               ),
           ],
@@ -218,5 +222,71 @@ class _NotificationTile extends StatelessWidget {
     } catch (_) {
       return '';
     }
+  }
+}
+
+class _AgentNotificationTile extends StatelessWidget {
+  const _AgentNotificationTile({required this.notification});
+
+  final AgentNotification notification;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(top: 2),
+            child: Icon(
+              Icons.smart_toy_outlined,
+              size: 16,
+              color: context.rhythm.accent,
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  notification.title,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: context.rhythm.textPrimary,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  notification.body,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: context.rhythm.textSecondary,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  _relativeTime(notification.receivedAt),
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: context.rhythm.textMuted,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _relativeTime(DateTime dt) {
+    final diff = DateTime.now().difference(dt);
+    if (diff.inMinutes < 1) return 'just now';
+    if (diff.inMinutes < 60) return '${diff.inMinutes}m ago';
+    if (diff.inHours < 24) return '${diff.inHours}h ago';
+    return '${diff.inDays}d ago';
   }
 }
