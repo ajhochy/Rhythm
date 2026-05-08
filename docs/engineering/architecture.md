@@ -66,3 +66,27 @@ Flow:
 - local cache may mirror hosted data
 - hosted backend remains the source of truth
 - reconciliation flows back to the hosted backend
+
+## Local smoke runs
+
+When running `flutter run` locally (smoke tests, iterative QA, developer
+iteration), export `RHYTHM_LOCAL_SMOKE=1` before launching the app to prevent
+production traffic from the `AgentTriggerWatcher`:
+
+```bash
+export RHYTHM_LOCAL_SMOKE=1
+cd apps/desktop_flutter && flutter run -d macos
+```
+
+Alternatively, pass it as a dart-define flag:
+
+```bash
+cd apps/desktop_flutter && flutter run -d macos --dart-define=RHYTHM_LOCAL_SMOKE=1
+```
+
+When the flag is set, `AgentTriggerWatcher.start()` is a no-op and logs a
+message to stderr. No `GET /claude-triggers` or `DELETE /claude-triggers/*`
+requests are issued against the production server.
+
+**Always export `RHYTHM_LOCAL_SMOKE=1` in smoke run sessions** to uphold the
+no-production-traffic invariant.

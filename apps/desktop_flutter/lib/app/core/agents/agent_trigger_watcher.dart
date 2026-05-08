@@ -10,6 +10,29 @@ import '../../core/auth/auth_session_service.dart';
 import '../../core/services/server_config_service.dart';
 import '../../../features/agents/controllers/agents_controller.dart';
 
+/// Returns true when the app is running in a local/dev smoke-test context.
+///
+/// Checked via:
+/// - `--dart-define=RHYTHM_LOCAL_SMOKE=1` (compile-time / `flutter run` flag)
+/// - `RHYTHM_LOCAL_SMOKE=1` environment variable at process start
+///
+/// When true, [AgentTriggerWatcher.start] is a no-op so that no
+/// `DELETE /claude-triggers/*` requests are issued against the production
+/// server during local smoke runs.
+bool get isLocalSmokeRun {
+  // dart-define value (available in web, desktop, and mobile).
+  const dartDefine = String.fromEnvironment('RHYTHM_LOCAL_SMOKE');
+  if (dartDefine == '1') return true;
+
+  // Process-level environment variable (desktop/server only).
+  try {
+    return Platform.environment['RHYTHM_LOCAL_SMOKE'] == '1';
+  } catch (_) {
+    // Platform.environment throws on web; fall through.
+    return false;
+  }
+}
+
 /// Polls `GET /claude-triggers` on the production server every [interval]
 /// (default 10 s) when the user is authenticated and the local agent server
 /// is ready.
@@ -20,6 +43,11 @@ import '../../../features/agents/controllers/agents_controller.dart';
 ///
 /// Failures (network errors, 4xx, 5xx) are logged to stderr and silently
 /// skipped — the next tick will retry.
+///
+/// **Local smoke runs:** when [isLocalSmokeRun] is true (i.e.
+/// `RHYTHM_LOCAL_SMOKE=1` env var or `--dart-define=RHYTHM_LOCAL_SMOKE=1`),
+/// [start] is a no-op. This prevents accidental production traffic during
+/// `flutter run` smoke tests.
 class AgentTriggerWatcher extends ChangeNotifier {
   AgentTriggerWatcher({
     required ServerConfigService serverConfigService,
@@ -54,7 +82,17 @@ class AgentTriggerWatcher extends ChangeNotifier {
 
   /// Starts the periodic polling timer. Safe to call multiple times; an
   /// existing timer is cancelled before the new one is created.
+  ///
+  /// No-op when [isLocalSmokeRun] is true so that smoke runs never issue
+  /// DELETE requests against the production `claude-triggers` endpoint.
   void start() {
+    if (isLocalSmokeRun) {
+      stderr.writeln(
+        '[AgentTriggerWatcher] RHYTHM_LOCAL_SMOKE=1 detected — '
+        'watcher is disabled for this run. No production traffic will be issued.',
+      );
+      return;
+    }
     _timer?.cancel();
     _isPolling = true;
     notifyListeners();

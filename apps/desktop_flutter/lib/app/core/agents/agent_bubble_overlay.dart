@@ -359,33 +359,43 @@ class _ExpandedSessionBubbleState extends State<_ExpandedSessionBubble> {
 // Expanded trigger bubble (360×220)
 // ---------------------------------------------------------------------------
 
-class _ExpandedTriggerBubble extends StatelessWidget {
+class _ExpandedTriggerBubble extends StatefulWidget {
   const _ExpandedTriggerBubble({required this.entry});
-
   final AgentBubbleEntry entry;
+  @override
+  State<_ExpandedTriggerBubble> createState() => _ExpandedTriggerBubbleState();
+}
+
+class _ExpandedTriggerBubbleState extends State<_ExpandedTriggerBubble> {
+  String? _errorMessage;
+
+  Future<void> startAgent(AgentKind kind) async {
+    setState(() => _errorMessage = null);
+    final overlay = context.read<OverlayController>();
+    final agents = context.read<AgentsController>();
+    final session = await agents.createSession(
+      agentKind: kind,
+      taskId: widget.entry.triggerTaskId,
+      cwd: Platform.environment['HOME'] ?? '/',
+      name: widget.entry.label,
+    );
+    if (session != null) {
+      overlay.dismissTriggerBubble(widget.entry.triggerTaskId!);
+      agents.selectSession(session.id);
+      overlay.requestNav(AppConstants.navAgents);
+    } else {
+      if (!mounted) return;
+      setState(() => _errorMessage = agents.error ?? 'Failed to start agent');
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     final overlay = context.read<OverlayController>();
-    final agents = context.read<AgentsController>();
-
-    Future<void> startAgent(AgentKind kind) async {
-      final session = await agents.createSession(
-        agentKind: kind,
-        taskId: entry.triggerTaskId,
-        cwd: Platform.environment['HOME'] ?? '/',
-        name: entry.label,
-      );
-      if (session != null) {
-        overlay.dismissTriggerBubble(entry.triggerTaskId!);
-        agents.selectSession(session.id);
-        overlay.requestNav(AppConstants.navAgents);
-      }
-    }
 
     return Container(
       width: 360,
-      height: 220,
+      height: _errorMessage == null ? 220 : 260,
       decoration: BoxDecoration(
         color: context.rhythm.surfaceRaised,
         borderRadius: BorderRadius.circular(RhythmRadius.xl),
@@ -420,7 +430,7 @@ class _ExpandedTriggerBubble extends StatelessWidget {
                   ),
                 ),
                 GestureDetector(
-                  onTap: () => overlay.toggleExpand(entry.key),
+                  onTap: () => overlay.toggleExpand(widget.entry.key),
                   child: Icon(
                     Icons.remove,
                     size: 18,
@@ -433,7 +443,7 @@ class _ExpandedTriggerBubble extends StatelessWidget {
 
             // Task title
             Text(
-              entry.label,
+              widget.entry.label,
               maxLines: 2,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
@@ -474,14 +484,27 @@ class _ExpandedTriggerBubble extends StatelessWidget {
                 ),
               ],
             ),
+            if (_errorMessage != null) ...[
+              const SizedBox(height: 8),
+              Text(
+                _errorMessage!,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 11.5,
+                  color: context.rhythm.danger,
+                  height: 1.3,
+                ),
+              ),
+            ],
             const SizedBox(height: 8),
 
             // Dismiss link
             Center(
               child: GestureDetector(
                 onTap: () {
-                  if (entry.triggerTaskId != null) {
-                    overlay.dismissTriggerBubble(entry.triggerTaskId!);
+                  if (widget.entry.triggerTaskId != null) {
+                    overlay.dismissTriggerBubble(widget.entry.triggerTaskId!);
                   }
                 },
                 child: Text(

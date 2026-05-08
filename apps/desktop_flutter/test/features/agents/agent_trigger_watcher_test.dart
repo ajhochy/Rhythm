@@ -365,6 +365,40 @@ void main() {
   });
 
   // --------------------------------------------------------------------------
+  // RHYTHM_LOCAL_SMOKE gate
+  // --------------------------------------------------------------------------
+
+  group('RHYTHM_LOCAL_SMOKE gate', () {
+    // The dart-define path (String.fromEnvironment) cannot be flipped at
+    // runtime in unit tests, but the Platform.environment branch can be
+    // exercised indirectly by verifying isLocalSmokeRun returns false in a
+    // normal test environment (RHYTHM_LOCAL_SMOKE is not set by the test
+    // runner) and that start() proceeds normally when the flag is absent.
+    test('isLocalSmokeRun is false in normal test environment', () {
+      // The environment variable is not set by the test runner, and the
+      // dart-define is not provided, so the gate should be open.
+      expect(isLocalSmokeRun, isFalse);
+    });
+
+    test('start() sets isPolling when RHYTHM_LOCAL_SMOKE is not set', () async {
+      final client = MockClient((_) async => http.Response('[]', 200));
+
+      final watcher = AgentTriggerWatcher(
+        serverConfigService: serverConfigService,
+        authSessionService: _StubAuthSessionService(token: 'tok'),
+        agentServerController: agentServerController,
+        agentsController: agentsController,
+        httpClient: client,
+      );
+      addTearDown(watcher.dispose);
+
+      watcher.start();
+      // start() should have proceeded — isPolling becomes true.
+      expect(watcher.isPolling, isTrue);
+    });
+  });
+
+  // --------------------------------------------------------------------------
   // isPolling flag
   // --------------------------------------------------------------------------
 
