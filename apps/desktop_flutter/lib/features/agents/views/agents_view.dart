@@ -508,7 +508,7 @@ class _SessionRow extends StatelessWidget {
           children: [
             Row(
               children: [
-                _AgentKindBadge(kind: session.agentKind),
+                _AgentKindBadge(agentId: session.agentId),
                 const Spacer(),
                 _StatusDot(
                   status: session.status,
@@ -568,7 +568,7 @@ class _ResumableSessionRow extends StatelessWidget {
       ),
       child: Row(
         children: [
-          _AgentKindBadge(kind: session.agentKind),
+          _AgentKindBadge(agentId: session.agentId),
           const SizedBox(width: 8),
           Expanded(
             child: Text(
@@ -599,13 +599,13 @@ class _ResumableSessionRow extends StatelessWidget {
 }
 
 class _AgentKindBadge extends StatelessWidget {
-  const _AgentKindBadge({required this.kind});
+  const _AgentKindBadge({required this.agentId});
 
-  final AgentKind kind;
+  final String agentId;
 
   @override
   Widget build(BuildContext context) {
-    final isClaude = kind == AgentKind.claudeCode;
+    final isClaude = agentId == 'claude-code';
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
       decoration: BoxDecoration(
@@ -812,7 +812,7 @@ class _TranscriptHeader extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
       child: Row(
         children: [
-          _AgentKindBadge(kind: session.agentKind),
+          _AgentKindBadge(agentId: session.agentId),
           const SizedBox(width: 10),
           Expanded(
             child: Text(
@@ -1236,14 +1236,13 @@ class _PendingTriggerBanner extends StatelessWidget {
             _TriggerActionButton(
               label: 'Start Claude',
               color: const Color(0xFF6B46C1),
-              onPressed: () =>
-                  _startAgent(context, AgentKind.claudeCode, trigger),
+              onPressed: () => _startAgent(context, 'claude-code', trigger),
             ),
             const SizedBox(width: 6),
             _TriggerActionButton(
               label: 'Start Codex',
               color: const Color(0xFF059669),
-              onPressed: () => _startAgent(context, AgentKind.codex, trigger),
+              onPressed: () => _startAgent(context, 'codex', trigger),
             ),
             const SizedBox(width: 6),
             TextButton(
@@ -1266,12 +1265,12 @@ class _PendingTriggerBanner extends StatelessWidget {
 
   Future<void> _startAgent(
     BuildContext context,
-    AgentKind kind,
+    String agentId,
     PendingTrigger trigger,
   ) async {
     final controller = context.read<AgentsController>();
     final session = await controller.createSession(
-      agentKind: kind,
+      agentId: agentId,
       taskId: trigger.taskId,
       cwd: Platform.environment['HOME'] ?? '/',
       name: trigger.taskTitle,
@@ -1333,7 +1332,7 @@ class _NewSessionDialog extends StatefulWidget {
 class _NewSessionDialogState extends State<_NewSessionDialog> {
   final _nameController = TextEditingController();
   final _cwdController = TextEditingController();
-  AgentKind _agentKind = AgentKind.claudeCode;
+  String _agentId = 'claude-code';
   Task? _selectedTask;
   bool _isSubmitting = false;
   String? _error;
@@ -1373,7 +1372,7 @@ class _NewSessionDialogState extends State<_NewSessionDialog> {
 
     final controller = context.read<AgentsController>();
     final session = await controller.createSession(
-      agentKind: _agentKind,
+      agentId: _agentId,
       taskId: _selectedTask?.id,
       cwd: _cwdController.text.trim().isEmpty
           ? (Platform.environment['HOME'] ?? '/')
@@ -1405,16 +1404,12 @@ class _NewSessionDialogState extends State<_NewSessionDialog> {
         agentServerController.isAgentAvailable('claude-code');
     final codexAvailable = agentServerController.isAgentAvailable('codex');
 
-    // If the currently selected kind becomes unavailable, fall back to
+    // If the currently selected agent becomes unavailable, fall back to
     // whichever is available.
-    if (_agentKind == AgentKind.claudeCode &&
-        !claudeAvailable &&
-        codexAvailable) {
-      _agentKind = AgentKind.codex;
-    } else if (_agentKind == AgentKind.codex &&
-        !codexAvailable &&
-        claudeAvailable) {
-      _agentKind = AgentKind.claudeCode;
+    if (_agentId == 'claude-code' && !claudeAvailable && codexAvailable) {
+      _agentId = 'codex';
+    } else if (_agentId == 'codex' && !codexAvailable && claudeAvailable) {
+      _agentId = 'claude-code';
     }
 
     return AlertDialog(
@@ -1488,20 +1483,18 @@ class _NewSessionDialogState extends State<_NewSessionDialog> {
                       Expanded(
                         child: _AgentToggleButton(
                           label: 'Claude Code',
-                          selected: _agentKind == AgentKind.claudeCode,
+                          selected: _agentId == 'claude-code',
                           color: const Color(0xFF6B46C1),
-                          onTap: () =>
-                              setState(() => _agentKind = AgentKind.claudeCode),
+                          onTap: () => setState(() => _agentId = 'claude-code'),
                         ),
                       ),
                     if (codexAvailable)
                       Expanded(
                         child: _AgentToggleButton(
                           label: 'Codex',
-                          selected: _agentKind == AgentKind.codex,
+                          selected: _agentId == 'codex',
                           color: const Color(0xFF059669),
-                          onTap: () =>
-                              setState(() => _agentKind = AgentKind.codex),
+                          onTap: () => setState(() => _agentId = 'codex'),
                         ),
                       ),
                   ],
@@ -1551,9 +1544,7 @@ class _NewSessionDialogState extends State<_NewSessionDialog> {
               onChanged: (task) => setState(() {
                 _selectedTask = task;
                 if (task != null && task.preferredAgent != null) {
-                  _agentKind = task.preferredAgent == 'codex'
-                      ? AgentKind.codex
-                      : AgentKind.claudeCode;
+                  _agentId = task.preferredAgent!;
                 }
               }),
             ),

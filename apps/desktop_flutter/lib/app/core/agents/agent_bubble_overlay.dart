@@ -114,10 +114,11 @@ class _CollapsedBubble extends StatelessWidget {
 
   String _badgeLabel() {
     if (entry.kind == BubbleKind.trigger) return '!';
-    return switch (entry.agentKind) {
-      AgentKind.claudeCode => 'C',
-      AgentKind.codex => 'X',
+    return switch (entry.agentId) {
+      'claude-code' => 'C',
+      'codex' => 'X',
       null => '?',
+      _ => entry.agentId!.isNotEmpty ? entry.agentId![0].toUpperCase() : '?',
     };
   }
 
@@ -369,12 +370,12 @@ class _ExpandedTriggerBubble extends StatefulWidget {
 class _ExpandedTriggerBubbleState extends State<_ExpandedTriggerBubble> {
   String? _errorMessage;
 
-  Future<void> startAgent(AgentKind kind) async {
+  Future<void> startAgent(String agentId) async {
     setState(() => _errorMessage = null);
     final overlay = context.read<OverlayController>();
     final agents = context.read<AgentsController>();
     final session = await agents.createSession(
-      agentKind: kind,
+      agentId: agentId,
       taskId: widget.entry.triggerTaskId,
       cwd: Platform.environment['HOME'] ?? '/',
       name: widget.entry.label,
@@ -477,7 +478,7 @@ class _ExpandedTriggerBubbleState extends State<_ExpandedTriggerBubble> {
                       child: _TriggerButton(
                         label: 'Start with Claude',
                         color: const Color(0xFF6B46C1),
-                        onPressed: () => startAgent(AgentKind.claudeCode),
+                        onPressed: () => startAgent('claude-code'),
                       ),
                     ),
                   if (claudeAvailable && codexAvailable)
@@ -487,7 +488,7 @@ class _ExpandedTriggerBubbleState extends State<_ExpandedTriggerBubble> {
                       child: _TriggerButton(
                         label: 'Start with Codex',
                         color: const Color(0xFF059669),
-                        onPressed: () => startAgent(AgentKind.codex),
+                        onPressed: () => startAgent('codex'),
                       ),
                     ),
                 ],
@@ -561,7 +562,7 @@ class _BubbleHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isClaude = entry.agentKind == AgentKind.claudeCode;
+    final isClaude = entry.agentId == 'claude-code';
     final agentColor =
         isClaude ? const Color(0xFF6B46C1) : const Color(0xFF059669);
     final agentLabel = isClaude ? 'Claude' : 'Codex';

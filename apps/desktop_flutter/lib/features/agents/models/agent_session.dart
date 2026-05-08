@@ -1,18 +1,5 @@
 import '../../../app/core/utils/json_parsing.dart';
 
-enum AgentKind {
-  claudeCode('claude-code'),
-  codex('codex');
-
-  final String wireValue;
-  const AgentKind(this.wireValue);
-
-  static AgentKind fromWire(String s) => AgentKind.values.firstWhere(
-        (k) => k.wireValue == s,
-        orElse: () => AgentKind.claudeCode,
-      );
-}
-
 enum AgentSessionStatus {
   starting('starting'),
   working('working'),
@@ -34,7 +21,7 @@ class AgentSession {
   const AgentSession({
     required this.id,
     this.taskId,
-    required this.agentKind,
+    required this.agentId,
     required this.status,
     this.sessionToken,
     required this.cwd,
@@ -47,7 +34,7 @@ class AgentSession {
 
   final String id;
   final String? taskId;
-  final AgentKind agentKind;
+  final String agentId;
   final AgentSessionStatus status;
   final String? sessionToken;
   final String cwd;
@@ -58,10 +45,17 @@ class AgentSession {
   final DateTime updatedAt;
 
   factory AgentSession.fromJson(Map<String, dynamic> json) {
+    // Accept `agent_id` (new) or fall back to `agent_kind` (legacy) for one
+    // release, normalising the wire value to the canonical agentId string.
+    final agentId = asString(json['agent_id']) ??
+        asString(json['agentId']) ??
+        asString(json['agent_kind']) ??
+        asString(json['agentKind']) ??
+        'claude-code';
     return AgentSession(
       id: asString(json['id']) ?? '',
       taskId: asString(json['taskId']),
-      agentKind: AgentKind.fromWire(asString(json['agentKind']) ?? ''),
+      agentId: agentId,
       status: AgentSessionStatus.fromWire(asString(json['status']) ?? ''),
       sessionToken: asString(json['sessionToken']),
       cwd: asString(json['cwd']) ?? '',
@@ -77,7 +71,7 @@ class AgentSession {
     return {
       'id': id,
       if (taskId != null) 'taskId': taskId,
-      'agentKind': agentKind.wireValue,
+      'agent_id': agentId,
       'status': status.wireValue,
       if (sessionToken != null) 'sessionToken': sessionToken,
       'cwd': cwd,
@@ -93,7 +87,7 @@ class AgentSession {
   AgentSession copyWith({
     String? id,
     Object? taskId = _sentinel,
-    AgentKind? agentKind,
+    String? agentId,
     AgentSessionStatus? status,
     Object? sessionToken = _sentinel,
     String? cwd,
@@ -106,7 +100,7 @@ class AgentSession {
     return AgentSession(
       id: id ?? this.id,
       taskId: taskId == _sentinel ? this.taskId : taskId as String?,
-      agentKind: agentKind ?? this.agentKind,
+      agentId: agentId ?? this.agentId,
       status: status ?? this.status,
       sessionToken: sessionToken == _sentinel
           ? this.sessionToken

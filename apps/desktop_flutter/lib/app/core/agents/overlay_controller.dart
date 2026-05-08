@@ -16,7 +16,7 @@ class AgentBubbleEntry {
     required this.kind,
     required this.label,
     this.subtitle,
-    this.agentKind,
+    this.agentId,
     this.status,
     required this.working,
     this.sessionId,
@@ -28,7 +28,7 @@ class AgentBubbleEntry {
   final BubbleKind kind;
   final String label;
   final String? subtitle;
-  final AgentKind? agentKind;
+  final String? agentId;
   final AgentSessionStatus? status;
   final bool working;
   final String? sessionId;
@@ -40,7 +40,7 @@ class AgentBubbleEntry {
     BubbleKind? kind,
     String? label,
     Object? subtitle = _sentinel,
-    Object? agentKind = _sentinel,
+    Object? agentId = _sentinel,
     Object? status = _sentinel,
     bool? working,
     Object? sessionId = _sentinel,
@@ -52,8 +52,7 @@ class AgentBubbleEntry {
       kind: kind ?? this.kind,
       label: label ?? this.label,
       subtitle: subtitle == _sentinel ? this.subtitle : subtitle as String?,
-      agentKind:
-          agentKind == _sentinel ? this.agentKind : agentKind as AgentKind?,
+      agentId: agentId == _sentinel ? this.agentId : agentId as String?,
       status: status == _sentinel ? this.status : status as AgentSessionStatus?,
       working: working ?? this.working,
       sessionId: sessionId == _sentinel ? this.sessionId : sessionId as String?,
@@ -121,7 +120,7 @@ class OverlayController extends ChangeNotifier {
         kind: BubbleKind.session,
         label: s.name,
         subtitle: s.taskId != null ? 'Task linked' : null,
-        agentKind: s.agentKind,
+        agentId: s.agentId,
         status: s.status,
         working: _agentsController.isWorking(s.id),
         sessionId: s.id,
@@ -138,7 +137,7 @@ class OverlayController extends ChangeNotifier {
         kind: BubbleKind.trigger,
         label: t.taskTitle,
         subtitle: 'Pick an agent',
-        agentKind: null,
+        agentId: null,
         status: null,
         working: false,
         sessionId: null,

@@ -78,7 +78,7 @@ class _FakeAgentsRepository implements AgentsRepository {
     return (
       session: AgentSession(
         id: id,
-        agentKind: AgentKind.claudeCode,
+        agentId: 'claude-code',
         status: AgentSessionStatus.idle,
         cwd: '/tmp',
         name: 'Fake',
@@ -91,7 +91,7 @@ class _FakeAgentsRepository implements AgentsRepository {
 
   @override
   Future<AgentSession> createSession({
-    required AgentKind agentKind,
+    required String agentId,
     String? taskId,
     required String cwd,
     required String name,
@@ -99,7 +99,7 @@ class _FakeAgentsRepository implements AgentsRepository {
     final now = DateTime.now();
     return AgentSession(
       id: 'new',
-      agentKind: agentKind,
+      agentId: agentId,
       status: AgentSessionStatus.starting,
       cwd: cwd,
       name: name,
@@ -116,7 +116,7 @@ class _FakeAgentsRepository implements AgentsRepository {
     final now = DateTime.now();
     return AgentSession(
       id: id,
-      agentKind: AgentKind.claudeCode,
+      agentId: 'claude-code',
       status: AgentSessionStatus.idle,
       cwd: '/tmp',
       name: 'Resumed',

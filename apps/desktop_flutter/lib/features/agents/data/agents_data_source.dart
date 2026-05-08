@@ -125,7 +125,7 @@ class AgentsDataSource {
   }
 
   Future<AgentSession> createSession({
-    required AgentKind agentKind,
+    required String agentId,
     String? taskId,
     required String cwd,
     required String name,
@@ -134,7 +134,7 @@ class AgentsDataSource {
       Uri.parse('$_baseUrl/agent-sessions'),
       headers: AuthSessionStore.headers(json: true),
       body: jsonEncode({
-        'agentKind': agentKind.wireValue,
+        'agent_id': agentId,
         'cwd': cwd,
         'name': name,
         if (taskId != null) 'taskId': taskId,

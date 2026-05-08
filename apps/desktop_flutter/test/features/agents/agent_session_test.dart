@@ -27,7 +27,7 @@ void main() {
       final session = AgentSession.fromJson(jsonFull);
       expect(session.id, 'sess-1');
       expect(session.taskId, 'task-42');
-      expect(session.agentKind, AgentKind.claudeCode);
+      expect(session.agentId, 'claude-code');
       expect(session.status, AgentSessionStatus.working);
       expect(session.sessionToken, 'tok-abc');
       expect(session.cwd, '/home/user/project');
@@ -42,7 +42,7 @@ void main() {
       final out = session.toJson();
       expect(out['id'], 'sess-1');
       expect(out['taskId'], 'task-42');
-      expect(out['agentKind'], 'claude-code');
+      expect(out['agent_id'], 'claude-code');
       expect(out['status'], 'working');
       expect(out['sessionToken'], 'tok-abc');
       expect(out['cwd'], '/home/user/project');
@@ -68,20 +68,20 @@ void main() {
       expect(session.sessionToken, isNull);
       expect(session.lastPreview, isNull);
       expect(session.lastActivityAt, isNull);
-      expect(session.agentKind, AgentKind.codex);
+      expect(session.agentId, 'codex');
     });
 
-    test('fromJson falls back to claudeCode for unknown agentKind', () {
+    test('fromJson preserves unknown agentId as-is', () {
       final session = AgentSession.fromJson({
         'id': 'x',
-        'agentKind': 'unknown-agent',
+        'agent_id': 'some-future-agent',
         'status': 'closed',
         'cwd': '/',
         'name': 'X',
         'createdAt': '2026-01-01T00:00:00.000Z',
         'updatedAt': '2026-01-01T00:00:00.000Z',
       });
-      expect(session.agentKind, AgentKind.claudeCode);
+      expect(session.agentId, 'some-future-agent');
     });
 
     test('fromJson falls back to closed for unknown status', () {

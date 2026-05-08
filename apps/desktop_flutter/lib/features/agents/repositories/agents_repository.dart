@@ -21,13 +21,13 @@ class AgentsRepository {
       getSession(String id) => _dataSource.getSession(id);
 
   Future<AgentSession> createSession({
-    required AgentKind agentKind,
+    required String agentId,
     String? taskId,
     required String cwd,
     required String name,
   }) =>
       _dataSource.createSession(
-        agentKind: agentKind,
+        agentId: agentId,
         taskId: taskId,
         cwd: cwd,
         name: name,
