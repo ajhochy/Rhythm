@@ -22,6 +22,60 @@ When set, `AgentTriggerWatcher` is silenced and logs
 
 ---
 
+## manualSetup — Seed a synthetic pending trigger (issue #477)
+
+The inline-error checks in Step 2 require an open trigger bubble. Computer
+Use is unreliable (Apple event error `-1743`) and we will not touch
+production triggers. Instead, use the **debug-only seed entry point** added
+in issue #477 to inject a synthetic `PendingTrigger` directly into the local
+`AgentsController` store at app startup.
+
+This entry point is gated by `kDebugMode` (release builds ignore it) and
+must be paired with `RHYTHM_LOCAL_SMOKE=1` so the watcher does not
+reconcile the seeded trigger away.
+
+### One-liner
+
+```bash
+cd apps/desktop_flutter
+flutter run -d macos \
+  --dart-define=RHYTHM_LOCAL_SMOKE=1 \
+  --dart-define=RHYTHM_LOCAL_SEED_TRIGGER=1 \
+  --dart-define=RHYTHM_LOCAL_SEED_TASK_ID=debug-seed-task \
+  --dart-define=RHYTHM_LOCAL_SEED_TASK_TITLE="Debug seeded trigger"
+```
+
+### What to expect
+
+- About 500 ms after launch, a trigger bubble titled **"Debug seeded
+  trigger"** appears in the agent overlay (expanded by default).
+- The Flutter run console logs:
+  `[main] RHYTHM_LOCAL_SEED_TRIGGER=1 — seeded synthetic pending trigger taskId=debug-seed-task title="Debug seeded trigger".`
+- No `DELETE /claude-triggers/*` requests are issued (watcher is silent due
+  to `RHYTHM_LOCAL_SMOKE=1`).
+
+### Driving the inline-error path
+
+1. Kill the local agent server so `createSession` will fail:
+   `lsof -nP -iTCP:4001 -sTCP:LISTEN | awk 'NR>1{print $2}' | xargs -r kill -9`
+2. Click **Start with Claude** in the seeded bubble.
+3. Verify the inline red error renders below the action buttons (per Step 2
+   of this smoketest). The bubble must not dismiss.
+4. Click **Start with Codex** and verify the same path.
+5. Click again to confirm the error clears briefly before re-rendering on
+   retry.
+
+### Notes
+
+- Only `RHYTHM_LOCAL_SEED_TRIGGER=1` is required to enable seeding; the
+  task id/title fall back to `debug-seed-task` / `Debug seeded trigger`.
+- Source of truth: `apps/desktop_flutter/lib/main.dart`
+  (`_maybeSeedDebugTrigger`) and
+  `apps/desktop_flutter/lib/features/agents/controllers/agents_controller.dart`
+  (`seedTriggerForDebug`).
+
+---
+
 ## Pre-flight
 
 - [x] ❌ **Tooling clean**

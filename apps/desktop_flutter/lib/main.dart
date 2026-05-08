@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:window_manager/window_manager.dart';
@@ -211,7 +212,10 @@ class RhythmApp extends StatelessWidget {
           create: (_) {
             final ds = AgentsDataSource();
             final repo = AgentsRepository(ds);
-            return AgentsController(repo, agentServerController)..initialize();
+            final controller = AgentsController(repo, agentServerController)
+              ..initialize();
+            _maybeSeedDebugTrigger(controller);
+            return controller;
           },
         ),
         ChangeNotifierProvider(
@@ -238,4 +242,41 @@ class RhythmApp extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Debug-only entry point that seeds a synthetic pending trigger into the
+/// local [AgentsController] so smoke tests can open the trigger bubble (and
+/// exercise the inline-error path) without Computer Use or any production
+/// `claude-triggers` round-trip.
+///
+/// Activated by passing the dart-define
+/// `--dart-define=RHYTHM_LOCAL_SEED_TRIGGER=1` to `flutter run`. Optional
+/// `RHYTHM_LOCAL_SEED_TASK_ID` and `RHYTHM_LOCAL_SEED_TASK_TITLE` define the
+/// seeded task.
+///
+/// No-op outside [kDebugMode]. Pair with `RHYTHM_LOCAL_SMOKE=1` so the
+/// production [AgentTriggerWatcher] is silenced and won't reconcile the
+/// seeded trigger away.
+void _maybeSeedDebugTrigger(AgentsController controller) {
+  if (!kDebugMode) return;
+  const enabled = String.fromEnvironment('RHYTHM_LOCAL_SEED_TRIGGER');
+  if (enabled != '1') return;
+
+  const taskId = String.fromEnvironment(
+    'RHYTHM_LOCAL_SEED_TASK_ID',
+    defaultValue: 'debug-seed-task',
+  );
+  const taskTitle = String.fromEnvironment(
+    'RHYTHM_LOCAL_SEED_TASK_TITLE',
+    defaultValue: 'Debug seeded trigger',
+  );
+
+  // Defer slightly so the UI is mounted before the bubble appears.
+  Future.delayed(const Duration(milliseconds: 500), () {
+    controller.seedTriggerForDebug(taskId: taskId, taskTitle: taskTitle);
+    debugPrint(
+      '[main] RHYTHM_LOCAL_SEED_TRIGGER=1 — seeded synthetic pending trigger '
+      'taskId=$taskId title="$taskTitle".',
+    );
+  });
 }
