@@ -380,6 +380,20 @@ export class FacilitiesRepository {
     );
   }
 
+  async findByExternalEventIdAsync(externalEventId: string): Promise<Reservation | null> {
+    if (env.dbClient === 'postgres') {
+      const result = await getPostgresPool().query<ReservationRow>(
+        `${RESERVATION_SELECT} WHERE reservations.external_event_id = $1 LIMIT 1`,
+        [externalEventId],
+      );
+      return result.rows[0] ? rowToReservation(result.rows[0]) : null;
+    }
+    const row = getDb()
+      .prepare(`${RESERVATION_SELECT} WHERE reservations.external_event_id = ? LIMIT 1`)
+      .get(externalEventId) as ReservationRow | undefined;
+    return row ? rowToReservation(row) : null;
+  }
+
   private assertReservationWindowAvailable(
     facilityId: number,
     startTime: string,
@@ -1104,6 +1118,38 @@ export class FacilitiesRepository {
       };
     }
     return this.createReservationGroup(data);
+  }
+
+  async insertSingleReservationAsync(data: {
+    facility_id: number;
+    title: string;
+    requester_name: string;
+    requester_user_id: number | null;
+    created_by_user_id: number | null;
+    start_time: string;
+    end_time: string;
+    notes?: string | null;
+    external_event_id: string;
+    external_source: string;
+    created_by_rhythm?: boolean;
+  }): Promise<Reservation> {
+    return this.insertReservationAsync({
+      facility_id: data.facility_id,
+      group_id: null,
+      series_id: null,
+      title: data.title,
+      requester_name: data.requester_name,
+      requester_user_id: data.requester_user_id,
+      created_by_user_id: data.created_by_user_id,
+      start_time: data.start_time,
+      end_time: data.end_time,
+      notes: data.notes ?? null,
+      external_event_id: data.external_event_id,
+      external_source: data.external_source,
+      created_by_rhythm: data.created_by_rhythm ?? true,
+      is_conflicted: false,
+      conflict_reason: null,
+    });
   }
 
   createReservationSeries(data: CreateReservationSeriesDto): ReservationSeries {
