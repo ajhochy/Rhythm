@@ -7,7 +7,9 @@ import { runMigrations } from "../database/migrations";
 import type { AutomationSignal } from "../models/automation_signal";
 import { AutomationRulesRepository } from "../repositories/automation_rules_repository";
 import { AutomationSignalsRepository } from "../repositories/automation_signals_repository";
+import { FacilitiesRepository } from "../repositories/facilities_repository";
 import { IntegrationAccountsRepository } from "../repositories/integration_accounts_repository";
+import { MessagesRepository } from "../repositories/messages_repository";
 import { ProjectInstancesRepository } from "../repositories/project_instances_repository";
 import { ProjectTemplatesRepository } from "../repositories/project_templates_repository";
 import { TasksRepository } from "../repositories/tasks_repository";
@@ -574,6 +576,275 @@ describe("Automation overhaul backend", () => {
         expect.objectContaining({ source: "gmail" }),
       ]),
     );
+  });
+});
+
+describe("create_reservation action", () => {
+  beforeEach(() => {
+    const db = new Database(":memory:");
+    runMigrations(db);
+    setDb(db);
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-08T12:00:00.000Z"));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  async function setupRule(opts: {
+    ownerId: number;
+    facilityId: number;
+    sourceAccountId: string;
+    actionConfig?: Record<string, unknown>;
+  }) {
+    const rulesRepo = new AutomationRulesRepository();
+    return rulesRepo.create({
+      name: "Calendar to Reservation",
+      source: "google_calendar",
+      triggerKey: "google_calendar.event_matching_filter",
+      triggerConfig: { textQuery: "Worship" },
+      actionType: "create_reservation",
+      actionConfig: { facilityId: opts.facilityId, ...opts.actionConfig },
+      ownerId: opts.ownerId,
+      sourceAccountId: opts.sourceAccountId,
+    });
+  }
+
+  function makeCalendarSignal(
+    overrides: Partial<AutomationSignal> = {},
+  ): AutomationSignal {
+    const occurredAt = "2026-05-15T14:00:00.000Z";
+    return {
+      id: "sig-cal-1",
+      provider: "google_calendar",
+      signalType: "calendar_event_seen",
+      externalId: "cal-1:event-1",
+      dedupeKey: "google_calendar:seen:cal-1:event-1",
+      occurredAt,
+      syncedAt: "2026-05-15T13:30:00.000Z",
+      sourceAccountId: "acct-1",
+      sourceLabel: "alice@example.com",
+      payload: {
+        title: "Worship Committee",
+        description: null,
+        location: null,
+        startDate: "2026-05-15",
+        startAt: "2026-05-15T14:00:00.000Z",
+        endAt: "2026-05-15T15:00:00.000Z",
+        isAllDay: false,
+        eventType: "default",
+        sourceName: "Primary",
+        daysUntilStart: 14,
+      },
+      createdAt: occurredAt,
+      updatedAt: occurredAt,
+      ...overrides,
+    };
+  }
+
+  test("creates a reservation for a timed calendar event", async () => {
+    const usersRepo = new UsersRepository();
+    const accountsRepo = new IntegrationAccountsRepository();
+    const facilitiesRepo = new FacilitiesRepository();
+    const owner = usersRepo.create({ name: "Alice", email: "a@example.com" });
+    const [account] = accountsRepo.upsertGoogleAccount({
+      ownerId: owner.id,
+      externalAccountId: "g-1",
+      email: "a@example.com",
+      displayName: "Alice",
+      accessToken: "t",
+      refreshToken: null,
+      scope: "cal",
+      tokenType: "Bearer",
+      expiresAt: null,
+    });
+    const facility = await facilitiesRepo.createAsync({ name: "Workroom" });
+    const rule = await setupRule({
+      ownerId: owner.id,
+      facilityId: facility.id,
+      sourceAccountId: account.id,
+    });
+
+    const engine = new AutomationEngineService();
+    const result = await engine.evaluateSignals("google_calendar", [
+      makeCalendarSignal(),
+    ]);
+
+    expect(result.matchedRules).toBe(1);
+    const reservations =
+      await facilitiesRepo.findReservationsByFacilityAsync(facility.id);
+    expect(reservations).toHaveLength(1);
+    expect(reservations[0].title).toBe("Worship Committee");
+    expect(reservations[0].externalSource).toBe("automation_rule");
+    expect(reservations[0].externalEventId).toBe(`${rule.id}:cal-1:event-1`);
+    expect(reservations[0].requesterName).toBe("Alice");
+    expect(reservations[0].createdByRhythm).toBe(true);
+  });
+
+  test("skips all-day events (no reservation created)", async () => {
+    const usersRepo = new UsersRepository();
+    const accountsRepo = new IntegrationAccountsRepository();
+    const facilitiesRepo = new FacilitiesRepository();
+    const owner = usersRepo.create({ name: "Alice", email: "a@example.com" });
+    const [account] = accountsRepo.upsertGoogleAccount({
+      ownerId: owner.id,
+      externalAccountId: "g-1",
+      email: "a@example.com",
+      displayName: "Alice",
+      accessToken: "t",
+      refreshToken: null,
+      scope: "cal",
+      tokenType: "Bearer",
+      expiresAt: null,
+    });
+    const facility = await facilitiesRepo.createAsync({ name: "Workroom" });
+    await setupRule({
+      ownerId: owner.id,
+      facilityId: facility.id,
+      sourceAccountId: account.id,
+    });
+
+    const engine = new AutomationEngineService();
+    await engine.evaluateSignals("google_calendar", [
+      makeCalendarSignal({
+        payload: { ...makeCalendarSignal().payload, isAllDay: true },
+      }),
+    ]);
+
+    const reservations =
+      await facilitiesRepo.findReservationsByFacilityAsync(facility.id);
+    expect(reservations).toHaveLength(0);
+  });
+
+  test("skips duplicates by external_event_id", async () => {
+    const usersRepo = new UsersRepository();
+    const accountsRepo = new IntegrationAccountsRepository();
+    const facilitiesRepo = new FacilitiesRepository();
+    const owner = usersRepo.create({ name: "Alice", email: "a@example.com" });
+    const [account] = accountsRepo.upsertGoogleAccount({
+      ownerId: owner.id,
+      externalAccountId: "g-1",
+      email: "a@example.com",
+      displayName: "Alice",
+      accessToken: "t",
+      refreshToken: null,
+      scope: "cal",
+      tokenType: "Bearer",
+      expiresAt: null,
+    });
+    const facility = await facilitiesRepo.createAsync({ name: "Workroom" });
+    await setupRule({
+      ownerId: owner.id,
+      facilityId: facility.id,
+      sourceAccountId: account.id,
+    });
+
+    const engine = new AutomationEngineService();
+    await engine.evaluateSignals("google_calendar", [makeCalendarSignal()]);
+    await engine.evaluateSignals("google_calendar", [makeCalendarSignal()]);
+
+    const reservations =
+      await facilitiesRepo.findReservationsByFacilityAsync(facility.id);
+    expect(reservations).toHaveLength(1);
+  });
+
+  test("sends DM on conflict and creates no new reservation", async () => {
+    const usersRepo = new UsersRepository();
+    const accountsRepo = new IntegrationAccountsRepository();
+    const facilitiesRepo = new FacilitiesRepository();
+    const messagesRepo = new MessagesRepository();
+    const owner = usersRepo.create({ name: "Alice", email: "a@example.com" });
+    const [account] = accountsRepo.upsertGoogleAccount({
+      ownerId: owner.id,
+      externalAccountId: "g-1",
+      email: "a@example.com",
+      displayName: "Alice",
+      accessToken: "t",
+      refreshToken: null,
+      scope: "cal",
+      tokenType: "Bearer",
+      expiresAt: null,
+    });
+    const facility = await facilitiesRepo.createAsync({ name: "Workroom" });
+
+    // Pre-book the room to create a conflict
+    await facilitiesRepo.insertSingleReservationAsync({
+      facility_id: facility.id,
+      title: "Existing meeting",
+      requester_name: "Bob",
+      requester_user_id: owner.id,
+      created_by_user_id: owner.id,
+      start_time: "2026-05-15T14:30:00.000Z",
+      end_time: "2026-05-15T15:30:00.000Z",
+      external_event_id: "manual-1",
+      external_source: "manual",
+    });
+
+    await setupRule({
+      ownerId: owner.id,
+      facilityId: facility.id,
+      sourceAccountId: account.id,
+    });
+
+    const engine = new AutomationEngineService();
+    await engine.evaluateSignals("google_calendar", [makeCalendarSignal()]);
+
+    const reservations =
+      await facilitiesRepo.findReservationsByFacilityAsync(facility.id);
+    expect(reservations).toHaveLength(1); // only the pre-existing one
+
+    // Check that owner received a DM about the conflict
+    const threads = await messagesRepo.findAllThreadsForUserAsync(owner.id);
+    let foundConflictDm = false;
+    for (const thread of threads) {
+      const messages = await messagesRepo.findMessagesByThreadAsync(
+        thread.id,
+        owner.id,
+      );
+      if (messages.some((m) => m.body.includes("Existing meeting"))) {
+        foundConflictDm = true;
+        break;
+      }
+    }
+    expect(foundConflictDm).toBe(true);
+  });
+
+  test("skips when actionConfig is missing facilityId", async () => {
+    const usersRepo = new UsersRepository();
+    const accountsRepo = new IntegrationAccountsRepository();
+    const facilitiesRepo = new FacilitiesRepository();
+    const owner = usersRepo.create({ name: "Alice", email: "a@example.com" });
+    const [account] = accountsRepo.upsertGoogleAccount({
+      ownerId: owner.id,
+      externalAccountId: "g-1",
+      email: "a@example.com",
+      displayName: "Alice",
+      accessToken: "t",
+      refreshToken: null,
+      scope: "cal",
+      tokenType: "Bearer",
+      expiresAt: null,
+    });
+    const facility = await facilitiesRepo.createAsync({ name: "Workroom" });
+    const rulesRepo = new AutomationRulesRepository();
+    await rulesRepo.create({
+      name: "No facility configured",
+      source: "google_calendar",
+      triggerKey: "google_calendar.event_matching_filter",
+      triggerConfig: {},
+      actionType: "create_reservation",
+      actionConfig: {}, // no facilityId
+      ownerId: owner.id,
+      sourceAccountId: account.id,
+    });
+
+    const engine = new AutomationEngineService();
+    await engine.evaluateSignals("google_calendar", [makeCalendarSignal()]);
+
+    const reservations =
+      await facilitiesRepo.findReservationsByFacilityAsync(facility.id);
+    expect(reservations).toHaveLength(0);
   });
 });
 

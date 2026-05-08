@@ -152,6 +152,7 @@ class AutomationRule {
         'auto_schedule' => 'Auto-schedule to day',
         'send_notification' => 'Send notification',
         'tag_task' => 'Tag task',
+        'create_reservation' => 'Create reservation',
         _ => type,
       };
 }
