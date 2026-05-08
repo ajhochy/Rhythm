@@ -44,19 +44,26 @@ export class AgentSessionsController {
 
   create(req: Request, res: Response, next: NextFunction): void {
     try {
-      const { agentKind, taskId, taskTitle, cwd, name } = req.body as Record<string, unknown>;
+      const body = req.body as Record<string, unknown>;
+      const { taskId, taskTitle, cwd, name } = body;
 
-      if (!agentKind || typeof agentKind !== 'string') {
-        throw AppError.badRequest('agentKind is required');
+      // Accept agentId (preferred) with agentKind as a deprecated fallback
+      let agentId = body.agentId;
+      if (!agentId && body.agentKind) {
+        console.warn('[deprecated] agentKind is deprecated in POST /agent-sessions — use agentId instead');
+        agentId = body.agentKind;
+      }
+
+      if (!agentId || typeof agentId !== 'string') {
+        throw AppError.badRequest('agentId is required');
       }
       // Validate that a matching, enabled agent config exists
-      const agentConfig = new AgentConfigsRepository().getById(agentKind);
-      if (!agentConfig || !agentConfig.enabled) {
-        throw AppError.badRequest(
-          agentConfig
-            ? `Agent '${agentKind}' is disabled`
-            : `No agent config found for id '${agentKind}'`,
-        );
+      const agentConfig = new AgentConfigsRepository().getById(agentId);
+      if (!agentConfig) {
+        throw AppError.badRequest(`agent not configured: '${agentId}'`);
+      }
+      if (!agentConfig.enabled) {
+        throw AppError.badRequest(`agent disabled: '${agentId}'`);
       }
       if (!cwd || typeof cwd !== 'string' || cwd.trim() === '') {
         throw AppError.badRequest('cwd is required and must be a non-empty string');
@@ -76,7 +83,7 @@ export class AgentSessionsController {
       }
 
       const dto: CreateAgentSessionDto = {
-        agentKind: agentKind as AgentKind,
+        agentKind: agentId as AgentKind,
         taskId: taskId != null ? (taskId as string) : null,
         taskTitle: taskTitle != null ? (taskTitle as string) : null,
         cwd: expandHome(cwd.trim()),
@@ -128,6 +135,22 @@ export class AgentSessionsController {
     try {
       const session = repo.findById(req.params.id);
       if (!session) throw AppError.notFound('AgentSession');
+
+      // agentId may be provided in the body; fall back to the session's stored agentKind
+      const body = req.body as Record<string, unknown> | undefined ?? {};
+      const requestedAgentId = (body.agentId ?? body.agentKind) as string | undefined;
+      if (requestedAgentId && typeof requestedAgentId === 'string') {
+        if (body.agentKind && !body.agentId) {
+          console.warn('[deprecated] agentKind is deprecated in resume body — use agentId instead');
+        }
+        const agentConfig = new AgentConfigsRepository().getById(requestedAgentId);
+        if (!agentConfig) {
+          throw AppError.badRequest(`agent not configured: '${requestedAgentId}'`);
+        }
+        if (!agentConfig.enabled) {
+          throw AppError.badRequest(`agent disabled: '${requestedAgentId}'`);
+        }
+      }
 
       if (session.status !== 'resumable' || !session.sessionToken) {
         throw AppError.badRequest(
