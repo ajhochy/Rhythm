@@ -113,14 +113,14 @@ class AgentsController extends ChangeNotifier {
   }
 
   Future<AgentSession?> createSession({
-    required AgentKind agentKind,
+    required String agentId,
     String? taskId,
     required String cwd,
     required String name,
   }) async {
     try {
       final session = await _repository.createSession(
-        agentKind: agentKind,
+        agentId: agentId,
         taskId: taskId,
         cwd: cwd,
         name: name,

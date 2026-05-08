@@ -747,10 +747,18 @@ export function runMigrations(db: Database.Database): void {
   db.exec(`CREATE INDEX IF NOT EXISTS idx_pending_claude_triggers_created_at ON pending_claude_triggers(created_at)`);
 
   // Agent Sessions (SQLite-only — intentionally local-device, no Postgres path)
+  //
+  // agent_kind TEXT — logical foreign key to agent_configs.id (not enforced at the SQLite level).
+  // Valid values are the id column of the agent_configs table (e.g. 'claude-code', 'codex',
+  // 'gemini-cli', 'opencode'). The migration block below normalises any historical variant
+  // spellings so that every row references a valid agent_configs.id after migrations run.
+  // Do NOT add a SQLite FOREIGN KEY constraint here — this repo does not enable FK enforcement
+  // globally, and doing so would cascade-affect unrelated tables.
   db.exec(`
     CREATE TABLE IF NOT EXISTS agent_sessions (
       id TEXT PRIMARY KEY,
       task_id TEXT REFERENCES tasks(id) ON DELETE SET NULL,
+      -- agent_kind references agent_configs.id (logical FK, not enforced at the DB level)
       agent_kind TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'starting',
       session_token TEXT,
@@ -788,4 +796,166 @@ export function runMigrations(db: Database.Database): void {
   if (!agentSessionCols.includes('task_title')) {
     db.exec(`ALTER TABLE agent_sessions ADD COLUMN task_title TEXT`);
   }
+
+  // Agent Configs — user-configurable list of CLI agents (issue #481 / #466)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS agent_configs (
+      id TEXT PRIMARY KEY,
+      label TEXT NOT NULL,
+      icon TEXT NOT NULL,
+      command TEXT NOT NULL,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      is_agent INTEGER NOT NULL DEFAULT 1,
+      can_resume INTEGER NOT NULL DEFAULT 0,
+      resume_command TEXT,
+      session_id_pattern TEXT,
+      output_marker TEXT,
+      preset_id TEXT,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE INDEX IF NOT EXISTS idx_agent_configs_enabled ON agent_configs(enabled);
+  `);
+
+  // Seed built-in preset rows (INSERT OR IGNORE keeps migration idempotent)
+  db.exec(`
+    INSERT OR IGNORE INTO agent_configs
+      (id, label, icon, command, is_agent, can_resume, resume_command, session_id_pattern, output_marker, preset_id, sort_order)
+    VALUES
+      (
+        'claude-code',
+        'Claude Code',
+        'assets/agents/claude-code.png',
+        'claude',
+        1,
+        1,
+        'claude --resume {{sessionId}}',
+        'Session ID:\\s+([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})',
+        '⏺',
+        'claude-code',
+        0
+      ),
+      (
+        'codex',
+        'Codex',
+        'assets/agents/codex.png',
+        'codex',
+        1,
+        0,
+        NULL,
+        NULL,
+        '•',
+        'codex',
+        1
+      ),
+      (
+        'gemini-cli',
+        'Gemini CLI',
+        'assets/agents/gemini-cli.png',
+        'gemini',
+        1,
+        0,
+        NULL,
+        NULL,
+        '✦',
+        'gemini-cli',
+        2
+      ),
+      (
+        'opencode',
+        'OpenCode',
+        'assets/agents/opencode.png',
+        'opencode',
+        1,
+        0,
+        NULL,
+        NULL,
+        '│',
+        'opencode',
+        3
+      );
+  `);
+
+  // Issue #483 — Normalise agent_sessions.agent_kind to valid agent_configs.id values.
+  // These UPDATEs are defensive: the listed legacy spellings should not exist in production
+  // data, but we cover the historical Dart wireValue surface to ensure every row is a valid
+  // logical FK reference after migrations run. Both statements are idempotent.
+  db.exec(`
+    UPDATE agent_sessions
+    SET agent_kind = 'claude-code'
+    WHERE agent_kind IN ('claude', 'claudeCode');
+
+    UPDATE agent_sessions
+    SET agent_kind = 'codex'
+    WHERE agent_kind IN ('codexCli');
+  `);
+
+  // Issue #497 — Verify Gemini CLI end-to-end and lock in seed values.
+  //
+  // Smoke-test findings (gemini 0.41.2, run 2026-05-08):
+  //   • `which gemini` → /usr/local/bin/gemini  ✓ on PATH
+  //   • command = 'gemini' is correct; the binary starts an interactive PTY session.
+  //   • output_marker = '✦' is confirmed: Gemini's docs list ✦ as its "Working" state
+  //     icon (see configuration.md: "Working: ✦"), making it the correct activity glyph.
+  //   • can_resume = 0 is intentional:
+  //       Gemini's default interactive mode uses React Ink for its TUI. The session ID
+  //       is an internal implementation detail — it does NOT appear as a parseable
+  //       plain-text line in the PTY stdout stream. `gemini --output-format stream-json`
+  //       DOES emit {"type":"init","session_id":"<UUID>",...}, but that mode collects all
+  //       stdin before processing (non-interactive), making it unsuitable for a live chat
+  //       PTY. The CLI supports `gemini --resume <UUID>`, but without a way to capture
+  //       the UUID from the PTY stream, server-side resume cannot be wired up. A future
+  //       enhancement could use `gemini --session-id <UUID>` at spawn time so Rhythm
+  //       supplies the UUID itself (session.id) rather than parsing it from output; that
+  //       would require a PTY-runner change and is tracked separately.
+  //   • session_id_pattern = NULL for the same reason as can_resume = 0.
+  //
+  // This UPDATE is idempotent — it re-asserts the same values that the seed INSERT set,
+  // ensuring any existing dev DB that ran the original seed is aligned with the verified
+  // values after this migration block executes.
+  db.exec(`
+    UPDATE agent_configs
+    SET
+      command        = 'gemini',
+      can_resume     = 0,
+      resume_command = NULL,
+      session_id_pattern = NULL,
+      output_marker  = '✦',
+      updated_at     = datetime('now')
+    WHERE id = 'gemini-cli';
+  `);
+
+  // Issue #498 — Verify OpenCode end-to-end and lock in seed values.
+  //
+  // Smoke-test findings (opencode 1.14.40, run 2026-05-08):
+  //   • `which opencode` → /Users/ajhochhalter/.opencode/bin/opencode  ✓ on PATH
+  //   • command = 'opencode' is correct.
+  //   • `opencode run --format json "say hi"` emits newline-delimited JSON events.
+  //     Every event includes "sessionID":"ses_<alphanumeric>" in the top-level object.
+  //   • session_id_pattern = '(ses_[a-zA-Z0-9]{10,})' reliably captures the ID from
+  //     the very first JSON line (type:"step_start").
+  //   • can_resume = 1 is intentional:
+  //       `opencode run --session <sessionId>` successfully resumes a prior session.
+  //       Verified by replaying a ses_* ID: the second run emitted the same sessionID
+  //       and continued the conversation context (cache hits confirmed in token counts).
+  //   • resume_command = 'opencode --session {{sessionId}}' matches CLIdeck's authoritative
+  //       agent-presets.json (my-clideck repo) and is confirmed working via smoke-test.
+  //   • output_marker = '│' (U+2502) is unchanged — CLIdeck presets list this as the
+  //       OpenCode output indicator and the seed value is already correct.
+  //
+  // This UPDATE is idempotent — it re-asserts the same values that the seed INSERT set
+  // (with can_resume now corrected to 1), ensuring any existing dev DB is aligned with
+  // the verified values after this migration block executes.
+  db.exec(`
+    UPDATE agent_configs
+    SET
+      command            = 'opencode',
+      can_resume         = 1,
+      resume_command     = 'opencode --session {{sessionId}}',
+      session_id_pattern = '(ses_[a-zA-Z0-9]{10,})',
+      output_marker      = '│',
+      updated_at         = datetime('now')
+    WHERE id = 'opencode';
+  `);
 }

@@ -56,6 +56,9 @@ import 'features/notifications/repositories/notifications_repository.dart';
 import 'features/agents/controllers/agents_controller.dart';
 import 'features/agents/data/agents_data_source.dart';
 import 'features/agents/repositories/agents_repository.dart';
+import 'features/agent_configs/controllers/agent_configs_controller.dart';
+import 'features/agent_configs/data/agent_configs_data_source.dart';
+import 'features/agent_configs/repositories/agent_configs_repository.dart';
 import 'app/core/agents/agent_server_controller.dart';
 import 'app/core/agents/agent_trigger_watcher.dart';
 import 'app/core/agents/overlay_controller.dart';
@@ -228,6 +231,27 @@ class RhythmApp extends StatelessWidget {
             agentServerController: agentServerController,
             agentsController: ctx.read<AgentsController>(),
           ),
+        ),
+        ChangeNotifierProvider(
+          create: (_) {
+            final controller = AgentConfigsController(
+              AgentConfigsRepository(AgentConfigsDataSource()),
+            );
+            // Load configs once the local agent server is ready.
+            void onAgentServerChanged() {
+              if (agentServerController.isReady) {
+                agentServerController.removeListener(onAgentServerChanged);
+                controller.refresh();
+              }
+            }
+
+            if (agentServerController.isReady) {
+              controller.refresh();
+            } else {
+              agentServerController.addListener(onAgentServerChanged);
+            }
+            return controller;
+          },
         ),
       ],
       child: Consumer<ThemeModeService>(

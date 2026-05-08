@@ -20,6 +20,7 @@ import { weeklyPlanRouter } from './routes/weekly_plan_routes';
 import { workspaceRouter } from './routes/workspace_routes';
 import { notificationsRouter } from './routes/notifications_routes';
 import claudeTriggersRouter from './routes/claude_triggers_routes';
+import { agentConfigsRouter } from './routes/agent_configs_routes';
 import { agentSessionsRouter } from './routes/agent_sessions_routes';
 import { agentsCapabilitiesRouter } from './routes/agents_capabilities_routes';
 
@@ -64,6 +65,7 @@ export function createApp() {
   app.use('/workspaces', workspaceRouter);
   app.use('/notifications', notificationsRouter);
   app.use('/claude-triggers', claudeTriggersRouter);
+  app.use('/agent-configs', agentConfigsRouter);
   app.use('/agent-sessions', agentSessionsRouter);
 
   app.use(errorHandler);

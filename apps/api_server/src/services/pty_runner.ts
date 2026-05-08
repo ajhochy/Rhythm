@@ -1,9 +1,10 @@
 import { spawnSync } from 'child_process';
 import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
+import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
 import { TranscriptService } from './transcript_service';
 import { broadcast } from './ws_gateway';
 import { emitAppEvent } from '../utils/app_events';
-import type { AgentKind, AgentSession } from '../models/agent_session';
+import type { AgentSession } from '../models/agent_session';
 
 // node-pty is a native module — load lazily so import failures surface clearly
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -20,14 +21,14 @@ try {
 
 interface PtySession {
   id: string;
-  agentKind: AgentKind;
+  agentId: string;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   pty: import('node-pty').IPty;
   cwd: string;
   /** Rolling 200 KB ring buffer for replay on WS connect/subscribe */
   chunks: string[];
   chunksSize: number;
-  /** Session token extracted from PTY output (claude-code only) */
+  /** Session token extracted from PTY output (when config.isAgent && config.sessionIdPattern) */
   sessionToken: string | null;
   /** Accumulator used during token scan (discarded once token found) */
   preCaptureBuffer: string;
@@ -43,10 +44,79 @@ interface PtySession {
 const sessions = new Map<string, PtySession>();
 const RING_LIMIT = 200 * 1024; // 200 KB
 
-const TOKEN_REGEX: Record<AgentKind, RegExp | null> = {
-  'claude-code': /Session ID:\s+([a-f0-9-]{36})/i,
-  'codex': null, // Codex has no stable resume token in v1
-};
+/** Cache compiled regexes by config id to avoid recompiling per chunk. */
+const regexCache = new Map<string, RegExp>();
+
+// ─── shlex-style command splitter ────────────────────────────────────────────
+
+/**
+ * Splits a shell command string into [binary, ...args] using a minimal
+ * shlex-style parser. Handles single and double quotes and backslash escapes.
+ * Does NOT support backticks, env expansion, or glob patterns.
+ * Returns an empty array if the input is blank.
+ */
+export function shlexSplit(command: string): string[] {
+  const tokens: string[] = [];
+  let current = '';
+  let i = 0;
+
+  while (i < command.length) {
+    const ch = command[i];
+
+    if (ch === ' ' || ch === '\t') {
+      // Token boundary
+      if (current.length > 0) {
+        tokens.push(current);
+        current = '';
+      }
+      i++;
+      continue;
+    }
+
+    if (ch === '\\' && i + 1 < command.length) {
+      // Backslash escape outside quotes
+      current += command[i + 1];
+      i += 2;
+      continue;
+    }
+
+    if (ch === "'") {
+      // Single-quoted string — no escapes inside
+      i++;
+      while (i < command.length && command[i] !== "'") {
+        current += command[i];
+        i++;
+      }
+      i++; // skip closing quote
+      continue;
+    }
+
+    if (ch === '"') {
+      // Double-quoted string — backslash escapes inside
+      i++;
+      while (i < command.length && command[i] !== '"') {
+        if (command[i] === '\\' && i + 1 < command.length) {
+          current += command[i + 1];
+          i += 2;
+        } else {
+          current += command[i];
+          i++;
+        }
+      }
+      i++; // skip closing quote
+      continue;
+    }
+
+    current += ch;
+    i++;
+  }
+
+  if (current.length > 0) {
+    tokens.push(current);
+  }
+
+  return tokens;
+}
 
 // ─── Binary resolution ────────────────────────────────────────────────────────
 
@@ -63,10 +133,17 @@ function resolveBinary(name: string): string | null {
   return result.stdout.trim() || null;
 }
 
-const BINARY_NAME: Record<AgentKind, string> = {
-  'claude-code': 'claude',
-  'codex': 'codex',
-};
+/**
+ * Returns the compiled regex for a config's session_id_pattern.
+ * Caches by config id to avoid recompiling on every PTY data chunk.
+ */
+function getTokenRegex(agentId: string, pattern: string): RegExp {
+  const cached = regexCache.get(agentId);
+  if (cached) return cached;
+  const re = new RegExp(pattern, 'i');
+  regexCache.set(agentId, re);
+  return re;
+}
 
 // ─── Public API ───────────────────────────────────────────────────────────────
 
@@ -109,13 +186,15 @@ function _attachSession(
 
     // Session token capture (scan until token is found, then stop)
     if (!sess.sessionToken) {
-      sess.preCaptureBuffer += data;
-      // Keep pre-capture buffer from growing unbounded
-      if (sess.preCaptureBuffer.length > 8192) {
-        sess.preCaptureBuffer = sess.preCaptureBuffer.slice(-4096);
-      }
-      const re = TOKEN_REGEX[sess.agentKind];
-      if (re) {
+      // Look up config to get isAgent and sessionIdPattern
+      const config = new AgentConfigsRepository().getById(sess.agentId);
+      if (config?.isAgent && config.sessionIdPattern) {
+        sess.preCaptureBuffer += data;
+        // Keep pre-capture buffer from growing unbounded
+        if (sess.preCaptureBuffer.length > 8192) {
+          sess.preCaptureBuffer = sess.preCaptureBuffer.slice(-4096);
+        }
+        const re = getTokenRegex(sess.agentId, config.sessionIdPattern);
         const m = sess.preCaptureBuffer.match(re);
         if (m?.[1]) {
           sess.sessionToken = m[1];
@@ -160,7 +239,9 @@ function _attachSession(
 
 /**
  * Spawns the agent binary for the given session.
- * Throws if node-pty failed to load or the binary is not on PATH.
+ * Looks up the agent config by session.agentKind (treated as config id).
+ * Throws if node-pty failed to load, the config is missing/disabled, or the
+ * binary is not on PATH.
  */
 export function spawn(opts: SpawnOpts): void {
   if (!pty) {
@@ -170,16 +251,33 @@ export function spawn(opts: SpawnOpts): void {
     );
   }
 
-  const binaryName = BINARY_NAME[opts.session.agentKind];
+  const agentId = opts.session.agentKind as string;
+  const configRepo = new AgentConfigsRepository();
+  const config = configRepo.getById(agentId);
+
+  if (!config || !config.enabled) {
+    throw new Error(
+      config
+        ? `Agent '${agentId}' is disabled`
+        : `No agent config found for id '${agentId}'`,
+    );
+  }
+
+  const parts = shlexSplit(config.command);
+  if (parts.length === 0) {
+    throw new Error(`Agent '${agentId}' has an empty command`);
+  }
+
+  const [binaryName, ...args] = parts;
   const binary = resolveBinary(binaryName);
   if (!binary) {
-    throw new Error(`${opts.session.agentKind} binary ('${binaryName}') not found in PATH`);
+    throw new Error(`Agent '${agentId}' binary ('${binaryName}') not found in PATH`);
   }
 
   const cols = opts.cols ?? 120;
   const rows = opts.rows ?? 30;
 
-  const term = pty.spawn(binary, [], {
+  const term = pty.spawn(binary, args, {
     name: 'xterm-256color',
     cols,
     rows,
@@ -189,7 +287,7 @@ export function spawn(opts: SpawnOpts): void {
 
   const sess: PtySession = {
     id: opts.session.id,
-    agentKind: opts.session.agentKind,
+    agentId,
     pty: term,
     cwd: opts.session.cwd,
     chunks: [],
@@ -207,14 +305,10 @@ export function spawn(opts: SpawnOpts): void {
 
 /**
  * Re-spawns a previously closed session using its captured session token.
- * Throws for codex (no stable resume CLI in v1), missing token, or if pty
- * failed to load.
+ * Looks up the agent config to determine resume support and command.
+ * Throws for non-resumable agents, missing token, or if pty failed to load.
  */
 export function resume(sessionId: string, dbSession: AgentSession): void {
-  if (dbSession.agentKind === 'codex') {
-    throw new Error('codex resume not supported in v1');
-  }
-
   if (!pty) {
     throw new Error(
       `node-pty failed to load: ${ptyLoadError?.message ?? 'unknown error'}. ` +
@@ -222,17 +316,38 @@ export function resume(sessionId: string, dbSession: AgentSession): void {
     );
   }
 
+  const agentId = dbSession.agentKind as string;
+  const configRepo = new AgentConfigsRepository();
+  const config = configRepo.getById(agentId);
+
+  if (!config || !config.enabled) {
+    throw new Error(
+      config
+        ? `Agent '${agentId}' is disabled`
+        : `No agent config found for id '${agentId}'`,
+    );
+  }
+
+  if (!config.canResume || !config.resumeCommand) {
+    throw new Error(`resume not supported for this agent ('${agentId}')`);
+  }
+
   if (!dbSession.sessionToken) {
     throw new Error('Session token missing — cannot resume');
   }
 
-  const binaryName = BINARY_NAME[dbSession.agentKind];
-  const binary = resolveBinary(binaryName);
-  if (!binary) {
-    throw new Error(`${dbSession.agentKind} binary ('${binaryName}') not found in PATH`);
+  const resumeCmd = config.resumeCommand.replace('{{sessionId}}', dbSession.sessionToken);
+  const parts = shlexSplit(resumeCmd);
+  if (parts.length === 0) {
+    throw new Error(`Agent '${agentId}' has an empty resume_command`);
   }
 
-  const args = ['--resume', dbSession.sessionToken];
+  const [binaryName, ...args] = parts;
+  const binary = resolveBinary(binaryName);
+  if (!binary) {
+    throw new Error(`Agent '${agentId}' binary ('${binaryName}') not found in PATH`);
+  }
+
   const cols = 120;
   const rows = 30;
 
@@ -246,7 +361,7 @@ export function resume(sessionId: string, dbSession: AgentSession): void {
 
   const sess: PtySession = {
     id: sessionId,
-    agentKind: dbSession.agentKind,
+    agentId,
     pty: term,
     cwd: dbSession.cwd,
     chunks: [],

@@ -3,6 +3,10 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../../features/agent_configs/controllers/agent_configs_controller.dart';
+import '../../../features/agent_configs/models/agent_config.dart';
+import '../../../features/agent_configs/views/manage_agents_view.dart';
+import '../../../features/agent_configs/widgets/agent_icon.dart';
 import '../../../features/agents/controllers/agents_controller.dart';
 import '../../../features/agents/models/agent_session.dart';
 import '../../../features/agents/models/agent_session_message.dart';
@@ -112,19 +116,23 @@ class _CollapsedBubble extends StatelessWidget {
     };
   }
 
-  String _badgeLabel() {
+  String _badgeLabel(AgentConfig? config) {
     if (entry.kind == BubbleKind.trigger) return '!';
-    return switch (entry.agentKind) {
-      AgentKind.claudeCode => 'C',
-      AgentKind.codex => 'X',
-      null => '?',
-    };
+    if (config != null && config.label.isNotEmpty) {
+      return config.label[0].toUpperCase();
+    }
+    final id = entry.agentId;
+    if (id == null || id.isEmpty) return '?';
+    return id[0].toUpperCase();
   }
 
   @override
   Widget build(BuildContext context) {
     final overlay = context.read<OverlayController>();
     final ringColor = _ringColor(context);
+    final config = entry.agentId != null
+        ? context.read<AgentConfigsController>().byId(entry.agentId!)
+        : null;
 
     return Tooltip(
       message: entry.label,
@@ -151,11 +159,17 @@ class _CollapsedBubble extends StatelessWidget {
                           color: context.rhythm.accent,
                         ),
                       )
-                    : Icon(
-                        Icons.smart_toy_outlined,
-                        size: 24,
-                        color: context.rhythm.textSecondary,
-                      ),
+                    : config != null
+                        ? AgentIcon(
+                            config.icon,
+                            size: 24,
+                            fallbackLabel: config.label,
+                          )
+                        : Icon(
+                            Icons.terminal,
+                            size: 24,
+                            color: context.rhythm.textSecondary,
+                          ),
               ),
               // Badge top-right
               Positioned(
@@ -170,7 +184,7 @@ class _CollapsedBubble extends StatelessWidget {
                   ),
                   alignment: Alignment.center,
                   child: Text(
-                    _badgeLabel(),
+                    _badgeLabel(config),
                     style: const TextStyle(
                       fontSize: 9,
                       fontWeight: FontWeight.w800,
@@ -369,12 +383,24 @@ class _ExpandedTriggerBubble extends StatefulWidget {
 class _ExpandedTriggerBubbleState extends State<_ExpandedTriggerBubble> {
   String? _errorMessage;
 
-  Future<void> startAgent(AgentKind kind) async {
+  @override
+  void initState() {
+    super.initState();
+    // Refresh capabilities each time the trigger bubble is expanded so that
+    // agents added after app launch (e.g. custom agents) appear immediately.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        context.read<AgentServerController>().refreshCapabilities();
+      }
+    });
+  }
+
+  Future<void> startAgent(String agentId) async {
     setState(() => _errorMessage = null);
     final overlay = context.read<OverlayController>();
     final agents = context.read<AgentsController>();
     final session = await agents.createSession(
-      agentKind: kind,
+      agentId: agentId,
       taskId: widget.entry.triggerTaskId,
       cwd: Platform.environment['HOME'] ?? '/',
       name: widget.entry.label,
@@ -389,17 +415,32 @@ class _ExpandedTriggerBubbleState extends State<_ExpandedTriggerBubble> {
     }
   }
 
+  /// Compute bubble height based on the number of agent buttons and whether
+  /// an error is shown.  One row holds up to two buttons; additional buttons
+  /// wrap and add ~48 px per extra row.
+  double _bubbleHeight(int buttonCount) {
+    final extraRows = ((buttonCount - 1) ~/ 2).clamp(0, 10);
+    final base = 220.0 + extraRows * 48.0;
+    return _errorMessage == null ? base : base + 40.0;
+  }
+
   @override
   Widget build(BuildContext context) {
     final overlay = context.read<OverlayController>();
     final agentServer = context.watch<AgentServerController>();
-    final claudeAvailable = agentServer.isAgentAvailable('claude');
-    final codexAvailable = agentServer.isAgentAvailable('codex');
-    final hasAnyAgent = claudeAvailable || codexAvailable;
+    final agentConfigs = context.watch<AgentConfigsController>();
+
+    // Enabled agents cross-referenced against server capability detection.
+    final availableAgents = agentConfigs.enabledAgents
+        .where((c) => agentServer.isAgentAvailable(c.id))
+        .toList();
+
+    final hasAnyAgent = availableAgents.isNotEmpty;
+    final useWrap = availableAgents.length > 2;
 
     return Container(
       width: 360,
-      height: _errorMessage == null ? 220 : 260,
+      height: _bubbleHeight(availableAgents.length),
       decoration: BoxDecoration(
         color: context.rhythm.surfaceRaised,
         borderRadius: BorderRadius.circular(RhythmRadius.xl),
@@ -468,37 +509,63 @@ class _ExpandedTriggerBubbleState extends State<_ExpandedTriggerBubble> {
             ),
             const Spacer(),
 
-            // Action buttons
+            // Action buttons — dynamic list from AgentConfigsController
             if (hasAnyAgent)
-              Row(
-                children: [
-                  if (claudeAvailable)
-                    Expanded(
-                      child: _TriggerButton(
-                        label: 'Start with Claude',
-                        color: const Color(0xFF6B46C1),
-                        onPressed: () => startAgent(AgentKind.claudeCode),
-                      ),
-                    ),
-                  if (claudeAvailable && codexAvailable)
-                    const SizedBox(width: 8),
-                  if (codexAvailable)
-                    Expanded(
-                      child: _TriggerButton(
-                        label: 'Start with Codex',
-                        color: const Color(0xFF059669),
-                        onPressed: () => startAgent(AgentKind.codex),
-                      ),
-                    ),
-                ],
-              )
+              useWrap
+                  ? Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: availableAgents
+                          .map(
+                            (config) => _TriggerButton(
+                              label: 'Start with ${config.label}',
+                              icon: AgentIcon(
+                                config.icon,
+                                size: 14,
+                                fallbackLabel: config.label,
+                              ),
+                              onPressed: () => startAgent(config.id),
+                            ),
+                          )
+                          .toList(),
+                    )
+                  : Row(
+                      children: [
+                        for (int i = 0; i < availableAgents.length; i++) ...[
+                          if (i > 0) const SizedBox(width: 8),
+                          Expanded(
+                            child: _TriggerButton(
+                              label: 'Start with ${availableAgents[i].label}',
+                              icon: AgentIcon(
+                                availableAgents[i].icon,
+                                size: 14,
+                                fallbackLabel: availableAgents[i].label,
+                              ),
+                              onPressed: () =>
+                                  startAgent(availableAgents[i].id),
+                            ),
+                          ),
+                        ],
+                      ],
+                    )
             else
-              Text(
-                'No AI agents installed. Configure agents in Settings.',
-                style: TextStyle(
-                  fontSize: 11.5,
-                  color: context.rhythm.textSecondary,
-                  height: 1.35,
+              GestureDetector(
+                onTap: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => const ManageAgentsView(),
+                    ),
+                  );
+                },
+                child: Text(
+                  'No agents configured. Open Manage agents.',
+                  style: TextStyle(
+                    fontSize: 11.5,
+                    color: context.rhythm.accent,
+                    decoration: TextDecoration.underline,
+                    decorationColor: context.rhythm.accent,
+                    height: 1.35,
+                  ),
                 ),
               ),
             if (_errorMessage != null) ...[
@@ -561,10 +628,12 @@ class _BubbleHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isClaude = entry.agentKind == AgentKind.claudeCode;
+    final config = entry.agentId != null
+        ? context.read<AgentConfigsController>().byId(entry.agentId!)
+        : null;
+    final agentLabel = config?.label ?? entry.agentId ?? '?';
     final agentColor =
-        isClaude ? const Color(0xFF6B46C1) : const Color(0xFF059669);
-    final agentLabel = isClaude ? 'Claude' : 'Codex';
+        config != null ? context.rhythm.accent : context.rhythm.textMuted;
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(14, 12, 10, 10),
@@ -577,13 +646,26 @@ class _BubbleHeader extends StatelessWidget {
               color: agentColor.withValues(alpha: 0.12),
               borderRadius: BorderRadius.circular(RhythmRadius.pill),
             ),
-            child: Text(
-              agentLabel,
-              style: TextStyle(
-                fontSize: 10,
-                fontWeight: FontWeight.w700,
-                color: agentColor,
-              ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (config != null) ...[
+                  AgentIcon(
+                    config.icon,
+                    size: 12,
+                    fallbackLabel: config.label,
+                  ),
+                  const SizedBox(width: 4),
+                ],
+                Text(
+                  agentLabel,
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w700,
+                    color: agentColor,
+                  ),
+                ),
+              ],
             ),
           ),
           const SizedBox(width: 8),
@@ -794,33 +876,47 @@ class _BubbleInputFooter extends StatelessWidget {
 class _TriggerButton extends StatelessWidget {
   const _TriggerButton({
     required this.label,
-    required this.color,
     required this.onPressed,
+    this.icon,
   });
 
   final String label;
-  final Color color;
+  final Widget? icon;
   final VoidCallback onPressed;
 
   @override
   Widget build(BuildContext context) {
+    final color = context.rhythm.accent;
     return GestureDetector(
       onTap: onPressed,
       child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 9),
+        padding: const EdgeInsets.symmetric(vertical: 9, horizontal: 8),
         decoration: BoxDecoration(
-          color: color.withValues(alpha: 0.12),
+          color: color.withValues(alpha: 0.10),
           borderRadius: BorderRadius.circular(RhythmRadius.md),
           border: Border.all(color: color.withValues(alpha: 0.3)),
         ),
         alignment: Alignment.center,
-        child: Text(
-          label,
-          style: TextStyle(
-            fontSize: 11.5,
-            fontWeight: FontWeight.w700,
-            color: color,
-          ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (icon != null) ...[
+              icon!,
+              const SizedBox(width: 5),
+            ],
+            Flexible(
+              child: Text(
+                label,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 11.5,
+                  fontWeight: FontWeight.w700,
+                  color: color,
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );

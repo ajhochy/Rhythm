@@ -98,7 +98,7 @@ class _FakeAgentsRepository implements AgentsRepository {
 
   @override
   Future<AgentSession> createSession({
-    required AgentKind agentKind,
+    required String agentId,
     String? taskId,
     required String cwd,
     required String name,
@@ -128,7 +128,7 @@ AgentSession _makeSession(String id, AgentSessionStatus status) {
   final now = DateTime.now();
   return AgentSession(
     id: id,
-    agentKind: AgentKind.claudeCode,
+    agentId: 'claude-code',
     status: status,
     cwd: '/tmp',
     name: 'Test Session $id',

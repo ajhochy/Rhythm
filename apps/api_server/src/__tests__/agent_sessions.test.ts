@@ -8,6 +8,7 @@ import * as ptyRunner from '../services/pty_runner';
 import type { AddressInfo } from 'node:net';
 import { UsersRepository } from '../repositories/users_repository';
 import { SessionsRepository } from '../repositories/sessions_repository';
+import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
 
 vi.mock('../services/pty_runner', () => ({
   spawn: vi.fn(),
@@ -39,7 +40,7 @@ describe('Agent Sessions API', () => {
 
     const user = usersRepo.create({ name: 'Test User', email: 'test@example.com' });
     const session = await sessionsRepo.createAsync(user.id);
-    authHeaders = { 
+    authHeaders = {
       'Authorization': `Bearer ${session.token}`,
       'Content-Type': 'application/json'
     };
@@ -55,9 +56,88 @@ describe('Agent Sessions API', () => {
     vi.clearAllMocks();
   });
 
-  it('expands ~ in cwd when creating a session', async () => {
+  // ── agentId (new field) ────────────────────────────────────────────────────
+
+  it('creates a session when agentId matches a configured, enabled agent', async () => {
+    const payload = {
+      agentId: 'claude-code',
+      cwd: os.homedir(),
+      name: 'Test Session',
+    };
+
+    const res = await fetch(`${baseUrl}/agent-sessions`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify(payload),
+    });
+
+    expect(res.status).toBe(201);
+    const session = (await res.json()) as { agentKind: string };
+    expect(session.agentKind).toBe('claude-code');
+  });
+
+  it('returns 400 when agentId does not exist in agent_configs', async () => {
+    const payload = {
+      agentId: 'nonexistent',
+      cwd: os.homedir(),
+      name: 'Ghost Session',
+    };
+
+    const res = await fetch(`${baseUrl}/agent-sessions`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify(payload),
+    });
+
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: { message: string } };
+    expect(body.error.message).toMatch(/agent not configured/i);
+  });
+
+  it('returns 400 when agentId refers to a disabled agent config', async () => {
+    // Disable the claude-code preset
+    new AgentConfigsRepository().update('claude-code', { enabled: false });
+
+    const payload = {
+      agentId: 'claude-code',
+      cwd: os.homedir(),
+      name: 'Disabled Session',
+    };
+
+    const res = await fetch(`${baseUrl}/agent-sessions`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify(payload),
+    });
+
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: { message: string } };
+    expect(body.error.message).toMatch(/agent disabled/i);
+  });
+
+  // ── agentKind deprecated fallback ─────────────────────────────────────────
+
+  it('still accepts agentKind as a deprecated fallback', async () => {
     const payload = {
       agentKind: 'claude-code',
+      cwd: os.homedir(),
+      name: 'Legacy Session',
+    };
+
+    const res = await fetch(`${baseUrl}/agent-sessions`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify(payload),
+    });
+
+    expect(res.status).toBe(201);
+  });
+
+  // ── ~ expansion ────────────────────────────────────────────────────────────
+
+  it('expands ~ in cwd when creating a session', async () => {
+    const payload = {
+      agentId: 'claude-code',
       cwd: '~/',
       name: 'Test Session',
     };
@@ -72,7 +152,7 @@ describe('Agent Sessions API', () => {
     const session = (await res.json()) as { cwd: string };
     const expectedCwd = os.homedir() + '/';
     expect(session.cwd).toBe(expectedCwd);
-    
+
     expect(ptyRunner.spawn).toHaveBeenCalledWith(
       expect.objectContaining({
         session: expect.objectContaining({
@@ -84,7 +164,7 @@ describe('Agent Sessions API', () => {
 
   it('does not expand ~ if not at the start', async () => {
     const payload = {
-      agentKind: 'claude-code',
+      agentId: 'claude-code',
       cwd: '/some/path/~',
       name: 'Test Session',
     };
@@ -102,7 +182,7 @@ describe('Agent Sessions API', () => {
 
   it('expands ~ even if it is just ~', async () => {
     const payload = {
-      agentKind: 'claude-code',
+      agentId: 'claude-code',
       cwd: '~',
       name: 'Test Session',
     };
