@@ -10,11 +10,15 @@ import 'package:rhythm_desktop/app/core/auth/auth_data_source.dart';
 import 'package:rhythm_desktop/app/core/auth/auth_session_service.dart';
 import 'package:rhythm_desktop/app/core/server/api_server_service.dart';
 import 'package:rhythm_desktop/app/core/services/server_config_service.dart';
+import 'package:rhythm_desktop/app/core/notifications/local_notification_service.dart';
 import 'package:rhythm_desktop/features/agents/controllers/agents_controller.dart';
 import 'package:rhythm_desktop/features/agents/models/agent_session.dart';
 import 'package:rhythm_desktop/features/agents/models/agent_session_message.dart';
 import 'package:rhythm_desktop/features/agents/models/agent_ws_message.dart';
 import 'package:rhythm_desktop/features/agents/repositories/agents_repository.dart';
+import 'package:rhythm_desktop/features/notifications/controllers/notifications_controller.dart';
+import 'package:rhythm_desktop/features/notifications/data/notifications_data_source.dart';
+import 'package:rhythm_desktop/features/notifications/repositories/notifications_repository.dart';
 
 // ---------------------------------------------------------------------------
 // Fakes / stubs
@@ -131,6 +135,27 @@ class _FakeAgentsRepository implements AgentsRepository {
   }
 }
 
+class _FakeLocalNotificationService extends LocalNotificationService {
+  @override
+  Future<void> showMessageNotification({
+    required int id,
+    required String title,
+    required String body,
+  }) async {}
+}
+
+class _FakeNotificationsController extends NotificationsController {
+  _FakeNotificationsController()
+      : super(NotificationsRepository(NotificationsDataSource()));
+
+  @override
+  void pushAgentNotification({
+    required int id,
+    required String title,
+    required String body,
+  }) {}
+}
+
 /// A stub [AuthDataSource] that does nothing (prevents real network calls).
 class _FakeAuthDataSource extends AuthDataSource {
   _FakeAuthDataSource() : super(baseUrl: 'http://localhost:4000');
@@ -166,6 +191,8 @@ void main() {
     agentsController = AgentsController(
       _FakeAgentsRepository(),
       agentServerController,
+      _FakeLocalNotificationService(),
+      _FakeNotificationsController(),
     );
     serverConfigService = ServerConfigService();
   });
