@@ -69,7 +69,7 @@ describe('Agent Sessions API', () => {
     });
 
     expect(res.status).toBe(201);
-    const session = await res.json() as Record<string, unknown>;
+    const session = (await res.json()) as { cwd: string };
     const expectedCwd = os.homedir() + '/';
     expect(session.cwd).toBe(expectedCwd);
     
@@ -96,7 +96,7 @@ describe('Agent Sessions API', () => {
     });
 
     expect(res.status).toBe(201);
-    const session = await res.json() as Record<string, unknown>;
+    const session = (await res.json()) as { cwd: string };
     expect(session.cwd).toBe('/some/path/~');
   });
 
@@ -114,7 +114,7 @@ describe('Agent Sessions API', () => {
     });
 
     expect(res.status).toBe(201);
-    const session = await res.json() as Record<string, unknown>;
+    const session = (await res.json()) as { cwd: string };
     expect(session.cwd).toBe(os.homedir());
   });
 });
