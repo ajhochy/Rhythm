@@ -3,6 +3,9 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../../features/agent_configs/controllers/agent_configs_controller.dart';
+import '../../../features/agent_configs/views/manage_agents_view.dart';
+import '../../../features/agent_configs/widgets/agent_icon.dart';
 import '../../../features/agents/controllers/agents_controller.dart';
 import '../../../features/agents/models/agent_session.dart';
 import '../../../features/agents/models/agent_session_message.dart';
@@ -390,17 +393,32 @@ class _ExpandedTriggerBubbleState extends State<_ExpandedTriggerBubble> {
     }
   }
 
+  /// Compute bubble height based on the number of agent buttons and whether
+  /// an error is shown.  One row holds up to two buttons; additional buttons
+  /// wrap and add ~48 px per extra row.
+  double _bubbleHeight(int buttonCount) {
+    final extraRows = ((buttonCount - 1) ~/ 2).clamp(0, 10);
+    final base = 220.0 + extraRows * 48.0;
+    return _errorMessage == null ? base : base + 40.0;
+  }
+
   @override
   Widget build(BuildContext context) {
     final overlay = context.read<OverlayController>();
     final agentServer = context.watch<AgentServerController>();
-    final claudeAvailable = agentServer.isAgentAvailable('claude');
-    final codexAvailable = agentServer.isAgentAvailable('codex');
-    final hasAnyAgent = claudeAvailable || codexAvailable;
+    final agentConfigs = context.watch<AgentConfigsController>();
+
+    // Enabled agents cross-referenced against server capability detection.
+    final availableAgents = agentConfigs.enabledAgents
+        .where((c) => agentServer.isAgentAvailable(c.id))
+        .toList();
+
+    final hasAnyAgent = availableAgents.isNotEmpty;
+    final useWrap = availableAgents.length > 2;
 
     return Container(
       width: 360,
-      height: _errorMessage == null ? 220 : 260,
+      height: _bubbleHeight(availableAgents.length),
       decoration: BoxDecoration(
         color: context.rhythm.surfaceRaised,
         borderRadius: BorderRadius.circular(RhythmRadius.xl),
@@ -469,37 +487,63 @@ class _ExpandedTriggerBubbleState extends State<_ExpandedTriggerBubble> {
             ),
             const Spacer(),
 
-            // Action buttons
+            // Action buttons — dynamic list from AgentConfigsController
             if (hasAnyAgent)
-              Row(
-                children: [
-                  if (claudeAvailable)
-                    Expanded(
-                      child: _TriggerButton(
-                        label: 'Start with Claude',
-                        color: const Color(0xFF6B46C1),
-                        onPressed: () => startAgent('claude-code'),
-                      ),
-                    ),
-                  if (claudeAvailable && codexAvailable)
-                    const SizedBox(width: 8),
-                  if (codexAvailable)
-                    Expanded(
-                      child: _TriggerButton(
-                        label: 'Start with Codex',
-                        color: const Color(0xFF059669),
-                        onPressed: () => startAgent('codex'),
-                      ),
-                    ),
-                ],
-              )
+              useWrap
+                  ? Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: availableAgents
+                          .map(
+                            (config) => _TriggerButton(
+                              label: 'Start with ${config.label}',
+                              icon: AgentIcon(
+                                config.icon,
+                                size: 14,
+                                fallbackLabel: config.label,
+                              ),
+                              onPressed: () => startAgent(config.id),
+                            ),
+                          )
+                          .toList(),
+                    )
+                  : Row(
+                      children: [
+                        for (int i = 0; i < availableAgents.length; i++) ...[
+                          if (i > 0) const SizedBox(width: 8),
+                          Expanded(
+                            child: _TriggerButton(
+                              label: 'Start with ${availableAgents[i].label}',
+                              icon: AgentIcon(
+                                availableAgents[i].icon,
+                                size: 14,
+                                fallbackLabel: availableAgents[i].label,
+                              ),
+                              onPressed: () =>
+                                  startAgent(availableAgents[i].id),
+                            ),
+                          ),
+                        ],
+                      ],
+                    )
             else
-              Text(
-                'No AI agents installed. Configure agents in Settings.',
-                style: TextStyle(
-                  fontSize: 11.5,
-                  color: context.rhythm.textSecondary,
-                  height: 1.35,
+              GestureDetector(
+                onTap: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => const ManageAgentsView(),
+                    ),
+                  );
+                },
+                child: Text(
+                  'No agents configured. Open Manage agents.',
+                  style: TextStyle(
+                    fontSize: 11.5,
+                    color: context.rhythm.accent,
+                    decoration: TextDecoration.underline,
+                    decorationColor: context.rhythm.accent,
+                    height: 1.35,
+                  ),
                 ),
               ),
             if (_errorMessage != null) ...[
@@ -795,33 +839,47 @@ class _BubbleInputFooter extends StatelessWidget {
 class _TriggerButton extends StatelessWidget {
   const _TriggerButton({
     required this.label,
-    required this.color,
     required this.onPressed,
+    this.icon,
   });
 
   final String label;
-  final Color color;
+  final Widget? icon;
   final VoidCallback onPressed;
 
   @override
   Widget build(BuildContext context) {
+    final color = context.rhythm.accent;
     return GestureDetector(
       onTap: onPressed,
       child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 9),
+        padding: const EdgeInsets.symmetric(vertical: 9, horizontal: 8),
         decoration: BoxDecoration(
-          color: color.withValues(alpha: 0.12),
+          color: color.withValues(alpha: 0.10),
           borderRadius: BorderRadius.circular(RhythmRadius.md),
           border: Border.all(color: color.withValues(alpha: 0.3)),
         ),
         alignment: Alignment.center,
-        child: Text(
-          label,
-          style: TextStyle(
-            fontSize: 11.5,
-            fontWeight: FontWeight.w700,
-            color: color,
-          ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (icon != null) ...[
+              icon!,
+              const SizedBox(width: 5),
+            ],
+            Flexible(
+              child: Text(
+                label,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 11.5,
+                  fontWeight: FontWeight.w700,
+                  color: color,
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );
