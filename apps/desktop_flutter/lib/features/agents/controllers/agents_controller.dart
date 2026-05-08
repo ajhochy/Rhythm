@@ -205,6 +205,32 @@ class AgentsController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Debug-only: inject a synthetic pending trigger directly into the local
+  /// store, bypassing the production `claude-triggers` polling path.
+  ///
+  /// Used by smoke tests (and the dart-define entry point in `main.dart`) to
+  /// open the inline-error trigger bubble without needing Computer Use or any
+  /// production network round-trip.
+  ///
+  /// No-op outside [kDebugMode] so seeded triggers can never appear in
+  /// release builds. Pair with `RHYTHM_LOCAL_SMOKE=1` so the
+  /// [AgentTriggerWatcher] is silenced and won't reconcile the seeded
+  /// trigger away.
+  void seedTriggerForDebug({
+    required String taskId,
+    required String taskTitle,
+  }) {
+    if (!kDebugMode) return;
+    if (taskId.isEmpty) return;
+    if (_pendingTriggers.any((t) => t.taskId == taskId)) return;
+    _pendingTriggers.add(PendingTrigger(
+      taskId: taskId,
+      taskTitle: taskTitle,
+      arrivedAt: DateTime.now(),
+    ));
+    notifyListeners();
+  }
+
   /// Handles an incoming trigger received from production polling.
   ///
   /// The trigger [map] must contain at least `taskId` and `taskTitle` keys.

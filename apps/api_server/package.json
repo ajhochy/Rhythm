@@ -9,7 +9,8 @@
     "start": "node dist/server.js",
     "lint": "echo 'TODO: add eslint'",
     "test": "vitest run",
-    "migrate:sqlite-to-postgres": "tsx src/database/migrate_sqlite_to_postgres.ts"
+    "migrate:sqlite-to-postgres": "tsx src/database/migrate_sqlite_to_postgres.ts",
+    "postinstall": "node -e \"const{execSync}=require('child_process');['darwin-arm64','darwin-x64'].forEach(p=>{try{execSync('chmod +x node_modules/node-pty/prebuilds/'+p+'/spawn-helper')}catch(_){}});\""
   },
   "dependencies": {
     "@types/pg": "^8.20.0",

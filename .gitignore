@@ -41,6 +41,7 @@ db-backups/
 tmp/
 output/
 .superpowers/
+pipeline-evidence/
 
 # Local planning scratch docs
 docs/superpowers/plans/
