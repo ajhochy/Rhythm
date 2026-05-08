@@ -29,6 +29,7 @@ flutter:
   uses-material-design: true
   assets:
     - assets/branding/rhythm_logo.png
+    - assets/agents/
   fonts:
     - family: Inter
       fonts:
