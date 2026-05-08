@@ -341,7 +341,7 @@ export class FacilitiesRepository {
     return row ?? null;
   }
 
-  private async findReservationWindowConflictAsync(
+  async findReservationWindowConflictAsync(
     facilityId: number,
     startTime: string,
     endTime: string,
