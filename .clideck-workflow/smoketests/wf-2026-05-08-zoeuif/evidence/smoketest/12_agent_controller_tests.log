@@ -1,0 +1,64 @@
+Resolving dependencies...
+Downloading packages...
+  async 2.13.0 (2.13.1 available)
+  flutter_lints 3.0.2 (6.0.0 available)
+  flutter_local_notifications 17.2.4 (21.0.0 available)
+  flutter_local_notifications_linux 4.0.1 (8.0.0 available)
+  flutter_local_notifications_platform_interface 7.2.0 (11.0.0 available)
+  lints 3.0.0 (6.1.0 available)
+  matcher 0.12.19 (0.12.20 available)
+  meta 1.17.0 (1.18.2 available)
+  package_info_plus 8.3.1 (10.1.0 available)
+  package_info_plus_platform_interface 3.2.1 (4.1.0 available)
+  screen_retriever 0.1.9 (0.2.0 available)
+  shared_preferences 2.5.3 (2.5.5 available)
+  shared_preferences_android 2.4.13 (2.4.23 available)
+  shared_preferences_foundation 2.5.4 (2.5.6 available)
+  shared_preferences_platform_interface 2.4.1 (2.4.2 available)
+  source_span 1.10.1 (1.10.2 available)
+  test_api 0.7.10 (0.7.12 available)
+  timezone 0.9.4 (0.11.0 available)
+  url_launcher_android 6.3.20 (6.3.29 available)
+  url_launcher_ios 6.3.4 (6.4.1 available)
+  url_launcher_macos 3.2.3 (3.2.5 available)
+  url_launcher_web 2.4.1 (2.4.3 available)
+  vector_math 2.2.0 (2.3.0 available)
+  vm_service 15.0.0 (15.2.0 available)
+  win32 5.15.0 (6.1.0 available)
+  window_manager 0.3.9 (0.5.1 available)
+  xml 6.6.1 (7.0.1 available)
+Got dependencies!
+27 packages have newer versions incompatible with dependency constraints.
+Try `flutter pub outdated` for more information.
+00:00 +0: loading /Users/ajhochhalter/Documents/Rhythm/apps/desktop_flutter/test/features/agents/agents_controller_test.dart
+00:00 +0: /Users/ajhochhalter/Documents/Rhythm/apps/desktop_flutter/test/features/agents/agents_controller_test.dart: initialize() calls connect() and subscribes to messages
+00:00 +1: /Users/ajhochhalter/Documents/Rhythm/apps/desktop_flutter/test/features/agents/agent_trigger_watcher_test.dart: without authentication does not make any HTTP requests when sessionToken is null
+00:00 +2: /Users/ajhochhalter/Documents/Rhythm/apps/desktop_flutter/test/features/agents/agent_trigger_watcher_test.dart: without authentication does not make any HTTP requests when sessionToken is null
+00:00 +3: /Users/ajhochhalter/Documents/Rhythm/apps/desktop_flutter/test/features/agents/agent_trigger_watcher_test.dart: without authentication does not make any HTTP requests when sessionToken is null
+00:00 +4: /Users/ajhochhalter/Documents/Rhythm/apps/desktop_flutter/test/features/agents/agent_trigger_watcher_test.dart: without authentication does not make any HTTP requests when sessionToken is null
+00:00 +5: /Users/ajhochhalter/Documents/Rhythm/apps/desktop_flutter/test/features/agents/agent_trigger_watcher_test.dart: without authentication does not make any HTTP requests when sessionToken is null
+00:00 +6: /Users/ajhochhalter/Documents/Rhythm/apps/desktop_flutter/test/features/agents/agent_trigger_watcher_test.dart: without authentication does not make any HTTP requests when sessionToken is null
+00:00 +7: /Users/ajhochhalter/Documents/Rhythm/apps/desktop_flutter/test/features/agents/agent_trigger_watcher_test.dart: without authentication does not make any HTTP requests when sessionToken is null
+00:00 +8: /Users/ajhochhalter/Documents/Rhythm/apps/desktop_flutter/test/features/agents/agent_trigger_watcher_test.dart: without authentication does not make any HTTP requests when sessionToken is null
+00:00 +9: /Users/ajhochhalter/Documents/Rhythm/apps/desktop_flutter/test/features/agents/agent_trigger_watcher_test.dart: without authentication does not make any HTTP requests when sessionToken is null
+00:00 +10: /Users/ajhochhalter/Documents/Rhythm/apps/desktop_flutter/test/features/agents/agent_trigger_watcher_test.dart: without authentication does not make any HTTP requests when sessionToken is null
+00:00 +11: /Users/ajhochhalter/Documents/Rhythm/apps/desktop_flutter/test/features/agents/agent_trigger_watcher_test.dart: without authentication does not make any HTTP requests when sessionToken is null
+00:00 +12: /Users/ajhochhalter/Documents/Rhythm/apps/desktop_flutter/test/features/agents/agent_trigger_watcher_test.dart: without authentication does not make any HTTP requests when sessionToken is null
+00:00 +13: /Users/ajhochhalter/Documents/Rhythm/apps/desktop_flutter/test/features/agents/agent_trigger_watcher_test.dart: without authentication does not make any HTTP requests when sessionToken is null
+00:00 +14: /Users/ajhochhalter/Documents/Rhythm/apps/desktop_flutter/test/features/agents/agent_trigger_watcher_test.dart: without authentication does not make any HTTP requests when sessionToken is null
+00:00 +15: /Users/ajhochhalter/Documents/Rhythm/apps/desktop_flutter/test/features/agents/agent_trigger_watcher_test.dart: without authentication does not make any HTTP requests when sessionToken is null
+00:00 +16: /Users/ajhochhalter/Documents/Rhythm/apps/desktop_flutter/test/features/agents/agent_trigger_watcher_test.dart: without authentication does not make any HTTP requests when sessionToken is null
+00:00 +17: /Users/ajhochhalter/Documents/Rhythm/apps/desktop_flutter/test/features/agents/agent_trigger_watcher_test.dart: without authentication does not make any HTTP requests when sessionToken is null
+00:00 +18: /Users/ajhochhalter/Documents/Rhythm/apps/desktop_flutter/test/features/agents/agent_trigger_watcher_test.dart: when authenticated and agent server is ready polls GET /claude-triggers and adds pending trigger
+00:00 +19: /Users/ajhochhalter/Documents/Rhythm/apps/desktop_flutter/test/features/agents/agent_trigger_watcher_test.dart: when authenticated and agent server is ready deduplicates: same trigger polled twice does not create two bubbles
+Shell: [AgentTriggerWatcher] DELETE /claude-triggers/tr-dup returned HTTP 500; trigger will be retried.
+Shell: [AgentTriggerWatcher] DELETE /claude-triggers/tr-dup returned HTTP 500; trigger will be retried.
+Shell: [AgentTriggerWatcher] DELETE /claude-triggers/tr-dup returned HTTP 500; trigger will be retried.
+Shell: [AgentTriggerWatcher] DELETE /claude-triggers/tr-dup returned HTTP 500; trigger will be retried.
+Shell: [AgentTriggerWatcher] DELETE /claude-triggers/tr-dup returned HTTP 500; trigger will be retried.
+00:00 +20: /Users/ajhochhalter/Documents/Rhythm/apps/desktop_flutter/test/features/agents/agent_trigger_watcher_test.dart: when authenticated and agent server is ready calls DELETE after a successful handoff
+Shell: [AgentTriggerWatcher] DELETE /claude-triggers/tr-dup returned HTTP 500; trigger will be retried.
+00:00 +21: /Users/ajhochhalter/Documents/Rhythm/apps/desktop_flutter/test/features/agents/agent_trigger_watcher_test.dart: when agent server is not ready does not poll even if authenticated
+00:00 +22: /Users/ajhochhalter/Documents/Rhythm/apps/desktop_flutter/test/features/agents/agent_trigger_watcher_test.dart: isPolling is false before start()
+00:00 +23: /Users/ajhochhalter/Documents/Rhythm/apps/desktop_flutter/test/features/agents/agent_trigger_watcher_test.dart: isPolling is true after start() and false after stop()
+00:00 +24: All tests passed!
