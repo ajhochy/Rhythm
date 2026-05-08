@@ -171,6 +171,8 @@ AgentSession _makeSession(String id, AgentSessionStatus status) {
 // ---------------------------------------------------------------------------
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
   late _FakeAgentsRepository fakeRepo;
   late AgentsController controller;
 

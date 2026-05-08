@@ -182,6 +182,8 @@ class _StubAuthSessionService extends AuthSessionService {
 // ---------------------------------------------------------------------------
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
   late AgentsController agentsController;
   late _FakeAgentServerController agentServerController;
   late ServerConfigService serverConfigService;
