@@ -383,6 +383,18 @@ class _ExpandedTriggerBubble extends StatefulWidget {
 class _ExpandedTriggerBubbleState extends State<_ExpandedTriggerBubble> {
   String? _errorMessage;
 
+  @override
+  void initState() {
+    super.initState();
+    // Refresh capabilities each time the trigger bubble is expanded so that
+    // agents added after app launch (e.g. custom agents) appear immediately.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        context.read<AgentServerController>().refreshCapabilities();
+      }
+    });
+  }
+
   Future<void> startAgent(String agentId) async {
     setState(() => _errorMessage = null);
     final overlay = context.read<OverlayController>();

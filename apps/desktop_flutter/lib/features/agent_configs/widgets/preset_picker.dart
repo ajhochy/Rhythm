@@ -186,10 +186,12 @@ class PresetPicker extends StatelessWidget {
 
   Future<void> _addCustom(BuildContext context) async {
     await context.read<AgentConfigsController>().create({
+      // command placeholder — the user must replace this before the card will
+      // save successfully (the AgentCard inline form validates non-empty command).
       'label': 'Custom Agent',
-      'command': '',
+      'command': 'echo hello',
       'icon': 'terminal',
-      'isAgent': true,
+      'isAgent': false,
       'canResume': false,
       'enabled': false,
     });
