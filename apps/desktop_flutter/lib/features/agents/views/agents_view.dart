@@ -5,7 +5,10 @@ import 'package:provider/provider.dart';
 
 import '../../../app/core/agents/agent_server_controller.dart';
 import '../../../app/core/ui/tokens/rhythm_theme.dart';
+import '../../agent_configs/controllers/agent_configs_controller.dart';
+import '../../agent_configs/models/agent_config.dart';
 import '../../agent_configs/views/manage_agents_view.dart';
+import '../../agent_configs/widgets/agent_icon.dart';
 import '../../tasks/controllers/tasks_controller.dart';
 import '../../tasks/models/task.dart';
 import '../controllers/agents_controller.dart';
@@ -647,20 +650,52 @@ class _AgentKindBadge extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isClaude = agentId == 'claude-code';
+    final config = context.read<AgentConfigsController>().byId(agentId);
+    return _AgentConfigBadge(agentId: agentId, config: config);
+  }
+}
+
+/// Renders an agent badge pill using [AgentConfig] when available, or falls
+/// back to displaying the raw [agentId] with a neutral style when the config
+/// has been deleted.
+class _AgentConfigBadge extends StatelessWidget {
+  const _AgentConfigBadge({
+    required this.agentId,
+    required this.config,
+  });
+
+  final String agentId;
+  final AgentConfig? config;
+
+  @override
+  Widget build(BuildContext context) {
+    final label = config?.label ?? agentId;
+    final badgeColor =
+        config != null ? context.rhythm.accent : context.rhythm.textMuted;
+    final bgColor = badgeColor.withValues(alpha: 0.12);
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
       decoration: BoxDecoration(
-        color: isClaude ? const Color(0x206B46C1) : const Color(0x20059669),
+        color: bgColor,
         borderRadius: BorderRadius.circular(999),
       ),
-      child: Text(
-        isClaude ? 'Claude' : 'Codex',
-        style: TextStyle(
-          fontSize: 10,
-          fontWeight: FontWeight.w700,
-          color: isClaude ? const Color(0xFF6B46C1) : const Color(0xFF059669),
-        ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (config != null) ...[
+            AgentIcon(config!.icon, size: 12, fallbackLabel: config!.label),
+            const SizedBox(width: 4),
+          ],
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.w700,
+              color: badgeColor,
+            ),
+          ),
+        ],
       ),
     );
   }

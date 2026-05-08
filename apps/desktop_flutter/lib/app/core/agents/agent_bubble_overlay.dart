@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../../features/agent_configs/controllers/agent_configs_controller.dart';
+import '../../../features/agent_configs/models/agent_config.dart';
 import '../../../features/agent_configs/views/manage_agents_view.dart';
 import '../../../features/agent_configs/widgets/agent_icon.dart';
 import '../../../features/agents/controllers/agents_controller.dart';
@@ -115,20 +116,23 @@ class _CollapsedBubble extends StatelessWidget {
     };
   }
 
-  String _badgeLabel() {
+  String _badgeLabel(AgentConfig? config) {
     if (entry.kind == BubbleKind.trigger) return '!';
-    return switch (entry.agentId) {
-      'claude-code' => 'C',
-      'codex' => 'X',
-      null => '?',
-      _ => entry.agentId!.isNotEmpty ? entry.agentId![0].toUpperCase() : '?',
-    };
+    if (config != null && config.label.isNotEmpty) {
+      return config.label[0].toUpperCase();
+    }
+    final id = entry.agentId;
+    if (id == null || id.isEmpty) return '?';
+    return id[0].toUpperCase();
   }
 
   @override
   Widget build(BuildContext context) {
     final overlay = context.read<OverlayController>();
     final ringColor = _ringColor(context);
+    final config = entry.agentId != null
+        ? context.read<AgentConfigsController>().byId(entry.agentId!)
+        : null;
 
     return Tooltip(
       message: entry.label,
@@ -155,11 +159,17 @@ class _CollapsedBubble extends StatelessWidget {
                           color: context.rhythm.accent,
                         ),
                       )
-                    : Icon(
-                        Icons.smart_toy_outlined,
-                        size: 24,
-                        color: context.rhythm.textSecondary,
-                      ),
+                    : config != null
+                        ? AgentIcon(
+                            config.icon,
+                            size: 24,
+                            fallbackLabel: config.label,
+                          )
+                        : Icon(
+                            Icons.terminal,
+                            size: 24,
+                            color: context.rhythm.textSecondary,
+                          ),
               ),
               // Badge top-right
               Positioned(
@@ -174,7 +184,7 @@ class _CollapsedBubble extends StatelessWidget {
                   ),
                   alignment: Alignment.center,
                   child: Text(
-                    _badgeLabel(),
+                    _badgeLabel(config),
                     style: const TextStyle(
                       fontSize: 9,
                       fontWeight: FontWeight.w800,
@@ -606,10 +616,12 @@ class _BubbleHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final isClaude = entry.agentId == 'claude-code';
+    final config = entry.agentId != null
+        ? context.read<AgentConfigsController>().byId(entry.agentId!)
+        : null;
+    final agentLabel = config?.label ?? entry.agentId ?? '?';
     final agentColor =
-        isClaude ? const Color(0xFF6B46C1) : const Color(0xFF059669);
-    final agentLabel = isClaude ? 'Claude' : 'Codex';
+        config != null ? context.rhythm.accent : context.rhythm.textMuted;
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(14, 12, 10, 10),
@@ -622,13 +634,26 @@ class _BubbleHeader extends StatelessWidget {
               color: agentColor.withValues(alpha: 0.12),
               borderRadius: BorderRadius.circular(RhythmRadius.pill),
             ),
-            child: Text(
-              agentLabel,
-              style: TextStyle(
-                fontSize: 10,
-                fontWeight: FontWeight.w700,
-                color: agentColor,
-              ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (config != null) ...[
+                  AgentIcon(
+                    config.icon,
+                    size: 12,
+                    fallbackLabel: config.label,
+                  ),
+                  const SizedBox(width: 4),
+                ],
+                Text(
+                  agentLabel,
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w700,
+                    color: agentColor,
+                  ),
+                ),
+              ],
             ),
           ),
           const SizedBox(width: 8),
