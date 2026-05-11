@@ -4,6 +4,7 @@ export interface ProjectInstanceStep {
   stepId: string;
   title: string;
   dueDate: string;
+  scheduledDate: string | null;
   status: 'open' | 'done';
   notes: string | null;
   assigneeId: number | null;

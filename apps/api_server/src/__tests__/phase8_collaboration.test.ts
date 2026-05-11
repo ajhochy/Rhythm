@@ -186,10 +186,11 @@ describe('Phase 8 collaboration APIs', () => {
     });
     expect(generateResponse.status).toBe(201);
     const instance = await readJson(generateResponse) as {
-      steps: Array<{ id: string; assigneeId: number | null; assigneeName: string | null }>;
+      steps: Array<{ id: string; assigneeId: number | null; assigneeName: string | null; scheduledDate: string | null }>;
     };
     expect(instance.steps[0].assigneeId).toBe(firstAssignee.id);
     expect(instance.steps[0].assigneeName).toBe('Bob Assignee');
+    expect(instance.steps[0].scheduledDate).toBeNull();
 
     const updateInstanceStepResponse = await fetch(
       `${baseUrl}/project-instances/steps/${instance.steps[0].id}`,
@@ -206,9 +207,11 @@ describe('Phase 8 collaboration APIs', () => {
     const updatedStep = await readJson(updateInstanceStepResponse) as {
       assigneeId: number | null;
       assigneeName: string | null;
+      scheduledDate: string | null;
     };
     expect(updatedStep.assigneeId).toBe(secondAssignee.id);
     expect(updatedStep.assigneeName).toBe('Carol Reassigned');
+    expect(updatedStep.scheduledDate).toBeNull();
   });
 
   it('lets workspace admins directly add existing users as members', async () => {

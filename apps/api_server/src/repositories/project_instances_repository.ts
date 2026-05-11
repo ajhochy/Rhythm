@@ -21,6 +21,7 @@ interface InstanceStepRow {
   step_id: string;
   title: string;
   due_date: string;
+  scheduled_date: string | null;
   status: string;
   notes: string | null;
   assignee_id: number | null;
@@ -34,6 +35,7 @@ function rowToStep(row: InstanceStepRow): ProjectInstanceStep {
     stepId: row.step_id,
     title: row.title,
     dueDate: row.due_date,
+    scheduledDate: row.scheduled_date ?? null,
     status: row.status as ProjectInstanceStep['status'],
     notes: row.notes ?? null,
     assigneeId: row.assignee_id ?? null,
@@ -484,7 +486,7 @@ export class ProjectInstancesRepository {
       `INSERT INTO project_instances (id, template_id, name, anchor_date, status, owner_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
     );
     const insertStep = db.prepare(
-      `INSERT INTO project_instance_steps (id, instance_id, step_id, title, due_date, status, assignee_id) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO project_instance_steps (id, instance_id, step_id, title, due_date, scheduled_date, status, assignee_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
     );
 
     db.transaction(() => {
@@ -504,6 +506,7 @@ export class ProjectInstancesRepository {
           step.stepId,
           step.title,
           step.dueDate,
+          null,
           'open',
           step.assigneeId !== undefined ? step.assigneeId : (templateAssignees.get(step.stepId) ?? null),
         );
@@ -531,14 +534,15 @@ export class ProjectInstancesRepository {
       );
       for (const step of steps) {
         await getPostgresPool().query(
-          `INSERT INTO project_instance_steps (id, instance_id, step_id, title, due_date, status, assignee_id)
-           VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+          `INSERT INTO project_instance_steps (id, instance_id, step_id, title, due_date, scheduled_date, status, assignee_id)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
           [
             uuidv4(),
             instanceId,
             step.stepId,
             step.title,
             step.dueDate,
+            null,
             'open',
             step.assigneeId !== undefined ? step.assigneeId : (templateAssignees.get(step.stepId) ?? null),
           ],
@@ -551,7 +555,7 @@ export class ProjectInstancesRepository {
 
   updateStep(
     stepId: string,
-    data: { title?: string; dueDate?: string; status?: string; notes?: string | null; assigneeId?: number | null },
+    data: { title?: string; dueDate?: string; scheduledDate?: string | null; status?: string; notes?: string | null; assigneeId?: number | null },
     userId?: number,
   ): ProjectInstanceStep {
     const row = (userId != null
@@ -576,11 +580,12 @@ export class ProjectInstancesRepository {
 
     getDb()
       .prepare(
-        `UPDATE project_instance_steps SET title = ?, due_date = ?, status = ?, notes = ?, assignee_id = ? WHERE id = ?`,
+        `UPDATE project_instance_steps SET title = ?, due_date = ?, scheduled_date = ?, status = ?, notes = ?, assignee_id = ? WHERE id = ?`,
       )
       .run(
         data.title ?? row.title,
         data.dueDate ?? row.due_date,
+        data.scheduledDate !== undefined ? data.scheduledDate : row.scheduled_date,
         data.status ?? row.status,
         data.notes !== undefined ? data.notes : row.notes,
         data.assigneeId !== undefined ? data.assigneeId : row.assignee_id,
@@ -602,7 +607,7 @@ export class ProjectInstancesRepository {
 
   async updateStepAsync(
     stepId: string,
-    data: { title?: string; dueDate?: string; status?: string; notes?: string | null; assigneeId?: number | null },
+    data: { title?: string; dueDate?: string; scheduledDate?: string | null; status?: string; notes?: string | null; assigneeId?: number | null },
     userId?: number,
   ): Promise<ProjectInstanceStep> {
     if (env.dbClient === 'postgres') {
@@ -628,11 +633,12 @@ export class ProjectInstancesRepository {
 
       await getPostgresPool().query(
         `UPDATE project_instance_steps
-         SET title = $1, due_date = $2, status = $3, notes = $4, assignee_id = $5
-         WHERE id = $6`,
+         SET title = $1, due_date = $2, scheduled_date = $3, status = $4, notes = $5, assignee_id = $6
+         WHERE id = $7`,
         [
           data.title ?? row.title,
           data.dueDate ?? row.due_date,
+          data.scheduledDate !== undefined ? data.scheduledDate : row.scheduled_date,
           data.status ?? row.status,
           data.notes !== undefined ? data.notes : row.notes,
           data.assigneeId !== undefined ? data.assigneeId : row.assignee_id,

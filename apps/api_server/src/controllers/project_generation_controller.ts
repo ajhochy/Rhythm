@@ -78,12 +78,18 @@ export class ProjectGenerationController {
     try {
       const actorId = req.auth!.user.id;
       const { stepId } = req.params;
-      const { title, dueDate, status, notes, assigneeId } = req.body as Record<string, unknown>;
+      const { title, dueDate, scheduledDate, status, notes, assigneeId } = req.body as Record<string, unknown>;
       const step = await instanceRepo.updateStepAsync(
         stepId,
         {
           title: typeof title === 'string' ? title : undefined,
           dueDate: typeof dueDate === 'string' ? dueDate : undefined,
+          scheduledDate:
+            scheduledDate === null
+              ? null
+              : typeof scheduledDate === 'string'
+                ? scheduledDate
+                : undefined,
           status: typeof status === 'string' ? status : undefined,
           notes:
             notes === null

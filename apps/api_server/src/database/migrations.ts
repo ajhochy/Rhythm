@@ -969,4 +969,11 @@ export function runMigrations(db: Database.Database): void {
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     )
   `);
+
+  // Issue #519 — scheduled_date column for project_instance_steps.
+  // Additive, nullable, no default. Safe to run on existing DBs (idempotent via pragma check).
+  const instanceStepColsScheduled = (db.pragma('table_info(project_instance_steps)') as { name: string }[]).map((c) => c.name);
+  if (!instanceStepColsScheduled.includes('scheduled_date')) {
+    db.exec(`ALTER TABLE project_instance_steps ADD COLUMN scheduled_date TEXT`);
+  }
 }
