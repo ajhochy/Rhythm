@@ -21,6 +21,7 @@ class DashboardController extends ChangeNotifier {
   int _activeProjectsCount = 0;
   int _messageThreadCount = 0;
   int _pastDueTaskCount = 0;
+  int _pastDeadlineCount = 0;
   int _todayTasksTotalCount = 0;
   int _todayTasksRemainingCount = 0;
   int _thisWeekTasksTotalCount = 0;
@@ -50,6 +51,7 @@ class DashboardController extends ChangeNotifier {
   int get activeProjectsCount => _activeProjectsCount;
   int get messageThreadCount => _messageThreadCount;
   int get pastDueTaskCount => _pastDueTaskCount;
+  int get pastDeadlineCount => _pastDeadlineCount;
   int get todayTasksTotalCount => _todayTasksTotalCount;
   int get todayTasksRemainingCount => _todayTasksRemainingCount;
   int get thisWeekTasksTotalCount => _thisWeekTasksTotalCount;
@@ -86,6 +88,7 @@ class DashboardController extends ChangeNotifier {
 
       _openTaskCount = t.openCount;
       _pastDueTaskCount = t.pastDueCount;
+      _pastDeadlineCount = t.pastDeadlineCount;
       _todayTasksRemainingCount = t.todayRemainingCount;
       _todayTasksTotalCount = t.todayTotalCount;
       _thisWeekTasksRemainingCount = t.thisWeekRemainingCount;

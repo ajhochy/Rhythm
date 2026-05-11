@@ -183,4 +183,101 @@ describe('GET /dashboard/summary', () => {
     expect(summary.tasks.todayRemainingCount).toBe(1);
     expect(summary.tasks.pastDueCount).toBe(0);
   });
+
+  it('pastDeadlineCount is present in response and defaults to 0 when no tasks are past deadline', async () => {
+    const owner = usersRepo.create({ name: 'Bob', email: 'bob@example.com' });
+    const headers = await authHeaderFor(owner.id);
+    const tomorrow = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10);
+
+    tasksRepo.create({ title: 'Future task', dueDate: tomorrow, ownerId: owner.id });
+
+    const res = await fetch(`${baseUrl}/dashboard/summary`, { headers });
+    expect(res.status).toBe(200);
+
+    const summary = await readJson(res) as { tasks: { pastDeadlineCount: number } };
+    expect(summary.tasks.pastDeadlineCount).toBe(0);
+  });
+
+  it('pastDeadlineCount counts task with dueDate in past but scheduledDate in future (past-deadline-only)', async () => {
+    // A task where dueDate has passed but scheduledDate is future:
+    //   isOverdue = false (priorityDate = scheduledDate which is future)
+    //   isPastDeadline = true (dueDate < today)
+    // → counted in pastDeadlineCount only, NOT in pastDueCount.
+    const owner = usersRepo.create({ name: 'Carol', email: 'carol@example.com' });
+    const headers = await authHeaderFor(owner.id);
+    const yesterday = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
+    const tomorrow = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10);
+
+    // scheduledDate in future (not overdue), dueDate yesterday (past deadline)
+    tasksRepo.create({
+      title: 'Past deadline only',
+      dueDate: yesterday,
+      scheduledDate: tomorrow,
+      ownerId: owner.id,
+    });
+
+    const res = await fetch(`${baseUrl}/dashboard/summary`, { headers });
+    expect(res.status).toBe(200);
+
+    const summary = await readJson(res) as {
+      tasks: { pastDueCount: number; pastDeadlineCount: number };
+    };
+
+    // Must be mutually exclusive: past-deadline-only task goes to pastDeadlineCount
+    expect(summary.tasks.pastDueCount).toBe(0);
+    expect(summary.tasks.pastDeadlineCount).toBe(1);
+  });
+
+  it('pastDeadlineCount excludes tasks that are overdue (mutual exclusivity)', async () => {
+    // A task where both scheduledDate and dueDate are in the past:
+    //   isOverdue = true  → counted in pastDueCount
+    //   isPastDeadline = true, but overdue wins → NOT in pastDeadlineCount
+    const owner = usersRepo.create({ name: 'Dave', email: 'dave@example.com' });
+    const headers = await authHeaderFor(owner.id);
+    const twoDaysAgo = new Date(Date.now() - 2 * 86_400_000).toISOString().slice(0, 10);
+    const yesterday = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
+
+    // Both dates in the past → overdue AND past-deadline, but must count in pastDueCount only
+    tasksRepo.create({
+      title: 'Both overdue and past deadline',
+      scheduledDate: twoDaysAgo,
+      dueDate: yesterday,
+      ownerId: owner.id,
+    });
+
+    const res = await fetch(`${baseUrl}/dashboard/summary`, { headers });
+    expect(res.status).toBe(200);
+
+    const summary = await readJson(res) as {
+      tasks: { pastDueCount: number; pastDeadlineCount: number };
+    };
+
+    // pastDueCount gets it; pastDeadlineCount must NOT double-count it
+    expect(summary.tasks.pastDueCount).toBe(1);
+    expect(summary.tasks.pastDeadlineCount).toBe(0);
+  });
+
+  it('done tasks are excluded from pastDeadlineCount', async () => {
+    const owner = usersRepo.create({ name: 'Eve', email: 'eve@example.com' });
+    const headers = await authHeaderFor(owner.id);
+    const yesterday = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
+    const tomorrow = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10);
+
+    // Past-deadline-only task that's done → must not appear in pastDeadlineCount
+    const doneTask = tasksRepo.create({
+      title: 'Done past deadline task',
+      dueDate: yesterday,
+      scheduledDate: tomorrow,
+      ownerId: owner.id,
+    });
+    tasksRepo.update(doneTask.id, { status: 'done' }, owner.id);
+
+    const res = await fetch(`${baseUrl}/dashboard/summary`, { headers });
+    expect(res.status).toBe(200);
+
+    const summary = await readJson(res) as {
+      tasks: { pastDeadlineCount: number };
+    };
+    expect(summary.tasks.pastDeadlineCount).toBe(0);
+  });
 });

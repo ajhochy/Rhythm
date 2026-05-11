@@ -14,7 +14,7 @@ import type { Task } from '../models/task';
 import type { RecurringTaskRule } from '../models/recurring_task_rule';
 import type { ProjectInstance } from '../models/project_instance';
 import type { ProjectTemplate } from '../models/project_template';
-import { priorityDate, todayDateInTimezone } from './task_date_status';
+import { isPastDeadline, isOverdue, priorityDate, todayDateInTimezone } from './task_date_status';
 
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 const MONTHS = ['', 'January', 'February', 'March', 'April', 'May', 'June',
@@ -85,6 +85,13 @@ export class DashboardSummaryService {
       const d = priorityDate(t);
       return d != null && d < today;
     }).sort(compareTasks);
+
+    // pastDeadlineCount: open tasks where dueDate < today AND NOT overdue
+    // (i.e. past hard deadline but not already counted in pastDueCount).
+    // The two counts are mutually exclusive by design.
+    const pastDeadlineCount = openTasks.filter(
+      (t) => isPastDeadline(t, today) && !isOverdue(t, today),
+    ).length;
 
     const todayOpen = openTasks.filter((t) => {
       const d = priorityDate(t);
@@ -185,6 +192,7 @@ export class DashboardSummaryService {
       tasks: {
         openCount: openTasks.length,
         pastDueCount: pastDue.length,
+        pastDeadlineCount,
         todayRemainingCount: todayOpen.length,
         todayTotalCount: todayAll.length,
         thisWeekRemainingCount: thisWeekOpen.length,

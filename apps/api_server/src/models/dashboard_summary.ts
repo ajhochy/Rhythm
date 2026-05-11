@@ -3,6 +3,7 @@ import type { Task } from './task';
 export interface DashboardTaskSummary {
   openCount: number;
   pastDueCount: number;
+  pastDeadlineCount: number;
   todayRemainingCount: number;
   todayTotalCount: number;
   thisWeekRemainingCount: number;

@@ -4,6 +4,7 @@ class DashboardSummaryTaskSlice {
   DashboardSummaryTaskSlice({
     required this.openCount,
     required this.pastDueCount,
+    required this.pastDeadlineCount,
     required this.todayRemainingCount,
     required this.todayTotalCount,
     required this.thisWeekRemainingCount,
@@ -23,6 +24,7 @@ class DashboardSummaryTaskSlice {
     return DashboardSummaryTaskSlice(
       openCount: (json['openCount'] as num?)?.toInt() ?? 0,
       pastDueCount: (json['pastDueCount'] as num?)?.toInt() ?? 0,
+      pastDeadlineCount: (json['pastDeadlineCount'] as num?)?.toInt() ?? 0,
       todayRemainingCount: (json['todayRemainingCount'] as num?)?.toInt() ?? 0,
       todayTotalCount: (json['todayTotalCount'] as num?)?.toInt() ?? 0,
       thisWeekRemainingCount:
@@ -39,6 +41,7 @@ class DashboardSummaryTaskSlice {
 
   final int openCount;
   final int pastDueCount;
+  final int pastDeadlineCount;
   final int todayRemainingCount;
   final int todayTotalCount;
   final int thisWeekRemainingCount;
