@@ -286,6 +286,8 @@ class _SessionListPanel extends StatelessWidget {
                               isSelected:
                                   controller.selectedSessionId == session.id,
                               isWorking: controller.isWorking(session.id),
+                              isStuck:
+                                  controller.connectivity.isStuck(session.id),
                               onTap: () => context
                                   .read<AgentsController>()
                                   .selectSession(session.id),
@@ -519,12 +521,14 @@ class _SessionRow extends StatelessWidget {
     required this.session,
     required this.isSelected,
     required this.isWorking,
+    required this.isStuck,
     required this.onTap,
   });
 
   final AgentSession session;
   final bool isSelected;
   final bool isWorking;
+  final bool isStuck;
   final VoidCallback onTap;
 
   @override
@@ -594,6 +598,18 @@ class _SessionRow extends StatelessWidget {
                 ),
               ),
             ],
+            if (isStuck)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text(
+                  'No output yet — the agent may be stuck',
+                  style: TextStyle(
+                    fontSize: 10,
+                    color: context.rhythm.warning,
+                    fontStyle: FontStyle.italic,
+                  ),
+                ),
+              ),
           ],
         ),
       ),
