@@ -1,84 +1,119 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { apiGet, toolResult, toolError } from '../api_client.js';
 
-interface Task {
-  id: string;
-  title: string;
-  dueDate?: string | null;
-  status: string;
+interface DashboardTaskSummary {
+  openCount: number;
+  pastDueCount: number;
+  pastDeadlineCount: number;
+  todayRemainingCount: number;
+  todayTotalCount: number;
+  thisWeekRemainingCount: number;
+  thisWeekTotalCount: number;
+  unscheduledCount: number;
+  recent: Array<{ id: string; title: string; scheduledDate?: string | null; dueDate?: string | null }>;
+  pastDue: Array<{ id: string; title: string; scheduledDate?: string | null; dueDate?: string | null }>;
+  today: Array<{ id: string; title: string; scheduledDate?: string | null; dueDate?: string | null }>;
+  thisWeek: Array<{ id: string; title: string; scheduledDate?: string | null; dueDate?: string | null }>;
+  unscheduled: Array<{ id: string; title: string }>;
 }
 
-interface ProjectInstance {
-  id: string;
-  name: string;
-  anchorDate?: string;
-  steps?: Array<{ id: string; title: string; status: string; dueDate?: string | null }>;
+interface DashboardRhythmSummary {
+  activeCount: number;
+  items: Array<{ id: string; title: string; subtitle: string; completedCount: number; totalCount: number }>;
 }
 
-interface RecurringRule {
-  id: string;
-  enabled: boolean;
+interface DashboardProjectSummary {
+  activeCount: number;
+  items: Array<{
+    id: string;
+    title: string;
+    subtitle: string;
+    completedCount: number;
+    totalCount: number;
+    nextDueDate: string | null;
+    onDeckSteps: Array<{ id: string; title: string; status: string; dueDate: string | null }>;
+  }>;
 }
 
-interface MessageThread {
-  id: number;
-  title: string;
-  unreadCount?: number;
-  updatedAt?: string;
+interface DashboardMessageSummary {
+  threadCount: number;
+  unreadPreviews: Array<{
+    threadId: number;
+    threadTitle: string;
+    senderName: string;
+    preview: string;
+    updatedAt: string;
+    unreadCount: number;
+  }>;
+}
+
+interface DashboardSummary {
+  tasks: DashboardTaskSummary;
+  rhythms: DashboardRhythmSummary;
+  projects: DashboardProjectSummary;
+  messages: DashboardMessageSummary;
 }
 
 export function registerDashboardTools(server: McpServer, apiUrl: string, apiToken: string) {
   server.tool(
     'rhythm_get_dashboard',
-    'Get a summary snapshot of open tasks, active rhythms, active projects, and recent message threads. Useful for giving Claude context at the start of a session.',
+    'Get a summary snapshot of open tasks, active rhythms, active projects, and recent message threads. ' +
+    'Task counts and lists are based on scheduledDate (when you plan to do the work); if scheduledDate is ' +
+    'absent, dueDate is used as the fallback. pastDeadlineCount surfaces tasks whose hard dueDate has ' +
+    'already passed independently of whether they are overdue by their scheduled date — useful for ' +
+    'distinguishing "I missed a deadline" from "I\'m behind on something I said I\'d do." ' +
+    'Useful for giving Claude context at the start of a session.',
     {},
     async () => {
       try {
-        const [tasks, rhythms, instances, threads] = await Promise.all([
-          apiGet<Task[]>(apiUrl, apiToken, '/tasks?status=open'),
-          apiGet<RecurringRule[]>(apiUrl, apiToken, '/recurring-rules'),
-          apiGet<ProjectInstance[]>(apiUrl, apiToken, '/project-instances?status=active'),
-          apiGet<MessageThread[]>(apiUrl, apiToken, '/message-threads'),
-        ]);
+        const summary = await apiGet<DashboardSummary>(apiUrl, apiToken, '/dashboard/summary');
 
-        // Tasks due within the next 7 days
-        const now = new Date();
-        const in7Days = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
-        const tasksDueThisWeek = tasks
-          .filter((t) => t.dueDate && new Date(t.dueDate) <= in7Days)
-          .slice(0, 10)
-          .map((t) => ({ id: t.id, title: t.title, dueDate: t.dueDate }));
+        const { tasks, rhythms, projects, messages } = summary;
 
-        // Active rhythms count
-        const activeRhythmCount = rhythms.filter((r) => r.enabled).length;
-
-        // Active projects with next open step
-        const activeProjects = instances.map((inst) => {
-          const nextStep = (inst.steps ?? []).find((s) => s.status === 'open');
-          return {
-            id: inst.id,
-            name: inst.name,
-            anchorDate: inst.anchorDate,
-            nextStep: nextStep ? { id: nextStep.id, title: nextStep.title, dueDate: nextStep.dueDate } : null,
-          };
+        // Build a compact representation for the briefing consumer.
+        // We surface scheduledDate ?? dueDate as the operative date for each task list item.
+        const mapTaskItem = (t: { id: string; title: string; scheduledDate?: string | null; dueDate?: string | null }) => ({
+          id: t.id,
+          title: t.title,
+          scheduledDate: t.scheduledDate ?? null,
+          dueDate: t.dueDate ?? null,
+          operativeDate: t.scheduledDate ?? t.dueDate ?? null,
         });
 
-        // Most recent 5 threads
-        const recentThreads = [...threads]
-          .sort((a, b) => {
-            const da = a.updatedAt ? new Date(a.updatedAt).getTime() : 0;
-            const db = b.updatedAt ? new Date(b.updatedAt).getTime() : 0;
-            return db - da;
-          })
-          .slice(0, 5)
-          .map((t) => ({ id: t.id, title: t.title, unreadCount: t.unreadCount ?? 0, lastActivity: t.updatedAt }));
-
         const dashboard = {
-          openTaskCount: tasks.length,
-          tasksDueThisWeek,
-          activeRhythmCount,
-          activeProjects,
-          recentThreads,
+          // ── Tasks ───────────────────────────────────────────────────────────
+          openTaskCount: tasks.openCount,
+          pastDueCount: tasks.pastDueCount,
+          // pastDeadlineCount: open tasks whose hard dueDate has passed even
+          // though their scheduledDate has not (i.e. the user intends to do it
+          // later but a deadline was already missed).
+          pastDeadlineCount: tasks.pastDeadlineCount,
+          todayRemainingCount: tasks.todayRemainingCount,
+          thisWeekRemainingCount: tasks.thisWeekRemainingCount,
+          unscheduledCount: tasks.unscheduledCount,
+          // tasksDueThisWeek kept for backward-compat with existing consumers;
+          // populated from thisWeek (scheduled-priority date, not raw dueDate).
+          tasksDueThisWeek: (tasks.thisWeek ?? []).slice(0, 10).map(mapTaskItem),
+          tasksPastDue: (tasks.pastDue ?? []).slice(0, 10).map(mapTaskItem),
+          tasksToday: (tasks.today ?? []).slice(0, 10).map(mapTaskItem),
+          // ── Rhythms ─────────────────────────────────────────────────────────
+          activeRhythmCount: rhythms.activeCount,
+          rhythms: rhythms.items,
+          // ── Projects ────────────────────────────────────────────────────────
+          activeProjects: projects.items.map((p) => ({
+            id: p.id,
+            name: p.title,
+            subtitle: p.subtitle,
+            nextDueDate: p.nextDueDate,
+            onDeckSteps: p.onDeckSteps,
+          })),
+          // ── Messages ────────────────────────────────────────────────────────
+          recentThreads: messages.unreadPreviews.map((u) => ({
+            id: u.threadId,
+            title: u.threadTitle,
+            unreadCount: u.unreadCount,
+            lastActivity: u.updatedAt,
+          })),
         };
 
         return toolResult(JSON.stringify(dashboard, null, 2));
