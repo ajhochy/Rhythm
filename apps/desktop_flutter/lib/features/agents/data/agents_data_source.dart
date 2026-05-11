@@ -23,11 +23,15 @@ class AgentsDataSource {
   StreamSubscription<dynamic>? _channelSub;
   final StreamController<AgentWsMessage> _msgController =
       StreamController.broadcast();
+  final StreamController<bool> _connectivityController =
+      StreamController<bool>.broadcast();
 
   Timer? _reconnectTimer;
+  Timer? _disconnectFailTimer;
   Duration _backoff = const Duration(milliseconds: 250);
 
   Stream<AgentWsMessage> get messages => _msgController.stream;
+  Stream<bool> get connectivityStream => _connectivityController.stream;
   bool get isConnected => _channel != null;
 
   // --------------------------------------------------------------------------
@@ -46,6 +50,10 @@ class AgentsDataSource {
       );
       // Reset backoff on a successful connect attempt.
       _backoff = const Duration(milliseconds: 250);
+      // Cancel any pending disconnect-fail timer and signal connected.
+      _disconnectFailTimer?.cancel();
+      _disconnectFailTimer = null;
+      _connectivityController.add(true);
     } catch (_) {
       _scheduleReconnect();
     }
@@ -64,6 +72,12 @@ class AgentsDataSource {
     _channelSub?.cancel();
     _channelSub = null;
     _channel = null;
+    // Delay the disconnected signal by 10s so a fast reconnect suppresses it.
+    _disconnectFailTimer?.cancel();
+    _disconnectFailTimer = Timer(
+      const Duration(seconds: 10),
+      () => _connectivityController.add(false),
+    );
     _scheduleReconnect();
   }
 
@@ -85,9 +99,11 @@ class AgentsDataSource {
 
   Future<void> dispose() async {
     _reconnectTimer?.cancel();
+    _disconnectFailTimer?.cancel();
     await _channelSub?.cancel();
     await _channel?.sink.close();
     await _msgController.close();
+    await _connectivityController.close();
   }
 
   // --------------------------------------------------------------------------

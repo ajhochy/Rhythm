@@ -9,6 +9,7 @@ class AgentsRepository {
   final AgentsDataSource _dataSource;
 
   Stream<AgentWsMessage> get messages => _dataSource.messages;
+  Stream<bool> get connectivityStream => _dataSource.connectivityStream;
   bool get isConnected => _dataSource.isConnected;
 
   Future<void> connect() => _dataSource.connect();

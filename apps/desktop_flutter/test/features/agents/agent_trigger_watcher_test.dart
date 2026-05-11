@@ -51,12 +51,17 @@ class _FakeAgentServerController extends AgentServerController {
 
 class _FakeAgentsRepository implements AgentsRepository {
   _FakeAgentsRepository()
-      : _msgController = StreamController<AgentWsMessage>.broadcast();
+      : _msgController = StreamController<AgentWsMessage>.broadcast(),
+        _connectivityController = StreamController<bool>.broadcast();
 
   final StreamController<AgentWsMessage> _msgController;
+  final StreamController<bool> _connectivityController;
 
   @override
   Stream<AgentWsMessage> get messages => _msgController.stream;
+
+  @override
+  Stream<bool> get connectivityStream => _connectivityController.stream;
 
   @override
   bool get isConnected => false;
@@ -67,6 +72,7 @@ class _FakeAgentsRepository implements AgentsRepository {
   @override
   Future<void> dispose() async {
     await _msgController.close();
+    await _connectivityController.close();
   }
 
   @override
