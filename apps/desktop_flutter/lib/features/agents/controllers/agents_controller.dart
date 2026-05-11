@@ -65,6 +65,16 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
 
   AgentSessionConnectivity _connectivity = const AgentSessionConnectivity();
 
+  /// Tracks the first time each session was observed in the `starting` state.
+  /// Used by [_recomputeStuck] to detect sessions stuck for >30s.
+  ///
+  /// Exposed for testing only — do not read or write this map in production
+  /// code outside of [AgentsController].
+  @visibleForTesting
+  final Map<String, DateTime> sessionFirstSeenAt = {};
+
+  Timer? _stuckCheckTimer;
+
   StreamSubscription<AgentWsMessage>? _wsSub;
   StreamSubscription<bool>? _connectivitySub;
 
@@ -120,6 +130,8 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
         }
       }
     });
+    _stuckCheckTimer =
+        Timer.periodic(const Duration(seconds: 5), (_) => _recomputeStuck());
     await load();
   }
 
@@ -163,6 +175,7 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
         name: name,
       );
       _sessions = [..._sessions, session];
+      sessionFirstSeenAt[session.id] = DateTime.now();
       notifyListeners();
       return session;
     } catch (e) {
@@ -310,13 +323,23 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
         ...msg.sessions.where((s) => s.status == AgentSessionStatus.resumable),
         ...msg.resumable,
       ];
+      // Record first-seen for any newly observed starting sessions.
+      for (final s in msg.sessions) {
+        if (s.status == AgentSessionStatus.starting) {
+          sessionFirstSeenAt[s.id] ??= DateTime.now();
+        }
+      }
     } else if (msg is SessionCreatedMessage) {
       if (!_sessions.any((s) => s.id == msg.session.id)) {
         _sessions = [..._sessions, msg.session];
       }
+      // Record first-seen via WS (??= so createSession() timestamp takes
+      // precedence if the REST call already recorded it).
+      sessionFirstSeenAt[msg.session.id] ??= DateTime.now();
     } else if (msg is SessionClosedMessage) {
       final closed = _sessions.firstWhereOrNull((s) => s.id == msg.id);
       _sessions = _sessions.where((s) => s.id != msg.id).toList();
+      sessionFirstSeenAt.remove(msg.id);
       if (closed != null && msg.resumable) {
         _resumable = [
           ..._resumable,
@@ -331,6 +354,12 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
       _liveOutputBuffer[msg.id] = next.length > 200 * 1024
           ? next.substring(next.length - 150 * 1024)
           : next;
+      // Output arriving means the session is no longer stuck — remove it from
+      // the tracking map immediately so the next _recomputeStuck tick clears it.
+      final session = _sessions.firstWhereOrNull((s) => s.id == msg.id);
+      if (session != null && session.status == AgentSessionStatus.starting) {
+        sessionFirstSeenAt.remove(msg.id);
+      }
     } else if (msg is TriggerFiredMessage) {
       _pendingTriggers.add(PendingTrigger(
         taskId: msg.taskId,
@@ -355,12 +384,50 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   // --------------------------------------------------------------------------
+  // Stuck-session detection
+  // --------------------------------------------------------------------------
+
+  /// Test-only entry point that directly invokes [_recomputeStuck] so tests can
+  /// assert stuck detection without waiting for the real [Timer].
+  @visibleForTesting
+  void recomputeStuckForTest() => _recomputeStuck();
+
+  /// Recomputes the set of sessions considered "stuck" and notifies listeners
+  /// only when the set changes.
+  ///
+  /// A session is stuck when:
+  ///   - Its status is [AgentSessionStatus.starting].
+  ///   - Its live output buffer is empty (no PTY output has arrived yet).
+  ///   - It has been in the starting state for >30 seconds.
+  void _recomputeStuck() {
+    const stuckThreshold = Duration(seconds: 30);
+    final now = DateTime.now();
+
+    final newStuck = <String>{};
+    for (final s in _sessions) {
+      if (s.status != AgentSessionStatus.starting) continue;
+      final firstSeen = sessionFirstSeenAt[s.id];
+      if (firstSeen == null) continue;
+      if ((_liveOutputBuffer[s.id] ?? '').isNotEmpty) continue;
+      if (now.difference(firstSeen) > stuckThreshold) {
+        newStuck.add(s.id);
+      }
+    }
+
+    if (newStuck != _connectivity.stuckSessionIds) {
+      _connectivity = _connectivity.copyWith(stuckSessionIds: newStuck);
+      notifyListeners();
+    }
+  }
+
+  // --------------------------------------------------------------------------
   // Dispose
   // --------------------------------------------------------------------------
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _stuckCheckTimer?.cancel();
     _wsSub?.cancel();
     _connectivitySub?.cancel();
     _repository.dispose();

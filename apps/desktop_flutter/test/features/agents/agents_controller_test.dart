@@ -574,4 +574,157 @@ void main() {
       expect(fakeRepo.sentMessages.first['rows'], 24);
     });
   });
+
+  // --------------------------------------------------------------------------
+  // Stuck-session detection
+  // --------------------------------------------------------------------------
+
+  group('stuck-session detection', () {
+    setUp(() async {
+      await controller.initialize();
+    });
+
+    test('session with no output and >30s elapsed appears in stuckSessionIds',
+        () async {
+      // Seed a starting session via WS.
+      fakeRepo.emit(SessionCreatedMessage(
+        session: _makeSession('stuck-sess', AgentSessionStatus.starting),
+      ));
+      await Future<void>.delayed(Duration.zero);
+
+      // Backdate the first-seen timestamp to simulate >30s having passed.
+      controller.sessionFirstSeenAt['stuck-sess'] =
+          DateTime.now().subtract(const Duration(seconds: 31));
+
+      controller.recomputeStuckForTest();
+
+      expect(controller.connectivity.stuckSessionIds, contains('stuck-sess'));
+      expect(controller.connectivity.isStuck('stuck-sess'), isTrue);
+    });
+
+    test('session with output is not considered stuck', () async {
+      fakeRepo.emit(SessionCreatedMessage(
+        session: _makeSession('active-sess', AgentSessionStatus.starting),
+      ));
+      await Future<void>.delayed(Duration.zero);
+
+      // Simulate output arriving (which removes the session from firstSeenAt).
+      fakeRepo.emit(const OutputMessage(
+        id: 'active-sess',
+        data: 'some output',
+        replay: false,
+      ));
+      await Future<void>.delayed(Duration.zero);
+
+      // Backdate to simulate >30s.
+      controller.sessionFirstSeenAt['active-sess'] =
+          DateTime.now().subtract(const Duration(seconds: 31));
+
+      controller.recomputeStuckForTest();
+
+      // Should NOT be stuck because output arrived (and firstSeenAt was removed).
+      expect(controller.connectivity.stuckSessionIds,
+          isNot(contains('active-sess')));
+    });
+
+    test('output message clears session from sessionFirstSeenAt immediately',
+        () async {
+      fakeRepo.emit(SessionCreatedMessage(
+        session: _makeSession('out-sess', AgentSessionStatus.starting),
+      ));
+      await Future<void>.delayed(Duration.zero);
+
+      expect(controller.sessionFirstSeenAt.containsKey('out-sess'), isTrue);
+
+      fakeRepo.emit(const OutputMessage(
+        id: 'out-sess',
+        data: 'hello',
+        replay: false,
+      ));
+      await Future<void>.delayed(Duration.zero);
+
+      expect(controller.sessionFirstSeenAt.containsKey('out-sess'), isFalse);
+    });
+
+    test('closed session is removed from stuckSessionIds on next tick',
+        () async {
+      fakeRepo.emit(SessionCreatedMessage(
+        session: _makeSession('closing-sess', AgentSessionStatus.starting),
+      ));
+      await Future<void>.delayed(Duration.zero);
+
+      // Make it appear stuck.
+      controller.sessionFirstSeenAt['closing-sess'] =
+          DateTime.now().subtract(const Duration(seconds: 31));
+      controller.recomputeStuckForTest();
+      expect(controller.connectivity.stuckSessionIds, contains('closing-sess'));
+
+      // Now close the session.
+      fakeRepo.emit(const SessionClosedMessage(
+        id: 'closing-sess',
+        resumable: false,
+      ));
+      await Future<void>.delayed(Duration.zero);
+
+      // sessionFirstSeenAt entry should be gone.
+      expect(
+          controller.sessionFirstSeenAt.containsKey('closing-sess'), isFalse);
+
+      // After the next recompute the stuck set should be empty.
+      controller.recomputeStuckForTest();
+      expect(controller.connectivity.stuckSessionIds,
+          isNot(contains('closing-sess')));
+    });
+
+    test('session <30s old is not yet stuck', () async {
+      fakeRepo.emit(SessionCreatedMessage(
+        session: _makeSession('young-sess', AgentSessionStatus.starting),
+      ));
+      await Future<void>.delayed(Duration.zero);
+
+      // Only 10s have elapsed — not stuck yet.
+      controller.sessionFirstSeenAt['young-sess'] =
+          DateTime.now().subtract(const Duration(seconds: 10));
+
+      controller.recomputeStuckForTest();
+
+      expect(controller.connectivity.stuckSessionIds,
+          isNot(contains('young-sess')));
+    });
+
+    test(
+        'SessionsListMessage records firstSeenAt for newly observed starting sessions',
+        () async {
+      fakeRepo.emit(SessionsListMessage(
+        sessions: [
+          _makeSession('list-starting', AgentSessionStatus.starting),
+          _makeSession('list-idle', AgentSessionStatus.idle),
+        ],
+        resumable: [],
+      ));
+      await Future<void>.delayed(Duration.zero);
+
+      expect(
+          controller.sessionFirstSeenAt.containsKey('list-starting'), isTrue);
+      expect(controller.sessionFirstSeenAt.containsKey('list-idle'), isFalse);
+    });
+
+    test('notifyListeners fires when stuckSessionIds changes', () async {
+      fakeRepo.emit(SessionCreatedMessage(
+        session: _makeSession('notify-sess', AgentSessionStatus.starting),
+      ));
+      await Future<void>.delayed(Duration.zero);
+
+      controller.sessionFirstSeenAt['notify-sess'] =
+          DateTime.now().subtract(const Duration(seconds: 31));
+
+      var notified = false;
+      controller.addListener(() => notified = true);
+
+      controller.recomputeStuckForTest();
+
+      expect(notified, isTrue);
+      expect(controller.connectivity.stuckSessionIds, contains('notify-sess'));
+    });
+  });
 }
