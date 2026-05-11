@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { getDb, getPostgresPool } from '../database/db';
 import { AppError } from '../errors/app_error';
 import type { CreateTaskDto, Task, TaskCollaborator, UpdateTaskDto } from '../models/task';
+import type { TaskFilter } from '../controllers/tasks_controller';
 
 interface TaskRow {
   id: string;
@@ -161,6 +162,55 @@ export class TasksRepository {
       attachCollaboratorsToTasks(tasks, collabRows);
     }
     return tasks;
+  }
+
+  /**
+   * Fetch tasks for a user with optional server-side filters.
+   * SQLite implementation only — Postgres path falls back to in-memory filtering
+   * until the Postgres query layer is updated in the follow-up issue.
+   */
+  async findByFilterAsync(filter: TaskFilter): Promise<Task[]> {
+    const { userId, status, scheduledBefore, dueBefore, overdue, search } = filter;
+
+    // Fetch all tasks visible to the user, then filter in JS.
+    // The follow-up repository issue will push these predicates into SQL.
+    const all = await this.findAllAsync(userId);
+
+    const today = new Date(new Date().toISOString().slice(0, 10) + 'T00:00:00');
+
+    return all.filter((t) => {
+      // status filter
+      if (status !== 'all' && t.status !== status) return false;
+
+      // scheduled_before: COALESCE(scheduled_date, due_date) <= scheduledBefore
+      if (scheduledBefore !== undefined) {
+        const priorityRaw = t.scheduledDate ?? t.dueDate;
+        if (!priorityRaw) return false;
+        if (priorityRaw > scheduledBefore) return false;
+      }
+
+      // due_before: due_date <= dueBefore
+      if (dueBefore !== undefined) {
+        if (!t.dueDate) return false;
+        if (t.dueDate > dueBefore) return false;
+      }
+
+      // overdue: status != 'done' AND COALESCE(scheduled_date, due_date) < today
+      if (overdue !== undefined) {
+        const priorityRaw = t.scheduledDate ?? t.dueDate;
+        const isOverdue = t.status !== 'done' && priorityRaw !== null && priorityRaw !== undefined
+          ? new Date(priorityRaw + 'T00:00:00') < today
+          : false;
+        if (overdue !== isOverdue) return false;
+      }
+
+      // search: case-insensitive substring match on title
+      if (search !== undefined && search !== '') {
+        if (!t.title.toLowerCase().includes(search.toLowerCase())) return false;
+      }
+
+      return true;
+    });
   }
 
   async findAllIncludingLegacyAsync(): Promise<Task[]> {
