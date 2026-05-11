@@ -48,6 +48,7 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
 
   AgentsLoadStatus _status = AgentsLoadStatus.idle;
   String? _error;
+  bool _reconnecting = false;
 
   List<AgentSession> _sessions = [];
   List<AgentSession> _resumable = [];
@@ -205,6 +206,29 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     } catch (e) {
       _error = e.toString();
       notifyListeners();
+    }
+  }
+
+  Future<void> reconnectSession(String id) async {
+    if (_reconnecting) return;
+    _reconnecting = true;
+    try {
+      if (!_agentServerController.isReady) {
+        await _agentServerController.retry();
+        await load();
+        return;
+      }
+      _repository.send({'type': 'session.subscribe', 'id': id});
+      final result = await _repository.getSession(id);
+      if (_selectedSessionId == id) {
+        _transcript = result.messages;
+        notifyListeners();
+      }
+    } catch (e) {
+      _error = e.toString();
+      notifyListeners();
+    } finally {
+      _reconnecting = false;
     }
   }
 

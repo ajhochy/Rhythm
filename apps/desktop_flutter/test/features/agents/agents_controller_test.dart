@@ -39,6 +39,7 @@ class _FakeAgentServerController extends AgentServerController {
 
   final bool _ready;
   final bool _anyAgent;
+  int retryCallCount = 0;
 
   @override
   bool get isReady => _ready;
@@ -49,6 +50,11 @@ class _FakeAgentServerController extends AgentServerController {
   @override
   Future<void> initialize() async {
     // No-op — do not actually spawn a server process.
+  }
+
+  @override
+  Future<void> retry() async {
+    retryCallCount++;
   }
 }
 
@@ -725,6 +731,85 @@ void main() {
 
       expect(notified, isTrue);
       expect(controller.connectivity.stuckSessionIds, contains('notify-sess'));
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // reconnectSession()
+  // --------------------------------------------------------------------------
+
+  group('reconnectSession()', () {
+    test('when server not ready: calls retry() then load()', () async {
+      final notReadyServerController =
+          _FakeAgentServerController(ready: false, anyAgent: false);
+      final localController = AgentsController(
+        fakeRepo,
+        notReadyServerController,
+        _FakeLocalNotificationService(),
+        _FakeNotificationsController(),
+      );
+      addTearDown(localController.dispose);
+
+      fakeRepo.sessionsToReturn = [
+        _makeSession('s1', AgentSessionStatus.idle),
+      ];
+
+      await localController.reconnectSession('some-id');
+
+      expect(notReadyServerController.retryCallCount, 1);
+      // load() was called — sessions list should have been populated.
+      expect(localController.sessions, hasLength(1));
+    });
+
+    test('when server ready: sends session.subscribe and refreshes transcript',
+        () async {
+      final readyServerController =
+          _FakeAgentServerController(ready: true, anyAgent: true);
+      final localController = AgentsController(
+        fakeRepo,
+        readyServerController,
+        _FakeLocalNotificationService(),
+        _FakeNotificationsController(),
+      );
+      addTearDown(localController.dispose);
+      await localController.initialize();
+
+      await localController.selectSession('target-session');
+      fakeRepo.sentMessages.clear();
+
+      await localController.reconnectSession('target-session');
+
+      expect(
+        fakeRepo.sentMessages.any((m) =>
+            m['type'] == 'session.subscribe' && m['id'] == 'target-session'),
+        isTrue,
+      );
+      // Transcript was refreshed (getSession returns empty messages list).
+      expect(localController.transcript, isEmpty);
+    });
+
+    test('concurrent calls are coalesced via _reconnecting guard', () async {
+      final readyServerController =
+          _FakeAgentServerController(ready: true, anyAgent: true);
+      final localController = AgentsController(
+        fakeRepo,
+        readyServerController,
+        _FakeLocalNotificationService(),
+        _FakeNotificationsController(),
+      );
+      addTearDown(localController.dispose);
+      await localController.initialize();
+
+      // Fire two concurrent calls — only the first should proceed.
+      final first = localController.reconnectSession('sess-1');
+      final second = localController.reconnectSession('sess-1');
+      await Future.wait([first, second]);
+
+      // session.subscribe should appear exactly once.
+      final subscribeCalls = fakeRepo.sentMessages
+          .where((m) => m['type'] == 'session.subscribe' && m['id'] == 'sess-1')
+          .length;
+      expect(subscribeCalls, 1);
     });
   });
 }
