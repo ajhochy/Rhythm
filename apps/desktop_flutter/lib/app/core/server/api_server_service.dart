@@ -8,6 +8,7 @@ enum AgentServerFailureReason {
   bundleNotFound,
   spawnThrew,
   healthCheckTimeout,
+  lostConnection,
 }
 
 /// Result of attempting to start the local agent server.

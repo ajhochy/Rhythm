@@ -37,6 +37,8 @@ class AgentServerController extends ChangeNotifier {
       case AgentServerFailureReason.healthCheckTimeout:
         return "The CLI server started but didn't respond in time. See "
             'technical details below.';
+      case AgentServerFailureReason.lostConnection:
+        return 'The agent server stopped responding. Click Restart to bring it back.';
       case null:
         return null;
     }

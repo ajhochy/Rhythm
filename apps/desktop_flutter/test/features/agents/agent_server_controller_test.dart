@@ -125,5 +125,28 @@ void main() {
         'details below.',
       );
     });
+
+    test('lostConnection returns restart guidance message', () async {
+      final controller = AgentServerController(
+        _FakeApiServerService(
+          (
+            ok: false,
+            reason: AgentServerFailureReason.lostConnection,
+            stderrTail: null,
+          ),
+        ),
+      );
+      await controller.initialize();
+
+      expect(
+        controller.failureReason,
+        AgentServerFailureReason.lostConnection,
+      );
+      expect(
+        controller.errorMessage,
+        'The agent server stopped responding. Click Restart to bring it back.',
+      );
+      expect(controller.status, AgentServerStatus.failed);
+    });
   });
 }
