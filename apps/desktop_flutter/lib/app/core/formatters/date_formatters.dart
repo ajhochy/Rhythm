@@ -39,9 +39,11 @@ class DateFormatters {
     return '$weekday, $month ${date.day}, ${date.year}';
   }
 
-  static bool isPastDue({
-    required String? dueDate,
-    required String? scheduledDate,
+  /// Returns true when the task is not done and its priority date (scheduledDate
+  /// ?? dueDate) is strictly before today.
+  static bool isOverdue({
+    String? dueDate,
+    String? scheduledDate,
     required bool isDone,
     DateTime? today,
   }) {
@@ -54,6 +56,45 @@ class DateFormatters {
         : DateTime(today.year, today.month, today.day);
     return comparisonDate.isBefore(
       DateTime(current.year, current.month, current.day),
+    );
+  }
+
+  /// Returns true when the task is not done and dueDate is strictly before
+  /// today. scheduledDate is intentionally ignored — this checks only the hard
+  /// deadline.
+  static bool isPastDeadline({
+    String? dueDate,
+    required bool isDone,
+    DateTime? today,
+  }) {
+    if (isDone) return false;
+    final due = _parseIsoDate(dueDate);
+    if (due == null) return false;
+    final current = today == null
+        ? DateTime.now()
+        : DateTime(today.year, today.month, today.day);
+    return due.isBefore(DateTime(current.year, current.month, current.day));
+  }
+
+  /// Returns the parsed scheduledDate if present, otherwise the parsed dueDate.
+  /// Returns null when both are absent or unparseable.
+  static DateTime? priorityDate({String? dueDate, String? scheduledDate}) {
+    return _parseIsoDate(scheduledDate) ?? _parseIsoDate(dueDate);
+  }
+
+  // ignore: deprecated_member_use_from_same_package
+  @Deprecated('Use isOverdue')
+  static bool isPastDue({
+    required String? dueDate,
+    required String? scheduledDate,
+    required bool isDone,
+    DateTime? today,
+  }) {
+    return isOverdue(
+      dueDate: dueDate,
+      scheduledDate: scheduledDate,
+      isDone: isDone,
+      today: today,
     );
   }
 
