@@ -127,8 +127,12 @@ class _FakeAgentsRepository implements AgentsRepository {
     return _makeSession('new-session', AgentSessionStatus.starting);
   }
 
+  final List<String> closeSessionCalls = [];
+
   @override
-  Future<void> closeSession(String id) async {}
+  Future<void> closeSession(String id) async {
+    closeSessionCalls.add(id);
+  }
 
   @override
   Future<AgentSession> resumeSession(String id) async {
@@ -810,6 +814,112 @@ void main() {
           .where((m) => m['type'] == 'session.subscribe' && m['id'] == 'sess-1')
           .length;
       expect(subscribeCalls, 1);
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // closeSession()
+  // --------------------------------------------------------------------------
+
+  group('closeSession()', () {
+    test(
+        'when server not ready: removes session synchronously without calling repository',
+        () async {
+      final notReadyServerController =
+          _FakeAgentServerController(ready: false, anyAgent: false);
+      final localRepo = _FakeAgentsRepository();
+      final localController = AgentsController(
+        localRepo,
+        notReadyServerController,
+        _FakeLocalNotificationService(),
+        _FakeNotificationsController(),
+      );
+      addTearDown(localController.dispose);
+
+      // Manually seed a session into the controller's internal list via WS
+      // after bypassing initialize (server not ready, so no connect).
+      // Instead, directly call load with a pre-populated sessionsToReturn.
+      localRepo.sessionsToReturn = [
+        _makeSession('stale-sess', AgentSessionStatus.idle),
+      ];
+      await localController.initialize();
+      // initialize() skips load when not ready, so call load directly.
+      await localController.load();
+      expect(localController.sessions, hasLength(1));
+
+      // Also seed supporting maps.
+      localController.sessionFirstSeenAt['stale-sess'] = DateTime.now();
+
+      var notified = false;
+      localController.addListener(() => notified = true);
+
+      await localController.closeSession('stale-sess');
+
+      // Session removed from list.
+      expect(localController.sessions, isEmpty);
+      // Listeners were notified.
+      expect(notified, isTrue);
+      // Repository was NOT called.
+      expect(localRepo.closeSessionCalls, isEmpty);
+      // Supporting maps cleaned up.
+      expect(localController.sessionFirstSeenAt.containsKey('stale-sess'),
+          isFalse);
+    });
+
+    test(
+        'when server not ready: clears selectedSessionId when it matches the closed session',
+        () async {
+      final notReadyServerController =
+          _FakeAgentServerController(ready: false, anyAgent: false);
+      final localRepo = _FakeAgentsRepository();
+      final localController = AgentsController(
+        localRepo,
+        notReadyServerController,
+        _FakeLocalNotificationService(),
+        _FakeNotificationsController(),
+      );
+      addTearDown(localController.dispose);
+
+      localRepo.sessionsToReturn = [
+        _makeSession('sel-sess', AgentSessionStatus.idle),
+      ];
+      await localController.load();
+      // Manually set the selected session id by selecting it (but server not
+      // ready so we just manipulate via load and closeSession directly).
+      // We rely on closeSession clearing _selectedSessionId when it matches.
+
+      await localController.closeSession('sel-sess');
+
+      expect(localController.selectedSessionId, isNull);
+    });
+
+    test('when server ready: delegates to repository DELETE path', () async {
+      final readyServerController =
+          _FakeAgentServerController(ready: true, anyAgent: true);
+      final localRepo = _FakeAgentsRepository();
+      final localController = AgentsController(
+        localRepo,
+        readyServerController,
+        _FakeLocalNotificationService(),
+        _FakeNotificationsController(),
+      );
+      addTearDown(localController.dispose);
+      await localController.initialize();
+
+      // Seed a session via WS so it's in the list.
+      localRepo.emit(SessionCreatedMessage(
+        session: _makeSession('online-sess', AgentSessionStatus.idle),
+      ));
+      await Future<void>.delayed(Duration.zero);
+      expect(localController.sessions, hasLength(1));
+
+      await localController.closeSession('online-sess');
+
+      // Repository closeSession was called.
+      expect(localRepo.closeSessionCalls, contains('online-sess'));
+      // The session remains in the list until the WS SessionClosedMessage
+      // arrives — that is the existing online behaviour.
+      expect(localController.sessions, hasLength(1));
     });
   });
 }

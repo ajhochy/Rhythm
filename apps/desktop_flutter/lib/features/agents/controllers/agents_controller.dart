@@ -187,6 +187,14 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   Future<void> closeSession(String id) async {
+    if (!_agentServerController.isReady) {
+      _sessions = _sessions.where((s) => s.id != id).toList();
+      if (_selectedSessionId == id) _selectedSessionId = null;
+      _liveOutputBuffer.remove(id);
+      sessionFirstSeenAt.remove(id);
+      notifyListeners();
+      return;
+    }
     try {
       await _repository.closeSession(id);
       // The `session.closed` WS message will update state.
