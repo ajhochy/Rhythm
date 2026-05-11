@@ -428,35 +428,42 @@ class _SessionListHeader extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 10),
-          TextButton.icon(
-            icon: Icon(
-              Icons.tune,
-              size: 15,
-              color: context.rhythm.textSecondary,
-            ),
-            label: Text(
-              'Manage agents',
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-                color: context.rhythm.textSecondary,
-              ),
-            ),
-            onPressed: () {
-              Navigator.of(context).push(
-                MaterialPageRoute<void>(
-                  builder: (_) => const ManageAgentsView(),
+          Row(
+            children: [
+              TextButton.icon(
+                icon: Icon(
+                  Icons.tune,
+                  size: 15,
+                  color: context.rhythm.textSecondary,
                 ),
-              );
-            },
-            style: TextButton.styleFrom(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-              minimumSize: Size.zero,
-              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(RhythmRadius.sm),
+                label: Text(
+                  'Manage agents',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: context.rhythm.textSecondary,
+                  ),
+                ),
+                onPressed: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => const ManageAgentsView(),
+                    ),
+                  );
+                },
+                style: TextButton.styleFrom(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                  minimumSize: Size.zero,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(RhythmRadius.sm),
+                  ),
+                ),
               ),
-            ),
+              const SizedBox(width: 8),
+              const _AgentServerStatusDot(),
+            ],
           ),
         ],
       ),
@@ -1713,6 +1720,38 @@ class _NewSessionDialogState extends State<_NewSessionDialog> {
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(RhythmRadius.md),
         borderSide: BorderSide(color: context.rhythm.accent),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Agent server status dot
+// ---------------------------------------------------------------------------
+
+class _AgentServerStatusDot extends StatelessWidget {
+  const _AgentServerStatusDot();
+
+  @override
+  Widget build(BuildContext context) {
+    final status = context.watch<AgentServerController>().status;
+    final (color, label) = switch (status) {
+      AgentServerStatus.ready => (context.rhythm.success, 'Agent server ready'),
+      AgentServerStatus.starting => (
+          context.rhythm.warning,
+          'Agent server starting',
+        ),
+      AgentServerStatus.failed => (
+          context.rhythm.danger,
+          'Agent server failed',
+        ),
+    };
+    return Tooltip(
+      message: label,
+      child: Container(
+        width: 8,
+        height: 8,
+        decoration: BoxDecoration(color: color, shape: BoxShape.circle),
       ),
     );
   }
