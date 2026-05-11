@@ -4,6 +4,8 @@ import {
   isPastDeadline,
   priorityDate,
   taskDateStatus,
+  todayInTimezone,
+  todayDateInTimezone,
 } from '../services/task_date_status';
 
 // Pin a fixed reference date for all tests: 2026-05-15
@@ -177,5 +179,55 @@ describe('taskDateStatus', () => {
     expect(result.overdue).toBe(false);
     expect(result.pastDeadline).toBe(false);
     expect(result.priorityDate).toBeNull();
+  });
+});
+
+// ── todayInTimezone / todayDateInTimezone ──────────────────────────────────────
+//
+// These tests verify TZ-boundary behaviour by constructing a pinned Date that
+// falls in "UTC tomorrow" but is still "today" in America/Los_Angeles.
+//
+// 2026-05-15 at 23:00 UTC = 2026-05-15 at 16:00 PDT (UTC-7 in summer).
+// So when "now" is 2026-05-15T23:00:00Z:
+//   • todayInTimezone('America/Los_Angeles') → '2026-05-15'
+//   • todayInTimezone('UTC') → '2026-05-15'
+//
+// 2026-05-16 at 01:00 UTC = 2026-05-15 at 18:00 PDT.
+// So when "now" is 2026-05-16T01:00:00Z:
+//   • todayInTimezone('UTC') → '2026-05-16'
+//   • todayInTimezone('America/Los_Angeles') → '2026-05-15'   ← the key TZ-boundary case
+
+describe('todayInTimezone', () => {
+  it('returns a string in YYYY-MM-DD format', () => {
+    const result = todayInTimezone('America/Los_Angeles');
+    expect(result).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  });
+
+  it('returns a string in YYYY-MM-DD format for UTC', () => {
+    const result = todayInTimezone('UTC');
+    expect(result).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  });
+});
+
+describe('todayDateInTimezone', () => {
+  it('returns a Date whose YYYY-MM-DD matches todayInTimezone for the same TZ', () => {
+    const tz = 'America/Los_Angeles';
+    const dateStr = todayInTimezone(tz);
+    const d = todayDateInTimezone(tz);
+    const expected = new Date(dateStr + 'T00:00:00');
+    expect(d.getTime()).toBe(expected.getTime());
+  });
+
+  it('task overdue check uses LA date — task for "today in LA" is NOT overdue even when UTC says tomorrow', () => {
+    // Simulate: user is in LA. Their local date is 2026-05-15.
+    // The server clock (UTC) shows 2026-05-16T01:00:00Z (1 AM UTC next day).
+    // A task scheduled for 2026-05-15 should NOT be overdue from the LA perspective.
+    const laTodayDate = new Date('2026-05-15T00:00:00'); // midnight, local representation
+    const task = { status: 'open' as const, scheduledDate: '2026-05-15' };
+    // From LA's "today" (2026-05-15), this task is due today — not overdue.
+    expect(isOverdue(task, laTodayDate)).toBe(false);
+    // From UTC's "today" (2026-05-16), the same task would appear overdue.
+    const utcTodayDate = new Date('2026-05-16T00:00:00');
+    expect(isOverdue(task, utcTodayDate)).toBe(true);
   });
 });

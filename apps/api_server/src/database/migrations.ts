@@ -976,4 +976,13 @@ export function runMigrations(db: Database.Database): void {
   if (!instanceStepColsScheduled.includes('scheduled_date')) {
     db.exec(`ALTER TABLE project_instance_steps ADD COLUMN scheduled_date TEXT`);
   }
+
+  // Issue #539 — users.timezone for per-user "today" computation.
+  // Default: America/Los_Angeles (AJ's TZ; keeps existing rows stable on upgrade).
+  const userColsP539 = (db.pragma('table_info(users)') as { name: string }[]).map((c) => c.name);
+  if (!userColsP539.includes('timezone')) {
+    db.exec(
+      `ALTER TABLE users ADD COLUMN timezone TEXT NOT NULL DEFAULT 'America/Los_Angeles'`,
+    );
+  }
 }

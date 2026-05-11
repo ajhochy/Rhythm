@@ -148,4 +148,39 @@ describe('GET /dashboard/summary', () => {
     const res = await fetch(`${baseUrl}/dashboard/summary`);
     expect(res.status).toBe(401);
   });
+
+  it("respects the user's timezone when classifying tasks as past-due vs today", async () => {
+    // This test pins dates relative to "today" using the server's clock (same as
+    // the test runner).  The key assertion is that the dashboard uses the user's
+    // timezone (America/Los_Angeles by default) rather than UTC, so a task
+    // scheduled for today should show up in todayRemainingCount rather than
+    // pastDueCount regardless of which UTC offset the test runner runs on.
+    const owner = usersRepo.create({
+      name: 'TZ user',
+      email: 'tz@example.com',
+      timezone: 'America/Los_Angeles',
+    });
+    const headers = await authHeaderFor(owner.id);
+
+    // Derive "today" in America/Los_Angeles (same logic as the service under test).
+    const laTodayStr = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'America/Los_Angeles',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(new Date());
+
+    tasksRepo.create({ title: 'LA today task', dueDate: laTodayStr, ownerId: owner.id });
+
+    const res = await fetch(`${baseUrl}/dashboard/summary`, { headers });
+    expect(res.status).toBe(200);
+
+    const summary = await readJson(res) as {
+      tasks: { pastDueCount: number; todayRemainingCount: number };
+    };
+
+    // The task is due today in LA → should appear in today, not past due.
+    expect(summary.tasks.todayRemainingCount).toBe(1);
+    expect(summary.tasks.pastDueCount).toBe(0);
+  });
 });

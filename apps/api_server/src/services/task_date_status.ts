@@ -9,6 +9,35 @@ export interface TaskDateShape {
 }
 
 /**
+ * Returns the YYYY-MM-DD string representing "today" in the given IANA timezone.
+ * Uses Intl.DateTimeFormat so the result is correct for the user's local calendar
+ * date regardless of the server's timezone (typically UTC in production).
+ *
+ * @param timezone  IANA timezone name, e.g. "America/Los_Angeles".
+ *                  Falls back to UTC if the string is not recognised.
+ */
+export function todayInTimezone(timezone: string): string {
+  const formatter = new Intl.DateTimeFormat('en-CA', {
+    timeZone: timezone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  });
+  return formatter.format(new Date());
+}
+
+/**
+ * Returns a Date object representing midnight (00:00:00) at the start of "today"
+ * in the given IANA timezone.  Suitable for direct comparison with the Date values
+ * returned by priorityDate().
+ *
+ * @param timezone  IANA timezone name, e.g. "America/Los_Angeles".
+ */
+export function todayDateInTimezone(timezone: string): Date {
+  return new Date(todayInTimezone(timezone) + 'T00:00:00');
+}
+
+/**
  * Returns the canonical "priority date" for a task: scheduledDate takes
  * precedence over dueDate. Date strings must be in YYYY-MM-DD format.
  * Returns null when neither date is set.

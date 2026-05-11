@@ -31,10 +31,30 @@ export function parseWeekLabel(weekLabel: string): Date {
   return result;
 }
 
-/** Return the ISO week label (YYYY-WNN) for today. */
-export function currentWeekLabel(): string {
-  const now = new Date();
-  const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+/**
+ * Return the ISO week label (YYYY-WNN) for today.
+ *
+ * @param timezone  Optional IANA timezone name (e.g. "America/Los_Angeles").
+ *                  When provided, "today" is resolved in that timezone so the
+ *                  week label matches the user's local calendar date.
+ *                  Defaults to UTC to preserve backward-compatible behaviour
+ *                  for callers that do not supply a timezone.
+ */
+export function currentWeekLabel(timezone?: string): string {
+  let todayStr: string;
+  if (timezone) {
+    const formatter = new Intl.DateTimeFormat('en-CA', {
+      timeZone: timezone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    });
+    todayStr = formatter.format(new Date());
+  } else {
+    const now = new Date();
+    todayStr = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}-${String(now.getUTCDate()).padStart(2, '0')}`;
+  }
+  const d = new Date(todayStr + 'T00:00:00Z');
   d.setUTCDate(d.getUTCDate() + 3 - ((d.getUTCDay() + 6) % 7));
   const jan4 = new Date(Date.UTC(d.getUTCFullYear(), 0, 4));
   const weekNum =

@@ -13,6 +13,7 @@ interface UserRow {
   role: string;
   is_facilities_manager: number;
   email_notifications_enabled: number | boolean;
+  timezone: string;
   created_at: string;
   updated_at: string;
 }
@@ -37,6 +38,7 @@ function rowToUser(row: UserRow): User {
     role: row.role,
     isFacilitiesManager,
     emailNotificationsEnabled,
+    timezone: row.timezone ?? 'America/Los_Angeles',
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -128,8 +130,8 @@ export class UsersRepository {
   async createAsync(data: CreateUserDto): Promise<User> {
     if (env.dbClient === 'postgres') {
       const result = await getPostgresPool().query<UserRow>(
-        `INSERT INTO users (name, email, google_sub, photo_url, role, is_facilities_manager, email_notifications_enabled)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)
+        `INSERT INTO users (name, email, google_sub, photo_url, role, is_facilities_manager, email_notifications_enabled, timezone)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
          RETURNING *`,
         [
           data.name,
@@ -139,6 +141,7 @@ export class UsersRepository {
           data.role ?? 'member',
           data.isFacilitiesManager ?? false,
           data.emailNotificationsEnabled ?? true,
+          data.timezone ?? 'America/Los_Angeles',
         ],
       );
       return rowToUser(result.rows[0]);
@@ -150,7 +153,7 @@ export class UsersRepository {
   create(data: CreateUserDto): User {
     const result = getDb()
       .prepare(
-        `INSERT INTO users (name, email, google_sub, photo_url, role, is_facilities_manager, email_notifications_enabled) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO users (name, email, google_sub, photo_url, role, is_facilities_manager, email_notifications_enabled, timezone) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         data.name,
@@ -160,6 +163,7 @@ export class UsersRepository {
         data.role ?? 'member',
         data.isFacilitiesManager ? 1 : 0,
         (data.emailNotificationsEnabled ?? true) ? 1 : 0,
+        data.timezone ?? 'America/Los_Angeles',
       );
     return this.findById(result.lastInsertRowid as number);
   }
@@ -177,8 +181,9 @@ export class UsersRepository {
                 role = $5,
                 is_facilities_manager = $6,
                 email_notifications_enabled = $7,
-                updated_at = $8
-          WHERE id = $9
+                timezone = $8,
+                updated_at = $9
+          WHERE id = $10
           RETURNING *`,
         [
           data.name ?? existing.name,
@@ -192,6 +197,7 @@ export class UsersRepository {
           data.emailNotificationsEnabled !== undefined
             ? data.emailNotificationsEnabled
             : existing.emailNotificationsEnabled,
+          data.timezone ?? existing.timezone,
           now,
           id,
         ],
@@ -207,7 +213,7 @@ export class UsersRepository {
     const now = new Date().toISOString();
     getDb()
       .prepare(
-        `UPDATE users SET name = ?, email = ?, google_sub = ?, photo_url = ?, role = ?, is_facilities_manager = ?, email_notifications_enabled = ?, updated_at = ? WHERE id = ?`,
+        `UPDATE users SET name = ?, email = ?, google_sub = ?, photo_url = ?, role = ?, is_facilities_manager = ?, email_notifications_enabled = ?, timezone = ?, updated_at = ? WHERE id = ?`,
       )
       .run(
         data.name ?? existing.name,
@@ -221,6 +227,7 @@ export class UsersRepository {
         data.emailNotificationsEnabled !== undefined
             ? (data.emailNotificationsEnabled ? 1 : 0)
             : (existing.emailNotificationsEnabled ? 1 : 0),
+        data.timezone ?? existing.timezone,
         now,
         id,
       );

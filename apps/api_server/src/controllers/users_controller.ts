@@ -4,6 +4,20 @@ import { UsersRepository } from '../repositories/users_repository';
 
 const repo = new UsersRepository();
 
+/**
+ * Validate that the given string is a recognised IANA timezone name.
+ * Throws a 400 AppError if the timezone is not supported by Intl.DateTimeFormat.
+ */
+function validateTimezone(tz: string): void {
+  try {
+    Intl.DateTimeFormat(undefined, { timeZone: tz });
+  } catch {
+    throw AppError.badRequest(
+      `Invalid timezone "${tz}". Must be a recognised IANA timezone name (e.g. "America/Los_Angeles").`,
+    );
+  }
+}
+
 export class UsersController {
   private requireAdmin(req: Request) {
     const actor = req.auth?.user;
@@ -60,11 +74,22 @@ export class UsersController {
   async updateMyPreferences(req: Request, res: Response, next: NextFunction) {
     try {
       const userId = req.auth!.user.id;
-      const { emailNotificationsEnabled } = req.body as Record<string, unknown>;
-      if (typeof emailNotificationsEnabled !== 'boolean') {
+      const { emailNotificationsEnabled, timezone } = req.body as Record<string, unknown>;
+      if (emailNotificationsEnabled !== undefined && typeof emailNotificationsEnabled !== 'boolean') {
         throw AppError.badRequest('emailNotificationsEnabled must be a boolean');
       }
-      const user = await repo.updateAsync(userId, { emailNotificationsEnabled });
+      const patch: Record<string, unknown> = {};
+      if (typeof emailNotificationsEnabled === 'boolean') {
+        patch.emailNotificationsEnabled = emailNotificationsEnabled;
+      }
+      if (typeof timezone === 'string') {
+        validateTimezone(timezone);
+        patch.timezone = timezone;
+      }
+      if (Object.keys(patch).length === 0) {
+        throw AppError.badRequest('No valid preference fields provided');
+      }
+      const user = await repo.updateAsync(userId, patch);
       res.json(user);
     } catch (err) {
       next(err);
@@ -74,8 +99,11 @@ export class UsersController {
   async update(req: Request, res: Response, next: NextFunction) {
     try {
       this.requireAdmin(req);
-      const { name, email, role, googleSub, photoUrl, isFacilitiesManager } =
+      const { name, email, role, googleSub, photoUrl, isFacilitiesManager, timezone } =
         req.body as Record<string, unknown>;
+      if (typeof timezone === 'string') {
+        validateTimezone(timezone);
+      }
       const user = await repo.updateAsync(Number(req.params.id), {
         ...(typeof name === 'string' ? { name } : {}),
         ...(typeof email === 'string' ? { email } : {}),
@@ -89,6 +117,7 @@ export class UsersController {
         ...(typeof isFacilitiesManager === 'boolean'
           ? { isFacilitiesManager }
           : {}),
+        ...(typeof timezone === 'string' ? { timezone } : {}),
       });
       res.json(user);
     } catch (err) {

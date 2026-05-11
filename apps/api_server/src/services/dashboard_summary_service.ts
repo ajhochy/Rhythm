@@ -14,7 +14,7 @@ import type { Task } from '../models/task';
 import type { RecurringTaskRule } from '../models/recurring_task_rule';
 import type { ProjectInstance } from '../models/project_instance';
 import type { ProjectTemplate } from '../models/project_template';
-import { priorityDate } from './task_date_status';
+import { priorityDate, todayDateInTimezone } from './task_date_status';
 
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 const MONTHS = ['', 'January', 'February', 'March', 'April', 'May', 'June',
@@ -66,7 +66,7 @@ export class DashboardSummaryService {
   private projectTemplatesRepo = new ProjectTemplatesRepository();
   private messagesRepo = new MessagesRepository();
 
-  async getSummaryAsync(userId: number): Promise<DashboardSummary> {
+  async getSummaryAsync(userId: number, timezone = 'America/Los_Angeles'): Promise<DashboardSummary> {
     const [tasks, rules, instances, templates, threads] = await Promise.all([
       this.tasksRepo.findAllAsync(userId),
       this.rulesRepo.findAllAsync(userId),
@@ -75,8 +75,7 @@ export class DashboardSummaryService {
       this.messagesRepo.findAllThreadsForUserAsync(userId),
     ]);
 
-    const now = new Date();
-    const today = stripDate(now);
+    const today = todayDateInTimezone(timezone);
     const weekEnd = endOfIsoWeek(today);
 
     // ── Tasks ──────────────────────────────────────────────────────────────────
