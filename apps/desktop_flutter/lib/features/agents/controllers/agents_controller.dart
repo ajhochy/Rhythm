@@ -7,6 +7,7 @@ import '../../../app/core/agents/agent_server_controller.dart';
 import '../../../app/core/notifications/local_notification_service.dart';
 import '../../notifications/controllers/notifications_controller.dart';
 import '../models/agent_session.dart';
+import '../models/agent_session_connectivity.dart';
 import '../models/agent_session_message.dart';
 import '../models/agent_ws_message.dart';
 import '../repositories/agents_repository.dart';
@@ -62,13 +63,18 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
 
   final List<PendingTrigger> _pendingTriggers = [];
 
+  AgentSessionConnectivity _connectivity = const AgentSessionConnectivity();
+
   StreamSubscription<AgentWsMessage>? _wsSub;
+  StreamSubscription<bool>? _connectivitySub;
 
   // --------------------------------------------------------------------------
   // Getters
   // --------------------------------------------------------------------------
 
   AgentsLoadStatus get status => _status;
+
+  AgentSessionConnectivity get connectivity => _connectivity;
   String? get error => _error;
   List<AgentSession> get sessions => List.unmodifiable(_sessions);
   List<AgentSession> get resumable => List.unmodifiable(_resumable);
@@ -101,6 +107,19 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     }
     await _repository.connect();
     _wsSub = _repository.messages.listen(_onWsMessage);
+    _connectivitySub = _repository.connectivityStream.listen((connected) {
+      if (connected) {
+        if (_connectivity.isWsDisconnected) {
+          _connectivity = _connectivity.copyWith(isWsDisconnected: false);
+          notifyListeners();
+        }
+      } else {
+        if (!_connectivity.isWsDisconnected) {
+          _connectivity = _connectivity.copyWith(isWsDisconnected: true);
+          notifyListeners();
+        }
+      }
+    });
     await load();
   }
 
@@ -343,6 +362,7 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _wsSub?.cancel();
+    _connectivitySub?.cancel();
     _repository.dispose();
     super.dispose();
   }

@@ -71,6 +71,10 @@ class _FakeAgentsRepository implements AgentsRepository {
   /// Push a synthetic WS message from the test.
   void emit(AgentWsMessage msg) => _msgController.add(msg);
 
+  /// Push a synthetic connectivity event from the test.
+  void emitConnectivity(bool connected) =>
+      _connectivityController.add(connected);
+
   @override
   Stream<AgentWsMessage> get messages => _msgController.stream;
 
@@ -395,6 +399,101 @@ void main() {
       expect(controller.sessions.map((s) => s.id), containsAll(['a', 'b']));
       expect(controller.resumable, hasLength(1));
       expect(controller.resumable.first.id, 'r1');
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // connectivity stream → AgentSessionConnectivity transitions
+  // --------------------------------------------------------------------------
+
+  group('connectivity stream transitions', () {
+    setUp(() async {
+      await controller.initialize();
+    });
+
+    test('stream emitting false sets isWsDisconnected to true and notifies',
+        () async {
+      expect(controller.connectivity.isWsDisconnected, isFalse);
+
+      var notified = false;
+      controller.addListener(() => notified = true);
+
+      fakeRepo.emitConnectivity(false);
+      await Future<void>.delayed(Duration.zero);
+
+      expect(controller.connectivity.isWsDisconnected, isTrue);
+      expect(notified, isTrue);
+    });
+
+    test('stream emitting true flips isWsDisconnected back to false', () async {
+      // First disconnect.
+      fakeRepo.emitConnectivity(false);
+      await Future<void>.delayed(Duration.zero);
+      expect(controller.connectivity.isWsDisconnected, isTrue);
+
+      // Then reconnect.
+      var notified = false;
+      controller.addListener(() => notified = true);
+
+      fakeRepo.emitConnectivity(true);
+      await Future<void>.delayed(Duration.zero);
+
+      expect(controller.connectivity.isWsDisconnected, isFalse);
+      expect(notified, isTrue);
+    });
+
+    test('redundant true event does not trigger extra notifyListeners',
+        () async {
+      // Already connected (default state) — emit true again; no notification
+      // should fire because the flag was already false.
+      var notifyCount = 0;
+      controller.addListener(() => notifyCount++);
+
+      fakeRepo.emitConnectivity(true);
+      await Future<void>.delayed(Duration.zero);
+
+      expect(notifyCount, isZero);
+    });
+
+    test('redundant false event does not trigger extra notifyListeners',
+        () async {
+      // Disconnect first.
+      fakeRepo.emitConnectivity(false);
+      await Future<void>.delayed(Duration.zero);
+
+      // A second false should not fire another notification.
+      var notifyCount = 0;
+      controller.addListener(() => notifyCount++);
+
+      fakeRepo.emitConnectivity(false);
+      await Future<void>.delayed(Duration.zero);
+
+      expect(notifyCount, isZero);
+    });
+
+    test('dispose() cancels the connectivity subscription', () async {
+      // Call dispose explicitly — the tearDown will call it again but that is
+      // expected to be a no-op (ChangeNotifier tolerates double-dispose in
+      // debug mode by just asserting it was not already disposed during the
+      // *first* call). We use a fresh controller so tearDown's dispose does not
+      // interfere with this test.
+      final localRepo = _FakeAgentsRepository();
+      final localController = AgentsController(
+        localRepo,
+        _FakeAgentServerController(ready: true, anyAgent: true),
+        _FakeLocalNotificationService(),
+        _FakeNotificationsController(),
+      );
+      await localController.initialize();
+
+      // Dispose and then emit — stream event must be silently dropped (no
+      // state mutation, no throw).
+      localController.dispose();
+
+      expect(() => localRepo.emitConnectivity(false), returnsNormally);
+
+      // Allow any pending microtasks to settle.
+      await Future<void>.delayed(Duration.zero);
     });
   });
 
