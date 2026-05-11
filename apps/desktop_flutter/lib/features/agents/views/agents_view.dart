@@ -891,7 +891,11 @@ class _TranscriptHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final controller = context.watch<AgentsController>();
+    final agentServerController = context.watch<AgentServerController>();
     final isWorking = controller.isWorking(session.id);
+    final showReconnect =
+        agentServerController.status != AgentServerStatus.ready ||
+            controller.connectivity.isWsDisconnected;
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
@@ -913,10 +917,30 @@ class _TranscriptHeader extends StatelessWidget {
           const SizedBox(width: 8),
           _StatusChip(status: session.status, isWorking: isWorking),
           const SizedBox(width: 8),
+          if (showReconnect) ...[
+            OutlinedButton(
+              onPressed: () =>
+                  context.read<AgentsController>().reconnectSession(session.id),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: context.rhythm.accent,
+                side: BorderSide(color: context.rhythm.border),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                minimumSize: Size.zero,
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(RhythmRadius.md)),
+              ),
+              child: const Text('Reconnect',
+                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+            ),
+            const SizedBox(width: 6),
+          ],
           IconButton(
             onPressed: () =>
                 context.read<AgentsController>().closeSession(session.id),
-            tooltip: 'Close session',
+            tooltip:
+                agentServerController.isReady ? 'Close session' : 'Force close',
             icon: Icon(
               Icons.close,
               size: 18,
