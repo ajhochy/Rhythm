@@ -265,6 +265,7 @@ class _SessionListPanel extends StatelessWidget {
                 canStartSession ? () => _showNewSessionDialog(context) : null,
           ),
           Divider(height: 1, color: context.rhythm.borderSubtle),
+          const _DisconnectedBanner(),
           Expanded(
             child: controller.status == AgentsLoadStatus.loading &&
                     controller.sessions.isEmpty
@@ -1720,6 +1721,84 @@ class _NewSessionDialogState extends State<_NewSessionDialog> {
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(RhythmRadius.md),
         borderSide: BorderSide(color: context.rhythm.accent),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Disconnected banner (inline, inside session list panel)
+// ---------------------------------------------------------------------------
+
+class _DisconnectedBanner extends StatelessWidget {
+  const _DisconnectedBanner();
+
+  @override
+  Widget build(BuildContext context) {
+    final agentServerController = context.watch<AgentServerController>();
+    final agentsController = context.watch<AgentsController>();
+
+    final serverReady = agentServerController.status == AgentServerStatus.ready;
+    final wsDisconnected = agentsController.connectivity.isWsDisconnected;
+
+    if (serverReady && !wsDisconnected) {
+      return const SizedBox.shrink();
+    }
+
+    final String message;
+    if (agentServerController.status != AgentServerStatus.ready) {
+      message =
+          agentServerController.errorMessage ?? 'Agent server unavailable';
+    } else {
+      message = 'Connection lost — reconnecting…';
+    }
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: context.rhythm.danger.withValues(alpha: 0.10),
+        border: Border(
+          bottom: BorderSide(
+            color: context.rhythm.danger.withValues(alpha: 0.25),
+          ),
+        ),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            Icons.error_outline,
+            size: 15,
+            color: context.rhythm.danger,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              message,
+              style: TextStyle(
+                fontSize: 11.5,
+                fontWeight: FontWeight.w500,
+                color: context.rhythm.danger,
+                height: 1.35,
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          TextButton(
+            onPressed: () => context.read<AgentServerController>().retry(),
+            style: TextButton.styleFrom(
+              foregroundColor: context.rhythm.danger,
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              minimumSize: Size.zero,
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              textStyle: const TextStyle(
+                fontSize: 11.5,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            child: const Text('Restart agent server'),
+          ),
+        ],
       ),
     );
   }
