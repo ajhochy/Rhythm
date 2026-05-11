@@ -985,4 +985,51 @@ export function runMigrations(db: Database.Database): void {
       `ALTER TABLE users ADD COLUMN timezone TEXT NOT NULL DEFAULT 'America/Los_Angeles'`,
     );
   }
+
+  // Issue #520 — One-time backfill: copy due_date → scheduled_date for legacy rows.
+  //
+  // Many tasks and project_steps were created by the legacy quick-add UI which only
+  // wrote due_date. Under the new date-semantics model (scheduled_date primary, due_date
+  // fallback) those rows appear "unscheduled". This migration copies due_date into
+  // scheduled_date for every row where scheduled_date IS NULL AND due_date IS NOT NULL,
+  // covering both tables in a single transaction.
+  //
+  // A schema_meta marker row prevents re-execution on DBs that have already received
+  // this migration. Must run AFTER issue #519 (project_instance_steps.scheduled_date).
+
+  // 1. Ensure schema_meta table exists.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS schema_meta (
+      key TEXT PRIMARY KEY,
+      value TEXT
+    )
+  `);
+
+  // 2. Check for the idempotency marker.
+  const backfillMarker = (db.prepare(`SELECT key FROM schema_meta WHERE key = 'backfill_scheduled_date_v1'`).get()) as { key: string } | undefined;
+
+  if (!backfillMarker) {
+    // 3. Run both UPDATEs inside a single transaction.
+    const backfill = db.transaction(() => {
+      const tasksResult = db.prepare(
+        `UPDATE tasks SET scheduled_date = due_date WHERE scheduled_date IS NULL AND due_date IS NOT NULL`
+      ).run();
+
+      const stepsResult = db.prepare(
+        `UPDATE project_instance_steps SET scheduled_date = due_date WHERE scheduled_date IS NULL AND due_date IS NOT NULL`
+      ).run();
+
+      // 4. Insert marker row with ISO timestamp.
+      db.prepare(
+        `INSERT INTO schema_meta (key, value) VALUES ('backfill_scheduled_date_v1', ?)`
+      ).run(new Date().toISOString());
+
+      return { tasksUpdated: tasksResult.changes, stepsUpdated: stepsResult.changes };
+    });
+
+    const { tasksUpdated, stepsUpdated } = backfill();
+
+    // 5. Log affected row counts at INFO level for audit after deploy.
+    console.log(`backfill_scheduled_date_v1: tasks updated=${tasksUpdated}, project_steps updated=${stepsUpdated}`);
+  }
 }
