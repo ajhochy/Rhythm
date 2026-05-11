@@ -9,6 +9,7 @@ import type {
   DashboardProjectItem,
   DashboardProjectStepPreview,
   DashboardUnreadPreview,
+  PastDeadlineTaskSummary,
 } from '../models/dashboard_summary';
 import type { Task } from '../models/task';
 import type { RecurringTaskRule } from '../models/recurring_task_rule';
@@ -86,12 +87,26 @@ export class DashboardSummaryService {
       return d != null && d < today;
     }).sort(compareTasks);
 
-    // pastDeadlineCount: open tasks where dueDate < today AND NOT overdue
+    // pastDeadlineTasks / pastDeadlineCount: open tasks where dueDate < today AND NOT overdue
     // (i.e. past hard deadline but not already counted in pastDueCount).
-    // The two counts are mutually exclusive by design.
-    const pastDeadlineCount = openTasks.filter(
-      (t) => isPastDeadline(t, today) && !isOverdue(t, today),
-    ).length;
+    // The two counts/lists are mutually exclusive by design.
+    const pastDeadlineTasksRaw = openTasks
+      .filter((t) => isPastDeadline(t, today) && !isOverdue(t, today))
+      .sort((a, b) => {
+        const aDate = a.dueDate ? new Date(a.dueDate + 'T00:00:00').getTime() : 9e15;
+        const bDate = b.dueDate ? new Date(b.dueDate + 'T00:00:00').getTime() : 9e15;
+        return aDate - bDate;
+      });
+
+    const pastDeadlineCount = pastDeadlineTasksRaw.length;
+
+    const pastDeadlineTasks: PastDeadlineTaskSummary[] = pastDeadlineTasksRaw.map((t) => ({
+      id: t.id,
+      title: t.title,
+      dueDate: t.dueDate ?? null,
+      scheduledDate: t.scheduledDate ?? null,
+      sourceType: t.sourceType ?? null,
+    }));
 
     const todayOpen = openTasks.filter((t) => {
       const d = priorityDate(t);
@@ -193,6 +208,7 @@ export class DashboardSummaryService {
         openCount: openTasks.length,
         pastDueCount: pastDue.length,
         pastDeadlineCount,
+        pastDeadlineTasks,
         todayRemainingCount: todayOpen.length,
         todayTotalCount: todayAll.length,
         thisWeekRemainingCount: thisWeekOpen.length,

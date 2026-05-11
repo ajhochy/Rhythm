@@ -1,10 +1,19 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { apiGet, toolResult, toolError } from '../api_client.js';
 
+interface PastDeadlineTaskSummary {
+  id: string;
+  title: string;
+  dueDate: string | null;
+  scheduledDate: string | null;
+  sourceType: string | null;
+}
+
 interface DashboardTaskSummary {
   openCount: number;
   pastDueCount: number;
   pastDeadlineCount: number;
+  pastDeadlineTasks: PastDeadlineTaskSummary[];
   todayRemainingCount: number;
   todayTotalCount: number;
   thisWeekRemainingCount: number;
@@ -62,6 +71,9 @@ export function registerDashboardTools(server: McpServer, apiUrl: string, apiTok
     'absent, dueDate is used as the fallback. pastDeadlineCount surfaces tasks whose hard dueDate has ' +
     'already passed independently of whether they are overdue by their scheduled date — useful for ' +
     'distinguishing "I missed a deadline" from "I\'m behind on something I said I\'d do." ' +
+    'pastDeadlineTasks is an array of concise task summaries ({ id, title, dueDate, scheduledDate, sourceType }) ' +
+    'for every task counted in pastDeadlineCount, sorted by dueDate ascending (most-overdue deadline first). ' +
+    'Tasks already counted in pastDueCount are NOT included in pastDeadlineTasks (mutually exclusive). ' +
     'Useful for giving Claude context at the start of a session.',
     {},
     async () => {
@@ -88,6 +100,10 @@ export function registerDashboardTools(server: McpServer, apiUrl: string, apiTok
           // though their scheduledDate has not (i.e. the user intends to do it
           // later but a deadline was already missed).
           pastDeadlineCount: tasks.pastDeadlineCount,
+          // pastDeadlineTasks: concise summaries for every task in pastDeadlineCount,
+          // sorted by dueDate ASC (most-overdue deadline first). Mutually exclusive
+          // with tasksPastDue — a task appears in at most one of the two lists.
+          pastDeadlineTasks: tasks.pastDeadlineTasks ?? [],
           todayRemainingCount: tasks.todayRemainingCount,
           thisWeekRemainingCount: tasks.thisWeekRemainingCount,
           unscheduledCount: tasks.unscheduledCount,

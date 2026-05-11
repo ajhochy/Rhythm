@@ -194,8 +194,9 @@ describe('GET /dashboard/summary', () => {
     const res = await fetch(`${baseUrl}/dashboard/summary`, { headers });
     expect(res.status).toBe(200);
 
-    const summary = await readJson(res) as { tasks: { pastDeadlineCount: number } };
+    const summary = await readJson(res) as { tasks: { pastDeadlineCount: number; pastDeadlineTasks: unknown[] } };
     expect(summary.tasks.pastDeadlineCount).toBe(0);
+    expect(summary.tasks.pastDeadlineTasks).toHaveLength(0);
   });
 
   it('pastDeadlineCount counts task with dueDate in past but scheduledDate in future (past-deadline-only)', async () => {
@@ -220,12 +221,64 @@ describe('GET /dashboard/summary', () => {
     expect(res.status).toBe(200);
 
     const summary = await readJson(res) as {
-      tasks: { pastDueCount: number; pastDeadlineCount: number };
+      tasks: {
+        pastDueCount: number;
+        pastDeadlineCount: number;
+        pastDeadlineTasks: Array<{ id: string; title: string; dueDate: string | null; scheduledDate: string | null; sourceType: string | null }>;
+      };
     };
 
     // Must be mutually exclusive: past-deadline-only task goes to pastDeadlineCount
     expect(summary.tasks.pastDueCount).toBe(0);
     expect(summary.tasks.pastDeadlineCount).toBe(1);
+
+    // pastDeadlineTasks should contain the task with correct fields
+    expect(summary.tasks.pastDeadlineTasks).toHaveLength(1);
+    expect(summary.tasks.pastDeadlineTasks[0].title).toBe('Past deadline only');
+    expect(summary.tasks.pastDeadlineTasks[0].dueDate).toBe(yesterday);
+    expect(summary.tasks.pastDeadlineTasks[0].scheduledDate).toBe(tomorrow);
+    expect(summary.tasks.pastDeadlineTasks[0].sourceType).toBeNull();
+  });
+
+  it('pastDeadlineTasks is sorted by dueDate ascending (most-overdue deadline first)', async () => {
+    const owner = usersRepo.create({ name: 'Frank', email: 'frank@example.com' });
+    const headers = await authHeaderFor(owner.id);
+    const twoDaysAgo = new Date(Date.now() - 2 * 86_400_000).toISOString().slice(0, 10);
+    const yesterday = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
+    const tomorrow = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10);
+    const dayAfterTomorrow = new Date(Date.now() + 2 * 86_400_000).toISOString().slice(0, 10);
+
+    // Two past-deadline-only tasks (dueDate past, scheduledDate future → not overdue)
+    tasksRepo.create({
+      title: 'Older deadline',
+      dueDate: twoDaysAgo,
+      scheduledDate: tomorrow,
+      ownerId: owner.id,
+    });
+    tasksRepo.create({
+      title: 'Newer deadline',
+      dueDate: yesterday,
+      scheduledDate: dayAfterTomorrow,
+      ownerId: owner.id,
+    });
+
+    const res = await fetch(`${baseUrl}/dashboard/summary`, { headers });
+    expect(res.status).toBe(200);
+
+    const summary = await readJson(res) as {
+      tasks: {
+        pastDeadlineCount: number;
+        pastDeadlineTasks: Array<{ title: string; dueDate: string | null }>;
+      };
+    };
+
+    expect(summary.tasks.pastDeadlineCount).toBe(2);
+    expect(summary.tasks.pastDeadlineTasks).toHaveLength(2);
+    // Most-overdue deadline (oldest dueDate) first
+    expect(summary.tasks.pastDeadlineTasks[0].title).toBe('Older deadline');
+    expect(summary.tasks.pastDeadlineTasks[0].dueDate).toBe(twoDaysAgo);
+    expect(summary.tasks.pastDeadlineTasks[1].title).toBe('Newer deadline');
+    expect(summary.tasks.pastDeadlineTasks[1].dueDate).toBe(yesterday);
   });
 
   it('pastDeadlineCount excludes tasks that are overdue (mutual exclusivity)', async () => {
@@ -249,12 +302,14 @@ describe('GET /dashboard/summary', () => {
     expect(res.status).toBe(200);
 
     const summary = await readJson(res) as {
-      tasks: { pastDueCount: number; pastDeadlineCount: number };
+      tasks: { pastDueCount: number; pastDeadlineCount: number; pastDeadlineTasks: unknown[] };
     };
 
     // pastDueCount gets it; pastDeadlineCount must NOT double-count it
     expect(summary.tasks.pastDueCount).toBe(1);
     expect(summary.tasks.pastDeadlineCount).toBe(0);
+    // pastDeadlineTasks must also be empty (task is in pastDue, not here)
+    expect(summary.tasks.pastDeadlineTasks).toHaveLength(0);
   });
 
   it('done tasks are excluded from pastDeadlineCount', async () => {
@@ -276,8 +331,9 @@ describe('GET /dashboard/summary', () => {
     expect(res.status).toBe(200);
 
     const summary = await readJson(res) as {
-      tasks: { pastDeadlineCount: number };
+      tasks: { pastDeadlineCount: number; pastDeadlineTasks: unknown[] };
     };
     expect(summary.tasks.pastDeadlineCount).toBe(0);
+    expect(summary.tasks.pastDeadlineTasks).toHaveLength(0);
   });
 });
