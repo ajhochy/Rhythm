@@ -2,6 +2,7 @@ import { CalendarShadowEventsRepository } from '../repositories/calendar_shadow_
 import { ProjectInstancesRepository } from '../repositories/project_instances_repository';
 import { TasksRepository } from '../repositories/tasks_repository';
 import type { Task } from '../models/task';
+import { priorityDate } from './task_date_status';
 
 export interface WeeklyPlanDay {
   date: string;
@@ -72,8 +73,9 @@ export class WeeklyPlanningService {
     const weekTasks = await this.tasksRepo.findByWeekAsync(startStr, endStr, userId);
 
     for (const task of weekTasks) {
-      const dateKey = task.scheduledDate ?? task.dueDate;
-      if (!dateKey) continue;
+      const pd = priorityDate(task);
+      if (!pd) continue;
+      const dateKey = isoDate(pd);
       const day = dayMap.get(dateKey);
       if (!day) continue;
       day.tasks.push(task);
