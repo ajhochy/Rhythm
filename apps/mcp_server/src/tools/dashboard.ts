@@ -68,12 +68,15 @@ export function registerDashboardTools(server: McpServer, apiUrl: string, apiTok
     'rhythm_get_dashboard',
     'Get a summary snapshot of open tasks, active rhythms, active projects, and recent message threads. ' +
     'Task counts and lists are based on scheduledDate (when you plan to do the work); if scheduledDate is ' +
-    'absent, dueDate is used as the fallback. pastDeadlineCount surfaces tasks whose hard dueDate has ' +
-    'already passed independently of whether they are overdue by their scheduled date — useful for ' +
-    'distinguishing "I missed a deadline" from "I\'m behind on something I said I\'d do." ' +
-    'pastDeadlineTasks is an array of concise task summaries ({ id, title, dueDate, scheduledDate, sourceType }) ' +
-    'for every task counted in pastDeadlineCount, sorted by dueDate ascending (most-overdue deadline first). ' +
-    'Tasks already counted in pastDueCount are NOT included in pastDeadlineTasks (mutually exclusive). ' +
+    'absent, dueDate is used as the fallback. ' +
+    'Fields returned — task counts: ' +
+    'pastDueCount (tasks overdue by scheduledDate — the user is behind on planned work); ' +
+    'pastDeadlineCount (open tasks whose hard dueDate has passed even if scheduledDate has not — a deadline was missed); ' +
+    'todayRemainingCount, thisWeekRemainingCount, unscheduledCount. ' +
+    'pastDeadlineTasks: concise summaries ({ id, title, dueDate, scheduledDate, sourceType }) for every task in ' +
+    'pastDeadlineCount, sorted by dueDate ASC (most-overdue first), mutually exclusive with tasksPastDue. ' +
+    'Task list items include operativeDate = scheduledDate ?? dueDate for easy sorting. ' +
+    'Project on-deck steps include scheduledDate (when step is planned) and dueDate (step hard deadline). ' +
     'Useful for giving Claude context at the start of a session.',
     {},
     async () => {

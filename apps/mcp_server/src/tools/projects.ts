@@ -5,7 +5,10 @@ import { registerTool } from './_tool.js';
 
 export function registerProjectTools(server: McpServer, apiUrl: string, apiToken: string) {
   registerTool(server, 'rhythm_list_project_templates',
-    'List all project templates, including their steps.',
+    'List all project templates, including their steps. ' +
+    'Fields returned per step: id, title, offsetDays, offsetDescription, sortOrder. ' +
+    'Steps do not carry date fields at the template level — dates are computed when a template is instantiated ' +
+    'from anchorDate + offsetDays.',
     {},
     async () => {
       try {
@@ -61,7 +64,10 @@ export function registerProjectTools(server: McpServer, apiUrl: string, apiToken
   );
 
   registerTool(server, 'rhythm_create_project_instance',
-    'Instantiate a template as an active project with an anchor date.',
+    'Instantiate a template as an active project with an anchor date. ' +
+    'Each step in the returned instance includes: ' +
+    'scheduledDate (when the step is planned to be done; anchorDate + offsetDays; drives overdue state) and ' +
+    'dueDate (hard external deadline for the step; drives past-deadline state).',
     {
       template_id: z.string().describe('Project template ID to instantiate.'),
       anchor_date: z.string().describe('Key event date in YYYY-MM-DD format.'),
@@ -82,7 +88,10 @@ export function registerProjectTools(server: McpServer, apiUrl: string, apiToken
   );
 
   registerTool(server, 'rhythm_list_project_instances',
-    "List active projects with step progress. Defaults to active projects.",
+    'List active projects with step progress. Defaults to active projects. ' +
+    'Fields returned per step: id, title, status, notes, ' +
+    'scheduledDate (when the step is planned to be done; drives overdue state), ' +
+    'dueDate (hard external deadline for the step; drives past-deadline state).',
     {
       status: z.enum(['active', 'completed', 'all']).optional().describe("Filter by status. Defaults to 'active'."),
     },
@@ -98,7 +107,10 @@ export function registerProjectTools(server: McpServer, apiUrl: string, apiToken
   );
 
   registerTool(server, 'rhythm_update_project_step',
-    'Mark a project step as done or update its notes.',
+    'Mark a project step as done or update its notes. ' +
+    'Fields returned: id, title, status, notes, ' +
+    'scheduledDate (when the step is planned to be done; drives overdue state), ' +
+    'dueDate (hard external deadline for the step; drives past-deadline state).',
     {
       instance_id: z.string().describe('Project instance ID.'),
       step_id: z.string().describe('Step ID within the instance.'),

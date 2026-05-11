@@ -15,7 +15,11 @@ export function registerTaskTools(server: McpServer, apiUrl: string, apiToken: s
     '(2) then by COALESCE(scheduledDate, dueDate) ascending with NULLs last, ' +
     '(3) then by scheduledOrder ascending with NULLs last, ' +
     '(4) then by createdAt ascending. ' +
-    'This surfaces already-broken items before the day\'s upcoming work.',
+    'This surfaces already-broken items before the day\'s upcoming work. ' +
+    'Fields returned per task: id, title, status, notes, ' +
+    'scheduledDate (when the user plans to do it; drives overdue state), ' +
+    'dueDate (hard external deadline; drives past-deadline state), ' +
+    'createdAt, updatedAt.',
     {
       status: z.enum(['open', 'done', 'all']).optional().describe("Filter by status. Defaults to 'open'."),
       due_before: z.string().optional().describe('Return tasks where the HARD DEADLINE (dueDate) is on or before this YYYY-MM-DD date. Use only when you specifically need deadline-based filtering. For "what is due to be done by date X", use scheduled_before instead.'),
@@ -41,7 +45,11 @@ export function registerTaskTools(server: McpServer, apiUrl: string, apiToken: s
   );
 
   registerTool(server, 'rhythm_create_task',
-    'Create a new task.',
+    'Create a new task. ' +
+    'Fields returned: id, title, status, notes, ' +
+    'scheduledDate (when the user plans to do it; drives overdue state), ' +
+    'dueDate (hard external deadline; drives past-deadline state), ' +
+    'createdAt, updatedAt.',
     {
       title: z.string().describe('Task title.'),
       notes: z.string().optional().describe('Optional notes or description.'),
@@ -62,7 +70,11 @@ export function registerTaskTools(server: McpServer, apiUrl: string, apiToken: s
   );
 
   registerTool(server, 'rhythm_update_task',
-    'Update one or more fields of an existing task.',
+    'Update one or more fields of an existing task. ' +
+    'Fields returned: id, title, status, notes, ' +
+    'scheduledDate (when the user plans to do it; drives overdue state), ' +
+    'dueDate (hard external deadline; drives past-deadline state), ' +
+    'createdAt, updatedAt.',
     {
       id: z.string().describe('Task ID.'),
       title: z.string().optional().describe('New title.'),
@@ -89,7 +101,9 @@ export function registerTaskTools(server: McpServer, apiUrl: string, apiToken: s
   );
 
   registerTool(server, 'rhythm_complete_task',
-    'Mark a task as done.',
+    'Mark a task as done. Returns a confirmation string with the task title. ' +
+    'Date fields on the task: scheduledDate (when the user planned to do it; drives overdue state), ' +
+    'dueDate (hard external deadline; drives past-deadline state).',
     {
       id: z.string().describe('Task ID to mark as done.'),
     },
