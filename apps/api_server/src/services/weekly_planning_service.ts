@@ -143,7 +143,7 @@ export class WeeklyPlanningService {
         id: event.id,
         title: event.title,
         notes: detailBits.join(' • '),
-        dueDate: dayKey,
+        dueDate: null,
         scheduledDate: dayKey,
         scheduledOrder: null,
         locked: true,
