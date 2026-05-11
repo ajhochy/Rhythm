@@ -189,14 +189,14 @@ class DashboardController extends ChangeNotifier {
   Future<void> createTask(
     String title, {
     String? notes,
-    String? dueDate,
+    String? scheduledDate,
     int? collaboratorId,
   }) async {
     try {
       await _repository.createTask(
         title,
         notes: notes,
-        dueDate: dueDate,
+        scheduledDate: scheduledDate,
         collaboratorId: collaboratorId,
       );
       await refresh();

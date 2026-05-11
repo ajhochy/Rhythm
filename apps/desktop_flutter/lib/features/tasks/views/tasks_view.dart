@@ -80,13 +80,13 @@ class _TasksViewState extends State<TasksView> {
                                 onSubmit: (
                                   title, {
                                   notes,
-                                  dueDate,
+                                  scheduledDate,
                                   collaboratorId,
                                 }) {
                                   context.read<TasksController>().createTask(
                                         title,
                                         notes: notes,
-                                        dueDate: dueDate,
+                                        scheduledDate: scheduledDate,
                                         collaboratorId: collaboratorId,
                                       );
                                 },

@@ -96,7 +96,7 @@ class DashboardDataSource {
   Future<Task> createTask(
     String title, {
     String? notes,
-    String? dueDate,
+    String? scheduledDate,
   }) async {
     final response = await http.post(
       Uri.parse('$_baseUrl/tasks'),
@@ -104,7 +104,7 @@ class DashboardDataSource {
       body: jsonEncode({
         'title': title,
         if (notes != null && notes.isNotEmpty) 'notes': notes,
-        if (dueDate != null) 'dueDate': dueDate,
+        if (scheduledDate != null) 'scheduledDate': scheduledDate,
       }),
     );
     assertOk(response);

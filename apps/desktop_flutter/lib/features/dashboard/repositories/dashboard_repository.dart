@@ -32,13 +32,13 @@ class DashboardRepository {
   Future<Task> createTask(
     String title, {
     String? notes,
-    String? dueDate,
+    String? scheduledDate,
     int? collaboratorId,
   }) async {
     final task = await _dataSource.createTask(
       title,
       notes: notes,
-      dueDate: dueDate,
+      scheduledDate: scheduledDate,
     );
     if (collaboratorId != null) {
       await _dataSource.addCollaboratorToTask(task.id, collaboratorId);

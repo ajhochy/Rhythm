@@ -10,7 +10,7 @@ import 'rhythm_ui.dart';
 typedef RhythmTaskCreateCallback = void Function(
   String title, {
   String? notes,
-  String? dueDate,
+  String? scheduledDate,
   int? collaboratorId,
 });
 
@@ -37,7 +37,7 @@ class RhythmTaskCreateBar extends StatefulWidget {
 class _RhythmTaskCreateBarState extends State<RhythmTaskCreateBar> {
   final _titleController = TextEditingController();
   final _notesController = TextEditingController();
-  String? _selectedDueDate;
+  String? _selectedScheduledDate;
   WorkspaceMember? _selectedCollaborator;
 
   @override
@@ -53,13 +53,13 @@ class _RhythmTaskCreateBarState extends State<RhythmTaskCreateBar> {
     widget.onSubmit(
       title,
       notes: widget.showNotes ? _notesController.text.trim() : null,
-      dueDate: _selectedDueDate,
+      scheduledDate: _selectedScheduledDate,
       collaboratorId: _selectedCollaborator?.userId,
     );
     _titleController.clear();
     _notesController.clear();
     setState(() {
-      _selectedDueDate = null;
+      _selectedScheduledDate = null;
       _selectedCollaborator = null;
     });
   }
@@ -133,15 +133,19 @@ class _RhythmTaskCreateBarState extends State<RhythmTaskCreateBar> {
           );
 
           final dateButton = RhythmDateButton(
-            date: _selectedDueDate,
-            placeholder: 'Due date',
+            date: _selectedScheduledDate,
+            placeholder: 'Scheduled',
             onTap: () async {
-              final result =
-                  await pickRhythmDate(context, current: _selectedDueDate);
-              if (result != null) setState(() => _selectedDueDate = result);
+              final result = await pickRhythmDate(
+                context,
+                current: _selectedScheduledDate,
+              );
+              if (result != null) {
+                setState(() => _selectedScheduledDate = result);
+              }
             },
-            onClear: _selectedDueDate != null
-                ? () => setState(() => _selectedDueDate = null)
+            onClear: _selectedScheduledDate != null
+                ? () => setState(() => _selectedScheduledDate = null)
                 : null,
           );
 

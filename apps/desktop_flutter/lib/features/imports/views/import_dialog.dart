@@ -139,7 +139,7 @@ Example:
         await tasksCtrl.createTask(
           item['title'] as String,
           notes: item['notes'] as String?,
-          dueDate: item['dueDate'] as String?,
+          scheduledDate: item['dueDate'] as String?,
         );
         tasks++;
       }
