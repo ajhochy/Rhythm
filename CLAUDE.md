@@ -1,5 +1,21 @@
 # Rhythm — Claude Working Agreement
 
+## Obsidian Project Log
+
+After completing any significant work, append a session entry using the obsidian MCP tool:
+
+Tool: obsidian_post_file
+- filename: Dev Projects/Rhythm.md
+- content: the entry below
+
+Entry format:
+### YYYY-MM-DD - [one-line summary]
+- What was changed/built
+- Key decisions made and why
+- Anything blocked or left open
+
+---
+
 ## Git / PR Workflow
 
 1. All work is done on a **feature branch** locally.
