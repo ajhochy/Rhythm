@@ -9,28 +9,16 @@ import { env } from '../config/env';
 import { EmailService } from '../services/email_service';
 import { UsersRepository } from '../repositories/users_repository';
 import { emitAppEvent } from '../utils/app_events';
+import type { FilterStatus, TaskFilter } from '../models/task_filter';
+
+// Re-export so callers that previously imported from this module still work.
+export type { TaskFilter };
 
 const VALID_STATUSES = ['open', 'in_progress', 'waiting_for_reply', 'done'] as const;
 type ValidStatus = (typeof VALID_STATUSES)[number];
 
 /** Status values accepted by the filter param (superset of task statuses; 'all' means no filter). */
 const VALID_FILTER_STATUSES = ['open', 'in_progress', 'waiting_for_reply', 'done', 'all'] as const;
-type FilterStatus = (typeof VALID_FILTER_STATUSES)[number];
-
-/** Typed filter object passed to findByFilterAsync. */
-export interface TaskFilter {
-  userId: number;
-  /** 'all' means no status filter. Defaults to 'open'. */
-  status: FilterStatus;
-  /** Return tasks where COALESCE(scheduled_date, due_date) <= scheduledBefore */
-  scheduledBefore?: string;
-  /** Return tasks where due_date <= dueBefore */
-  dueBefore?: string;
-  /** When true, return only tasks that are overdue (status != 'done' AND priority date < today). */
-  overdue?: boolean;
-  /** Case-insensitive substring match against title. */
-  search?: string;
-}
 
 /** Discriminated union returned by parseTaskFilters. */
 type ParseResult =
@@ -111,9 +99,12 @@ export function parseTaskFilters(query: Request['query'], userId: number): Parse
     search = query.search as string;
   }
 
+  // Inject today's date so the repository never calls new Date() itself.
+  const today = new Date().toISOString().slice(0, 10);
+
   return {
     ok: true,
-    filter: { userId, status, scheduledBefore, dueBefore, overdue, search },
+    filter: { userId, status, scheduledBefore, dueBefore, overdue, search, today },
   };
 }
 

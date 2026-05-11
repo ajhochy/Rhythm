@@ -3,7 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { getDb, getPostgresPool } from '../database/db';
 import { AppError } from '../errors/app_error';
 import type { CreateTaskDto, Task, TaskCollaborator, UpdateTaskDto } from '../models/task';
-import type { TaskFilter } from '../controllers/tasks_controller';
+import type { TaskFilter } from '../models/task_filter';
 
 interface TaskRow {
   id: string;
@@ -85,6 +85,47 @@ const TASK_SELECT = `
    AND (tasks.source_id = rr.id OR tasks.source_id LIKE rr.id || ':%')
 `;
 
+/**
+ * Apply TaskFilter predicates to an already-fetched list of Task objects.
+ * Used as the Postgres fallback until the Postgres query layer is updated.
+ * All date comparisons use plain string comparison (ISO dates sort lexicographically).
+ */
+function applyFilterInMemory(tasks: Task[], filter: TaskFilter): Task[] {
+  const { status, scheduledBefore, dueBefore, overdue, today, search } = filter;
+  const todayStr = today ?? new Date().toISOString().slice(0, 10);
+
+  return tasks.filter((t) => {
+    // status
+    if (status === 'open' && t.status === 'done') return false;
+    if (status !== 'all' && status !== 'open' && t.status !== status) return false;
+
+    // scheduled_before
+    if (scheduledBefore !== undefined) {
+      const priority = t.scheduledDate ?? t.dueDate;
+      if (!priority || priority > scheduledBefore) return false;
+    }
+
+    // due_before
+    if (dueBefore !== undefined) {
+      if (!t.dueDate || t.dueDate > dueBefore) return false;
+    }
+
+    // overdue
+    if (overdue !== undefined) {
+      const priority = t.scheduledDate ?? t.dueDate;
+      const isOverdue = t.status !== 'done' && !!priority && priority < todayStr;
+      if (overdue !== isOverdue) return false;
+    }
+
+    // search
+    if (search !== undefined && search !== '') {
+      if (!t.title.toLowerCase().includes(search.toLowerCase())) return false;
+    }
+
+    return true;
+  });
+}
+
 export class TasksRepository {
   async findAllAsync(userId: number): Promise<Task[]> {
     if (env.dbClient === 'postgres') {
@@ -165,52 +206,127 @@ export class TasksRepository {
   }
 
   /**
-   * Fetch tasks for a user with optional server-side filters.
-   * SQLite implementation only — Postgres path falls back to in-memory filtering
-   * until the Postgres query layer is updated in the follow-up issue.
+   * Fetch tasks for a user with optional server-side filters using parameterized SQL.
+   * All user-supplied values are bound as parameters — never interpolated into SQL.
+   *
+   * Postgres falls back to in-memory filtering via findAllAsync until the Postgres
+   * query layer is updated in a follow-up issue.
    */
   async findByFilterAsync(filter: TaskFilter): Promise<Task[]> {
-    const { userId, status, scheduledBefore, dueBefore, overdue, search } = filter;
+    if (env.dbClient === 'postgres') {
+      // Postgres fallback: fetch all, filter in JS (same logic as SQLite below but
+      // operating on already-mapped Task objects).
+      const all = await this.findAllAsync(filter.userId);
+      return applyFilterInMemory(all, filter);
+    }
 
-    // Fetch all tasks visible to the user, then filter in JS.
-    // The follow-up repository issue will push these predicates into SQL.
-    const all = await this.findAllAsync(userId);
+    return this.findByFilter(filter);
+  }
 
-    const today = new Date(new Date().toISOString().slice(0, 10) + 'T00:00:00');
+  /**
+   * SQLite implementation of findByFilterAsync.
+   * Builds the WHERE clause dynamically from the filter, binding all values as
+   * parameters to prevent SQL injection.
+   */
+  findByFilter(filter: TaskFilter): Task[] {
+    const { userId, status, scheduledBefore, dueBefore, overdue, today, search } = filter;
 
-    return all.filter((t) => {
-      // status filter
-      if (status !== 'all' && t.status !== status) return false;
+    const clauses: string[] = [
+      // Visibility: own tasks OR tasks the user is a collaborator on.
+      '(tasks.owner_id = ? OR EXISTS (SELECT 1 FROM task_collaborators tc WHERE tc.task_id = tasks.id AND tc.user_id = ?))',
+    ];
+    const params: unknown[] = [userId, userId];
 
-      // scheduled_before: COALESCE(scheduled_date, due_date) <= scheduledBefore
-      if (scheduledBefore !== undefined) {
-        const priorityRaw = t.scheduledDate ?? t.dueDate;
-        if (!priorityRaw) return false;
-        if (priorityRaw > scheduledBefore) return false;
+    // --- status ---
+    if (status === 'open') {
+      clauses.push("tasks.status != 'done'");
+    } else if (status !== 'all') {
+      clauses.push('tasks.status = ?');
+      params.push(status);
+    }
+    // status === 'all' → no status clause
+
+    // --- scheduled_before: COALESCE(scheduled_date, due_date) <= ? ---
+    if (scheduledBefore !== undefined) {
+      clauses.push('COALESCE(tasks.scheduled_date, tasks.due_date) IS NOT NULL AND COALESCE(tasks.scheduled_date, tasks.due_date) <= ?');
+      params.push(scheduledBefore);
+    }
+
+    // --- due_before: due_date IS NOT NULL AND due_date <= ? ---
+    if (dueBefore !== undefined) {
+      clauses.push('tasks.due_date IS NOT NULL AND tasks.due_date <= ?');
+      params.push(dueBefore);
+    }
+
+    // --- overdue ---
+    if (overdue !== undefined) {
+      if (overdue) {
+        // Overdue: not done AND priority date < today
+        clauses.push(
+          "tasks.status != 'done' AND COALESCE(tasks.scheduled_date, tasks.due_date) IS NOT NULL AND COALESCE(tasks.scheduled_date, tasks.due_date) < ?",
+        );
+        params.push(today ?? new Date().toISOString().slice(0, 10));
+      } else {
+        // Not overdue: done OR priority date >= today OR no priority date
+        clauses.push(
+          "(tasks.status = 'done' OR COALESCE(tasks.scheduled_date, tasks.due_date) IS NULL OR COALESCE(tasks.scheduled_date, tasks.due_date) >= ?)",
+        );
+        params.push(today ?? new Date().toISOString().slice(0, 10));
       }
+    }
 
-      // due_before: due_date <= dueBefore
-      if (dueBefore !== undefined) {
-        if (!t.dueDate) return false;
-        if (t.dueDate > dueBefore) return false;
-      }
+    // --- search: case-insensitive substring match on title ---
+    if (search !== undefined && search !== '') {
+      clauses.push('LOWER(tasks.title) LIKE ?');
+      params.push('%' + search.toLowerCase() + '%');
+    }
 
-      // overdue: status != 'done' AND COALESCE(scheduled_date, due_date) < today
-      if (overdue !== undefined) {
-        const priorityRaw = t.scheduledDate ?? t.dueDate;
-        const isOverdue = t.status !== 'done' && priorityRaw !== null && priorityRaw !== undefined
-          ? new Date(priorityRaw + 'T00:00:00') < today
-          : false;
-        if (overdue !== isOverdue) return false;
-      }
+    const where = clauses.map((c, i) => (i === 0 ? `WHERE ${c}` : `AND ${c}`)).join('\n  ');
 
-      // search: case-insensitive substring match on title
-      if (search !== undefined && search !== '') {
-        if (!t.title.toLowerCase().includes(search.toLowerCase())) return false;
-      }
+    const sql = `
+      SELECT
+        tasks.*,
+        CASE
+          WHEN tasks.source_type = 'project_step' THEN COALESCE(pi.name, pt.name)
+          WHEN tasks.source_type = 'recurring_rule' THEN rr.title
+          ELSE NULL
+        END AS source_name,
+        CASE WHEN tasks.owner_id != ? THEN 1 ELSE 0 END AS is_shared
+      FROM tasks
+      LEFT JOIN project_instances pi
+        ON tasks.source_type = 'project_step' AND tasks.source_id = pi.id
+      LEFT JOIN project_templates pt ON pi.template_id = pt.id
+      LEFT JOIN recurring_task_rules rr
+        ON tasks.source_type = 'recurring_rule'
+       AND (tasks.source_id = rr.id OR tasks.source_id LIKE rr.id || ':%')
+      ${where}
+      ORDER BY
+        COALESCE(tasks.scheduled_date, tasks.due_date) ASC NULLS LAST,
+        tasks.scheduled_order ASC,
+        tasks.created_at ASC
+    `;
 
-      return true;
-    });
+    // userId for the is_shared CASE expression goes first, then the WHERE params.
+    const rows = getDb()
+      .prepare(sql)
+      .all(userId, ...params) as TaskRow[];
+
+    const tasks = rows.map(rowToTask);
+
+    if (tasks.length > 0) {
+      const placeholders = tasks.map(() => '?').join(',');
+      const collabRows = getDb()
+        .prepare(
+          `SELECT tc.task_id, u.id AS user_id, u.name, u.photo_url
+           FROM task_collaborators tc
+           JOIN users u ON u.id = tc.user_id
+           WHERE tc.task_id IN (${placeholders})`,
+        )
+        .all(...tasks.map((t) => t.id)) as Array<{ task_id: string; user_id: number; name: string; photo_url: string | null }>;
+      attachCollaboratorsToTasks(tasks, collabRows);
+    }
+
+    return tasks;
   }
 
   async findAllIncludingLegacyAsync(): Promise<Task[]> {
