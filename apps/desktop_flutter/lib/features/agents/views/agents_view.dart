@@ -265,6 +265,7 @@ class _SessionListPanel extends StatelessWidget {
                 canStartSession ? () => _showNewSessionDialog(context) : null,
           ),
           Divider(height: 1, color: context.rhythm.borderSubtle),
+          const _DisconnectedBanner(),
           Expanded(
             child: controller.status == AgentsLoadStatus.loading &&
                     controller.sessions.isEmpty
@@ -285,6 +286,8 @@ class _SessionListPanel extends StatelessWidget {
                               isSelected:
                                   controller.selectedSessionId == session.id,
                               isWorking: controller.isWorking(session.id),
+                              isStuck:
+                                  controller.connectivity.isStuck(session.id),
                               onTap: () => context
                                   .read<AgentsController>()
                                   .selectSession(session.id),
@@ -350,7 +353,10 @@ class _SessionListPanel extends StatelessWidget {
           value: context.read<TasksController>(),
           child: ChangeNotifierProvider.value(
             value: context.read<AgentServerController>(),
-            child: const _NewSessionDialog(),
+            child: ChangeNotifierProvider.value(
+              value: context.read<AgentConfigsController>(),
+              child: const _NewSessionDialog(),
+            ),
           ),
         ),
       ),
@@ -428,35 +434,42 @@ class _SessionListHeader extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 10),
-          TextButton.icon(
-            icon: Icon(
-              Icons.tune,
-              size: 15,
-              color: context.rhythm.textSecondary,
-            ),
-            label: Text(
-              'Manage agents',
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-                color: context.rhythm.textSecondary,
-              ),
-            ),
-            onPressed: () {
-              Navigator.of(context).push(
-                MaterialPageRoute<void>(
-                  builder: (_) => const ManageAgentsView(),
+          Row(
+            children: [
+              TextButton.icon(
+                icon: Icon(
+                  Icons.tune,
+                  size: 15,
+                  color: context.rhythm.textSecondary,
                 ),
-              );
-            },
-            style: TextButton.styleFrom(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-              minimumSize: Size.zero,
-              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(RhythmRadius.sm),
+                label: Text(
+                  'Manage agents',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: context.rhythm.textSecondary,
+                  ),
+                ),
+                onPressed: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => const ManageAgentsView(),
+                    ),
+                  );
+                },
+                style: TextButton.styleFrom(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                  minimumSize: Size.zero,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(RhythmRadius.sm),
+                  ),
+                ),
               ),
-            ),
+              const SizedBox(width: 8),
+              const _AgentServerStatusDot(),
+            ],
           ),
         ],
       ),
@@ -511,12 +524,14 @@ class _SessionRow extends StatelessWidget {
     required this.session,
     required this.isSelected,
     required this.isWorking,
+    required this.isStuck,
     required this.onTap,
   });
 
   final AgentSession session;
   final bool isSelected;
   final bool isWorking;
+  final bool isStuck;
   final VoidCallback onTap;
 
   @override
@@ -586,6 +601,18 @@ class _SessionRow extends StatelessWidget {
                 ),
               ),
             ],
+            if (isStuck)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text(
+                  'No output yet — the agent may be stuck',
+                  style: TextStyle(
+                    fontSize: 10,
+                    color: context.rhythm.warning,
+                    fontStyle: FontStyle.italic,
+                  ),
+                ),
+              ),
           ],
         ),
       ),
@@ -883,7 +910,11 @@ class _TranscriptHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final controller = context.watch<AgentsController>();
+    final agentServerController = context.watch<AgentServerController>();
     final isWorking = controller.isWorking(session.id);
+    final showReconnect =
+        agentServerController.status != AgentServerStatus.ready ||
+            controller.connectivity.isWsDisconnected;
 
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
@@ -905,10 +936,30 @@ class _TranscriptHeader extends StatelessWidget {
           const SizedBox(width: 8),
           _StatusChip(status: session.status, isWorking: isWorking),
           const SizedBox(width: 8),
+          if (showReconnect) ...[
+            OutlinedButton(
+              onPressed: () =>
+                  context.read<AgentsController>().reconnectSession(session.id),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: context.rhythm.accent,
+                side: BorderSide(color: context.rhythm.border),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                minimumSize: Size.zero,
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(RhythmRadius.md)),
+              ),
+              child: const Text('Reconnect',
+                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+            ),
+            const SizedBox(width: 6),
+          ],
           IconButton(
             onPressed: () =>
                 context.read<AgentsController>().closeSession(session.id),
-            tooltip: 'Close session',
+            tooltip:
+                agentServerController.isReady ? 'Close session' : 'Force close',
             icon: Icon(
               Icons.close,
               size: 18,
@@ -1409,7 +1460,7 @@ class _NewSessionDialog extends StatefulWidget {
 class _NewSessionDialogState extends State<_NewSessionDialog> {
   final _nameController = TextEditingController();
   final _cwdController = TextEditingController();
-  String _agentId = 'claude-code';
+  String _agentId = '';
   Task? _selectedTask;
   bool _isSubmitting = false;
   String? _error;
@@ -1420,8 +1471,22 @@ class _NewSessionDialogState extends State<_NewSessionDialog> {
     final home = Platform.environment['HOME'] ?? '~';
     _cwdController.text = home;
 
-    // Load tasks if not already loaded.
+    // Compute the default agent: first enabled config whose CLI is installed,
+    // falling back to the first enabled config if none are installed.
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final agentConfigs = context.read<AgentConfigsController>();
+      final agentServerController = context.read<AgentServerController>();
+      final enabledAgents = agentConfigs.enabledAgents;
+      if (enabledAgents.isNotEmpty && _agentId.isEmpty) {
+        final firstInstalled = enabledAgents.firstWhere(
+          (c) => agentServerController.isAgentAvailable(c.id),
+          orElse: () => enabledAgents.first,
+        );
+        setState(() => _agentId = firstInstalled.id);
+      }
+
+      // Load tasks if not already loaded.
       final tasksController = context.read<TasksController>();
       if (tasksController.tasks.isEmpty &&
           tasksController.status != TasksStatus.loading) {
@@ -1473,20 +1538,21 @@ class _NewSessionDialogState extends State<_NewSessionDialog> {
   Widget build(BuildContext context) {
     final tasksController = context.watch<TasksController>();
     final agentServerController = context.watch<AgentServerController>();
+    final agentConfigs = context.watch<AgentConfigsController>();
+    final enabledAgents = agentConfigs.enabledAgents;
     final tasks = tasksController.tasks
         .where((t) => t.status != TaskStatus.done)
         .toList();
 
-    final claudeAvailable =
-        agentServerController.isAgentAvailable('claude-code');
-    final codexAvailable = agentServerController.isAgentAvailable('codex');
-
-    // If the currently selected agent becomes unavailable, fall back to
-    // whichever is available.
-    if (_agentId == 'claude-code' && !claudeAvailable && codexAvailable) {
-      _agentId = 'codex';
-    } else if (_agentId == 'codex' && !codexAvailable && claudeAvailable) {
-      _agentId = 'claude-code';
+    // If the currently selected agent is not in the enabled list, pick a
+    // better default: first installed, otherwise first enabled.
+    if (enabledAgents.isNotEmpty &&
+        !enabledAgents.any((c) => c.id == _agentId)) {
+      final firstInstalled = enabledAgents.firstWhere(
+        (c) => agentServerController.isAgentAvailable(c.id),
+        orElse: () => enabledAgents.first,
+      );
+      _agentId = firstInstalled.id;
     }
 
     return AlertDialog(
@@ -1537,8 +1603,8 @@ class _NewSessionDialogState extends State<_NewSessionDialog> {
             ),
             const SizedBox(height: 14),
 
-            // Agent kind — only show available options
-            if (claudeAvailable || codexAvailable) ...[
+            // Agent kind — render one toggle per enabled config.
+            if (enabledAgents.isNotEmpty) ...[
               Text(
                 'Agent',
                 style: TextStyle(
@@ -1556,22 +1622,19 @@ class _NewSessionDialogState extends State<_NewSessionDialog> {
                 ),
                 child: Row(
                   children: [
-                    if (claudeAvailable)
+                    for (final config in enabledAgents)
                       Expanded(
                         child: _AgentToggleButton(
-                          label: 'Claude Code',
-                          selected: _agentId == 'claude-code',
-                          color: const Color(0xFF6B46C1),
-                          onTap: () => setState(() => _agentId = 'claude-code'),
-                        ),
-                      ),
-                    if (codexAvailable)
-                      Expanded(
-                        child: _AgentToggleButton(
-                          label: 'Codex',
-                          selected: _agentId == 'codex',
-                          color: const Color(0xFF059669),
-                          onTap: () => setState(() => _agentId = 'codex'),
+                          label: config.label,
+                          selected: _agentId == config.id,
+                          color: _colorForAgent(config.id),
+                          enabled:
+                              agentServerController.isAgentAvailable(config.id),
+                          disabledLabel: '(not installed)',
+                          onTap:
+                              agentServerController.isAgentAvailable(config.id)
+                                  ? () => setState(() => _agentId = config.id)
+                                  : null,
                         ),
                       ),
                   ],
@@ -1688,6 +1751,12 @@ class _NewSessionDialogState extends State<_NewSessionDialog> {
     );
   }
 
+  Color _colorForAgent(String id) => switch (id) {
+        'claude-code' => const Color(0xFF6B46C1),
+        'codex' => const Color(0xFF059669),
+        _ => context.rhythm.accent,
+      };
+
   InputDecoration _inputDecoration(
     BuildContext context, {
     String? hint,
@@ -1718,39 +1787,178 @@ class _NewSessionDialogState extends State<_NewSessionDialog> {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Disconnected banner (inline, inside session list panel)
+// ---------------------------------------------------------------------------
+
+class _DisconnectedBanner extends StatelessWidget {
+  const _DisconnectedBanner();
+
+  @override
+  Widget build(BuildContext context) {
+    final agentServerController = context.watch<AgentServerController>();
+    final agentsController = context.watch<AgentsController>();
+
+    final serverReady = agentServerController.status == AgentServerStatus.ready;
+    final wsDisconnected = agentsController.connectivity.isWsDisconnected;
+
+    if (serverReady && !wsDisconnected) {
+      return const SizedBox.shrink();
+    }
+
+    final String message;
+    if (agentServerController.status != AgentServerStatus.ready) {
+      message =
+          agentServerController.errorMessage ?? 'Agent server unavailable';
+    } else {
+      message = 'Connection lost — reconnecting…';
+    }
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: context.rhythm.danger.withValues(alpha: 0.10),
+        border: Border(
+          bottom: BorderSide(
+            color: context.rhythm.danger.withValues(alpha: 0.25),
+          ),
+        ),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            Icons.error_outline,
+            size: 15,
+            color: context.rhythm.danger,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              message,
+              style: TextStyle(
+                fontSize: 11.5,
+                fontWeight: FontWeight.w500,
+                color: context.rhythm.danger,
+                height: 1.35,
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          TextButton(
+            onPressed: () => context.read<AgentServerController>().retry(),
+            style: TextButton.styleFrom(
+              foregroundColor: context.rhythm.danger,
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              minimumSize: Size.zero,
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              textStyle: const TextStyle(
+                fontSize: 11.5,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            child: const Text('Restart agent server'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Agent server status dot
+// ---------------------------------------------------------------------------
+
+class _AgentServerStatusDot extends StatelessWidget {
+  const _AgentServerStatusDot();
+
+  @override
+  Widget build(BuildContext context) {
+    final status = context.watch<AgentServerController>().status;
+    final (color, label) = switch (status) {
+      AgentServerStatus.ready => (context.rhythm.success, 'Agent server ready'),
+      AgentServerStatus.starting => (
+          context.rhythm.warning,
+          'Agent server starting',
+        ),
+      AgentServerStatus.failed => (
+          context.rhythm.danger,
+          'Agent server failed',
+        ),
+    };
+    return Tooltip(
+      message: label,
+      child: Container(
+        width: 8,
+        height: 8,
+        decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+      ),
+    );
+  }
+}
+
 class _AgentToggleButton extends StatelessWidget {
   const _AgentToggleButton({
     required this.label,
     required this.selected,
     required this.color,
     required this.onTap,
+    this.enabled = true,
+    this.disabledLabel,
   });
 
   final String label;
   final bool selected;
   final Color color;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
+  final bool enabled;
+  final String? disabledLabel;
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 140),
-        padding: const EdgeInsets.symmetric(vertical: 8),
-        decoration: BoxDecoration(
-          color: selected ? color : Colors.transparent,
-          borderRadius: BorderRadius.circular(RhythmRadius.md),
-        ),
-        alignment: Alignment.center,
-        child: Text(
-          label,
-          style: TextStyle(
-            fontSize: 13,
-            fontWeight: FontWeight.w600,
-            color: selected ? Colors.white : context.rhythm.textSecondary,
+    final effectiveColor = enabled ? color : context.rhythm.textMuted;
+    final Widget content = AnimatedContainer(
+      duration: const Duration(milliseconds: 140),
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      decoration: BoxDecoration(
+        color: selected && enabled ? color : Colors.transparent,
+        borderRadius: BorderRadius.circular(RhythmRadius.md),
+      ),
+      alignment: Alignment.center,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: selected && enabled
+                  ? Colors.white
+                  : enabled
+                      ? context.rhythm.textSecondary
+                      : context.rhythm.textMuted,
+            ),
           ),
-        ),
+          if (!enabled && disabledLabel != null) ...[
+            const SizedBox(height: 2),
+            Text(
+              disabledLabel!,
+              style: TextStyle(
+                fontSize: 10,
+                color: effectiveColor,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+
+    return IgnorePointer(
+      ignoring: !enabled,
+      child: GestureDetector(
+        onTap: onTap,
+        child: content,
       ),
     );
   }

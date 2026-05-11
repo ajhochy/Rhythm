@@ -5,7 +5,9 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
+import '../constants/app_constants.dart';
 import '../server/api_server_service.dart';
+import 'health_poller.dart';
 
 enum AgentServerStatus { starting, ready, failed }
 
@@ -17,6 +19,7 @@ class AgentServerController extends ChangeNotifier {
   AgentServerFailureReason? _failureReason;
   String? _stderrTail;
   Map<String, bool> _capabilities = const {};
+  HealthPoller? _poller;
 
   AgentServerStatus get status => _status;
   bool get isReady => _status == AgentServerStatus.ready;
@@ -37,6 +40,8 @@ class AgentServerController extends ChangeNotifier {
       case AgentServerFailureReason.healthCheckTimeout:
         return "The CLI server started but didn't respond in time. See "
             'technical details below.';
+      case AgentServerFailureReason.lostConnection:
+        return 'The agent server stopped responding. Click Restart to bring it back.';
       case null:
         return null;
     }
@@ -63,6 +68,27 @@ class AgentServerController extends ChangeNotifier {
     if (result.ok) {
       // Fire-and-forget; failures are non-fatal.
       unawaited(refreshCapabilities());
+
+      _poller = HealthPoller(
+        checkFn: () => _service.checkHealth(AppConstants.agentLocalBaseUrl),
+        onHealthChanged: _onHealthChanged,
+        interval: const Duration(seconds: 15),
+      );
+      _poller!.start();
+    }
+  }
+
+  void _onHealthChanged(bool healthy) {
+    if (!healthy && _status == AgentServerStatus.ready) {
+      _status = AgentServerStatus.failed;
+      _failureReason = AgentServerFailureReason.lostConnection;
+      notifyListeners();
+    } else if (healthy &&
+        _status == AgentServerStatus.failed &&
+        _failureReason == AgentServerFailureReason.lostConnection) {
+      _status = AgentServerStatus.ready;
+      _failureReason = null;
+      notifyListeners();
     }
   }
 
@@ -98,10 +124,21 @@ class AgentServerController extends ChangeNotifier {
     }
   }
 
-  Future<void> retry() => initialize();
+  /// Exposed for testing only — drives [_onHealthChanged] directly so tests
+  /// can verify status transitions without running a real [HealthPoller] timer.
+  @visibleForTesting
+  void simulateHealthChange(bool healthy) => _onHealthChanged(healthy);
+
+  Future<void> retry() {
+    _poller?.dispose();
+    _poller = null;
+    return initialize();
+  }
 
   @override
   void dispose() {
+    _poller?.dispose();
+    _poller = null;
     _service.stop();
     super.dispose();
   }

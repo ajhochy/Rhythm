@@ -39,6 +39,7 @@ class _FakeAgentServerController extends AgentServerController {
 
   final bool _ready;
   final bool _anyAgent;
+  int retryCallCount = 0;
 
   @override
   bool get isReady => _ready;
@@ -50,6 +51,11 @@ class _FakeAgentServerController extends AgentServerController {
   Future<void> initialize() async {
     // No-op — do not actually spawn a server process.
   }
+
+  @override
+  Future<void> retry() async {
+    retryCallCount++;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -57,9 +63,12 @@ class _FakeAgentServerController extends AgentServerController {
 // ---------------------------------------------------------------------------
 
 class _FakeAgentsRepository implements AgentsRepository {
-  _FakeAgentsRepository() : _msgController = StreamController.broadcast();
+  _FakeAgentsRepository()
+      : _msgController = StreamController.broadcast(),
+        _connectivityController = StreamController.broadcast();
 
   final StreamController<AgentWsMessage> _msgController;
+  final StreamController<bool> _connectivityController;
   bool connectCalled = false;
   bool disposeCalled = false;
   final List<Map<String, dynamic>> sentMessages = [];
@@ -68,8 +77,15 @@ class _FakeAgentsRepository implements AgentsRepository {
   /// Push a synthetic WS message from the test.
   void emit(AgentWsMessage msg) => _msgController.add(msg);
 
+  /// Push a synthetic connectivity event from the test.
+  void emitConnectivity(bool connected) =>
+      _connectivityController.add(connected);
+
   @override
   Stream<AgentWsMessage> get messages => _msgController.stream;
+
+  @override
+  Stream<bool> get connectivityStream => _connectivityController.stream;
 
   @override
   bool get isConnected => connectCalled;
@@ -83,6 +99,7 @@ class _FakeAgentsRepository implements AgentsRepository {
   Future<void> dispose() async {
     disposeCalled = true;
     await _msgController.close();
+    await _connectivityController.close();
   }
 
   @override
@@ -110,8 +127,12 @@ class _FakeAgentsRepository implements AgentsRepository {
     return _makeSession('new-session', AgentSessionStatus.starting);
   }
 
+  final List<String> closeSessionCalls = [];
+
   @override
-  Future<void> closeSession(String id) async {}
+  Future<void> closeSession(String id) async {
+    closeSessionCalls.add(id);
+  }
 
   @override
   Future<AgentSession> resumeSession(String id) async {
@@ -392,6 +413,101 @@ void main() {
   });
 
   // --------------------------------------------------------------------------
+  // connectivity stream → AgentSessionConnectivity transitions
+  // --------------------------------------------------------------------------
+
+  group('connectivity stream transitions', () {
+    setUp(() async {
+      await controller.initialize();
+    });
+
+    test('stream emitting false sets isWsDisconnected to true and notifies',
+        () async {
+      expect(controller.connectivity.isWsDisconnected, isFalse);
+
+      var notified = false;
+      controller.addListener(() => notified = true);
+
+      fakeRepo.emitConnectivity(false);
+      await Future<void>.delayed(Duration.zero);
+
+      expect(controller.connectivity.isWsDisconnected, isTrue);
+      expect(notified, isTrue);
+    });
+
+    test('stream emitting true flips isWsDisconnected back to false', () async {
+      // First disconnect.
+      fakeRepo.emitConnectivity(false);
+      await Future<void>.delayed(Duration.zero);
+      expect(controller.connectivity.isWsDisconnected, isTrue);
+
+      // Then reconnect.
+      var notified = false;
+      controller.addListener(() => notified = true);
+
+      fakeRepo.emitConnectivity(true);
+      await Future<void>.delayed(Duration.zero);
+
+      expect(controller.connectivity.isWsDisconnected, isFalse);
+      expect(notified, isTrue);
+    });
+
+    test('redundant true event does not trigger extra notifyListeners',
+        () async {
+      // Already connected (default state) — emit true again; no notification
+      // should fire because the flag was already false.
+      var notifyCount = 0;
+      controller.addListener(() => notifyCount++);
+
+      fakeRepo.emitConnectivity(true);
+      await Future<void>.delayed(Duration.zero);
+
+      expect(notifyCount, isZero);
+    });
+
+    test('redundant false event does not trigger extra notifyListeners',
+        () async {
+      // Disconnect first.
+      fakeRepo.emitConnectivity(false);
+      await Future<void>.delayed(Duration.zero);
+
+      // A second false should not fire another notification.
+      var notifyCount = 0;
+      controller.addListener(() => notifyCount++);
+
+      fakeRepo.emitConnectivity(false);
+      await Future<void>.delayed(Duration.zero);
+
+      expect(notifyCount, isZero);
+    });
+
+    test('dispose() cancels the connectivity subscription', () async {
+      // Call dispose explicitly — the tearDown will call it again but that is
+      // expected to be a no-op (ChangeNotifier tolerates double-dispose in
+      // debug mode by just asserting it was not already disposed during the
+      // *first* call). We use a fresh controller so tearDown's dispose does not
+      // interfere with this test.
+      final localRepo = _FakeAgentsRepository();
+      final localController = AgentsController(
+        localRepo,
+        _FakeAgentServerController(ready: true, anyAgent: true),
+        _FakeLocalNotificationService(),
+        _FakeNotificationsController(),
+      );
+      await localController.initialize();
+
+      // Dispose and then emit — stream event must be silently dropped (no
+      // state mutation, no throw).
+      localController.dispose();
+
+      expect(() => localRepo.emitConnectivity(false), returnsNormally);
+
+      // Allow any pending microtasks to settle.
+      await Future<void>.delayed(Duration.zero);
+    });
+  });
+
+  // --------------------------------------------------------------------------
   // dismissTrigger
   // --------------------------------------------------------------------------
 
@@ -466,6 +582,344 @@ void main() {
       expect(fakeRepo.sentMessages.first['type'], 'session.resize');
       expect(fakeRepo.sentMessages.first['cols'], 80);
       expect(fakeRepo.sentMessages.first['rows'], 24);
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // Stuck-session detection
+  // --------------------------------------------------------------------------
+
+  group('stuck-session detection', () {
+    setUp(() async {
+      await controller.initialize();
+    });
+
+    test('session with no output and >30s elapsed appears in stuckSessionIds',
+        () async {
+      // Seed a starting session via WS.
+      fakeRepo.emit(SessionCreatedMessage(
+        session: _makeSession('stuck-sess', AgentSessionStatus.starting),
+      ));
+      await Future<void>.delayed(Duration.zero);
+
+      // Backdate the first-seen timestamp to simulate >30s having passed.
+      controller.sessionFirstSeenAt['stuck-sess'] =
+          DateTime.now().subtract(const Duration(seconds: 31));
+
+      controller.recomputeStuckForTest();
+
+      expect(controller.connectivity.stuckSessionIds, contains('stuck-sess'));
+      expect(controller.connectivity.isStuck('stuck-sess'), isTrue);
+    });
+
+    test('session with output is not considered stuck', () async {
+      fakeRepo.emit(SessionCreatedMessage(
+        session: _makeSession('active-sess', AgentSessionStatus.starting),
+      ));
+      await Future<void>.delayed(Duration.zero);
+
+      // Simulate output arriving (which removes the session from firstSeenAt).
+      fakeRepo.emit(const OutputMessage(
+        id: 'active-sess',
+        data: 'some output',
+        replay: false,
+      ));
+      await Future<void>.delayed(Duration.zero);
+
+      // Backdate to simulate >30s.
+      controller.sessionFirstSeenAt['active-sess'] =
+          DateTime.now().subtract(const Duration(seconds: 31));
+
+      controller.recomputeStuckForTest();
+
+      // Should NOT be stuck because output arrived (and firstSeenAt was removed).
+      expect(controller.connectivity.stuckSessionIds,
+          isNot(contains('active-sess')));
+    });
+
+    test('output message clears session from sessionFirstSeenAt immediately',
+        () async {
+      fakeRepo.emit(SessionCreatedMessage(
+        session: _makeSession('out-sess', AgentSessionStatus.starting),
+      ));
+      await Future<void>.delayed(Duration.zero);
+
+      expect(controller.sessionFirstSeenAt.containsKey('out-sess'), isTrue);
+
+      fakeRepo.emit(const OutputMessage(
+        id: 'out-sess',
+        data: 'hello',
+        replay: false,
+      ));
+      await Future<void>.delayed(Duration.zero);
+
+      expect(controller.sessionFirstSeenAt.containsKey('out-sess'), isFalse);
+    });
+
+    test('closed session is removed from stuckSessionIds on next tick',
+        () async {
+      fakeRepo.emit(SessionCreatedMessage(
+        session: _makeSession('closing-sess', AgentSessionStatus.starting),
+      ));
+      await Future<void>.delayed(Duration.zero);
+
+      // Make it appear stuck.
+      controller.sessionFirstSeenAt['closing-sess'] =
+          DateTime.now().subtract(const Duration(seconds: 31));
+      controller.recomputeStuckForTest();
+      expect(controller.connectivity.stuckSessionIds, contains('closing-sess'));
+
+      // Now close the session.
+      fakeRepo.emit(const SessionClosedMessage(
+        id: 'closing-sess',
+        resumable: false,
+      ));
+      await Future<void>.delayed(Duration.zero);
+
+      // sessionFirstSeenAt entry should be gone.
+      expect(
+          controller.sessionFirstSeenAt.containsKey('closing-sess'), isFalse);
+
+      // After the next recompute the stuck set should be empty.
+      controller.recomputeStuckForTest();
+      expect(controller.connectivity.stuckSessionIds,
+          isNot(contains('closing-sess')));
+    });
+
+    test('session <30s old is not yet stuck', () async {
+      fakeRepo.emit(SessionCreatedMessage(
+        session: _makeSession('young-sess', AgentSessionStatus.starting),
+      ));
+      await Future<void>.delayed(Duration.zero);
+
+      // Only 10s have elapsed — not stuck yet.
+      controller.sessionFirstSeenAt['young-sess'] =
+          DateTime.now().subtract(const Duration(seconds: 10));
+
+      controller.recomputeStuckForTest();
+
+      expect(controller.connectivity.stuckSessionIds,
+          isNot(contains('young-sess')));
+    });
+
+    test(
+        'SessionsListMessage records firstSeenAt for newly observed starting sessions',
+        () async {
+      fakeRepo.emit(SessionsListMessage(
+        sessions: [
+          _makeSession('list-starting', AgentSessionStatus.starting),
+          _makeSession('list-idle', AgentSessionStatus.idle),
+        ],
+        resumable: [],
+      ));
+      await Future<void>.delayed(Duration.zero);
+
+      expect(
+          controller.sessionFirstSeenAt.containsKey('list-starting'), isTrue);
+      expect(controller.sessionFirstSeenAt.containsKey('list-idle'), isFalse);
+    });
+
+    test('notifyListeners fires when stuckSessionIds changes', () async {
+      fakeRepo.emit(SessionCreatedMessage(
+        session: _makeSession('notify-sess', AgentSessionStatus.starting),
+      ));
+      await Future<void>.delayed(Duration.zero);
+
+      controller.sessionFirstSeenAt['notify-sess'] =
+          DateTime.now().subtract(const Duration(seconds: 31));
+
+      var notified = false;
+      controller.addListener(() => notified = true);
+
+      controller.recomputeStuckForTest();
+
+      expect(notified, isTrue);
+      expect(controller.connectivity.stuckSessionIds, contains('notify-sess'));
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // reconnectSession()
+  // --------------------------------------------------------------------------
+
+  group('reconnectSession()', () {
+    test('when server not ready: calls retry() then load()', () async {
+      final notReadyServerController =
+          _FakeAgentServerController(ready: false, anyAgent: false);
+      final localController = AgentsController(
+        fakeRepo,
+        notReadyServerController,
+        _FakeLocalNotificationService(),
+        _FakeNotificationsController(),
+      );
+      addTearDown(localController.dispose);
+
+      fakeRepo.sessionsToReturn = [
+        _makeSession('s1', AgentSessionStatus.idle),
+      ];
+
+      await localController.reconnectSession('some-id');
+
+      expect(notReadyServerController.retryCallCount, 1);
+      // load() was called — sessions list should have been populated.
+      expect(localController.sessions, hasLength(1));
+    });
+
+    test('when server ready: sends session.subscribe and refreshes transcript',
+        () async {
+      final readyServerController =
+          _FakeAgentServerController(ready: true, anyAgent: true);
+      final localController = AgentsController(
+        fakeRepo,
+        readyServerController,
+        _FakeLocalNotificationService(),
+        _FakeNotificationsController(),
+      );
+      addTearDown(localController.dispose);
+      await localController.initialize();
+
+      await localController.selectSession('target-session');
+      fakeRepo.sentMessages.clear();
+
+      await localController.reconnectSession('target-session');
+
+      expect(
+        fakeRepo.sentMessages.any((m) =>
+            m['type'] == 'session.subscribe' && m['id'] == 'target-session'),
+        isTrue,
+      );
+      // Transcript was refreshed (getSession returns empty messages list).
+      expect(localController.transcript, isEmpty);
+    });
+
+    test('concurrent calls are coalesced via _reconnecting guard', () async {
+      final readyServerController =
+          _FakeAgentServerController(ready: true, anyAgent: true);
+      final localController = AgentsController(
+        fakeRepo,
+        readyServerController,
+        _FakeLocalNotificationService(),
+        _FakeNotificationsController(),
+      );
+      addTearDown(localController.dispose);
+      await localController.initialize();
+
+      // Fire two concurrent calls — only the first should proceed.
+      final first = localController.reconnectSession('sess-1');
+      final second = localController.reconnectSession('sess-1');
+      await Future.wait([first, second]);
+
+      // session.subscribe should appear exactly once.
+      final subscribeCalls = fakeRepo.sentMessages
+          .where((m) => m['type'] == 'session.subscribe' && m['id'] == 'sess-1')
+          .length;
+      expect(subscribeCalls, 1);
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // closeSession()
+  // --------------------------------------------------------------------------
+
+  group('closeSession()', () {
+    test(
+        'when server not ready: removes session synchronously without calling repository',
+        () async {
+      final notReadyServerController =
+          _FakeAgentServerController(ready: false, anyAgent: false);
+      final localRepo = _FakeAgentsRepository();
+      final localController = AgentsController(
+        localRepo,
+        notReadyServerController,
+        _FakeLocalNotificationService(),
+        _FakeNotificationsController(),
+      );
+      addTearDown(localController.dispose);
+
+      // Manually seed a session into the controller's internal list via WS
+      // after bypassing initialize (server not ready, so no connect).
+      // Instead, directly call load with a pre-populated sessionsToReturn.
+      localRepo.sessionsToReturn = [
+        _makeSession('stale-sess', AgentSessionStatus.idle),
+      ];
+      await localController.initialize();
+      // initialize() skips load when not ready, so call load directly.
+      await localController.load();
+      expect(localController.sessions, hasLength(1));
+
+      // Also seed supporting maps.
+      localController.sessionFirstSeenAt['stale-sess'] = DateTime.now();
+
+      var notified = false;
+      localController.addListener(() => notified = true);
+
+      await localController.closeSession('stale-sess');
+
+      // Session removed from list.
+      expect(localController.sessions, isEmpty);
+      // Listeners were notified.
+      expect(notified, isTrue);
+      // Repository was NOT called.
+      expect(localRepo.closeSessionCalls, isEmpty);
+      // Supporting maps cleaned up.
+      expect(localController.sessionFirstSeenAt.containsKey('stale-sess'),
+          isFalse);
+    });
+
+    test(
+        'when server not ready: clears selectedSessionId when it matches the closed session',
+        () async {
+      final notReadyServerController =
+          _FakeAgentServerController(ready: false, anyAgent: false);
+      final localRepo = _FakeAgentsRepository();
+      final localController = AgentsController(
+        localRepo,
+        notReadyServerController,
+        _FakeLocalNotificationService(),
+        _FakeNotificationsController(),
+      );
+      addTearDown(localController.dispose);
+
+      localRepo.sessionsToReturn = [
+        _makeSession('sel-sess', AgentSessionStatus.idle),
+      ];
+      await localController.load();
+      // Manually set the selected session id by selecting it (but server not
+      // ready so we just manipulate via load and closeSession directly).
+      // We rely on closeSession clearing _selectedSessionId when it matches.
+
+      await localController.closeSession('sel-sess');
+
+      expect(localController.selectedSessionId, isNull);
+    });
+
+    test('when server ready: delegates to repository DELETE path', () async {
+      final readyServerController =
+          _FakeAgentServerController(ready: true, anyAgent: true);
+      final localRepo = _FakeAgentsRepository();
+      final localController = AgentsController(
+        localRepo,
+        readyServerController,
+        _FakeLocalNotificationService(),
+        _FakeNotificationsController(),
+      );
+      addTearDown(localController.dispose);
+      await localController.initialize();
+
+      // Seed a session via WS so it's in the list.
+      localRepo.emit(SessionCreatedMessage(
+        session: _makeSession('online-sess', AgentSessionStatus.idle),
+      ));
+      await Future<void>.delayed(Duration.zero);
+      expect(localController.sessions, hasLength(1));
+
+      await localController.closeSession('online-sess');
+
+      // Repository closeSession was called.
+      expect(localRepo.closeSessionCalls, contains('online-sess'));
+      // The session remains in the list until the WS SessionClosedMessage
+      // arrives — that is the existing online behaviour.
+      expect(localController.sessions, hasLength(1));
     });
   });
 }
