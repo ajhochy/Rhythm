@@ -353,7 +353,10 @@ class _SessionListPanel extends StatelessWidget {
           value: context.read<TasksController>(),
           child: ChangeNotifierProvider.value(
             value: context.read<AgentServerController>(),
-            child: const _NewSessionDialog(),
+            child: ChangeNotifierProvider.value(
+              value: context.read<AgentConfigsController>(),
+              child: const _NewSessionDialog(),
+            ),
           ),
         ),
       ),
@@ -1457,7 +1460,7 @@ class _NewSessionDialog extends StatefulWidget {
 class _NewSessionDialogState extends State<_NewSessionDialog> {
   final _nameController = TextEditingController();
   final _cwdController = TextEditingController();
-  String _agentId = 'claude-code';
+  String _agentId = '';
   Task? _selectedTask;
   bool _isSubmitting = false;
   String? _error;
@@ -1468,8 +1471,22 @@ class _NewSessionDialogState extends State<_NewSessionDialog> {
     final home = Platform.environment['HOME'] ?? '~';
     _cwdController.text = home;
 
-    // Load tasks if not already loaded.
+    // Compute the default agent: first enabled config whose CLI is installed,
+    // falling back to the first enabled config if none are installed.
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final agentConfigs = context.read<AgentConfigsController>();
+      final agentServerController = context.read<AgentServerController>();
+      final enabledAgents = agentConfigs.enabledAgents;
+      if (enabledAgents.isNotEmpty && _agentId.isEmpty) {
+        final firstInstalled = enabledAgents.firstWhere(
+          (c) => agentServerController.isAgentAvailable(c.id),
+          orElse: () => enabledAgents.first,
+        );
+        setState(() => _agentId = firstInstalled.id);
+      }
+
+      // Load tasks if not already loaded.
       final tasksController = context.read<TasksController>();
       if (tasksController.tasks.isEmpty &&
           tasksController.status != TasksStatus.loading) {
@@ -1521,20 +1538,21 @@ class _NewSessionDialogState extends State<_NewSessionDialog> {
   Widget build(BuildContext context) {
     final tasksController = context.watch<TasksController>();
     final agentServerController = context.watch<AgentServerController>();
+    final agentConfigs = context.watch<AgentConfigsController>();
+    final enabledAgents = agentConfigs.enabledAgents;
     final tasks = tasksController.tasks
         .where((t) => t.status != TaskStatus.done)
         .toList();
 
-    final claudeAvailable =
-        agentServerController.isAgentAvailable('claude-code');
-    final codexAvailable = agentServerController.isAgentAvailable('codex');
-
-    // If the currently selected agent becomes unavailable, fall back to
-    // whichever is available.
-    if (_agentId == 'claude-code' && !claudeAvailable && codexAvailable) {
-      _agentId = 'codex';
-    } else if (_agentId == 'codex' && !codexAvailable && claudeAvailable) {
-      _agentId = 'claude-code';
+    // If the currently selected agent is not in the enabled list, pick a
+    // better default: first installed, otherwise first enabled.
+    if (enabledAgents.isNotEmpty &&
+        !enabledAgents.any((c) => c.id == _agentId)) {
+      final firstInstalled = enabledAgents.firstWhere(
+        (c) => agentServerController.isAgentAvailable(c.id),
+        orElse: () => enabledAgents.first,
+      );
+      _agentId = firstInstalled.id;
     }
 
     return AlertDialog(
@@ -1585,8 +1603,8 @@ class _NewSessionDialogState extends State<_NewSessionDialog> {
             ),
             const SizedBox(height: 14),
 
-            // Agent kind — only show available options
-            if (claudeAvailable || codexAvailable) ...[
+            // Agent kind — render one toggle per enabled config.
+            if (enabledAgents.isNotEmpty) ...[
               Text(
                 'Agent',
                 style: TextStyle(
@@ -1604,22 +1622,19 @@ class _NewSessionDialogState extends State<_NewSessionDialog> {
                 ),
                 child: Row(
                   children: [
-                    if (claudeAvailable)
+                    for (final config in enabledAgents)
                       Expanded(
                         child: _AgentToggleButton(
-                          label: 'Claude Code',
-                          selected: _agentId == 'claude-code',
-                          color: const Color(0xFF6B46C1),
-                          onTap: () => setState(() => _agentId = 'claude-code'),
-                        ),
-                      ),
-                    if (codexAvailable)
-                      Expanded(
-                        child: _AgentToggleButton(
-                          label: 'Codex',
-                          selected: _agentId == 'codex',
-                          color: const Color(0xFF059669),
-                          onTap: () => setState(() => _agentId = 'codex'),
+                          label: config.label,
+                          selected: _agentId == config.id,
+                          color: _colorForAgent(config.id),
+                          enabled:
+                              agentServerController.isAgentAvailable(config.id),
+                          disabledLabel: '(not installed)',
+                          onTap:
+                              agentServerController.isAgentAvailable(config.id)
+                                  ? () => setState(() => _agentId = config.id)
+                                  : null,
                         ),
                       ),
                   ],
@@ -1735,6 +1750,12 @@ class _NewSessionDialogState extends State<_NewSessionDialog> {
       ],
     );
   }
+
+  Color _colorForAgent(String id) => switch (id) {
+        'claude-code' => const Color(0xFF6B46C1),
+        'codex' => const Color(0xFF059669),
+        _ => context.rhythm.accent,
+      };
 
   InputDecoration _inputDecoration(
     BuildContext context, {
@@ -1882,33 +1903,62 @@ class _AgentToggleButton extends StatelessWidget {
     required this.selected,
     required this.color,
     required this.onTap,
+    this.enabled = true,
+    this.disabledLabel,
   });
 
   final String label;
   final bool selected;
   final Color color;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
+  final bool enabled;
+  final String? disabledLabel;
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 140),
-        padding: const EdgeInsets.symmetric(vertical: 8),
-        decoration: BoxDecoration(
-          color: selected ? color : Colors.transparent,
-          borderRadius: BorderRadius.circular(RhythmRadius.md),
-        ),
-        alignment: Alignment.center,
-        child: Text(
-          label,
-          style: TextStyle(
-            fontSize: 13,
-            fontWeight: FontWeight.w600,
-            color: selected ? Colors.white : context.rhythm.textSecondary,
+    final effectiveColor = enabled ? color : context.rhythm.textMuted;
+    final Widget content = AnimatedContainer(
+      duration: const Duration(milliseconds: 140),
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      decoration: BoxDecoration(
+        color: selected && enabled ? color : Colors.transparent,
+        borderRadius: BorderRadius.circular(RhythmRadius.md),
+      ),
+      alignment: Alignment.center,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: selected && enabled
+                  ? Colors.white
+                  : enabled
+                      ? context.rhythm.textSecondary
+                      : context.rhythm.textMuted,
+            ),
           ),
-        ),
+          if (!enabled && disabledLabel != null) ...[
+            const SizedBox(height: 2),
+            Text(
+              disabledLabel!,
+              style: TextStyle(
+                fontSize: 10,
+                color: effectiveColor,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+
+    return IgnorePointer(
+      ignoring: !enabled,
+      child: GestureDetector(
+        onTap: onTap,
+        child: content,
       ),
     );
   }
