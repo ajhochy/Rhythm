@@ -281,6 +281,7 @@ export class TasksRepository {
       params.push('%' + search.toLowerCase() + '%');
     }
 
+    const todayForSort = today ?? new Date().toISOString().slice(0, 10);
     const where = clauses.map((c, i) => (i === 0 ? `WHERE ${c}` : `AND ${c}`)).join('\n  ');
 
     const sql = `
@@ -301,15 +302,22 @@ export class TasksRepository {
        AND (tasks.source_id = rr.id OR tasks.source_id LIKE rr.id || ':%')
       ${where}
       ORDER BY
+        CASE
+          WHEN tasks.status != 'done'
+           AND COALESCE(tasks.scheduled_date, tasks.due_date) IS NOT NULL
+           AND COALESCE(tasks.scheduled_date, tasks.due_date) < ?
+          THEN 0 ELSE 1
+        END ASC,
         COALESCE(tasks.scheduled_date, tasks.due_date) ASC NULLS LAST,
-        tasks.scheduled_order ASC,
+        tasks.scheduled_order ASC NULLS LAST,
         tasks.created_at ASC
     `;
 
-    // userId for the is_shared CASE expression goes first, then the WHERE params.
+    // userId for the is_shared CASE expression goes first, then the WHERE params,
+    // then the today value for the overdue ORDER BY CASE expression.
     const rows = getDb()
       .prepare(sql)
-      .all(userId, ...params) as TaskRow[];
+      .all(userId, ...params, todayForSort) as TaskRow[];
 
     const tasks = rows.map(rowToTask);
 

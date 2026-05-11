@@ -5,7 +5,13 @@ import { registerTool } from './_tool.js';
 
 export function registerTaskTools(server: McpServer, apiUrl: string, apiToken: string) {
   registerTool(server, 'rhythm_list_tasks',
-    'List tasks with optional filters. Returns open tasks by default.',
+    'List tasks with optional filters. Returns open tasks by default. ' +
+    'Results are sorted in the following canonical order: ' +
+    '(1) overdue open tasks first (status != done AND COALESCE(scheduledDate, dueDate) < today), ' +
+    '(2) then by COALESCE(scheduledDate, dueDate) ascending with NULLs last, ' +
+    '(3) then by scheduledOrder ascending with NULLs last, ' +
+    '(4) then by createdAt ascending. ' +
+    'This surfaces already-broken items before the day\'s upcoming work.',
     {
       status: z.enum(['open', 'done', 'all']).optional().describe("Filter by status. Defaults to 'open'."),
       due_before: z.string().optional().describe('Return tasks due on or before this ISO 8601 date (YYYY-MM-DD).'),

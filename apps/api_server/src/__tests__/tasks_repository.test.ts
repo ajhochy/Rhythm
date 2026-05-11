@@ -255,6 +255,47 @@ describe('TasksRepository.findByFilter', () => {
     expect(noneIdx).toBeGreaterThan(farIdx);
   });
 
+  it('overdue-first: open overdue tasks sort before non-overdue, then by priority date, then nulls last', async () => {
+    // Overdue open tasks (priority date < TODAY and status != done)
+    await seed({ title: 'Overdue A', dueDate: '2020-01-01' });
+    await seed({ title: 'Overdue B', scheduledDate: '2021-06-15' });
+    // Non-overdue open tasks
+    await seed({ title: 'Today task', dueDate: TODAY });
+    await seed({ title: 'Future task', dueDate: FUTURE });
+    // Overdue but DONE → not overdue per the CASE; should fall in non-overdue tier
+    await seed({ title: 'Overdue done', dueDate: PAST, status: 'done' });
+    // No date at all → NULLS LAST within non-overdue tier
+    await seed({ title: 'No date open' });
+
+    const tasks = repo.findByFilter(baseFilter({ status: 'all', today: TODAY }));
+    const titles = tasks.map((t) => t.title);
+
+    const idxOverdueA = titles.indexOf('Overdue A');
+    const idxOverdueB = titles.indexOf('Overdue B');
+    const idxToday = titles.indexOf('Today task');
+    const idxFuture = titles.indexOf('Future task');
+    const idxOverdueDone = titles.indexOf('Overdue done');
+    const idxNoDate = titles.indexOf('No date open');
+
+    // Both overdue open tasks must come before any non-overdue tasks
+    expect(idxOverdueA).toBeLessThan(idxToday);
+    expect(idxOverdueA).toBeLessThan(idxFuture);
+    expect(idxOverdueB).toBeLessThan(idxToday);
+    expect(idxOverdueB).toBeLessThan(idxFuture);
+
+    // Within the overdue tier, sorted by priority date ASC (2020 before 2021)
+    expect(idxOverdueA).toBeLessThan(idxOverdueB);
+
+    // Within the non-overdue tier: today < future < no-date (NULLS LAST)
+    expect(idxToday).toBeLessThan(idxFuture);
+    expect(idxFuture).toBeLessThan(idxNoDate);
+
+    // Overdue done falls into the non-overdue tier (CASE excludes it)
+    // so it must come after both overdue-open tasks
+    expect(idxOverdueA).toBeLessThan(idxOverdueDone);
+    expect(idxOverdueB).toBeLessThan(idxOverdueDone);
+  });
+
   // ── empty results ─────────────────────────────────────────────────────────
 
   it('returns [] when no tasks match, never throws', () => {
