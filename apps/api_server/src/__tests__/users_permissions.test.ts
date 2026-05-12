@@ -167,6 +167,69 @@ describe('UsersController permissions', () => {
     expect(usersRepo.findById(other.id).emailNotificationsEnabled).toBe(true);
   });
 
+  it('allows any authenticated user to update their own timezone', async () => {
+    const member = usersRepo.create({
+      name: 'TZ Member',
+      email: 'tz-member@example.com',
+    });
+    let payload: unknown;
+    let forwardedError: unknown;
+
+    await controller.updateMyPreferences(
+      {
+        auth: { user: member },
+        body: { timezone: 'America/New_York' },
+      } as never,
+      {
+        json(value: unknown) {
+          payload = value;
+          return this;
+        },
+      } as never,
+      (error?: unknown) => {
+        forwardedError = error;
+      },
+    );
+
+    expect(forwardedError).toBeUndefined();
+    expect(payload).toMatchObject({
+      id: member.id,
+      timezone: 'America/New_York',
+    });
+  });
+
+  it('rejects invalid IANA timezone strings with 400', async () => {
+    const member = usersRepo.create({
+      name: 'Bad TZ Member',
+      email: 'bad-tz@example.com',
+    });
+    let forwardedError: unknown;
+
+    await controller.updateMyPreferences(
+      {
+        auth: { user: member },
+        body: { timezone: 'Not/A/Valid/Timezone' },
+      } as never,
+      {} as never,
+      (error?: unknown) => {
+        forwardedError = error;
+      },
+    );
+
+    expect(forwardedError).toMatchObject({
+      statusCode: 400,
+      code: 'BAD_REQUEST',
+    });
+  });
+
+  it('user response includes timezone field', async () => {
+    const member = usersRepo.create({
+      name: 'TZ Check Member',
+      email: 'tz-check@example.com',
+    });
+    expect(member.timezone).toBe('America/Los_Angeles');
+  });
+
   it('allows admins to update user permissions', async () => {
     const admin = usersRepo.create({
       name: 'Admin',

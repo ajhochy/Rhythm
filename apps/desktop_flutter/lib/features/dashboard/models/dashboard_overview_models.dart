@@ -4,6 +4,7 @@ class DashboardSummaryTaskSlice {
   DashboardSummaryTaskSlice({
     required this.openCount,
     required this.pastDueCount,
+    required this.pastDeadlineCount,
     required this.todayRemainingCount,
     required this.todayTotalCount,
     required this.thisWeekRemainingCount,
@@ -23,6 +24,7 @@ class DashboardSummaryTaskSlice {
     return DashboardSummaryTaskSlice(
       openCount: (json['openCount'] as num?)?.toInt() ?? 0,
       pastDueCount: (json['pastDueCount'] as num?)?.toInt() ?? 0,
+      pastDeadlineCount: (json['pastDeadlineCount'] as num?)?.toInt() ?? 0,
       todayRemainingCount: (json['todayRemainingCount'] as num?)?.toInt() ?? 0,
       todayTotalCount: (json['todayTotalCount'] as num?)?.toInt() ?? 0,
       thisWeekRemainingCount:
@@ -39,6 +41,7 @@ class DashboardSummaryTaskSlice {
 
   final int openCount;
   final int pastDueCount;
+  final int pastDeadlineCount;
   final int todayRemainingCount;
   final int todayTotalCount;
   final int thisWeekRemainingCount;
@@ -230,7 +233,8 @@ class DashboardProjectStepPreview {
     required this.id,
     required this.title,
     required this.status,
-    required this.dueDate,
+    this.dueDate,
+    this.scheduledDate,
     this.notes,
     this.assigneeId,
     this.assigneeName,
@@ -241,7 +245,8 @@ class DashboardProjectStepPreview {
         id: json['id'] as String,
         title: json['title'] as String,
         status: json['status'] as String? ?? 'open',
-        dueDate: json['dueDate'] as String? ?? '',
+        dueDate: json['dueDate'] as String?,
+        scheduledDate: json['scheduledDate'] as String?,
         notes: json['notes'] as String?,
         assigneeId: (json['assigneeId'] as num?)?.toInt(),
         assigneeName: json['assigneeName'] as String?,
@@ -250,7 +255,8 @@ class DashboardProjectStepPreview {
   final String id;
   final String title;
   final String status;
-  final String dueDate;
+  final String? dueDate;
+  final String? scheduledDate;
   final String? notes;
   final int? assigneeId;
   final String? assigneeName;

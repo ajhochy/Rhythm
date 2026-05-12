@@ -1,8 +1,20 @@
 import type { Task } from './task';
 
+/** Concise task summary included in pastDeadlineTasks — no large fields. */
+export interface PastDeadlineTaskSummary {
+  id: string;
+  title: string;
+  dueDate: string | null;
+  scheduledDate: string | null;
+  sourceType: string | null;
+}
+
 export interface DashboardTaskSummary {
   openCount: number;
   pastDueCount: number;
+  pastDeadlineCount: number;
+  /** Tasks whose hard dueDate has passed but whose scheduledDate has not (mutually exclusive with pastDue). Sorted by dueDate ASC. */
+  pastDeadlineTasks: PastDeadlineTaskSummary[];
   todayRemainingCount: number;
   todayTotalCount: number;
   thisWeekRemainingCount: number;

@@ -9,9 +9,104 @@ import { env } from '../config/env';
 import { EmailService } from '../services/email_service';
 import { UsersRepository } from '../repositories/users_repository';
 import { emitAppEvent } from '../utils/app_events';
+import type { FilterStatus, TaskFilter } from '../models/task_filter';
+
+// Re-export so callers that previously imported from this module still work.
+export type { TaskFilter };
 
 const VALID_STATUSES = ['open', 'in_progress', 'waiting_for_reply', 'done'] as const;
 type ValidStatus = (typeof VALID_STATUSES)[number];
+
+/** Status values accepted by the filter param (superset of task statuses; 'all' means no filter). */
+const VALID_FILTER_STATUSES = ['open', 'in_progress', 'waiting_for_reply', 'done', 'all'] as const;
+
+/** Discriminated union returned by parseTaskFilters. */
+type ParseResult =
+  | { ok: true; filter: TaskFilter }
+  | { ok: false; field: string; message: string };
+
+/** Strict ISO date validation: must match YYYY-MM-DD and produce a valid Date. */
+function isValidIsoDate(value: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const d = new Date(value);
+  return !isNaN(d.getTime());
+}
+
+/**
+ * Parse and validate query parameters for GET /tasks.
+ * Returns a validated TaskFilter on success or a field-level error on failure.
+ */
+export function parseTaskFilters(query: Request['query'], userId: number): ParseResult {
+  // --- status ---
+  let status: FilterStatus = 'open'; // default preserves backward compatibility
+  if (query.status !== undefined) {
+    const raw = query.status as string;
+    if (!VALID_FILTER_STATUSES.includes(raw as FilterStatus)) {
+      return {
+        ok: false,
+        field: 'status',
+        message: `status must be one of: ${VALID_FILTER_STATUSES.join(', ')}`,
+      };
+    }
+    status = raw as FilterStatus;
+  }
+
+  // --- scheduled_before ---
+  let scheduledBefore: string | undefined;
+  if (query.scheduled_before !== undefined) {
+    const raw = query.scheduled_before as string;
+    if (!isValidIsoDate(raw)) {
+      return {
+        ok: false,
+        field: 'scheduled_before',
+        message: 'scheduled_before must be a valid date in YYYY-MM-DD format',
+      };
+    }
+    scheduledBefore = raw;
+  }
+
+  // --- due_before ---
+  let dueBefore: string | undefined;
+  if (query.due_before !== undefined) {
+    const raw = query.due_before as string;
+    if (!isValidIsoDate(raw)) {
+      return {
+        ok: false,
+        field: 'due_before',
+        message: 'due_before must be a valid date in YYYY-MM-DD format',
+      };
+    }
+    dueBefore = raw;
+  }
+
+  // --- overdue ---
+  let overdue: boolean | undefined;
+  if (query.overdue !== undefined) {
+    const raw = query.overdue as string;
+    if (raw !== 'true' && raw !== 'false') {
+      return {
+        ok: false,
+        field: 'overdue',
+        message: "overdue must be 'true' or 'false'",
+      };
+    }
+    overdue = raw === 'true';
+  }
+
+  // --- search ---
+  let search: string | undefined;
+  if (query.search !== undefined) {
+    search = query.search as string;
+  }
+
+  // Inject today's date so the repository never calls new Date() itself.
+  const today = new Date().toISOString().slice(0, 10);
+
+  return {
+    ok: true,
+    filter: { userId, status, scheduledBefore, dueBefore, overdue, search, today },
+  };
+}
 
 const VALID_PREFERRED_AGENTS = ['claude-code', 'codex'] as const;
 type ValidPreferredAgent = (typeof VALID_PREFERRED_AGENTS)[number];
@@ -36,7 +131,17 @@ const emailService = new EmailService(usersRepo);
 export class TasksController {
   async getAll(req: Request, res: Response, next: NextFunction) {
     try {
-      res.json(await repo.findAllAsync(req.auth!.user.id));
+      const userId = req.auth!.user.id;
+      const result = parseTaskFilters(req.query, userId);
+      if (!result.ok) {
+        res.status(400).json({
+          error: 'validation',
+          field: result.field,
+          message: result.message,
+        });
+        return;
+      }
+      res.json(await repo.findByFilterAsync(result.filter));
     } catch (err) {
       next(err);
     }

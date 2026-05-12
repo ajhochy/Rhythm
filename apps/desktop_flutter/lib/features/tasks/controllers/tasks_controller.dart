@@ -34,14 +34,14 @@ class TasksController extends ChangeNotifier {
   Future<void> createTask(
     String title, {
     String? notes,
-    String? dueDate,
+    String? scheduledDate,
     int? collaboratorId,
   }) async {
     try {
       final task = await _repository.create(
         title,
         notes: notes,
-        dueDate: dueDate,
+        scheduledDate: scheduledDate,
         collaboratorId: collaboratorId,
       );
       _tasks = [..._tasks, task];

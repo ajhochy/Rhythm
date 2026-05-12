@@ -986,7 +986,7 @@ class _DayColumnState extends State<_DayColumn> {
     if (result != null && result.title.isNotEmpty) {
       await widget.controller.createTask(
         result.title,
-        dueDate: widget.date,
+        scheduledDate: widget.date,
         ownerId: result.ownerId,
       );
     }

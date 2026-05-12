@@ -11,7 +11,7 @@ class TasksRepository {
   Future<Task> create(
     String title, {
     String? notes,
-    String? dueDate,
+    String? scheduledDate,
     int? ownerId,
     int? collaboratorId,
     String? preferredAgent,
@@ -19,7 +19,7 @@ class TasksRepository {
     final task = await _dataSource.create(
       title,
       notes: notes,
-      dueDate: dueDate,
+      scheduledDate: scheduledDate,
       ownerId: ownerId,
       preferredAgent: preferredAgent,
     );

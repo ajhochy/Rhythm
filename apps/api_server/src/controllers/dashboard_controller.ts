@@ -6,7 +6,8 @@ const service = new DashboardSummaryService();
 export class DashboardController {
   async getSummary(req: Request, res: Response, next: NextFunction) {
     try {
-      const summary = await service.getSummaryAsync(req.auth!.user.id);
+      const user = req.auth!.user;
+      const summary = await service.getSummaryAsync(user.id, user.timezone);
       res.json(summary);
     } catch (err) {
       next(err);

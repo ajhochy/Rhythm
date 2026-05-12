@@ -32,13 +32,13 @@ class DashboardRepository {
   Future<Task> createTask(
     String title, {
     String? notes,
-    String? dueDate,
+    String? scheduledDate,
     int? collaboratorId,
   }) async {
     final task = await _dataSource.createTask(
       title,
       notes: notes,
-      dueDate: dueDate,
+      scheduledDate: scheduledDate,
     );
     if (collaboratorId != null) {
       await _dataSource.addCollaboratorToTask(task.id, collaboratorId);
@@ -84,19 +84,25 @@ class DashboardRepository {
     String stepId, {
     String? title,
     String? dueDate,
+    String? scheduledDate,
     String? status,
     String? notes,
     int? assigneeId,
     bool includeNotes = false,
+    bool includeDueDate = false,
+    bool includeScheduledDate = false,
   }) =>
       _dataSource.updateProjectInstanceStep(
         stepId,
         title: title,
         dueDate: dueDate,
+        scheduledDate: scheduledDate,
         status: status,
         notes: notes,
         assigneeId: assigneeId,
         includeNotes: includeNotes,
+        includeDueDate: includeDueDate,
+        includeScheduledDate: includeScheduledDate,
       );
 
   /// Builds unread message previews using an already-fetched [threads] list

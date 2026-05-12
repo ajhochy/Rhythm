@@ -206,6 +206,52 @@ describe('WeeklyPlanningService.assemblePlan', () => {
     expect(tue.tasks[0].locked).toBe(true);
   });
 
+  it('synthesizes shadow events with scheduledDate set and dueDate null', async () => {
+    shadowRepo.replaceForOwner(ownerId, [
+      {
+        provider: 'google_calendar',
+        externalId: 'evt-002',
+        calendarId: 'primary',
+        sourceName: 'Work',
+        title: 'All-hands meeting',
+        description: null,
+        location: null,
+        startAt: '2026-03-25T09:00:00.000Z',
+        endAt: '2026-03-25T10:00:00.000Z',
+        isAllDay: false,
+      },
+      {
+        provider: 'google_calendar',
+        externalId: 'evt-003',
+        calendarId: 'primary',
+        sourceName: 'Work',
+        title: 'Holiday',
+        description: null,
+        location: null,
+        startAt: '2026-03-26T00:00:00.000Z',
+        endAt: '2026-03-26T23:59:59.000Z',
+        isAllDay: true,
+      },
+    ]);
+    const plan = await service.assemblePlan(WEEK, ownerId);
+    const wed = plan.days.find((d) => d.date === '2026-03-25')!;
+    const thu = plan.days.find((d) => d.date === '2026-03-26')!;
+
+    // Time-range event: scheduledDate = event day, dueDate = null
+    expect(wed.tasks).toHaveLength(1);
+    const timeEvent = wed.tasks[0];
+    expect(timeEvent.title).toBe('All-hands meeting');
+    expect(timeEvent.scheduledDate).toBe('2026-03-25');
+    expect(timeEvent.dueDate).toBeNull();
+
+    // All-day event: scheduledDate = event day, dueDate = null
+    expect(thu.tasks).toHaveLength(1);
+    const allDayEvent = thu.tasks[0];
+    expect(allDayEvent.title).toBe('Holiday');
+    expect(allDayEvent.scheduledDate).toBe('2026-03-26');
+    expect(allDayEvent.dueDate).toBeNull();
+  });
+
   it('handles multiple tasks across different days', async () => {
     tasksRepo.create({ title: 'Mon', dueDate: '2026-03-23', ownerId });
     tasksRepo.create({ title: 'Wed', dueDate: '2026-03-25', ownerId });

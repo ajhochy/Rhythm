@@ -21,6 +21,7 @@ class DashboardController extends ChangeNotifier {
   int _activeProjectsCount = 0;
   int _messageThreadCount = 0;
   int _pastDueTaskCount = 0;
+  int _pastDeadlineCount = 0;
   int _todayTasksTotalCount = 0;
   int _todayTasksRemainingCount = 0;
   int _thisWeekTasksTotalCount = 0;
@@ -50,6 +51,7 @@ class DashboardController extends ChangeNotifier {
   int get activeProjectsCount => _activeProjectsCount;
   int get messageThreadCount => _messageThreadCount;
   int get pastDueTaskCount => _pastDueTaskCount;
+  int get pastDeadlineCount => _pastDeadlineCount;
   int get todayTasksTotalCount => _todayTasksTotalCount;
   int get todayTasksRemainingCount => _todayTasksRemainingCount;
   int get thisWeekTasksTotalCount => _thisWeekTasksTotalCount;
@@ -86,6 +88,7 @@ class DashboardController extends ChangeNotifier {
 
       _openTaskCount = t.openCount;
       _pastDueTaskCount = t.pastDueCount;
+      _pastDeadlineCount = t.pastDeadlineCount;
       _todayTasksRemainingCount = t.todayRemainingCount;
       _todayTasksTotalCount = t.todayTotalCount;
       _thisWeekTasksRemainingCount = t.thisWeekRemainingCount;
@@ -145,9 +148,10 @@ class DashboardController extends ChangeNotifier {
         final projectName = instance.name ?? 'Project';
         for (final step in instance.steps) {
           if (step.status == 'done') continue;
-          if (step.dueDate.isEmpty) continue;
+          final stepDateStr = step.scheduledDate ?? step.dueDate;
+          if (stepDateStr == null || stepDateStr.isEmpty) continue;
 
-          final parsed = DateTime.tryParse(step.dueDate);
+          final parsed = DateTime.tryParse(stepDateStr);
           if (parsed == null) continue;
           final taskDate = DateTime(parsed.year, parsed.month, parsed.day);
 
@@ -186,14 +190,14 @@ class DashboardController extends ChangeNotifier {
   Future<void> createTask(
     String title, {
     String? notes,
-    String? dueDate,
+    String? scheduledDate,
     int? collaboratorId,
   }) async {
     try {
       await _repository.createTask(
         title,
         notes: notes,
-        dueDate: dueDate,
+        scheduledDate: scheduledDate,
         collaboratorId: collaboratorId,
       );
       await refresh();
@@ -264,20 +268,26 @@ class DashboardController extends ChangeNotifier {
     String stepId, {
     String? title,
     String? dueDate,
+    String? scheduledDate,
     String? status,
     String? notes,
     int? assigneeId,
     bool includeNotes = false,
+    bool includeDueDate = false,
+    bool includeScheduledDate = false,
   }) async {
     try {
       await _repository.updateProjectInstanceStep(
         stepId,
         title: title,
         dueDate: dueDate,
+        scheduledDate: scheduledDate,
         status: status,
         notes: notes,
         assigneeId: assigneeId,
         includeNotes: includeNotes,
+        includeDueDate: includeDueDate,
+        includeScheduledDate: includeScheduledDate,
       );
       await refresh();
     } catch (e) {

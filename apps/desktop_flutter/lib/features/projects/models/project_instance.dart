@@ -7,8 +7,9 @@ class ProjectInstanceStep {
     required this.instanceId,
     required this.stepId,
     required this.title,
-    required this.dueDate,
     required this.status,
+    this.dueDate,
+    this.scheduledDate,
     this.notes,
     this.assigneeId,
     this.assigneeName,
@@ -20,8 +21,9 @@ class ProjectInstanceStep {
       instanceId: asString(json['instanceId']) ?? '',
       stepId: asString(json['stepId']) ?? '',
       title: asString(json['title']) ?? '',
-      dueDate: asString(json['dueDate']) ?? '',
       status: asString(json['status']) ?? 'open',
+      dueDate: asString(json['dueDate']),
+      scheduledDate: asString(json['scheduledDate']),
       notes: asString(json['notes']),
       assigneeId: asInt(json['assigneeId']),
       assigneeName: asString(json['assigneeName']),
@@ -32,7 +34,8 @@ class ProjectInstanceStep {
   final String instanceId;
   final String stepId;
   final String title;
-  final String dueDate;
+  final String? dueDate;
+  final String? scheduledDate;
   final String status;
   final String? notes;
   final int? assigneeId;

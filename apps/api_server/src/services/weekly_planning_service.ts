@@ -2,6 +2,7 @@ import { CalendarShadowEventsRepository } from '../repositories/calendar_shadow_
 import { ProjectInstancesRepository } from '../repositories/project_instances_repository';
 import { TasksRepository } from '../repositories/tasks_repository';
 import type { Task } from '../models/task';
+import { priorityDate } from './task_date_status';
 
 export interface WeeklyPlanDay {
   date: string;
@@ -30,10 +31,30 @@ export function parseWeekLabel(weekLabel: string): Date {
   return result;
 }
 
-/** Return the ISO week label (YYYY-WNN) for today. */
-export function currentWeekLabel(): string {
-  const now = new Date();
-  const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+/**
+ * Return the ISO week label (YYYY-WNN) for today.
+ *
+ * @param timezone  Optional IANA timezone name (e.g. "America/Los_Angeles").
+ *                  When provided, "today" is resolved in that timezone so the
+ *                  week label matches the user's local calendar date.
+ *                  Defaults to UTC to preserve backward-compatible behaviour
+ *                  for callers that do not supply a timezone.
+ */
+export function currentWeekLabel(timezone?: string): string {
+  let todayStr: string;
+  if (timezone) {
+    const formatter = new Intl.DateTimeFormat('en-CA', {
+      timeZone: timezone,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    });
+    todayStr = formatter.format(new Date());
+  } else {
+    const now = new Date();
+    todayStr = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}-${String(now.getUTCDate()).padStart(2, '0')}`;
+  }
+  const d = new Date(todayStr + 'T00:00:00Z');
   d.setUTCDate(d.getUTCDate() + 3 - ((d.getUTCDay() + 6) % 7));
   const jan4 = new Date(Date.UTC(d.getUTCFullYear(), 0, 4));
   const weekNum =
@@ -72,8 +93,9 @@ export class WeeklyPlanningService {
     const weekTasks = await this.tasksRepo.findByWeekAsync(startStr, endStr, userId);
 
     for (const task of weekTasks) {
-      const dateKey = task.scheduledDate ?? task.dueDate;
-      if (!dateKey) continue;
+      const pd = priorityDate(task);
+      if (!pd) continue;
+      const dateKey = isoDate(pd);
       const day = dayMap.get(dateKey);
       if (!day) continue;
       day.tasks.push(task);
@@ -121,7 +143,7 @@ export class WeeklyPlanningService {
         id: event.id,
         title: event.title,
         notes: detailBits.join(' • '),
-        dueDate: dayKey,
+        dueDate: null,
         scheduledDate: dayKey,
         scheduledOrder: null,
         locked: true,

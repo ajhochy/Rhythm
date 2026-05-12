@@ -214,6 +214,7 @@ DashboardSummary _buildSummary({
       tasks: DashboardSummaryTaskSlice(
         openCount: openCount,
         pastDueCount: 0,
+        pastDeadlineCount: 0,
         todayRemainingCount: 0,
         todayTotalCount: 0,
         thisWeekRemainingCount: thisWeekRemainingCount,
@@ -311,6 +312,7 @@ class _FakeDashboardHandoffDataSource extends _FakeDashboardDataSource {
       tasks: DashboardSummaryTaskSlice(
         openCount: 3,
         pastDueCount: 0,
+        pastDeadlineCount: 0,
         todayRemainingCount: 1,
         todayTotalCount: 1,
         thisWeekRemainingCount: 0,
@@ -361,6 +363,7 @@ class _FakeDashboardStableOrderingDataSource extends _FakeDashboardDataSource {
       tasks: DashboardSummaryTaskSlice(
         openCount: 2,
         pastDueCount: 0,
+        pastDeadlineCount: 0,
         todayRemainingCount: 2,
         todayTotalCount: 2,
         thisWeekRemainingCount: 0,

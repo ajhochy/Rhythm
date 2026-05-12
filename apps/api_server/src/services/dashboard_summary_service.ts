@@ -9,11 +9,13 @@ import type {
   DashboardProjectItem,
   DashboardProjectStepPreview,
   DashboardUnreadPreview,
+  PastDeadlineTaskSummary,
 } from '../models/dashboard_summary';
 import type { Task } from '../models/task';
 import type { RecurringTaskRule } from '../models/recurring_task_rule';
 import type { ProjectInstance } from '../models/project_instance';
 import type { ProjectTemplate } from '../models/project_template';
+import { isPastDeadline, isOverdue, priorityDate, todayDateInTimezone } from './task_date_status';
 
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 const MONTHS = ['', 'January', 'February', 'March', 'April', 'May', 'June',
@@ -37,12 +39,6 @@ function patternDescription(rule: RecurringTaskRule): string {
     return `Annually in ${MONTHS[month] ?? 'January'}`;
   }
   return rule.frequency;
-}
-
-function priorityDate(task: Task): Date | null {
-  const raw = task.scheduledDate ?? task.dueDate;
-  if (!raw) return null;
-  return new Date(raw + 'T00:00:00');
 }
 
 function stripDate(d: Date): Date {
@@ -71,7 +67,7 @@ export class DashboardSummaryService {
   private projectTemplatesRepo = new ProjectTemplatesRepository();
   private messagesRepo = new MessagesRepository();
 
-  async getSummaryAsync(userId: number): Promise<DashboardSummary> {
+  async getSummaryAsync(userId: number, timezone = 'America/Los_Angeles'): Promise<DashboardSummary> {
     const [tasks, rules, instances, templates, threads] = await Promise.all([
       this.tasksRepo.findAllAsync(userId),
       this.rulesRepo.findAllAsync(userId),
@@ -80,8 +76,7 @@ export class DashboardSummaryService {
       this.messagesRepo.findAllThreadsForUserAsync(userId),
     ]);
 
-    const now = new Date();
-    const today = stripDate(now);
+    const today = todayDateInTimezone(timezone);
     const weekEnd = endOfIsoWeek(today);
 
     // ── Tasks ──────────────────────────────────────────────────────────────────
@@ -91,6 +86,27 @@ export class DashboardSummaryService {
       const d = priorityDate(t);
       return d != null && d < today;
     }).sort(compareTasks);
+
+    // pastDeadlineTasks / pastDeadlineCount: open tasks where dueDate < today AND NOT overdue
+    // (i.e. past hard deadline but not already counted in pastDueCount).
+    // The two counts/lists are mutually exclusive by design.
+    const pastDeadlineTasksRaw = openTasks
+      .filter((t) => isPastDeadline(t, today) && !isOverdue(t, today))
+      .sort((a, b) => {
+        const aDate = a.dueDate ? new Date(a.dueDate + 'T00:00:00').getTime() : 9e15;
+        const bDate = b.dueDate ? new Date(b.dueDate + 'T00:00:00').getTime() : 9e15;
+        return aDate - bDate;
+      });
+
+    const pastDeadlineCount = pastDeadlineTasksRaw.length;
+
+    const pastDeadlineTasks: PastDeadlineTaskSummary[] = pastDeadlineTasksRaw.map((t) => ({
+      id: t.id,
+      title: t.title,
+      dueDate: t.dueDate ?? null,
+      scheduledDate: t.scheduledDate ?? null,
+      sourceType: t.sourceType ?? null,
+    }));
 
     const todayOpen = openTasks.filter((t) => {
       const d = priorityDate(t);
@@ -191,6 +207,8 @@ export class DashboardSummaryService {
       tasks: {
         openCount: openTasks.length,
         pastDueCount: pastDue.length,
+        pastDeadlineCount,
+        pastDeadlineTasks,
         todayRemainingCount: todayOpen.length,
         todayTotalCount: todayAll.length,
         thisWeekRemainingCount: thisWeekOpen.length,

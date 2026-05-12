@@ -17,14 +17,15 @@ export class WeeklyPlanController {
 
   async getPlan(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
+      const user = req.auth!.user;
       const weekLabel =
-        (req.query.week as string | undefined) ?? currentWeekLabel();
+        (req.query.week as string | undefined) ?? currentWeekLabel(user.timezone);
       if (!/^\d{4}-W\d{1,2}$/.test(weekLabel)) {
         throw AppError.badRequest(
           "Invalid week format. Use YYYY-WNN (e.g. 2026-W13).",
         );
       }
-      const userId = req.auth!.user.id;
+      const userId = user.id;
       const plan = await this.service.assemblePlan(weekLabel, userId);
       const assemblySignal: AutomationSignal = {
         id: `rhythm:plan_assembly:${weekLabel}`,
