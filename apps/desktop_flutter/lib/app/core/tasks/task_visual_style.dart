@@ -40,6 +40,11 @@ class TaskVisualStyle {
 }
 
 class TaskVisualStyles {
+  /// The accent color used for [TaskVisualState.pastDeadline] rows.
+  /// Exposed here so legend widgets can reference the same value without
+  /// duplicating the hex literal.
+  static const Color pastDeadlineAccent = Color(0xFFF59E0B);
+
   static TaskVisualStyle resolve(Task task, {DateTime? today}) {
     final isDone = task.status == TaskStatus.done;
     final isOverdue = DateFormatters.isOverdue(
@@ -93,7 +98,7 @@ class TaskVisualStyles {
 
     if (isPastDeadline) {
       return const TaskVisualStyle(
-        accent: Color(0xFFF59E0B),
+        accent: pastDeadlineAccent,
         background: Color(0xFFFEF3C7),
         border: Color(0xFFFBBF24),
         badgeBackground: Color(0xFFFDE68A),
