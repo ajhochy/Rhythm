@@ -150,7 +150,7 @@ class AgentsDataSource {
       Uri.parse('$_baseUrl/agent-sessions'),
       headers: AuthSessionStore.headers(json: true),
       body: jsonEncode({
-        'agent_id': agentId,
+        'agentId': agentId,
         'cwd': cwd,
         'name': name,
         if (taskId != null) 'taskId': taskId,
