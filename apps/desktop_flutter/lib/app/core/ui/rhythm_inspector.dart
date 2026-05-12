@@ -585,6 +585,10 @@ class _RhythmTaskInspectorState extends State<_RhythmTaskInspector> {
                     },
                     onClear: () => setState(() => _dueDate = null),
                   ),
+                  if (_isScheduledAfterDeadline(_scheduledDate, _dueDate)) ...[
+                    const SizedBox(height: 12),
+                    const _ScheduledAfterDeadlineWarning(),
+                  ],
                 ] else ...[
                   if (_scheduledDate != null)
                     _MetaRow(
@@ -1007,6 +1011,10 @@ class _RhythmProjectStepInspectorState
                     },
                     onClear: () => setState(() => _dueDate = null),
                   ),
+                  if (_isScheduledAfterDeadline(_scheduledDate, _dueDate)) ...[
+                    const SizedBox(height: 12),
+                    const _ScheduledAfterDeadlineWarning(),
+                  ],
                   const SizedBox(height: 12),
                   RhythmAssigneeField(
                     workspaceMembers: widget.workspaceMembers,
@@ -1136,6 +1144,64 @@ class _RhythmProjectStepInspectorState
     } finally {
       if (mounted) setState(() => _saving = false);
     }
+  }
+}
+
+/// Returns true when both dates are non-null and [dueDate] is strictly before
+/// [scheduledDate]. Dates are compared as ISO-8601 date strings (YYYY-MM-DD).
+///
+/// Exposed with `@visibleForTesting` so inspector widget tests can exercise
+/// the predicate directly without spinning up the full dialog.
+@visibleForTesting
+bool isScheduledAfterDeadline(String? scheduledDate, String? dueDate) {
+  if (scheduledDate == null || dueDate == null) return false;
+  final scheduled = DateTime.tryParse(scheduledDate);
+  final due = DateTime.tryParse(dueDate);
+  if (scheduled == null || due == null) return false;
+  return due.isBefore(scheduled);
+}
+
+bool _isScheduledAfterDeadline(String? scheduledDate, String? dueDate) =>
+    isScheduledAfterDeadline(scheduledDate, dueDate);
+
+/// A non-blocking amber warning row shown when the scheduled date falls after
+/// the due date.
+class _ScheduledAfterDeadlineWarning extends StatelessWidget {
+  const _ScheduledAfterDeadlineWarning();
+
+  @override
+  Widget build(BuildContext context) {
+    const amberColor = Color(0xFFF59E0B);
+    return Semantics(
+      label: 'Warning: this task is scheduled after its deadline.',
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: amberColor.withValues(alpha: 0.12),
+          borderRadius: BorderRadius.circular(RhythmRadius.sm),
+          border: Border.all(color: amberColor.withValues(alpha: 0.30)),
+        ),
+        child: Row(
+          children: [
+            const Icon(
+              Icons.warning_amber_rounded,
+              size: 16,
+              color: amberColor,
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                'Heads up: this is scheduled after its deadline.',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: amberColor,
+                      fontWeight: FontWeight.w600,
+                    ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
 
