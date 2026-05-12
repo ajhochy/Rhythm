@@ -3,6 +3,15 @@ import 'package:flutter/material.dart';
 import '../../../features/tasks/models/task.dart';
 import '../formatters/date_formatters.dart';
 
+/// Describes the semantic state of a task for visual rendering purposes.
+enum TaskVisualState {
+  done,
+  overdue,
+  pastDeadline,
+  dueToday,
+  sourceBased,
+}
+
 class TaskVisualStyle {
   const TaskVisualStyle({
     required this.accent,
@@ -11,6 +20,8 @@ class TaskVisualStyle {
     required this.badgeBackground,
     required this.text,
     required this.mutedText,
+    this.label,
+    this.state,
   });
 
   final Color accent;
@@ -19,14 +30,26 @@ class TaskVisualStyle {
   final Color badgeBackground;
   final Color text;
   final Color mutedText;
+
+  /// Optional pill label for this visual state (e.g. "Past deadline").
+  /// Null when no label pill should be rendered.
+  final String? label;
+
+  /// The semantic state that produced this style.
+  final TaskVisualState? state;
 }
 
 class TaskVisualStyles {
   static TaskVisualStyle resolve(Task task, {DateTime? today}) {
     final isDone = task.status == TaskStatus.done;
-    final isPastDue = DateFormatters.isPastDue(
+    final isOverdue = DateFormatters.isOverdue(
       dueDate: task.dueDate,
       scheduledDate: task.scheduledDate,
+      isDone: isDone,
+      today: today,
+    );
+    final isPastDeadline = DateFormatters.isPastDeadline(
+      dueDate: task.dueDate,
       isDone: isDone,
       today: today,
     );
@@ -37,6 +60,13 @@ class TaskVisualStyles {
       today: today,
     );
 
+    // Precedence order:
+    // 1. done → done style
+    // 2. overdue → past-due (red)
+    // 3. pastDeadline && !overdue → amber
+    // 4. dueToday → today style (orange)
+    // 5. otherwise source-based color
+
     if (isDone) {
       return const TaskVisualStyle(
         accent: Color(0xFF94A3B8),
@@ -45,10 +75,11 @@ class TaskVisualStyles {
         badgeBackground: Color(0xFFEDE7DC),
         text: Color(0xFF94A3B8),
         mutedText: Color(0xFF94A3B8),
+        state: TaskVisualState.done,
       );
     }
 
-    if (isPastDue) {
+    if (isOverdue) {
       return const TaskVisualStyle(
         accent: Color(0xFFDC5B58),
         background: Color(0xFFFFECEA),
@@ -56,6 +87,20 @@ class TaskVisualStyles {
         badgeBackground: Color(0xFFF7D2CE),
         text: Color(0xFF1E293B),
         mutedText: Color(0xFFA84A47),
+        state: TaskVisualState.overdue,
+      );
+    }
+
+    if (isPastDeadline) {
+      return const TaskVisualStyle(
+        accent: Color(0xFFF59E0B),
+        background: Color(0xFFFEF3C7),
+        border: Color(0xFFFBBF24),
+        badgeBackground: Color(0xFFFDE68A),
+        text: Color(0xFF1E293B),
+        mutedText: Color(0xFFB45309),
+        label: 'Past deadline',
+        state: TaskVisualState.pastDeadline,
       );
     }
 
@@ -67,6 +112,7 @@ class TaskVisualStyles {
         badgeBackground: Color(0xFFF5DDB0),
         text: Color(0xFF1E293B),
         mutedText: Color(0xFF9B6B24),
+        state: TaskVisualState.dueToday,
       );
     }
 
@@ -84,6 +130,7 @@ class TaskVisualStyles {
           badgeBackground: Color(0xFFF6DCAB),
           text: Color(0xFF1E293B),
           mutedText: Color(0xFF9B6B24),
+          state: TaskVisualState.sourceBased,
         ),
       'recurring_rule' => _variant(_rhythmVariants, variantKey),
       'project_step' => _variant(_projectVariants, variantKey),
@@ -96,6 +143,7 @@ class TaskVisualStyles {
           badgeBackground: Color(0xFFF3EEE6),
           text: Color(0xFF1E293B),
           mutedText: Color(0xFF64748B),
+          state: TaskVisualState.sourceBased,
         ),
     };
   }
