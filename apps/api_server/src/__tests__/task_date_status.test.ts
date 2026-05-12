@@ -182,6 +182,69 @@ describe('taskDateStatus', () => {
   });
 });
 
+// ── Canonical cross-stack date-status predicate matrix ───────────────────────
+//
+// Anchor date: 2026-05-11 (today).
+// Each row asserts isOverdue and isPastDeadline for the documented combination
+// of status, scheduledDate, and dueDate. The Dart test file in
+// apps/desktop_flutter/test/date_formatters_test.dart mirrors every row.
+
+describe('cross-stack matrix (anchor: 2026-05-11)', () => {
+  const MATRIX_TODAY = new Date('2026-05-11T00:00:00');
+
+  it('case 1: done task, both dates in past → neither flag set', () => {
+    expect(isOverdue({ status: 'done', scheduledDate: '2026-04-01', dueDate: '2026-04-01' }, MATRIX_TODAY)).toBe(false);
+    expect(isPastDeadline({ status: 'done', scheduledDate: '2026-04-01', dueDate: '2026-04-01' }, MATRIX_TODAY)).toBe(false);
+  });
+
+  it('case 2: open, no dates → neither flag set', () => {
+    expect(isOverdue({ status: 'open', scheduledDate: null, dueDate: null }, MATRIX_TODAY)).toBe(false);
+    expect(isPastDeadline({ status: 'open', scheduledDate: null, dueDate: null }, MATRIX_TODAY)).toBe(false);
+  });
+
+  it('case 3: open, future scheduled, no due → neither flag set', () => {
+    expect(isOverdue({ status: 'open', scheduledDate: '2026-05-15' }, MATRIX_TODAY)).toBe(false);
+    expect(isPastDeadline({ status: 'open', scheduledDate: '2026-05-15' }, MATRIX_TODAY)).toBe(false);
+  });
+
+  it('case 4: open, past scheduled, no due → overdue only', () => {
+    expect(isOverdue({ status: 'open', scheduledDate: '2026-05-05' }, MATRIX_TODAY)).toBe(true);
+    expect(isPastDeadline({ status: 'open', scheduledDate: '2026-05-05' }, MATRIX_TODAY)).toBe(false);
+  });
+
+  it('case 5: open, no scheduled, future due → neither flag set', () => {
+    expect(isOverdue({ status: 'open', dueDate: '2026-05-15' }, MATRIX_TODAY)).toBe(false);
+    expect(isPastDeadline({ status: 'open', dueDate: '2026-05-15' }, MATRIX_TODAY)).toBe(false);
+  });
+
+  it('case 6: open, no scheduled, past due → both flags set', () => {
+    expect(isOverdue({ status: 'open', dueDate: '2026-05-05' }, MATRIX_TODAY)).toBe(true);
+    expect(isPastDeadline({ status: 'open', dueDate: '2026-05-05' }, MATRIX_TODAY)).toBe(true);
+  });
+
+  it('case 7: scheduled future, deadline past → past-deadline only — the original reported bug', () => {
+    // scheduledDate wins for isOverdue (future → not overdue)
+    // isPastDeadline only checks dueDate (past → true)
+    expect(isOverdue({ status: 'open', scheduledDate: '2026-05-15', dueDate: '2026-05-05' }, MATRIX_TODAY)).toBe(false);
+    expect(isPastDeadline({ status: 'open', scheduledDate: '2026-05-15', dueDate: '2026-05-05' }, MATRIX_TODAY)).toBe(true);
+  });
+
+  it('case 8: open, past scheduled, future due → overdue only', () => {
+    expect(isOverdue({ status: 'open', scheduledDate: '2026-05-05', dueDate: '2026-05-15' }, MATRIX_TODAY)).toBe(true);
+    expect(isPastDeadline({ status: 'open', scheduledDate: '2026-05-05', dueDate: '2026-05-15' }, MATRIX_TODAY)).toBe(false);
+  });
+
+  it('case 9: open, both dates == today → neither flag set (today is not past)', () => {
+    expect(isOverdue({ status: 'open', scheduledDate: '2026-05-11', dueDate: '2026-05-11' }, MATRIX_TODAY)).toBe(false);
+    expect(isPastDeadline({ status: 'open', scheduledDate: '2026-05-11', dueDate: '2026-05-11' }, MATRIX_TODAY)).toBe(false);
+  });
+
+  it('case 10: open, both dates == yesterday → both flags set', () => {
+    expect(isOverdue({ status: 'open', scheduledDate: '2026-05-10', dueDate: '2026-05-10' }, MATRIX_TODAY)).toBe(true);
+    expect(isPastDeadline({ status: 'open', scheduledDate: '2026-05-10', dueDate: '2026-05-10' }, MATRIX_TODAY)).toBe(true);
+  });
+});
+
 // ── todayInTimezone / todayDateInTimezone ──────────────────────────────────────
 //
 // These tests verify TZ-boundary behaviour by constructing a pinned Date that

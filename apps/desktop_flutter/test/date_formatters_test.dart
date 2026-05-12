@@ -215,6 +215,215 @@ void main() {
   });
 
   // ---------------------------------------------------------------------------
+  // Canonical cross-stack date-status predicate matrix
+  //
+  // Anchor date: 2026-05-11 (today).
+  // Every row mirrors the identical matrix in
+  // apps/api_server/src/__tests__/task_date_status.test.ts so both stacks
+  // can be verified to agree bit-for-bit.
+  // ---------------------------------------------------------------------------
+  group('cross-stack matrix (anchor: 2026-05-11)', () {
+    final matrixToday = DateTime(2026, 5, 11);
+
+    test('case 1: done task, both dates in past → neither flag set', () {
+      expect(
+        DateFormatters.isOverdue(
+          scheduledDate: '2026-04-01',
+          dueDate: '2026-04-01',
+          isDone: true,
+          today: matrixToday,
+        ),
+        isFalse,
+      );
+      expect(
+        DateFormatters.isPastDeadline(
+          dueDate: '2026-04-01',
+          isDone: true,
+          today: matrixToday,
+        ),
+        isFalse,
+      );
+    });
+
+    test('case 2: open, no dates → neither flag set', () {
+      expect(
+        DateFormatters.isOverdue(isDone: false, today: matrixToday),
+        isFalse,
+      );
+      expect(
+        DateFormatters.isPastDeadline(isDone: false, today: matrixToday),
+        isFalse,
+      );
+    });
+
+    test('case 3: open, future scheduled, no due → neither flag set', () {
+      expect(
+        DateFormatters.isOverdue(
+          scheduledDate: '2026-05-15',
+          isDone: false,
+          today: matrixToday,
+        ),
+        isFalse,
+      );
+      // isPastDeadline ignores scheduledDate — no dueDate means not past deadline
+      expect(
+        DateFormatters.isPastDeadline(
+          isDone: false,
+          today: matrixToday,
+        ),
+        isFalse,
+      );
+    });
+
+    test('case 4: open, past scheduled, no due → overdue only', () {
+      expect(
+        DateFormatters.isOverdue(
+          scheduledDate: '2026-05-05',
+          isDone: false,
+          today: matrixToday,
+        ),
+        isTrue,
+      );
+      // isPastDeadline ignores scheduledDate — no dueDate means not past deadline
+      expect(
+        DateFormatters.isPastDeadline(
+          isDone: false,
+          today: matrixToday,
+        ),
+        isFalse,
+      );
+    });
+
+    test('case 5: open, no scheduled, future due → neither flag set', () {
+      expect(
+        DateFormatters.isOverdue(
+          dueDate: '2026-05-15',
+          isDone: false,
+          today: matrixToday,
+        ),
+        isFalse,
+      );
+      expect(
+        DateFormatters.isPastDeadline(
+          dueDate: '2026-05-15',
+          isDone: false,
+          today: matrixToday,
+        ),
+        isFalse,
+      );
+    });
+
+    test('case 6: open, no scheduled, past due → both flags set', () {
+      expect(
+        DateFormatters.isOverdue(
+          dueDate: '2026-05-05',
+          isDone: false,
+          today: matrixToday,
+        ),
+        isTrue,
+      );
+      expect(
+        DateFormatters.isPastDeadline(
+          dueDate: '2026-05-05',
+          isDone: false,
+          today: matrixToday,
+        ),
+        isTrue,
+      );
+    });
+
+    test(
+        'case 7: scheduled future, deadline past → past-deadline only — the original reported bug',
+        () {
+      // scheduledDate wins for isOverdue (future → not overdue).
+      // isPastDeadline only checks dueDate (past → true).
+      expect(
+        DateFormatters.isOverdue(
+          scheduledDate: '2026-05-15',
+          dueDate: '2026-05-05',
+          isDone: false,
+          today: matrixToday,
+        ),
+        isFalse,
+      );
+      // isPastDeadline ignores scheduledDate — only dueDate matters (past → true)
+      expect(
+        DateFormatters.isPastDeadline(
+          dueDate: '2026-05-05',
+          isDone: false,
+          today: matrixToday,
+        ),
+        isTrue,
+      );
+    });
+
+    test('case 8: open, past scheduled, future due → overdue only', () {
+      expect(
+        DateFormatters.isOverdue(
+          scheduledDate: '2026-05-05',
+          dueDate: '2026-05-15',
+          isDone: false,
+          today: matrixToday,
+        ),
+        isTrue,
+      );
+      // isPastDeadline ignores scheduledDate — future dueDate means not past deadline
+      expect(
+        DateFormatters.isPastDeadline(
+          dueDate: '2026-05-15',
+          isDone: false,
+          today: matrixToday,
+        ),
+        isFalse,
+      );
+    });
+
+    test(
+        'case 9: open, both dates == today → neither flag set (today is not past)',
+        () {
+      expect(
+        DateFormatters.isOverdue(
+          scheduledDate: '2026-05-11',
+          dueDate: '2026-05-11',
+          isDone: false,
+          today: matrixToday,
+        ),
+        isFalse,
+      );
+      // isPastDeadline ignores scheduledDate — dueDate == today is not past
+      expect(
+        DateFormatters.isPastDeadline(
+          dueDate: '2026-05-11',
+          isDone: false,
+          today: matrixToday,
+        ),
+        isFalse,
+      );
+    });
+
+    test('case 10: open, both dates == yesterday → both flags set', () {
+      expect(
+        DateFormatters.isOverdue(
+          scheduledDate: '2026-05-10',
+          dueDate: '2026-05-10',
+          isDone: false,
+          today: matrixToday,
+        ),
+        isTrue,
+      );
+      // isPastDeadline ignores scheduledDate — dueDate in past → true
+      expect(
+        DateFormatters.isPastDeadline(
+          dueDate: '2026-05-10',
+          isDone: false,
+          today: matrixToday,
+        ),
+        isTrue,
+      );
+    });
+  });
+
+  // ---------------------------------------------------------------------------
   // isPastDue — deprecated alias
   // ---------------------------------------------------------------------------
   group('DateFormatters.isPastDue (deprecated alias)', () {
