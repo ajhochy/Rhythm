@@ -456,7 +456,7 @@ class _TasksViewState extends State<TasksView> {
     final colors = context.rhythm;
     final isDone = task.status == TaskStatus.done;
     final visualStyle = TaskVisualStyles.resolve(task);
-    final isPastDue = DateFormatters.isPastDue(
+    final isOverdue = DateFormatters.isOverdue(
       dueDate: task.dueDate,
       scheduledDate: task.scheduledDate,
       isDone: isDone,
@@ -559,7 +559,7 @@ class _TasksViewState extends State<TasksView> {
                     RhythmMetaChip(
                       label: primaryLabel,
                       icon: Icons.flag_outlined,
-                      tone: isPastDue
+                      tone: isOverdue
                           ? RhythmMetaChipTone.danger
                           : RhythmMetaChipTone.neutral,
                     ),

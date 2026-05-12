@@ -1881,7 +1881,7 @@ class _TaskPreviewRow extends StatelessWidget {
     final isDone = task.status == TaskStatus.done;
     final tone = _taskTone(task, showPastDue: showPastDue);
     final accent = _toneColor(colors, tone);
-    final isPastDue = showPastDue &&
+    final isOverdue = showPastDue &&
         DateFormatters.isOverdue(
           dueDate: task.dueDate,
           scheduledDate: task.scheduledDate,
@@ -1969,7 +1969,7 @@ class _TaskPreviewRow extends StatelessWidget {
                       RhythmMetaChip(
                         label: primaryLabel,
                         icon: Icons.flag_outlined,
-                        tone: isPastDue
+                        tone: isOverdue
                             ? RhythmMetaChipTone.danger
                             : RhythmMetaChipTone.neutral,
                       ),

@@ -422,33 +422,4 @@ void main() {
       );
     });
   });
-
-  // ---------------------------------------------------------------------------
-  // isPastDue — deprecated alias
-  // ---------------------------------------------------------------------------
-  group('DateFormatters.isPastDue (deprecated alias)', () {
-    test('delegates to isOverdue: past scheduled → true', () {
-      expect(
-        DateFormatters.isPastDue(
-          dueDate: null,
-          scheduledDate: yesterday,
-          isDone: false,
-          today: today,
-        ),
-        isTrue,
-      );
-    });
-
-    test('delegates to isOverdue: done → false', () {
-      expect(
-        DateFormatters.isPastDue(
-          dueDate: yesterday,
-          scheduledDate: null,
-          isDone: true,
-          today: today,
-        ),
-        isFalse,
-      );
-    });
-  });
 }

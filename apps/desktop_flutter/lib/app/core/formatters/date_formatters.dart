@@ -82,22 +82,6 @@ class DateFormatters {
     return _parseIsoDate(scheduledDate) ?? _parseIsoDate(dueDate);
   }
 
-  // ignore: deprecated_member_use_from_same_package
-  @Deprecated('Use isOverdue')
-  static bool isPastDue({
-    required String? dueDate,
-    required String? scheduledDate,
-    required bool isDone,
-    DateTime? today,
-  }) {
-    return isOverdue(
-      dueDate: dueDate,
-      scheduledDate: scheduledDate,
-      isDone: isDone,
-      today: today,
-    );
-  }
-
   static bool isDueToday({
     required String? dueDate,
     required String? scheduledDate,
