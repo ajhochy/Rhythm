@@ -460,7 +460,17 @@ class _TasksViewState extends State<TasksView> {
       scheduledDate: task.scheduledDate,
       isDone: isDone,
     );
-    final dueLabel = _compactDate(task.dueDate);
+    // Primary badge uses scheduledDate ?? dueDate (same semantics as
+    // DateFormatters.priorityDate) so the row badge matches the grouping logic.
+    final hasSched =
+        task.scheduledDate != null && task.scheduledDate!.trim().isNotEmpty;
+    final hasDue = task.dueDate != null && task.dueDate!.trim().isNotEmpty;
+    final primaryDateStr = hasSched ? task.scheduledDate : task.dueDate;
+    final primaryLabel = _compactDate(primaryDateStr);
+    final showDueHint = hasSched &&
+        hasDue &&
+        task.scheduledDate!.trim() != task.dueDate!.trim();
+    final dueHintLabel = showDueHint ? _compactDate(task.dueDate) : null;
     final sourceName = task.sourceName?.trim();
     final hasSourceName = sourceName != null && sourceName.isNotEmpty;
     final accentColor = visualStyle.accent;
@@ -539,14 +549,30 @@ class _TasksViewState extends State<TasksView> {
                   color: Color(0xFFF59E0B),
                 ),
               ],
-              if (dueLabel != null) ...[
+              if (primaryLabel != null) ...[
                 const SizedBox(width: 6),
-                RhythmMetaChip(
-                  label: dueLabel,
-                  icon: Icons.flag_outlined,
-                  tone: isPastDue
-                      ? RhythmMetaChipTone.danger
-                      : RhythmMetaChipTone.neutral,
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    RhythmMetaChip(
+                      label: primaryLabel,
+                      icon: Icons.flag_outlined,
+                      tone: isPastDue
+                          ? RhythmMetaChipTone.danger
+                          : RhythmMetaChipTone.neutral,
+                    ),
+                    if (dueHintLabel != null)
+                      Text(
+                        'Due $dueHintLabel',
+                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .onSurfaceVariant,
+                              fontSize: 10,
+                            ),
+                      ),
+                  ],
                 ),
               ],
               RhythmMenuButton<_TaskAction>(
