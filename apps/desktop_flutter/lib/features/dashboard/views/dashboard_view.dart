@@ -589,7 +589,10 @@ class _DashboardBodyState extends State<_DashboardBody> {
   List<Task> _tasksForDate(List<Task> tasks, DateTime date) {
     final target = DateTime(date.year, date.month, date.day);
     return tasks.where((task) {
-      final taskDate = _taskPriorityDate(task);
+      final taskDate = DateFormatters.priorityDate(
+        dueDate: task.dueDate,
+        scheduledDate: task.scheduledDate,
+      );
       return taskDate != null &&
           taskDate.year == target.year &&
           taskDate.month == target.month &&
@@ -1642,26 +1645,6 @@ class _ProgressFeatureDetails extends StatelessWidget {
   }
 }
 
-bool _isPastDue(Task task) {
-  if (task.status == TaskStatus.done) return false;
-  final date = _taskPriorityDate(task);
-  if (date == null) return false;
-  final today = DateTime.now();
-  final stripped = DateTime(today.year, today.month, today.day);
-  return date.isBefore(stripped);
-}
-
-DateTime? _taskPriorityDate(Task task) {
-  final scheduled = task.scheduledDate == null
-      ? null
-      : DateTime.tryParse(task.scheduledDate!);
-  if (scheduled != null) {
-    return DateTime(scheduled.year, scheduled.month, scheduled.day);
-  }
-  final due = task.dueDate == null ? null : DateTime.tryParse(task.dueDate!);
-  return due == null ? null : DateTime(due.year, due.month, due.day);
-}
-
 String _taskSourceLabel(Task task) {
   final sourceName = task.sourceName?.trim();
   if (sourceName != null && sourceName.isNotEmpty) return sourceName;
@@ -1676,7 +1659,13 @@ String _taskSourceLabel(Task task) {
 }
 
 RhythmBadgeTone _taskTone(Task task, {bool showPastDue = false}) {
-  if (showPastDue && _isPastDue(task)) return RhythmBadgeTone.danger;
+  final overdue = showPastDue &&
+      DateFormatters.isOverdue(
+        dueDate: task.dueDate,
+        scheduledDate: task.scheduledDate,
+        isDone: task.status == TaskStatus.done,
+      );
+  if (overdue) return RhythmBadgeTone.danger;
   return switch (task.sourceType) {
     'recurring_rule' => RhythmBadgeTone.success,
     'project_step' => RhythmBadgeTone.warning,
@@ -1892,10 +1881,21 @@ class _TaskPreviewRow extends StatelessWidget {
     final isDone = task.status == TaskStatus.done;
     final tone = _taskTone(task, showPastDue: showPastDue);
     final accent = _toneColor(colors, tone);
-    final isPastDue = showPastDue && _isPastDue(task);
-    final dueLabel = task.dueDate != null
-        ? DateFormatters.fullDate(task.dueDate, fallback: task.dueDate!)
-        : null;
+    final isPastDue = showPastDue &&
+        DateFormatters.isOverdue(
+          dueDate: task.dueDate,
+          scheduledDate: task.scheduledDate,
+          isDone: isDone,
+        );
+    final hasSched =
+        task.scheduledDate != null && task.scheduledDate!.trim().isNotEmpty;
+    final hasDue = task.dueDate != null && task.dueDate!.trim().isNotEmpty;
+    final primaryDateStr = hasSched ? task.scheduledDate : task.dueDate;
+    final primaryLabel = _compactDate(primaryDateStr);
+    final showDueHint = hasSched &&
+        hasDue &&
+        task.scheduledDate!.trim() != task.dueDate!.trim();
+    final dueHintLabel = showDueHint ? _compactDate(task.dueDate) : null;
     final sourceName = task.sourceName?.trim();
     final hasSourceName = sourceName != null && sourceName.isNotEmpty;
 
@@ -1960,14 +1960,31 @@ class _TaskPreviewRow extends StatelessWidget {
                     ],
                   ),
                 ),
-                if (dueLabel != null) ...[
+                if (primaryLabel != null) ...[
                   const SizedBox(width: 6),
-                  RhythmMetaChip(
-                    label: dueLabel,
-                    icon: Icons.flag_outlined,
-                    tone: isPastDue
-                        ? RhythmMetaChipTone.danger
-                        : RhythmMetaChipTone.neutral,
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      RhythmMetaChip(
+                        label: primaryLabel,
+                        icon: Icons.flag_outlined,
+                        tone: isPastDue
+                            ? RhythmMetaChipTone.danger
+                            : RhythmMetaChipTone.neutral,
+                      ),
+                      if (dueHintLabel != null)
+                        Text(
+                          'Due $dueHintLabel',
+                          style:
+                              Theme.of(context).textTheme.labelSmall?.copyWith(
+                                    color: Theme.of(context)
+                                        .colorScheme
+                                        .onSurfaceVariant,
+                                    fontSize: 10,
+                                  ),
+                        ),
+                    ],
                   ),
                 ],
               ],
@@ -2080,4 +2097,28 @@ class _HandoffPreviewRow extends StatelessWidget {
       ),
     );
   }
+}
+
+String? _compactDate(String? isoDate) {
+  if (isoDate == null || isoDate.trim().isEmpty) return null;
+  final match = RegExp(r'^(\d{4})-(\d{2})-(\d{2})').firstMatch(isoDate.trim());
+  if (match == null) return isoDate;
+  final month = int.tryParse(match.group(2)!);
+  final day = int.tryParse(match.group(3)!);
+  if (month == null || day == null || month < 1 || month > 12) return isoDate;
+  const months = [
+    'Jan',
+    'Feb',
+    'Mar',
+    'Apr',
+    'May',
+    'Jun',
+    'Jul',
+    'Aug',
+    'Sep',
+    'Oct',
+    'Nov',
+    'Dec',
+  ];
+  return '${months[month - 1]} $day';
 }
