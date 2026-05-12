@@ -64,11 +64,11 @@ export function createApp() {
   app.use('/message-threads', messagesRouter);
   app.use('/facilities', facilitiesRouter);
   app.use('/workspaces', workspaceRouter);
+  app.use('/notifications/agent', notificationsAgentRouter);
   app.use('/notifications', notificationsRouter);
   app.use('/claude-triggers', claudeTriggersRouter);
   app.use('/agent-configs', agentConfigsRouter);
   app.use('/agent-sessions', agentSessionsRouter);
-  app.use('/notifications/agent', notificationsAgentRouter);
 
   app.use(errorHandler);
 
