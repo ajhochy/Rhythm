@@ -19,6 +19,25 @@ function makeDb() {
   return db;
 }
 
+/**
+ * Returns a YYYY-MM-DD date string for the given timezone, offset by `offsetDays`
+ * from today (negative = past, positive = future).  All dashboard test fixtures
+ * should use this helper so that "yesterday" in the test matches "yesterday" as
+ * seen by the service, which classifies tasks using the user's timezone.
+ */
+function dateInTimezone(timezone: string, offsetDays: number): string {
+  const todayStr = new Intl.DateTimeFormat('en-CA', {
+    timeZone: timezone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date());
+  // Parse as local midnight so we can add/subtract days safely.
+  const d = new Date(todayStr + 'T00:00:00');
+  d.setDate(d.getDate() + offsetDays);
+  return d.toISOString().slice(0, 10);
+}
+
 async function readJson(response: Response) {
   const text = await response.text();
   return text ? JSON.parse(text) : null;
@@ -61,9 +80,12 @@ describe('GET /dashboard/summary', () => {
   it('returns a well-shaped summary with correct counts for a realistic scenario', async () => {
     const owner = usersRepo.create({ name: 'Alice', email: 'alice@example.com' });
     const headers = await authHeaderFor(owner.id);
-    const today = new Date().toISOString().slice(0, 10);
-    const yesterday = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
-    const tomorrow = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10);
+    // Use the user's default timezone (America/Los_Angeles) so that "yesterday",
+    // "today", and "tomorrow" align with the service's classification logic.
+    const tz = 'America/Los_Angeles';
+    const today = dateInTimezone(tz, 0);
+    const yesterday = dateInTimezone(tz, -1);
+    const tomorrow = dateInTimezone(tz, 1);
 
     // Create tasks: 1 past due, 1 today, 1 tomorrow, 1 done today, 1 unscheduled
     tasksRepo.create({ title: 'Past due task', dueDate: yesterday, ownerId: owner.id });
@@ -206,8 +228,10 @@ describe('GET /dashboard/summary', () => {
     // → counted in pastDeadlineCount only, NOT in pastDueCount.
     const owner = usersRepo.create({ name: 'Carol', email: 'carol@example.com' });
     const headers = await authHeaderFor(owner.id);
-    const yesterday = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
-    const tomorrow = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10);
+    // Use the user's default timezone so dates match the service's classification.
+    const tz = 'America/Los_Angeles';
+    const yesterday = dateInTimezone(tz, -1);
+    const tomorrow = dateInTimezone(tz, 1);
 
     // scheduledDate in future (not overdue), dueDate yesterday (past deadline)
     tasksRepo.create({
@@ -243,10 +267,12 @@ describe('GET /dashboard/summary', () => {
   it('pastDeadlineTasks is sorted by dueDate ascending (most-overdue deadline first)', async () => {
     const owner = usersRepo.create({ name: 'Frank', email: 'frank@example.com' });
     const headers = await authHeaderFor(owner.id);
-    const twoDaysAgo = new Date(Date.now() - 2 * 86_400_000).toISOString().slice(0, 10);
-    const yesterday = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
-    const tomorrow = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10);
-    const dayAfterTomorrow = new Date(Date.now() + 2 * 86_400_000).toISOString().slice(0, 10);
+    // Use the user's default timezone so dates match the service's classification.
+    const tz = 'America/Los_Angeles';
+    const twoDaysAgo = dateInTimezone(tz, -2);
+    const yesterday = dateInTimezone(tz, -1);
+    const tomorrow = dateInTimezone(tz, 1);
+    const dayAfterTomorrow = dateInTimezone(tz, 2);
 
     // Two past-deadline-only tasks (dueDate past, scheduledDate future → not overdue)
     tasksRepo.create({
@@ -287,8 +313,9 @@ describe('GET /dashboard/summary', () => {
     //   isPastDeadline = true, but overdue wins → NOT in pastDeadlineCount
     const owner = usersRepo.create({ name: 'Dave', email: 'dave@example.com' });
     const headers = await authHeaderFor(owner.id);
-    const twoDaysAgo = new Date(Date.now() - 2 * 86_400_000).toISOString().slice(0, 10);
-    const yesterday = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
+    const tz = 'America/Los_Angeles';
+    const twoDaysAgo = dateInTimezone(tz, -2);
+    const yesterday = dateInTimezone(tz, -1);
 
     // Both dates in the past → overdue AND past-deadline, but must count in pastDueCount only
     tasksRepo.create({
@@ -315,8 +342,9 @@ describe('GET /dashboard/summary', () => {
   it('done tasks are excluded from pastDeadlineCount', async () => {
     const owner = usersRepo.create({ name: 'Eve', email: 'eve@example.com' });
     const headers = await authHeaderFor(owner.id);
-    const yesterday = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
-    const tomorrow = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10);
+    const tz = 'America/Los_Angeles';
+    const yesterday = dateInTimezone(tz, -1);
+    const tomorrow = dateInTimezone(tz, 1);
 
     // Past-deadline-only task that's done → must not appear in pastDeadlineCount
     const doneTask = tasksRepo.create({
