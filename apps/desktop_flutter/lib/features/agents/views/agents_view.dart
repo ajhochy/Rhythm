@@ -104,11 +104,7 @@ class AgentServerUnavailable extends StatelessWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(
-                Icons.error_outline,
-                size: 40,
-                color: context.rhythm.danger,
-              ),
+              Icon(Icons.error_outline, size: 40, color: context.rhythm.danger),
               const SizedBox(height: 16),
               Text(
                 'Agent server unavailable',
@@ -458,8 +454,10 @@ class _SessionListHeader extends StatelessWidget {
                   );
                 },
                 style: TextButton.styleFrom(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 8,
+                    vertical: 6,
+                  ),
                   minimumSize: Size.zero,
                   tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                   shape: RoundedRectangleBorder(
@@ -570,10 +568,7 @@ class _SessionRow extends StatelessWidget {
               children: [
                 _AgentKindBadge(agentId: session.agentId),
                 const Spacer(),
-                _StatusDot(
-                  status: session.status,
-                  isWorking: isWorking,
-                ),
+                _StatusDot(status: session.status, isWorking: isWorking),
               ],
             ),
             const SizedBox(height: 6),
@@ -621,10 +616,7 @@ class _SessionRow extends StatelessWidget {
 }
 
 class _ResumableSessionRow extends StatelessWidget {
-  const _ResumableSessionRow({
-    required this.session,
-    required this.onResume,
-  });
+  const _ResumableSessionRow({required this.session, required this.onResume});
 
   final AgentSession session;
   final VoidCallback onResume;
@@ -686,10 +678,7 @@ class _AgentKindBadge extends StatelessWidget {
 /// back to displaying the raw [agentId] with a neutral style when the config
 /// has been deleted.
 class _AgentConfigBadge extends StatelessWidget {
-  const _AgentConfigBadge({
-    required this.agentId,
-    required this.config,
-  });
+  const _AgentConfigBadge({required this.agentId, required this.config});
 
   final String agentId;
   final AgentConfig? config;
@@ -834,10 +823,7 @@ class _TranscriptPanelState extends State<_TranscriptPanel> {
                 : Column(
                     children: [
                       _TranscriptHeader(session: selected),
-                      Divider(
-                        height: 1,
-                        color: context.rhythm.borderSubtle,
-                      ),
+                      Divider(height: 1, color: context.rhythm.borderSubtle),
                       Expanded(
                         child: Container(
                           color: context.rhythm.canvas.withValues(alpha: 0.45),
@@ -873,10 +859,7 @@ class _TranscriptPanelState extends State<_TranscriptPanel> {
       return Center(
         child: Text(
           'Session started. Waiting for output…',
-          style: TextStyle(
-            color: context.rhythm.textMuted,
-            fontSize: 13,
-          ),
+          style: TextStyle(color: context.rhythm.textMuted, fontSize: 13),
         ),
       );
     }
@@ -943,15 +926,20 @@ class _TranscriptHeader extends StatelessWidget {
               style: OutlinedButton.styleFrom(
                 foregroundColor: context.rhythm.accent,
                 side: BorderSide(color: context.rhythm.border),
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 6,
+                ),
                 minimumSize: Size.zero,
                 tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                 shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(RhythmRadius.md)),
+                  borderRadius: BorderRadius.circular(RhythmRadius.md),
+                ),
               ),
-              child: const Text('Reconnect',
-                  style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+              child: const Text(
+                'Reconnect',
+                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+              ),
             ),
             const SizedBox(width: 6),
           ],
@@ -1209,10 +1197,7 @@ class _LiveOutputBlock extends StatelessWidget {
 }
 
 class _InputArea extends StatelessWidget {
-  const _InputArea({
-    required this.inputController,
-    required this.onSend,
-  });
+  const _InputArea({required this.inputController, required this.onSend});
 
   final TextEditingController inputController;
   final VoidCallback onSend;
@@ -1241,10 +1226,7 @@ class _InputArea extends StatelessWidget {
               const Spacer(),
               Text(
                 'Enter to send',
-                style: TextStyle(
-                  fontSize: 11,
-                  color: context.rhythm.textMuted,
-                ),
+                style: TextStyle(fontSize: 11, color: context.rhythm.textMuted),
               ),
             ],
           ),
@@ -1344,11 +1326,7 @@ class _PendingTriggerBanner extends StatelessWidget {
         ),
         child: Row(
           children: [
-            Icon(
-              Icons.auto_awesome,
-              size: 16,
-              color: context.rhythm.warning,
-            ),
+            Icon(Icons.auto_awesome, size: 16, color: context.rhythm.warning),
             const SizedBox(width: 10),
             Expanded(
               child: Text(
@@ -1374,9 +1352,9 @@ class _PendingTriggerBanner extends StatelessWidget {
             ),
             const SizedBox(width: 6),
             TextButton(
-              onPressed: () => context
-                  .read<AgentsController>()
-                  .dismissTrigger(trigger.taskId),
+              onPressed: () => context.read<AgentsController>().dismissTrigger(
+                    trigger.taskId,
+                  ),
               style: TextButton.styleFrom(
                 foregroundColor: context.rhythm.textSecondary,
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
@@ -1464,6 +1442,7 @@ class _NewSessionDialogState extends State<_NewSessionDialog> {
   Task? _selectedTask;
   bool _isSubmitting = false;
   String? _error;
+  int? _errorStatus;
 
   @override
   void initState() {
@@ -1510,6 +1489,7 @@ class _NewSessionDialogState extends State<_NewSessionDialog> {
     setState(() {
       _isSubmitting = true;
       _error = null;
+      _errorStatus = null;
     });
 
     final controller = context.read<AgentsController>();
@@ -1526,7 +1506,10 @@ class _NewSessionDialogState extends State<_NewSessionDialog> {
     setState(() => _isSubmitting = false);
 
     if (session == null) {
-      setState(() => _error = controller.error ?? 'Failed to create session.');
+      setState(() {
+        _error = controller.error ?? 'Failed to create session.';
+        _errorStatus = controller.lastErrorStatus;
+      });
       return;
     }
 
@@ -1589,10 +1572,7 @@ class _NewSessionDialogState extends State<_NewSessionDialog> {
             TextField(
               controller: _nameController,
               autofocus: true,
-              style: TextStyle(
-                fontSize: 14,
-                color: context.rhythm.textPrimary,
-              ),
+              style: TextStyle(fontSize: 14, color: context.rhythm.textPrimary),
               decoration: _inputDecoration(
                 context,
                 hint: 'e.g. Fix auth bug',
@@ -1628,8 +1608,9 @@ class _NewSessionDialogState extends State<_NewSessionDialog> {
                           label: config.label,
                           selected: _agentId == config.id,
                           color: _colorForAgent(config.id),
-                          enabled:
-                              agentServerController.isAgentAvailable(config.id),
+                          enabled: agentServerController.isAgentAvailable(
+                            config.id,
+                          ),
                           disabledLabel: '(not installed)',
                           onTap:
                               agentServerController.isAgentAvailable(config.id)
@@ -1658,10 +1639,7 @@ class _NewSessionDialogState extends State<_NewSessionDialog> {
               isExpanded: true,
               dropdownColor: context.rhythm.surfaceRaised,
               decoration: _inputDecoration(context, hint: 'No task linked'),
-              style: TextStyle(
-                fontSize: 13,
-                color: context.rhythm.textPrimary,
-              ),
+              style: TextStyle(fontSize: 13, color: context.rhythm.textPrimary),
               items: [
                 DropdownMenuItem<Task?>(
                   value: null,
@@ -1712,13 +1690,51 @@ class _NewSessionDialogState extends State<_NewSessionDialog> {
 
             if (_error != null) ...[
               const SizedBox(height: 12),
-              Text(
-                _error!,
-                style: TextStyle(
-                  color: context.rhythm.danger,
-                  fontSize: 12,
+              if (_errorStatus != null && _errorStatus! >= 500)
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Something went wrong on the server.',
+                      style: TextStyle(
+                        color: context.rhythm.danger,
+                        fontSize: 12,
+                      ),
+                    ),
+                    Theme(
+                      data: Theme.of(
+                        context,
+                      ).copyWith(dividerColor: Colors.transparent),
+                      child: ExpansionTile(
+                        tilePadding: EdgeInsets.zero,
+                        title: Text(
+                          'Details',
+                          style: TextStyle(
+                            color: context.rhythm.textSecondary,
+                            fontSize: 12,
+                          ),
+                        ),
+                        children: [
+                          Align(
+                            alignment: Alignment.centerLeft,
+                            child: Text(
+                              _error!,
+                              style: TextStyle(
+                                color: context.rhythm.textSecondary,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                )
+              else
+                Text(
+                  _error!,
+                  style: TextStyle(color: context.rhythm.danger, fontSize: 12),
                 ),
-              ),
             ],
           ],
         ),
@@ -1733,9 +1749,7 @@ class _NewSessionDialogState extends State<_NewSessionDialog> {
         ),
         FilledButton(
           onPressed: _canSubmit ? _submit : null,
-          style: FilledButton.styleFrom(
-            backgroundColor: context.rhythm.accent,
-          ),
+          style: FilledButton.styleFrom(backgroundColor: context.rhythm.accent),
           child: _isSubmitting
               ? SizedBox(
                   width: 16,
@@ -1827,11 +1841,7 @@ class _DisconnectedBanner extends StatelessWidget {
       ),
       child: Row(
         children: [
-          Icon(
-            Icons.error_outline,
-            size: 15,
-            color: context.rhythm.danger,
-          ),
+          Icon(Icons.error_outline, size: 15, color: context.rhythm.danger),
           const SizedBox(width: 8),
           Expanded(
             child: Text(
@@ -1944,10 +1954,7 @@ class _AgentToggleButton extends StatelessWidget {
             const SizedBox(height: 2),
             Text(
               disabledLabel!,
-              style: TextStyle(
-                fontSize: 10,
-                color: effectiveColor,
-              ),
+              style: TextStyle(fontSize: 10, color: effectiveColor),
             ),
           ],
         ],
@@ -1956,10 +1963,7 @@ class _AgentToggleButton extends StatelessWidget {
 
     return IgnorePointer(
       ignoring: !enabled,
-      child: GestureDetector(
-        onTap: onTap,
-        child: content,
-      ),
+      child: GestureDetector(onTap: onTap, child: content),
     );
   }
 }

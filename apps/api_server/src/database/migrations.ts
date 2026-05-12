@@ -891,6 +891,23 @@ export function runMigrations(db: Database.Database): void {
     WHERE agent_kind IN ('codexCli');
   `);
 
+  // Bug 1 milestone — Repair legacy agent_configs.id values from older seeds.
+  // Older versions of Rhythm seeded the Claude Code preset with id='claude'. The
+  // canonical id (matching /agents/capabilities and the current seed) is
+  // 'claude-code'. Update any surviving rows in-place. INSERT OR IGNORE on the
+  // seed above means the canonical row already exists; if a legacy 'claude' row
+  // is present we must drop the alias row (sessions were already migrated above).
+  db.exec(`
+    UPDATE agent_configs SET id = 'claude-code' WHERE id = 'claude'
+      AND NOT EXISTS (SELECT 1 FROM agent_configs WHERE id = 'claude-code');
+    DELETE FROM agent_configs WHERE id = 'claude'
+      AND EXISTS (SELECT 1 FROM agent_configs WHERE id = 'claude-code');
+    UPDATE agent_configs SET id = 'gemini-cli' WHERE id = 'gemini'
+      AND NOT EXISTS (SELECT 1 FROM agent_configs WHERE id = 'gemini-cli');
+    DELETE FROM agent_configs WHERE id = 'gemini'
+      AND EXISTS (SELECT 1 FROM agent_configs WHERE id = 'gemini-cli');
+  `);
+
   // Issue #497 — Verify Gemini CLI end-to-end and lock in seed values.
   //
   // Smoke-test findings (gemini 0.41.2, run 2026-05-08):

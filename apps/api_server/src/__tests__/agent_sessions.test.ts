@@ -162,6 +162,45 @@ describe('Agent Sessions API', () => {
     );
   });
 
+  // ── legacy agentId alias normalization ───────────────────────────────────
+
+  it('normalizes legacy alias "claude" to "claude-code" and creates the session', async () => {
+    const payload = {
+      agentId: 'claude',
+      cwd: os.homedir(),
+      name: 'Legacy Alias Session',
+    };
+
+    const res = await fetch(`${baseUrl}/agent-sessions`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify(payload),
+    });
+
+    expect(res.status).toBe(201);
+    const session = (await res.json()) as { agentKind: string };
+    expect(session.agentKind).toBe('claude-code');
+  });
+
+  it('returns 400 with structured error for a truly unknown agentId', async () => {
+    const payload = {
+      agentId: 'unknown-agent',
+      cwd: os.homedir(),
+      name: 'Unknown Agent Session',
+    };
+
+    const res = await fetch(`${baseUrl}/agent-sessions`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify(payload),
+    });
+
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as { error: { code: string; message: string } };
+    expect(body.error.code).toBe('BAD_REQUEST');
+    expect(body.error.message).toBe("agent not configured: 'unknown-agent'");
+  });
+
   it('does not expand ~ if not at the start', async () => {
     const payload = {
       agentId: 'claude-code',
