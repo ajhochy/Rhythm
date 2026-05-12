@@ -246,14 +246,19 @@ class _ProjectsViewState extends State<ProjectsView> {
     ProjectInstanceStep step, {
     String? title,
     String? dueDate,
+    String? scheduledDate,
     String? status,
     String? notes,
     int? assigneeId,
+    bool includeDueDate = false,
+    bool includeScheduledDate = false,
   }) async {
     try {
       final body = <String, dynamic>{
         if (title != null) 'title': title,
-        if (dueDate != null) 'dueDate': dueDate,
+        if (includeDueDate || dueDate != null) 'dueDate': dueDate,
+        if (includeScheduledDate || scheduledDate != null)
+          'scheduledDate': scheduledDate,
         if (status != null) 'status': status,
         if (notes != null) 'notes': notes.isEmpty ? null : notes,
         'assigneeId': assigneeId,
@@ -292,8 +297,11 @@ class _ProjectsViewState extends State<ProjectsView> {
         step,
         title: request.title,
         dueDate: request.dueDate,
+        scheduledDate: request.scheduledDate,
         notes: request.notes,
         assigneeId: request.assigneeId,
+        includeDueDate: true,
+        includeScheduledDate: true,
       ),
     );
   }
@@ -579,14 +587,19 @@ class _TemplateDetailState extends State<_TemplateDetail>
     ProjectInstanceStep step, {
     String? title,
     String? dueDate,
+    String? scheduledDate,
     String? status,
     String? notes,
     int? assigneeId,
+    bool includeDueDate = false,
+    bool includeScheduledDate = false,
   }) async {
     try {
       final body = <String, dynamic>{
         if (title != null) 'title': title,
-        if (dueDate != null) 'dueDate': dueDate,
+        if (includeDueDate || dueDate != null) 'dueDate': dueDate,
+        if (includeScheduledDate || scheduledDate != null)
+          'scheduledDate': scheduledDate,
         if (status != null) 'status': status,
         if (notes != null) 'notes': notes.isEmpty ? null : notes,
         'assigneeId': assigneeId,
@@ -625,8 +638,11 @@ class _TemplateDetailState extends State<_TemplateDetail>
         step,
         title: request.title,
         dueDate: request.dueDate,
+        scheduledDate: request.scheduledDate,
         notes: request.notes,
         assigneeId: request.assigneeId,
+        includeDueDate: true,
+        includeScheduledDate: true,
       ),
     );
   }
@@ -1283,7 +1299,7 @@ class _InstanceStepTile extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Due: ${DateFormatters.fullDate(step.dueDate, fallback: step.dueDate)}',
+              'Due: ${DateFormatters.fullDate(step.dueDate, fallback: step.dueDate ?? 'No due date')}',
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
                     color: colorScheme.onSurfaceVariant,
                   ),
@@ -2122,7 +2138,8 @@ class _SuccessView extends StatelessWidget {
                   ),
                 ),
                 Text(
-                  DateFormatters.fullDate(s.dueDate, fallback: s.dueDate),
+                  DateFormatters.fullDate(s.dueDate,
+                      fallback: s.dueDate ?? 'No due date'),
                   style: const TextStyle(color: Colors.grey, fontSize: 11),
                 ),
               ],

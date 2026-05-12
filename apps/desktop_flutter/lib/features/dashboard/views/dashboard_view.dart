@@ -484,6 +484,7 @@ class _DashboardBodyState extends State<_DashboardBody> {
           stepId: step.stepId,
           title: step.title,
           dueDate: step.dueDate,
+          scheduledDate: step.scheduledDate,
           status: step.status,
           notes: step.notes,
           assigneeId: step.assigneeId,
@@ -497,9 +498,12 @@ class _DashboardBodyState extends State<_DashboardBody> {
           step.id,
           title: request.title,
           dueDate: request.dueDate,
+          scheduledDate: request.scheduledDate,
           notes: request.notes,
           assigneeId: request.assigneeId,
           includeNotes: true,
+          includeDueDate: true,
+          includeScheduledDate: true,
         ),
       );
       return;
@@ -555,6 +559,7 @@ class _DashboardBodyState extends State<_DashboardBody> {
         stepId: step.id,
         title: step.title,
         dueDate: step.dueDate,
+        scheduledDate: step.scheduledDate,
         status: step.status,
         notes: step.notes,
         assigneeId: step.assigneeId,
@@ -571,9 +576,12 @@ class _DashboardBodyState extends State<_DashboardBody> {
         step.id,
         title: request.title,
         dueDate: request.dueDate,
+        scheduledDate: request.scheduledDate,
         notes: request.notes,
         assigneeId: request.assigneeId,
         includeNotes: true,
+        includeDueDate: true,
+        includeScheduledDate: true,
       ),
     );
   }

@@ -233,7 +233,8 @@ class DashboardProjectStepPreview {
     required this.id,
     required this.title,
     required this.status,
-    required this.dueDate,
+    this.dueDate,
+    this.scheduledDate,
     this.notes,
     this.assigneeId,
     this.assigneeName,
@@ -244,7 +245,8 @@ class DashboardProjectStepPreview {
         id: json['id'] as String,
         title: json['title'] as String,
         status: json['status'] as String? ?? 'open',
-        dueDate: json['dueDate'] as String? ?? '',
+        dueDate: json['dueDate'] as String?,
+        scheduledDate: json['scheduledDate'] as String?,
         notes: json['notes'] as String?,
         assigneeId: (json['assigneeId'] as num?)?.toInt(),
         assigneeName: json['assigneeName'] as String?,
@@ -253,7 +255,8 @@ class DashboardProjectStepPreview {
   final String id;
   final String title;
   final String status;
-  final String dueDate;
+  final String? dueDate;
+  final String? scheduledDate;
   final String? notes;
   final int? assigneeId;
   final String? assigneeName;

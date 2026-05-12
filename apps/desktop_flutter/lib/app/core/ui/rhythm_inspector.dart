@@ -39,12 +39,14 @@ class RhythmProjectStepInspectorSaveRequest {
     required this.title,
     required this.notes,
     required this.dueDate,
+    required this.scheduledDate,
     required this.assigneeId,
   });
 
   final String title;
   final String? notes;
   final String? dueDate;
+  final String? scheduledDate;
   final int? assigneeId;
 }
 
@@ -387,8 +389,8 @@ class _RhythmTaskInspectorState extends State<_RhythmTaskInspector> {
   late final TextEditingController _titleController;
   late final TextEditingController _notesController;
   late List<TaskCollaborator> _collaborators;
-  late String? _primaryDate;
-  late bool _usesScheduledDate;
+  late String? _scheduledDate;
+  late String? _dueDate;
   late String? _preferredAgent;
   bool _editing = false;
   bool _saving = false;
@@ -402,10 +404,8 @@ class _RhythmTaskInspectorState extends State<_RhythmTaskInspector> {
     _titleController = TextEditingController(text: widget.task.title);
     _notesController = TextEditingController(text: widget.task.notes ?? '');
     _collaborators = [...widget.task.collaborators];
-    _usesScheduledDate = widget.task.sourceType != 'project_step' &&
-        (widget.task.scheduledDate != null || widget.task.dueDate == null);
-    _primaryDate =
-        _usesScheduledDate ? widget.task.scheduledDate : widget.task.dueDate;
+    _scheduledDate = widget.task.scheduledDate;
+    _dueDate = widget.task.dueDate;
     _preferredAgent = widget.task.preferredAgent;
   }
 
@@ -423,9 +423,10 @@ class _RhythmTaskInspectorState extends State<_RhythmTaskInspector> {
     final ownerLabel =
         _memberName(widget.task.ownerId, widget.workspaceMembers);
     final sourceLabel = _taskSourceLabel(widget.task);
-    final scheduleLabel = _primaryDate == null
-        ? 'No date set'
-        : DateFormatters.fullDate(_primaryDate, fallback: _primaryDate!);
+    final firstDate = _scheduledDate ?? _dueDate;
+    final headerDateLabel = firstDate == null
+        ? null
+        : DateFormatters.fullDate(firstDate, fallback: firstDate);
 
     return _RhythmInspectorShell(
       kicker: _readOnly ? 'TASK INSPECTOR · READ ONLY' : 'TASK INSPECTOR',
@@ -452,8 +453,8 @@ class _RhythmTaskInspectorState extends State<_RhythmTaskInspector> {
           _statusColor(widget.task.status, colors.success),
         ),
         if (sourceLabel != null) _headerPill(context, sourceLabel, colors.info),
-        if (_primaryDate != null)
-          _headerPill(context, scheduleLabel, colors.warning),
+        if (headerDateLabel != null)
+          _headerPill(context, headerDateLabel, colors.warning),
       ],
       headerBody: _editing && !_readOnly
           ? TextField(
@@ -487,9 +488,8 @@ class _RhythmTaskInspectorState extends State<_RhythmTaskInspector> {
                       _titleController.text = widget.task.title;
                       _notesController.text = widget.task.notes ?? '';
                       _collaborators = [...widget.task.collaborators];
-                      _primaryDate = _usesScheduledDate
-                          ? widget.task.scheduledDate
-                          : widget.task.dueDate;
+                      _scheduledDate = widget.task.scheduledDate;
+                      _dueDate = widget.task.dueDate;
                       _preferredAgent = widget.task.preferredAgent;
                     });
                   },
@@ -534,37 +534,76 @@ class _RhythmTaskInspectorState extends State<_RhythmTaskInspector> {
           _InspectorSection(
             title: 'Schedule',
             subtitle: _editing
-                ? 'Update the planning date for this task.'
+                ? 'Update the planning and due dates for this task.'
                 : 'Operational planning metadata.',
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 if (_editing && !_readOnly) ...[
+                  Text(
+                    'Scheduled',
+                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                          color: colors.textMuted,
+                          fontWeight: FontWeight.w700,
+                        ),
+                  ),
+                  const SizedBox(height: 6),
                   RhythmDateButton(
-                    date: _primaryDate,
+                    date: _scheduledDate,
+                    placeholder: 'Set scheduled date',
                     onTap: () async {
                       final result = await pickRhythmDate(
                         context,
-                        current: _primaryDate,
+                        current: _scheduledDate,
                       );
                       if (result != null && mounted) {
-                        setState(() => _primaryDate = result);
+                        setState(() => _scheduledDate = result);
                       }
                     },
-                    onClear: () => setState(() => _primaryDate = null),
+                    onClear: () => setState(() => _scheduledDate = null),
+                  ),
+                  const SizedBox(height: 14),
+                  Text(
+                    'Due',
+                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                          color: colors.textMuted,
+                          fontWeight: FontWeight.w700,
+                        ),
+                  ),
+                  const SizedBox(height: 6),
+                  RhythmDateButton(
+                    date: _dueDate,
+                    placeholder: 'Set due date',
+                    onTap: () async {
+                      final result = await pickRhythmDate(
+                        context,
+                        current: _dueDate,
+                      );
+                      if (result != null && mounted) {
+                        setState(() => _dueDate = result);
+                      }
+                    },
+                    onClear: () => setState(() => _dueDate = null),
                   ),
                 ] else ...[
-                  _MetaRow(label: 'Date', value: scheduleLabel),
-                  if (widget.task.scheduledDate != null &&
-                      widget.task.dueDate != null &&
-                      widget.task.scheduledDate != widget.task.dueDate)
+                  if (_scheduledDate != null)
+                    _MetaRow(
+                      label: 'Scheduled',
+                      value: DateFormatters.fullDate(
+                        _scheduledDate,
+                        fallback: _scheduledDate!,
+                      ),
+                    ),
+                  if (_dueDate != null)
                     _MetaRow(
                       label: 'Due',
                       value: DateFormatters.fullDate(
-                        widget.task.dueDate,
-                        fallback: widget.task.dueDate!,
+                        _dueDate,
+                        fallback: _dueDate!,
                       ),
                     ),
+                  if (_scheduledDate == null && _dueDate == null)
+                    _MetaRow(label: 'Scheduled', value: 'No date set'),
                 ],
               ],
             ),
@@ -753,9 +792,8 @@ class _RhythmTaskInspectorState extends State<_RhythmTaskInspector> {
         RhythmTaskInspectorSaveRequest(
           title: title,
           notes: notes.isEmpty ? null : notes,
-          dueDate: _usesScheduledDate ? widget.task.dueDate : _primaryDate,
-          scheduledDate:
-              _usesScheduledDate ? _primaryDate : widget.task.scheduledDate,
+          dueDate: _dueDate,
+          scheduledDate: _scheduledDate,
           preferredAgent: _preferredAgent,
         ),
       );
@@ -792,6 +830,7 @@ class _RhythmProjectStepInspectorState
     extends State<_RhythmProjectStepInspector> {
   late final TextEditingController _titleController;
   late final TextEditingController _notesController;
+  late String? _scheduledDate;
   late String? _dueDate;
   late int? _assigneeId;
   bool _editing = false;
@@ -802,6 +841,7 @@ class _RhythmProjectStepInspectorState
     super.initState();
     _titleController = TextEditingController(text: widget.step.title);
     _notesController = TextEditingController(text: widget.step.notes ?? '');
+    _scheduledDate = widget.step.scheduledDate;
     _dueDate = widget.step.dueDate;
     _assigneeId = widget.step.assigneeId;
   }
@@ -829,12 +869,18 @@ class _RhythmProjectStepInspectorState
           widget.step.status == 'done' ? 'Done' : 'Open',
           widget.step.status == 'done' ? colors.success : colors.warning,
         ),
-        _headerPill(
-          context,
-          DateFormatters.fullDate(_dueDate,
-              fallback: _dueDate ?? 'No due date'),
-          colors.info,
-        ),
+        if (_scheduledDate != null)
+          _headerPill(
+            context,
+            DateFormatters.fullDate(_scheduledDate, fallback: _scheduledDate!),
+            colors.info,
+          )
+        else if (_dueDate != null)
+          _headerPill(
+            context,
+            DateFormatters.fullDate(_dueDate, fallback: _dueDate!),
+            colors.info,
+          ),
       ],
       headerBody: _editing
           ? TextField(
@@ -867,6 +913,7 @@ class _RhythmProjectStepInspectorState
                       _editing = false;
                       _titleController.text = widget.step.title;
                       _notesController.text = widget.step.notes ?? '';
+                      _scheduledDate = widget.step.scheduledDate;
                       _dueDate = widget.step.dueDate;
                       _assigneeId = widget.step.assigneeId;
                     });
@@ -915,6 +962,37 @@ class _RhythmProjectStepInspectorState
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 if (_editing) ...[
+                  Text(
+                    'Scheduled',
+                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                          color: context.rhythm.textMuted,
+                          fontWeight: FontWeight.w700,
+                        ),
+                  ),
+                  const SizedBox(height: 6),
+                  RhythmDateButton(
+                    date: _scheduledDate,
+                    placeholder: 'Set scheduled date',
+                    onTap: () async {
+                      final result = await pickRhythmDate(
+                        context,
+                        current: _scheduledDate,
+                      );
+                      if (result != null && mounted) {
+                        setState(() => _scheduledDate = result);
+                      }
+                    },
+                    onClear: () => setState(() => _scheduledDate = null),
+                  ),
+                  const SizedBox(height: 14),
+                  Text(
+                    'Due',
+                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                          color: context.rhythm.textMuted,
+                          fontWeight: FontWeight.w700,
+                        ),
+                  ),
+                  const SizedBox(height: 6),
                   RhythmDateButton(
                     date: _dueDate,
                     placeholder: 'Set due date',
@@ -938,13 +1016,22 @@ class _RhythmProjectStepInspectorState
                   ),
                 ] else ...[
                   _MetaRow(label: 'Project', value: widget.projectTitle),
-                  _MetaRow(
-                    label: 'Due',
-                    value: DateFormatters.fullDate(
-                      _dueDate,
-                      fallback: _dueDate ?? 'No due date',
+                  if (_scheduledDate != null)
+                    _MetaRow(
+                      label: 'Scheduled',
+                      value: DateFormatters.fullDate(
+                        _scheduledDate,
+                        fallback: _scheduledDate!,
+                      ),
                     ),
-                  ),
+                  if (_dueDate != null)
+                    _MetaRow(
+                      label: 'Due',
+                      value: DateFormatters.fullDate(
+                        _dueDate,
+                        fallback: _dueDate!,
+                      ),
+                    ),
                   _MetaRow(
                     label: 'Assigned to',
                     value: _memberName(_assigneeId, widget.workspaceMembers) ??
@@ -1041,6 +1128,7 @@ class _RhythmProjectStepInspectorState
           title: title,
           notes: notes.isEmpty ? null : notes,
           dueDate: _dueDate,
+          scheduledDate: _scheduledDate,
           assigneeId: _assigneeId,
         ),
       );

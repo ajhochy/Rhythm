@@ -84,19 +84,25 @@ class DashboardRepository {
     String stepId, {
     String? title,
     String? dueDate,
+    String? scheduledDate,
     String? status,
     String? notes,
     int? assigneeId,
     bool includeNotes = false,
+    bool includeDueDate = false,
+    bool includeScheduledDate = false,
   }) =>
       _dataSource.updateProjectInstanceStep(
         stepId,
         title: title,
         dueDate: dueDate,
+        scheduledDate: scheduledDate,
         status: status,
         notes: notes,
         assigneeId: assigneeId,
         includeNotes: includeNotes,
+        includeDueDate: includeDueDate,
+        includeScheduledDate: includeScheduledDate,
       );
 
   /// Builds unread message previews using an already-fetched [threads] list

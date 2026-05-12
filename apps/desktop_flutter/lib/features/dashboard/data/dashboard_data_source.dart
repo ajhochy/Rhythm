@@ -170,17 +170,22 @@ class DashboardDataSource {
     String stepId, {
     String? title,
     String? dueDate,
+    String? scheduledDate,
     String? status,
     String? notes,
     int? assigneeId,
     bool includeNotes = false,
+    bool includeDueDate = false,
+    bool includeScheduledDate = false,
   }) async {
     final response = await http.patch(
       Uri.parse('$_baseUrl/project-instances/steps/$stepId'),
       headers: AuthSessionStore.headers(json: true),
       body: jsonEncode({
         if (title != null) 'title': title,
-        if (dueDate != null) 'dueDate': dueDate,
+        if (includeDueDate || dueDate != null) 'dueDate': dueDate,
+        if (includeScheduledDate || scheduledDate != null)
+          'scheduledDate': scheduledDate,
         if (status != null) 'status': status,
         if (includeNotes || notes != null) 'notes': notes,
         if (assigneeId != null) 'assigneeId': assigneeId,

@@ -148,9 +148,10 @@ class DashboardController extends ChangeNotifier {
         final projectName = instance.name ?? 'Project';
         for (final step in instance.steps) {
           if (step.status == 'done') continue;
-          if (step.dueDate.isEmpty) continue;
+          final stepDateStr = step.scheduledDate ?? step.dueDate;
+          if (stepDateStr == null || stepDateStr.isEmpty) continue;
 
-          final parsed = DateTime.tryParse(step.dueDate);
+          final parsed = DateTime.tryParse(stepDateStr);
           if (parsed == null) continue;
           final taskDate = DateTime(parsed.year, parsed.month, parsed.day);
 
@@ -267,20 +268,26 @@ class DashboardController extends ChangeNotifier {
     String stepId, {
     String? title,
     String? dueDate,
+    String? scheduledDate,
     String? status,
     String? notes,
     int? assigneeId,
     bool includeNotes = false,
+    bool includeDueDate = false,
+    bool includeScheduledDate = false,
   }) async {
     try {
       await _repository.updateProjectInstanceStep(
         stepId,
         title: title,
         dueDate: dueDate,
+        scheduledDate: scheduledDate,
         status: status,
         notes: notes,
         assigneeId: assigneeId,
         includeNotes: includeNotes,
+        includeDueDate: includeDueDate,
+        includeScheduledDate: includeScheduledDate,
       );
       await refresh();
     } catch (e) {
