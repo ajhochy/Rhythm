@@ -408,6 +408,9 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
   // Phase 8: step assignees + rhythm collaborators
   await pool.query(`ALTER TABLE project_template_steps ADD COLUMN IF NOT EXISTS assignee_id INTEGER REFERENCES users(id) ON DELETE SET NULL`);
   await pool.query(`ALTER TABLE project_instance_steps ADD COLUMN IF NOT EXISTS assignee_id INTEGER REFERENCES users(id) ON DELETE SET NULL`);
+
+  // scheduledDate on project_instance_steps (added with issue #519)
+  await pool.query(`ALTER TABLE project_instance_steps ADD COLUMN IF NOT EXISTS scheduled_date TEXT`);
   await pool.query(`
     CREATE TABLE IF NOT EXISTS rhythm_collaborators (
       rhythm_id TEXT NOT NULL REFERENCES recurring_task_rules(id) ON DELETE CASCADE,
