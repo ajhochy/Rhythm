@@ -417,30 +417,42 @@ class _TopRightAccountClusterState extends State<_TopRightAccountCluster> {
         if (hasUpdate)
           Container(
             margin: const EdgeInsets.only(right: 10),
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-            decoration: BoxDecoration(
+            child: Material(
               color: context.rhythm.surfaceRaised,
               borderRadius: BorderRadius.circular(999),
-              border: Border.all(color: context.rhythm.borderSubtle),
-            ),
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Icon(
-                  Icons.system_update_alt,
-                  size: 14,
-                  color: context.rhythm.accent,
-                ),
-                const SizedBox(width: 6),
-                Text(
-                  'Update ready',
-                  style: TextStyle(
-                    color: context.rhythm.textPrimary,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
+              child: InkWell(
+                onTap: widget.updateController.openDownload,
+                borderRadius: BorderRadius.circular(999),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 6,
+                  ),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(999),
+                    border: Border.all(color: context.rhythm.borderSubtle),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.system_update_alt,
+                        size: 14,
+                        color: context.rhythm.accent,
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        'Update ready',
+                        style: TextStyle(
+                          color: context.rhythm.textPrimary,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
                   ),
                 ),
-              ],
+              ),
             ),
           ),
         // Bell icon with unread badge
