@@ -222,19 +222,29 @@ export class OpencodeClientService {
   > {
     if (!this.client) return null;
     try {
-      const result = await this.client.provider.oauth.authorize({
+      const raw = (await this.client.provider.oauth.authorize({
         path: { id: providerId },
         body: { method: methodIndex ?? 0 },
         ...(directory ? { query: { directory } } : {}),
-      });
+      })) as unknown as {
+        data?: { url: string; method: string; instructions: string };
+        error?: { data?: { message?: string } };
+      };
+      if (raw.error || !raw.data) {
+        const message = raw.error?.data?.message ?? 'Unknown SDK error';
+        logger.error(
+          `[OpencodeClientService] getOAuthUrl error for ${providerId}: ${message}`,
+        );
+        return { error: message };
+      }
       return {
-        url: result.url,
-        method: result.method,
-        instructions: result.instructions,
+        url: raw.data.url,
+        method: raw.data.method,
+        instructions: raw.data.instructions,
       };
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      logger.error(`[OpencodeClientService] getOAuthUrl failed for ${providerId}:`, err);
+      logger.error(`[OpencodeClientService] getOAuthUrl threw for ${providerId}:`, err);
       return { error: message };
     }
   }
@@ -250,12 +260,19 @@ export class OpencodeClientService {
   ): Promise<boolean> {
     if (!this.client) return false;
     try {
-      const result = await this.client.provider.oauth.callback({
+      const raw = (await this.client.provider.oauth.callback({
         path: { id: providerId },
         body: { method: methodIndex ?? 0, code },
         ...(directory ? { query: { directory } } : {}),
-      });
-      return result;
+      })) as unknown as { data?: unknown; error?: unknown };
+      if (raw.error || raw.data !== true) {
+        logger.error(
+          `[OpencodeClientService] OAuth callback error for ${providerId}:`,
+          raw.error,
+        );
+        return false;
+      }
+      return true;
     } catch (err) {
       logger.error(`[OpencodeClientService] OAuth callback failed for ${providerId}:`, err);
       return false;

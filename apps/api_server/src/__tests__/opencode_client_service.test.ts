@@ -149,4 +149,67 @@ describe('OpencodeClientService — SDK response unwrap (.data)', () => {
     });
     expect(await bad.abortSession('sid')).toBe(false);
   });
+
+  it('getOAuthUrl unwraps res.data.{url, method, instructions}', async () => {
+    const svc = makeService({
+      provider: {
+        oauth: {
+          authorize: vi.fn().mockResolvedValue({
+            data: {
+              url: 'https://auth.openai.com/oauth/authorize?response_type=code',
+              method: 'auto',
+              instructions: 'Complete authorization in your browser.',
+            },
+            request: {}, response: {},
+          }),
+        },
+      },
+    });
+    expect(await svc.getOAuthUrl('openai', 0)).toEqual({
+      url: 'https://auth.openai.com/oauth/authorize?response_type=code',
+      method: 'auto',
+      instructions: 'Complete authorization in your browser.',
+    });
+  });
+
+  it('getOAuthUrl returns { error } when SDK wrapper has error.data.message', async () => {
+    const svc = makeService({
+      provider: {
+        oauth: {
+          authorize: vi.fn().mockResolvedValue({
+            data: undefined,
+            error: { data: { message: 'TypeError: m[d.providerID].methods is undefined' } },
+            request: {}, response: {},
+          }),
+        },
+      },
+    });
+    expect(await svc.getOAuthUrl('anthropic', 0)).toEqual({
+      error: 'TypeError: m[d.providerID].methods is undefined',
+    });
+  });
+
+  it('handleOAuthCallback returns true only when res.data === true', async () => {
+    const ok = makeService({
+      provider: {
+        oauth: {
+          callback: vi.fn().mockResolvedValue({ data: true, request: {}, response: {} }),
+        },
+      },
+    });
+    expect(await ok.handleOAuthCallback('openai', 'code-123')).toBe(true);
+
+    const bad = makeService({
+      provider: {
+        oauth: {
+          callback: vi.fn().mockResolvedValue({
+            data: undefined,
+            error: { data: { message: 'bad code' } },
+            request: {}, response: {},
+          }),
+        },
+      },
+    });
+    expect(await bad.handleOAuthCallback('openai', 'code-123')).toBe(false);
+  });
 });
