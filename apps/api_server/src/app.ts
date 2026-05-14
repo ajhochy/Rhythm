@@ -24,6 +24,7 @@ import { agentConfigsRouter } from './routes/agent_configs_routes';
 import { agentSessionsRouter } from './routes/agent_sessions_routes';
 import { agentsCapabilitiesRouter } from './routes/agents_capabilities_routes';
 import { notificationsAgentRouter } from './routes/notifications_agent_routes';
+import { opencodeAuthRouter } from './routes/opencode_auth_routes';
 import { opencodeClient } from './services/opencode_engine';
 
 export function createApp() {
@@ -71,7 +72,8 @@ export function createApp() {
   app.use('/agent-sessions', agentSessionsRouter);
   app.use('/notifications/agent', notificationsAgentRouter);
 
-  // Opencode engine health — SDK initialization status
+  // Opencode engine auth & health
+  app.use('/opencode/auth', opencodeAuthRouter);
   app.get('/opencode/health', (_req, res) => {
     res.json({
       status: opencodeClient.isReady ? 'ready' : 'unavailable',
