@@ -539,6 +539,7 @@ class _AiAccountSectionState extends State<AiAccountSection> {
             ),
             isSaving: _isSaving,
             onSave: () => _saveApiKey('anthropic'),
+            connected: _authorizedProviders.contains('anthropic'),
           ),
         const SizedBox(height: 8),
         _OAuthProviderTile(
@@ -546,6 +547,7 @@ class _AiAccountSectionState extends State<AiAccountSection> {
           label: 'Codex / ChatGPT',
           description: 'Sign in with your ChatGPT Plus or Pro account',
           onAuthorize: () => _authorizeOAuth('openai'),
+          connected: _authorizedProviders.contains('openai'),
         ),
 
         const SizedBox(height: 24),
@@ -562,6 +564,7 @@ class _AiAccountSectionState extends State<AiAccountSection> {
           controller: _apiKeyControllers['google']!,
           isSaving: _isSaving,
           onSave: () => _saveApiKey('google'),
+          connected: _authorizedProviders.contains('google'),
         ),
         const SizedBox(height: 8),
         _OAuthProviderTile(
@@ -570,6 +573,7 @@ class _AiAccountSectionState extends State<AiAccountSection> {
           description:
               'Free for verified students, teachers, and OSS maintainers',
           onAuthorize: () => _authorizeOAuth('github-copilot'),
+          connected: _authorizedProviders.contains('github-copilot'),
         ),
 
         const SizedBox(height: 24),
@@ -587,6 +591,7 @@ class _AiAccountSectionState extends State<AiAccountSection> {
           controller: _apiKeyControllers['openrouter']!,
           isSaving: _isSaving,
           onSave: () => _saveApiKey('openrouter'),
+          connected: _authorizedProviders.contains('openrouter'),
         ),
 
         if (_statusMessage != null)
@@ -649,12 +654,14 @@ class _OAuthProviderTile extends StatelessWidget {
     required this.label,
     required this.description,
     required this.onAuthorize,
+    this.connected = false,
   });
 
   final String provider;
   final String label;
   final String description;
   final VoidCallback onAuthorize;
+  final bool connected;
 
   @override
   Widget build(BuildContext context) {
@@ -671,14 +678,21 @@ class _OAuthProviderTile extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  label,
-                  style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                    color: context.rhythm.textPrimary,
+                Row(children: [
+                  Text(
+                    label,
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: context.rhythm.textPrimary,
+                    ),
                   ),
-                ),
+                  if (connected) ...[
+                    const SizedBox(width: 8),
+                    Icon(Icons.check_circle,
+                        size: 14, color: context.rhythm.success),
+                  ],
+                ]),
                 const SizedBox(height: 2),
                 Text(
                   description,
@@ -699,7 +713,8 @@ class _OAuthProviderTile extends StatelessWidget {
               minimumSize: Size.zero,
               tapTargetSize: MaterialTapTargetSize.shrinkWrap,
             ),
-            child: const Text('Authorize', style: TextStyle(fontSize: 12)),
+            child: Text(connected ? 'Reconnect' : 'Authorize',
+                style: const TextStyle(fontSize: 12)),
           ),
         ],
       ),
@@ -718,6 +733,7 @@ class _ApiKeyProviderTile extends StatelessWidget {
     required this.controller,
     required this.isSaving,
     required this.onSave,
+    this.connected = false,
   });
 
   final String provider;
@@ -727,6 +743,7 @@ class _ApiKeyProviderTile extends StatelessWidget {
   final TextEditingController controller;
   final bool isSaving;
   final VoidCallback onSave;
+  final bool connected;
 
   @override
   Widget build(BuildContext context) {
@@ -740,14 +757,20 @@ class _ApiKeyProviderTile extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
-              color: context.rhythm.textPrimary,
+          Row(children: [
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: context.rhythm.textPrimary,
+              ),
             ),
-          ),
+            if (connected) ...[
+              const SizedBox(width: 8),
+              Icon(Icons.check_circle, size: 14, color: context.rhythm.success),
+            ],
+          ]),
           const SizedBox(height: 2),
           Text(
             description,

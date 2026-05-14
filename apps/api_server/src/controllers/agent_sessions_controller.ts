@@ -13,19 +13,32 @@ const messagesRepo = new AgentSessionMessagesRepository();
 
 /**
  * Default model to route a session to when the agentId is a known preset.
- * If the preferred providerID isn't authed, the SDK will throw and the
- * stream bridge will emit a session error; the UI will show that as a
- * session failure rather than silently routing to a wrong provider.
  *
- * The model IDs are verified against the SDK's catalog (GET /provider).
+ * IMPORTANT: the SDK only successfully routes to providers that have a
+ * built-in loader: openrouter, openai, github-copilot, opencode. Direct
+ * 'anthropic' / 'google' provider IDs are in the catalog but have no
+ * loader — session.prompt to them throws ProviderModelNotFoundError.
+ *
+ * For claude-code and gemini-cli we therefore route via openrouter using
+ * provider-prefixed model IDs (e.g. `anthropic/claude-sonnet-4-6`). When
+ * a future Anthropic-subscription loader plugin lands we can switch
+ * claude-code back to the direct anthropic provider.
+ *
+ * Model IDs verified against the live SDK catalog (GET /provider).
  */
 const DEFAULT_MODEL_BY_AGENT: Record<
   string,
   { providerID: string; modelID: string }
 > = {
-  'claude-code': { providerID: 'anthropic', modelID: 'claude-sonnet-4-6' },
+  'claude-code': {
+    providerID: 'openrouter',
+    modelID: 'anthropic/claude-sonnet-4.6',
+  },
   codex: { providerID: 'openai', modelID: 'gpt-5.3-codex' },
-  'gemini-cli': { providerID: 'google', modelID: 'gemini-3-pro-preview' },
+  'gemini-cli': {
+    providerID: 'openrouter',
+    modelID: 'google/gemini-3.1-pro-preview-customtools',
+  },
   // 'opencode' is intentionally unmapped — user picks via opencode config.
 };
 
