@@ -314,6 +314,36 @@ def cmd_run(args: argparse.Namespace) -> int:
 
 
 # ---------------------------------------------------------------------------
+# smoke-prompt
+# ---------------------------------------------------------------------------
+
+SMOKE_DOC = REPO_ROOT / "docs" / "testing" / "manual-smoke.md"
+SMOKE_LAUNCH_CMD = "cd apps/desktop_flutter && flutter run -d macos"
+
+
+def cmd_smoke_prompt(_args: argparse.Namespace) -> int:
+    branch = _git("rev-parse", "--abbrev-ref", "HEAD", capture=True).stdout.strip()
+    print(f"# Pre-handoff smoke choice  (branch: {branch})\n")
+
+    print("## Launch command (working branch, debug)")
+    print(f"```bash\n{SMOKE_LAUNCH_CMD}\n```\n")
+
+    print("## Manual smoke checklist")
+    if SMOKE_DOC.exists():
+        print(f"Path: `{SMOKE_DOC.relative_to(REPO_ROOT)}`\n")
+        print(SMOKE_DOC.read_text())
+    else:
+        print(f"⚠️  `{SMOKE_DOC.relative_to(REPO_ROOT)}` missing — generate one before smoke.")
+    print()
+
+    print("## Choice (user)")
+    print("- **A. Manual smoke** (cheaper) — I launch the app, you click through.")
+    print("- **B. AI UI smoke** (token-intensive) — computer-control agent walks the checklist.")
+    print("- **Default after 5 min idle:** B (AI UI smoke).")
+    return 0
+
+
+# ---------------------------------------------------------------------------
 # entrypoint
 # ---------------------------------------------------------------------------
 
@@ -347,6 +377,8 @@ def _build_parser() -> argparse.ArgumentParser:
     pr.add_argument("--pr-title", default=None)
     pr.add_argument("--sync-globals", action="store_true")
 
+    sub.add_parser("smoke-prompt", help="Surface manual smoke checklist + launch command + A/B choice.")
+
     return p
 
 
@@ -359,6 +391,7 @@ def main(argv: Iterable[str] | None = None) -> int:
         "start-issue": cmd_start_issue,
         "open-pr": cmd_open_pr,
         "run": cmd_run,
+        "smoke-prompt": cmd_smoke_prompt,
     }
     return handlers[args.command](args)
 
