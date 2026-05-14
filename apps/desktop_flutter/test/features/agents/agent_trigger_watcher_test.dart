@@ -105,6 +105,7 @@ class _FakeAgentsRepository implements AgentsRepository {
     String? taskId,
     required String cwd,
     required String name,
+    String? projectId,
   }) async {
     final now = DateTime.now();
     return AgentSession(
@@ -120,6 +121,21 @@ class _FakeAgentsRepository implements AgentsRepository {
 
   @override
   Future<void> closeSession(String id) async {}
+
+  @override
+  Future<void> cancelSession(String id) async {}
+
+  @override
+  Future<AgentSession> updateSession(
+    String id, {
+    String? name,
+    String? providerId,
+    String? modelId,
+    bool clearProvider = false,
+    bool clearModel = false,
+  }) async {
+    throw UnimplementedError();
+  }
 
   @override
   Future<AgentSession> resumeSession(String id) async {

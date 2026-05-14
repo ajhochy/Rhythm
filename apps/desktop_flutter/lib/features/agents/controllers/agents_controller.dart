@@ -240,6 +240,60 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     }
   }
 
+  // M2-3 / M2-5: per-turn model override staged in-memory only. The next
+  // call to sendInput(...) consumes it once, then clears.
+  ({String providerId, String modelId})? _pendingTurnOverride;
+  ({String providerId, String modelId})? get pendingTurnOverride =>
+      _pendingTurnOverride;
+  void stageTurnOverride(String providerId, String modelId) {
+    _pendingTurnOverride = (providerId: providerId, modelId: modelId);
+    notifyListeners();
+  }
+
+  void clearTurnOverride() {
+    if (_pendingTurnOverride == null) return;
+    _pendingTurnOverride = null;
+    notifyListeners();
+  }
+
+  /// M2-1 / M2-5: PATCH the session row (rename + persistent provider/model).
+  Future<void> updateSession(
+    String id, {
+    String? name,
+    String? providerId,
+    String? modelId,
+    bool clearProvider = false,
+    bool clearModel = false,
+  }) async {
+    try {
+      final updated = await _repository.updateSession(
+        id,
+        name: name,
+        providerId: providerId,
+        modelId: modelId,
+        clearProvider: clearProvider,
+        clearModel: clearModel,
+      );
+      _sessions = [
+        for (final s in _sessions) s.id == id ? updated : s,
+      ];
+      notifyListeners();
+    } catch (e) {
+      _error = e is AppError ? e.message : e.toString();
+      notifyListeners();
+    }
+  }
+
+  /// M2-4: cancel an in-flight turn.
+  Future<void> cancelSession(String id) async {
+    try {
+      await _repository.cancelSession(id);
+    } catch (e) {
+      _error = e is AppError ? e.message : e.toString();
+      notifyListeners();
+    }
+  }
+
   Future<void> closeSession(String id) async {
     if (!_agentServerController.isReady) {
       _sessions = _sessions.where((s) => s.id != id).toList();
@@ -309,7 +363,22 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   // --------------------------------------------------------------------------
 
   void sendInput(String sessionId, String data) {
-    _repository.send({'type': 'session.input', 'id': sessionId, 'data': data});
+    final override = _pendingTurnOverride;
+    _repository.send({
+      'type': 'session.input',
+      'id': sessionId,
+      'data': data,
+      // M2-2: per-turn override is consumed once on send, never persisted.
+      if (override != null)
+        'modelOverride': {
+          'providerId': override.providerId,
+          'modelId': override.modelId,
+        },
+    });
+    if (override != null) {
+      _pendingTurnOverride = null;
+      notifyListeners();
+    }
   }
 
   void resize(String sessionId, int cols, int rows) {

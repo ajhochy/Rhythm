@@ -36,6 +36,25 @@ class AgentsRepository {
 
   Future<void> closeSession(String id) => _dataSource.closeSession(id);
 
+  Future<AgentSession> updateSession(
+    String id, {
+    String? name,
+    String? providerId,
+    String? modelId,
+    bool clearProvider = false,
+    bool clearModel = false,
+  }) =>
+      _dataSource.updateSession(
+        id,
+        name: name,
+        providerId: providerId,
+        modelId: modelId,
+        clearProvider: clearProvider,
+        clearModel: clearModel,
+      );
+
+  Future<void> cancelSession(String id) => _dataSource.cancelSession(id);
+
   Future<AgentSession> resumeSession(String id) =>
       _dataSource.resumeSession(id);
 
