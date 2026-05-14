@@ -64,7 +64,11 @@ class _AiAccountSectionState extends State<AiAccountSection> {
   }
 
   Future<void> _authorizeOAuth(String provider) async {
-    // Fetch the auth URL from the Opencode engine then open the system browser
+    // The Opencode SDK uses an out-of-band OAuth flow: it returns a URL that
+    // sends the user to the provider's login, which redirects to
+    // https://opencode.ai/auth/<provider>?code=... where the user can read
+    // the code. The user pastes the code back here and we hand it to
+    // `provider.oauth.callback` via /opencode/auth/<provider>/callback.
     try {
       final response = await http.get(
         Uri.parse(
@@ -72,13 +76,12 @@ class _AiAccountSectionState extends State<AiAccountSection> {
       );
       if (!mounted) return;
       if (response.statusCode != 200) {
-        // Surface the server error detail instead of a generic message
         String errorDetail = 'HTTP ${response.statusCode}';
         try {
           final errBody = jsonDecode(response.body) as Map<String, dynamic>;
           errorDetail = errBody['error'] as String? ?? errorDetail;
         } catch (_) {
-          // Non-JSON response — use status code
+          /* non-JSON response */
         }
         setState(() => _statusMessage =
             'Failed to get auth URL for $provider: $errorDetail');
@@ -86,27 +89,129 @@ class _AiAccountSectionState extends State<AiAccountSection> {
       }
       final data = jsonDecode(response.body) as Map<String, dynamic>;
       final authUrl = data['authUrl'] as String?;
+      final instructions = data['instructions'] as String? ?? '';
       if (authUrl == null || authUrl.isEmpty) {
         setState(() => _statusMessage = 'No auth URL returned for $provider');
         return;
       }
 
-      // Open the system browser for OAuth
       final uri = Uri.parse(authUrl);
       if (await canLaunchUrl(uri)) {
         await launchUrl(uri, mode: LaunchMode.externalApplication);
-        setState(() {
-          _authorizedProviders.add(provider);
-          _statusMessage =
-              '✓ $provider authorized (if you completed sign-in in your browser)';
-        });
       } else {
         setState(() => _statusMessage =
             'Could not open browser. Visit $authUrl manually.');
+        return;
+      }
+
+      if (!mounted) return;
+      final code = await _promptForAuthCode(
+        provider: provider,
+        instructions: instructions,
+        authUrl: authUrl,
+      );
+      if (code == null || code.isEmpty) {
+        // User cancelled — leave _authorizedProviders unchanged.
+        setState(
+            () => _statusMessage = 'Authorization cancelled for $provider');
+        return;
+      }
+
+      // Hand the code to the Opencode SDK's provider.oauth.callback.
+      final callback = await http.get(
+        Uri.parse('${AppConstants.agentLocalBaseUrl}/opencode/auth/'
+            '$provider/callback?code=${Uri.encodeQueryComponent(code)}'),
+      );
+      if (!mounted) return;
+      if (callback.statusCode == 200) {
+        setState(() {
+          _authorizedProviders.add(provider);
+          _statusMessage = '✓ $provider connected';
+        });
+        await _refreshConnectedProviders();
+      } else {
+        String errorDetail = 'HTTP ${callback.statusCode}';
+        try {
+          final errBody = jsonDecode(callback.body) as Map<String, dynamic>;
+          errorDetail = errBody['error'] as String? ?? errorDetail;
+        } catch (_) {
+          /* non-JSON */
+        }
+        setState(() => _statusMessage =
+            'Authorization failed for $provider: $errorDetail');
       }
     } catch (e) {
       if (!mounted) return;
       setState(() => _statusMessage = 'Authorization failed: $e');
+    }
+  }
+
+  /// Shows a paste-the-code dialog. Returns the trimmed code or null if the
+  /// user cancelled.
+  Future<String?> _promptForAuthCode({
+    required String provider,
+    required String instructions,
+    required String authUrl,
+  }) async {
+    final controller = TextEditingController();
+    try {
+      return await showDialog<String>(
+        context: context,
+        barrierDismissible: false,
+        builder: (ctx) {
+          return AlertDialog(
+            title: Text('Paste authorization code — $provider'),
+            content: SizedBox(
+              width: 420,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (instructions.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: Text(
+                        instructions,
+                        style: const TextStyle(fontSize: 12),
+                      ),
+                    ),
+                  Text(
+                    'After signing in, the browser will show an authorization '
+                    'code. Paste it below.',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: context.rhythm.textSecondary,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: controller,
+                    autofocus: true,
+                    decoration: const InputDecoration(
+                      hintText: 'Paste the authorization code…',
+                      isDense: true,
+                      border: OutlineInputBorder(),
+                    ),
+                    onSubmitted: (value) => Navigator.of(ctx).pop(value.trim()),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(ctx).pop(null),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.of(ctx).pop(controller.text.trim()),
+                child: const Text('Connect'),
+              ),
+            ],
+          );
+        },
+      );
+    } finally {
+      controller.dispose();
     }
   }
 
