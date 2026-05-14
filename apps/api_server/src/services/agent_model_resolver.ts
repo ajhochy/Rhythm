@@ -35,7 +35,13 @@ export const ROUTE_FALLBACKS_BY_AGENT: Record<
       modelID: 'google/gemini-3.1-pro-preview-customtools',
     },
   ],
-  // 'opencode' is intentionally unmapped — user picks via opencode config.
+  // The bare "opencode" agent kind: prefer the user's opencode config
+  // (left unmapped so the SDK uses its own defaults), but fall back to
+  // OpenRouter so a user with only an OpenRouter key still gets a
+  // working chat instead of a silently dropped prompt.
+  opencode: [
+    { providerID: 'openrouter', modelID: 'anthropic/claude-sonnet-4.6' },
+  ],
 };
 
 /** Pick the first authed route for the given agent, or null if none authed. */

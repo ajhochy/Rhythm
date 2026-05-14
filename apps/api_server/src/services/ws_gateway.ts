@@ -86,36 +86,71 @@ function handleClientMessage(ws: WebSocket, raw: import('ws').RawData): void {
       const id = msg.id as string | undefined;
       const data = msg.data as string | undefined;
       if (id && typeof data === 'string') {
-        // Route user input through the Opencode SDK instead of a PTY subprocess
-        const opencodeId = opencodeSessionMap.get(id);
-        if (opencodeId) {
-          // Look up the session's cwd + agentKind so we can route the prompt
-          // to the same provider/model the initial create-session prompt used.
-          // Without the model, the SDK has no provider to dispatch to and the
-          // prompt silently never reaches an LLM.
+        (async () => {
+          let opencodeId = opencodeSessionMap.get(id);
           let cwd: string | undefined;
           let agentKind: string | undefined;
+          let sessionName: string | undefined;
           try {
             const session = new AgentSessionsRepository().findById(id);
             if (session) {
               cwd = session.cwd;
               agentKind = session.agentKind;
+              sessionName = session.name;
             }
           } catch {
-            // DB may be unavailable — proceed without cwd/agent context
+            /* DB unavailable — proceed without context */
           }
-          (async () => {
-            try {
-              const { resolveModelForAgent } = await import(
-                './agent_model_resolver'
+
+          // Auto-resume: sessions persist in SQLite across api_server
+          // restarts, but `opencodeSessionMap` is in-process and is wiped
+          // on each boot. If the user sends input to a session that has
+          // no current SDK mapping, transparently create a fresh SDK
+          // session, register the mapping, start the stream bridge, and
+          // continue with the prompt — instead of silently dropping it.
+          if (!opencodeId) {
+            if (!cwd) {
+              console.warn(
+                `[ws_gateway] session.input for unknown session ${id} (no DB row); dropping`,
               );
-              const model = agentKind
-                ? await resolveModelForAgent(agentKind)
-                : undefined;
-              await opencodeClient.promptAsync(opencodeId, data, model, cwd);
+              return;
+            }
+            try {
+              const opencodeSession = await opencodeClient.createSession(
+                sessionName ?? 'Resumed',
+                cwd,
+              );
+              if (!opencodeSession) {
+                ws.send(
+                  JSON.stringify({
+                    v: 1,
+                    type: 'error',
+                    id,
+                    message:
+                      'Could not resume session — Opencode engine unavailable.',
+                  }),
+                );
+                return;
+              }
+              opencodeId = opencodeSession.id;
+              opencodeSessionMap.set(id, opencodeId);
+              const { streamBridge } = await import(
+                './opencode_stream_bridge'
+              );
+              streamBridge
+                .streamSession(id, opencodeId, cwd)
+                .catch((err) =>
+                  console.error(
+                    `[ws_gateway] auto-resume stream bridge error for ${id}:`,
+                    err,
+                  ),
+                );
+              console.log(
+                `[ws_gateway] auto-resumed session ${id} -> SDK ${opencodeId}`,
+              );
             } catch (err) {
               console.error(
-                `[ws_gateway] SDK prompt error for session ${id}:`,
+                `[ws_gateway] auto-resume failed for session ${id}:`,
                 err,
               );
               ws.send(
@@ -123,14 +158,36 @@ function handleClientMessage(ws: WebSocket, raw: import('ws').RawData): void {
                   v: 1,
                   type: 'error',
                   id,
-                  message: String(err),
+                  message: `Could not resume session: ${String(err)}`,
                 }),
               );
+              return;
             }
-          })();
-        } else {
-          console.warn(`[ws_gateway] No Opencode session mapping for local session ${id}`);
-        }
+          }
+
+          try {
+            const { resolveModelForAgent } = await import(
+              './agent_model_resolver'
+            );
+            const model = agentKind
+              ? await resolveModelForAgent(agentKind)
+              : undefined;
+            await opencodeClient.promptAsync(opencodeId, data, model, cwd);
+          } catch (err) {
+            console.error(
+              `[ws_gateway] SDK prompt error for session ${id}:`,
+              err,
+            );
+            ws.send(
+              JSON.stringify({
+                v: 1,
+                type: 'error',
+                id,
+                message: String(err),
+              }),
+            );
+          }
+        })();
       }
       return;
     }

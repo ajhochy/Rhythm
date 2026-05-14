@@ -30,7 +30,13 @@ import { AgentSessionsRepository } from '../repositories/agent_sessions_reposito
 // ---------------------------------------------------------------------------
 // Hoisted shared state used inside vi.mock factories.
 // ---------------------------------------------------------------------------
-const { sessionMap, sdkEventQueue, sdkStream, promptAsyncSpy } = vi.hoisted(
+const {
+  sessionMap,
+  sdkEventQueue,
+  sdkStream,
+  promptAsyncSpy,
+  createSessionSpy,
+} = vi.hoisted(
   () => {
     const sessionMap = new Map<string, string>();
     const sdkEventQueue = {
@@ -91,6 +97,9 @@ const { sessionMap, sdkEventQueue, sdkStream, promptAsyncSpy } = vi.hoisted(
       sdkEventQueue,
       sdkStream,
       promptAsyncSpy: vi.fn().mockResolvedValue(true),
+      createSessionSpy: vi
+        .fn()
+        .mockResolvedValue({ id: 'sdk-session-resumed' }),
     };
   },
 );
@@ -100,7 +109,8 @@ vi.mock('../services/opencode_engine', () => ({
     isReady: true,
     listProviders: vi.fn().mockResolvedValue(['openrouter']),
     listAuthedProviders: vi.fn().mockResolvedValue(['openrouter']),
-    createSession: vi.fn().mockResolvedValue({ id: 'sdk-session-1' }),
+    createSession: (...args: unknown[]) =>
+      createSessionSpy(...args) as Promise<{ id: string } | null>,
     promptAsync: (...args: unknown[]) =>
       promptAsyncSpy(...args) as Promise<boolean>,
     subscribeToEvents: vi.fn().mockResolvedValue({ stream: sdkStream }),
@@ -155,6 +165,8 @@ async function setupCtx(): Promise<Ctx> {
   sessionMap.clear();
   promptAsyncSpy.mockClear();
   promptAsyncSpy.mockResolvedValue(true);
+  createSessionSpy.mockClear();
+  createSessionSpy.mockResolvedValue({ id: 'sdk-session-resumed' });
 
   setDb(makeDb());
   const repo = new AgentSessionsRepository();
@@ -426,6 +438,52 @@ describe('Agents WS end-to-end chat data flow', () => {
       (f) => f.type === 'message.part.updated',
     );
     expect(partUpdated.length).toBeGreaterThanOrEqual(1);
+    ws.close();
+  });
+
+  // --- Regression: auto-resume an orphan session on first input ----------
+  // Sessions persist in SQLite across api_server restarts, but the
+  // in-process `opencodeSessionMap` is wiped on every boot. Before the
+  // auto-resume fix, prompts to those orphan sessions were silently
+  // dropped with "[ws_gateway] No Opencode session mapping ...".
+  it('auto-resumes an orphan session on first session.input', async () => {
+    // Seed a session row but DO NOT put it in sessionMap, simulating a
+    // post-restart orphan that still appears in the sidebar.
+    const repo = new AgentSessionsRepository();
+    const orphan = repo.insert({
+      agentKind: 'claude-code',
+      taskId: null,
+      taskTitle: null,
+      cwd: '/tmp/rhythm-orphan',
+      name: 'Orphaned session',
+    });
+    expect(sessionMap.has(orphan.id)).toBe(false);
+
+    const { ws } = await openClient(ctx.wsUrl);
+    ws.send(
+      JSON.stringify({
+        v: 1,
+        type: 'session.input',
+        id: orphan.id,
+        data: 'follow-up on orphan',
+      }),
+    );
+
+    // Wait until the gateway has created a fresh SDK session and called
+    // promptAsync against it.
+    await waitFor(() => createSessionSpy.mock.calls.length > 0 || undefined);
+    await waitFor(() => promptAsyncSpy.mock.calls.length > 0 || undefined);
+
+    // createSession was invoked with the orphan's name + cwd.
+    const [resumeName, resumeCwd] = createSessionSpy.mock.calls[0];
+    expect(resumeName).toBe('Orphaned session');
+    expect(resumeCwd).toBe('/tmp/rhythm-orphan');
+
+    // The mapping is now bound and promptAsync targets the new SDK id.
+    expect(sessionMap.get(orphan.id)).toBe('sdk-session-resumed');
+    const [sdkId, text] = promptAsyncSpy.mock.calls[0];
+    expect(sdkId).toBe('sdk-session-resumed');
+    expect(text).toBe('follow-up on orphan');
     ws.close();
   });
 });
