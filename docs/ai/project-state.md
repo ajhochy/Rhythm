@@ -1,10 +1,22 @@
 # Project State
 
-## Current Status (2026-05-14, chat round-trip fully working)
+## Current Status (2026-05-14, session-end snapshot)
 
-🟢 **Agents chat is round-tripping end-to-end against the local opencode SDK via OpenRouter.** User confirmed: user bubble renders right-aligned, assistant bubble streams in place, Enter sends, Shift+Enter inserts newlines. Auto-resume binds orphan sessions from previous app launches. **PR #574 has 38 unpushed commits stacked locally on `opencode-engine-issue-564`** — branch still NOT pushed. Awaiting user confirmation to push.
+🟢 **Agents chat is fully working end-to-end.** User confirmed in a live smoke: user bubble right-aligned, assistant bubble streams in place, Enter sends, Shift+Enter inserts newlines, auto-resume rebinds orphan sessions from previous launches transparently.
 
-Automated checks (last run, post ef5ea12):
+**Routing verification (live, `/opencode/auth/`):** authed providers = `["openrouter","anthropic","openai","github-copilot"]`. Local cred sources = `{"claudeCode":true,"codex":true}`. So:
+- `claude-code` agent → `anthropic / claude-sonnet-4-6` (direct Anthropic account via `opencode-claude-auth` Keychain bridge — NOT OpenRouter)
+- `codex` agent → `openai / gpt-5.3-codex` (direct OpenAI account via `opencode-openai-codex-auth` — NOT OpenRouter)
+- `gemini-cli` agent → `openrouter / google/gemini-3.1-pro-preview-customtools` (Google not signed in)
+- `opencode` (bare) agent → `openrouter / anthropic/claude-sonnet-4.6` (fallback added this session)
+
+**Branch state.** `opencode-engine-issue-564`, local HEAD `9b26aa1`, 42 commits ahead of last push at `70b87d7`. **NOT pushed.** Awaiting user `git push origin opencode-engine-issue-564` then PR #574 merge.
+
+**Issue backlog.** All Opencode-implementation issues (#564–#585) closed today. Open issues remaining are non-Opencode: #48 (PCO UX), #71 (mobile MVP), #418 (mobile smoke), #476 (AgentTriggerWatcher dev-gating).
+
+**Active plan.** `docs/ai/current-plan.md` replaced — now holds the full Opencode Desktop UI parity roadmap (5 milestones M1–M5, ~25 atomic issues, ~15–17 sessions). Next session branches off a clean `main` after PR #574 merges and starts at M1 issue #1 (`projects` table + CRUD).
+
+Automated checks (last run, post 9b26aa1):
 - **417/417 tests** (vitest, api_server) — `agents_ws_e2e.test.ts` has 4 cases (chat→server, server→chat, full round-trip, auto-resume regression)
 - **tsc --noEmit** — clean
 - **flutter analyze --no-fatal-infos** — clean (info-level findings only)
@@ -16,7 +28,7 @@ Automated checks (last run, post ef5ea12):
 
 | # | Issue | Status | Notes |
 |---|---|---|---|
-| 1 | **Follow-up WS prompts dropped / no chat messages rendered** | **Superseded by 3e4df87+f547a2c** — pending manual UI smoke. | `40d4fee` correctly resolved model for follow-up prompts (code-verified). The remaining symptom (assistant messages never visible in the chat transcript) was an independent seam: stream bridge broadcast `output` deltas to a `_liveOutputBuffer` preview but never emitted `transcript.append` on idle, and Flutter had no handler for it anyway. Both sides fixed; see "Chat round-trip fix" below. |
+| 1 | **Follow-up WS prompts dropped / no chat messages rendered** | **CLOSED** — user smoke-verified the parts-based chat thread renders user + streaming assistant bubbles correctly across all four agent kinds. Full chain in "Opencode Desktop UI port + auto-resume" section below. | — |
 | 2 | **Gemini direct route requires Google OAuth, no other path** | UI tile shipped (`f501791`), user has not signed in. | `opencode-gemini-auth` plugin handles the listener on :8085; user clicks "Sign in with Google AI account" → polls /opencode/auth/ until `google` appears. Without it, gemini-cli falls back to `openrouter` which is rate-limited on this account. |
 | 3 | **OpenRouter key rate-limited** on the live test account | Not a code issue. | Surfaces as `Error: Key limit exceeded (total limit). Manage it using https://openrouter.ai/settings/keys` via the new error-message extractor. User should top up at https://openrouter.ai/settings/keys or remove openrouter as fallback. |
 | 4 | **macOS Keychain prompt on every app launch** | Cached per session, but the OS still prompts the first call after each app restart. User asked for this earlier. | Working as designed — Keychain access requires confirmation each new process. Cache lives inside `CredentialsBridgeService` and only re-prompts on `auth.set` failure within the same process. |
