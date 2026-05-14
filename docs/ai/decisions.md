@@ -51,16 +51,35 @@
 
 **Consequences:**
 - + No database migration needed
-- + Ephemeral (matches session lifecycle — sessions don't persist across server restarts anyway)
+- + Ephemeral (matches session lifecycle — sessions don't persist across server restarts)
 - - Mapping is lost on server restart (acceptable — SDK sessions wouldn't survive a restart either)
+- - Map entries must be explicitly deleted on session close to avoid unbounded growth (fixed in code review: `opencodeSessionMap.delete` now called in `remove()`)
 
 ## 2026-05-13 — All WS input goes through the prompt method
 
-**Context:** The old PTY approach sent raw terminal input via `ptyRunner.sendInput()`. The SDK doesn't have a terminal input channel — it works through structured prompt/response.
+**Context:** The old PTY approach sent raw terminal input via `ptyRunner.sendInput()`. The SDK doesn't have a terminal input channel.
 
-**Decision:** Forward WS `session.input` messages to `opencodeClient.prompt()` instead of a PTY pipe. Terminal resize messages are no-ops since the SDK doesn't have a terminal concept.
+**Decision:** Forward WS `session.input` messages to `opencodeClient.prompt()`. Terminal resize messages are no-ops.
 
 **Consequences:**
 - + Clean structured communication instead of raw terminal bytes
-- - No ANSI escape handling needed (the SDK handles formatting)
-- - The SDK's prompt method is request/response — real-time streaming depends on SSE events
+- - Real-time streaming depends on SSE events, not synchronous return values
+
+## 2026-05-13 — Single shared SSE event stream, not per-session subscriptions
+
+**Context:** Opencode SDK provides one event stream for the entire client, not per-session streams.
+
+**Decision:** `OpencodeStreamBridge` subscribes once on first session creation and keeps the stream alive for all sessions. Session routing uses `opencodeSessionMap` reverse-lookup (O(n) scan per event).
+
+**Consequences:**
+- + One connection instead of N connections for N sessions
+- - If the stream dies and re-subscribes, a short window exists where two `streamSession` callers could both attempt subscription. Guarded by the `subscribed` flag (set before the await), but not tested.
+- - If `subscribeToEvents()` returns null (SDK not ready), `subscribed` must be reset to `false` to allow retry (fixed in code review).
+
+## 2026-05-13 — `resume()` deferred as a stub
+
+**Context:** The old PTY path had `ptyRunner.resume()` that reconnected a subprocess to an existing session token. The Opencode SDK has no "resume" concept — sessions are stateless from the SDK's perspective.
+
+**Decision:** `resume()` currently validates the session and sets status to `starting`, but does not create an SDK session or start the stream bridge. This is a known gap.
+
+**Next step:** Implement resume as "create a new SDK session with the same cwd/name and start streaming." Filed as a follow-up task.

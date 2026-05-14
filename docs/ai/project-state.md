@@ -1,7 +1,13 @@
 # Project State
 
 ## Current Status
-✅ Opencode engine implementation complete. All 10 issues implemented + end-to-end integration fixes on branch `opencode-engine-issue-564`.
+✅ Opencode engine implementation complete and code-audited. PR #574 is open on branch `opencode-engine-issue-564`, awaiting manual smoke testing before merge to main.
+
+All automated checks pass:
+- **362/362 tests** (vitest)
+- **tsc --noEmit** — clean
+- **flutter analyze --no-fatal-infos** — clean
+- **dart format --set-exit-if-changed** — clean
 
 ## Issues Completed
 
@@ -18,7 +24,7 @@
 | #572 | Remove .clideck-workflow directory | `8a95360` |
 | #573 | Flutter data sources for Opencode engine | `8a95360` |
 
-## End-to-End Fixes (post-issues)
+## Post-Issue Integration Fixes
 
 | Fix | Description | Commit |
 |---|---|---|
@@ -26,27 +32,34 @@
 | Stream bridge | Rewrote to properly subscribe to Opencode SSE events and map to WS format | `f152e69` |
 | Session ID mapping | `opencodeSessionMap` routes local session IDs → SDK session IDs for prompt routing | `f152e69` |
 | Auth flow | OAuth opens system browser via `url_launcher`. `GET /opencode/auth/` lists connected providers | `f152e69` |
-| Tests | Updated agent_sessions.test.ts to mock opencode_engine instead of pty_runner. Removed stale test files | `e2a35c7` |
+| Tests | Updated agent_sessions.test.ts to mock opencode_engine instead of pty_runner | `e2a35c7` |
 
-## Key Changes
-- `apps/api_server/src/services/opencode_client_service.ts` — SDK wrapper with typed methods
-- `apps/api_server/src/services/opencode_engine.ts` — Singleton client + session ID mapping
-- `apps/api_server/src/services/opencode_stream_bridge.ts` — SSE→WebSocket event relay
-- `apps/api_server/src/routes/opencode_auth_routes.ts` — Auth endpoints + provider listing
-- `apps/api_server/src/routes/agents_capabilities_routes.ts` — Provider-based capabilities
-- `apps/api_server/src/controllers/agent_sessions_controller.ts` — SDK session creation + mapping
-- `apps/api_server/src/services/ws_gateway.ts` — Rewritten: SDK prompt() input, no PTY refs
-- `apps/desktop_flutter/lib/features/settings/widgets/ai_account_section.dart` — Auth UI with browser OAuth
-- `apps/desktop_flutter/lib/features/agent_configs/views/manage_agents_view.dart` — Connect card
-- `apps/api_server/src/@types/opencode-ai-sdk.d.ts` — Type declarations for ESM SDK
+## Code Review Fixes (2026-05-13)
+
+| Fix | File | Commit |
+|---|---|---|
+| Test mock missing `promptAsync` → TypeError → 400 not 201 | `agent_sessions.test.ts` | `55f8bff` |
+| `_ready` closure not reset in afterEach → test order poisoning | `agent_sessions.test.ts` | `55f8bff` |
+| `subscribed` stuck true when `subscribeToEvents()` returns null | `opencode_stream_bridge.ts` | `55f8bff` |
+| `opencodeSessionMap` never cleaned up on session DELETE (memory leak) | `agent_sessions_controller.ts` | `55f8bff` |
+| Double `expandHome(cwd.trim())` — redundant re-expansion | `agent_sessions_controller.ts` | `55f8bff` |
+| Silent catch blocks with no logging in service methods | `opencode_client_service.ts` | `55f8bff` |
+| `_refreshConnectedProviders` called wrong endpoint, never populated state | `ai_account_section.dart` | `55f8bff` |
+
+## Known Gaps (tracked, not blocking merge)
+
+| Gap | Detail |
+|---|---|
+| `resume()` is a stub | Sets status to `starting` but never creates an SDK session, maps it, or starts the stream bridge. Spawn task filed. |
+| `pty_runner.ts` dead code | Still present in the repo. No production imports. Removal deferred to follow-up PR. |
 
 ## End-to-End Flow
 ```
 Flutter → POST /agent-sessions → controller creates SDK session + stores mapping + starts bridge
 Flutter → WS session.input → ws_gateway → opencodeClient.prompt(sdkId, text)
 Opencode → SSE events → stream bridge → WS broadcast → Flutter output
-Flutter → DELETE /agent-sessions/:id → controller stops bridge + marks closed
+Flutter → DELETE /agent-sessions/:id → controller stops bridge + clears map entry + marks closed
 ```
 
-## Branch
-`opencode-engine-issue-564` — Draft PR #574
+## Branch / PR
+`opencode-engine-issue-564` — Draft PR #574 — pushed `55f8bff`
