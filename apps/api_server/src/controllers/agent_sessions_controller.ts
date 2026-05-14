@@ -153,7 +153,7 @@ export class AgentSessionsController {
     }
   }
 
-  resume(req: Request, res: Response, next: NextFunction): void {
+  async resume(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const session = repo.findById(req.params.id);
       if (!session) throw AppError.notFound('AgentSession');
@@ -184,6 +184,23 @@ export class AgentSessionsController {
       if (!opencodeClient.isReady) {
         throw AppError.badRequest('Opencode engine is not ready');
       }
+
+      // "Resume" means continue the local row with a *fresh* SDK session.
+      // The Opencode SDK does not restore prior conversation history; the local
+      // row keeps the same id, name, and message history for the user, but the
+      // backing SDK session is new. Mirror the create() flow below.
+      const opencodeSession = await opencodeClient.createSession(session.name, session.cwd);
+      if (!opencodeSession) {
+        throw AppError.badRequest('Failed to create Opencode session — check your AI account is authorized');
+      }
+
+      // Store the SDK session ID mapping so the WS gateway can route user input
+      opencodeSessionMap.set(session.id, opencodeSession.id);
+
+      // Start streaming Opencode events through the WebSocket gateway
+      streamBridge.streamSession(session.id, opencodeSession.id).catch((err) => {
+        console.error(`[AgentSessionsController] Stream bridge error for session ${session.id}:`, err);
+      });
 
       repo.updateStatus(session.id, 'starting');
       const updated = repo.findById(session.id)!;

@@ -8,6 +8,7 @@ import type { AddressInfo } from 'node:net';
 import { UsersRepository } from '../repositories/users_repository';
 import { SessionsRepository } from '../repositories/sessions_repository';
 import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
+import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
 
 // Mock the Opencode engine so we can control SDK availability in tests without
 // requiring a real Opencode SDK connection.
@@ -196,6 +197,92 @@ describe('Agent Sessions API', () => {
     expect(res.status).toBe(200);
     const body = (await res.json()) as { sessions: unknown[] };
     expect(Array.isArray(body.sessions)).toBe(true);
+  });
+
+  // ── resume ────────────────────────────────────────────────────────────────
+
+  it('resumes a resumable session by creating a fresh SDK session, mapping it, and starting the bridge', async () => {
+    const sessionsRepoLocal = new AgentSessionsRepository();
+    const inserted = sessionsRepoLocal.insert({
+      agentKind: 'claude-code',
+      taskId: null,
+      taskTitle: null,
+      cwd: os.homedir(),
+      name: 'Resumable Session',
+    });
+    sessionsRepoLocal.updateToken(inserted.id, 'sdk-prior-token');
+    sessionsRepoLocal.updateStatus(inserted.id, 'resumable');
+
+    const { opencodeClient, opencodeSessionMap } = await import('../services/opencode_engine');
+    const { streamBridge } = await import('../services/opencode_stream_bridge');
+    const mockClient = opencodeClient as unknown as { createSession: ReturnType<typeof vi.fn> };
+    mockClient.createSession.mockResolvedValueOnce({ id: 'sdk-resumed-session' });
+
+    const res = await fetch(`${baseUrl}/agent-sessions/${inserted.id}/resume`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({ agentId: 'claude-code' }),
+    });
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { id: string; status: string };
+    expect(body.id).toBe(inserted.id);
+    expect(body.status).toBe('starting');
+    expect(mockClient.createSession).toHaveBeenCalled();
+    expect(opencodeSessionMap.get(inserted.id)).toBe('sdk-resumed-session');
+    expect(streamBridge.streamSession).toHaveBeenCalledWith(inserted.id, 'sdk-resumed-session');
+
+    // DELETE should clear the mapping
+    const delRes = await fetch(`${baseUrl}/agent-sessions/${inserted.id}`, {
+      method: 'DELETE',
+      headers: authHeaders,
+    });
+    expect(delRes.status).toBe(204);
+    expect(opencodeSessionMap.has(inserted.id)).toBe(false);
+  });
+
+  it('returns 400 when resuming a session that is not in resumable status', async () => {
+    const sessionsRepoLocal = new AgentSessionsRepository();
+    const inserted = sessionsRepoLocal.insert({
+      agentKind: 'claude-code',
+      taskId: null,
+      taskTitle: null,
+      cwd: os.homedir(),
+      name: 'Not Resumable',
+    });
+    // status is 'starting' from insert default — no token, not resumable
+
+    const res = await fetch(`${baseUrl}/agent-sessions/${inserted.id}/resume`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({ agentId: 'claude-code' }),
+    });
+
+    expect(res.status).toBe(400);
+  });
+
+  it('returns 400 on resume when the Opencode engine is not ready', async () => {
+    const sessionsRepoLocal = new AgentSessionsRepository();
+    const inserted = sessionsRepoLocal.insert({
+      agentKind: 'claude-code',
+      taskId: null,
+      taskTitle: null,
+      cwd: os.homedir(),
+      name: 'Resumable Engine Down',
+    });
+    sessionsRepoLocal.updateToken(inserted.id, 'sdk-prior-token');
+    sessionsRepoLocal.updateStatus(inserted.id, 'resumable');
+
+    const { opencodeClient } = await import('../services/opencode_engine');
+    (opencodeClient as { isReady: boolean }).isReady = false;
+
+    const res = await fetch(`${baseUrl}/agent-sessions/${inserted.id}/resume`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({ agentId: 'claude-code' }),
+    });
+
+    expect(res.status).toBe(400);
   });
 
   it('returns messages for a session', async () => {
