@@ -1,13 +1,13 @@
 # Project State
 
-## Current Status (2026-05-14, post chat round-trip fix)
+## Current Status (2026-05-14, chat round-trip fully working)
 
-🟡 **PR #574 has 31 unpushed commits stacked locally on `opencode-engine-issue-564`.** Two new commits today (3e4df87 + f547a2c) close the diagnosed message-render seam — see "Chat round-trip fix" section below. Branch still NOT pushed. Manual UI smoke is the only remaining gate before push.
+🟢 **Agents chat is round-tripping end-to-end against the local opencode SDK via OpenRouter.** User confirmed: user bubble renders right-aligned, assistant bubble streams in place, Enter sends, Shift+Enter inserts newlines. Auto-resume binds orphan sessions from previous app launches. **PR #574 has 38 unpushed commits stacked locally on `opencode-engine-issue-564`** — branch still NOT pushed. Awaiting user confirmation to push.
 
-Automated checks (last run, post f547a2c):
-- **413/413 tests** (vitest, api_server) — +3 new cases in `opencode_stream_bridge.test.ts`
+Automated checks (last run, post ef5ea12):
+- **417/417 tests** (vitest, api_server) — `agents_ws_e2e.test.ts` has 4 cases (chat→server, server→chat, full round-trip, auto-resume regression)
 - **tsc --noEmit** — clean
-- **flutter analyze --no-fatal-infos** — clean (161 info-level findings; pre-existing `_hasCodex` warning removed in f547a2c)
+- **flutter analyze --no-fatal-infos** — clean (info-level findings only)
 - **dart format --set-exit-if-changed** — clean
 - **flutter test** — 180/180
 - `ai-workflow checks --level pr` → exit 0
@@ -24,6 +24,24 @@ Automated checks (last run, post f547a2c):
 | 6 | **Local SDK type defs hand-maintained** | Risk: drift from `@opencode-ai/sdk` releases. | `apps/api_server/src/@types/opencode-ai-sdk.d.ts` is a hand-written subset. The cast pattern `as unknown as { data?: T; error?: E }` covers the actual runtime shape. After SDK upgrades, re-run `apps/api_server/scripts/auth-strategy-probe.ts` (gitignored) to catch breakage. |
 | 7 | **`tasks_controller.test.ts` vitest flake** | Pre-existing, not blocking. | One test ("returns only open tasks (default)") intermittently fails when the full suite runs; passes in isolation. Cross-test pollution. Survives the rework unchanged. |
 | 8 | **GitHub Copilot OAuth is custom-implemented** | Working, but tied to an upstream client_id. | We reimplemented the device-flow in `api_server/src/services/github_copilot_device_auth.ts` because the SDK's plugin polling can't be driven over HTTP RPC. Hard-codes GitHub `client_id=Ov23li8tweQw6odWQebz`. If GitHub revokes/rotates that ID, we have to update. |
+
+## Opencode Desktop UI port + auto-resume (2026-05-14, commits d8b929d, 5591d51, a067083, 1fc8768, ef5ea12)
+
+End state: confirmed working in the running app — claude-code, codex, opencode sessions all stream user + assistant bubbles correctly via OpenRouter.
+
+The path to "working" required **five** distinct fixes, in this order. Future agents should treat this section as the canonical record of what these commits actually solve.
+
+1. **Parts-based chat model (d8b929d).** Mirror Opencode Desktop's renderer (`/tmp/opencode-ref/packages/app/src/context/global-sync/event-reducer.ts`): one ChatMessage per session, one ChatPart per message, deltas mutate `part.text` in place. Replaces the old `_LiveOutputBuffer` + `_transcript` split. New WS event types forwarded by the bridge: `message.updated`, `message.part.updated`, `message.part.delta`, `message.removed` — each carries the SDK's `messageID`/`partID` intact so the Flutter reducer can address parts correctly.
+
+2. **End-to-end WS suite (5591d51).** `agents_ws_e2e.test.ts` spins up a real http.Server + ws_gateway + stream bridge with a vi-hoisted SDK event queue. **Caveat:** the original three tests fed event shapes I assumed; one of them (`message.part.delta`) DID match the real SDK, the others use the SDK's actual SSE event union. Always verify mock fixtures against `/tmp/opencode-ref` before trusting the suite.
+
+3. **`opencode` agent OpenRouter fallback + auto-resume (a067083).** Two distinct fixes in `ws_gateway.ts` + `agent_model_resolver.ts`:
+   - `agent_model_resolver` now lists `openrouter / anthropic/claude-sonnet-4.6` for the bare `opencode` agent kind. Without this, OpenRouter-only setups got `Routing opencode session ... via <unmapped>` and prompts were silently dropped.
+   - `ws_gateway.session.input` now auto-resumes orphan sessions: if `opencodeSessionMap.get(id)` is undefined (post-restart), pull cwd + name from the DB row, create a fresh SDK session, register the mapping, start the stream bridge, then forward the prompt. The user never sees the seam. Regression test in `agents_ws_e2e.test.ts`.
+
+4. **WS connect only after server-ready (1fc8768).** `AgentsController.initialize()` runs at app launch, before the spawned api_server is up — `_agentServerController.isReady` is false, the controller gated out of `_repository.connect()` and never retried. Now it subscribes to `AgentServerController` (a ChangeNotifier) and calls `_tryConnectWs()` on every transition. This was the actual reason no WS frames reached Flutter for the longest time.
+
+5. **Enter-to-send in chat composer + messages reply box (1fc8768 + ef5ea12).** `Focus` + `KeyEvent` handler around each TextField; `Enter` sends, `Shift+Enter` newlines.
 
 ## Chat round-trip fix (2026-05-14, commits 3e4df87 + f547a2c)
 
@@ -183,7 +201,7 @@ Flutter → DELETE /agent-sessions/:id → controller stops bridge + clears map 
 ```
 
 ## Branch / PR
-`opencode-engine-issue-564` — Draft PR #574 — **local HEAD `f547a2c`, 31 commits ahead of last push at `70b87d7`**. NOT YET PUSHED. Auth rework (Issues A–G), follow-up smoke fixes, plugin auto-installer, plus today's chat round-trip fix all stacked here. See "Outstanding Issues" at top and "Chat round-trip fix" section for verification status.
+`opencode-engine-issue-564` — Draft PR #574 — **local HEAD `ef5ea12`, 38 commits ahead of last push at `70b87d7`**. NOT YET PUSHED. Auth rework (Issues A–G), follow-up smoke fixes, plugin auto-installer, plus today's chat round-trip fix all stacked here. See "Outstanding Issues" at top and "Chat round-trip fix" section for verification status.
 
 ## Active plan
 `docs/ai/current-plan.md` is no longer a placeholder. It contains the full 8-issue UI port plan (Opencode Desktop reference at `github.com/anomalyco/opencode/tree/dev/packages/desktop`). Status of the plan's issues:
@@ -194,8 +212,7 @@ Flutter → DELETE /agent-sessions/:id → controller stops bridge + clears map 
 
 ## What to do next (resume notes)
 
-1. **Manual UI smoke** for 3e4df87. Run `cd apps/desktop_flutter && flutter run -d macos`, open the Agents page, create a `claude-code` session, send a prompt via the registered OpenRouter account. Expected: assistant message appears in the chat transcript (not just the live preview block) and persists after `session.idle`. Send a second prompt to also verify the follow-up flow (closes Outstanding #1). Checklist: `docs/testing/manual-smoke.md`.
-2. **Push the branch** after smoke passes (`git push origin opencode-engine-issue-564`) so PR #574 reflects current state.
+1. **Push the branch** (`git push origin opencode-engine-issue-564`) — manual smoke already passed; user confirmed chat round-trip works (user bubble + streaming assistant bubble visible, Enter sends, auto-resume works for orphan sessions).
 3. **Sign in with Google AI** via the Settings tile so `gemini-cli` routes to the direct google provider (still outstanding).
 4. **Resolve OpenRouter rate-limit** on the test account if free-model fallback is needed (Outstanding #3).
 5. **Continue the UI port** by picking up issues #593–#597 from `docs/ai/current-plan.md`.
