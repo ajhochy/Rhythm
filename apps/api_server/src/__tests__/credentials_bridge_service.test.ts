@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import * as cp from 'child_process';
 import * as fs from 'fs';
 import { OpencodeClientService } from '../services/opencode_client_service';
@@ -190,5 +190,26 @@ describe('CredentialsBridgeService.bridgeAnthropic', () => {
     expect(out.success).toBe(false);
     if (!out.success) expect(out.reason).toBe('auth_set_rejected');
     expect(bridge.lastReadReason()).toBe('not_attempted');
+  });
+});
+
+describe('CredentialsBridgeService.startRefreshLoop', () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  it('calls bridgeAnthropic every 30 minutes', async () => {
+    vi.mocked(cp.execSync).mockReturnValue(Buffer.from(keychainPayload(FUTURE)));
+    const bridge = new CredentialsBridgeService();
+    const spy = vi.spyOn(bridge, 'bridgeAnthropic').mockResolvedValue({
+      success: true,
+      provider: 'anthropic',
+      subscriptionType: 'pro',
+    });
+    bridge.startRefreshLoop({ isReady: true } as unknown as OpencodeClientService);
+    vi.advanceTimersByTime(30 * 60 * 1000 + 100);
+    expect(spy).toHaveBeenCalledTimes(1);
+    vi.advanceTimersByTime(30 * 60 * 1000);
+    expect(spy).toHaveBeenCalledTimes(2);
+    bridge.stopRefreshLoop();
   });
 });
