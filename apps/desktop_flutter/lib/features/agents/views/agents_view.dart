@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../../../app/core/agents/agent_server_controller.dart';
@@ -1370,41 +1371,53 @@ class _InputArea extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 10),
-          TextField(
-            controller: inputController,
-            style: TextStyle(
-              fontSize: 13,
-              fontFamily: 'Menlo',
-              color: context.rhythm.textPrimary,
-            ),
-            maxLines: 3,
-            minLines: 1,
-            onSubmitted: (_) => onSend(),
-            decoration: InputDecoration(
-              hintText: 'Type a command or reply…',
-              hintStyle: TextStyle(
-                color: context.rhythm.textMuted,
+          Focus(
+            onKeyEvent: (node, event) {
+              // Enter sends; Shift+Enter inserts a newline.
+              if (event is KeyDownEvent &&
+                  event.logicalKey == LogicalKeyboardKey.enter &&
+                  !HardwareKeyboard.instance.isShiftPressed) {
+                onSend();
+                return KeyEventResult.handled;
+              }
+              return KeyEventResult.ignored;
+            },
+            child: TextField(
+              controller: inputController,
+              style: TextStyle(
                 fontSize: 13,
                 fontFamily: 'Menlo',
+                color: context.rhythm.textPrimary,
               ),
-              isDense: true,
-              filled: true,
-              fillColor: context.rhythm.canvas.withValues(alpha: 0.6),
-              contentPadding: const EdgeInsets.symmetric(
-                horizontal: 14,
-                vertical: 12,
-              ),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(RhythmRadius.lg),
-                borderSide: BorderSide(color: context.rhythm.border),
-              ),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(RhythmRadius.lg),
-                borderSide: BorderSide(color: context.rhythm.border),
-              ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(RhythmRadius.lg),
-                borderSide: BorderSide(color: context.rhythm.accent),
+              maxLines: 3,
+              minLines: 1,
+              onSubmitted: (_) => onSend(),
+              decoration: InputDecoration(
+                hintText: 'Type a command or reply… (Shift+Enter for newline)',
+                hintStyle: TextStyle(
+                  color: context.rhythm.textMuted,
+                  fontSize: 13,
+                  fontFamily: 'Menlo',
+                ),
+                isDense: true,
+                filled: true,
+                fillColor: context.rhythm.canvas.withValues(alpha: 0.6),
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 12,
+                ),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(RhythmRadius.lg),
+                  borderSide: BorderSide(color: context.rhythm.border),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(RhythmRadius.lg),
+                  borderSide: BorderSide(color: context.rhythm.border),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(RhythmRadius.lg),
+                  borderSide: BorderSide(color: context.rhythm.accent),
+                ),
               ),
             ),
           ),

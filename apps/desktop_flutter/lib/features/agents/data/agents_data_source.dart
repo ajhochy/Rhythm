@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:http/http.dart' as http;
 import 'package:web_socket_channel/web_socket_channel.dart';
@@ -63,8 +64,8 @@ class AgentsDataSource {
     try {
       final json = jsonDecode(raw as String) as Map<String, dynamic>;
       _msgController.add(AgentWsMessage.parse(json));
-    } catch (_) {
-      // Malformed frame — discard silently.
+    } catch (e) {
+      stdout.writeln('[AgentsDataSource] WS parse error: $e');
     }
   }
 

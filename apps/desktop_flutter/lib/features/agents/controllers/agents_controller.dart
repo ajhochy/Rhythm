@@ -125,14 +125,37 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   // Lifecycle
   // --------------------------------------------------------------------------
 
+  bool _wsConnected = false;
+  bool _serverListenerAttached = false;
+
   Future<void> initialize() async {
     WidgetsBinding.instance.addObserver(this);
+    // Listen for the agent server to become ready so we can connect WS
+    // once it does. Without this, the controller initializes once at
+    // app launch (before the spawned api_server has booted), sees
+    // `isReady=false`, gates out, and never retries — so the WS chat
+    // pipeline never opens.
+    if (!_serverListenerAttached) {
+      _agentServerController.addListener(_onServerStateChanged);
+      _serverListenerAttached = true;
+    }
+    await _tryConnectWs();
+  }
+
+  void _onServerStateChanged() {
+    // Fired by AgentServerController on every status transition. Drive a
+    // (possibly-deferred) WS connect from here.
+    _tryConnectWs();
+  }
+
+  Future<void> _tryConnectWs() async {
+    if (_wsConnected) return;
     if (!_agentServerController.isReady ||
         !_agentServerController.hasAnyAgent) {
-      // Agent server not ready or no CLI installed → skip WebSocket connect;
-      // UI guard handles display.
+      // Stay deferred; the listener will re-invoke us when the gate opens.
       return;
     }
+    _wsConnected = true;
     await _repository.connect();
     _wsSub = _repository.messages.listen(_onWsMessage);
     _connectivitySub = _repository.connectivityStream.listen((connected) {
@@ -614,6 +637,9 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     _stuckCheckTimer?.cancel();
     _wsSub?.cancel();
     _connectivitySub?.cancel();
+    if (_serverListenerAttached) {
+      _agentServerController.removeListener(_onServerStateChanged);
+    }
     _repository.dispose();
     super.dispose();
   }
