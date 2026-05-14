@@ -116,6 +116,17 @@ declare module '@opencode-ai/sdk' {
     };
   };
 
+  export type EventMessagePartDelta = {
+    type: 'message.part.delta';
+    properties: {
+      sessionID: string;
+      messageID: string;
+      partID: string;
+      field: string;
+      delta: string;
+    };
+  };
+
   export type SessionStatus =
     | { type: 'idle' }
     | { type: 'retry'; attempt: number; message: string; next: number }
@@ -160,6 +171,7 @@ declare module '@opencode-ai/sdk' {
 
   export type Event =
     | EventMessagePartUpdated
+    | EventMessagePartDelta
     | EventMessageUpdated
     | EventMessageRemoved
     | EventSessionStatus
@@ -247,7 +259,7 @@ declare module '@opencode-ai/sdk' {
       }): Promise<boolean>;
     };
     event: {
-      subscribe(): Promise<{
+      subscribe(options?: { query?: { directory?: string } }): Promise<{
         stream: AsyncIterable<Event>;
       }>;
     };

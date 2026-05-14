@@ -231,7 +231,11 @@ describe('Agent Sessions API', () => {
     expect(body.status).toBe('starting');
     expect(mockClient.createSession).toHaveBeenCalled();
     expect(opencodeSessionMap.get(inserted.id)).toBe('sdk-resumed-session');
-    expect(streamBridge.streamSession).toHaveBeenCalledWith(inserted.id, 'sdk-resumed-session');
+    expect(streamBridge.streamSession).toHaveBeenCalledWith(
+      inserted.id,
+      'sdk-resumed-session',
+      expect.any(String),
+    );
 
     // DELETE should clear the mapping
     const delRes = await fetch(`${baseUrl}/agent-sessions/${inserted.id}`, {

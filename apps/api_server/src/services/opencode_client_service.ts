@@ -201,11 +201,22 @@ export class OpencodeClientService {
     }
   }
 
-  /** Subscribe to Opencode event stream. Returns null if not ready. */
-  async subscribeToEvents(): Promise<{ stream: AsyncIterable<Event> } | null> {
+  /**
+   * Subscribe to Opencode event stream. Returns null if not ready.
+   *
+   * IMPORTANT: opencode's /event SSE filters by ?directory= query param.
+   * Without a directory, only server-level events (connected, heartbeat)
+   * are delivered. Pass the session's cwd to receive session.* and
+   * message.* events for that working directory.
+   */
+  async subscribeToEvents(
+    directory?: string,
+  ): Promise<{ stream: AsyncIterable<Event> } | null> {
     if (!this.client) return null;
     try {
-      const events = await this.client.event.subscribe();
+      const events = await this.client.event.subscribe(
+        directory ? { query: { directory } } : undefined,
+      );
       return events as unknown as { stream: AsyncIterable<Event> };
     } catch (err) {
       logger.error('[OpencodeClientService] subscribeToEvents failed:', err);

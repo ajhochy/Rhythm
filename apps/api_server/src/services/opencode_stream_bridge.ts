@@ -22,53 +22,84 @@ import { AgentSessionMessagesRepository } from '../repositories/agent_session_me
  * Session ID routing: Opencode events carry `properties.sessionID` (SDK session ID).
  * The bridge uses opencodeSessionMap to look up the local session ID for each event.
  */
+type DirectoryStream = {
+  eventStream: AsyncIterable<import('@opencode-ai/sdk').Event>;
+  abort: AbortController;
+};
+
 export class OpencodeStreamBridge {
-  private eventStream: AsyncIterable<import('@opencode-ai/sdk').Event> | null = null;
-  private streamAbort: AbortController | null = null;
-  private listenerPromise: Promise<void> | null = null;
-  private subscribed = false;
+  // One SSE subscription per directory, because opencode's /event endpoint
+  // filters by ?directory= — sessions whose cwd is outside the subscribed
+  // directory never produce events on that stream. The same process may
+  // host sessions across different cwds, so we track multiple streams.
+  private streamsByDirectory = new Map<string, DirectoryStream>();
   private sessionsRepo = new AgentSessionsRepository();
   private messagesRepo = new AgentSessionMessagesRepository();
 
-  /** Start streaming events for a given local session. */
+  // Accumulate assistant text deltas keyed by local session id. The SDK
+  // streams text via `message.part.delta` events; the message body itself
+  // arrives empty. We append on session.idle (end of turn) to keep the
+  // agent_session_messages history populated.
+  private pendingText = new Map<string, string>();
+
+  /**
+   * Start streaming events for a given local session.
+   * Subscribes (idempotently) to the opencode /event SSE for the session's
+   * cwd. Multiple sessions in the same directory share a single subscriber.
+   */
   async streamSession(
     localSessionId: string,
     _opencodeSessionId: string,
+    cwd: string,
   ): Promise<void> {
-    // Subscribe to the event stream on first call
-    if (!this.subscribed) {
-      this.subscribed = true;
-      try {
-        const events = await opencodeClient.subscribeToEvents();
-        if (!events) {
-          console.warn('[OpencodeStreamBridge] No event stream available');
-          this.subscribed = false;
-          return;
-        }
-        this.eventStream = events.stream;
-        this.streamAbort = new AbortController();
-        this.listenerPromise = this._listen();
-      } catch (err) {
-        logger.error('[OpencodeStreamBridge] Failed to subscribe:', err);
-        this.subscribed = false;
+    const directory = cwd && cwd.length > 0 ? cwd : '/';
+    if (this.streamsByDirectory.has(directory)) return;
+
+    try {
+      const events = await opencodeClient.subscribeToEvents(directory);
+      if (!events) {
+        logger.error(
+          `[OpencodeStreamBridge] No event stream available for directory=${directory}`,
+        );
+        return;
       }
+      const abort = new AbortController();
+      this.streamsByDirectory.set(directory, {
+        eventStream: events.stream,
+        abort,
+      });
+      // Fire-and-forget listener loop. Failures inside the loop unset the
+      // entry so a subsequent session in the same directory can re-subscribe.
+      this._listen(directory).catch((err) =>
+        logger.error('[OpencodeStreamBridge] listener crashed:', err),
+      );
+      logger.info(
+        `[OpencodeStreamBridge] Subscribed to events for directory=${directory} (session=${localSessionId})`,
+      );
+    } catch (err) {
+      logger.error(
+        `[OpencodeStreamBridge] Failed to subscribe to ${directory}:`,
+        err,
+      );
     }
   }
 
-  private async _listen(): Promise<void> {
-    if (!this.eventStream) return;
+  private async _listen(directory: string): Promise<void> {
+    const entry = this.streamsByDirectory.get(directory);
+    if (!entry) return;
     try {
-      for await (const event of this.eventStream) {
-        if (this.streamAbort?.signal.aborted) break;
+      for await (const event of entry.eventStream) {
+        if (entry.abort.signal.aborted) break;
         this._relayEvent(event);
       }
     } catch (err) {
       if (err instanceof Error && err.name === 'AbortError') return;
-      logger.error('[OpencodeStreamBridge] Event stream error:', err);
+      logger.error(
+        `[OpencodeStreamBridge] Event stream error for ${directory}:`,
+        err,
+      );
     } finally {
-      this.streamAbort = null;
-      this.eventStream = null;
-      this.subscribed = false;
+      this.streamsByDirectory.delete(directory);
     }
   }
 
@@ -117,8 +148,12 @@ export class OpencodeStreamBridge {
     // Map Opencode event types to Flutter's expected WS message format
     switch (event.type) {
       case 'message.part.updated': {
-        // Stream text deltas as output events
-        const delta = (event.properties as Record<string, unknown>)?.delta as string | undefined;
+        // The 'delta' property here is incremental streaming text for the
+        // current assistant part — broadcast for UI live update, but DO NOT
+        // accumulate (we'd double-count vs message.part.delta). The
+        // part.text field carries the user's echoed prompt for user parts,
+        // so we deliberately ignore it for persistence.
+        const delta = props?.delta as string | undefined;
         if (delta) {
           broadcast({
             v: 1,
@@ -130,46 +165,35 @@ export class OpencodeStreamBridge {
         break;
       }
 
+      case 'message.part.delta': {
+        // Streaming text delta during an assistant turn. This is the
+        // canonical source of assistant text — accumulate for persistence.
+        const delta = props?.delta as string | undefined;
+        const field = props?.field as string | undefined;
+        if (delta && field === 'text' && localSessionId) {
+          this.pendingText.set(
+            localSessionId,
+            (this.pendingText.get(localSessionId) ?? '') + delta,
+          );
+          broadcast({
+            v: 1,
+            type: 'output',
+            id: eventId,
+            data: delta,
+          });
+        }
+        break;
+      }
+
       case 'message.updated': {
-        // Final message — flush remaining output
+        // Final message — flush remaining output. Persistence happens on
+        // session.idle so we have the complete assistant turn assembled.
         broadcast({
           v: 1,
           type: 'output.flush',
           id: eventId,
           properties: event.properties ?? {},
         });
-        // Persist the assistant message text so the agents view + session
-        // detail page have it after a restart (WS-only state would be lost
-        // when the user navigates away).
-        if (localSessionId) {
-          try {
-            const props = event.properties as Record<string, unknown>;
-            const info = props?.info as Record<string, unknown> | undefined;
-            const role = info?.role as string | undefined;
-            const parts = (props?.parts ?? info?.parts) as
-              | Array<Record<string, unknown>>
-              | undefined;
-            if (role === 'assistant' && Array.isArray(parts)) {
-              const text = parts
-                .filter((p) => p?.type === 'text')
-                .map((p) => String(p.text ?? ''))
-                .join('');
-              if (text.length > 0) {
-                this.messagesRepo.append(localSessionId, 'output', text, text);
-                this.sessionsRepo.updatePreview(
-                  localSessionId,
-                  text.slice(0, 200),
-                  new Date().toISOString(),
-                );
-              }
-            }
-          } catch (err) {
-            logger.error(
-              '[OpencodeStreamBridge] Failed to persist message:',
-              err,
-            );
-          }
-        }
         break;
       }
 
@@ -216,6 +240,25 @@ export class OpencodeStreamBridge {
               '[OpencodeStreamBridge] Failed to update session status to idle:',
               err,
             );
+          }
+          // Persist the assembled assistant turn (if any) and clear the
+          // pending buffer.
+          const text = this.pendingText.get(localSessionId);
+          if (text && text.length > 0) {
+            try {
+              this.messagesRepo.append(localSessionId, 'output', text, text);
+              this.sessionsRepo.updatePreview(
+                localSessionId,
+                text.slice(0, 200),
+                new Date().toISOString(),
+              );
+            } catch (err) {
+              logger.error(
+                '[OpencodeStreamBridge] Failed to persist assistant turn:',
+                err,
+              );
+            }
+            this.pendingText.delete(localSessionId);
           }
         }
         break;
@@ -290,10 +333,10 @@ export class OpencodeStreamBridge {
 
   /** Clean up all streams. */
   dispose(): void {
-    this.streamAbort?.abort();
-    this.streamAbort = null;
-    this.eventStream = null;
-    this.subscribed = false;
+    for (const [, entry] of this.streamsByDirectory) {
+      entry.abort.abort();
+    }
+    this.streamsByDirectory.clear();
   }
 }
 
