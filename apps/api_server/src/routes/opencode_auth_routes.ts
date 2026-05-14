@@ -9,7 +9,7 @@ opencodeAuthRouter.get('/', async (_req: Request, res: Response) => {
     res.json({ providers: [], ready: false });
     return;
   }
-  const providers = await opencodeClient.listProviders();
+  const providers = await opencodeClient.listAuthedProviders();
   res.json({ providers, ready: true });
 });
 
