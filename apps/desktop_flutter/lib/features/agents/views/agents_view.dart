@@ -8,6 +8,7 @@ import '../../../app/core/ui/tokens/rhythm_theme.dart';
 import '../../agent_configs/controllers/agent_configs_controller.dart';
 import '../../agent_configs/models/agent_config.dart';
 import '../../agent_configs/views/manage_agents_view.dart';
+import '../../settings/views/settings_view.dart';
 import '../../agent_configs/widgets/agent_icon.dart';
 import '../../tasks/controllers/tasks_controller.dart';
 import '../../tasks/models/task.dart';
@@ -36,9 +37,9 @@ class _AgentsViewState extends State<AgentsView> {
       return const AgentServerUnavailable();
     }
 
-    // Capability guard — server ok but no CLI installed.
+    // Capability guard — server ok but no providers connected yet.
     if (agentServerController.isReady && !agentServerController.hasAnyAgent) {
-      return const _NoCLIDetected();
+      return const _NoAgentsAvailable();
     }
 
     // Still starting — show the main view (sessions will be empty).
@@ -177,8 +178,8 @@ class AgentServerUnavailable extends StatelessWidget {
   }
 }
 
-class _NoCLIDetected extends StatelessWidget {
-  const _NoCLIDetected();
+class _NoAgentsAvailable extends StatelessWidget {
+  const _NoAgentsAvailable();
 
   @override
   Widget build(BuildContext context) {
@@ -204,7 +205,7 @@ class _NoCLIDetected extends StatelessWidget {
               ),
               const SizedBox(height: 16),
               Text(
-                'No supported AI CLI detected',
+                'No agents connected',
                 style: TextStyle(
                   fontSize: 17,
                   fontWeight: FontWeight.w700,
@@ -213,13 +214,28 @@ class _NoCLIDetected extends StatelessWidget {
               ),
               const SizedBox(height: 10),
               Text(
-                'Install Claude Code or Codex CLI to use agent sessions.',
+                'Connect a provider in Settings → AI Accounts to enable '
+                'agent sessions. You can sign in with Claude, ChatGPT, '
+                'GitHub Copilot, or paste an API key for Gemini or '
+                'OpenRouter.',
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   fontSize: 13,
                   color: context.rhythm.textSecondary,
                   height: 1.45,
                 ),
+              ),
+              const SizedBox(height: 20),
+              FilledButton.icon(
+                onPressed: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => const SettingsView(),
+                    ),
+                  );
+                },
+                icon: const Icon(Icons.settings_outlined, size: 16),
+                label: const Text('Open Settings → AI Accounts'),
               ),
             ],
           ),
