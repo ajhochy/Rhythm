@@ -1,5 +1,17 @@
 # Testing Guide
 
+## Canonical workflow commands
+
+```bash
+ai-workflow status                  # context-file health
+ai-workflow checks --level issue    # flutter analyze + dart format + tsc --noEmit
+ai-workflow checks --level pr       # adds vitest (npm test in apps/api_server)
+ai-workflow checks --level smoke    # prints pointer to docs/testing/manual-smoke.md
+ai-workflow run --issue N[,M,...]   # packed handoff (issue bodies inlined, no extra gh calls)
+```
+
+All commands delegate to `scripts/run_ai_workflow.py` in this repo.
+
 ## Running tests
 
 ### api_server (Node.js/TypeScript)

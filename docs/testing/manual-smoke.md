@@ -136,3 +136,30 @@ Ideally all tests pass. If better-sqlite3 ABI mismatch occurs, run `npm rebuild 
 cd apps/desktop_flutter && flutter test
 ```
 Expected: all pass.
+
+---
+
+## 11. Settings UI cleanup (issues #575–#579)
+
+### #575 — Manage Agents card
+- [ ] Open Agents → Manage agents. Cards show only: icon, name, enabled toggle, AI Agent checkbox, and an Available/Unavailable badge.
+- [ ] No "Command" text field is visible.
+- [ ] No "Supports session resume" checkbox is visible.
+- [ ] No Advanced expansion with resume command / session ID pattern.
+- [ ] Add a custom (non-preset) config — badge should show Unavailable (this is expected; preset IDs drive the capabilities map).
+
+### #577 — Settings AGENT SERVER card
+- [ ] Open Settings. The AGENT SERVER section shows a single row: green dot + "Running on localhost:4001".
+- [ ] No "Claude Code CLI: installed/not installed" row.
+- [ ] No "Codex CLI: installed/not installed" row.
+- [ ] No Refresh button.
+- [ ] No "Install Claude Code" yellow banner.
+
+### #576 / #579 — OAuth error surfacing
+- [ ] Settings → AI Account → tap "Authorize Claude" (anthropic). If the SDK is ready and OAuth succeeds, the system browser opens. If it fails, the message shown contains the SDK's actual error string, not the generic fallback.
+- [ ] Tap "Authorize GitHub Copilot". Same expectation — real error surfaced if it fails.
+
+### #578 — OpenRouter API key save
+- [ ] Settings → AI Account → paste any string into the OpenRouter API key field → Save.
+- [ ] If the server returns HTML (route missing in `dist/`), the UI shows a readable "Failed: <status reason>" message instead of a FormatException crash.
+- [ ] With a rebuilt `apps/api_server/dist/`, saving a valid key shows success.
