@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 
 import '../../../app/core/agents/agent_server_controller.dart';
+import '../../../app/core/errors/app_error.dart';
 import '../../../app/core/notifications/local_notification_service.dart';
 import '../../notifications/controllers/notifications_controller.dart';
 import '../models/agent_session.dart';
@@ -49,6 +50,7 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
 
   AgentsLoadStatus _status = AgentsLoadStatus.idle;
   String? _error;
+  int? _lastErrorStatus;
   bool _reconnecting = false;
 
   List<AgentSession> _sessions = [];
@@ -96,6 +98,7 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
 
   AgentSessionConnectivity get connectivity => _connectivity;
   String? get error => _error;
+  int? get lastErrorStatus => _lastErrorStatus;
   List<AgentSession> get sessions => List.unmodifiable(_sessions);
   List<AgentSession> get resumable => List.unmodifiable(_resumable);
   String? get selectedSessionId => _selectedSessionId;
@@ -171,8 +174,10 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
         }
       }
     });
-    _stuckCheckTimer =
-        Timer.periodic(const Duration(seconds: 5), (_) => _recomputeStuck());
+    _stuckCheckTimer = Timer.periodic(
+      const Duration(seconds: 5),
+      (_) => _recomputeStuck(),
+    );
     await load();
   }
 
@@ -186,9 +191,11 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     try {
       final result = await _repository.listSessions();
       _sessions = result
-          .where((s) =>
-              s.status != AgentSessionStatus.closed &&
-              s.status != AgentSessionStatus.resumable)
+          .where(
+            (s) =>
+                s.status != AgentSessionStatus.closed &&
+                s.status != AgentSessionStatus.resumable,
+          )
           .toList();
       _resumable = result
           .where((s) => s.status == AgentSessionStatus.resumable)
@@ -208,6 +215,8 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     required String cwd,
     required String name,
   }) async {
+    _error = null;
+    _lastErrorStatus = null;
     try {
       final session = await _repository.createSession(
         agentId: agentId,
@@ -220,7 +229,12 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
       notifyListeners();
       return session;
     } catch (e) {
-      _error = e.toString();
+      if (e is AppError) {
+        _error = e.message;
+        _lastErrorStatus = e.statusCode;
+      } else {
+        _error = e.toString();
+      }
       notifyListeners();
       return null;
     }
@@ -239,7 +253,12 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
       await _repository.closeSession(id);
       // The `session.closed` WS message will update state.
     } catch (e) {
-      _error = e.toString();
+      if (e is AppError) {
+        _error = e.message;
+        _lastErrorStatus = e.statusCode;
+      } else {
+        _error = e.toString();
+      }
       notifyListeners();
     }
   }
@@ -252,7 +271,12 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
       _liveOutputBuffer.remove(id);
       notifyListeners();
     } catch (e) {
-      _error = e.toString();
+      if (e is AppError) {
+        _error = e.message;
+        _lastErrorStatus = e.statusCode;
+      } else {
+        _error = e.toString();
+      }
       notifyListeners();
     }
   }
@@ -345,11 +369,13 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     if (!kDebugMode) return;
     if (taskId.isEmpty) return;
     if (_pendingTriggers.any((t) => t.taskId == taskId)) return;
-    _pendingTriggers.add(PendingTrigger(
-      taskId: taskId,
-      taskTitle: taskTitle,
-      arrivedAt: DateTime.now(),
-    ));
+    _pendingTriggers.add(
+      PendingTrigger(
+        taskId: taskId,
+        taskTitle: taskTitle,
+        arrivedAt: DateTime.now(),
+      ),
+    );
     notifyListeners();
   }
 
@@ -372,11 +398,13 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     // Deduplicate — if the trigger is already pending, skip.
     if (_pendingTriggers.any((t) => t.taskId == taskId)) return;
 
-    _pendingTriggers.add(PendingTrigger(
-      taskId: taskId,
-      taskTitle: taskTitle,
-      arrivedAt: DateTime.now(),
-    ));
+    _pendingTriggers.add(
+      PendingTrigger(
+        taskId: taskId,
+        taskTitle: taskTitle,
+        arrivedAt: DateTime.now(),
+      ),
+    );
     notifyListeners();
   }
 
@@ -387,9 +415,11 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   void _onWsMessage(AgentWsMessage msg) {
     if (msg is SessionsListMessage) {
       _sessions = msg.sessions
-          .where((s) =>
-              s.status != AgentSessionStatus.closed &&
-              s.status != AgentSessionStatus.resumable)
+          .where(
+            (s) =>
+                s.status != AgentSessionStatus.closed &&
+                s.status != AgentSessionStatus.resumable,
+          )
           .toList();
       _resumable = [
         ...msg.sessions.where((s) => s.status == AgentSessionStatus.resumable),
@@ -491,11 +521,13 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
       }
       _liveOutputBuffer.remove(msg.id);
     } else if (msg is TriggerFiredMessage) {
-      _pendingTriggers.add(PendingTrigger(
-        taskId: msg.taskId,
-        taskTitle: msg.taskTitle,
-        arrivedAt: DateTime.now(),
-      ));
+      _pendingTriggers.add(
+        PendingTrigger(
+          taskId: msg.taskId,
+          taskTitle: msg.taskTitle,
+          arrivedAt: DateTime.now(),
+        ),
+      );
     } else if (msg is NotificationPushMessage) {
       _notificationsController.pushAgentNotification(
         id: msg.id,

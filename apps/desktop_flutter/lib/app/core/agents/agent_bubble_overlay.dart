@@ -13,6 +13,7 @@ import '../../../features/agents/models/agent_session_message.dart';
 import '../constants/app_constants.dart';
 import '../ui/tokens/rhythm_theme.dart';
 import 'agent_server_controller.dart';
+import 'ansi_strip.dart';
 import 'overlay_controller.dart';
 
 // ---------------------------------------------------------------------------
@@ -650,11 +651,7 @@ class _BubbleHeader extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               children: [
                 if (config != null) ...[
-                  AgentIcon(
-                    config.icon,
-                    size: 12,
-                    fallbackLabel: config.label,
-                  ),
+                  AgentIcon(config.icon, size: 12, fallbackLabel: config.label),
                   const SizedBox(width: 4),
                 ],
                 Text(
@@ -711,11 +708,7 @@ class _BubbleHeader extends StatelessWidget {
           _IconBtn(icon: Icons.remove, tooltip: 'Minimize', onTap: onMinimize),
           const SizedBox(width: 2),
           // Close
-          _IconBtn(
-            icon: Icons.close,
-            tooltip: 'Close session',
-            onTap: onClose,
-          ),
+          _IconBtn(icon: Icons.close, tooltip: 'Close session', onTap: onClose),
         ],
       ),
     );
@@ -901,10 +894,7 @@ class _TriggerButton extends StatelessWidget {
           mainAxisAlignment: MainAxisAlignment.center,
           mainAxisSize: MainAxisSize.min,
           children: [
-            if (icon != null) ...[
-              icon!,
-              const SizedBox(width: 5),
-            ],
+            if (icon != null) ...[icon!, const SizedBox(width: 5)],
             Flexible(
               child: Text(
                 label,
@@ -986,9 +976,11 @@ class _MiniLiveBlock extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Show last ~500 chars for the mini-view.
-    final display =
-        text.length > 500 ? text.substring(text.length - 500) : text;
+    // Strip ANSI before truncating so the 500-char window is on visible text.
+    final stripped = stripAnsi(text);
+    final display = stripped.length > 500
+        ? stripped.substring(stripped.length - 500)
+        : stripped;
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(8),

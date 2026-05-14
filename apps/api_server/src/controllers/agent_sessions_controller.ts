@@ -8,6 +8,20 @@ import type { AgentKind, CreateAgentSessionDto } from '../models/agent_session';
 import { opencodeClient, opencodeSessionMap } from '../services/opencode_engine';
 import { streamBridge } from '../services/opencode_stream_bridge';
 
+// Legacy agentId aliases. Older Rhythm clients (and a handful of historical
+// scripts) used short names. /agents/capabilities and the seed both use
+// kebab-case canonical IDs; this map keeps stale clients working.
+const AGENT_ID_ALIASES: Record<string, string> = {
+  claude: 'claude-code',
+  claudeCode: 'claude-code',
+  gemini: 'gemini-cli',
+  codexCli: 'codex',
+};
+
+function normalizeAgentId(id: string): string {
+  return AGENT_ID_ALIASES[id] ?? id;
+}
+
 const repo = new AgentSessionsRepository();
 const messagesRepo = new AgentSessionMessagesRepository();
 
@@ -60,13 +74,14 @@ export class AgentSessionsController {
       if (!agentId || typeof agentId !== 'string') {
         throw AppError.badRequest('agentId is required');
       }
+      const normalizedAgentId = normalizeAgentId(agentId);
       // Validate that a matching, enabled agent config exists
-      const agentConfig = new AgentConfigsRepository().getById(agentId);
+      const agentConfig = new AgentConfigsRepository().getById(normalizedAgentId);
       if (!agentConfig) {
-        throw AppError.badRequest(`agent not configured: '${agentId}'`);
+        throw AppError.badRequest(`agent not configured: '${normalizedAgentId}'`);
       }
       if (!agentConfig.enabled) {
-        throw AppError.badRequest(`agent disabled: '${agentId}'`);
+        throw AppError.badRequest(`agent disabled: '${normalizedAgentId}'`);
       }
       if (!cwd || typeof cwd !== 'string' || cwd.trim() === '') {
         throw AppError.badRequest('cwd is required and must be a non-empty string');
@@ -86,7 +101,7 @@ export class AgentSessionsController {
       }
 
       const dto: CreateAgentSessionDto = {
-        agentKind: agentId as AgentKind,
+        agentKind: normalizedAgentId as AgentKind,
         taskId: taskId != null ? (taskId as string) : null,
         taskTitle: taskTitle != null ? (taskTitle as string) : null,
         cwd: expandHome(cwd.trim()),
