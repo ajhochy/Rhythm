@@ -1,2 +1,0 @@
-COMMAND   PID         USER   FD   TYPE             DEVICE SIZE/OFF NODE NAME
-node    70223 ajhochhalter   23u  IPv6 0x5498ff39eea10922      0t0  TCP *:4001 (LISTEN)
