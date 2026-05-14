@@ -14,6 +14,7 @@ import '../../agent_configs/widgets/agent_icon.dart';
 import '../../tasks/controllers/tasks_controller.dart';
 import '../../tasks/models/task.dart';
 import '../../agent_projects/controllers/agent_projects_controller.dart';
+import '../../agent_projects/views/edit_project_dialog.dart';
 import '../controllers/agents_controller.dart';
 import '../models/agent_session.dart';
 import '../models/agent_session_message.dart';
@@ -86,23 +87,8 @@ class _AgentsViewState extends State<AgentsView> {
     );
   }
 
-  // Placeholder until M1-6's EditProjectDialog lands. Keeps the rail's `+`
-  // button visibly responsive; replace this method when M1-6 ships.
-  // TODO(M1-6): swap for showEditProjectDialog(create: true, ...).
   void _showNewProjectDialog(BuildContext context) {
-    showDialog<void>(
-      context: context,
-      builder: (_) => AlertDialog(
-        title: const Text('New project'),
-        content: const Text('Project creation lands in M1-6.'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('OK'),
-          ),
-        ],
-      ),
-    );
+    showEditProjectDialog(context);
   }
 }
 

@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../../../app/core/ui/tokens/rhythm_theme.dart';
 import '../../agent_projects/controllers/agent_projects_controller.dart';
 import '../../agent_projects/models/agent_project.dart';
+import '../../agent_projects/views/edit_project_dialog.dart';
 
 /// 64px sidebar rail listing agent projects.
 ///
@@ -55,13 +56,18 @@ class ProjectsRail extends StatelessWidget {
                 padding: const EdgeInsets.symmetric(vertical: 2),
                 itemCount: controller.projects.length,
                 separatorBuilder: (_, __) => const SizedBox(height: 12),
-                itemBuilder: (_, i) {
+                itemBuilder: (ctx, i) {
                   final p = controller.projects[i];
-                  return _RailItem(
-                    tooltip: p.name,
-                    selected: p.id == selectedId,
-                    onTap: () => controller.select(p.id),
-                    child: _ProjectIcon(project: p),
+                  return GestureDetector(
+                    onLongPress: () => showEditProjectDialog(ctx, existing: p),
+                    onSecondaryTap: () =>
+                        showEditProjectDialog(ctx, existing: p),
+                    child: _RailItem(
+                      tooltip: p.name,
+                      selected: p.id == selectedId,
+                      onTap: () => controller.select(p.id),
+                      child: _ProjectIcon(project: p),
+                    ),
                   );
                 },
               ),
