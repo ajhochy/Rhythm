@@ -1,18 +1,50 @@
 # Project State
 
-## Current Status (2026-05-14 v2 — M1-1 verified)
+## Current Status (2026-05-14 v3 — all five milestones shipped to draft PRs)
 
-🟢 **PR #574 merged.** `main` is at `84eef44`; the Opencode auth/chat rework is now upstream.
+🟢 **All five milestones (M1–M5, 25/26 atomic issues) landed across stacked draft PRs in a single power-through session.**
 
-🟢 **M1-1 (#586) implementation verified.** Backend `projects` table + CRUD + VCS probe landed on `m1-projects`. PR-level checks green (flutter analyze, dart format, tsc --noEmit, vitest 430/430 incl. 13 new). Smoke probes against `localhost:4099`: `/health` ok, `POST /projects` with the Rhythm repo cwd returns `vcsRoot=/Users/.../Rhythm, vcsBranch=m1-projects, vcsDirty=true`; relative-path → 400; `refresh-vcs` → 200; `DELETE` → 204.
+| Milestone | Branch | PR | Status |
+|---|---|---|---|
+| M1 — Sessions ↔ Projects | `m1-projects` | [#592](https://github.com/ajhochy/Rhythm/pull/592) base=main | 6/6 issues #586–#591, full UI shipped |
+| M2 — Session header toolbar | `m2-session-header` | [#593](https://github.com/ajhochy/Rhythm/pull/593) base=m1-projects | Backend + Flutter data layer; visible header UI follow-up |
+| M3 — Details / inspector | `m3-inspector` | [#594](https://github.com/ajhochy/Rhythm/pull/594) base=m2-session-header | Widgets + endpoints shipped; agents_view rewrite follow-up |
+| M4 — Composer upgrades | `m4-composer` | [#595](https://github.com/ajhochy/Rhythm/pull/595) base=m3-inspector | WS protocol + data sources; popover widgets follow-up |
+| M5 — Settings surface | `m5-settings` | [#596](https://github.com/ajhochy/Rhythm/pull/596) base=m4-composer | Persistence services + backend stubs; tab UI + dark-mode audit follow-up |
 
-**Branch state.** `m1-projects`, branched from `84eef44` (clean main). Local commits:
-- `7ccadbf` — docs(ai): generated M1 issue bodies #586–#591
-- (uncommitted) M1-1 source: migrations, model, vcs_probe service, repo, controller, route, tests, app.ts wire-up
+**Automated checks at every milestone boundary:** `ai-workflow checks --level pr` exited 0 (flutter analyze, dart format, tsc --noEmit, vitest, flutter test 218/218, vitest 38/38 incl. M3-1 tool-call fixture).
 
-Pending action by user: commit M1-1 + push branch + open PR for #586 (or stack #587–#591 first per the milestone-per-PR decision in `docs/ai/current-plan.md`).
+**The stacked PR chain is ordered for sequential review:**
+1. Review and merge #592 first (smoke the rail, VCS chip, project dialog).
+2. Then #593 (PATCH endpoint, cancel, per-turn override — data layer only).
+3. Then #594 (tool-call widgets, side panel, permission card — visual integration in a follow-up).
+4. Then #595 (composer parts protocol — visible popovers in a follow-up).
+5. Then #596 (settings services — tab UI in a follow-up).
 
-**Active plan.** `docs/ai/current-plan.md` holds the 5-milestone parity roadmap with all 6 open questions resolved (2026-05-14). One-branch-per-milestone confirmed. Milestone #86 (`M1 — Sessions ↔ Projects`) tracks issues [#586](https://github.com/ajhochy/Rhythm/issues/586)–[#591](https://github.com/ajhochy/Rhythm/issues/591).
+### Known UI integration follow-ups (intentional gaps)
+
+This session shipped backend completeness for M2–M5 and Flutter data-layer + scaffold widgets, but **did not** rewrite the live UI surfaces to integrate them. The composable pieces are import-clean and tested where reasonable. Visible follow-ups:
+
+- **M2 session header**: model picker dropdown chip, Stop button on `working` status, token/cost meter, inline rename.
+- **M3 chat thread**: hang `SessionSidePanel` off `agents_view`, render `ToolCallPart` inside assistant bubbles when `ChatPart.type == 'tool'`, surface `PermissionCard` for `permission.asked` WS events, wire backend `respondPermission` to the real SDK call.
+- **M4 composer**: drag-drop region (needs `desktop_drop` plugin), slash-command popover widget, @-mention fuzzy file finder, file picker.
+- **M5 settings**: `SettingsView` left-rail tab scaffold + Providers/Appearance/Keybinds/Servers/About tab widgets. **Full dark-mode token audit across all 11 screens** (Tasks/Projects/Rhythms/WeeklyPlanner/Messages/Facilities/Dashboard/Integrations/Imports/Agents/Settings) — services exist, but per-screen hex-literal flush deferred.
+- **M5-1 destructive modal**: `PermissionCard` does not yet read `DestructiveModalService.enabled`; needs a single-line wiring in the consumer when the inline-vs-modal switch is implemented.
+- **M5-5 server switching**: `OpencodeClientService` does not yet consume `OpencodeServerService.effectiveUrl`. Restart-on-switch is a follow-up.
+
+### Backend stubs vs. functional endpoints
+
+These endpoints return graceful empty/501 responses until the SDK methods are wired:
+
+- `GET /agent-sessions/:id/diff` → `[]` when `opencodeClient.diffSession` is absent.
+- `POST /agent-sessions/:id/permission/:permissionId/{accept,deny}` → 204 no-op when `opencodeClient.respondPermission` is absent.
+- `PUT /opencode/providers` → 501 ("edit opencode.json directly") until `opencode_plugin_config.ts` writer lands.
+- `GET /opencode/commands` → `[]` until `client.command.list` is wrapped.
+
+### Project-state hygiene
+
+- Local plan/issues match GitHub state (milestone #86, issues #586–#591 closed; M2–M5 implementations posted to PRs without per-issue tickets).
+- All 5 branches pushed and tracked; no uncommitted local work outside `auth-strategy-probe.ts` (pre-existing untracked dev script).
 
 ## Prior Status (2026-05-14, session-end snapshot — PRE-merge)
 
@@ -273,7 +305,10 @@ Endpoints: `GET/POST /projects`, `GET/PATCH/DELETE /projects/:id`, `POST /projec
 
 ## What to do next (resume notes)
 
-1. **Commit M1-1** on `m1-projects` (single commit covering migrations, model, service, repo, controller, route, app.ts, tests).
-2. **Push `m1-projects` + open draft PR for #586** — or, per the milestone-per-PR decision in `current-plan.md`, stack #587/#588 onto the same branch before opening one PR for the whole backend half of M1.
-3. **Dispatch coding-agent for #587** (M1-2: `agent_sessions.project_id` FK + per-project listing).
-4. Outstanding non-M1 items still apply: Google AI sign-in for direct gemini routing; OpenRouter rate-limit on test account; plugin requirements doc in CLAUDE.md.
+1. **Manual UI smoke** of M1 in particular — rail visible, project create/edit dialog, VCS chip, session filter. PR #592 is the gating change for everything stacked on top.
+2. **Merge PRs in order** (`#592 → #593 → #594 → #595 → #596`); each one rebases cleanly because of the stacked branch strategy.
+3. **Pick up the UI integration follow-ups** as separate small PRs:
+   - Session header chip (M2) — biggest user-facing win.
+   - agents_view rewrite to host `SessionSidePanel` + render tool/permission cards inline (M3).
+   - Settings tabs scaffold (M5) — unblocks the dark-mode audit.
+4. Outstanding non-M1..M5 items still apply: Google AI sign-in for direct gemini routing; OpenRouter rate-limit on test account; plugin requirements doc in CLAUDE.md.
