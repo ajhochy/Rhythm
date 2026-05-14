@@ -5,7 +5,8 @@ import { AgentSessionsRepository } from '../repositories/agent_sessions_reposito
 import { AgentSessionMessagesRepository } from '../repositories/agent_session_messages_repository';
 import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
 import type { AgentKind, CreateAgentSessionDto } from '../models/agent_session';
-import * as ptyRunner from '../services/pty_runner';
+import { opencodeClient } from '../services/opencode_engine';
+import { streamBridge } from '../services/opencode_stream_bridge';
 
 const repo = new AgentSessionsRepository();
 const messagesRepo = new AgentSessionMessagesRepository();
@@ -42,7 +43,7 @@ export class AgentSessionsController {
     }
   }
 
-  create(req: Request, res: Response, next: NextFunction): void {
+  async create(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const body = req.body as Record<string, unknown>;
       const { taskId, taskTitle, cwd, name } = body;
@@ -92,18 +93,22 @@ export class AgentSessionsController {
 
       const session = repo.insert(dto);
 
-      // Spawn the PTY — if the binary is missing or node-pty fails, roll back
-      // the row and return 400 so the client gets a clear error.
-      const cols = typeof req.body.cols === 'number' ? (req.body.cols as number) : undefined;
-      const rows = typeof req.body.rows === 'number' ? (req.body.rows as number) : undefined;
-      try {
-        ptyRunner.spawn({ session, cols, rows });
-      } catch (spawnErr) {
+      // Create an Opencode SDK session instead of spawning a PTY subprocess
+      if (!opencodeClient.isReady) {
         repo.markClosed(session.id);
-        const message =
-          spawnErr instanceof Error ? spawnErr.message : 'Failed to spawn agent binary';
-        throw AppError.badRequest(message);
+        throw AppError.badRequest('Opencode engine is not ready — check Settings to connect an AI account');
       }
+
+      const opencodeSession = await opencodeClient.createSession(name.trim());
+      if (!opencodeSession) {
+        repo.markClosed(session.id);
+        throw AppError.badRequest('Failed to create Opencode session — check your AI account is authorized');
+      }
+
+      // Start streaming Opencode events through the WebSocket gateway
+      streamBridge.streamSession(session.id, opencodeSession.id).catch((err) => {
+        console.error(`[AgentSessionsController] Stream bridge error for session ${session.id}:`, err);
+      });
 
       res.status(201).json(session);
     } catch (err) {
@@ -116,14 +121,9 @@ export class AgentSessionsController {
       const session = repo.findById(req.params.id);
       if (!session) throw AppError.notFound('AgentSession');
 
-      // Kill the live PTY if running; the onExit handler will update the DB row
-      // and broadcast session.closed asynchronously.
-      ptyRunner.kill(session.id);
-
-      // If the PTY was not alive (already exited), ensure the row is marked closed.
-      if (!ptyRunner.isAlive(session.id)) {
-        repo.markClosed(session.id);
-      }
+      // Stop any streaming for this session and mark it closed
+      streamBridge.stopStream(session.id);
+      repo.markClosed(session.id);
 
       res.status(204).end();
     } catch (err) {
@@ -158,16 +158,9 @@ export class AgentSessionsController {
         );
       }
 
-      if (ptyRunner.isAlive(session.id)) {
-        throw AppError.badRequest('Session is already running');
-      }
-
-      try {
-        ptyRunner.resume(session.id, session);
-      } catch (resumeErr) {
-        const message =
-          resumeErr instanceof Error ? resumeErr.message : 'Failed to resume agent session';
-        throw AppError.badRequest(message);
+      // Resume via Opencode SDK — create a fresh session with context
+      if (!opencodeClient.isReady) {
+        throw AppError.badRequest('Opencode engine is not ready');
       }
 
       repo.updateStatus(session.id, 'starting');
