@@ -128,6 +128,38 @@ export class OpencodeStreamBridge {
           id: eventId,
           properties: event.properties ?? {},
         });
+        // Persist the assistant message text so the agents view + session
+        // detail page have it after a restart (WS-only state would be lost
+        // when the user navigates away).
+        if (localSessionId) {
+          try {
+            const props = event.properties as Record<string, unknown>;
+            const info = props?.info as Record<string, unknown> | undefined;
+            const role = info?.role as string | undefined;
+            const parts = (props?.parts ?? info?.parts) as
+              | Array<Record<string, unknown>>
+              | undefined;
+            if (role === 'assistant' && Array.isArray(parts)) {
+              const text = parts
+                .filter((p) => p?.type === 'text')
+                .map((p) => String(p.text ?? ''))
+                .join('');
+              if (text.length > 0) {
+                this.messagesRepo.append(localSessionId, 'output', text, text);
+                this.sessionsRepo.updatePreview(
+                  localSessionId,
+                  text.slice(0, 200),
+                  new Date().toISOString(),
+                );
+              }
+            }
+          } catch (err) {
+            logger.error(
+              '[OpencodeStreamBridge] Failed to persist message:',
+              err,
+            );
+          }
+        }
         break;
       }
 
@@ -143,6 +175,18 @@ export class OpencodeStreamBridge {
             working: status.type === 'busy',
             status: status.type,
           });
+          // Persist to DB so the agents list badge moves off "Starting".
+          if (localSessionId) {
+            try {
+              const dbStatus = status.type === 'busy' ? 'working' : 'idle';
+              this.sessionsRepo.updateStatus(localSessionId, dbStatus);
+            } catch (err) {
+              logger.error(
+                '[OpencodeStreamBridge] Failed to update session status:',
+                err,
+              );
+            }
+          }
         }
         break;
       }
@@ -154,6 +198,16 @@ export class OpencodeStreamBridge {
           id: eventId,
           working: false,
         });
+        if (localSessionId) {
+          try {
+            this.sessionsRepo.updateStatus(localSessionId, 'idle');
+          } catch (err) {
+            logger.error(
+              '[OpencodeStreamBridge] Failed to update session status to idle:',
+              err,
+            );
+          }
+        }
         break;
       }
 
