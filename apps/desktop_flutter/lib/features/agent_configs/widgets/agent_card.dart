@@ -12,14 +12,14 @@ import 'agent_icon.dart';
 ///
 /// Fields:
 /// - Label (editable; preset cards: read-only)
-/// - Command (full-width monospace)
-/// - AI Agent checkbox (toggles resume block)
-/// - Resume block (visible when isAgent is true):
-///   - "Supports session resume" checkbox
-///   - Advanced ExpansionTile with resumeCommand + sessionIdPattern fields
+/// - Enabled switch
+/// - AI Agent checkbox
+/// - Provider-based availability badge ("Available" / "Unavailable")
 ///
-/// Save-on-blur with 500ms debounce for text edits.
-/// Toggle/checkbox changes save immediately.
+/// The legacy CLI fields (command, resume command, session-id pattern,
+/// "Supports session resume" checkbox) were removed in #575 when the Opencode
+/// SDK replaced the PTY/CLI execution path. Availability is now driven by the
+/// Opencode capabilities map surfaced by `AgentServerController`.
 class AgentCard extends StatefulWidget {
   const AgentCard({
     super.key,
@@ -37,24 +37,12 @@ class AgentCard extends StatefulWidget {
 class _AgentCardState extends State<AgentCard> {
   // Text controllers
   late final TextEditingController _labelCtrl;
-  late final TextEditingController _commandCtrl;
-  late final TextEditingController _resumeCommandCtrl;
-  late final TextEditingController _sessionIdPatternCtrl;
 
   // Focus nodes
   late final FocusNode _labelFocus;
-  late final FocusNode _commandFocus;
-  late final FocusNode _resumeCommandFocus;
-  late final FocusNode _sessionIdPatternFocus;
 
-  // Local state mirrors for immediate UI update
+  // Local state mirror for immediate UI update
   late bool _isAgent;
-  late bool _canResume;
-
-  // Validation errors
-  String? _commandError;
-  String? _resumeCommandError;
-  String? _sessionIdPatternError;
 
   // Debounce timer
   Timer? _debounce;
@@ -64,80 +52,22 @@ class _AgentCardState extends State<AgentCard> {
     super.initState();
     final c = widget.config;
     _isAgent = c.isAgent;
-    _canResume = c.canResume;
 
     _labelCtrl = TextEditingController(text: c.label);
-    _commandCtrl = TextEditingController(text: c.command);
-    _resumeCommandCtrl = TextEditingController(text: c.resumeCommand ?? '');
-    _sessionIdPatternCtrl =
-        TextEditingController(text: c.sessionIdPattern ?? '');
-
     _labelFocus = FocusNode()..addListener(() => _onFocusChange(_labelFocus));
-    _commandFocus = FocusNode()
-      ..addListener(() => _onFocusChange(_commandFocus));
-    _resumeCommandFocus = FocusNode()
-      ..addListener(() => _onFocusChange(_resumeCommandFocus));
-    _sessionIdPatternFocus = FocusNode()
-      ..addListener(() => _onFocusChange(_sessionIdPatternFocus));
   }
 
   @override
   void dispose() {
     _debounce?.cancel();
     _labelCtrl.dispose();
-    _commandCtrl.dispose();
-    _resumeCommandCtrl.dispose();
-    _sessionIdPatternCtrl.dispose();
     _labelFocus.dispose();
-    _commandFocus.dispose();
-    _resumeCommandFocus.dispose();
-    _sessionIdPatternFocus.dispose();
     super.dispose();
   }
 
   // --------------------------------------------------------------------------
   // Save logic
   // --------------------------------------------------------------------------
-
-  bool _validate() {
-    bool valid = true;
-    setState(() {
-      // command non-empty
-      if (_commandCtrl.text.trim().isEmpty) {
-        _commandError = 'Command is required';
-        valid = false;
-      } else {
-        _commandError = null;
-      }
-
-      // resumeCommand must contain {{sessionId}} when canResume
-      if (_canResume) {
-        if (!_resumeCommandCtrl.text.contains('{{sessionId}}')) {
-          _resumeCommandError = 'Must contain {{sessionId}}';
-          valid = false;
-        } else {
-          _resumeCommandError = null;
-        }
-      } else {
-        _resumeCommandError = null;
-      }
-
-      // sessionIdPattern must be a valid regex
-      final pattern = _sessionIdPatternCtrl.text.trim();
-      if (pattern.isNotEmpty) {
-        try {
-          RegExp(pattern);
-          _sessionIdPatternError = null;
-        } catch (_) {
-          _sessionIdPatternError = 'Invalid regular expression';
-          valid = false;
-        }
-      } else {
-        _sessionIdPatternError = null;
-      }
-    });
-    return valid;
-  }
 
   void _saveDebounced() {
     _debounce?.cancel();
@@ -152,26 +82,14 @@ class _AgentCardState extends State<AgentCard> {
   }
 
   Future<void> _save() async {
-    if (!_validate()) return;
-    final patch = <String, dynamic>{
-      'command': _commandCtrl.text.trim(),
-      'isAgent': _isAgent,
-      'canResume': _canResume,
-      'resumeCommand': _resumeCommandCtrl.text.trim().isEmpty
-          ? null
-          : _resumeCommandCtrl.text.trim(),
-      'sessionIdPattern': _sessionIdPatternCtrl.text.trim().isEmpty
-          ? null
-          : _sessionIdPatternCtrl.text.trim(),
-    };
-    // Only send label for custom cards
-    if (!widget.config.isPreset) {
-      patch['label'] = _labelCtrl.text.trim();
-    }
+    // Only the label is editable from this card (and only for non-preset
+    // entries). Toggles save themselves immediately via [_saveToggle].
+    if (widget.config.isPreset) return;
     if (!mounted) return;
-    await context
-        .read<AgentConfigsController>()
-        .update(widget.config.id, patch);
+    await context.read<AgentConfigsController>().update(
+      widget.config.id,
+      {'label': _labelCtrl.text.trim()},
+    );
   }
 
   Future<void> _saveToggle(Map<String, dynamic> patch) async {
@@ -322,57 +240,8 @@ class _AgentCardState extends State<AgentCard> {
 
           const SizedBox(height: 12),
 
-          // ── Command field ──
-          TextField(
-            controller: _commandCtrl,
-            focusNode: _commandFocus,
-            style: TextStyle(
-              fontSize: 12,
-              fontFamily: 'Menlo',
-              color: rhythm.textPrimary,
-            ),
-            decoration: InputDecoration(
-              isDense: true,
-              contentPadding:
-                  const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(RhythmRadius.sm),
-                borderSide: BorderSide(color: rhythm.border),
-              ),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(RhythmRadius.sm),
-                borderSide: BorderSide(color: rhythm.border),
-              ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(RhythmRadius.sm),
-                borderSide: BorderSide(color: rhythm.accent, width: 2),
-              ),
-              errorBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(RhythmRadius.sm),
-                borderSide: BorderSide(color: rhythm.danger),
-              ),
-              focusedErrorBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(RhythmRadius.sm),
-                borderSide: BorderSide(color: rhythm.danger, width: 2),
-              ),
-              hintText: 'claude --dangerously-skip-permissions',
-              hintStyle: TextStyle(
-                color: rhythm.textMuted,
-                fontFamily: 'Menlo',
-                fontSize: 12,
-              ),
-              errorText: _commandError,
-              errorStyle: TextStyle(color: rhythm.danger, fontSize: 11),
-              filled: true,
-              fillColor: rhythm.surface,
-            ),
-            onChanged: (_) => _saveDebounced(),
-          ),
-
-          const SizedBox(height: 8),
-
-          // ── Status badge ──
-          _StatusBadge(isAvailable: widget.isAvailable),
+          // ── Provider-based availability badge ──
+          _AvailabilityBadge(isAvailable: widget.isAvailable),
 
           const SizedBox(height: 12),
 
@@ -385,155 +254,6 @@ class _AgentCardState extends State<AgentCard> {
               _saveToggle({'isAgent': val});
             },
           ),
-
-          // ── Resume block (visible when isAgent) ──
-          if (_isAgent) ...[
-            const SizedBox(height: 8),
-            _CheckboxRow(
-              value: _canResume,
-              label: 'Supports session resume',
-              onChanged: (val) {
-                setState(() => _canResume = val);
-                _saveToggle({'canResume': val});
-              },
-            ),
-
-            // Advanced disclosure (visible when canResume)
-            if (_canResume) ...[
-              const SizedBox(height: 4),
-              Theme(
-                data: Theme.of(context).copyWith(
-                  dividerColor: Colors.transparent,
-                ),
-                child: ExpansionTile(
-                  tilePadding: EdgeInsets.zero,
-                  title: Text(
-                    'Advanced',
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      color: rhythm.textSecondary,
-                    ),
-                  ),
-                  iconColor: rhythm.textMuted,
-                  collapsedIconColor: rhythm.textMuted,
-                  children: [
-                    const SizedBox(height: 8),
-                    // Resume command field
-                    TextField(
-                      controller: _resumeCommandCtrl,
-                      focusNode: _resumeCommandFocus,
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontFamily: 'Menlo',
-                        color: rhythm.textPrimary,
-                      ),
-                      decoration: InputDecoration(
-                        isDense: true,
-                        labelText: 'Resume command',
-                        labelStyle: TextStyle(
-                          fontSize: 12,
-                          color: rhythm.textSecondary,
-                        ),
-                        contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 10, vertical: 8),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(RhythmRadius.sm),
-                          borderSide: BorderSide(color: rhythm.border),
-                        ),
-                        enabledBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(RhythmRadius.sm),
-                          borderSide: BorderSide(color: rhythm.border),
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(RhythmRadius.sm),
-                          borderSide:
-                              BorderSide(color: rhythm.accent, width: 2),
-                        ),
-                        errorBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(RhythmRadius.sm),
-                          borderSide: BorderSide(color: rhythm.danger),
-                        ),
-                        focusedErrorBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(RhythmRadius.sm),
-                          borderSide:
-                              BorderSide(color: rhythm.danger, width: 2),
-                        ),
-                        hintText: 'claude --resume {{sessionId}}',
-                        hintStyle: TextStyle(
-                          color: rhythm.textMuted,
-                          fontFamily: 'Menlo',
-                          fontSize: 12,
-                        ),
-                        errorText: _resumeCommandError,
-                        errorStyle:
-                            TextStyle(color: rhythm.danger, fontSize: 11),
-                        filled: true,
-                        fillColor: rhythm.surface,
-                      ),
-                      onChanged: (_) => _saveDebounced(),
-                    ),
-
-                    const SizedBox(height: 10),
-
-                    // Session ID pattern field
-                    TextField(
-                      controller: _sessionIdPatternCtrl,
-                      focusNode: _sessionIdPatternFocus,
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontFamily: 'Menlo',
-                        color: rhythm.textPrimary,
-                      ),
-                      decoration: InputDecoration(
-                        isDense: true,
-                        labelText: 'Session ID pattern',
-                        labelStyle: TextStyle(
-                          fontSize: 12,
-                          color: rhythm.textSecondary,
-                        ),
-                        helperText: 'Regex with one capture group',
-                        helperStyle:
-                            TextStyle(fontSize: 11, color: rhythm.textMuted),
-                        contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 10, vertical: 8),
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(RhythmRadius.sm),
-                          borderSide: BorderSide(color: rhythm.border),
-                        ),
-                        enabledBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(RhythmRadius.sm),
-                          borderSide: BorderSide(color: rhythm.border),
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(RhythmRadius.sm),
-                          borderSide:
-                              BorderSide(color: rhythm.accent, width: 2),
-                        ),
-                        errorBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(RhythmRadius.sm),
-                          borderSide: BorderSide(color: rhythm.danger),
-                        ),
-                        focusedErrorBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(RhythmRadius.sm),
-                          borderSide:
-                              BorderSide(color: rhythm.danger, width: 2),
-                        ),
-                        errorText: _sessionIdPatternError,
-                        errorStyle:
-                            TextStyle(color: rhythm.danger, fontSize: 11),
-                        filled: true,
-                        fillColor: rhythm.surface,
-                      ),
-                      onChanged: (_) => _saveDebounced(),
-                    ),
-
-                    const SizedBox(height: 8),
-                  ],
-                ),
-              ),
-            ],
-          ],
         ],
       ),
     );
@@ -590,39 +310,37 @@ class _CheckboxRow extends StatelessWidget {
 }
 
 // ---------------------------------------------------------------------------
-// Status badge
+// Availability badge — driven by Opencode capabilities map
 // ---------------------------------------------------------------------------
 
-class _StatusBadge extends StatelessWidget {
-  const _StatusBadge({required this.isAvailable});
+class _AvailabilityBadge extends StatelessWidget {
+  const _AvailabilityBadge({required this.isAvailable});
 
   final bool isAvailable;
 
   @override
   Widget build(BuildContext context) {
     final rhythm = context.rhythm;
-    const configuredColor = Color(0xFF10B981);
-    final needsSetupColor = rhythm.warning;
+    const availableColor = Color(0xFF10B981);
+    final unavailableColor = rhythm.textMuted;
 
-    final label = isAvailable ? 'Configured' : 'Needs setup';
-    final bgColor = isAvailable
-        ? configuredColor.withValues(alpha: 0.12)
-        : needsSetupColor.withValues(alpha: 0.12);
-    final textColor = isAvailable ? configuredColor : needsSetupColor;
+    final label = isAvailable ? 'Available' : 'Unavailable';
+    final fg = isAvailable ? availableColor : unavailableColor;
+    final bg = fg.withValues(alpha: 0.12);
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
-        color: bgColor,
+        color: bg,
         borderRadius: BorderRadius.circular(RhythmRadius.pill),
-        border: Border.all(color: textColor.withValues(alpha: 0.25)),
+        border: Border.all(color: fg.withValues(alpha: 0.25)),
       ),
       child: Text(
         label,
         style: TextStyle(
           fontSize: 10,
           fontWeight: FontWeight.w700,
-          color: textColor,
+          color: fg,
         ),
       ),
     );

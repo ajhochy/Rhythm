@@ -1,18 +1,20 @@
 import '../../../app/core/utils/json_parsing.dart';
 
+/// Agent configuration as surfaced to the UI.
+///
+/// Legacy CLI fields (`command`, `canResume`, `resumeCommand`,
+/// `sessionIdPattern`, `outputMarker`) were removed in #575 when the Opencode
+/// SDK replaced the PTY/CLI-subprocess execution path. The corresponding DB
+/// columns remain in the schema for backward compatibility but are no longer
+/// read or written by the client.
 class AgentConfig {
   AgentConfig({
     required this.id,
     required this.label,
     required this.icon,
-    required this.command,
     required this.enabled,
     required this.isAgent,
-    required this.canResume,
     required this.sortOrder,
-    this.resumeCommand,
-    this.sessionIdPattern,
-    this.outputMarker,
     this.presetId,
   });
 
@@ -21,13 +23,8 @@ class AgentConfig {
       id: asString(json['id']) ?? '',
       label: asString(json['label']) ?? '',
       icon: asString(json['icon']) ?? '',
-      command: asString(json['command']) ?? '',
       enabled: asBool(json['enabled']) ?? true,
       isAgent: asBool(json['isAgent']) ?? false,
-      canResume: asBool(json['canResume']) ?? false,
-      resumeCommand: asString(json['resumeCommand']),
-      sessionIdPattern: asString(json['sessionIdPattern']),
-      outputMarker: asString(json['outputMarker']),
       presetId: asString(json['presetId']),
       sortOrder: asInt(json['sortOrder']) ?? 0,
     );
@@ -39,13 +36,8 @@ class AgentConfig {
   /// Asset path string; the UI layer resolves this to an actual widget.
   final String icon;
 
-  final String command;
   final bool enabled;
   final bool isAgent;
-  final bool canResume;
-  final String? resumeCommand;
-  final String? sessionIdPattern;
-  final String? outputMarker;
 
   /// Non-null means this config was created from a built-in preset.
   final String? presetId;
@@ -59,13 +51,8 @@ class AgentConfig {
         'id': id,
         'label': label,
         'icon': icon,
-        'command': command,
         'enabled': enabled,
         'isAgent': isAgent,
-        'canResume': canResume,
-        'resumeCommand': resumeCommand,
-        'sessionIdPattern': sessionIdPattern,
-        'outputMarker': outputMarker,
         'presetId': presetId,
         'sortOrder': sortOrder,
       };
@@ -73,13 +60,8 @@ class AgentConfig {
   AgentConfig copyWith({
     String? label,
     String? icon,
-    String? command,
     bool? enabled,
     bool? isAgent,
-    bool? canResume,
-    Object? resumeCommand = _sentinel,
-    Object? sessionIdPattern = _sentinel,
-    Object? outputMarker = _sentinel,
     Object? presetId = _sentinel,
     int? sortOrder,
   }) {
@@ -87,19 +69,8 @@ class AgentConfig {
       id: id,
       label: label ?? this.label,
       icon: icon ?? this.icon,
-      command: command ?? this.command,
       enabled: enabled ?? this.enabled,
       isAgent: isAgent ?? this.isAgent,
-      canResume: canResume ?? this.canResume,
-      resumeCommand: identical(resumeCommand, _sentinel)
-          ? this.resumeCommand
-          : resumeCommand as String?,
-      sessionIdPattern: identical(sessionIdPattern, _sentinel)
-          ? this.sessionIdPattern
-          : sessionIdPattern as String?,
-      outputMarker: identical(outputMarker, _sentinel)
-          ? this.outputMarker
-          : outputMarker as String?,
       presetId:
           identical(presetId, _sentinel) ? this.presetId : presetId as String?,
       sortOrder: sortOrder ?? this.sortOrder,
