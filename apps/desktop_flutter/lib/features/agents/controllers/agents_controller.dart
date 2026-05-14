@@ -362,12 +362,25 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   // WebSocket send helpers
   // --------------------------------------------------------------------------
 
-  void sendInput(String sessionId, String data) {
+  void sendInput(
+    String sessionId,
+    String data, {
+    List<Map<String, dynamic>>? attachments,
+  }) {
     final override = _pendingTurnOverride;
+    final useParts = attachments != null && attachments.isNotEmpty;
     _repository.send({
       'type': 'session.input',
       'id': sessionId,
-      'data': data,
+      // M4-1: when attachments exist, send a structured parts array; the
+      // backend composes text + files into the SDK promptAsync call.
+      if (useParts)
+        'parts': [
+          {'type': 'text', 'text': data},
+          ...attachments,
+        ]
+      else
+        'data': data,
       // M2-2: per-turn override is consumed once on send, never persisted.
       if (override != null)
         'modelOverride': {
