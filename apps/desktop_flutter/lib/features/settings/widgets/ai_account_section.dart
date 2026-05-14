@@ -32,7 +32,6 @@ class _AiAccountSectionState extends State<AiAccountSection> {
   final Set<String> _authorizedProviders = {};
 
   bool _hasClaudeCode = false;
-  bool _hasCodex = false;
 
   @override
   void initState() {
@@ -80,7 +79,6 @@ class _AiAccountSectionState extends State<AiAccountSection> {
       final body = jsonDecode(res.body) as Map<String, dynamic>;
       setState(() {
         _hasClaudeCode = body['claudeCode'] as bool? ?? false;
-        _hasCodex = body['codex'] as bool? ?? false;
       });
     } catch (_) {
       /* ignore */
