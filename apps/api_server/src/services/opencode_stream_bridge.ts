@@ -27,6 +27,53 @@ type DirectoryStream = {
   abort: AbortController;
 };
 
+/**
+ * Best-effort message extraction from the opencode session.error payload.
+ * The SDK wraps API errors in {name, data: {message, ...}} or sometimes
+ * delivers nested AI SDK errors. We surface the most useful string we can
+ * find so the UI shows something readable like "Key limit exceeded" instead
+ * of "[object Object]".
+ */
+function extractErrorMessage(errorInfo: unknown): string {
+  if (!errorInfo) return 'Unknown error';
+  if (typeof errorInfo === 'string') return errorInfo;
+  if (typeof errorInfo !== 'object') return String(errorInfo);
+  const obj = errorInfo as Record<string, unknown>;
+  const data = obj.data as Record<string, unknown> | undefined;
+  // Try data.message first (most common shape).
+  if (typeof data?.message === 'string') return data.message;
+  // Top-level message.
+  if (typeof obj.message === 'string') return obj.message;
+  // AI SDK upstream: data.responseBody is JSON with {error: {message, code}}.
+  if (typeof data?.responseBody === 'string') {
+    try {
+      const parsed = JSON.parse(data.responseBody) as Record<string, unknown>;
+      const err = parsed.error as Record<string, unknown> | undefined;
+      if (typeof err?.message === 'string') {
+        return data.responseBody.length > 200
+          ? err.message
+          : `${err.message} (HTTP ${err.code ?? data.statusCode ?? '?'})`;
+      }
+    } catch (_) {
+      /* fall through */
+    }
+  }
+  // AI SDK upstream: data.responseBody object form.
+  const responseBody = data?.responseBody as Record<string, unknown> | undefined;
+  const innerError = responseBody?.error as Record<string, unknown> | undefined;
+  if (typeof innerError?.message === 'string') return innerError.message;
+  // Errors as arrays (Zod-style).
+  const errArr = data?.error as Array<{ message?: string }> | undefined;
+  if (Array.isArray(errArr) && errArr[0]?.message) return errArr[0].message;
+  // Last resort: stringify (capped).
+  try {
+    const j = JSON.stringify(errorInfo);
+    return j.length > 300 ? j.slice(0, 300) + '…' : j;
+  } catch {
+    return String(errorInfo);
+  }
+}
+
 export class OpencodeStreamBridge {
   // One SSE subscription per directory, because opencode's /event endpoint
   // filters by ?directory= — sessions whose cwd is outside the subscribed
@@ -41,6 +88,12 @@ export class OpencodeStreamBridge {
   // arrives empty. We append on session.idle (end of turn) to keep the
   // agent_session_messages history populated.
   private pendingText = new Map<string, string>();
+
+  // Sessions that have already received a session.error event in the
+  // current turn. The SDK fires session.idle right after session.error,
+  // which would clobber the 'closed' status we set on error. Track the
+  // failure and let session.idle skip the status update.
+  private erroredSessions = new Set<string>();
 
   /**
    * Start streaming events for a given local session.
@@ -210,7 +263,9 @@ export class OpencodeStreamBridge {
             status: status.type,
           });
           // Persist to DB so the agents list badge moves off "Starting".
-          if (localSessionId) {
+          // Skip the update if the session already errored this turn —
+          // otherwise the SDK's idle event would clobber 'closed'.
+          if (localSessionId && !this.erroredSessions.has(localSessionId)) {
             try {
               const dbStatus = status.type === 'busy' ? 'working' : 'idle';
               this.sessionsRepo.updateStatus(localSessionId, dbStatus);
@@ -232,7 +287,7 @@ export class OpencodeStreamBridge {
           id: eventId,
           working: false,
         });
-        if (localSessionId) {
+        if (localSessionId && !this.erroredSessions.has(localSessionId)) {
           try {
             this.sessionsRepo.updateStatus(localSessionId, 'idle');
           } catch (err) {
@@ -277,9 +332,16 @@ export class OpencodeStreamBridge {
       case 'session.error': {
         const errProps = event.properties as Record<string, unknown>;
         const errorInfo = errProps?.error as Record<string, unknown> | undefined;
-        const message = String(
-          errorInfo?.message ?? errorInfo ?? 'Unknown error',
-        );
+        const message = extractErrorMessage(errorInfo);
+        if (localSessionId) {
+          this.erroredSessions.add(localSessionId);
+          // Clear the failure flag after a short delay so a follow-up
+          // prompt on the same session can transition cleanly.
+          setTimeout(
+            () => this.erroredSessions.delete(localSessionId),
+            5000,
+          ).unref?.();
+        }
         broadcast({
           v: 1,
           type: 'error',
