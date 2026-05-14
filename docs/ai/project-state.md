@@ -42,6 +42,13 @@ All automated checks pass:
 | #576 / #578 / #579 | Surface real OAuth/auth error message instead of generic fallback. Guard `jsonDecode` in `_saveApiKey` against non-JSON (HTML) error bodies. `getOAuthUrl` now returns `{error}` rather than swallowing exceptions. Provider IDs `anthropic` and `github-copilot` confirmed correct against SDK models cache. | `ab79260` |
 | #577 | Remove "Claude Code CLI" / "Codex CLI" install rows + Refresh button + "Install Claude Code" banner from Settings AGENT SERVER card. Collapsed to a single "Running on localhost:4001" indicator. | `143f1eb` |
 
+## Resolved Gaps (2026-05-13, branch `opencode-engine-issue-564`, pending merge)
+
+| # | Resolution |
+|---|---|
+| #580 | `AgentSessionsController.resume()` now creates a new SDK session via `opencodeClient.createSession(name, cwd)`, registers `opencodeSessionMap`, starts the SSE stream bridge, and sets status to `starting`. Resumed sessions do NOT reattach prior SDK conversation history — per #580 scope. |
+| #581 | `agent_configs_repository` no longer persists or echoes the five legacy CLI fields (`command`, `canResume`, `resumeCommand`, `sessionIdPattern`, `outputMarker`). DB columns retained for rollback safety. |
+
 ## Code Review Fixes (2026-05-13)
 
 | Fix | File | Commit |
@@ -58,10 +65,9 @@ All automated checks pass:
 
 | Gap | Detail |
 |---|---|
-| `resume()` is a stub | Sets status to `starting` but never creates an SDK session, maps it, or starts the stream bridge. Tracked in [#580](https://github.com/ajhochy/Rhythm/issues/580). |
 | `pty_runner.ts` dead code | Still present in the repo. No production imports. Tracked in existing [#571](https://github.com/ajhochy/Rhythm/issues/571) (deletion of legacy PTY files). |
 | Custom (non-preset) agent configs always show "Unavailable" (#575) | `AgentServerController.isAgentAvailable` keys the capabilities map by preset ID (`claude-code`, `codex`, `gemini-cli`, `opencode`). Custom configs have no entry. Acceptable until users can author custom Opencode providers. |
-| Legacy CLI columns still accepted by API on write (#575) | Client no longer reads/writes them, but `apps/api_server/src/repositories/agent_configs_repository.ts` still persists `command`, `canResume`, `resumeCommand`, `sessionIdPattern`, `outputMarker` if present. DB schema unchanged for backward compat. Tracked in [#581](https://github.com/ajhochy/Rhythm/issues/581). |
+| Controller-side validation of legacy CLI fields on POST/PATCH | Repository no longer persists or echoes legacy CLI fields (#581 resolved), but `agent_configs_controller` still requires `command` and validates `resumeCommand`/`canResume` on input. Follow-up needed if/when the Flutter client stops sending them. |
 | GitHub Copilot OAuth may use device flow (#579) | Current flow assumes redirect URL. If SDK returns a device-flow payload instead, the new error surfacing exposes the SDK message but the UI does not yet render device-code instructions. Self-diagnosing — defer redesign until first user hits it. |
 | API server rebuild required for #578 fix | `POST /opencode/auth/:provider` route fix is in source; ensure `apps/api_server/dist/` is rebuilt and the bundled-server release picks it up. The Flutter-side `jsonDecode` guard is defensive regardless. |
 
