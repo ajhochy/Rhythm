@@ -247,6 +247,147 @@ class _AiAccountSectionState extends State<AiAccountSection> {
 
   // ── GitHub Copilot device flow ──
 
+  /// Open the Google OAuth URL and poll until 'google' shows up in
+  /// /opencode/auth/. The opencode-gemini-auth plugin runs a local listener
+  /// on :8085 that catches the redirect, exchanges the code, and writes to
+  /// auth.json — we just need to wait for that to happen.
+  Future<void> _authorizeGoogleOAuth() async {
+    try {
+      final response = await http.get(
+        Uri.parse(
+            '${AppConstants.agentLocalBaseUrl}/opencode/auth/google/authorize?method=0'),
+      );
+      if (!mounted) return;
+      if (response.statusCode != 200) {
+        String errorDetail = 'HTTP ${response.statusCode}';
+        try {
+          final errBody = jsonDecode(response.body) as Map<String, dynamic>;
+          errorDetail = errBody['error'] as String? ?? errorDetail;
+        } catch (_) {/* non-JSON */}
+        setState(() =>
+            _statusMessage = 'Failed to start Google sign-in: $errorDetail');
+        return;
+      }
+      final data = jsonDecode(response.body) as Map<String, dynamic>;
+      final authUrl = data['authUrl'] as String?;
+      if (authUrl == null || authUrl.isEmpty) {
+        setState(() => _statusMessage =
+            'Google OAuth not available — check that opencode-gemini-auth plugin is installed.');
+        return;
+      }
+      final uri = Uri.parse(authUrl);
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      } else {
+        setState(() => _statusMessage =
+            'Could not open browser. Visit $authUrl manually.');
+        return;
+      }
+
+      if (!mounted) return;
+      final connected = await _waitForProviderConnected(
+        provider: 'google',
+        instructions:
+            'Sign in with your Google account. This dialog will close automatically when the auth flow completes.',
+      );
+      if (!mounted) return;
+      if (connected) {
+        setState(() {
+          _authorizedProviders.add('google');
+          _statusMessage = '✓ google connected';
+        });
+        await _refreshConnectedProviders();
+        _refreshAgentCapabilities();
+      } else {
+        setState(
+            () => _statusMessage = 'Google sign-in was cancelled or timed out');
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _statusMessage = 'Google sign-in failed: $e');
+    }
+  }
+
+  /// Generic poll-after-launch dialog. Polls /opencode/auth/ every 2s
+  /// until the given provider appears or the user cancels / timeout fires.
+  Future<bool> _waitForProviderConnected({
+    required String provider,
+    required String instructions,
+  }) async {
+    final completer = Completer<bool>();
+    Timer? poller;
+    Timer? timeout;
+
+    Future<void> stop({required bool result}) async {
+      poller?.cancel();
+      timeout?.cancel();
+      if (!completer.isCompleted) completer.complete(result);
+    }
+
+    poller = Timer.periodic(const Duration(seconds: 2), (_) async {
+      try {
+        final res = await http.get(
+          Uri.parse('${AppConstants.agentLocalBaseUrl}/opencode/auth/'),
+        );
+        if (res.statusCode != 200) return;
+        final body = jsonDecode(res.body) as Map<String, dynamic>;
+        final providers =
+            (body['providers'] as List<dynamic>?)?.cast<String>() ?? [];
+        if (providers.contains(provider)) {
+          await stop(result: true);
+          if (mounted) Navigator.of(context, rootNavigator: true).pop();
+        }
+      } catch (_) {/* keep polling */}
+    });
+
+    timeout = Timer(const Duration(minutes: 5), () async {
+      await stop(result: false);
+      if (mounted) Navigator.of(context, rootNavigator: true).pop();
+    });
+
+    if (!mounted) {
+      await stop(result: false);
+      return false;
+    }
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) {
+        return AlertDialog(
+          title: Text('Complete sign-in — $provider'),
+          content: SizedBox(
+            width: 460,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(instructions, style: const TextStyle(fontSize: 12)),
+                const SizedBox(height: 12),
+                Text(
+                  'Timeout: 5 minutes.',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: context.rhythm.textSecondary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () async {
+                await stop(result: false);
+                if (mounted) Navigator.of(ctx).pop();
+              },
+              child: const Text('Cancel'),
+            ),
+          ],
+        );
+      },
+    );
+    return completer.future;
+  }
+
   Future<void> _authorizeCopilotDeviceFlow() async {
     try {
       final startRes = await http.post(
@@ -556,11 +697,20 @@ class _AiAccountSectionState extends State<AiAccountSection> {
         _SectionHeader(
             title: 'Free API options', subtitle: 'No credit card required'),
         const SizedBox(height: 10),
-        _ApiKeyProviderTile(
+        _OAuthProviderTile(
           provider: 'google',
           label: 'Google Gemini',
-          description: 'Gemini 2.5 Flash — 1,500 free requests/day',
-          hintText: 'Paste your Gemini API key from aistudio.google.com',
+          description:
+              'Sign in with your Google AI account (free tier — opencode-gemini-auth plugin handles auth)',
+          onAuthorize: () => _authorizeGoogleOAuth(),
+          connected: _authorizedProviders.contains('google'),
+        ),
+        const SizedBox(height: 8),
+        _ApiKeyProviderTile(
+          provider: 'google',
+          label: 'Google Gemini (API key)',
+          description: 'Or paste a Gemini API key from aistudio.google.com',
+          hintText: 'Paste your Gemini API key…',
           controller: _apiKeyControllers['google']!,
           isSaving: _isSaving,
           onSave: () => _saveApiKey('google'),
