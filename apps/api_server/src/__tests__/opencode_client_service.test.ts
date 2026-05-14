@@ -213,6 +213,33 @@ describe('OpencodeClientService — SDK response unwrap (.data)', () => {
     });
     expect(await bad.handleOAuthCallback('openai', 'code-123')).toBe(false);
   });
+
+  it('setOAuthCredentials returns true only when res.data === true', async () => {
+    const ok = makeService({
+      auth: { set: vi.fn().mockResolvedValue({ data: true, request: {}, response: {} }) },
+    });
+    expect(
+      await ok.setOAuthCredentials('anthropic', { access: 'a', refresh: 'r', expires: 1 }),
+    ).toBe(true);
+    const setMock = ((ok as unknown as { client: { auth: { set: ReturnType<typeof vi.fn> } } }).client.auth.set);
+    expect(setMock).toHaveBeenCalledWith({
+      path: { id: 'anthropic' },
+      body: { type: 'oauth', access: 'a', refresh: 'r', expires: 1 },
+    });
+
+    const bad = makeService({
+      auth: {
+        set: vi.fn().mockResolvedValue({
+          data: undefined,
+          error: { data: { message: 'rejected' } },
+          request: {}, response: {},
+        }),
+      },
+    });
+    expect(
+      await bad.setOAuthCredentials('anthropic', { access: 'a', refresh: 'r', expires: 1 }),
+    ).toBe(false);
+  });
 });
 
 describe('OpencodeClientService.listAuthedProviders', () => {

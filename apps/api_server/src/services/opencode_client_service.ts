@@ -304,6 +304,33 @@ export class OpencodeClientService {
     }
   }
 
+  /**
+   * Persist OAuth credentials for a provider (used by the credentials bridge
+   * for Anthropic subscription tokens — the SDK's own OAuth flow throws for
+   * anthropic, so the bridge is the only path).
+   */
+  async setOAuthCredentials(
+    providerId: string,
+    creds: { access: string; refresh: string; expires: number },
+  ): Promise<boolean> {
+    if (!this.client) return false;
+    try {
+      const raw = (await this.client.auth.set({
+        path: { id: providerId },
+        body: {
+          type: 'oauth',
+          access: creds.access,
+          refresh: creds.refresh,
+          expires: creds.expires,
+        } as unknown as { type: 'api'; key: string },
+      })) as unknown as { data?: unknown; error?: unknown };
+      return raw.data === true;
+    } catch (err) {
+      logger.error(`[OpencodeClientService] setOAuthCredentials failed for ${providerId}:`, err);
+      return false;
+    }
+  }
+
   /** Clean up */
   dispose(): void {
     this.client = null;
