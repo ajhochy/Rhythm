@@ -1,20 +1,28 @@
 # Project State
 
-## Current Status (2026-05-14, session-end snapshot)
+## Current Status (2026-05-14 v2 — M1-1 verified)
 
-🟢 **Agents chat is fully working end-to-end.** User confirmed in a live smoke: user bubble right-aligned, assistant bubble streams in place, Enter sends, Shift+Enter inserts newlines, auto-resume rebinds orphan sessions from previous launches transparently.
+🟢 **PR #574 merged.** `main` is at `84eef44`; the Opencode auth/chat rework is now upstream.
+
+🟢 **M1-1 (#586) implementation verified.** Backend `projects` table + CRUD + VCS probe landed on `m1-projects`. PR-level checks green (flutter analyze, dart format, tsc --noEmit, vitest 430/430 incl. 13 new). Smoke probes against `localhost:4099`: `/health` ok, `POST /projects` with the Rhythm repo cwd returns `vcsRoot=/Users/.../Rhythm, vcsBranch=m1-projects, vcsDirty=true`; relative-path → 400; `refresh-vcs` → 200; `DELETE` → 204.
+
+**Branch state.** `m1-projects`, branched from `84eef44` (clean main). Local commits:
+- `7ccadbf` — docs(ai): generated M1 issue bodies #586–#591
+- (uncommitted) M1-1 source: migrations, model, vcs_probe service, repo, controller, route, tests, app.ts wire-up
+
+Pending action by user: commit M1-1 + push branch + open PR for #586 (or stack #587–#591 first per the milestone-per-PR decision in `docs/ai/current-plan.md`).
+
+**Active plan.** `docs/ai/current-plan.md` holds the 5-milestone parity roadmap with all 6 open questions resolved (2026-05-14). One-branch-per-milestone confirmed. Milestone #86 (`M1 — Sessions ↔ Projects`) tracks issues [#586](https://github.com/ajhochy/Rhythm/issues/586)–[#591](https://github.com/ajhochy/Rhythm/issues/591).
+
+## Prior Status (2026-05-14, session-end snapshot — PRE-merge)
+
+🟢 **Agents chat was fully working end-to-end** at PR #574 merge: user bubble right-aligned, assistant streams in place, Enter sends, auto-resume rebinds orphan sessions.
 
 **Routing verification (live, `/opencode/auth/`):** authed providers = `["openrouter","anthropic","openai","github-copilot"]`. Local cred sources = `{"claudeCode":true,"codex":true}`. So:
-- `claude-code` agent → `anthropic / claude-sonnet-4-6` (direct Anthropic account via `opencode-claude-auth` Keychain bridge — NOT OpenRouter)
-- `codex` agent → `openai / gpt-5.3-codex` (direct OpenAI account via `opencode-openai-codex-auth` — NOT OpenRouter)
-- `gemini-cli` agent → `openrouter / google/gemini-3.1-pro-preview-customtools` (Google not signed in)
-- `opencode` (bare) agent → `openrouter / anthropic/claude-sonnet-4.6` (fallback added this session)
-
-**Branch state.** `opencode-engine-issue-564`, local HEAD `9b26aa1`, 42 commits ahead of last push at `70b87d7`. **NOT pushed.** Awaiting user `git push origin opencode-engine-issue-564` then PR #574 merge.
-
-**Issue backlog.** All Opencode-implementation issues (#564–#585) closed today. Open issues remaining are non-Opencode: #48 (PCO UX), #71 (mobile MVP), #418 (mobile smoke), #476 (AgentTriggerWatcher dev-gating).
-
-**Active plan.** `docs/ai/current-plan.md` replaced — now holds the full Opencode Desktop UI parity roadmap (5 milestones M1–M5, ~25 atomic issues, ~15–17 sessions). Next session branches off a clean `main` after PR #574 merges and starts at M1 issue #1 (`projects` table + CRUD).
+- `claude-code` → `anthropic / claude-sonnet-4-6` (direct, via `opencode-claude-auth` Keychain bridge)
+- `codex` → `openai / gpt-5.3-codex` (direct, via `opencode-openai-codex-auth`)
+- `gemini-cli` → `openrouter / google/gemini-3.1-pro-preview-customtools` (Google not signed in)
+- `opencode` (bare) → `openrouter / anthropic/claude-sonnet-4.6` (fallback)
 
 Automated checks (last run, post 9b26aa1):
 - **417/417 tests** (vitest, api_server) — `agents_ws_e2e.test.ts` has 4 cases (chat→server, server→chat, full round-trip, auto-resume regression)
@@ -213,7 +221,9 @@ Flutter → DELETE /agent-sessions/:id → controller stops bridge + clears map 
 ```
 
 ## Branch / PR
-`opencode-engine-issue-564` — Draft PR #574 — **local HEAD `ef5ea12`, 38 commits ahead of last push at `70b87d7`**. NOT YET PUSHED. Auth rework (Issues A–G), follow-up smoke fixes, plugin auto-installer, plus today's chat round-trip fix all stacked here. See "Outstanding Issues" at top and "Chat round-trip fix" section for verification status.
+`m1-projects` — branched off clean `main` at `84eef44` (post PR #574 merge). Local-only commit `7ccadbf` adds the M1 issue bodies under `docs/ai/generated-issues/`. M1-1 implementation is on disk, not yet committed.
+
+Historic: `opencode-engine-issue-564` → PR #574 — **MERGED** 2026-05-14.
 
 ## Active plan
 `docs/ai/current-plan.md` is no longer a placeholder. It contains the full 8-issue UI port plan (Opencode Desktop reference at `github.com/anomalyco/opencode/tree/dev/packages/desktop`). Status of the plan's issues:
@@ -235,13 +245,35 @@ All Opencode-implementation issues (#564–#585) are closed. Final disposition:
 
 Open issues remaining (none Opencode-related): #48 (PCO automation rules UX), #71 (mobile MVP scope), #418 (mobile smoke fail), #476 (AgentTriggerWatcher dev-gating).
 
+## M1 — Sessions ↔ Projects (milestone #86)
+
+| # | Issue | Status |
+|---|---|---|
+| #586 | M1-1 Backend: projects table + CRUD with VCS detection | **Implemented + verified** on `m1-projects`, uncommitted |
+| #587 | M1-2 Backend: agent_sessions.project_id FK + per-project listing | Not started |
+| #588 | M1-3 Backend: auto-assign project on session create | Not started |
+| #589 | M1-4 Flutter: Project model + repository + controller | Not started |
+| #590 | M1-5 Flutter: sidebar rail + project panel with VCS chip | Not started |
+| #591 | M1-6 Flutter: edit-project dialog | Not started |
+
+### M1-1 (#586) summary
+
+Files added/changed on `m1-projects`:
+- `apps/api_server/src/database/migrations.ts` — `CREATE TABLE IF NOT EXISTS projects` + `idx_projects_archived` (additive, idempotent)
+- `apps/api_server/src/models/project.ts` (NEW) — `Project`, `CreateProjectDto`, `UpdateProjectDto`
+- `apps/api_server/src/services/vcs_probe.ts` (NEW) — `probeVcs(cwd)` via `/bin/zsh -lc` (rev-parse → symbolic-ref → status --porcelain); best-effort, never throws
+- `apps/api_server/src/repositories/projects_repository.ts` (NEW)
+- `apps/api_server/src/controllers/projects_controller.ts` (NEW) — expandHome, absolute-path rejection (400), trailing-slash normalization, VCS re-probe on cwd change
+- `apps/api_server/src/routes/projects_routes.ts` (NEW) — mirrors `agent_sessions_routes` AGENT_LOCAL bypass
+- `apps/api_server/src/app.ts` — register `projectsRouter` at `/projects`
+- `apps/api_server/src/__tests__/vcs_probe.test.ts` (NEW) — 5 tests (git, non-git, dirty toggle, detached HEAD, mocked spawn failure)
+- `apps/api_server/src/__tests__/projects_routes.test.ts` (NEW) — 8 tests (CRUD + archive filter + cwd re-probe + refresh-vcs)
+
+Endpoints: `GET/POST /projects`, `GET/PATCH/DELETE /projects/:id`, `POST /projects/:id/refresh-vcs`.
+
 ## What to do next (resume notes)
 
-1. **Push the branch** (`git push origin opencode-engine-issue-564`) — manual smoke already passed; user confirmed chat round-trip works (user bubble + streaming assistant bubble visible, Enter sends, auto-resume works for orphan sessions).
-2. **Merge PR #574** after CI passes; the M1–M5 parity work in `docs/ai/current-plan.md` should branch off a clean `main` after this lands.
-3. **Sign in with Google AI** via the Settings tile so `gemini-cli` routes to the direct google provider (still outstanding).
-4. **Resolve OpenRouter rate-limit** on the test account if free-model fallback is needed (Outstanding #3).
-5. **Continue the UI port** by picking up issues #593–#597 from `docs/ai/current-plan.md`.
-6. **Document plugin requirements in CLAUDE.md** — the auto-installer adds `opencode-claude-auth`, `opencode-openai-codex-auth`, `opencode-gemini-auth`. Hard requirement for direct routing.
-
-Working-tree note: 3 unrelated dirty files (`.gitignore`, `apps/mcp_server/package.json`, `apps/mcp_server/tsconfig.json`) are pre-existing churn, deliberately not committed.
+1. **Commit M1-1** on `m1-projects` (single commit covering migrations, model, service, repo, controller, route, app.ts, tests).
+2. **Push `m1-projects` + open draft PR for #586** — or, per the milestone-per-PR decision in `current-plan.md`, stack #587/#588 onto the same branch before opening one PR for the whole backend half of M1.
+3. **Dispatch coding-agent for #587** (M1-2: `agent_sessions.project_id` FK + per-project listing).
+4. Outstanding non-M1 items still apply: Google AI sign-in for direct gemini routing; OpenRouter rate-limit on test account; plugin requirements doc in CLAUDE.md.

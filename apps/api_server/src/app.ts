@@ -13,6 +13,7 @@ import { integrationsRouter } from './routes/integrations_routes';
 import { messagesRouter } from './routes/messages_routes';
 import { projectInstancesRouter } from './routes/project_instances_routes';
 import { projectTemplatesRouter } from './routes/project_templates_routes';
+import { projectsRouter } from './routes/projects_routes';
 import { recurringRulesRouter } from './routes/recurring_rules_routes';
 import { tasksRouter } from './routes/tasks_routes';
 import { usersRouter } from './routes/users_routes';
@@ -71,6 +72,7 @@ export function createApp() {
   app.use('/claude-triggers', claudeTriggersRouter);
   app.use('/agent-configs', agentConfigsRouter);
   app.use('/agent-sessions', agentSessionsRouter);
+  app.use('/projects', projectsRouter);
 
   // Opencode engine auth & health
   app.use('/opencode/auth', opencodeAuthRouter);

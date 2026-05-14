@@ -1049,4 +1049,23 @@ export function runMigrations(db: Database.Database): void {
     // 5. Log affected row counts at INFO level for audit after deploy.
     console.log(`backfill_scheduled_date_v1: tasks updated=${tasksUpdated}, project_steps updated=${stepsUpdated}`);
   }
+
+  // M1-1 (issue #586) — Projects: parent entity for agent sessions.
+  // Local-only (SQLite); no Postgres path. VCS fields populated by services/vcs_probe.ts
+  // at create / on demand via POST /projects/:id/refresh-vcs.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS projects (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      cwd TEXT NOT NULL,
+      icon TEXT,
+      vcs_root TEXT,
+      vcs_branch TEXT,
+      vcs_dirty INTEGER NOT NULL DEFAULT 0,
+      vcs_checked_at TEXT,
+      created_at TEXT NOT NULL,
+      archived_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_projects_archived ON projects(archived_at);
+  `);
 }
