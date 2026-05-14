@@ -9,12 +9,21 @@ export const agentsCapabilitiesRouter = Router();
 if (!env.agentLocal) agentsCapabilitiesRouter.use(requireAuth);
 
 /**
+ * Aggregator providers that route to multiple upstream model families.
+ * Connecting one of these enables every agent whose upstream they cover.
+ * Keep this list narrow — only include aggregators we've verified expose
+ * the relevant model family.
+ */
+const AGGREGATOR_PROVIDERS = ['openrouter', 'together', 'groq'];
+
+/**
  * Build a capabilities map from the Opencode SDK's connected providers.
  *
  * Mapping:
- *   - `claude-code` is available when `anthropic` provider is connected
- *   - `codex` is available when `openai` provider is connected
- *   - `gemini-cli` is available when `google` provider is connected
+ *   - `claude-code` is available when `anthropic` (direct) OR any aggregator
+ *     that fronts Claude (e.g. OpenRouter) is connected.
+ *   - `codex` is available when `openai` (direct) OR an aggregator is connected.
+ *   - `gemini-cli` is available when `google` (direct) OR an aggregator is connected.
  *   - `opencode` is available when the SDK client is ready
  *   - Custom agent configs without a known mapping fall back to SDK readiness
  */
@@ -24,11 +33,12 @@ async function probeConfigs(): Promise<Record<string, boolean>> {
   const providers = await opencodeClient.listProviders();
   const providerSet = new Set(providers);
 
-  // Map agent config IDs to their provider-based availability
+  // Map agent config IDs to the direct upstream provider IDs they require.
+  // Any AGGREGATOR_PROVIDERS counts toward all three CLI agents.
   const agentToProvider: Record<string, string[]> = {
-    'claude-code': ['anthropic'],
-    'codex': ['openai'],
-    'gemini-cli': ['google'],
+    'claude-code': ['anthropic', ...AGGREGATOR_PROVIDERS],
+    'codex': ['openai', ...AGGREGATOR_PROVIDERS],
+    'gemini-cli': ['google', ...AGGREGATOR_PROVIDERS],
   };
 
   const results: Record<string, boolean> = {};
