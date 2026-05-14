@@ -1,20 +1,22 @@
 # Project State
 
-## Current Status (2026-05-14, mid-session pause)
+## Current Status (2026-05-14, post chat round-trip fix)
 
-🟡 **PR #574 has 29 unpushed commits stacked locally on `opencode-engine-issue-564`.** The auth rework spec (Issues A–G) + smoke-found fixes E/F/G + a follow-up wave of stream-bridge + WS-gateway fixes all landed in this branch but the branch is NOT pushed. Last manual smoke surfaced one remaining gap that has a fix committed but unverified — see Outstanding Issues.
+🟡 **PR #574 has 31 unpushed commits stacked locally on `opencode-engine-issue-564`.** Two new commits today (3e4df87 + f547a2c) close the diagnosed message-render seam — see "Chat round-trip fix" section below. Branch still NOT pushed. Manual UI smoke is the only remaining gate before push.
 
-Automated checks (last run):
-- **410/410 tests** (vitest, api_server)
+Automated checks (last run, post f547a2c):
+- **413/413 tests** (vitest, api_server) — +3 new cases in `opencode_stream_bridge.test.ts`
 - **tsc --noEmit** — clean
-- **flutter analyze --no-fatal-infos** — clean (161 pre-existing info-level warnings)
+- **flutter analyze --no-fatal-infos** — clean (161 info-level findings; pre-existing `_hasCodex` warning removed in f547a2c)
 - **dart format --set-exit-if-changed** — clean
+- **flutter test** — 180/180
+- `ai-workflow checks --level pr` → exit 0
 
 ## Outstanding Issues (must verify before merge)
 
 | # | Issue | Status | Notes |
 |---|---|---|---|
-| 1 | **Follow-up WS prompts dropped** — second/third user messages in a Claude session never reached the LLM. Initial create-session prompt worked. | Fix committed (`40d4fee`), **not yet smoke-verified**. | `ws_gateway.ts session.input` handler was calling `opencodeClient.prompt(opencodeId, data, undefined, cwd)` with `undefined` model → SDK had no provider to dispatch to → prompt silently dropped. Fix: look up session's agentKind from DB, resolve model via the shared `agent_model_resolver`, pass to `promptAsync`. |
+| 1 | **Follow-up WS prompts dropped / no chat messages rendered** | **Superseded by 3e4df87+f547a2c** — pending manual UI smoke. | `40d4fee` correctly resolved model for follow-up prompts (code-verified). The remaining symptom (assistant messages never visible in the chat transcript) was an independent seam: stream bridge broadcast `output` deltas to a `_liveOutputBuffer` preview but never emitted `transcript.append` on idle, and Flutter had no handler for it anyway. Both sides fixed; see "Chat round-trip fix" below. |
 | 2 | **Gemini direct route requires Google OAuth, no other path** | UI tile shipped (`f501791`), user has not signed in. | `opencode-gemini-auth` plugin handles the listener on :8085; user clicks "Sign in with Google AI account" → polls /opencode/auth/ until `google` appears. Without it, gemini-cli falls back to `openrouter` which is rate-limited on this account. |
 | 3 | **OpenRouter key rate-limited** on the live test account | Not a code issue. | Surfaces as `Error: Key limit exceeded (total limit). Manage it using https://openrouter.ai/settings/keys` via the new error-message extractor. User should top up at https://openrouter.ai/settings/keys or remove openrouter as fallback. |
 | 4 | **macOS Keychain prompt on every app launch** | Cached per session, but the OS still prompts the first call after each app restart. User asked for this earlier. | Working as designed — Keychain access requires confirmation each new process. Cache lives inside `CredentialsBridgeService` and only re-prompts on `auth.set` failure within the same process. |
@@ -23,7 +25,27 @@ Automated checks (last run):
 | 7 | **`tasks_controller.test.ts` vitest flake** | Pre-existing, not blocking. | One test ("returns only open tasks (default)") intermittently fails when the full suite runs; passes in isolation. Cross-test pollution. Survives the rework unchanged. |
 | 8 | **GitHub Copilot OAuth is custom-implemented** | Working, but tied to an upstream client_id. | We reimplemented the device-flow in `api_server/src/services/github_copilot_device_auth.ts` because the SDK's plugin polling can't be driven over HTTP RPC. Hard-codes GitHub `client_id=Ov23li8tweQw6odWQebz`. If GitHub revokes/rotates that ID, we have to update. |
 
-## Recent Commits (29 stacked on opencode-engine-issue-564 since 70b87d7)
+## Chat round-trip fix (2026-05-14, commits 3e4df87 + f547a2c)
+
+Diagnosed seam (recorded so future agents don't rediscover it):
+
+- Backend `opencode_stream_bridge.ts` broadcasts deltas as `{type:'output', id, data}` which Flutter routes to `_liveOutputBuffer` (preview only). On `session.idle` it persisted the assistant turn to DB and broadcast `session.status` — **never `transcript.append`** — so the streamed text never finalized into the visible chat transcript.
+- Flutter `agents_controller._onWsMessage` had no case for `TranscriptAppendMessage`, `output.flush`, or `error`, so any such frame would have been silently dropped anyway.
+
+Fix applied (3e4df87):
+- Bridge emits `{type:'transcript.append', id, role:'output', text}` on `session.idle` after persisting (only when `pendingText` is non-empty and the session has not errored this turn).
+- On `session.error` with partial `pendingText`, the bridge flushes a `transcript.append` BEFORE the `error` frame and clears `pendingText` so a follow-up `session.idle` does not re-emit.
+- `streamSession` logs an entry line so SSE subscription start is visible.
+- Flutter controller handles `TranscriptAppendMessage` (append to `_transcript`, clear `_liveOutputBuffer[id]`) and `WsErrorMessage` (append role:`'system'` entry, clear live buffer). Both scoped to `_selectedSessionId` so background-session frames don't pollute the visible transcript — background transcripts reload on session select.
+- `WsErrorMessage` model now carries `id`.
+
+Cleanup (f547a2c): removed pre-existing dead `_hasCodex` field in `ai_account_section.dart` that was blocking `flutter analyze --no-fatal-infos`.
+
+Tests added: `apps/api_server/src/__tests__/opencode_stream_bridge.test.ts` — 3 cases (delta+idle → transcript.append with accumulated text; error after partial delta → transcript.append precedes error; idle with empty buffer → no transcript.append).
+
+Remaining: manual UI smoke. The "split UI" (live preview block + finalized transcript) stays in place until issues #593/#594 collapse it into a parts-based chat thread.
+
+## Recent Commits (31 stacked on opencode-engine-issue-564 since 70b87d7)
 
 ### Auth rework — spec phase
 | SHA | Topic |
@@ -76,7 +98,9 @@ Automated checks (last run):
 | `928a28b` | route to user's direct provider account, not aggregator |
 | `7499416` | auto-install community auth plugins on startup (claude-auth, codex-auth, gemini-auth) |
 | `f501791` | Google Gemini OAuth tile + polling completion |
-| `40d4fee` | **[unverified]** WS gateway passes model to follow-up prompts |
+| `40d4fee` | **[verified by code review]** WS gateway passes model to follow-up prompts |
+| `3e4df87` | **[chat round-trip]** Bridge emits transcript.append on idle/error; Flutter handles TranscriptAppendMessage + WsErrorMessage |
+| `f547a2c` | chore: remove pre-existing unused `_hasCodex` field that was blocking flutter analyze |
 
 ## Issues Completed
 
@@ -159,14 +183,22 @@ Flutter → DELETE /agent-sessions/:id → controller stops bridge + clears map 
 ```
 
 ## Branch / PR
-`opencode-engine-issue-564` — Draft PR #574 — **local HEAD `40d4fee`, 29 commits ahead of last push at `70b87d7`**. NOT YET PUSHED. Auth rework (Issues A–G), follow-up smoke fixes for stream bridge / WS gateway / Flutter UI, plus plugin auto-installer all stacked here. See "Outstanding Issues" at top of this file for what still needs verification.
+`opencode-engine-issue-564` — Draft PR #574 — **local HEAD `f547a2c`, 31 commits ahead of last push at `70b87d7`**. NOT YET PUSHED. Auth rework (Issues A–G), follow-up smoke fixes, plugin auto-installer, plus today's chat round-trip fix all stacked here. See "Outstanding Issues" at top and "Chat round-trip fix" section for verification status.
+
+## Active plan
+`docs/ai/current-plan.md` is no longer a placeholder. It contains the full 8-issue UI port plan (Opencode Desktop reference at `github.com/anomalyco/opencode/tree/dev/packages/desktop`). Status of the plan's issues:
+
+- **#590 / #591** (chat round-trip fix) — **DONE** (3e4df87). Manual UI smoke pending.
+- **#592** (error path partial flush) — **DONE in 3e4df87** (folded into same commit).
+- **#593–#597** (parts-based chat thread, sessions sidebar polish, details panel, model echo in DTO) — not started.
 
 ## What to do next (resume notes)
 
-1. **Verify the WS gateway fix** (`40d4fee`). Open a Claude session in the running Rhythm app, send a follow-up prompt after the initial response, confirm the second/third user messages get an LLM reply. If they do, push the branch.
-2. **Sign in with Google AI** via the new Settings tile so `gemini-cli` routes to the direct google provider. The opencode-gemini-auth plugin will catch the callback on :8085.
-3. **Resolve OpenRouter rate-limit** on the test account so the openrouter fallback works for free-model use cases.
-4. **Push the branch** (`git push origin opencode-engine-issue-564`) — keeps the draft PR up to date so the user can manually flip it to ready once smoke is fully clean.
-5. **Document plugin requirements in CLAUDE.md** — the auto-installer adds `opencode-claude-auth`, `opencode-openai-codex-auth`, `opencode-gemini-auth`. Their presence is now a hard requirement for direct routing; this should be in the project's developer setup notes.
+1. **Manual UI smoke** for 3e4df87. Run `cd apps/desktop_flutter && flutter run -d macos`, open the Agents page, create a `claude-code` session, send a prompt via the registered OpenRouter account. Expected: assistant message appears in the chat transcript (not just the live preview block) and persists after `session.idle`. Send a second prompt to also verify the follow-up flow (closes Outstanding #1). Checklist: `docs/testing/manual-smoke.md`.
+2. **Push the branch** after smoke passes (`git push origin opencode-engine-issue-564`) so PR #574 reflects current state.
+3. **Sign in with Google AI** via the Settings tile so `gemini-cli` routes to the direct google provider (still outstanding).
+4. **Resolve OpenRouter rate-limit** on the test account if free-model fallback is needed (Outstanding #3).
+5. **Continue the UI port** by picking up issues #593–#597 from `docs/ai/current-plan.md`.
+6. **Document plugin requirements in CLAUDE.md** — the auto-installer adds `opencode-claude-auth`, `opencode-openai-codex-auth`, `opencode-gemini-auth`. Hard requirement for direct routing.
 
-The session was paused mid-smoke. Watcher script at `/tmp/rhythm_watcher.py` is preserved if needed for the next round.
+Working-tree note: 3 unrelated dirty files (`.gitignore`, `apps/mcp_server/package.json`, `apps/mcp_server/tsconfig.json`) are pre-existing churn, deliberately not committed.
