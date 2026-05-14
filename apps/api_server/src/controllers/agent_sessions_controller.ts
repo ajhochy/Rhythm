@@ -4,6 +4,7 @@ import { AppError } from '../errors/app_error';
 import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
 import { AgentSessionMessagesRepository } from '../repositories/agent_session_messages_repository';
 import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
+import { ProjectsRepository } from '../repositories/projects_repository';
 import type { AgentKind, CreateAgentSessionDto } from '../models/agent_session';
 import { opencodeClient, opencodeSessionMap } from '../services/opencode_engine';
 import { streamBridge } from '../services/opencode_stream_bridge';
@@ -110,7 +111,10 @@ export class AgentSessionsController {
       }
 
       // projectId: optional in body. Explicit `null` is honored (intentional
-      // "unassigned"). Omitted → null for now; M1-3 adds cwd-prefix auto-assign.
+      // "unassigned"). When the client omits the field entirely, fall back to
+      // cwd-prefix lookup against the projects table (longest match wins,
+      // archived projects skipped).
+      const expandedCwd = expandHome(cwd.trim());
       let projectId: string | null = null;
       if (Object.prototype.hasOwnProperty.call(body, 'projectId')) {
         const raw = body.projectId;
@@ -118,13 +122,16 @@ export class AgentSessionsController {
           throw AppError.badRequest('projectId must be a string or null');
         }
         projectId = (raw as string | null) ?? null;
+      } else {
+        const match = new ProjectsRepository().findByCwdPrefix(expandedCwd);
+        projectId = match?.id ?? null;
       }
 
       const dto: CreateAgentSessionDto = {
         agentKind: normalizedAgentId as AgentKind,
         taskId: taskId != null ? (taskId as string) : null,
         taskTitle: taskTitle != null ? (taskTitle as string) : null,
-        cwd: expandHome(cwd.trim()),
+        cwd: expandedCwd,
         name: name.trim(),
         projectId,
       };

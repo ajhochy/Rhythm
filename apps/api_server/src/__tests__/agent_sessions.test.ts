@@ -417,7 +417,8 @@ describe('Agent Sessions API', () => {
     await fetch(`${baseUrl}/agent-sessions`, {
       method: 'POST',
       headers: authHeaders,
-      body: JSON.stringify({ agentId: 'claude-code', cwd: os.homedir(), name: 'Out' }),
+      // Explicit null so M1-3 cwd-prefix auto-assign does not pick up Filter.
+      body: JSON.stringify({ agentId: 'claude-code', cwd: os.homedir(), name: 'Out', projectId: null }),
     });
 
     const res = await fetch(`${baseUrl}/agent-sessions?projectId=${projectId}`, {
@@ -439,7 +440,8 @@ describe('Agent Sessions API', () => {
     await fetch(`${baseUrl}/agent-sessions`, {
       method: 'POST',
       headers: authHeaders,
-      body: JSON.stringify({ agentId: 'claude-code', cwd: os.homedir(), name: 'UnassignedY' }),
+      // Explicit null bypasses cwd-prefix auto-assign.
+      body: JSON.stringify({ agentId: 'claude-code', cwd: os.homedir(), name: 'UnassignedY', projectId: null }),
     });
 
     const res = await fetch(`${baseUrl}/agent-sessions?projectId=null`, { headers: authHeaders });
@@ -454,5 +456,104 @@ describe('Agent Sessions API', () => {
     const { getDb } = await import('../database/db');
     // Calling again must not throw.
     expect(() => run(getDb())).not.toThrow();
+  });
+
+  // ── M1-3 #588: auto-assign project on session create by cwd prefix ───────
+
+  it('auto-assigns project when omitted and cwd exactly matches a project', async () => {
+    const projectId = await createProject('Exact', '/Users/x/Documents/Rhythm');
+    const res = await fetch(`${baseUrl}/agent-sessions`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({
+        agentId: 'claude-code',
+        cwd: '/Users/x/Documents/Rhythm',
+        name: 'Exact',
+      }),
+    });
+    const session = (await res.json()) as { projectId: string | null };
+    expect(session.projectId).toBe(projectId);
+  });
+
+  it('auto-assigns project when cwd is a prefix-deeper path', async () => {
+    const projectId = await createProject('Prefix', '/Users/x/Documents/Rhythm');
+    const res = await fetch(`${baseUrl}/agent-sessions`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({
+        agentId: 'claude-code',
+        cwd: '/Users/x/Documents/Rhythm/apps/api_server',
+        name: 'Deep',
+      }),
+    });
+    const session = (await res.json()) as { projectId: string | null };
+    expect(session.projectId).toBe(projectId);
+  });
+
+  it('returns projectId=null when no project matches', async () => {
+    await createProject('Unrelated', '/Users/x/Documents/Rhythm');
+    const res = await fetch(`${baseUrl}/agent-sessions`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({
+        agentId: 'claude-code',
+        cwd: '/Users/x/elsewhere',
+        name: 'NoMatch',
+      }),
+    });
+    const session = (await res.json()) as { projectId: string | null };
+    expect(session.projectId).toBeNull();
+  });
+
+  it('explicit projectId=null is not overridden by auto-assign', async () => {
+    await createProject('Wouldmatch', '/Users/x/Documents/Rhythm');
+    const res = await fetch(`${baseUrl}/agent-sessions`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({
+        agentId: 'claude-code',
+        cwd: '/Users/x/Documents/Rhythm/apps',
+        name: 'IntentionalNull',
+        projectId: null,
+      }),
+    });
+    const session = (await res.json()) as { projectId: string | null };
+    expect(session.projectId).toBeNull();
+  });
+
+  it('longest cwd prefix wins when multiple projects match', async () => {
+    await createProject('Outer', '/Users/x/A');
+    const innerId = await createProject('Inner', '/Users/x/A/sub');
+    const res = await fetch(`${baseUrl}/agent-sessions`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({
+        agentId: 'claude-code',
+        cwd: '/Users/x/A/sub/inner',
+        name: 'Nested',
+      }),
+    });
+    const session = (await res.json()) as { projectId: string | null };
+    expect(session.projectId).toBe(innerId);
+  });
+
+  it('skips archived projects in cwd-prefix lookup', async () => {
+    const archivedId = await createProject('Archived', '/Users/x/archived');
+    await fetch(`${baseUrl}/projects/${archivedId}`, {
+      method: 'PATCH',
+      headers: authHeaders,
+      body: JSON.stringify({ archivedAt: new Date().toISOString() }),
+    });
+    const res = await fetch(`${baseUrl}/agent-sessions`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({
+        agentId: 'claude-code',
+        cwd: '/Users/x/archived/deeper',
+        name: 'SkipArchived',
+      }),
+    });
+    const session = (await res.json()) as { projectId: string | null };
+    expect(session.projectId).toBeNull();
   });
 });

@@ -127,4 +127,30 @@ export class ProjectsRepository {
   delete(id: string): void {
     getDb().prepare(`DELETE FROM projects WHERE id = ?`).run(id);
   }
+
+  /**
+   * Return the non-archived project whose `cwd` is an exact match or a
+   * path-prefix of `sessionCwd`. When multiple match, returns the longest
+   * (e.g. nested projects). Strings are compared after stripping trailing
+   * slashes; no symlink resolution.
+   */
+  findByCwdPrefix(sessionCwd: string): Project | null {
+    const normalized = sessionCwd.length > 1
+      ? sessionCwd.replace(/\/+$/, '')
+      : sessionCwd;
+    const rows = getDb()
+      .prepare(`SELECT * FROM projects WHERE archived_at IS NULL`)
+      .all() as ProjectRow[];
+
+    let best: ProjectRow | null = null;
+    for (const row of rows) {
+      const projectCwd = row.cwd.length > 1 ? row.cwd.replace(/\/+$/, '') : row.cwd;
+      if (normalized === projectCwd || normalized.startsWith(projectCwd + '/')) {
+        if (!best || projectCwd.length > best.cwd.length) {
+          best = row;
+        }
+      }
+    }
+    return best ? rowToModel(best) : null;
+  }
 }
