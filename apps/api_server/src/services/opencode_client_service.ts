@@ -1,5 +1,6 @@
 import type { OpencodeClient, Event } from '@opencode-ai/sdk';
 import { logger } from '../utils/logger';
+import { OpencodeAuthStore } from './opencode_auth_store';
 
 type EngineStatus = 'uninitialized' | 'ready' | 'error';
 
@@ -7,6 +8,7 @@ export class OpencodeClientService {
   private status: EngineStatus = 'uninitialized';
   private client: OpencodeClient | null = null;
   private error: Error | null = null;
+  private authStore = new OpencodeAuthStore();
 
   get isReady(): boolean {
     return this.status === 'ready';
@@ -66,6 +68,11 @@ export class OpencodeClientService {
       logger.error('[OpencodeClientService] listProviders failed:', err);
       return [];
     }
+  }
+
+  /** Returns provider IDs that are actually authed (per auth.json). */
+  async listAuthedProviders(): Promise<string[]> {
+    return this.authStore.listAuthedProviders();
   }
 
   /** Get available models for a provider */

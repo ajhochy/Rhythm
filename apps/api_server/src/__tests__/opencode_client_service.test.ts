@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { OpencodeClientService } from '../services/opencode_client_service';
+import { OpencodeAuthStore } from '../services/opencode_auth_store';
 
 function makeService(stubClient: Record<string, unknown>): OpencodeClientService {
   const svc = new OpencodeClientService();
@@ -211,5 +212,16 @@ describe('OpencodeClientService — SDK response unwrap (.data)', () => {
       },
     });
     expect(await bad.handleOAuthCallback('openai', 'code-123')).toBe(false);
+  });
+});
+
+describe('OpencodeClientService.listAuthedProviders', () => {
+  it('delegates to OpencodeAuthStore.listAuthedProviders', async () => {
+    const fakeStore: Pick<OpencodeAuthStore, 'listAuthedProviders'> = {
+      listAuthedProviders: vi.fn().mockReturnValue(['openrouter', 'anthropic']),
+    };
+    const svc = makeService({});
+    (svc as unknown as { authStore: typeof fakeStore }).authStore = fakeStore;
+    expect(await svc.listAuthedProviders()).toEqual(['openrouter', 'anthropic']);
   });
 });
