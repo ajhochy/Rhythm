@@ -95,6 +95,47 @@ describe('GET /agents/capabilities', () => {
     expect(caps['codex']).toBe(true); // openai is still connected
   });
 
+  it('flips all CLI agents to true when only an aggregator (openrouter) is connected (#584)', async () => {
+    const { opencodeClient } = await import('../services/opencode_engine');
+    vi.mocked(opencodeClient.listProviders).mockResolvedValueOnce(['openrouter']);
+
+    const res = await fetch(`${baseUrl}/agents/capabilities`, { headers: authHeaders });
+    const caps = (await res.json()) as Record<string, boolean>;
+    expect(caps['claude-code']).toBe(true);
+    expect(caps['codex']).toBe(true);
+    expect(caps['gemini-cli']).toBe(true);
+    expect(caps['opencode']).toBe(true);
+  });
+
+  it('treats together and groq as aggregators for CLI agents (#584)', async () => {
+    const { opencodeClient } = await import('../services/opencode_engine');
+    vi.mocked(opencodeClient.listProviders).mockResolvedValueOnce(['together']);
+
+    let res = await fetch(`${baseUrl}/agents/capabilities`, { headers: authHeaders });
+    let caps = (await res.json()) as Record<string, boolean>;
+    expect(caps['claude-code']).toBe(true);
+    expect(caps['codex']).toBe(true);
+    expect(caps['gemini-cli']).toBe(true);
+
+    vi.mocked(opencodeClient.listProviders).mockResolvedValueOnce(['groq']);
+    res = await fetch(`${baseUrl}/agents/capabilities`, { headers: authHeaders });
+    caps = (await res.json()) as Record<string, boolean>;
+    expect(caps['claude-code']).toBe(true);
+    expect(caps['codex']).toBe(true);
+    expect(caps['gemini-cli']).toBe(true);
+  });
+
+  it('keeps unrelated CLI agents false when only the direct provider is connected (#584 regression)', async () => {
+    const { opencodeClient } = await import('../services/opencode_engine');
+    vi.mocked(opencodeClient.listProviders).mockResolvedValueOnce(['anthropic']);
+
+    const res = await fetch(`${baseUrl}/agents/capabilities`, { headers: authHeaders });
+    const caps = (await res.json()) as Record<string, boolean>;
+    expect(caps['claude-code']).toBe(true);
+    expect(caps['codex']).toBe(false);
+    expect(caps['gemini-cli']).toBe(false);
+  });
+
   it('returns false for all when no providers are connected but engine is ready', async () => {
     const { opencodeClient } = await import('../services/opencode_engine');
     vi.mocked(opencodeClient.listProviders).mockResolvedValueOnce([]);
