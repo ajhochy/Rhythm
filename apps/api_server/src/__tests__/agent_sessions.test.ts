@@ -318,10 +318,12 @@ describe('Agent Sessions API', () => {
       body: JSON.stringify(payload),
     });
 
-    // The path "/some/path/~" is not a valid cwd (no expansion), so create
-    // should fail. We accept 400 (validation) or 500 (downstream) — both
-    // indicate the ~ was NOT expanded.
-    expect([400, 500]).toContain(res.status);
+    // The session creates successfully with the literal path. We're not
+    // expanding `~` mid-path (only at the start), so the cwd that ends up
+    // stored should be the unmodified input — confirming no expansion.
+    expect(res.status).toBe(201);
+    const created = (await res.json()) as { cwd: string };
+    expect(created.cwd).toBe('/some/path/~');
   });
 
   it('returns 400 on resume when the Opencode engine is not ready', async () => {
