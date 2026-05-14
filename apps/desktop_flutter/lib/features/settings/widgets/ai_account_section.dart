@@ -72,7 +72,16 @@ class _AiAccountSectionState extends State<AiAccountSection> {
       );
       if (!mounted) return;
       if (response.statusCode != 200) {
-        setState(() => _statusMessage = 'Failed to get auth URL for $provider');
+        // Surface the server error detail instead of a generic message
+        String errorDetail = 'HTTP ${response.statusCode}';
+        try {
+          final errBody = jsonDecode(response.body) as Map<String, dynamic>;
+          errorDetail = errBody['error'] as String? ?? errorDetail;
+        } catch (_) {
+          // Non-JSON response — use status code
+        }
+        setState(() => _statusMessage =
+            'Failed to get auth URL for $provider: $errorDetail');
         return;
       }
       final data = jsonDecode(response.body) as Map<String, dynamic>;
@@ -130,9 +139,16 @@ class _AiAccountSectionState extends State<AiAccountSection> {
           controller.clear();
         });
       } else {
-        final body = jsonDecode(response.body) as Map<String, dynamic>;
+        // Guard against non-JSON responses (e.g. HTML 404 from unregistered route)
+        String errorMsg = response.reasonPhrase ?? 'Unknown error';
+        try {
+          final body = jsonDecode(response.body) as Map<String, dynamic>;
+          errorMsg = body['error'] as String? ?? errorMsg;
+        } catch (_) {
+          // Server returned non-JSON — use HTTP status reason
+        }
         setState(() {
-          _statusMessage = 'Failed: ${body['error'] ?? response.reasonPhrase}';
+          _statusMessage = 'Failed: $errorMsg';
         });
       }
     } catch (e) {

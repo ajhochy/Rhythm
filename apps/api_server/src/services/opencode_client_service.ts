@@ -180,13 +180,18 @@ export class OpencodeClientService {
 
   /**
    * Get OAuth authorization URL for a provider.
-   * Returns the URL, method, and instructions for the user to complete OAuth.
+   * Returns the URL, method, and instructions on success.
+   * Returns `{ error: string }` on failure so the caller can surface the SDK message.
    */
   async getOAuthUrl(
     providerId: string,
     methodIndex?: number,
     directory?: string,
-  ): Promise<{ url: string; method: string; instructions: string } | null> {
+  ): Promise<
+    | { url: string; method: string; instructions: string }
+    | { error: string }
+    | null
+  > {
     if (!this.client) return null;
     try {
       const result = await this.client.provider.oauth.authorize({
@@ -200,8 +205,9 @@ export class OpencodeClientService {
         instructions: result.instructions,
       };
     } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
       logger.error(`[OpencodeClientService] getOAuthUrl failed for ${providerId}:`, err);
-      return null;
+      return { error: message };
     }
   }
 

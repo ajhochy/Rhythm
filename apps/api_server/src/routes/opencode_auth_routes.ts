@@ -28,6 +28,13 @@ opencodeAuthRouter.get('/:provider/authorize', async (req: Request, res: Respons
     return;
   }
 
+  // getOAuthUrl returns { error } when the SDK throws (e.g. provider not found,
+  // OAuth not supported for this provider, SDK not ready yet)
+  if ('error' in oauthResult) {
+    res.status(500).json({ error: oauthResult.error });
+    return;
+  }
+
   res.json({
     provider,
     authUrl: oauthResult.url,
