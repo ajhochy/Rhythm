@@ -1,13 +1,82 @@
 # Project State
 
-## Current Status
-✅ Opencode engine implementation complete and code-audited. PR #574 is open on branch `opencode-engine-issue-564`, awaiting manual smoke testing before merge to main.
+## Current Status (2026-05-14, mid-session pause)
 
-All automated checks pass:
-- **362/362 tests** (vitest)
+🟡 **PR #574 has 29 unpushed commits stacked locally on `opencode-engine-issue-564`.** The auth rework spec (Issues A–G) + smoke-found fixes E/F/G + a follow-up wave of stream-bridge + WS-gateway fixes all landed in this branch but the branch is NOT pushed. Last manual smoke surfaced one remaining gap that has a fix committed but unverified — see Outstanding Issues.
+
+Automated checks (last run):
+- **410/410 tests** (vitest, api_server)
 - **tsc --noEmit** — clean
-- **flutter analyze --no-fatal-infos** — clean
+- **flutter analyze --no-fatal-infos** — clean (161 pre-existing info-level warnings)
 - **dart format --set-exit-if-changed** — clean
+
+## Outstanding Issues (must verify before merge)
+
+| # | Issue | Status | Notes |
+|---|---|---|---|
+| 1 | **Follow-up WS prompts dropped** — second/third user messages in a Claude session never reached the LLM. Initial create-session prompt worked. | Fix committed (`40d4fee`), **not yet smoke-verified**. | `ws_gateway.ts session.input` handler was calling `opencodeClient.prompt(opencodeId, data, undefined, cwd)` with `undefined` model → SDK had no provider to dispatch to → prompt silently dropped. Fix: look up session's agentKind from DB, resolve model via the shared `agent_model_resolver`, pass to `promptAsync`. |
+| 2 | **Gemini direct route requires Google OAuth, no other path** | UI tile shipped (`f501791`), user has not signed in. | `opencode-gemini-auth` plugin handles the listener on :8085; user clicks "Sign in with Google AI account" → polls /opencode/auth/ until `google` appears. Without it, gemini-cli falls back to `openrouter` which is rate-limited on this account. |
+| 3 | **OpenRouter key rate-limited** on the live test account | Not a code issue. | Surfaces as `Error: Key limit exceeded (total limit). Manage it using https://openrouter.ai/settings/keys` via the new error-message extractor. User should top up at https://openrouter.ai/settings/keys or remove openrouter as fallback. |
+| 4 | **macOS Keychain prompt on every app launch** | Cached per session, but the OS still prompts the first call after each app restart. User asked for this earlier. | Working as designed — Keychain access requires confirmation each new process. Cache lives inside `CredentialsBridgeService` and only re-prompts on `auth.set` failure within the same process. |
+| 5 | **User-input messages not persisted to DB** | Known gap; assistant-only persistence currently. | `agent_session_messages` only contains `role: 'output'` (assistant) and `role: 'system'` (errors). User prompts are sent via WS and never written to the table. If a user reopens an old session they see assistant turns but no preceding user inputs. |
+| 6 | **Local SDK type defs hand-maintained** | Risk: drift from `@opencode-ai/sdk` releases. | `apps/api_server/src/@types/opencode-ai-sdk.d.ts` is a hand-written subset. The cast pattern `as unknown as { data?: T; error?: E }` covers the actual runtime shape. After SDK upgrades, re-run `apps/api_server/scripts/auth-strategy-probe.ts` (gitignored) to catch breakage. |
+| 7 | **`tasks_controller.test.ts` vitest flake** | Pre-existing, not blocking. | One test ("returns only open tasks (default)") intermittently fails when the full suite runs; passes in isolation. Cross-test pollution. Survives the rework unchanged. |
+| 8 | **GitHub Copilot OAuth is custom-implemented** | Working, but tied to an upstream client_id. | We reimplemented the device-flow in `api_server/src/services/github_copilot_device_auth.ts` because the SDK's plugin polling can't be driven over HTTP RPC. Hard-codes GitHub `client_id=Ov23li8tweQw6odWQebz`. If GitHub revokes/rotates that ID, we have to update. |
+
+## Recent Commits (29 stacked on opencode-engine-issue-564 since 70b87d7)
+
+### Auth rework — spec phase
+| SHA | Topic |
+|---|---|
+| `af7100e` | docs(spec): opencode auth rework design |
+
+### Issue A — SDK `.data` unwrap (5 commits)
+| SHA | Topic |
+|---|---|
+| `7375953` | unwrap res.data in listProviders |
+| `9d3fa2c` | unwrap res.data in listModels |
+| `ee7b283` | unwrap res.data in setAuth |
+| `c99b821` | unwrap res.data in session methods |
+| `7e9dfa4` | unwrap res.data in OAuth methods |
+
+### Issue B — Auth source-of-truth (4 commits)
+| SHA | Topic |
+|---|---|
+| `d29f4b5` | add OpencodeAuthStore (reads ~/.local/share/opencode/auth.json) |
+| `e3a590f` | expose listAuthedProviders via auth store |
+| `5ecc83a` | capabilities now reads from auth store, not catalog |
+| `7199c1a` | GET /opencode/auth/ returns authed providers from auth store |
+
+### Issue C — Anthropic Claude Code creds bridge (4 commits)
+| SHA | Topic |
+|---|---|
+| `4f26be9` | read Claude Code creds from Keychain or file |
+| `54cc1dd` | bridgeAnthropic + refresh via claude.ai (correction from `console.anthropic.com`) |
+| `b740ea6` | bridge route + sources discovery |
+| `9b09f58` | 30-min background refresh loop |
+
+### Issue D — Flutter UI rework (1 commit, bundled D1/D2/D3)
+| SHA | Topic |
+|---|---|
+| `4b2f6a4` | Flutter auth UI rework (subscription tile, polling, capability refresh) |
+
+### Smoke-driven fixes E/F/G + iterations
+| SHA | Topic |
+|---|---|
+| `b9fd5de` | OpenAI OAuth uses methodIndex=1 paste-back |
+| `10df29d` | reimplement GitHub Copilot device flow in api_server |
+| `1bc44f8` | route agent sessions to preferred provider/model |
+| `08c4ada` | route via openrouter + show connected indicators |
+| `bde0b91` | smart route fallback + persist session errors |
+| `b2eefaa` | prefer github-copilot over openrouter for claude-code |
+| `592624b` | persist session status + assistant messages |
+| `cd80584` | look up sessionID from info/part for message events |
+| `2184fef` | subscribe per-cwd + persist assistant turns |
+| `2d51e9c` | readable error messages + don't clobber closed status |
+| `928a28b` | route to user's direct provider account, not aggregator |
+| `7499416` | auto-install community auth plugins on startup (claude-auth, codex-auth, gemini-auth) |
+| `f501791` | Google Gemini OAuth tile + polling completion |
+| `40d4fee` | **[unverified]** WS gateway passes model to follow-up prompts |
 
 ## Issues Completed
 
@@ -90,4 +159,14 @@ Flutter → DELETE /agent-sessions/:id → controller stops bridge + clears map 
 ```
 
 ## Branch / PR
-`opencode-engine-issue-564` — Draft PR #574 — local HEAD `5b3c8c4` (smoke-found fixes #585/#583/#584/#582 stacked on top of `55f8bff`, not yet pushed)
+`opencode-engine-issue-564` — Draft PR #574 — **local HEAD `40d4fee`, 29 commits ahead of last push at `70b87d7`**. NOT YET PUSHED. Auth rework (Issues A–G), follow-up smoke fixes for stream bridge / WS gateway / Flutter UI, plus plugin auto-installer all stacked here. See "Outstanding Issues" at top of this file for what still needs verification.
+
+## What to do next (resume notes)
+
+1. **Verify the WS gateway fix** (`40d4fee`). Open a Claude session in the running Rhythm app, send a follow-up prompt after the initial response, confirm the second/third user messages get an LLM reply. If they do, push the branch.
+2. **Sign in with Google AI** via the new Settings tile so `gemini-cli` routes to the direct google provider. The opencode-gemini-auth plugin will catch the callback on :8085.
+3. **Resolve OpenRouter rate-limit** on the test account so the openrouter fallback works for free-model use cases.
+4. **Push the branch** (`git push origin opencode-engine-issue-564`) — keeps the draft PR up to date so the user can manually flip it to ready once smoke is fully clean.
+5. **Document plugin requirements in CLAUDE.md** — the auto-installer adds `opencode-claude-auth`, `opencode-openai-codex-auth`, `opencode-gemini-auth`. Their presence is now a hard requirement for direct routing; this should be in the project's developer setup notes.
+
+The session was paused mid-smoke. Watcher script at `/tmp/rhythm_watcher.py` is preserved if needed for the next round.
