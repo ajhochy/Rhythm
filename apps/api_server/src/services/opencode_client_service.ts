@@ -53,12 +53,14 @@ export class OpencodeClientService {
     }
   }
 
-  /** List connected provider IDs (e.g. ['anthropic', 'openai']) */
+  /** List all provider IDs available in the SDK catalog (not auth state). */
   async listProviders(): Promise<string[]> {
     if (!this.client) return [];
     try {
-      const res = await this.client.config.providers();
-      const providers = res.providers ?? [];
+      const raw = (await this.client.config.providers()) as unknown as {
+        data?: { providers?: Array<{ id: string }> };
+      };
+      const providers = raw.data?.providers ?? [];
       return providers.map((p) => p.id);
     } catch (err) {
       logger.error('[OpencodeClientService] listProviders failed:', err);
