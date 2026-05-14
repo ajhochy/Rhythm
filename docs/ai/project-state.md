@@ -58,10 +58,10 @@ All automated checks pass:
 
 | Gap | Detail |
 |---|---|
-| `resume()` is a stub | Sets status to `starting` but never creates an SDK session, maps it, or starts the stream bridge. Spawn task filed. |
-| `pty_runner.ts` dead code | Still present in the repo. No production imports. Removal deferred to follow-up PR. |
+| `resume()` is a stub | Sets status to `starting` but never creates an SDK session, maps it, or starts the stream bridge. Tracked in [#580](https://github.com/ajhochy/Rhythm/issues/580). |
+| `pty_runner.ts` dead code | Still present in the repo. No production imports. Tracked in existing [#571](https://github.com/ajhochy/Rhythm/issues/571) (deletion of legacy PTY files). |
 | Custom (non-preset) agent configs always show "Unavailable" (#575) | `AgentServerController.isAgentAvailable` keys the capabilities map by preset ID (`claude-code`, `codex`, `gemini-cli`, `opencode`). Custom configs have no entry. Acceptable until users can author custom Opencode providers. |
-| Legacy CLI columns still accepted by API on write (#575) | Model no longer reads/writes them, but `apps/api_server/src/repositories/agent_configs_repository.ts` still persists `command`, `canResume`, `resumeCommand`, `sessionIdPattern`, `outputMarker` if present. DB schema unchanged for backward compat. Server-side cleanup can be a follow-up. |
+| Legacy CLI columns still accepted by API on write (#575) | Client no longer reads/writes them, but `apps/api_server/src/repositories/agent_configs_repository.ts` still persists `command`, `canResume`, `resumeCommand`, `sessionIdPattern`, `outputMarker` if present. DB schema unchanged for backward compat. Tracked in [#581](https://github.com/ajhochy/Rhythm/issues/581). |
 | GitHub Copilot OAuth may use device flow (#579) | Current flow assumes redirect URL. If SDK returns a device-flow payload instead, the new error surfacing exposes the SDK message but the UI does not yet render device-code instructions. Self-diagnosing — defer redesign until first user hits it. |
 | API server rebuild required for #578 fix | `POST /opencode/auth/:provider` route fix is in source; ensure `apps/api_server/dist/` is rebuilt and the bundled-server release picks it up. The Flutter-side `jsonDecode` guard is defensive regardless. |
 
