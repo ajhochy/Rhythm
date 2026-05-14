@@ -42,3 +42,25 @@
 **Context:** Existing agent sessions were stored in local SQLite with PTY output.
 
 **Decision:** Start fresh. Old sessions are orphaned but not migrated. Opencode SDK handles session persistence going forward.
+
+## 2026-05-13 — In-memory session ID mapping instead of DB column
+
+**Context:** The WS gateway needs to route user input from a local session ID to the correct Opencode SDK session.
+
+**Decision:** Use an in-memory `Map<string, string>` (`opencodeSessionMap`) rather than adding a migration to store SDK session IDs in SQLite.
+
+**Consequences:**
+- + No database migration needed
+- + Ephemeral (matches session lifecycle — sessions don't persist across server restarts anyway)
+- - Mapping is lost on server restart (acceptable — SDK sessions wouldn't survive a restart either)
+
+## 2026-05-13 — All WS input goes through the prompt method
+
+**Context:** The old PTY approach sent raw terminal input via `ptyRunner.sendInput()`. The SDK doesn't have a terminal input channel — it works through structured prompt/response.
+
+**Decision:** Forward WS `session.input` messages to `opencodeClient.prompt()` instead of a PTY pipe. Terminal resize messages are no-ops since the SDK doesn't have a terminal concept.
+
+**Consequences:**
+- + Clean structured communication instead of raw terminal bytes
+- - No ANSI escape handling needed (the SDK handles formatting)
+- - The SDK's prompt method is request/response — real-time streaming depends on SSE events

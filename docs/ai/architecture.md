@@ -22,11 +22,21 @@ The local `apps/api_server` Node.js process (spawned by Flutter on each user's m
 
 ### Data flow
 ```
-Flutter → REST/WS → api_server (:4001) → OpencodeClientService → @opencode-ai/sdk → AI providers
-                                           ↓
-                                     OpencodeStreamBridge
-                                           ↓
-                                     WebSocket gateway → Flutter UI
+Flutter → POST /agent-sessions → controller creates local row + opensdk session
+                                          ↓
+                              opencodeSessionMap[localId] = sdkId
+                                          ↓
+                              OpencodeStreamBridge subscribes to SSE
+
+Flutter → WS session.input → ws_gateway → opencodeClient.prompt(sdkId, text)
+                                          ↓
+                              Opencode processes → emits SSE events
+                                          ↓
+                              OpencodeStreamBridge relays → WS broadcast
+                                          ↓
+                              Flutter UI renders transcript
+
+Flutter → DELETE /agent-sessions/:id → controller stops bridge + marks closed
 ```
 
 ### Auth model
