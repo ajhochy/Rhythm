@@ -94,10 +94,18 @@ class _AiAccountSectionState extends State<AiAccountSection> {
   }
 
   Future<void> _authorizeOAuth(String provider) async {
+    // GitHub Copilot uses its own device-flow route (Issue F).
+    if (provider == 'github-copilot') {
+      return _authorizeCopilotDeviceFlow();
+    }
+
+    // OpenAI (and any other future "code"-method provider): paste-back.
+    // methodIndex=1 = "manual paste-back" flavor of the codex OAuth plugin.
+    // methodIndex=0 = the in-process auto variant that doesn't work over HTTP.
     try {
       final response = await http.get(
         Uri.parse(
-            '${AppConstants.agentLocalBaseUrl}/opencode/auth/$provider/authorize'),
+            '${AppConstants.agentLocalBaseUrl}/opencode/auth/$provider/authorize?method=1'),
       );
       if (!mounted) return;
       if (response.statusCode != 200) {
@@ -105,9 +113,7 @@ class _AiAccountSectionState extends State<AiAccountSection> {
         try {
           final errBody = jsonDecode(response.body) as Map<String, dynamic>;
           errorDetail = errBody['error'] as String? ?? errorDetail;
-        } catch (_) {
-          /* non-JSON */
-        }
+        } catch (_) {/* non-JSON */}
         setState(() => _statusMessage =
             'Failed to start sign-in for $provider: $errorDetail');
         return;
@@ -130,12 +136,23 @@ class _AiAccountSectionState extends State<AiAccountSection> {
       }
 
       if (!mounted) return;
-      final connected = await _waitForProviderConnected(
+      final code = await _promptForAuthCode(
         provider: provider,
         instructions: instructions,
       );
+      if (code == null || code.isEmpty) {
+        setState(() => _statusMessage = 'Sign-in cancelled for $provider');
+        return;
+      }
+
+      // Complete via methodIndex=1 (matches the URL we started with).
+      final callback = await http.get(
+        Uri.parse(
+            '${AppConstants.agentLocalBaseUrl}/opencode/auth/$provider/callback'
+            '?code=${Uri.encodeQueryComponent(code)}&method=1'),
+      );
       if (!mounted) return;
-      if (connected) {
+      if (callback.statusCode == 200) {
         setState(() {
           _authorizedProviders.add(provider);
           _statusMessage = '✓ $provider connected';
@@ -143,8 +160,13 @@ class _AiAccountSectionState extends State<AiAccountSection> {
         await _refreshConnectedProviders();
         _refreshAgentCapabilities();
       } else {
-        setState(() => _statusMessage =
-            'Sign-in for $provider was cancelled or timed out');
+        String errorDetail = 'HTTP ${callback.statusCode}';
+        try {
+          final errBody = jsonDecode(callback.body) as Map<String, dynamic>;
+          errorDetail = errBody['error'] as String? ?? errorDetail;
+        } catch (_) {/* non-JSON */}
+        setState(() =>
+            _statusMessage = 'Sign-in failed for $provider: $errorDetail');
       }
     } catch (e) {
       if (!mounted) return;
@@ -152,18 +174,133 @@ class _AiAccountSectionState extends State<AiAccountSection> {
     }
   }
 
-  /// Shows a "complete sign-in" dialog and polls GET /opencode/auth/ until
-  /// the provider appears OR the user cancels OR the timeout fires.
-  ///
-  /// For github-copilot the `instructions` string contains the device code
-  /// (e.g. "Enter code: 8518-5780") — render it verbatim so the user can
-  /// copy it. For openai the SDK's PKCE callback on :1455 completes the
-  /// flow automatically; the dialog is informational only.
-  Future<bool> _waitForProviderConnected({
+  /// Paste-the-code dialog for OAuth providers whose flow lands the user on
+  /// a localhost callback URL the user must copy from the browser URL bar
+  /// (e.g. OpenAI redirects to http://localhost:1455/auth/callback?code=…).
+  Future<String?> _promptForAuthCode({
     required String provider,
     required String instructions,
   }) async {
-    final timeoutMinutes = provider == 'github-copilot' ? 10 : 3;
+    final controller = TextEditingController();
+    try {
+      return await showDialog<String>(
+        context: context,
+        barrierDismissible: false,
+        builder: (ctx) {
+          return AlertDialog(
+            title: Text('Paste authorization code — $provider'),
+            content: SizedBox(
+              width: 460,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (instructions.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: SelectableText(
+                        instructions,
+                        style: const TextStyle(fontSize: 12),
+                      ),
+                    ),
+                  Text(
+                    'After signing in, your browser will redirect to a URL '
+                    'like http://localhost:1455/auth/callback?code=XXX&state=YYY. '
+                    'The page will fail to load — copy the FULL URL from the '
+                    'address bar and paste it below (or just the code value).',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: ctx.rhythm.textSecondary,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: controller,
+                    autofocus: true,
+                    decoration: const InputDecoration(
+                      hintText: 'Paste the full callback URL or code…',
+                      isDense: true,
+                      border: OutlineInputBorder(),
+                    ),
+                    onSubmitted: (v) => Navigator.of(ctx).pop(v.trim()),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(ctx).pop(null),
+                child: const Text('Cancel'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.of(ctx).pop(controller.text.trim()),
+                child: const Text('Connect'),
+              ),
+            ],
+          );
+        },
+      );
+    } finally {
+      controller.dispose();
+    }
+  }
+
+  // ── GitHub Copilot device flow ──
+
+  Future<void> _authorizeCopilotDeviceFlow() async {
+    try {
+      final startRes = await http.post(
+        Uri.parse(
+            '${AppConstants.agentLocalBaseUrl}/opencode/auth/github-copilot/device-start'),
+      );
+      if (!mounted) return;
+      if (startRes.statusCode != 200) {
+        String errorDetail = 'HTTP ${startRes.statusCode}';
+        try {
+          final errBody = jsonDecode(startRes.body) as Map<String, dynamic>;
+          errorDetail = errBody['error'] as String? ?? errorDetail;
+        } catch (_) {/* non-JSON */}
+        setState(() => _statusMessage =
+            'Failed to start GitHub Copilot sign-in: $errorDetail');
+        return;
+      }
+      final body = jsonDecode(startRes.body) as Map<String, dynamic>;
+      final userCode = body['userCode'] as String? ?? '';
+      final verificationUri = body['verificationUri'] as String? ?? '';
+
+      // Open the verification URL in the browser.
+      final uri = Uri.parse(verificationUri);
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      }
+
+      if (!mounted) return;
+      final ok = await _showCopilotDeviceDialog(
+        userCode: userCode,
+        verificationUri: verificationUri,
+      );
+      if (!mounted) return;
+      if (ok) {
+        setState(() {
+          _authorizedProviders.add('github-copilot');
+          _statusMessage = '✓ github-copilot connected';
+        });
+        await _refreshConnectedProviders();
+        _refreshAgentCapabilities();
+      } else {
+        setState(() => _statusMessage =
+            'GitHub Copilot sign-in was cancelled or timed out');
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _statusMessage = 'GitHub Copilot sign-in failed: $e');
+    }
+  }
+
+  Future<bool> _showCopilotDeviceDialog({
+    required String userCode,
+    required String verificationUri,
+  }) async {
     final completer = Completer<bool>();
     Timer? poller;
     Timer? timeout;
@@ -177,22 +314,23 @@ class _AiAccountSectionState extends State<AiAccountSection> {
     poller = Timer.periodic(const Duration(seconds: 2), (_) async {
       try {
         final res = await http.get(
-          Uri.parse('${AppConstants.agentLocalBaseUrl}/opencode/auth/'),
+          Uri.parse(
+              '${AppConstants.agentLocalBaseUrl}/opencode/auth/github-copilot/device-status'),
         );
         if (res.statusCode != 200) return;
         final body = jsonDecode(res.body) as Map<String, dynamic>;
-        final providers =
-            (body['providers'] as List<dynamic>?)?.cast<String>() ?? [];
-        if (providers.contains(provider)) {
+        final status = body['status'] as String?;
+        if (status == 'success') {
           await stop(result: true);
           if (mounted) Navigator.of(context, rootNavigator: true).pop();
+        } else if (status == 'failed' || status == 'expired') {
+          await stop(result: false);
+          if (mounted) Navigator.of(context, rootNavigator: true).pop();
         }
-      } catch (_) {
-        /* keep polling */
-      }
+      } catch (_) {/* keep polling */}
     });
 
-    timeout = Timer(Duration(minutes: timeoutMinutes), () async {
+    timeout = Timer(const Duration(minutes: 10), () async {
       await stop(result: false);
       if (mounted) Navigator.of(context, rootNavigator: true).pop();
     });
@@ -206,25 +344,44 @@ class _AiAccountSectionState extends State<AiAccountSection> {
       barrierDismissible: false,
       builder: (ctx) {
         return AlertDialog(
-          title: Text('Complete sign-in — $provider'),
+          title: const Text('Complete sign-in — github-copilot'),
           content: SizedBox(
-            width: 420,
+            width: 460,
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                if (instructions.isNotEmpty)
-                  SelectableText(
-                    instructions,
-                    style: const TextStyle(
-                      fontSize: 13,
-                      fontFamily: 'Menlo',
-                    ),
+                const Text(
+                  'In your browser, go to:',
+                  style: TextStyle(fontSize: 12),
+                ),
+                const SizedBox(height: 4),
+                SelectableText(
+                  verificationUri,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontFamily: 'Menlo',
                   ),
+                ),
                 const SizedBox(height: 12),
+                const Text(
+                  'Then enter this code:',
+                  style: TextStyle(fontSize: 12),
+                ),
+                const SizedBox(height: 4),
+                SelectableText(
+                  userCode,
+                  style: const TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.w700,
+                    fontFamily: 'Menlo',
+                    letterSpacing: 2,
+                  ),
+                ),
+                const SizedBox(height: 16),
                 Text(
-                  'This dialog will close automatically when the sign-in '
-                  'completes. Timeout: $timeoutMinutes minutes.',
+                  'This dialog will close when the sign-in completes. '
+                  'Timeout: 10 minutes.',
                   style: TextStyle(
                     fontSize: 12,
                     color: ctx.rhythm.textSecondary,
@@ -237,7 +394,11 @@ class _AiAccountSectionState extends State<AiAccountSection> {
             TextButton(
               onPressed: () async {
                 await stop(result: false);
-                if (mounted) Navigator.of(ctx).pop();
+                if (mounted) {
+                  await http.post(Uri.parse(
+                      '${AppConstants.agentLocalBaseUrl}/opencode/auth/github-copilot/device-cancel'));
+                  if (mounted) Navigator.of(ctx).pop();
+                }
               },
               child: const Text('Cancel'),
             ),
