@@ -12,6 +12,24 @@ const repo = new AgentSessionsRepository();
 const messagesRepo = new AgentSessionMessagesRepository();
 
 /**
+ * Default model to route a session to when the agentId is a known preset.
+ * If the preferred providerID isn't authed, the SDK will throw and the
+ * stream bridge will emit a session error; the UI will show that as a
+ * session failure rather than silently routing to a wrong provider.
+ *
+ * The model IDs are verified against the SDK's catalog (GET /provider).
+ */
+const DEFAULT_MODEL_BY_AGENT: Record<
+  string,
+  { providerID: string; modelID: string }
+> = {
+  'claude-code': { providerID: 'anthropic', modelID: 'claude-sonnet-4-6' },
+  codex: { providerID: 'openai', modelID: 'gpt-5.3-codex' },
+  'gemini-cli': { providerID: 'google', modelID: 'gemini-3-pro-preview' },
+  // 'opencode' is intentionally unmapped — user picks via opencode config.
+};
+
+/**
  * Expands '~' at the start of a path string to the current user's home directory.
  */
 function expandHome(path: string): string {
@@ -120,10 +138,11 @@ export class AgentSessionsController {
         ? `I need help with: ${taskTitle}\n\nSession name: ${name}`
         : `Starting session: ${name}`;
 
+      const model = DEFAULT_MODEL_BY_AGENT[agentId];
       opencodeClient.promptAsync(
         opencodeSession.id,
         initialPrompt,
-        undefined,
+        model,
         dto.cwd,
       ).then((ok) => {
         if (!ok) {
