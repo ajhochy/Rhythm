@@ -543,6 +543,7 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
         partId: msg.partId,
         type: msg.partType,
         text: msg.text,
+        raw: msg.part,
       );
     } else if (msg is MessagePartDeltaMessage) {
       _appendChatDelta(
@@ -643,6 +644,7 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     required String partId,
     required String type,
     required String text,
+    Map<String, dynamic>? raw,
   }) {
     if (messageId.isEmpty || partId.isEmpty) return;
     final list = _chatPartsByMessage.putIfAbsent(messageId, () => []);
@@ -650,13 +652,16 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     if (idx >= 0) {
       // Re-emit replaces text (the SDK sends the canonical part on update).
       list[idx].text = text;
+      if (raw != null) list[idx].mergePart(raw);
     } else {
-      list.add(ChatPart(
+      final part = ChatPart(
         id: partId,
         messageId: messageId,
         type: type,
         text: text,
-      ));
+      );
+      if (raw != null) part.mergePart(raw);
+      list.add(part);
     }
   }
 

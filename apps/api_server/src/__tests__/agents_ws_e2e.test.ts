@@ -365,6 +365,90 @@ describe('Agents WS end-to-end chat data flow', () => {
     ws.close();
   });
 
+  // --- M3-1: tool-call + reasoning parts forward intact -------------------
+  it('forwards tool-call and reasoning parts verbatim (M3-1 #598)', async () => {
+    const { ws, frames } = await openClient(ctx.wsUrl);
+    await waitFor(() => frames.find((f) => f.type === 'sessions.list'));
+
+    // Real SDK shapes: bash, read, edit, write tool parts + a reasoning part.
+    const fixtures: Array<Record<string, unknown>> = [
+      {
+        id: 'part-bash',
+        messageID: 'msg-tools',
+        sessionID: 'sdk-session-1',
+        type: 'tool',
+        tool: 'bash',
+        state: { status: 'completed', input: { command: 'ls' }, output: 'a\nb' },
+      },
+      {
+        id: 'part-read',
+        messageID: 'msg-tools',
+        sessionID: 'sdk-session-1',
+        type: 'tool',
+        tool: 'read',
+        state: { status: 'completed', input: { filePath: '/foo' }, output: 'contents' },
+      },
+      {
+        id: 'part-edit',
+        messageID: 'msg-tools',
+        sessionID: 'sdk-session-1',
+        type: 'tool',
+        tool: 'edit',
+        state: { status: 'completed', input: { filePath: '/foo', oldString: 'a', newString: 'b' } },
+      },
+      {
+        id: 'part-write',
+        messageID: 'msg-tools',
+        sessionID: 'sdk-session-1',
+        type: 'tool',
+        tool: 'write',
+        state: { status: 'pending', input: { filePath: '/new' } },
+      },
+      {
+        id: 'part-reasoning',
+        messageID: 'msg-tools',
+        sessionID: 'sdk-session-1',
+        type: 'reasoning',
+        text: 'Thinking about edge cases',
+      },
+    ];
+
+    for (const part of fixtures) {
+      sdkEventQueue.push({
+        type: 'message.part.updated',
+        properties: { part },
+      });
+    }
+
+    await waitFor(() => {
+      const parts = frames.filter((f) => f.type === 'message.part.updated');
+      return parts.length >= fixtures.length ? parts : undefined;
+    });
+
+    const partsForwarded = frames
+      .filter((f) => f.type === 'message.part.updated')
+      .map((f) => f.part as Record<string, unknown>);
+    const byId = new Map(partsForwarded.map((p) => [p.id, p]));
+    for (const fx of fixtures) {
+      const forwarded = byId.get(fx.id);
+      expect(forwarded).toBeDefined();
+      // Server preserves the full part object — no field-level stripping.
+      expect(forwarded).toMatchObject({
+        id: fx.id,
+        messageID: fx.messageID,
+        type: fx.type,
+      });
+      if (fx.type === 'tool') {
+        expect((forwarded as Record<string, unknown>).tool).toBe(fx.tool);
+        expect((forwarded as Record<string, unknown>).state).toEqual(fx.state);
+      }
+      if (fx.type === 'reasoning') {
+        expect((forwarded as Record<string, unknown>).text).toBe(fx.text);
+      }
+    }
+    ws.close();
+  });
+
   // --- Full round-trip ----------------------------------------------------
   it('round-trip: client prompt -> server prompt call -> SDK events -> client frames', async () => {
     const { ws, frames } = await openClient(ctx.wsUrl);

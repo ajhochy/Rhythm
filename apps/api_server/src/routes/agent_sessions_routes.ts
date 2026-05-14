@@ -13,6 +13,11 @@ agentSessionsRouter.get('/:id', controller.getOne.bind(controller));
 agentSessionsRouter.post('/', controller.create.bind(controller));
 agentSessionsRouter.patch('/:id', controller.update.bind(controller));
 agentSessionsRouter.post('/:id/cancel', controller.cancel.bind(controller));
+agentSessionsRouter.get('/:id/diff', controller.getDiff.bind(controller));
+agentSessionsRouter.post(
+  '/:id/permission/:permissionId/:decision',
+  controller.respondPermission.bind(controller),
+);
 agentSessionsRouter.delete('/:id', controller.remove.bind(controller));
 agentSessionsRouter.get('/:id/messages', controller.listMessages.bind(controller));
 agentSessionsRouter.post('/:id/resume', controller.resume.bind(controller));

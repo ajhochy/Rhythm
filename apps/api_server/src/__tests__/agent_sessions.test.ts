@@ -691,6 +691,48 @@ describe('Agent Sessions API', () => {
     expect(res.status).toBe(204);
   });
 
+  // ── M3-4 #601: GET /agent-sessions/:id/diff ───────────────────────────
+
+  it('GET /agent-sessions/:id/diff returns [] when no SDK mapping', async () => {
+    const sessionsRepoLocal = new AgentSessionsRepository();
+    const inserted = sessionsRepoLocal.insert({
+      agentKind: 'claude-code',
+      taskId: null,
+      taskTitle: null,
+      cwd: os.homedir(),
+      name: 'NoMap',
+    });
+    const res = await fetch(`${baseUrl}/agent-sessions/${inserted.id}/diff`, {
+      headers: authHeaders,
+    });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual([]);
+  });
+
+  it('GET /agent-sessions/:id/diff calls SDK diffSession when available', async () => {
+    const createRes = await fetch(`${baseUrl}/agent-sessions`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({
+        agentId: 'claude-code',
+        cwd: os.homedir(),
+        name: 'WithDiff',
+      }),
+    });
+    const session = (await createRes.json()) as { id: string };
+    const { opencodeClient } = await import('../services/opencode_engine');
+    (opencodeClient as unknown as { diffSession: (s: string) => Promise<unknown[]> })
+      .diffSession = vi.fn().mockResolvedValue([
+        { path: 'a.txt', before: 'old', after: 'new' },
+      ]);
+    const res = await fetch(`${baseUrl}/agent-sessions/${session.id}/diff`, {
+      headers: authHeaders,
+    });
+    const body = (await res.json()) as Array<{ path: string }>;
+    expect(body).toHaveLength(1);
+    expect(body[0].path).toBe('a.txt');
+  });
+
   it('POST /agent-sessions/:id/cancel returns 400 when no SDK mapping exists', async () => {
     const sessionsRepoLocal = new AgentSessionsRepository();
     const inserted = sessionsRepoLocal.insert({

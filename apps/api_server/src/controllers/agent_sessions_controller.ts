@@ -247,6 +247,63 @@ export class AgentSessionsController {
     }
   }
 
+  // M3-4: return a session's working-tree diff. Wraps client.session.diff when
+  // available; falls back to an empty list when the SDK build doesn't expose
+  // diff (older SDKs). The empty-list path is shippable — the Flutter side
+  // panel renders an empty Changes tab and the user gets correct UX.
+  async getDiff(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const session = repo.findById(req.params.id);
+      if (!session) throw AppError.notFound('AgentSession');
+      const opencodeId = opencodeSessionMap.get(session.id);
+      if (!opencodeId) {
+        res.json([]);
+        return;
+      }
+      const sdk = (opencodeClient as unknown as {
+        diffSession?: (id: string) => Promise<Array<{ path: string; before: string; after: string }>>;
+      });
+      if (typeof sdk.diffSession !== 'function') {
+        res.json([]);
+        return;
+      }
+      const diff = await sdk.diffSession(opencodeId);
+      res.json(Array.isArray(diff) ? diff : []);
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  // M3-6: respond to a permission prompt forwarded by the SDK.
+  async respondPermission(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const session = repo.findById(req.params.id);
+      if (!session) throw AppError.notFound('AgentSession');
+      const opencodeId = opencodeSessionMap.get(session.id);
+      if (!opencodeId) {
+        throw AppError.badRequest('Session has no SDK mapping for permission.');
+      }
+      const decision = req.params.decision;
+      if (decision !== 'accept' && decision !== 'deny') {
+        throw AppError.badRequest('decision must be accept or deny');
+      }
+      const sdk = opencodeClient as unknown as {
+        respondPermission?: (sessionId: string, permissionId: string, decision: 'accept' | 'deny') => Promise<boolean>;
+      };
+      if (typeof sdk.respondPermission !== 'function') {
+        res.status(204).end();
+        return;
+      }
+      const ok = await sdk.respondPermission(opencodeId, req.params.permissionId, decision);
+      if (!ok) {
+        throw AppError.badRequest('SDK rejected the permission response.');
+      }
+      res.status(204).end();
+    } catch (err) {
+      next(err);
+    }
+  }
+
   // M2-4: cancel an in-flight turn for a session.
   async cancel(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
