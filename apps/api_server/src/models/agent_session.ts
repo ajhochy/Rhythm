@@ -10,6 +10,7 @@ export interface AgentSession {
   sessionToken: string | null;
   cwd: string;
   name: string;
+  projectId: string | null;
   lastPreview: string | null;
   lastActivityAt: string | null;
   createdAt: string;
@@ -31,4 +32,5 @@ export interface CreateAgentSessionDto {
   taskTitle?: string | null;
   cwd: string;
   name: string;
+  projectId?: string | null;
 }

@@ -1068,4 +1068,12 @@ export function runMigrations(db: Database.Database): void {
     );
     CREATE INDEX IF NOT EXISTS idx_projects_archived ON projects(archived_at);
   `);
+
+  // M1-2 (issue #587) — agent_sessions.project_id (nullable, logical FK to projects.id).
+  // PRAGMA foreign_keys is not enabled globally in this repo, so REFERENCES is informational.
+  const agentSessionColsM1 = (db.pragma('table_info(agent_sessions)') as { name: string }[]).map((c) => c.name);
+  if (!agentSessionColsM1.includes('project_id')) {
+    db.exec(`ALTER TABLE agent_sessions ADD COLUMN project_id TEXT REFERENCES projects(id)`);
+  }
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_agent_sessions_project ON agent_sessions(project_id)`);
 }

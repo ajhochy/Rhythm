@@ -366,4 +366,93 @@ describe('Agent Sessions API', () => {
     const msgsBody = (await msgsRes.json()) as { messages: unknown[] };
     expect(Array.isArray(msgsBody.messages)).toBe(true);
   });
+
+  // ── M1-2 #587: project_id FK + filtering ──────────────────────────────────
+
+  async function createProject(name: string, cwd: string): Promise<string> {
+    const res = await fetch(`${baseUrl}/projects`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({ name, cwd }),
+    });
+    const project = (await res.json()) as { id: string };
+    return project.id;
+  }
+
+  it('POST /agent-sessions without projectId persists NULL', async () => {
+    const res = await fetch(`${baseUrl}/agent-sessions`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({ agentId: 'claude-code', cwd: os.homedir(), name: 'No project' }),
+    });
+    expect(res.status).toBe(201);
+    const session = (await res.json()) as { projectId: string | null };
+    expect(session.projectId).toBeNull();
+  });
+
+  it('POST /agent-sessions with explicit projectId persists it', async () => {
+    const projectId = await createProject('Proj A', os.homedir());
+    const res = await fetch(`${baseUrl}/agent-sessions`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({
+        agentId: 'claude-code',
+        cwd: os.homedir(),
+        name: 'In project',
+        projectId,
+      }),
+    });
+    expect(res.status).toBe(201);
+    const session = (await res.json()) as { projectId: string | null };
+    expect(session.projectId).toBe(projectId);
+  });
+
+  it('GET /agent-sessions?projectId=<id> filters by project', async () => {
+    const projectId = await createProject('Filter', os.homedir());
+    await fetch(`${baseUrl}/agent-sessions`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({ agentId: 'claude-code', cwd: os.homedir(), name: 'In', projectId }),
+    });
+    await fetch(`${baseUrl}/agent-sessions`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({ agentId: 'claude-code', cwd: os.homedir(), name: 'Out' }),
+    });
+
+    const res = await fetch(`${baseUrl}/agent-sessions?projectId=${projectId}`, {
+      headers: authHeaders,
+    });
+    const body = (await res.json()) as { sessions: Array<{ name: string; projectId: string | null }> };
+    expect(body.sessions.every((s) => s.projectId === projectId)).toBe(true);
+    expect(body.sessions.find((s) => s.name === 'In')).toBeDefined();
+    expect(body.sessions.find((s) => s.name === 'Out')).toBeUndefined();
+  });
+
+  it('GET /agent-sessions?projectId=null returns only unassigned sessions', async () => {
+    const projectId = await createProject('Nullbucket', os.homedir());
+    await fetch(`${baseUrl}/agent-sessions`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({ agentId: 'claude-code', cwd: os.homedir(), name: 'AssignedX', projectId }),
+    });
+    await fetch(`${baseUrl}/agent-sessions`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({ agentId: 'claude-code', cwd: os.homedir(), name: 'UnassignedY' }),
+    });
+
+    const res = await fetch(`${baseUrl}/agent-sessions?projectId=null`, { headers: authHeaders });
+    const body = (await res.json()) as { sessions: Array<{ name: string; projectId: string | null }> };
+    expect(body.sessions.every((s) => s.projectId === null)).toBe(true);
+    expect(body.sessions.find((s) => s.name === 'UnassignedY')).toBeDefined();
+    expect(body.sessions.find((s) => s.name === 'AssignedX')).toBeUndefined();
+  });
+
+  it('projects migration is idempotent (running it twice on same DB is a no-op)', async () => {
+    const { runMigrations: run } = await import('../database/migrations');
+    const { getDb } = await import('../database/db');
+    // Calling again must not throw.
+    expect(() => run(getDb())).not.toThrow();
+  });
 });

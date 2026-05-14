@@ -38,9 +38,18 @@ function expandHome(path: string): string {
 }
 
 export class AgentSessionsController {
-  list(_req: Request, res: Response, next: NextFunction): void {
+  list(req: Request, res: Response, next: NextFunction): void {
     try {
-      const sessions = repo.listAll(100);
+      const projectIdParam = req.query.projectId;
+      let sessions;
+      if (typeof projectIdParam === 'string') {
+        // Literal "null" → unassigned bucket; any other string → filter by id.
+        sessions = projectIdParam === 'null'
+          ? repo.listByProject(null, 100)
+          : repo.listByProject(projectIdParam, 100);
+      } else {
+        sessions = repo.listAll(100);
+      }
       const resumable = repo.listResumable();
       res.json({ sessions, resumable });
     } catch (err) {
@@ -100,12 +109,24 @@ export class AgentSessionsController {
         throw AppError.badRequest('taskTitle must be a string');
       }
 
+      // projectId: optional in body. Explicit `null` is honored (intentional
+      // "unassigned"). Omitted → null for now; M1-3 adds cwd-prefix auto-assign.
+      let projectId: string | null = null;
+      if (Object.prototype.hasOwnProperty.call(body, 'projectId')) {
+        const raw = body.projectId;
+        if (raw !== null && typeof raw !== 'string') {
+          throw AppError.badRequest('projectId must be a string or null');
+        }
+        projectId = (raw as string | null) ?? null;
+      }
+
       const dto: CreateAgentSessionDto = {
         agentKind: normalizedAgentId as AgentKind,
         taskId: taskId != null ? (taskId as string) : null,
         taskTitle: taskTitle != null ? (taskTitle as string) : null,
         cwd: expandHome(cwd.trim()),
         name: name.trim(),
+        projectId,
       };
 
       const session = repo.insert(dto);
