@@ -35,18 +35,26 @@ const ROUTE_FALLBACKS_BY_AGENT: Record<
   Array<{ providerID: string; modelID: string }>
 > = {
   'claude-code': [
-    // Prefer github-copilot when authed: it routes Claude via the user's
-    // Copilot subscription (no per-token cost). openrouter is pay-per-token
-    // and may be rate-limited.
+    // Prefer direct anthropic (uses the user's Claude Pro/Max subscription
+    // via the opencode-claude-auth plugin reading Keychain credentials).
+    // Falls back to github-copilot (Claude via Copilot subscription) and
+    // openrouter (paid) only when the direct path isn't available.
+    { providerID: 'anthropic', modelID: 'claude-sonnet-4-6' },
     { providerID: 'github-copilot', modelID: 'claude-haiku-4.5' },
     { providerID: 'openrouter', modelID: 'anthropic/claude-sonnet-4.6' },
   ],
   codex: [
+    // Prefer direct openai (uses ChatGPT Plus/Pro OAuth via the
+    // opencode-openai-codex-auth plugin which routes through the Codex
+    // backend).
     { providerID: 'openai', modelID: 'gpt-5.3-codex' },
     { providerID: 'github-copilot', modelID: 'gpt-5-mini' },
     { providerID: 'openrouter', modelID: 'openai/gpt-5.3-codex' },
   ],
   'gemini-cli': [
+    // Prefer direct google (uses Google AI subscription via the
+    // opencode-gemini-auth plugin).
+    { providerID: 'google', modelID: 'gemini-3-pro-preview' },
     {
       providerID: 'openrouter',
       modelID: 'google/gemini-3.1-pro-preview-customtools',
