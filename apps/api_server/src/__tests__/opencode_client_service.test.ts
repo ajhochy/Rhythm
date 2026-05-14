@@ -82,4 +82,71 @@ describe('OpencodeClientService — SDK response unwrap (.data)', () => {
     });
     expect(await bad.setAuth('openrouter', 'sk-or-test')).toBe(false);
   });
+
+  it('createSession returns { id } from res.data.id', async () => {
+    const svc = makeService({
+      session: {
+        create: vi.fn().mockResolvedValue({
+          data: { id: 'sdk-session-123' }, request: {}, response: {},
+        }),
+      },
+    });
+    expect(await svc.createSession('hello')).toEqual({ id: 'sdk-session-123' });
+  });
+
+  it('prompt returns res.data on success and null on error wrapper', async () => {
+    const ok = makeService({
+      session: {
+        prompt: vi.fn().mockResolvedValue({
+          data: { info: { id: 'm1' }, parts: [{ type: 'text', text: 'hi' }] },
+          request: {}, response: {},
+        }),
+      },
+    });
+    const out = await ok.prompt('sid', 'hello');
+    expect(out?.info.id).toBe('m1');
+
+    const bad = makeService({
+      session: {
+        prompt: vi.fn().mockResolvedValue({
+          data: undefined,
+          error: { data: { message: 'no model' } },
+          request: {}, response: {},
+        }),
+      },
+    });
+    expect(await bad.prompt('sid', 'hello')).toBeNull();
+  });
+
+  it('promptAsync returns true only when no error', async () => {
+    const ok = makeService({
+      session: { promptAsync: vi.fn().mockResolvedValue({ data: {}, request: {}, response: {} }) },
+    });
+    expect(await ok.promptAsync('sid', 'hi')).toBe(true);
+
+    const bad = makeService({
+      session: {
+        promptAsync: vi.fn().mockResolvedValue({
+          data: undefined, error: { data: { message: 'fail' } }, request: {}, response: {},
+        }),
+      },
+    });
+    expect(await bad.promptAsync('sid', 'hi')).toBe(false);
+  });
+
+  it('abortSession returns true when error is absent', async () => {
+    const ok = makeService({
+      session: { abort: vi.fn().mockResolvedValue({ data: true, request: {}, response: {} }) },
+    });
+    expect(await ok.abortSession('sid')).toBe(true);
+
+    const bad = makeService({
+      session: {
+        abort: vi.fn().mockResolvedValue({
+          data: undefined, error: { data: { message: 'not found' } }, request: {}, response: {},
+        }),
+      },
+    });
+    expect(await bad.abortSession('sid')).toBe(false);
+  });
 });

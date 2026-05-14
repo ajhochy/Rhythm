@@ -113,11 +113,12 @@ export class OpencodeClientService {
   ): Promise<{ id: string } | null> {
     if (!this.client) return null;
     try {
-      const session = await this.client.session.create({
+      const raw = (await this.client.session.create({
         body: { title },
         ...(directory ? { query: { directory } } : {}),
-      });
-      return { id: session.id };
+      })) as unknown as { data?: { id?: string }; error?: unknown };
+      const id = raw.data?.id;
+      return id ? { id } : null;
     } catch (err) {
       logger.error('[OpencodeClientService] createSession failed:', err);
       return null;
@@ -136,15 +137,25 @@ export class OpencodeClientService {
   ): Promise<{ info: import('@opencode-ai/sdk').Message; parts: Array<import('@opencode-ai/sdk').Part> } | null> {
     if (!this.client) return null;
     try {
-      const result = await this.client.session.prompt({
+      const raw = (await this.client.session.prompt({
         path: { id: sessionId },
         body: {
           model,
           parts: [{ type: 'text', text }],
         },
         ...(directory ? { query: { directory } } : {}),
-      });
-      return result;
+      })) as unknown as {
+        data?: {
+          info: import('@opencode-ai/sdk').Message;
+          parts: Array<import('@opencode-ai/sdk').Part>;
+        };
+        error?: unknown;
+      };
+      if (raw.error || !raw.data) {
+        logger.error(`[OpencodeClientService] prompt error for ${sessionId}:`, raw.error);
+        return null;
+      }
+      return raw.data;
     } catch (err) {
       logger.error(`[OpencodeClientService] prompt failed for session ${sessionId}:`, err);
       return null;
@@ -164,14 +175,18 @@ export class OpencodeClientService {
   ): Promise<boolean> {
     if (!this.client) return false;
     try {
-      await this.client.session.promptAsync({
+      const raw = (await this.client.session.promptAsync({
         path: { id: sessionId },
         body: {
           model,
           parts: [{ type: 'text', text }],
         },
         ...(directory ? { query: { directory } } : {}),
-      });
+      })) as unknown as { data?: unknown; error?: unknown };
+      if (raw.error) {
+        logger.error(`[OpencodeClientService] promptAsync error for ${sessionId}:`, raw.error);
+        return false;
+      }
       return true;
     } catch (err) {
       logger.error(`[OpencodeClientService] promptAsync failed for session ${sessionId}:`, err);
@@ -251,7 +266,13 @@ export class OpencodeClientService {
   async abortSession(sessionId: string): Promise<boolean> {
     if (!this.client) return false;
     try {
-      await this.client.session.abort({ path: { id: sessionId } });
+      const raw = (await this.client.session.abort({
+        path: { id: sessionId },
+      })) as unknown as { data?: unknown; error?: unknown };
+      if (raw.error) {
+        logger.error(`[OpencodeClientService] abortSession error for ${sessionId}:`, raw.error);
+        return false;
+      }
       return true;
     } catch (err) {
       logger.error(`[OpencodeClientService] abortSession failed for ${sessionId}:`, err);
