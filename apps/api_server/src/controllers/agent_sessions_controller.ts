@@ -35,8 +35,11 @@ const ROUTE_FALLBACKS_BY_AGENT: Record<
   Array<{ providerID: string; modelID: string }>
 > = {
   'claude-code': [
-    { providerID: 'openrouter', modelID: 'anthropic/claude-sonnet-4.6' },
+    // Prefer github-copilot when authed: it routes Claude via the user's
+    // Copilot subscription (no per-token cost). openrouter is pay-per-token
+    // and may be rate-limited.
     { providerID: 'github-copilot', modelID: 'claude-haiku-4.5' },
+    { providerID: 'openrouter', modelID: 'anthropic/claude-sonnet-4.6' },
   ],
   codex: [
     { providerID: 'openai', modelID: 'gpt-5.3-codex' },
