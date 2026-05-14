@@ -12,6 +12,7 @@ import type { AddressInfo } from 'node:net';
 vi.mock('../services/opencode_engine', () => {
   const mockClient = {
     isReady: true,
+    listAuthedProviders: vi.fn().mockResolvedValue(['anthropic', 'openai', 'google']),
     listProviders: vi.fn().mockResolvedValue(['anthropic', 'openai', 'google']),
     statusMessage: 'Opencode SDK ready',
   };
@@ -87,7 +88,7 @@ describe('GET /agents/capabilities', () => {
   it('returns false for claude-code when anthropic provider is not connected', async () => {
     // Re-mock listProviders to exclude anthropic
     const { opencodeClient } = await import('../services/opencode_engine');
-    vi.mocked(opencodeClient.listProviders).mockResolvedValueOnce(['openai', 'google']);
+    vi.mocked(opencodeClient.listAuthedProviders).mockResolvedValueOnce(['openai', 'google']);
 
     const res = await fetch(`${baseUrl}/agents/capabilities`, { headers: authHeaders });
     const caps = (await res.json()) as Record<string, boolean>;
@@ -97,7 +98,7 @@ describe('GET /agents/capabilities', () => {
 
   it('flips all CLI agents to true when only an aggregator (openrouter) is connected (#584)', async () => {
     const { opencodeClient } = await import('../services/opencode_engine');
-    vi.mocked(opencodeClient.listProviders).mockResolvedValueOnce(['openrouter']);
+    vi.mocked(opencodeClient.listAuthedProviders).mockResolvedValueOnce(['openrouter']);
 
     const res = await fetch(`${baseUrl}/agents/capabilities`, { headers: authHeaders });
     const caps = (await res.json()) as Record<string, boolean>;
@@ -109,7 +110,7 @@ describe('GET /agents/capabilities', () => {
 
   it('treats together and groq as aggregators for CLI agents (#584)', async () => {
     const { opencodeClient } = await import('../services/opencode_engine');
-    vi.mocked(opencodeClient.listProviders).mockResolvedValueOnce(['together']);
+    vi.mocked(opencodeClient.listAuthedProviders).mockResolvedValueOnce(['together']);
 
     let res = await fetch(`${baseUrl}/agents/capabilities`, { headers: authHeaders });
     let caps = (await res.json()) as Record<string, boolean>;
@@ -117,7 +118,7 @@ describe('GET /agents/capabilities', () => {
     expect(caps['codex']).toBe(true);
     expect(caps['gemini-cli']).toBe(true);
 
-    vi.mocked(opencodeClient.listProviders).mockResolvedValueOnce(['groq']);
+    vi.mocked(opencodeClient.listAuthedProviders).mockResolvedValueOnce(['groq']);
     res = await fetch(`${baseUrl}/agents/capabilities`, { headers: authHeaders });
     caps = (await res.json()) as Record<string, boolean>;
     expect(caps['claude-code']).toBe(true);
@@ -127,7 +128,7 @@ describe('GET /agents/capabilities', () => {
 
   it('keeps unrelated CLI agents false when only the direct provider is connected (#584 regression)', async () => {
     const { opencodeClient } = await import('../services/opencode_engine');
-    vi.mocked(opencodeClient.listProviders).mockResolvedValueOnce(['anthropic']);
+    vi.mocked(opencodeClient.listAuthedProviders).mockResolvedValueOnce(['anthropic']);
 
     const res = await fetch(`${baseUrl}/agents/capabilities`, { headers: authHeaders });
     const caps = (await res.json()) as Record<string, boolean>;
@@ -138,7 +139,7 @@ describe('GET /agents/capabilities', () => {
 
   it('returns false for all when no providers are connected but engine is ready', async () => {
     const { opencodeClient } = await import('../services/opencode_engine');
-    vi.mocked(opencodeClient.listProviders).mockResolvedValueOnce([]);
+    vi.mocked(opencodeClient.listAuthedProviders).mockResolvedValueOnce([]);
 
     const res = await fetch(`${baseUrl}/agents/capabilities`, { headers: authHeaders });
     const caps = (await res.json()) as Record<string, boolean>;

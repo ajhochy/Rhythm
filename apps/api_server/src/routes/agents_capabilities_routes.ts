@@ -30,7 +30,7 @@ const AGGREGATOR_PROVIDERS = ['openrouter', 'together', 'groq'];
 async function probeConfigs(): Promise<Record<string, boolean>> {
   const repo = new AgentConfigsRepository();
   const configs = repo.listEnabled();
-  const providers = await opencodeClient.listProviders();
+  const providers = await opencodeClient.listAuthedProviders();
   const providerSet = new Set(providers);
 
   // Map agent config IDs to the direct upstream provider IDs they require.
