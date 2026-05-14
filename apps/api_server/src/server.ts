@@ -37,6 +37,22 @@ async function main() {
   const httpServer = http.createServer(app);
   attachWsGateway(httpServer);
 
+  // Make sure the community auth plugins are listed in opencode.json before
+  // we spawn the SDK subprocess. The plugins extend the provider catalog
+  // so direct routing to anthropic / google works once the user has
+  // authed via the corresponding flow.
+  try {
+    const { ensureRequiredPlugins } = await import(
+      './services/opencode_plugin_config'
+    );
+    ensureRequiredPlugins();
+  } catch (err) {
+    console.warn(
+      '[Opencode] Plugin config update failed (non-fatal):',
+      err,
+    );
+  }
+
   // Initialize Opencode SDK (non-blocking — logs on failure, never prevents startup)
   opencodeClient.initialize().catch((err) => {
     console.warn('[Opencode] SDK init failed (non-fatal):', err);
