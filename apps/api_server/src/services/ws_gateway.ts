@@ -89,18 +89,45 @@ function handleClientMessage(ws: WebSocket, raw: import('ws').RawData): void {
         // Route user input through the Opencode SDK instead of a PTY subprocess
         const opencodeId = opencodeSessionMap.get(id);
         if (opencodeId) {
-          // Look up the session's cwd to pass directory context to the SDK
+          // Look up the session's cwd + agentKind so we can route the prompt
+          // to the same provider/model the initial create-session prompt used.
+          // Without the model, the SDK has no provider to dispatch to and the
+          // prompt silently never reaches an LLM.
           let cwd: string | undefined;
+          let agentKind: string | undefined;
           try {
             const session = new AgentSessionsRepository().findById(id);
-            if (session) cwd = session.cwd;
+            if (session) {
+              cwd = session.cwd;
+              agentKind = session.agentKind;
+            }
           } catch {
-            // DB may be unavailable — proceed without cwd
+            // DB may be unavailable — proceed without cwd/agent context
           }
-          opencodeClient.prompt(opencodeId, data, undefined, cwd).catch((err) => {
-            console.error(`[ws_gateway] SDK prompt error for session ${id}:`, err);
-            ws.send(JSON.stringify({ v: 1, type: 'error', id, message: String(err) }));
-          });
+          (async () => {
+            try {
+              const { resolveModelForAgent } = await import(
+                './agent_model_resolver'
+              );
+              const model = agentKind
+                ? await resolveModelForAgent(agentKind)
+                : undefined;
+              await opencodeClient.promptAsync(opencodeId, data, model, cwd);
+            } catch (err) {
+              console.error(
+                `[ws_gateway] SDK prompt error for session ${id}:`,
+                err,
+              );
+              ws.send(
+                JSON.stringify({
+                  v: 1,
+                  type: 'error',
+                  id,
+                  message: String(err),
+                }),
+              );
+            }
+          })();
         } else {
           console.warn(`[ws_gateway] No Opencode session mapping for local session ${id}`);
         }
