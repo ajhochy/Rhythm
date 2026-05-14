@@ -14,20 +14,50 @@ opencodeAuthRouter.get('/', async (_req: Request, res: Response) => {
 });
 
 // GET /auth/:provider/authorize — Start OAuth flow (return auth URL)
-opencodeAuthRouter.get('/:provider/authorize', (req: Request, res: Response) => {
+opencodeAuthRouter.get('/:provider/authorize', async (req: Request, res: Response) => {
   const { provider } = req.params;
+
+  if (!opencodeClient.isReady) {
+    res.status(503).json({ error: 'Opencode engine not ready' });
+    return;
+  }
+
+  const oauthResult = await opencodeClient.getOAuthUrl(provider, 0);
+  if (!oauthResult) {
+    res.status(500).json({ error: `Failed to get OAuth URL for ${provider}` });
+    return;
+  }
+
   res.json({
     provider,
-    authUrl: `https://opencode.ai/auth/${provider}`,
+    authUrl: oauthResult.url,
+    method: oauthResult.method,
+    instructions: oauthResult.instructions,
     message: `Open this URL in your browser to authorize ${provider}`,
   });
 });
 
 // GET /auth/:provider/callback — Handle OAuth callback
-opencodeAuthRouter.get('/:provider/callback', (req: Request, res: Response) => {
+opencodeAuthRouter.get('/:provider/callback', async (req: Request, res: Response) => {
   const { provider } = req.params;
-  // In a full implementation, the Opencode SDK's OAuth method provides the callback URL
-  res.json({ success: true, provider, message: 'Provider authorized' });
+  const code = req.query.code as string | undefined;
+
+  if (!code) {
+    res.status(400).json({ error: 'OAuth authorization code is required' });
+    return;
+  }
+
+  if (!opencodeClient.isReady) {
+    res.status(503).json({ error: 'Opencode engine not ready' });
+    return;
+  }
+
+  const success = await opencodeClient.handleOAuthCallback(provider, code);
+  if (success) {
+    res.json({ success: true, provider, message: 'Provider authorized successfully' });
+  } else {
+    res.status(500).json({ error: 'Failed to complete OAuth authorization' });
+  }
 });
 
 // POST /auth/:provider — Set API key directly

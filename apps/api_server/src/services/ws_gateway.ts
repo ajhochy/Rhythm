@@ -89,7 +89,15 @@ function handleClientMessage(ws: WebSocket, raw: import('ws').RawData): void {
         // Route user input through the Opencode SDK instead of a PTY subprocess
         const opencodeId = opencodeSessionMap.get(id);
         if (opencodeId) {
-          opencodeClient.prompt(opencodeId, data).catch((err) => {
+          // Look up the session's cwd to pass directory context to the SDK
+          let cwd: string | undefined;
+          try {
+            const session = new AgentSessionsRepository().findById(id);
+            if (session) cwd = session.cwd;
+          } catch {
+            // DB may be unavailable — proceed without cwd
+          }
+          opencodeClient.prompt(opencodeId, data, undefined, cwd).catch((err) => {
             console.error(`[ws_gateway] SDK prompt error for session ${id}:`, err);
             ws.send(JSON.stringify({ v: 1, type: 'error', id, message: String(err) }));
           });

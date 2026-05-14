@@ -1,126 +1,206 @@
 import { broadcast } from './ws_gateway';
 import { opencodeClient } from './opencode_engine';
+import { opencodeSessionMap } from './opencode_engine';
 import { logger } from '../utils/logger';
 
 /**
  * Bridges Opencode SSE events to the existing WebSocket gateway.
  *
- * When a local session is created, the bridge starts listening to Opencode's
- * global event stream and relays session-relevant events to the WS gateway
- * in the format the Flutter client expects.
+ * The bridge subscribes to the Opencode event stream once (on first session)
+ * and relays events to the WS gateway in the format the Flutter client expects.
  *
- * Event types (from Opencode's SSE stream, mapped to WS messages):
- *   Opencode → WS gateway
- *   session.status     → session.status { sessionId, working }
- *   session.idle       → session.status { sessionId, working: false }
- *   session.error      → session.error  { sessionId, message }
- *   session.output     → output          { id, data }
+ * Real Opencode event types (from the SDK's SSE stream → WS messages):
+ *   message.part.updated  → output       { id, data }        (text delta)
+ *   message.updated       → output.flush { id, parts }       (final message)
+ *   session.status        → session.status { id, working }   (busy/idle)
+ *   session.idle          → session.status { id, working: false }
+ *   session.error         → error         { id, message }
+ *   file.edited           → event         { type, file }
+ *
+ * Session ID routing: Opencode events carry `properties.sessionID` (SDK session ID).
+ * The bridge uses opencodeSessionMap to look up the local session ID for each event.
  */
 export class OpencodeStreamBridge {
-  private globalEvents: {
-    stream: AsyncIterable<{ type: string; properties?: Record<string, unknown> }>;
-  } | null = null;
-  private globalAbort: AbortController | null = null;
-  private subscriptionCount = 0;
+  private eventStream: AsyncIterable<import('@opencode-ai/sdk').Event> | null = null;
+  private streamAbort: AbortController | null = null;
+  private listenerPromise: Promise<void> | null = null;
+  private subscribed = false;
 
   /** Start streaming events for a given local session. */
   async streamSession(
     localSessionId: string,
     _opencodeSessionId: string,
   ): Promise<void> {
-    this.subscriptionCount++;
-
-    // Subscribe to the global event stream on first call
-    if (!this.globalEvents) {
+    // Subscribe to the event stream on first call
+    if (!this.subscribed) {
+      this.subscribed = true;
       try {
         const events = await opencodeClient.subscribeToEvents();
         if (!events) {
           console.warn('[OpencodeStreamBridge] No event stream available');
+          this.subscribed = false;
           return;
         }
-        this.globalEvents = events;
-        this.globalAbort = new AbortController();
-        this._listen(localSessionId);
+        this.eventStream = events.stream;
+        this.streamAbort = new AbortController();
+        this.listenerPromise = this._listen();
       } catch (err) {
         logger.error('[OpencodeStreamBridge] Failed to subscribe:', err);
+        this.subscribed = false;
       }
     }
   }
 
-  private async _listen(initialSessionId: string): Promise<void> {
-    if (!this.globalEvents) return;
+  private async _listen(): Promise<void> {
+    if (!this.eventStream) return;
     try {
-      for await (const event of this.globalEvents.stream) {
-        if (this.globalAbort?.signal.aborted) break;
-        this._relayEvent(event, initialSessionId);
+      for await (const event of this.eventStream) {
+        if (this.streamAbort?.signal.aborted) break;
+        this._relayEvent(event);
       }
     } catch (err) {
+      if (err instanceof Error && err.name === 'AbortError') return;
       logger.error('[OpencodeStreamBridge] Event stream error:', err);
     } finally {
-      this.globalAbort = null;
-      this.globalEvents = null;
+      this.streamAbort = null;
+      this.eventStream = null;
+      this.subscribed = false;
     }
   }
 
   private _relayEvent(
-    event: { type: string; properties?: Record<string, unknown> },
-    sessionId: string,
+    event: import('@opencode-ai/sdk').Event,
   ): void {
-    // Drain event — always forward to Flutter
-    broadcast({
-      v: 1,
-      type: 'event',
-      id: sessionId,
-      eventType: event.type,
-      properties: event.properties ?? {},
-    });
+    // Extract the Opencode session ID from the event (most events have one)
+    const opencodeSessionId = (event.properties as Record<string, unknown>)?.sessionID as string | undefined;
 
-    // Also map known event types to Flutter's expected WS formats
+    // Look up the local session ID from the opencodeSessionMap.
+    // Map is opencodeSessionId → localSessionId, so we need to reverse look up.
+    let localSessionId: string | undefined;
+    if (opencodeSessionId) {
+      for (const [localId, sdkId] of opencodeSessionMap.entries()) {
+        if (sdkId === opencodeSessionId) {
+          localSessionId = localId;
+          break;
+        }
+      }
+    }
+
+    // If no session mapping found, use the event's sessionID as a fallback key
+    const eventId = localSessionId ?? opencodeSessionId;
+    if (!eventId) {
+      // Events without a session ID (e.g. file.edited) are still broadcast
+      // with the event type so Flutter can handle them globally if needed
+      broadcast({
+        v: 1,
+        type: 'event',
+        eventType: event.type,
+        properties: event.properties ?? {},
+      });
+      return;
+    }
+
+    // Map Opencode event types to Flutter's expected WS message format
     switch (event.type) {
-      case 'session.status':
+      case 'message.part.updated': {
+        // Stream text deltas as output events
+        const delta = (event.properties as Record<string, unknown>)?.delta as string | undefined;
+        if (delta) {
+          broadcast({
+            v: 1,
+            type: 'output',
+            id: eventId,
+            data: delta,
+          });
+        }
+        break;
+      }
+
+      case 'message.updated': {
+        // Final message — flush remaining output
         broadcast({
           v: 1,
-          type: 'session.status',
-          id: sessionId,
-          working: (event.properties?.working as boolean) ?? false,
+          type: 'output.flush',
+          id: eventId,
+          properties: event.properties ?? {},
         });
         break;
-      case 'session.idle':
+      }
+
+      case 'session.status': {
+        // status.type tells us busy/idle
+        const statusProps = event.properties as Record<string, unknown>;
+        const status = statusProps?.status as { type: string } | undefined;
+        if (status) {
+          broadcast({
+            v: 1,
+            type: 'session.status',
+            id: eventId,
+            working: status.type === 'busy',
+            status: status.type,
+          });
+        }
+        break;
+      }
+
+      case 'session.idle': {
         broadcast({
           v: 1,
           type: 'session.status',
-          id: sessionId,
+          id: eventId,
           working: false,
         });
         break;
-      case 'session.error':
+      }
+
+      case 'session.created': {
+        broadcast({
+          v: 1,
+          type: 'session.created',
+          id: eventId,
+          properties: event.properties ?? {},
+        });
+        break;
+      }
+
+      case 'session.error': {
+        const errProps = event.properties as Record<string, unknown>;
+        const errorInfo = errProps?.error as Record<string, unknown> | undefined;
         broadcast({
           v: 1,
           type: 'error',
-          id: sessionId,
-          message: String(event.properties?.message ?? 'Unknown error'),
+          id: eventId,
+          message: String(errorInfo?.message ?? errorInfo ?? 'Unknown error'),
         });
         break;
+      }
+
+      default: {
+        // Relay any unrecognized event as a generic event
+        broadcast({
+          v: 1,
+          type: 'event',
+          id: eventId,
+          eventType: event.type,
+          properties: event.properties ?? {},
+        });
+        break;
+      }
     }
   }
 
   /** Stop streaming for a session. */
   stopStream(_sessionId: string): void {
-    this.subscriptionCount = Math.max(0, this.subscriptionCount - 1);
-    if (this.subscriptionCount === 0) {
-      this._disconnect();
-    }
+    // Keep the event stream alive for other sessions.
+    // Only disconnect if explicitly disposed.
   }
 
   /** Clean up all streams. */
   dispose(): void {
-    this._disconnect();
-  }
-
-  private _disconnect(): void {
-    this.globalAbort?.abort();
-    this.globalAbort = null;
-    this.globalEvents = null;
+    this.streamAbort?.abort();
+    this.streamAbort = null;
+    this.eventStream = null;
+    this.subscribed = false;
   }
 }
 

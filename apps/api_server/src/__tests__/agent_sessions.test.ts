@@ -21,6 +21,7 @@ vi.mock('../services/opencode_engine', () => {
     createSession: vi.fn().mockResolvedValue({ id: 'sdk-session-1' }),
     setAuth: vi.fn().mockResolvedValue(true),
     prompt: vi.fn().mockResolvedValue({}),
+    promptAsync: vi.fn().mockResolvedValue(true),
     subscribeToEvents: vi.fn().mockResolvedValue(null),
   };
   return {
@@ -73,6 +74,10 @@ describe('Agent Sessions API', () => {
   afterEach(async () => {
     await closeServer();
     vi.clearAllMocks();
+    // Reset the isReady closure state so subsequent tests start with a ready engine.
+    // vi.clearAllMocks() only resets call counts — it does not reset the _ready closure.
+    const { opencodeClient } = await import('../services/opencode_engine');
+    (opencodeClient as { isReady: boolean }).isReady = true;
   });
 
   // ── agentId (new field) ────────────────────────────────────────────────────

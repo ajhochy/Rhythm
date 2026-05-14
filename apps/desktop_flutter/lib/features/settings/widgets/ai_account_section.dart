@@ -1,10 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
 import 'package:http/http.dart' as http;
 import 'package:url_launcher/url_launcher.dart';
 import 'dart:convert';
 
-import '../../../app/core/agents/agent_server_controller.dart';
 import '../../../app/core/ui/tokens/rhythm_theme.dart';
 import '../../../app/core/constants/app_constants.dart';
 
@@ -49,17 +47,19 @@ class _AiAccountSectionState extends State<AiAccountSection> {
   Future<void> _refreshConnectedProviders() async {
     try {
       final response = await http.get(
-        Uri.parse('${AppConstants.agentLocalBaseUrl}/opencode/health'),
+        Uri.parse('${AppConstants.agentLocalBaseUrl}/opencode/auth/'),
       );
       if (!mounted || response.statusCode != 200) return;
       final data = jsonDecode(response.body) as Map<String, dynamic>;
-      // Health endpoint returns SDK readiness — providers list is separate
-      // For now, check if SDK is ready as indicator
-      if (data['status'] == 'ready') {
-        // Could fetch provider list from capabilities endpoint
-      }
+      final providers =
+          (data['providers'] as List<dynamic>?)?.cast<String>() ?? [];
+      setState(() {
+        _authorizedProviders
+          ..clear()
+          ..addAll(providers);
+      });
     } catch (_) {
-      // ignore
+      // ignore — local server may not be ready yet
     }
   }
 
@@ -67,7 +67,8 @@ class _AiAccountSectionState extends State<AiAccountSection> {
     // Fetch the auth URL from the Opencode engine then open the system browser
     try {
       final response = await http.get(
-        Uri.parse('${AppConstants.agentLocalBaseUrl}/opencode/auth/$provider/authorize'),
+        Uri.parse(
+            '${AppConstants.agentLocalBaseUrl}/opencode/auth/$provider/authorize'),
       );
       if (!mounted) return;
       if (response.statusCode != 200) {
@@ -87,10 +88,12 @@ class _AiAccountSectionState extends State<AiAccountSection> {
         await launchUrl(uri, mode: LaunchMode.externalApplication);
         setState(() {
           _authorizedProviders.add(provider);
-          _statusMessage = '✓ $provider authorized (if you completed sign-in in your browser)';
+          _statusMessage =
+              '✓ $provider authorized (if you completed sign-in in your browser)';
         });
       } else {
-        setState(() => _statusMessage = 'Could not open browser. Visit $authUrl manually.');
+        setState(() => _statusMessage =
+            'Could not open browser. Visit $authUrl manually.');
       }
     } catch (e) {
       if (!mounted) return;
@@ -146,7 +149,9 @@ class _AiAccountSectionState extends State<AiAccountSection> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         // ── Section 1: Your subscriptions ──
-        _SectionHeader(title: 'Your subscriptions', subtitle: 'Sign in with your existing account'),
+        _SectionHeader(
+            title: 'Your subscriptions',
+            subtitle: 'Sign in with your existing account'),
         const SizedBox(height: 10),
         _OAuthProviderTile(
           provider: 'anthropic',
@@ -165,7 +170,8 @@ class _AiAccountSectionState extends State<AiAccountSection> {
         const SizedBox(height: 24),
 
         // ── Section 2: Free API options ──
-        _SectionHeader(title: 'Free API options', subtitle: 'No credit card required'),
+        _SectionHeader(
+            title: 'Free API options', subtitle: 'No credit card required'),
         const SizedBox(height: 10),
         _ApiKeyProviderTile(
           provider: 'google',
@@ -180,14 +186,17 @@ class _AiAccountSectionState extends State<AiAccountSection> {
         _OAuthProviderTile(
           provider: 'github-copilot',
           label: 'GitHub Copilot',
-          description: 'Free for verified students, teachers, and OSS maintainers',
+          description:
+              'Free for verified students, teachers, and OSS maintainers',
           onAuthorize: () => _authorizeOAuth('github-copilot'),
         ),
 
         const SizedBox(height: 24),
 
         // ── Section 3: Custom provider ──
-        _SectionHeader(title: 'Custom provider', subtitle: 'OpenRouter, DeepSeek, or any API key'),
+        _SectionHeader(
+            title: 'Custom provider',
+            subtitle: 'OpenRouter, DeepSeek, or any API key'),
         const SizedBox(height: 10),
         _ApiKeyProviderTile(
           provider: 'openrouter',
@@ -398,7 +407,8 @@ class _ApiKeyProviderTile extends StatelessWidget {
                   ),
                   child: isSaving
                       ? const SizedBox(
-                          width: 14, height: 14,
+                          width: 14,
+                          height: 14,
                           child: CircularProgressIndicator(
                             strokeWidth: 2,
                             color: Colors.white,

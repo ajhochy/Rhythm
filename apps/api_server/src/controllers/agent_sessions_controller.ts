@@ -99,7 +99,7 @@ export class AgentSessionsController {
         throw AppError.badRequest('Opencode engine is not ready — check Settings to connect an AI account');
       }
 
-      const opencodeSession = await opencodeClient.createSession(name.trim());
+      const opencodeSession = await opencodeClient.createSession(name.trim(), dto.cwd);
       if (!opencodeSession) {
         repo.markClosed(session.id);
         throw AppError.badRequest('Failed to create Opencode session — check your AI account is authorized');
@@ -113,6 +113,24 @@ export class AgentSessionsController {
         console.error(`[AgentSessionsController] Stream bridge error for session ${session.id}:`, err);
       });
 
+      // Send the initial prompt with task context so the AI starts working immediately.
+      // This uses promptAsync (fire-and-forget) so we return HTTP 201 quickly.
+      // Results stream back via the event bridge → WebSocket.
+      const initialPrompt = taskTitle
+        ? `I need help with: ${taskTitle}\n\nSession name: ${name}`
+        : `Starting session: ${name}`;
+
+      opencodeClient.promptAsync(
+        opencodeSession.id,
+        initialPrompt,
+        undefined,
+        dto.cwd,
+      ).then((ok) => {
+        if (!ok) {
+          console.warn(`[AgentSessionsController] Initial prompt failed for session ${session.id}`);
+        }
+      });
+
       res.status(201).json(session);
     } catch (err) {
       next(err);
@@ -124,8 +142,9 @@ export class AgentSessionsController {
       const session = repo.findById(req.params.id);
       if (!session) throw AppError.notFound('AgentSession');
 
-      // Stop any streaming for this session and mark it closed
+      // Stop any streaming for this session, clean up the SDK mapping, and mark it closed
       streamBridge.stopStream(session.id);
+      opencodeSessionMap.delete(session.id);
       repo.markClosed(session.id);
 
       res.status(204).end();
