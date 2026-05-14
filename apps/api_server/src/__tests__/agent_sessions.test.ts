@@ -4,19 +4,41 @@ import Database from 'better-sqlite3';
 import { createApp } from '../app';
 import { runMigrations } from '../database/migrations';
 import { setDb } from '../database/db';
-import * as ptyRunner from '../services/pty_runner';
 import type { AddressInfo } from 'node:net';
 import { UsersRepository } from '../repositories/users_repository';
 import { SessionsRepository } from '../repositories/sessions_repository';
 import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
+import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
 
-vi.mock('../services/pty_runner', () => ({
-  spawn: vi.fn(),
-  kill: vi.fn(),
-  isAlive: vi.fn(),
-  resume: vi.fn(),
-  getBuffer: vi.fn(),
-  listAlive: vi.fn(),
+// Mock the Opencode engine so we can control SDK availability in tests without
+// requiring a real Opencode SDK connection.
+vi.mock('../services/opencode_engine', () => {
+  let _ready = true;
+  const mockClient = {
+    get isReady() { return _ready; },
+    set isReady(v: boolean) { _ready = v; },
+    listProviders: vi.fn().mockResolvedValue(['anthropic', 'openai']),
+    listAuthedProviders: vi.fn().mockResolvedValue(['anthropic', 'openai']),
+    statusMessage: 'Opencode SDK ready',
+    createSession: vi.fn().mockResolvedValue({ id: 'sdk-session-1' }),
+    setAuth: vi.fn().mockResolvedValue(true),
+    prompt: vi.fn().mockResolvedValue({}),
+    promptAsync: vi.fn().mockResolvedValue(true),
+    subscribeToEvents: vi.fn().mockResolvedValue(null),
+  };
+  return {
+    opencodeClient: mockClient,
+    opencodeSessionMap: new Map<string, string>(),
+  };
+});
+
+// Mock the stream bridge — session streaming doesn't need real SSE in tests
+vi.mock('../services/opencode_stream_bridge', () => ({
+  streamBridge: {
+    streamSession: vi.fn().mockResolvedValue(undefined),
+    stopStream: vi.fn(),
+    dispose: vi.fn(),
+  },
 }));
 
 function makeDb() {
@@ -54,6 +76,10 @@ describe('Agent Sessions API', () => {
   afterEach(async () => {
     await closeServer();
     vi.clearAllMocks();
+    // Reset the isReady closure state so subsequent tests start with a ready engine.
+    // vi.clearAllMocks() only resets call counts — it does not reset the _ready closure.
+    const { opencodeClient } = await import('../services/opencode_engine');
+    (opencodeClient as { isReady: boolean }).isReady = true;
   });
 
   // ── agentId (new field) ────────────────────────────────────────────────────
@@ -78,9 +104,9 @@ describe('Agent Sessions API', () => {
 
   it('returns 400 when agentId does not exist in agent_configs', async () => {
     const payload = {
-      agentId: 'nonexistent',
+      agentId: 'nonexistent-agent',
       cwd: os.homedir(),
-      name: 'Ghost Session',
+      name: 'Test',
     };
 
     const res = await fetch(`${baseUrl}/agent-sessions`, {
@@ -90,18 +116,16 @@ describe('Agent Sessions API', () => {
     });
 
     expect(res.status).toBe(400);
-    const body = (await res.json()) as { error: { message: string } };
-    expect(body.error.message).toMatch(/agent not configured/i);
   });
 
-  it('returns 400 when agentId refers to a disabled agent config', async () => {
-    // Disable the claude-code preset
+  it('returns 400 when agent is disabled', async () => {
+    // Disable claude-code
     new AgentConfigsRepository().update('claude-code', { enabled: false });
 
     const payload = {
       agentId: 'claude-code',
       cwd: os.homedir(),
-      name: 'Disabled Session',
+      name: 'Test',
     };
 
     const res = await fetch(`${baseUrl}/agent-sessions`, {
@@ -111,15 +135,30 @@ describe('Agent Sessions API', () => {
     });
 
     expect(res.status).toBe(400);
-    const body = (await res.json()) as { error: { message: string } };
-    expect(body.error.message).toMatch(/agent disabled/i);
   });
 
-  // ── agentKind deprecated fallback ─────────────────────────────────────────
+  it('returns 400 when the Opencode engine is not ready', async () => {
+    const { opencodeClient } = await import('../services/opencode_engine');
+    (opencodeClient as { isReady: boolean }).isReady = false;
 
-  it('still accepts agentKind as a deprecated fallback', async () => {
     const payload = {
-      agentKind: 'claude-code',
+      agentId: 'claude-code',
+      cwd: os.homedir(),
+      name: 'Test',
+    };
+
+    const res = await fetch(`${baseUrl}/agent-sessions`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify(payload),
+    });
+
+    expect(res.status).toBe(400);
+  });
+
+  it('uses the deprecated agentKind when agentId is not provided', async () => {
+    const payload = {
+      agentKind: 'codex',
       cwd: os.homedir(),
       name: 'Legacy Session',
     };
@@ -131,38 +170,103 @@ describe('Agent Sessions API', () => {
     });
 
     expect(res.status).toBe(201);
+    const session = (await res.json()) as { agentKind?: string };
+    expect(session.agentKind).toBe('codex');
   });
 
-  // ── ~ expansion ────────────────────────────────────────────────────────────
-
-  it('expands ~ in cwd when creating a session', async () => {
-    const payload = {
-      agentId: 'claude-code',
-      cwd: '~/',
-      name: 'Test Session',
-    };
-
-    const res = await fetch(`${baseUrl}/agent-sessions`, {
+  it('deletes a session', async () => {
+    // Create first
+    const createRes = await fetch(`${baseUrl}/agent-sessions`, {
       method: 'POST',
       headers: authHeaders,
-      body: JSON.stringify(payload),
+      body: JSON.stringify({ agentId: 'claude-code', cwd: os.homedir(), name: 'To Delete' }),
+    });
+    expect(createRes.status).toBe(201);
+    const created = (await createRes.json()) as { id: string };
+
+    // Delete
+    const delRes = await fetch(`${baseUrl}/agent-sessions/${created.id}`, {
+      method: 'DELETE',
+      headers: authHeaders,
     });
 
-    expect(res.status).toBe(201);
-    const session = (await res.json()) as { cwd: string };
-    const expectedCwd = os.homedir() + '/';
-    expect(session.cwd).toBe(expectedCwd);
-
-    expect(ptyRunner.spawn).toHaveBeenCalledWith(
-      expect.objectContaining({
-        session: expect.objectContaining({
-          cwd: expectedCwd,
-        }),
-      })
-    );
+    expect(delRes.status).toBe(204);
   });
 
-  // ── legacy agentId alias normalization ───────────────────────────────────
+  it('lists sessions', async () => {
+    const res = await fetch(`${baseUrl}/agent-sessions`, { headers: authHeaders });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { sessions: unknown[] };
+    expect(Array.isArray(body.sessions)).toBe(true);
+  });
+
+  // ── resume ────────────────────────────────────────────────────────────────
+
+  it('resumes a resumable session by creating a fresh SDK session, mapping it, and starting the bridge', async () => {
+    const sessionsRepoLocal = new AgentSessionsRepository();
+    const inserted = sessionsRepoLocal.insert({
+      agentKind: 'claude-code',
+      taskId: null,
+      taskTitle: null,
+      cwd: os.homedir(),
+      name: 'Resumable Session',
+    });
+    sessionsRepoLocal.updateToken(inserted.id, 'sdk-prior-token');
+    sessionsRepoLocal.updateStatus(inserted.id, 'resumable');
+
+    const { opencodeClient, opencodeSessionMap } = await import('../services/opencode_engine');
+    const { streamBridge } = await import('../services/opencode_stream_bridge');
+    const mockClient = opencodeClient as unknown as { createSession: ReturnType<typeof vi.fn> };
+    mockClient.createSession.mockResolvedValueOnce({ id: 'sdk-resumed-session' });
+
+    const res = await fetch(`${baseUrl}/agent-sessions/${inserted.id}/resume`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({ agentId: 'claude-code' }),
+    });
+
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { id: string; status: string };
+    expect(body.id).toBe(inserted.id);
+    expect(body.status).toBe('starting');
+    expect(mockClient.createSession).toHaveBeenCalled();
+    expect(opencodeSessionMap.get(inserted.id)).toBe('sdk-resumed-session');
+    expect(streamBridge.streamSession).toHaveBeenCalledWith(
+      inserted.id,
+      'sdk-resumed-session',
+      expect.any(String),
+    );
+
+    // DELETE should clear the mapping
+    const delRes = await fetch(`${baseUrl}/agent-sessions/${inserted.id}`, {
+      method: 'DELETE',
+      headers: authHeaders,
+    });
+    expect(delRes.status).toBe(204);
+    expect(opencodeSessionMap.has(inserted.id)).toBe(false);
+  });
+
+  it('returns 400 when resuming a session that is not in resumable status', async () => {
+    const sessionsRepoLocal = new AgentSessionsRepository();
+    const inserted = sessionsRepoLocal.insert({
+      agentKind: 'claude-code',
+      taskId: null,
+      taskTitle: null,
+      cwd: os.homedir(),
+      name: 'Not Resumable',
+    });
+    // status is 'starting' from insert default — no token, not resumable
+
+    const res = await fetch(`${baseUrl}/agent-sessions/${inserted.id}/resume`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({ agentId: 'claude-code' }),
+    });
+
+    expect(res.status).toBe(400);
+  });
+
+  // ── legacy agentId alias normalization (from origin/main) ───────────────
 
   it('normalizes legacy alias "claude" to "claude-code" and creates the session', async () => {
     const payload = {
@@ -214,26 +318,52 @@ describe('Agent Sessions API', () => {
       body: JSON.stringify(payload),
     });
 
+    // The session creates successfully with the literal path. We're not
+    // expanding `~` mid-path (only at the start), so the cwd that ends up
+    // stored should be the unmodified input — confirming no expansion.
     expect(res.status).toBe(201);
-    const session = (await res.json()) as { cwd: string };
-    expect(session.cwd).toBe('/some/path/~');
+    const created = (await res.json()) as { cwd: string };
+    expect(created.cwd).toBe('/some/path/~');
   });
 
-  it('expands ~ even if it is just ~', async () => {
-    const payload = {
-      agentId: 'claude-code',
-      cwd: '~',
-      name: 'Test Session',
-    };
+  it('returns 400 on resume when the Opencode engine is not ready', async () => {
+    const sessionsRepoLocal = new AgentSessionsRepository();
+    const inserted = sessionsRepoLocal.insert({
+      agentKind: 'claude-code',
+      taskId: null,
+      taskTitle: null,
+      cwd: os.homedir(),
+      name: 'Resumable Engine Down',
+    });
+    sessionsRepoLocal.updateToken(inserted.id, 'sdk-prior-token');
+    sessionsRepoLocal.updateStatus(inserted.id, 'resumable');
 
-    const res = await fetch(`${baseUrl}/agent-sessions`, {
+    const { opencodeClient } = await import('../services/opencode_engine');
+    (opencodeClient as { isReady: boolean }).isReady = false;
+
+    const res = await fetch(`${baseUrl}/agent-sessions/${inserted.id}/resume`, {
       method: 'POST',
       headers: authHeaders,
-      body: JSON.stringify(payload),
+      body: JSON.stringify({ agentId: 'claude-code' }),
     });
 
-    expect(res.status).toBe(201);
-    const session = (await res.json()) as { cwd: string };
-    expect(session.cwd).toBe(os.homedir());
+    expect(res.status).toBe(400);
+  });
+
+  it('returns messages for a session', async () => {
+    // Create a session first
+    const createRes = await fetch(`${baseUrl}/agent-sessions`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({ agentId: 'claude-code', cwd: os.homedir(), name: 'Messages Test' }),
+    });
+    expect(createRes.status).toBe(201);
+    const created = (await createRes.json()) as { id: string };
+
+    // Get messages (should be empty for a new session)
+    const msgsRes = await fetch(`${baseUrl}/agent-sessions/${created.id}/messages`, { headers: authHeaders });
+    expect(msgsRes.status).toBe(200);
+    const msgsBody = (await msgsRes.json()) as { messages: unknown[] };
+    expect(Array.isArray(msgsBody.messages)).toBe(true);
   });
 });

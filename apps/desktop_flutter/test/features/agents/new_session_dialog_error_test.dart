@@ -169,10 +169,8 @@ final _claudeCodeConfig = AgentConfig(
   id: 'claude-code',
   label: 'Claude Code',
   icon: 'assets/icons/claude_code.png',
-  command: 'claude',
   enabled: true,
   isAgent: true,
-  canResume: false,
   sortOrder: 0,
 );
 

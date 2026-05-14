@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../../../app/core/ui/tokens/rhythm_theme.dart';
@@ -906,39 +907,50 @@ class _ReplyArea extends StatelessWidget {
               ),
               const Spacer(),
               Text(
-                'Cmd + Enter to send',
+                'Enter to send \u00b7 Shift + Enter for newline',
                 style: TextStyle(fontSize: 11, color: context.rhythm.textMuted),
               ),
             ],
           ),
           const SizedBox(height: 10),
-          TextField(
-            controller: messageController,
-            style: TextStyle(fontSize: 13, color: context.rhythm.textPrimary),
-            maxLines: 4,
-            minLines: 2,
-            decoration: InputDecoration(
-              hintText: 'Write a message\u2026',
-              hintStyle:
-                  TextStyle(color: context.rhythm.textMuted, fontSize: 13),
-              isDense: true,
-              filled: true,
-              fillColor: context.rhythm.canvas.withValues(alpha: 0.6),
-              contentPadding: const EdgeInsets.symmetric(
-                horizontal: 14,
-                vertical: 12,
-              ),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(RhythmRadius.lg),
-                borderSide: BorderSide(color: context.rhythm.border),
-              ),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(RhythmRadius.lg),
-                borderSide: BorderSide(color: context.rhythm.border),
-              ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(RhythmRadius.lg),
-                borderSide: BorderSide(color: context.rhythm.accent),
+          Focus(
+            onKeyEvent: (node, event) {
+              if (event is KeyDownEvent &&
+                  event.logicalKey == LogicalKeyboardKey.enter &&
+                  !HardwareKeyboard.instance.isShiftPressed) {
+                onSend();
+                return KeyEventResult.handled;
+              }
+              return KeyEventResult.ignored;
+            },
+            child: TextField(
+              controller: messageController,
+              style: TextStyle(fontSize: 13, color: context.rhythm.textPrimary),
+              maxLines: 4,
+              minLines: 2,
+              decoration: InputDecoration(
+                hintText: 'Write a message\u2026',
+                hintStyle:
+                    TextStyle(color: context.rhythm.textMuted, fontSize: 13),
+                isDense: true,
+                filled: true,
+                fillColor: context.rhythm.canvas.withValues(alpha: 0.6),
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 12,
+                ),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(RhythmRadius.lg),
+                  borderSide: BorderSide(color: context.rhythm.border),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(RhythmRadius.lg),
+                  borderSide: BorderSide(color: context.rhythm.border),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(RhythmRadius.lg),
+                  borderSide: BorderSide(color: context.rhythm.accent),
+                ),
               ),
             ),
           ),

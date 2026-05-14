@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../../../app/core/agents/agent_server_controller.dart';
 import '../../../app/core/ui/tokens/rhythm_theme.dart';
+import '../../../features/settings/views/settings_view.dart';
 import '../controllers/agent_configs_controller.dart';
 import '../widgets/agent_card.dart';
 import '../widgets/preset_picker.dart';
@@ -85,14 +86,17 @@ class _ManageAgentsViewState extends State<ManageAgentsView> {
           ? Center(
               child: CircularProgressIndicator(color: context.rhythm.accent),
             )
-          : configs.isEmpty
-              ? const _EmptyState()
-              : ListView.builder(
-                  padding: const EdgeInsets.all(20),
-                  itemCount: configs.length,
-                  itemBuilder: (context, index) {
-                    final config = configs[index];
-                    return Padding(
+          : ListView(
+              padding: const EdgeInsets.all(20),
+              children: [
+                // Connect AI account callout card
+                _ConnectAccountCard(),
+                const SizedBox(height: 16),
+                if (configs.isEmpty)
+                  const _EmptyState()
+                else
+                  for (final config in configs) ...[
+                    Padding(
                       padding: const EdgeInsets.only(bottom: 12),
                       child: AgentCard(
                         config: config,
@@ -100,9 +104,79 @@ class _ManageAgentsViewState extends State<ManageAgentsView> {
                           config.id,
                         ),
                       ),
-                    );
-                  },
+                    ),
+                  ],
+              ],
+            ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Connect account card
+// ---------------------------------------------------------------------------
+
+class _ConnectAccountCard extends StatelessWidget {
+  const _ConnectAccountCard();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: context.rhythm.accentMuted,
+        borderRadius: BorderRadius.circular(RhythmRadius.lg),
+        border: Border.all(
+          color: context.rhythm.accent.withValues(alpha: 0.25),
+        ),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.link, size: 18, color: context.rhythm.accent),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Connect an AI Account',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: context.rhythm.textPrimary,
+                  ),
                 ),
+                const SizedBox(height: 2),
+                Text(
+                  'Authorize Claude, Codex, or a free API key to use agent sessions.',
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: context.rhythm.textSecondary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          TextButton(
+            onPressed: () {
+              Navigator.of(context).push(
+                MaterialPageRoute<void>(
+                  builder: (_) => const SettingsView(),
+                ),
+              );
+            },
+            style: TextButton.styleFrom(
+              foregroundColor: context.rhythm.accent,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              minimumSize: Size.zero,
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+            child: const Text('Set up',
+                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600)),
+          ),
+        ],
+      ),
     );
   }
 }

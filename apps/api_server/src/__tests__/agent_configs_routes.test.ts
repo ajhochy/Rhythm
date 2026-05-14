@@ -125,7 +125,8 @@ describe('POST /agent-configs', () => {
     expect(res.status).toBe(201);
     const config = (await res.json()) as Record<string, unknown>;
     expect(config.label).toBe('My Custom Agent');
-    expect(config.command).toBe('myagent --run');
+    // Legacy `command` field is no longer echoed back (issue #581).
+    expect(config.command).toBeUndefined();
     expect(config.presetId).toBeNull();
     expect(typeof config.id).toBe('string');
   });
@@ -147,8 +148,10 @@ describe('POST /agent-configs', () => {
 
     expect(res.status).toBe(201);
     const config = (await res.json()) as Record<string, unknown>;
-    expect(config.canResume).toBe(true);
-    expect(config.resumeCommand).toBe('myagent --resume {{sessionId}}');
+    // Legacy fields are no longer persisted or echoed back (issue #581).
+    // The route still accepts them on input for back-compat with stale clients.
+    expect(config.canResume).toBeUndefined();
+    expect(config.resumeCommand).toBeUndefined();
   });
 
   it('returns 400 when label is missing', async () => {
@@ -160,73 +163,63 @@ describe('POST /agent-configs', () => {
     expect(res.status).toBe(400);
   });
 
-  it('returns 400 when command is missing', async () => {
+  // After #581 the legacy CLI fields (command, canResume, resumeCommand,
+  // sessionIdPattern, outputMarker) are no longer required or validated.
+  // They are accepted on the wire for back-compat with stale clients but
+  // never propagate to the repository.
+  it('accepts a create without command (legacy field, #581)', async () => {
     const res = await fetch(`${baseUrl}/agent-configs`, {
       method: 'POST',
       headers: authHeaders,
       body: JSON.stringify({ label: 'My Agent' }),
     });
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(201);
   });
 
   it('returns 400 when label is empty string', async () => {
     const res = await fetch(`${baseUrl}/agent-configs`, {
       method: 'POST',
       headers: authHeaders,
-      body: JSON.stringify({ label: '   ', command: 'myagent' }),
+      body: JSON.stringify({ label: '   ' }),
     });
     expect(res.status).toBe(400);
   });
 
-  it('returns 400 when canResume is true but resumeCommand missing', async () => {
+  it('accepts legacy canResume/resumeCommand fields without validating them (#581)', async () => {
     const res = await fetch(`${baseUrl}/agent-configs`, {
       method: 'POST',
       headers: authHeaders,
-      body: JSON.stringify({ label: 'Agent', command: 'myagent', canResume: true }),
+      body: JSON.stringify({ label: 'Agent', canResume: true }),
     });
-    expect(res.status).toBe(400);
+    // Used to be 400; legacy validation removed.
+    expect(res.status).toBe(201);
+    const config = (await res.json()) as Record<string, unknown>;
+    expect(config.canResume).toBeUndefined();
   });
 
-  it('returns 400 when resumeCommand lacks {{sessionId}}', async () => {
-    const res = await fetch(`${baseUrl}/agent-configs`, {
-      method: 'POST',
-      headers: authHeaders,
-      body: JSON.stringify({
-        label: 'Agent',
-        command: 'myagent',
-        canResume: true,
-        resumeCommand: 'myagent --resume',
-      }),
-    });
-    expect(res.status).toBe(400);
-  });
-
-  it('returns 400 when sessionIdPattern is not a valid regex', async () => {
+  it('accepts an invalid legacy sessionIdPattern without validating (#581)', async () => {
     const res = await fetch(`${baseUrl}/agent-configs`, {
       method: 'POST',
       headers: authHeaders,
       body: JSON.stringify({
         label: 'Agent',
-        command: 'myagent',
         sessionIdPattern: '[invalid(',
       }),
     });
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(201);
   });
 
-  it('returns 400 when isAgent is false but canResume is true', async () => {
+  it('accepts isAgent=false even with a legacy canResume flag (#581)', async () => {
     const res = await fetch(`${baseUrl}/agent-configs`, {
       method: 'POST',
       headers: authHeaders,
       body: JSON.stringify({
         label: 'Agent',
-        command: 'myagent',
         isAgent: false,
         canResume: true,
-        resumeCommand: 'myagent --resume {{sessionId}}',
       }),
     });
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(201);
   });
 
   it('forces canResume to false when isAgent is false', async () => {
@@ -242,7 +235,8 @@ describe('POST /agent-configs', () => {
     expect(res.status).toBe(201);
     const config = (await res.json()) as Record<string, unknown>;
     expect(config.isAgent).toBe(false);
-    expect(config.canResume).toBe(false);
+    // Legacy `canResume` field is no longer echoed back (issue #581).
+    expect(config.canResume).toBeUndefined();
   });
 });
 
@@ -297,7 +291,9 @@ describe('PATCH /agent-configs/:id', () => {
     });
     expect(res.status).toBe(200);
     const updated = (await res.json()) as Record<string, unknown>;
-    expect(updated.command).toBe('claude --custom-flag');
+    // Legacy `command` field is silently ignored on write and no longer echoed
+    // back; the patch succeeds but the field is absent on the response (#581).
+    expect(updated.command).toBeUndefined();
   });
 
   it('returns 400 when patching label on a preset row', async () => {
@@ -336,11 +332,11 @@ describe('PATCH /agent-configs/:id', () => {
     expect(res.status).toBe(404);
   });
 
-  it('returns 400 when patch would set canResume true with no resumeCommand', async () => {
+  it('accepts a legacy canResume patch without validating (#581)', async () => {
     const createRes = await fetch(`${baseUrl}/agent-configs`, {
       method: 'POST',
       headers: authHeaders,
-      body: JSON.stringify({ label: 'Orig', command: 'myagent' }),
+      body: JSON.stringify({ label: 'Orig' }),
     });
     const created = (await createRes.json()) as Record<string, unknown>;
 
@@ -349,7 +345,8 @@ describe('PATCH /agent-configs/:id', () => {
       headers: authHeaders,
       body: JSON.stringify({ canResume: true }),
     });
-    expect(res.status).toBe(400);
+    // Used to be 400; legacy fields ignored now.
+    expect(res.status).toBe(200);
   });
 });
 

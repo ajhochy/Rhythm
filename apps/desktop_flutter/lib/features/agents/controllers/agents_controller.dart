@@ -11,6 +11,7 @@ import '../models/agent_session.dart';
 import '../models/agent_session_connectivity.dart';
 import '../models/agent_session_message.dart';
 import '../models/agent_ws_message.dart';
+import '../models/chat_models.dart';
 import '../repositories/agents_repository.dart';
 
 enum AgentsLoadStatus { idle, loading, error }
@@ -59,7 +60,15 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
 
   /// Live PTY output buffer keyed by session id.
   /// Plain string concatenation; capped at ~200 KB to prevent unbounded growth.
+  /// Retained for legacy `_LiveOutputBlock` rendering during the transition.
   final Map<String, String> _liveOutputBuffer = {};
+
+  // -- Parts-based chat store (Opencode Desktop port) ------------------------
+  // Mirrors `sync.data.message[sessionID]` + `sync.data.part[messageID]`.
+  // Streaming deltas append to `ChatPart.text` in place — the UI rebuilds via
+  // notifyListeners() and the same message bubble grows in size.
+  final Map<String, List<ChatMessage>> _chatMessagesBySession = {};
+  final Map<String, List<ChatPart>> _chatPartsByMessage = {};
 
   /// Keyed by session id; true when the agent is actively running a command.
   final Map<String, bool> _working = {};
@@ -102,6 +111,14 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
 
   String liveOutputFor(String sessionId) => _liveOutputBuffer[sessionId] ?? '';
 
+  /// Chat messages for [sessionId] in insertion order.
+  List<ChatMessage> chatMessagesFor(String sessionId) =>
+      List.unmodifiable(_chatMessagesBySession[sessionId] ?? const []);
+
+  /// Parts (text, tool, reasoning, …) for [messageId] in insertion order.
+  List<ChatPart> chatPartsFor(String messageId) =>
+      List.unmodifiable(_chatPartsByMessage[messageId] ?? const []);
+
   bool isWorking(String sessionId) => _working[sessionId] ?? false;
 
   List<PendingTrigger> get pendingTriggers =>
@@ -111,14 +128,37 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   // Lifecycle
   // --------------------------------------------------------------------------
 
+  bool _wsConnected = false;
+  bool _serverListenerAttached = false;
+
   Future<void> initialize() async {
     WidgetsBinding.instance.addObserver(this);
+    // Listen for the agent server to become ready so we can connect WS
+    // once it does. Without this, the controller initializes once at
+    // app launch (before the spawned api_server has booted), sees
+    // `isReady=false`, gates out, and never retries — so the WS chat
+    // pipeline never opens.
+    if (!_serverListenerAttached) {
+      _agentServerController.addListener(_onServerStateChanged);
+      _serverListenerAttached = true;
+    }
+    await _tryConnectWs();
+  }
+
+  void _onServerStateChanged() {
+    // Fired by AgentServerController on every status transition. Drive a
+    // (possibly-deferred) WS connect from here.
+    _tryConnectWs();
+  }
+
+  Future<void> _tryConnectWs() async {
+    if (_wsConnected) return;
     if (!_agentServerController.isReady ||
         !_agentServerController.hasAnyAgent) {
-      // Agent server not ready or no CLI installed → skip WebSocket connect;
-      // UI guard handles display.
+      // Stay deferred; the listener will re-invoke us when the gate opens.
       return;
     }
+    _wsConnected = true;
     await _repository.connect();
     _wsSub = _repository.messages.listen(_onWsMessage);
     _connectivitySub = _repository.connectivityStream.listen((connected) {
@@ -422,6 +462,64 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
       if (session != null && session.status == AgentSessionStatus.starting) {
         sessionFirstSeenAt.remove(msg.id);
       }
+    } else if (msg is MessageUpdatedMessage) {
+      _upsertChatMessage(
+        sessionId: msg.sessionId,
+        messageId: msg.messageId,
+        role: msg.role,
+      );
+    } else if (msg is MessagePartUpdatedMessage) {
+      _upsertChatPart(
+        messageId: msg.messageId,
+        partId: msg.partId,
+        type: msg.partType,
+        text: msg.text,
+      );
+    } else if (msg is MessagePartDeltaMessage) {
+      _appendChatDelta(
+        messageId: msg.messageId,
+        partId: msg.partId,
+        field: msg.field,
+        delta: msg.delta,
+      );
+    } else if (msg is MessageRemovedMessage) {
+      _removeChatMessage(
+        sessionId: msg.sessionId,
+        messageId: msg.messageId,
+      );
+    } else if (msg is TranscriptAppendMessage) {
+      // Finalize the streamed assistant turn into the visible transcript and
+      // drop the live preview buffer for this session. The bridge emits this
+      // on session.idle (and on session.error with partial text).
+      if (msg.id == _selectedSessionId) {
+        _transcript = [
+          ..._transcript,
+          AgentSessionMessage(
+            id: 0,
+            sessionId: msg.id,
+            role: msg.role.isEmpty ? 'output' : msg.role,
+            rawText: msg.text,
+            strippedText: msg.text,
+            createdAt: DateTime.now(),
+          ),
+        ];
+      }
+      _liveOutputBuffer.remove(msg.id);
+    } else if (msg is WsErrorMessage) {
+      if (msg.id == _selectedSessionId) {
+        _transcript = [
+          ..._transcript,
+          AgentSessionMessage(
+            id: 0,
+            sessionId: msg.id,
+            role: 'system',
+            rawText: 'Error: ${msg.message}',
+            strippedText: 'Error: ${msg.message}',
+            createdAt: DateTime.now(),
+          ),
+        ];
+      }
+      _liveOutputBuffer.remove(msg.id);
     } else if (msg is TriggerFiredMessage) {
       _pendingTriggers.add(
         PendingTrigger(
@@ -445,6 +543,83 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
       }
     }
     notifyListeners();
+  }
+
+  // --------------------------------------------------------------------------
+  // Parts-based chat reducer (Opencode Desktop port)
+  // --------------------------------------------------------------------------
+
+  void _upsertChatMessage({
+    required String sessionId,
+    required String messageId,
+    required String role,
+  }) {
+    if (sessionId.isEmpty || messageId.isEmpty) return;
+    final list = _chatMessagesBySession.putIfAbsent(sessionId, () => []);
+    final idx = list.indexWhere((m) => m.id == messageId);
+    if (idx >= 0) {
+      // Existing message — no-op for now (role doesn't change).
+      return;
+    }
+    list.add(ChatMessage(
+      id: messageId,
+      sessionId: sessionId,
+      role: role,
+      createdAt: DateTime.now(),
+    ));
+  }
+
+  void _upsertChatPart({
+    required String messageId,
+    required String partId,
+    required String type,
+    required String text,
+  }) {
+    if (messageId.isEmpty || partId.isEmpty) return;
+    final list = _chatPartsByMessage.putIfAbsent(messageId, () => []);
+    final idx = list.indexWhere((p) => p.id == partId);
+    if (idx >= 0) {
+      // Re-emit replaces text (the SDK sends the canonical part on update).
+      list[idx].text = text;
+    } else {
+      list.add(ChatPart(
+        id: partId,
+        messageId: messageId,
+        type: type,
+        text: text,
+      ));
+    }
+  }
+
+  void _appendChatDelta({
+    required String messageId,
+    required String partId,
+    required String field,
+    required String delta,
+  }) {
+    if (field != 'text') return; // ignore non-text fields for now
+    if (messageId.isEmpty || partId.isEmpty || delta.isEmpty) return;
+    final list = _chatPartsByMessage.putIfAbsent(messageId, () => []);
+    final idx = list.indexWhere((p) => p.id == partId);
+    if (idx >= 0) {
+      list[idx].appendDelta(delta);
+    } else {
+      // Part announcement may arrive after first delta — create on the fly.
+      list.add(ChatPart(
+        id: partId,
+        messageId: messageId,
+        type: 'text',
+        text: delta,
+      ));
+    }
+  }
+
+  void _removeChatMessage({
+    required String sessionId,
+    required String messageId,
+  }) {
+    _chatMessagesBySession[sessionId]?.removeWhere((m) => m.id == messageId);
+    _chatPartsByMessage.remove(messageId);
   }
 
   // --------------------------------------------------------------------------
@@ -494,6 +669,9 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     _stuckCheckTimer?.cancel();
     _wsSub?.cancel();
     _connectivitySub?.cancel();
+    if (_serverListenerAttached) {
+      _agentServerController.removeListener(_onServerStateChanged);
+    }
     _repository.dispose();
     super.dispose();
   }

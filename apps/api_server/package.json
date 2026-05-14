@@ -10,9 +10,13 @@
     "lint": "echo 'TODO: add eslint'",
     "test": "vitest run",
     "migrate:sqlite-to-postgres": "tsx src/database/migrate_sqlite_to_postgres.ts",
-    "postinstall": "node -e \"const{execSync}=require('child_process');['darwin-arm64','darwin-x64'].forEach(p=>{try{execSync('chmod +x node_modules/node-pty/prebuilds/'+p+'/spawn-helper')}catch(_){}});\""
+    "postinstall": "node scripts/postinstall.js"
+  },
+  "engines": {
+    "node": ">=20 <25"
   },
   "dependencies": {
+    "@opencode-ai/sdk": "^1.14.49",
     "@types/pg": "^8.20.0",
     "better-sqlite3": "^12.8.0",
     "cors": "^2.8.5",

@@ -24,6 +24,8 @@ import { agentConfigsRouter } from './routes/agent_configs_routes';
 import { agentSessionsRouter } from './routes/agent_sessions_routes';
 import { agentsCapabilitiesRouter } from './routes/agents_capabilities_routes';
 import { notificationsAgentRouter } from './routes/notifications_agent_routes';
+import { opencodeAuthRouter } from './routes/opencode_auth_routes';
+import { opencodeClient } from './services/opencode_engine';
 
 export function createApp() {
   const app = express();
@@ -69,6 +71,15 @@ export function createApp() {
   app.use('/claude-triggers', claudeTriggersRouter);
   app.use('/agent-configs', agentConfigsRouter);
   app.use('/agent-sessions', agentSessionsRouter);
+
+  // Opencode engine auth & health
+  app.use('/opencode/auth', opencodeAuthRouter);
+  app.get('/opencode/health', (_req, res) => {
+    res.json({
+      status: opencodeClient.isReady ? 'ready' : 'unavailable',
+      message: opencodeClient.statusMessage,
+    });
+  });
 
   app.use(errorHandler);
 

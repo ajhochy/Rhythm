@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 
 import '../../../app/core/agents/agent_server_controller.dart';
@@ -8,12 +9,14 @@ import '../../../app/core/ui/tokens/rhythm_theme.dart';
 import '../../agent_configs/controllers/agent_configs_controller.dart';
 import '../../agent_configs/models/agent_config.dart';
 import '../../agent_configs/views/manage_agents_view.dart';
+import '../../settings/views/settings_view.dart';
 import '../../agent_configs/widgets/agent_icon.dart';
 import '../../tasks/controllers/tasks_controller.dart';
 import '../../tasks/models/task.dart';
 import '../controllers/agents_controller.dart';
 import '../models/agent_session.dart';
 import '../models/agent_session_message.dart';
+import '../models/chat_models.dart';
 
 class AgentsView extends StatefulWidget {
   const AgentsView({super.key});
@@ -36,9 +39,9 @@ class _AgentsViewState extends State<AgentsView> {
       return const AgentServerUnavailable();
     }
 
-    // Capability guard — server ok but no CLI installed.
+    // Capability guard — server ok but no providers connected yet.
     if (agentServerController.isReady && !agentServerController.hasAnyAgent) {
-      return const _NoCLIDetected();
+      return const _NoAgentsAvailable();
     }
 
     // Still starting — show the main view (sessions will be empty).
@@ -173,8 +176,8 @@ class AgentServerUnavailable extends StatelessWidget {
   }
 }
 
-class _NoCLIDetected extends StatelessWidget {
-  const _NoCLIDetected();
+class _NoAgentsAvailable extends StatelessWidget {
+  const _NoAgentsAvailable();
 
   @override
   Widget build(BuildContext context) {
@@ -200,7 +203,7 @@ class _NoCLIDetected extends StatelessWidget {
               ),
               const SizedBox(height: 16),
               Text(
-                'No supported AI CLI detected',
+                'No agents connected',
                 style: TextStyle(
                   fontSize: 17,
                   fontWeight: FontWeight.w700,
@@ -209,13 +212,28 @@ class _NoCLIDetected extends StatelessWidget {
               ),
               const SizedBox(height: 10),
               Text(
-                'Install Claude Code or Codex CLI to use agent sessions.',
+                'Connect a provider in Settings → AI Accounts to enable '
+                'agent sessions. You can sign in with Claude, ChatGPT, '
+                'GitHub Copilot, or paste an API key for Gemini or '
+                'OpenRouter.',
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   fontSize: 13,
                   color: context.rhythm.textSecondary,
                   height: 1.45,
                 ),
+              ),
+              const SizedBox(height: 20),
+              FilledButton.icon(
+                onPressed: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => const SettingsView(),
+                    ),
+                  );
+                },
+                icon: const Icon(Icons.settings_outlined, size: 16),
+                label: const Text('Open Settings → AI Accounts'),
               ),
             ],
           ),
@@ -851,11 +869,16 @@ class _TranscriptPanelState extends State<_TranscriptPanel> {
     AgentsController controller,
     AgentSession session,
   ) {
-    final messages = controller.transcript;
+    // Parts-based chat (Opencode Desktop port). Each ChatMessage holds an
+    // ordered list of ChatParts; streaming deltas append to part.text in
+    // place so the same bubble grows.
+    final chatMessages = controller.chatMessagesFor(session.id);
+    final legacyTranscript = controller.transcript;
     final liveOutput = controller.liveOutputFor(session.id);
-    final hasContent = messages.isNotEmpty || liveOutput.isNotEmpty;
+    final hasChat = chatMessages.isNotEmpty;
+    final hasLegacy = legacyTranscript.isNotEmpty || liveOutput.isNotEmpty;
 
-    if (!hasContent) {
+    if (!hasChat && !hasLegacy) {
       return Center(
         child: Text(
           'Session started. Waiting for output…',
@@ -864,18 +887,35 @@ class _TranscriptPanelState extends State<_TranscriptPanel> {
       );
     }
 
+    // Prefer the parts-based chat when the server emits the new events.
+    if (hasChat) {
+      return ListView.builder(
+        controller: _scrollController,
+        padding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
+        itemCount: chatMessages.length,
+        itemBuilder: (context, index) {
+          final m = chatMessages[index];
+          final parts = controller.chatPartsFor(m.id);
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: _ChatBubble(message: m, parts: parts),
+          );
+        },
+      );
+    }
+
+    // Legacy fallback (older servers / replay path).
     return ListView.builder(
       controller: _scrollController,
       padding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
-      itemCount: messages.length + (liveOutput.isNotEmpty ? 1 : 0),
+      itemCount: legacyTranscript.length + (liveOutput.isNotEmpty ? 1 : 0),
       itemBuilder: (context, index) {
-        if (index < messages.length) {
+        if (index < legacyTranscript.length) {
           return Padding(
             padding: const EdgeInsets.only(bottom: 8),
-            child: _MessageBlock(message: messages[index]),
+            child: _MessageBlock(message: legacyTranscript[index]),
           );
         }
-        // Live output block
         return Padding(
           padding: const EdgeInsets.only(bottom: 8),
           child: _LiveOutputBlock(text: liveOutput),
@@ -1168,6 +1208,88 @@ class _MessageBlock extends StatelessWidget {
   }
 }
 
+/// Renders one ChatMessage and its ordered Parts.
+/// User parts are right-aligned with an accent bubble; assistant parts are
+/// left-aligned in a muted surface. Streaming deltas mutate part.text in
+/// place — the same bubble re-renders larger on each notifyListeners().
+class _ChatBubble extends StatelessWidget {
+  const _ChatBubble({required this.message, required this.parts});
+
+  final ChatMessage message;
+  final List<ChatPart> parts;
+
+  @override
+  Widget build(BuildContext context) {
+    final isUser = message.role == 'user';
+    final text = parts.map((p) => p.text).join('').trim();
+    if (text.isEmpty) {
+      // Empty assistant bubble while waiting for first delta — render a
+      // subtle "thinking" pip so the user knows the turn was accepted.
+      if (!isUser) {
+        return Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: context.rhythm.surfaceMuted,
+            borderRadius: BorderRadius.circular(RhythmRadius.md),
+            border: Border.all(color: context.rhythm.borderSubtle),
+          ),
+          child: Text(
+            '…',
+            style: TextStyle(color: context.rhythm.textMuted, fontSize: 12),
+          ),
+        );
+      }
+      return const SizedBox.shrink();
+    }
+
+    if (isUser) {
+      return Align(
+        alignment: Alignment.centerRight,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 560),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: context.rhythm.accentMuted,
+              borderRadius: BorderRadius.circular(RhythmRadius.md),
+              border: Border.all(
+                color: context.rhythm.accent.withValues(alpha: 0.2),
+              ),
+            ),
+            child: SelectableText(
+              text,
+              style: TextStyle(
+                fontSize: 13,
+                color: context.rhythm.accent,
+                height: 1.4,
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: context.rhythm.surfaceMuted,
+        borderRadius: BorderRadius.circular(RhythmRadius.md),
+        border: Border.all(color: context.rhythm.borderSubtle),
+      ),
+      child: SelectableText(
+        text,
+        style: TextStyle(
+          fontSize: 13,
+          color: context.rhythm.textPrimary,
+          height: 1.5,
+        ),
+      ),
+    );
+  }
+}
+
 class _LiveOutputBlock extends StatelessWidget {
   const _LiveOutputBlock({required this.text});
 
@@ -1231,41 +1353,53 @@ class _InputArea extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 10),
-          TextField(
-            controller: inputController,
-            style: TextStyle(
-              fontSize: 13,
-              fontFamily: 'Menlo',
-              color: context.rhythm.textPrimary,
-            ),
-            maxLines: 3,
-            minLines: 1,
-            onSubmitted: (_) => onSend(),
-            decoration: InputDecoration(
-              hintText: 'Type a command or reply…',
-              hintStyle: TextStyle(
-                color: context.rhythm.textMuted,
+          Focus(
+            onKeyEvent: (node, event) {
+              // Enter sends; Shift+Enter inserts a newline.
+              if (event is KeyDownEvent &&
+                  event.logicalKey == LogicalKeyboardKey.enter &&
+                  !HardwareKeyboard.instance.isShiftPressed) {
+                onSend();
+                return KeyEventResult.handled;
+              }
+              return KeyEventResult.ignored;
+            },
+            child: TextField(
+              controller: inputController,
+              style: TextStyle(
                 fontSize: 13,
                 fontFamily: 'Menlo',
+                color: context.rhythm.textPrimary,
               ),
-              isDense: true,
-              filled: true,
-              fillColor: context.rhythm.canvas.withValues(alpha: 0.6),
-              contentPadding: const EdgeInsets.symmetric(
-                horizontal: 14,
-                vertical: 12,
-              ),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(RhythmRadius.lg),
-                borderSide: BorderSide(color: context.rhythm.border),
-              ),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(RhythmRadius.lg),
-                borderSide: BorderSide(color: context.rhythm.border),
-              ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(RhythmRadius.lg),
-                borderSide: BorderSide(color: context.rhythm.accent),
+              maxLines: 3,
+              minLines: 1,
+              onSubmitted: (_) => onSend(),
+              decoration: InputDecoration(
+                hintText: 'Type a command or reply… (Shift+Enter for newline)',
+                hintStyle: TextStyle(
+                  color: context.rhythm.textMuted,
+                  fontSize: 13,
+                  fontFamily: 'Menlo',
+                ),
+                isDense: true,
+                filled: true,
+                fillColor: context.rhythm.canvas.withValues(alpha: 0.6),
+                contentPadding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 12,
+                ),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(RhythmRadius.lg),
+                  borderSide: BorderSide(color: context.rhythm.border),
+                ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(RhythmRadius.lg),
+                  borderSide: BorderSide(color: context.rhythm.border),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(RhythmRadius.lg),
+                  borderSide: BorderSide(color: context.rhythm.accent),
+                ),
               ),
             ),
           ),

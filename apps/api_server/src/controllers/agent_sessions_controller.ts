@@ -5,7 +5,8 @@ import { AgentSessionsRepository } from '../repositories/agent_sessions_reposito
 import { AgentSessionMessagesRepository } from '../repositories/agent_session_messages_repository';
 import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
 import type { AgentKind, CreateAgentSessionDto } from '../models/agent_session';
-import * as ptyRunner from '../services/pty_runner';
+import { opencodeClient, opencodeSessionMap } from '../services/opencode_engine';
+import { streamBridge } from '../services/opencode_stream_bridge';
 
 // Legacy agentId aliases. Older Rhythm clients (and a handful of historical
 // scripts) used short names. /agents/capabilities and the seed both use
@@ -23,6 +24,8 @@ function normalizeAgentId(id: string): string {
 
 const repo = new AgentSessionsRepository();
 const messagesRepo = new AgentSessionMessagesRepository();
+
+import { resolveModelForAgent as resolveModel } from '../services/agent_model_resolver';
 
 /**
  * Expands '~' at the start of a path string to the current user's home directory.
@@ -56,7 +59,7 @@ export class AgentSessionsController {
     }
   }
 
-  create(req: Request, res: Response, next: NextFunction): void {
+  async create(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const body = req.body as Record<string, unknown>;
       const { taskId, taskTitle, cwd, name } = body;
@@ -107,18 +110,56 @@ export class AgentSessionsController {
 
       const session = repo.insert(dto);
 
-      // Spawn the PTY — if the binary is missing or node-pty fails, roll back
-      // the row and return 400 so the client gets a clear error.
-      const cols = typeof req.body.cols === 'number' ? (req.body.cols as number) : undefined;
-      const rows = typeof req.body.rows === 'number' ? (req.body.rows as number) : undefined;
-      try {
-        ptyRunner.spawn({ session, cols, rows });
-      } catch (spawnErr) {
+      // Create an Opencode SDK session instead of spawning a PTY subprocess
+      if (!opencodeClient.isReady) {
         repo.markClosed(session.id);
-        const message =
-          spawnErr instanceof Error ? spawnErr.message : 'Failed to spawn agent binary';
-        throw AppError.badRequest(message);
+        throw AppError.badRequest('Opencode engine is not ready — check Settings to connect an AI account');
       }
+
+      const opencodeSession = await opencodeClient.createSession(name.trim(), dto.cwd);
+      if (!opencodeSession) {
+        repo.markClosed(session.id);
+        throw AppError.badRequest('Failed to create Opencode session — check your AI account is authorized');
+      }
+
+      // Store the SDK session ID mapping so the WS gateway can route user input
+      opencodeSessionMap.set(session.id, opencodeSession.id);
+
+      // Start streaming Opencode events through the WebSocket gateway.
+      // Pass the cwd so the bridge can subscribe to /event with the right
+      // directory filter (opencode only delivers session/message events
+      // for sessions whose cwd matches the subscription's directory).
+      streamBridge
+        .streamSession(session.id, opencodeSession.id, dto.cwd)
+        .catch((err) => {
+          console.error(
+            `[AgentSessionsController] Stream bridge error for session ${session.id}:`,
+            err,
+          );
+        });
+
+      // Send the initial prompt with task context so the AI starts working immediately.
+      // This uses promptAsync (fire-and-forget) so we return HTTP 201 quickly.
+      // Results stream back via the event bridge → WebSocket.
+      const initialPrompt = taskTitle
+        ? `I need help with: ${taskTitle}\n\nSession name: ${name}`
+        : `Starting session: ${name}`;
+
+      const model = await resolveModel(agentId);
+      console.log(
+        `[AgentSessionsController] Routing ${agentId} session ${session.id} via ` +
+          (model ? `${model.providerID}/${model.modelID}` : '<unmapped>'),
+      );
+      opencodeClient.promptAsync(
+        opencodeSession.id,
+        initialPrompt,
+        model,
+        dto.cwd,
+      ).then((ok) => {
+        if (!ok) {
+          console.warn(`[AgentSessionsController] Initial prompt failed for session ${session.id}`);
+        }
+      });
 
       res.status(201).json(session);
     } catch (err) {
@@ -131,14 +172,10 @@ export class AgentSessionsController {
       const session = repo.findById(req.params.id);
       if (!session) throw AppError.notFound('AgentSession');
 
-      // Kill the live PTY if running; the onExit handler will update the DB row
-      // and broadcast session.closed asynchronously.
-      ptyRunner.kill(session.id);
-
-      // If the PTY was not alive (already exited), ensure the row is marked closed.
-      if (!ptyRunner.isAlive(session.id)) {
-        repo.markClosed(session.id);
-      }
+      // Stop any streaming for this session, clean up the SDK mapping, and mark it closed
+      streamBridge.stopStream(session.id);
+      opencodeSessionMap.delete(session.id);
+      repo.markClosed(session.id);
 
       res.status(204).end();
     } catch (err) {
@@ -146,7 +183,7 @@ export class AgentSessionsController {
     }
   }
 
-  resume(req: Request, res: Response, next: NextFunction): void {
+  async resume(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const session = repo.findById(req.params.id);
       if (!session) throw AppError.notFound('AgentSession');
@@ -173,17 +210,29 @@ export class AgentSessionsController {
         );
       }
 
-      if (ptyRunner.isAlive(session.id)) {
-        throw AppError.badRequest('Session is already running');
+      // Resume via Opencode SDK — create a fresh session with context
+      if (!opencodeClient.isReady) {
+        throw AppError.badRequest('Opencode engine is not ready');
       }
 
-      try {
-        ptyRunner.resume(session.id, session);
-      } catch (resumeErr) {
-        const message =
-          resumeErr instanceof Error ? resumeErr.message : 'Failed to resume agent session';
-        throw AppError.badRequest(message);
+      // "Resume" means continue the local row with a *fresh* SDK session.
+      // The Opencode SDK does not restore prior conversation history; the local
+      // row keeps the same id, name, and message history for the user, but the
+      // backing SDK session is new. Mirror the create() flow below.
+      const opencodeSession = await opencodeClient.createSession(session.name, session.cwd);
+      if (!opencodeSession) {
+        throw AppError.badRequest('Failed to create Opencode session — check your AI account is authorized');
       }
+
+      // Store the SDK session ID mapping so the WS gateway can route user input
+      opencodeSessionMap.set(session.id, opencodeSession.id);
+
+      // Start streaming Opencode events through the WebSocket gateway
+      streamBridge
+        .streamSession(session.id, opencodeSession.id, session.cwd)
+        .catch((err) => {
+        console.error(`[AgentSessionsController] Stream bridge error for session ${session.id}:`, err);
+      });
 
       repo.updateStatus(session.id, 'starting');
       const updated = repo.findById(session.id)!;
