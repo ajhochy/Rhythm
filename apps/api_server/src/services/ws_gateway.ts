@@ -85,18 +85,27 @@ function handleClientMessage(ws: WebSocket, raw: import('ws').RawData): void {
     case 'session.input': {
       const id = msg.id as string | undefined;
       const data = msg.data as string | undefined;
+      // M2-2: per-turn override on the WS frame, never persisted.
+      const perTurnOverride = (msg.modelOverride ?? null) as {
+        providerId?: string;
+        modelId?: string;
+      } | null;
       if (id && typeof data === 'string') {
         (async () => {
           let opencodeId = opencodeSessionMap.get(id);
           let cwd: string | undefined;
           let agentKind: string | undefined;
           let sessionName: string | undefined;
+          let sessionProviderId: string | null = null;
+          let sessionModelId: string | null = null;
           try {
             const session = new AgentSessionsRepository().findById(id);
             if (session) {
               cwd = session.cwd;
               agentKind = session.agentKind;
               sessionName = session.name;
+              sessionProviderId = session.providerId;
+              sessionModelId = session.modelId;
             }
           } catch {
             /* DB unavailable — proceed without context */
@@ -166,11 +175,16 @@ function handleClientMessage(ws: WebSocket, raw: import('ws').RawData): void {
           }
 
           try {
-            const { resolveModelForAgent } = await import(
+            const { resolveModelForSessionTurn } = await import(
               './agent_model_resolver'
             );
             const model = agentKind
-              ? await resolveModelForAgent(agentKind)
+              ? await resolveModelForSessionTurn({
+                  agentId: agentKind,
+                  sessionProviderId,
+                  sessionModelId,
+                  perTurnOverride,
+                })
               : undefined;
             await opencodeClient.promptAsync(opencodeId, data, model, cwd);
           } catch (err) {

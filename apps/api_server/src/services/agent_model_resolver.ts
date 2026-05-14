@@ -56,3 +56,28 @@ export async function resolveModelForAgent(
   }
   return routes[0];
 }
+
+/**
+ * M2-2 precedence helper. Resolve the model for one turn of a session.
+ *
+ * Order:
+ *   1. Per-turn `modelOverride` field on the WS `session.input` payload (not
+ *      persisted; applies to this prompt only).
+ *   2. Session row's persisted `providerId` + `modelId` from M2-1.
+ *   3. `resolveModelForAgent(agentId)` fallback list.
+ */
+export async function resolveModelForSessionTurn(opts: {
+  agentId: string;
+  sessionProviderId: string | null;
+  sessionModelId: string | null;
+  perTurnOverride?: { providerId?: string; modelId?: string } | null;
+}): Promise<{ providerID: string; modelID: string } | undefined> {
+  const override = opts.perTurnOverride;
+  if (override?.providerId && override.modelId) {
+    return { providerID: override.providerId, modelID: override.modelId };
+  }
+  if (opts.sessionProviderId && opts.sessionModelId) {
+    return { providerID: opts.sessionProviderId, modelID: opts.sessionModelId };
+  }
+  return resolveModelForAgent(opts.agentId);
+}

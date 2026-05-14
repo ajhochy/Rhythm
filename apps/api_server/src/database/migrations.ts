@@ -1069,6 +1069,18 @@ export function runMigrations(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_projects_archived ON projects(archived_at);
   `);
 
+  // M2-1 (issue #593) — session-level provider/model/agentMode overrides.
+  const m2Cols = (db.pragma('table_info(agent_sessions)') as { name: string }[]).map((c) => c.name);
+  if (!m2Cols.includes('provider_id')) {
+    db.exec(`ALTER TABLE agent_sessions ADD COLUMN provider_id TEXT`);
+  }
+  if (!m2Cols.includes('model_id')) {
+    db.exec(`ALTER TABLE agent_sessions ADD COLUMN model_id TEXT`);
+  }
+  if (!m2Cols.includes('agent_mode')) {
+    db.exec(`ALTER TABLE agent_sessions ADD COLUMN agent_mode TEXT`);
+  }
+
   // M1-2 (issue #587) — agent_sessions.project_id (nullable, logical FK to projects.id).
   // PRAGMA foreign_keys is not enabled globally in this repo, so REFERENCES is informational.
   const agentSessionColsM1 = (db.pragma('table_info(agent_sessions)') as { name: string }[]).map((c) => c.name);

@@ -556,4 +556,154 @@ describe('Agent Sessions API', () => {
     const session = (await res.json()) as { projectId: string | null };
     expect(session.projectId).toBeNull();
   });
+
+  // ── M2-1 #593: PATCH /agent-sessions/:id ──────────────────────────────────
+
+  async function createSession(): Promise<string> {
+    const res = await fetch(`${baseUrl}/agent-sessions`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({
+        agentId: 'claude-code',
+        cwd: os.homedir(),
+        name: 'For PATCH',
+        projectId: null,
+      }),
+    });
+    const s = (await res.json()) as { id: string };
+    return s.id;
+  }
+
+  it('PATCH /agent-sessions/:id updates name', async () => {
+    const id = await createSession();
+    const res = await fetch(`${baseUrl}/agent-sessions/${id}`, {
+      method: 'PATCH',
+      headers: authHeaders,
+      body: JSON.stringify({ name: 'Renamed' }),
+    });
+    expect(res.status).toBe(200);
+    const updated = (await res.json()) as { name: string };
+    expect(updated.name).toBe('Renamed');
+  });
+
+  it('PATCH /agent-sessions/:id sets providerId+modelId when provider is authed', async () => {
+    const id = await createSession();
+    const res = await fetch(`${baseUrl}/agent-sessions/${id}`, {
+      method: 'PATCH',
+      headers: authHeaders,
+      body: JSON.stringify({ providerId: 'anthropic', modelId: 'claude-sonnet-4-6' }),
+    });
+    expect(res.status).toBe(200);
+    const updated = (await res.json()) as { providerId: string | null; modelId: string | null };
+    expect(updated.providerId).toBe('anthropic');
+    expect(updated.modelId).toBe('claude-sonnet-4-6');
+  });
+
+  it('PATCH /agent-sessions/:id rejects an unknown provider', async () => {
+    const id = await createSession();
+    const res = await fetch(`${baseUrl}/agent-sessions/${id}`, {
+      method: 'PATCH',
+      headers: authHeaders,
+      body: JSON.stringify({ providerId: 'not-real-provider', modelId: 'foo' }),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it('PATCH /agent-sessions/:id with providerId=null clears the override', async () => {
+    const id = await createSession();
+    await fetch(`${baseUrl}/agent-sessions/${id}`, {
+      method: 'PATCH',
+      headers: authHeaders,
+      body: JSON.stringify({ providerId: 'anthropic', modelId: 'claude-sonnet-4-6' }),
+    });
+    const res = await fetch(`${baseUrl}/agent-sessions/${id}`, {
+      method: 'PATCH',
+      headers: authHeaders,
+      body: JSON.stringify({ providerId: null, modelId: null }),
+    });
+    const cleared = (await res.json()) as { providerId: string | null };
+    expect(cleared.providerId).toBeNull();
+  });
+
+  // ── M2-2 #594: resolveModelForSessionTurn precedence ─────────────────────
+
+  it('resolveModelForSessionTurn: per-turn override beats session default', async () => {
+    const { resolveModelForSessionTurn } = await import('../services/agent_model_resolver');
+    const r = await resolveModelForSessionTurn({
+      agentId: 'claude-code',
+      sessionProviderId: 'anthropic',
+      sessionModelId: 'claude-sonnet-4-6',
+      perTurnOverride: { providerId: 'openrouter', modelId: 'meta/llama' },
+    });
+    expect(r).toEqual({ providerID: 'openrouter', modelID: 'meta/llama' });
+  });
+
+  it('resolveModelForSessionTurn: session default beats agent fallback', async () => {
+    const { resolveModelForSessionTurn } = await import('../services/agent_model_resolver');
+    const r = await resolveModelForSessionTurn({
+      agentId: 'claude-code',
+      sessionProviderId: 'openrouter',
+      sessionModelId: 'anthropic/claude-sonnet-4.6',
+      perTurnOverride: null,
+    });
+    expect(r).toEqual({ providerID: 'openrouter', modelID: 'anthropic/claude-sonnet-4.6' });
+  });
+
+  it('resolveModelForSessionTurn: falls back to agent fallback when nothing set', async () => {
+    const { resolveModelForSessionTurn } = await import('../services/agent_model_resolver');
+    const r = await resolveModelForSessionTurn({
+      agentId: 'claude-code',
+      sessionProviderId: null,
+      sessionModelId: null,
+      perTurnOverride: null,
+    });
+    expect(r).toBeDefined();
+    // The fallback list's first authed entry; in tests listAuthedProviders
+    // returns anthropic/openai (from the mock).
+    expect(r?.providerID).toBe('anthropic');
+  });
+
+  // ── M2-4 #596: POST /agent-sessions/:id/cancel ───────────────────────────
+
+  it('POST /agent-sessions/:id/cancel aborts via the SDK', async () => {
+    // create() registers an SDK mapping via the mocked opencodeClient.createSession
+    // so the cancel endpoint can find it.
+    const createRes = await fetch(`${baseUrl}/agent-sessions`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({
+        agentId: 'claude-code',
+        cwd: os.homedir(),
+        name: 'For Cancel',
+      }),
+    });
+    const session = (await createRes.json()) as { id: string };
+
+    // Add an abortSession mock to the engine.
+    const { opencodeClient } = await import('../services/opencode_engine');
+    (opencodeClient as unknown as { abortSession: (s: string) => Promise<boolean> })
+      .abortSession = vi.fn().mockResolvedValue(true);
+
+    const res = await fetch(`${baseUrl}/agent-sessions/${session.id}/cancel`, {
+      method: 'POST',
+      headers: authHeaders,
+    });
+    expect(res.status).toBe(204);
+  });
+
+  it('POST /agent-sessions/:id/cancel returns 400 when no SDK mapping exists', async () => {
+    const sessionsRepoLocal = new AgentSessionsRepository();
+    const inserted = sessionsRepoLocal.insert({
+      agentKind: 'claude-code',
+      taskId: null,
+      taskTitle: null,
+      cwd: os.homedir(),
+      name: 'Stale',
+    });
+    const res = await fetch(`${baseUrl}/agent-sessions/${inserted.id}/cancel`, {
+      method: 'POST',
+      headers: authHeaders,
+    });
+    expect(res.status).toBe(400);
+  });
 });

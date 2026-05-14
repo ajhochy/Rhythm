@@ -195,6 +195,77 @@ export class AgentSessionsController {
     }
   }
 
+  async update(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const session = repo.findById(req.params.id);
+      if (!session) throw AppError.notFound('AgentSession');
+      const body = (req.body ?? {}) as Record<string, unknown>;
+
+      const fields: {
+        name?: string;
+        providerId?: string | null;
+        modelId?: string | null;
+        agentMode?: string | null;
+      } = {};
+
+      if (body.name !== undefined) {
+        if (typeof body.name !== 'string' || body.name.trim() === '') {
+          throw AppError.badRequest('name must be a non-empty string');
+        }
+        fields.name = body.name.trim();
+      }
+      if (body.providerId !== undefined) {
+        if (body.providerId !== null && typeof body.providerId !== 'string') {
+          throw AppError.badRequest('providerId must be a string or null');
+        }
+        // Validate against the authed providers list. Null clears the override.
+        if (typeof body.providerId === 'string') {
+          const authed = await opencodeClient.listAuthedProviders();
+          if (!authed.includes(body.providerId)) {
+            throw AppError.badRequest(`provider not authenticated: '${body.providerId}'`);
+          }
+        }
+        fields.providerId = body.providerId as string | null;
+      }
+      if (body.modelId !== undefined) {
+        if (body.modelId !== null && typeof body.modelId !== 'string') {
+          throw AppError.badRequest('modelId must be a string or null');
+        }
+        fields.modelId = body.modelId as string | null;
+      }
+      if (body.agentMode !== undefined) {
+        if (body.agentMode !== null && typeof body.agentMode !== 'string') {
+          throw AppError.badRequest('agentMode must be a string or null');
+        }
+        fields.agentMode = body.agentMode as string | null;
+      }
+
+      repo.updateFields(session.id, fields);
+      res.json(repo.findById(session.id)!);
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  // M2-4: cancel an in-flight turn for a session.
+  async cancel(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const session = repo.findById(req.params.id);
+      if (!session) throw AppError.notFound('AgentSession');
+      const opencodeId = opencodeSessionMap.get(session.id);
+      if (!opencodeId) {
+        throw AppError.badRequest('Session has no active SDK mapping; cannot cancel.');
+      }
+      const ok = await opencodeClient.abortSession(opencodeId);
+      if (!ok) {
+        throw AppError.badRequest('Cancel failed at the SDK level.');
+      }
+      res.status(204).end();
+    } catch (err) {
+      next(err);
+    }
+  }
+
   remove(req: Request, res: Response, next: NextFunction): void {
     try {
       const session = repo.findById(req.params.id);
