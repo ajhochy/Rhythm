@@ -8,28 +8,15 @@ import { SessionsRepository } from '../repositories/sessions_repository';
 import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
 import type { AddressInfo } from 'node:net';
 
-// Mock child_process.exec so we can control `which` output in tests without
-// hitting the real filesystem PATH.
-vi.mock('child_process', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('child_process')>();
-  return {
-    ...actual,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    exec: vi.fn() as any,
+// Mock the Opencode engine so we can control provider availability in tests
+vi.mock('../services/opencode_engine', () => {
+  const mockClient = {
+    isReady: true,
+    listProviders: vi.fn().mockResolvedValue(['anthropic', 'openai', 'google']),
+    statusMessage: 'Opencode SDK ready',
   };
+  return { opencodeClient: mockClient };
 });
-
-import { exec } from 'child_process';
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const mockExec = exec as unknown as ReturnType<typeof vi.fn>;
-
-type ExecCallback = (err: Error | null, stdout: string, stderr: string) => void;
-
-function makeExecImpl(stdout: string, err?: Error) {
-  return (_cmd: string, callback: ExecCallback) => {
-    callback(err ?? null, stdout, '');
-  };
-}
 
 function makeDb() {
   const db = new Database(':memory:');
@@ -71,8 +58,6 @@ describe('GET /agents/capabilities', () => {
 
   beforeEach(async () => {
     ({ baseUrl, closeServer, authHeaders } = await setup());
-    // Default: all binaries found
-    mockExec.mockImplementation(makeExecImpl('/usr/local/bin/fake\n'));
   });
 
   afterEach(async () => {
@@ -85,28 +70,51 @@ describe('GET /agents/capabilities', () => {
     expect(res.status).toBe(200);
     const caps = (await res.json()) as Record<string, boolean>;
 
-    // After migrations the seeded presets (claude-code, codex, gemini-cli, opencode) are all enabled
+    // After migrations the seeded presets are all enabled
     expect(typeof caps['claude-code']).toBe('boolean');
     expect(typeof caps['codex']).toBe('boolean');
     expect(typeof caps['gemini-cli']).toBe('boolean');
     expect(typeof caps['opencode']).toBe('boolean');
   });
 
-  it('returns true when which succeeds', async () => {
-    mockExec.mockImplementation(makeExecImpl('/usr/local/bin/claude\n'));
-
+  it('returns true for claude-code when anthropic provider is connected', async () => {
     const res = await fetch(`${baseUrl}/agents/capabilities`, { headers: authHeaders });
     const caps = (await res.json()) as Record<string, boolean>;
+    // anthropic is in the default mock provider list
     expect(caps['claude-code']).toBe(true);
   });
 
-  it('returns false when which fails (exit non-zero)', async () => {
-    mockExec.mockImplementation(makeExecImpl('', new Error('not found')));
+  it('returns false for claude-code when anthropic provider is not connected', async () => {
+    // Re-mock listProviders to exclude anthropic
+    const { opencodeClient } = await import('../services/opencode_engine');
+    vi.mocked(opencodeClient.listProviders).mockResolvedValueOnce(['openai', 'google']);
+
+    const res = await fetch(`${baseUrl}/agents/capabilities`, { headers: authHeaders });
+    const caps = (await res.json()) as Record<string, boolean>;
+    expect(caps['claude-code']).toBe(false);
+    expect(caps['codex']).toBe(true); // openai is still connected
+  });
+
+  it('returns false for all when no providers are connected but engine is ready', async () => {
+    const { opencodeClient } = await import('../services/opencode_engine');
+    vi.mocked(opencodeClient.listProviders).mockResolvedValueOnce([]);
 
     const res = await fetch(`${baseUrl}/agents/capabilities`, { headers: authHeaders });
     const caps = (await res.json()) as Record<string, boolean>;
     expect(caps['claude-code']).toBe(false);
     expect(caps['codex']).toBe(false);
+    expect(caps['gemini-cli']).toBe(false);
+    // opencode is always available when engine is ready
+    expect(caps['opencode']).toBe(true);
+  });
+
+  it('returns false for opencode when engine is not ready', async () => {
+    const { opencodeClient } = await import('../services/opencode_engine');
+    Object.defineProperty(opencodeClient, 'isReady', { get: () => false });
+
+    const res = await fetch(`${baseUrl}/agents/capabilities`, { headers: authHeaders });
+    const caps = (await res.json()) as Record<string, boolean>;
+    expect(caps['opencode']).toBe(false);
   });
 
   it('omits a config that is disabled', async () => {
@@ -128,9 +136,8 @@ describe('GET /agents/capabilities', () => {
     const res = await fetch(`${baseUrl}/agents/capabilities`, { headers: authHeaders });
     const caps = (await res.json()) as Record<string, boolean>;
 
-    // The custom agent id is auto-generated UUID; find it by scanning keys
-    const ids = Object.keys(caps);
     // Should have 5 keys (4 presets + 1 custom)
+    const ids = Object.keys(caps);
     expect(ids.length).toBe(5);
   });
 });
@@ -142,7 +149,6 @@ describe('POST /agents/capabilities/refresh', () => {
 
   beforeEach(async () => {
     ({ baseUrl, closeServer, authHeaders } = await setup());
-    mockExec.mockImplementation(makeExecImpl('/usr/local/bin/fake\n'));
   });
 
   afterEach(async () => {
@@ -162,7 +168,6 @@ describe('POST /agents/capabilities/refresh', () => {
   });
 
   it('reflects fresh state after a config change', async () => {
-    // Disable codex between calls
     const repo = new AgentConfigsRepository();
 
     const getRes = await fetch(`${baseUrl}/agents/capabilities`, { headers: authHeaders });
