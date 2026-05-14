@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../../../app/core/agents/agent_server_controller.dart';
 import '../../../app/core/server/api_server_service.dart';
@@ -917,12 +916,7 @@ class _AgentServerSection extends StatelessWidget {
                 stderrTail: controller.stderrTail,
                 onRetry: controller.retry,
               ),
-            AgentServerStatus.ready => _AgentServerReady(
-                capabilities: controller.capabilities,
-                hasAnyAgent: controller.hasAnyAgent,
-                isAgentAvailable: controller.isAgentAvailable,
-                onRefresh: controller.refreshCapabilities,
-              ),
+            AgentServerStatus.ready => const _AgentServerReady(),
           },
         ),
       ],
@@ -1095,129 +1089,19 @@ class AgentServerFailedState extends State<AgentServerFailed> {
 }
 
 class _AgentServerReady extends StatelessWidget {
-  const _AgentServerReady({
-    required this.capabilities,
-    required this.hasAnyAgent,
-    required this.isAgentAvailable,
-    required this.onRefresh,
-  });
-
-  final Map<String, bool> capabilities;
-  final bool hasAnyAgent;
-  final bool Function(String) isAgentAvailable;
-  final VoidCallback onRefresh;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            Icon(Icons.circle, size: 10, color: context.rhythm.success),
-            const SizedBox(width: 8),
-            Text(
-              'Running on localhost:4001',
-              style: TextStyle(
-                fontWeight: FontWeight.w600,
-                color: context.rhythm.textPrimary,
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 12),
-        _AgentCliRow(
-          label: 'Claude Code CLI',
-          available: isAgentAvailable('claude'),
-        ),
-        const SizedBox(height: 8),
-        _AgentCliRow(
-          label: 'Codex CLI',
-          available: isAgentAvailable('codex'),
-        ),
-        if (!hasAnyAgent) ...[
-          const SizedBox(height: 12),
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: context.rhythm.warning.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(RhythmRadius.md),
-              border: Border.all(color: context.rhythm.warning),
-            ),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Icon(
-                  Icons.warning_amber_rounded,
-                  size: 16,
-                  color: context.rhythm.warning,
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'No supported AI CLI detected. Install Claude Code or Codex CLI to use agent sessions.',
-                        style: TextStyle(
-                          fontSize: 13,
-                          color: context.rhythm.textPrimary,
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-                      GestureDetector(
-                        onTap: () => launchUrl(
-                          Uri.parse('https://claude.ai/code'),
-                          mode: LaunchMode.externalApplication,
-                        ),
-                        child: Text(
-                          'Install Claude Code',
-                          style: TextStyle(
-                            fontSize: 13,
-                            color: context.rhythm.accent,
-                            decoration: TextDecoration.underline,
-                            decorationColor: context.rhythm.accent,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-        const SizedBox(height: 12),
-        OutlinedButton(
-          onPressed: onRefresh,
-          child: const Text('Refresh'),
-        ),
-      ],
-    );
-  }
-}
-
-class _AgentCliRow extends StatelessWidget {
-  const _AgentCliRow({required this.label, required this.available});
-
-  final String label;
-  final bool available;
+  const _AgentServerReady();
 
   @override
   Widget build(BuildContext context) {
     return Row(
       children: [
-        Icon(
-          available ? Icons.check_circle_outline : Icons.cancel_outlined,
-          size: 16,
-          color: available ? context.rhythm.success : context.rhythm.danger,
-        ),
+        Icon(Icons.circle, size: 10, color: context.rhythm.success),
         const SizedBox(width: 8),
         Text(
-          '$label: ${available ? 'installed' : 'not installed'}',
+          'Running on localhost:4001',
           style: TextStyle(
-            fontSize: 13,
-            color: context.rhythm.textSecondary,
+            fontWeight: FontWeight.w600,
+            color: context.rhythm.textPrimary,
           ),
         ),
       ],
