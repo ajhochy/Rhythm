@@ -3,6 +3,16 @@ import { opencodeClient } from '../services/opencode_engine';
 
 export const opencodeAuthRouter = Router();
 
+// GET / — List connected provider IDs
+opencodeAuthRouter.get('/', async (_req: Request, res: Response) => {
+  if (!opencodeClient.isReady) {
+    res.json({ providers: [], ready: false });
+    return;
+  }
+  const providers = await opencodeClient.listProviders();
+  res.json({ providers, ready: true });
+});
+
 // GET /auth/:provider/authorize — Start OAuth flow (return auth URL)
 opencodeAuthRouter.get('/:provider/authorize', (req: Request, res: Response) => {
   const { provider } = req.params;

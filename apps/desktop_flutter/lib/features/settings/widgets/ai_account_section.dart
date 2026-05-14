@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:http/http.dart' as http;
+import 'package:url_launcher/url_launcher.dart';
 import 'dart:convert';
 
 import '../../../app/core/agents/agent_server_controller.dart';
@@ -25,12 +26,16 @@ class _AiAccountSectionState extends State<AiAccountSection> {
   String? _statusMessage;
   bool _isSaving = false;
 
+  /// State tracking for authorized providers.
+  final Set<String> _authorizedProviders = {};
+
   @override
   void initState() {
     super.initState();
     for (final key in ['google', 'openrouter']) {
       _apiKeyControllers[key] = TextEditingController();
     }
+    _refreshConnectedProviders();
   }
 
   @override
@@ -41,24 +46,55 @@ class _AiAccountSectionState extends State<AiAccountSection> {
     super.dispose();
   }
 
-  Future<void> _authorizeOAuth(String provider) async {
-    // Attempt to open the OAuth URL. In a full implementation this would
-    // open the system browser, the user authorizes, and a callback endpoint
-    // on the Opencode engine receives the token.
-    final url = '${AppConstants.agentLocalBaseUrl}/opencode/auth/$provider/authorize';
+  Future<void> _refreshConnectedProviders() async {
     try {
-      final response = await http.get(Uri.parse(url));
+      final response = await http.get(
+        Uri.parse('${AppConstants.agentLocalBaseUrl}/opencode/health'),
+      );
+      if (!mounted || response.statusCode != 200) return;
+      final data = jsonDecode(response.body) as Map<String, dynamic>;
+      // Health endpoint returns SDK readiness — providers list is separate
+      // For now, check if SDK is ready as indicator
+      if (data['status'] == 'ready') {
+        // Could fetch provider list from capabilities endpoint
+      }
+    } catch (_) {
+      // ignore
+    }
+  }
+
+  Future<void> _authorizeOAuth(String provider) async {
+    // Fetch the auth URL from the Opencode engine then open the system browser
+    try {
+      final response = await http.get(
+        Uri.parse('${AppConstants.agentLocalBaseUrl}/opencode/auth/$provider/authorize'),
+      );
       if (!mounted) return;
-      if (response.statusCode == 200) {
-        final data = jsonDecode(response.body) as Map<String, dynamic>;
-        final authUrl = data['authUrl'] as String?;
+      if (response.statusCode != 200) {
+        setState(() => _statusMessage = 'Failed to get auth URL for $provider');
+        return;
+      }
+      final data = jsonDecode(response.body) as Map<String, dynamic>;
+      final authUrl = data['authUrl'] as String?;
+      if (authUrl == null || authUrl.isEmpty) {
+        setState(() => _statusMessage = 'No auth URL returned for $provider');
+        return;
+      }
+
+      // Open the system browser for OAuth
+      final uri = Uri.parse(authUrl);
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
         setState(() {
-          _statusMessage = 'Open $authUrl in your browser to authorize $provider';
+          _authorizedProviders.add(provider);
+          _statusMessage = '✓ $provider authorized (if you completed sign-in in your browser)';
         });
+      } else {
+        setState(() => _statusMessage = 'Could not open browser. Visit $authUrl manually.');
       }
     } catch (e) {
       if (!mounted) return;
-      setState(() => _statusMessage = 'Failed to start authorization: $e');
+      setState(() => _statusMessage = 'Authorization failed: $e');
     }
   }
 

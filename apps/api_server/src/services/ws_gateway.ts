@@ -2,7 +2,7 @@ import http from 'http';
 import { WebSocketServer, WebSocket } from 'ws';
 import { appEvents } from '../utils/app_events';
 import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
-import * as ptyRunner from './pty_runner';
+import { opencodeClient, opencodeSessionMap } from './opencode_engine';
 
 export interface WsMessage {
   v: 1;
@@ -37,22 +37,7 @@ export function attachWsGateway(server: http.Server): WebSocketServer {
         }),
       );
     } catch {
-      // DB may not be ready yet (e.g. tests) — ignore
-    }
-
-    // Replay ring-buffer output for all currently-live PTY sessions
-    // so a freshly connecting client sees recent terminal output.
-    for (const sessionId of ptyRunner.listAlive()) {
-      const buffered = ptyRunner.getBuffer(sessionId);
-      if (buffered.length > 0) {
-        try {
-          ws.send(
-            JSON.stringify({ v: 1, type: 'output', id: sessionId, data: buffered, replay: true }),
-          );
-        } catch {
-          // ignore
-        }
-      }
+      // DB may not be ready yet — ignore
     }
 
     ws.on('message', (raw) => handleClientMessage(ws, raw));
@@ -101,26 +86,28 @@ function handleClientMessage(ws: WebSocket, raw: import('ws').RawData): void {
       const id = msg.id as string | undefined;
       const data = msg.data as string | undefined;
       if (id && typeof data === 'string') {
-        ptyRunner.sendInput(id, data);
+        // Route user input through the Opencode SDK instead of a PTY subprocess
+        const opencodeId = opencodeSessionMap.get(id);
+        if (opencodeId) {
+          opencodeClient.prompt(opencodeId, data).catch((err) => {
+            console.error(`[ws_gateway] SDK prompt error for session ${id}:`, err);
+            ws.send(JSON.stringify({ v: 1, type: 'error', id, message: String(err) }));
+          });
+        } else {
+          console.warn(`[ws_gateway] No Opencode session mapping for local session ${id}`);
+        }
       }
       return;
     }
     case 'session.resize': {
-      const id = msg.id as string | undefined;
-      const cols = msg.cols as number | undefined;
-      const rows = msg.rows as number | undefined;
-      if (id && typeof cols === 'number' && typeof rows === 'number') {
-        ptyRunner.resize(id, cols, rows);
-      }
+      // PTY resize is irrelevant for SDK-backed sessions — no-op
       return;
     }
     case 'session.subscribe': {
+      // No PTY buffer to replay — send empty output to acknowledge
       const id = msg.id as string | undefined;
       if (id) {
-        const buffered = ptyRunner.getBuffer(id);
-        ws.send(
-          JSON.stringify({ v: 1, type: 'output', id, data: buffered, replay: true }),
-        );
+        ws.send(JSON.stringify({ v: 1, type: 'output', id, data: '', replay: true }));
       }
       return;
     }

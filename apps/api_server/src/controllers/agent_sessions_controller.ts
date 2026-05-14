@@ -5,7 +5,7 @@ import { AgentSessionsRepository } from '../repositories/agent_sessions_reposito
 import { AgentSessionMessagesRepository } from '../repositories/agent_session_messages_repository';
 import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
 import type { AgentKind, CreateAgentSessionDto } from '../models/agent_session';
-import { opencodeClient } from '../services/opencode_engine';
+import { opencodeClient, opencodeSessionMap } from '../services/opencode_engine';
 import { streamBridge } from '../services/opencode_stream_bridge';
 
 const repo = new AgentSessionsRepository();
@@ -104,6 +104,9 @@ export class AgentSessionsController {
         repo.markClosed(session.id);
         throw AppError.badRequest('Failed to create Opencode session — check your AI account is authorized');
       }
+
+      // Store the SDK session ID mapping so the WS gateway can route user input
+      opencodeSessionMap.set(session.id, opencodeSession.id);
 
       // Start streaming Opencode events through the WebSocket gateway
       streamBridge.streamSession(session.id, opencodeSession.id).catch((err) => {
