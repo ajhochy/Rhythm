@@ -1,7 +1,6 @@
 import { spawnSync } from 'child_process';
 import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
 import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
-import { TranscriptService } from './transcript_service';
 import { broadcast } from './ws_gateway';
 import { emitAppEvent } from '../utils/app_events';
 import type { AgentSession } from '../models/agent_session';
@@ -168,7 +167,6 @@ function _attachSession(
   sessions.set(sess.id, sess);
 
   const repo = new AgentSessionsRepository();
-  const transcript = new TranscriptService();
 
   term.onData((data: string) => {
     sess.lastOutAt = Date.now();
@@ -209,7 +207,7 @@ function _attachSession(
     }
 
     // Persist transcript — fire-and-forget so SQLite writes don't backpressure the PTY
-    void transcript.recordOutput(sess.id, data);
+    // transcript recording removed — Opencode SDK handles session history
 
     // Broadcast to all WebSocket clients
     broadcast({ v: 1, type: 'output', id: sess.id, data });
@@ -384,7 +382,7 @@ export function sendInput(id: string, data: string): void {
   if (!sess) return;
   sess.lastInAt = Date.now();
   sess.pty.write(data);
-  void new TranscriptService().recordInput(id, data);
+  // transcript recording removed — Opencode SDK handles session history
 }
 
 /** Resize the PTY terminal window. */
