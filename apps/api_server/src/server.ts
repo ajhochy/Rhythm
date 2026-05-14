@@ -1,6 +1,7 @@
 import http from 'http';
 import path from 'path';
 import { config as loadDotenv } from 'dotenv';
+import { opencodeClient } from './services/opencode_engine';
 
 // Load .env from the api_server root (one level above dist/).
 // CI writes OAuth secrets here before bundling into the .app.
@@ -44,6 +45,11 @@ async function main() {
   attachWsGateway(httpServer);
   startAgentStatusService();
   startAgentSessionReaperJob();
+
+  // Initialize Opencode SDK (non-blocking — logs on failure, never prevents startup)
+  opencodeClient.initialize().catch((err) => {
+    console.warn('[Opencode] SDK init failed (non-fatal):', err);
+  });
 
   httpServer.listen(port, () => {
     logger.info(`Rhythm API listening on port ${port}`);
