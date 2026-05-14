@@ -1,15 +1,19 @@
-import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
-import 'package:url_launcher/url_launcher.dart';
+import 'dart:async';
 import 'dart:convert';
 
-import '../../../app/core/ui/tokens/rhythm_theme.dart';
+import 'package:flutter/material.dart';
+import 'package:http/http.dart' as http;
+import 'package:provider/provider.dart';
+import 'package:url_launcher/url_launcher.dart';
+
+import '../../../app/core/agents/agent_server_controller.dart';
 import '../../../app/core/constants/app_constants.dart';
+import '../../../app/core/ui/tokens/rhythm_theme.dart';
 
 /// Settings section for connecting AI provider accounts.
 ///
 /// Layout:
-///   1. Your subscriptions — Claude OAuth, Codex/ChatGPT OAuth
+///   1. Your subscriptions — Claude subscription bridge or API key, Codex/ChatGPT OAuth
 ///   2. Free API options — Google Gemini (API key), GitHub Copilot (OAuth)
 ///   3. Custom provider — OpenRouter or any API key
 class AiAccountSection extends StatefulWidget {
@@ -27,6 +31,9 @@ class _AiAccountSectionState extends State<AiAccountSection> {
   /// State tracking for authorized providers.
   final Set<String> _authorizedProviders = {};
 
+  bool _hasClaudeCode = false;
+  bool _hasCodex = false;
+
   @override
   void initState() {
     super.initState();
@@ -34,6 +41,7 @@ class _AiAccountSectionState extends State<AiAccountSection> {
       _apiKeyControllers[key] = TextEditingController();
     }
     _refreshConnectedProviders();
+    _refreshSources();
   }
 
   @override
@@ -63,12 +71,29 @@ class _AiAccountSectionState extends State<AiAccountSection> {
     }
   }
 
+  Future<void> _refreshSources() async {
+    try {
+      final res = await http.get(
+        Uri.parse('${AppConstants.agentLocalBaseUrl}/opencode/auth/sources'),
+      );
+      if (!mounted || res.statusCode != 200) return;
+      final body = jsonDecode(res.body) as Map<String, dynamic>;
+      setState(() {
+        _hasClaudeCode = body['claudeCode'] as bool? ?? false;
+        _hasCodex = body['codex'] as bool? ?? false;
+      });
+    } catch (_) {
+      /* ignore */
+    }
+  }
+
+  void _refreshAgentCapabilities() {
+    if (mounted) {
+      context.read<AgentServerController>().refreshCapabilities();
+    }
+  }
+
   Future<void> _authorizeOAuth(String provider) async {
-    // The Opencode SDK uses an out-of-band OAuth flow: it returns a URL that
-    // sends the user to the provider's login, which redirects to
-    // https://opencode.ai/auth/<provider>?code=... where the user can read
-    // the code. The user pastes the code back here and we hand it to
-    // `provider.oauth.callback` via /opencode/auth/<provider>/callback.
     try {
       final response = await http.get(
         Uri.parse(
@@ -81,10 +106,10 @@ class _AiAccountSectionState extends State<AiAccountSection> {
           final errBody = jsonDecode(response.body) as Map<String, dynamic>;
           errorDetail = errBody['error'] as String? ?? errorDetail;
         } catch (_) {
-          /* non-JSON response */
+          /* non-JSON */
         }
         setState(() => _statusMessage =
-            'Failed to get auth URL for $provider: $errorDetail');
+            'Failed to start sign-in for $provider: $errorDetail');
         return;
       }
       final data = jsonDecode(response.body) as Map<String, dynamic>;
@@ -105,40 +130,21 @@ class _AiAccountSectionState extends State<AiAccountSection> {
       }
 
       if (!mounted) return;
-      final code = await _promptForAuthCode(
+      final connected = await _waitForProviderConnected(
         provider: provider,
         instructions: instructions,
-        authUrl: authUrl,
-      );
-      if (code == null || code.isEmpty) {
-        // User cancelled — leave _authorizedProviders unchanged.
-        setState(
-            () => _statusMessage = 'Authorization cancelled for $provider');
-        return;
-      }
-
-      // Hand the code to the Opencode SDK's provider.oauth.callback.
-      final callback = await http.get(
-        Uri.parse('${AppConstants.agentLocalBaseUrl}/opencode/auth/'
-            '$provider/callback?code=${Uri.encodeQueryComponent(code)}'),
       );
       if (!mounted) return;
-      if (callback.statusCode == 200) {
+      if (connected) {
         setState(() {
           _authorizedProviders.add(provider);
           _statusMessage = '✓ $provider connected';
         });
         await _refreshConnectedProviders();
+        _refreshAgentCapabilities();
       } else {
-        String errorDetail = 'HTTP ${callback.statusCode}';
-        try {
-          final errBody = jsonDecode(callback.body) as Map<String, dynamic>;
-          errorDetail = errBody['error'] as String? ?? errorDetail;
-        } catch (_) {
-          /* non-JSON */
-        }
         setState(() => _statusMessage =
-            'Authorization failed for $provider: $errorDetail');
+            'Sign-in for $provider was cancelled or timed out');
       }
     } catch (e) {
       if (!mounted) return;
@@ -146,72 +152,148 @@ class _AiAccountSectionState extends State<AiAccountSection> {
     }
   }
 
-  /// Shows a paste-the-code dialog. Returns the trimmed code or null if the
-  /// user cancelled.
-  Future<String?> _promptForAuthCode({
+  /// Shows a "complete sign-in" dialog and polls GET /opencode/auth/ until
+  /// the provider appears OR the user cancels OR the timeout fires.
+  ///
+  /// For github-copilot the `instructions` string contains the device code
+  /// (e.g. "Enter code: 8518-5780") — render it verbatim so the user can
+  /// copy it. For openai the SDK's PKCE callback on :1455 completes the
+  /// flow automatically; the dialog is informational only.
+  Future<bool> _waitForProviderConnected({
     required String provider,
     required String instructions,
-    required String authUrl,
   }) async {
-    final controller = TextEditingController();
-    try {
-      return await showDialog<String>(
-        context: context,
-        barrierDismissible: false,
-        builder: (ctx) {
-          return AlertDialog(
-            title: Text('Paste authorization code — $provider'),
-            content: SizedBox(
-              width: 420,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  if (instructions.isNotEmpty)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 12),
-                      child: Text(
-                        instructions,
-                        style: const TextStyle(fontSize: 12),
-                      ),
-                    ),
-                  Text(
-                    'After signing in, the browser will show an authorization '
-                    'code. Paste it below.',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: context.rhythm.textSecondary,
+    final timeoutMinutes = provider == 'github-copilot' ? 10 : 3;
+    final completer = Completer<bool>();
+    Timer? poller;
+    Timer? timeout;
+
+    Future<void> stop({required bool result}) async {
+      poller?.cancel();
+      timeout?.cancel();
+      if (!completer.isCompleted) completer.complete(result);
+    }
+
+    poller = Timer.periodic(const Duration(seconds: 2), (_) async {
+      try {
+        final res = await http.get(
+          Uri.parse('${AppConstants.agentLocalBaseUrl}/opencode/auth/'),
+        );
+        if (res.statusCode != 200) return;
+        final body = jsonDecode(res.body) as Map<String, dynamic>;
+        final providers =
+            (body['providers'] as List<dynamic>?)?.cast<String>() ?? [];
+        if (providers.contains(provider)) {
+          await stop(result: true);
+          if (mounted) Navigator.of(context, rootNavigator: true).pop();
+        }
+      } catch (_) {
+        /* keep polling */
+      }
+    });
+
+    timeout = Timer(Duration(minutes: timeoutMinutes), () async {
+      await stop(result: false);
+      if (mounted) Navigator.of(context, rootNavigator: true).pop();
+    });
+
+    if (!mounted) {
+      await stop(result: false);
+      return false;
+    }
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) {
+        return AlertDialog(
+          title: Text('Complete sign-in — $provider'),
+          content: SizedBox(
+            width: 420,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (instructions.isNotEmpty)
+                  SelectableText(
+                    instructions,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      fontFamily: 'Menlo',
                     ),
                   ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: controller,
-                    autofocus: true,
-                    decoration: const InputDecoration(
-                      hintText: 'Paste the authorization code…',
-                      isDense: true,
-                      border: OutlineInputBorder(),
-                    ),
-                    onSubmitted: (value) => Navigator.of(ctx).pop(value.trim()),
+                const SizedBox(height: 12),
+                Text(
+                  'This dialog will close automatically when the sign-in '
+                  'completes. Timeout: $timeoutMinutes minutes.',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: ctx.rhythm.textSecondary,
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(ctx).pop(null),
-                child: const Text('Cancel'),
-              ),
-              FilledButton(
-                onPressed: () => Navigator.of(ctx).pop(controller.text.trim()),
-                child: const Text('Connect'),
-              ),
-            ],
-          );
-        },
+          ),
+          actions: [
+            TextButton(
+              onPressed: () async {
+                await stop(result: false);
+                if (mounted) Navigator.of(ctx).pop();
+              },
+              child: const Text('Cancel'),
+            ),
+          ],
+        );
+      },
+    );
+    return completer.future;
+  }
+
+  Future<void> _bridgeAnthropic() async {
+    setState(() {
+      _isSaving = true;
+      _statusMessage = null;
+    });
+    try {
+      final res = await http.post(
+        Uri.parse(
+            '${AppConstants.agentLocalBaseUrl}/opencode/auth/anthropic/bridge'),
       );
+      if (!mounted) return;
+      if (res.statusCode == 200) {
+        final body = jsonDecode(res.body) as Map<String, dynamic>;
+        setState(() {
+          _authorizedProviders.add('anthropic');
+          _statusMessage =
+              '✓ Claude connected (${body['subscriptionType'] ?? 'subscription'})';
+        });
+        await _refreshConnectedProviders();
+        _refreshAgentCapabilities();
+      } else {
+        String reason = 'HTTP ${res.statusCode}';
+        try {
+          final body = jsonDecode(res.body) as Map<String, dynamic>;
+          reason = body['reason'] as String? ?? reason;
+        } catch (_) {
+          /* non-JSON */
+        }
+        final friendly = switch (reason) {
+          'keychain_denied' =>
+            'Keychain access denied. Click "Use Claude subscription" again and choose Allow.',
+          'missing' =>
+            'Claude Code not detected. Install Claude Code, sign in, then come back.',
+          'refresh_failed' =>
+            'Could not refresh your Claude tokens. Open Claude Code once to refresh, then retry.',
+          'auth_set_rejected' =>
+            'Opencode rejected the Claude tokens. Open Claude Code once, then retry.',
+          _ => 'Bridge failed: $reason',
+        };
+        setState(() => _statusMessage = friendly);
+      }
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _statusMessage = 'Bridge failed: $e');
     } finally {
-      controller.dispose();
+      if (mounted) setState(() => _isSaving = false);
     }
   }
 
@@ -243,6 +325,7 @@ class _AiAccountSectionState extends State<AiAccountSection> {
           _statusMessage = '✓ $provider connected';
           controller.clear();
         });
+        _refreshAgentCapabilities();
       } else {
         // Guard against non-JSON responses (e.g. HTML 404 from unregistered route)
         String errorMsg = response.reasonPhrase ?? 'Unknown error';
@@ -274,12 +357,28 @@ class _AiAccountSectionState extends State<AiAccountSection> {
             title: 'Your subscriptions',
             subtitle: 'Sign in with your existing account'),
         const SizedBox(height: 10),
-        _OAuthProviderTile(
-          provider: 'anthropic',
-          label: 'Claude',
-          description: 'Sign in with your Claude Pro or Max account',
-          onAuthorize: () => _authorizeOAuth('anthropic'),
-        ),
+        if (_hasClaudeCode)
+          _SubscriptionTile(
+            label: 'Claude',
+            description: 'Use your existing Claude Code subscription',
+            connected: _authorizedProviders.contains('anthropic'),
+            isSaving: _isSaving,
+            onConnect: _bridgeAnthropic,
+          )
+        else
+          _ApiKeyProviderTile(
+            provider: 'anthropic',
+            label: 'Anthropic API',
+            description:
+                'Pro/Max subscriptions require Claude Code installed. Paste an API key to use Anthropic without it.',
+            hintText: 'Paste your Anthropic API key…',
+            controller: _apiKeyControllers.putIfAbsent(
+              'anthropic',
+              () => TextEditingController(),
+            ),
+            isSaving: _isSaving,
+            onSave: () => _saveApiKey('anthropic'),
+          ),
         const SizedBox(height: 8),
         _OAuthProviderTile(
           provider: 'openai',
@@ -539,6 +638,84 @@ class _ApiKeyProviderTile extends StatelessWidget {
                 ),
               ),
             ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Subscription tile (bridge-based, no code entry) ──
+
+class _SubscriptionTile extends StatelessWidget {
+  const _SubscriptionTile({
+    required this.label,
+    required this.description,
+    required this.connected,
+    required this.isSaving,
+    required this.onConnect,
+  });
+
+  final String label;
+  final String description;
+  final bool connected;
+  final bool isSaving;
+  final VoidCallback onConnect;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: context.rhythm.surfaceMuted,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: context.rhythm.border),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(children: [
+                  Text(
+                    label,
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: context.rhythm.textPrimary,
+                    ),
+                  ),
+                  if (connected) ...[
+                    const SizedBox(width: 8),
+                    Icon(Icons.check_circle,
+                        size: 14, color: context.rhythm.success),
+                  ],
+                ]),
+                const SizedBox(height: 2),
+                Text(
+                  description,
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: context.rhythm.textSecondary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          FilledButton(
+            onPressed: isSaving ? null : onConnect,
+            style: FilledButton.styleFrom(
+              backgroundColor: context.rhythm.accent,
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+              minimumSize: Size.zero,
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+            child: Text(
+              connected ? 'Reconnect' : 'Use Claude subscription',
+              style: const TextStyle(fontSize: 12),
+            ),
           ),
         ],
       ),
