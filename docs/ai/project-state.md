@@ -210,9 +210,23 @@ Flutter → DELETE /agent-sessions/:id → controller stops bridge + clears map 
 - **#592** (error path partial flush) — **DONE in 3e4df87** (folded into same commit).
 - **#593–#597** (parts-based chat thread, sessions sidebar polish, details panel, model echo in DTO) — not started.
 
+## Issue backlog state (2026-05-14)
+
+All Opencode-implementation issues (#564–#585) are closed. Final disposition:
+
+- **#564–#570, #572, #573, #575–#578, #582, #584, #585** — closed with commit references. Implementation matched the original issue.
+- **#571** — closed by ae597b2; `pty_runner.ts` deleted.
+- **#581** — closed by ae597b2; controller-side validation of legacy CLI fields removed; route tests updated to assert accept-and-ignore.
+- **#579 (GitHub Copilot OAuth)** — closed; different approach taken (device flow in api_server instead of redirect-based OAuth through the SDK plugin).
+- **#583 (OAuth callback lands on opencode.ai)** — closed; different approach taken (paste-back dialog in Settings instead of redirect-back to localhost).
+- **#580 (resume() implementation)** — closed; scope note: resumed sessions get a fresh SDK session bound to the same local id, do not reattach prior SDK conversation history. DB-persisted assistant messages still render via the legacy transcript REST path.
+
+Open issues remaining (none Opencode-related): #48 (PCO automation rules UX), #71 (mobile MVP scope), #418 (mobile smoke fail), #476 (AgentTriggerWatcher dev-gating).
+
 ## What to do next (resume notes)
 
 1. **Push the branch** (`git push origin opencode-engine-issue-564`) — manual smoke already passed; user confirmed chat round-trip works (user bubble + streaming assistant bubble visible, Enter sends, auto-resume works for orphan sessions).
+2. **Merge PR #574** after CI passes; the M1–M5 parity work in `docs/ai/current-plan.md` should branch off a clean `main` after this lands.
 3. **Sign in with Google AI** via the Settings tile so `gemini-cli` routes to the direct google provider (still outstanding).
 4. **Resolve OpenRouter rate-limit** on the test account if free-model fallback is needed (Outstanding #3).
 5. **Continue the UI port** by picking up issues #593–#597 from `docs/ai/current-plan.md`.
