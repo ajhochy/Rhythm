@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:http/http.dart' as http;
@@ -174,11 +175,18 @@ class ApiServerService {
   }
 
   Future<String?> _findNode() async {
-    // Prefer architecture-matching Homebrew installs first so native modules
-    // line up with the user's primary local Node toolchain.
+    // 1. If the api_server's postinstall wrote a runtime sentinel, use the
+    //    exact Node it built better-sqlite3 against. This avoids ABI
+    //    mismatches when the host has multiple Node versions installed
+    //    (issue #585).
+    final sentinelNode = await _readRuntimeSentinel();
+    if (sentinelNode != null) return sentinelNode;
+
+    // 2. Fall back to common install paths. Apple Silicon Homebrew lives at
+    //    /opt/homebrew and is the default on modern Macs, so try it first.
     const preferredCandidates = [
+      '/opt/homebrew/bin/node', // Apple Silicon Homebrew (default on M-series)
       '/usr/local/bin/node', // Intel Homebrew / legacy install
-      '/opt/homebrew/bin/node', // Apple Silicon Homebrew
       '/usr/bin/node',
     ];
     for (final path in preferredCandidates) {
@@ -245,6 +253,38 @@ class ApiServerService {
       dir = parent;
     }
 
+    return null;
+  }
+
+  /// Walks up from the running executable to locate
+  /// `apps/api_server/.node-runtime.json` (written by the api_server's
+  /// postinstall) and returns the recorded Node path if it still exists.
+  /// Returns `null` in production builds where the file is absent.
+  Future<String?> _readRuntimeSentinel() async {
+    final exe = Platform.resolvedExecutable;
+    var dir = _dirname(exe);
+    for (var i = 0; i < 12; i++) {
+      final sentinel = File('$dir/apps/api_server/.node-runtime.json');
+      if (sentinel.existsSync()) {
+        try {
+          final data = jsonDecode(await sentinel.readAsString());
+          final nodePath = data['nodePath'];
+          if (nodePath is String && File(nodePath).existsSync()) {
+            stdout.writeln(
+              '[ApiServerService] Using install-time Node: $nodePath '
+              '(version=${data['nodeVersion']}, abi=${data['abi']}).',
+            );
+            return nodePath;
+          }
+        } catch (_) {
+          // Malformed sentinel — fall through to the candidate search.
+        }
+        return null;
+      }
+      final parent = _dirname(dir);
+      if (parent == dir) break;
+      dir = parent;
+    }
     return null;
   }
 

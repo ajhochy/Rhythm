@@ -18,6 +18,9 @@
 **/*.tsbuildinfo
 npm-debug.log*
 
+# api_server install-time runtime sentinel (issue #585)
+apps/api_server/.node-runtime.json
+
 # IDEs
 .vscode/
 .idea/
