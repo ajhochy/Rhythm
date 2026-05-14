@@ -53,6 +53,9 @@ import 'app/core/workspace/workspace_repository.dart';
 import 'features/notifications/controllers/notifications_controller.dart';
 import 'features/notifications/data/notifications_data_source.dart';
 import 'features/notifications/repositories/notifications_repository.dart';
+import 'features/agent_projects/controllers/agent_projects_controller.dart';
+import 'features/agent_projects/data/agent_projects_remote_data_source.dart';
+import 'features/agent_projects/repositories/agent_projects_repository.dart';
 import 'features/agents/controllers/agents_controller.dart';
 import 'features/agents/data/agents_data_source.dart';
 import 'features/agents/repositories/agents_repository.dart';
@@ -209,6 +212,11 @@ class RhythmApp extends StatelessWidget {
         ChangeNotifierProvider(
           create: (_) => NotificationsController(
             NotificationsRepository(NotificationsDataSource(baseUrl: baseUrl)),
+          ),
+        ),
+        ChangeNotifierProvider(
+          create: (_) => AgentProjectsController(
+            AgentProjectsRepository(AgentProjectsRemoteDataSource()),
           ),
         ),
         ChangeNotifierProvider(
