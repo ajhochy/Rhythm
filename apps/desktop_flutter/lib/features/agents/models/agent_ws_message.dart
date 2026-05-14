@@ -191,12 +191,14 @@ class NotificationPushMessage extends AgentWsMessage {
 }
 
 class WsErrorMessage extends AgentWsMessage {
-  const WsErrorMessage({required this.message});
+  const WsErrorMessage({required this.id, required this.message});
 
+  final String id;
   final String message;
 
   factory WsErrorMessage.fromJson(Map<String, dynamic> json) {
     return WsErrorMessage(
+      id: asString(json['id']) ?? '',
       message: asString(json['message']) ?? '',
     );
   }

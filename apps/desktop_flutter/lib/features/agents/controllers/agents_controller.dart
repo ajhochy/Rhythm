@@ -392,6 +392,39 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
       if (session != null && session.status == AgentSessionStatus.starting) {
         sessionFirstSeenAt.remove(msg.id);
       }
+    } else if (msg is TranscriptAppendMessage) {
+      // Finalize the streamed assistant turn into the visible transcript and
+      // drop the live preview buffer for this session. The bridge emits this
+      // on session.idle (and on session.error with partial text).
+      if (msg.id == _selectedSessionId) {
+        _transcript = [
+          ..._transcript,
+          AgentSessionMessage(
+            id: 0,
+            sessionId: msg.id,
+            role: msg.role.isEmpty ? 'output' : msg.role,
+            rawText: msg.text,
+            strippedText: msg.text,
+            createdAt: DateTime.now(),
+          ),
+        ];
+      }
+      _liveOutputBuffer.remove(msg.id);
+    } else if (msg is WsErrorMessage) {
+      if (msg.id == _selectedSessionId) {
+        _transcript = [
+          ..._transcript,
+          AgentSessionMessage(
+            id: 0,
+            sessionId: msg.id,
+            role: 'system',
+            rawText: 'Error: ${msg.message}',
+            strippedText: 'Error: ${msg.message}',
+            createdAt: DateTime.now(),
+          ),
+        ];
+      }
+      _liveOutputBuffer.remove(msg.id);
     } else if (msg is TriggerFiredMessage) {
       _pendingTriggers.add(PendingTrigger(
         taskId: msg.taskId,

@@ -106,6 +106,9 @@ export class OpencodeStreamBridge {
     cwd: string,
   ): Promise<void> {
     const directory = cwd && cwd.length > 0 ? cwd : '/';
+    logger.info(
+      `[OpencodeStreamBridge] streamSession entry session=${localSessionId} sdkSession=${_opencodeSessionId} directory=${directory}`,
+    );
     if (this.streamsByDirectory.has(directory)) return;
 
     try {
@@ -296,8 +299,11 @@ export class OpencodeStreamBridge {
               err,
             );
           }
-          // Persist the assembled assistant turn (if any) and clear the
-          // pending buffer.
+          // Persist the assembled assistant turn (if any), finalize it into
+          // the Flutter transcript via `transcript.append`, and clear the
+          // pending buffer. Without this broadcast, the streaming delta text
+          // lives only in the Flutter `_liveOutputBuffer` preview and never
+          // appears as a finalized assistant message in the chat history.
           const text = this.pendingText.get(localSessionId);
           if (text && text.length > 0) {
             try {
@@ -313,6 +319,13 @@ export class OpencodeStreamBridge {
                 err,
               );
             }
+            broadcast({
+              v: 1,
+              type: 'transcript.append',
+              id: localSessionId,
+              role: 'output',
+              text,
+            });
             this.pendingText.delete(localSessionId);
           }
         }
@@ -341,6 +354,20 @@ export class OpencodeStreamBridge {
             () => this.erroredSessions.delete(localSessionId),
             5000,
           ).unref?.();
+          // Flush any partial assistant text accumulated during the turn so
+          // the user sees what arrived before the error. Then drop the
+          // pending buffer so the follow-up session.idle doesn't re-emit it.
+          const partial = this.pendingText.get(localSessionId);
+          if (partial && partial.length > 0) {
+            broadcast({
+              v: 1,
+              type: 'transcript.append',
+              id: localSessionId,
+              role: 'output',
+              text: partial,
+            });
+            this.pendingText.delete(localSessionId);
+          }
         }
         broadcast({
           v: 1,
