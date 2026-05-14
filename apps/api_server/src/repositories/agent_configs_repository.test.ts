@@ -33,7 +33,17 @@ describe('AgentConfigsRepository', () => {
       for (const c of configs) {
         expect(typeof c.enabled).toBe('boolean');
         expect(typeof c.isAgent).toBe('boolean');
-        expect(typeof c.canResume).toBe('boolean');
+      }
+    });
+
+    it('does not expose legacy CLI fields on the read model (issue #581)', () => {
+      const configs = repo.list();
+      for (const c of configs) {
+        expect(c.command).toBeUndefined();
+        expect(c.canResume).toBeUndefined();
+        expect(c.resumeCommand).toBeUndefined();
+        expect(c.sessionIdPattern).toBeUndefined();
+        expect(c.outputMarker).toBeUndefined();
       }
     });
   });
@@ -65,8 +75,6 @@ describe('AgentConfigsRepository', () => {
       const config = repo.getById('claude-code');
       expect(config).not.toBeNull();
       expect(config?.label).toBe('Claude Code');
-      expect(config?.command).toBe('claude');
-      expect(config?.canResume).toBe(true);
       expect(config?.presetId).toBe('claude-code');
     });
 
@@ -81,19 +89,15 @@ describe('AgentConfigsRepository', () => {
       const config = repo.insert({
         label: 'My Custom Agent',
         icon: 'assets/agents/custom.png',
-        command: 'myagent',
         enabled: true,
         isAgent: true,
-        canResume: false,
       });
 
       expect(config.id).toBeTypeOf('string');
       expect(config.id).toHaveLength(36); // UUID v4
       expect(config.label).toBe('My Custom Agent');
-      expect(config.command).toBe('myagent');
       expect(config.enabled).toBe(true);
       expect(config.isAgent).toBe(true);
-      expect(config.canResume).toBe(false);
       expect(config.presetId).toBeNull();
       expect(config.createdAt).toBeTypeOf('string');
       expect(config.updatedAt).toBeTypeOf('string');
@@ -104,7 +108,6 @@ describe('AgentConfigsRepository', () => {
         id: 'my-preset-id',
         label: 'Preset Agent',
         icon: 'assets/agents/preset.png',
-        command: 'presetagent',
         presetId: 'my-preset-id',
       });
 
@@ -116,7 +119,6 @@ describe('AgentConfigsRepository', () => {
       const config = repo.insert({
         label: 'Default Enabled',
         icon: 'assets/agents/default.png',
-        command: 'defaultcmd',
       });
       expect(config.enabled).toBe(true);
     });
@@ -125,28 +127,37 @@ describe('AgentConfigsRepository', () => {
       const config = repo.insert({
         label: 'Disabled Agent',
         icon: 'assets/agents/disabled.png',
-        command: 'disabledcmd',
         enabled: false,
       });
       expect(config.enabled).toBe(false);
     });
 
-    it('stores optional fields correctly', () => {
+    it('stores sortOrder correctly', () => {
       const config = repo.insert({
-        label: 'Full Config',
-        icon: 'assets/agents/full.png',
-        command: 'fullcmd',
-        canResume: true,
-        resumeCommand: 'fullcmd --resume {{sessionId}}',
-        sessionIdPattern: 'Session: ([a-f0-9-]+)',
-        outputMarker: '>>',
+        label: 'Sorted',
+        icon: 'assets/agents/sorted.png',
         sortOrder: 10,
       });
-      expect(config.canResume).toBe(true);
-      expect(config.resumeCommand).toBe('fullcmd --resume {{sessionId}}');
-      expect(config.sessionIdPattern).toBe('Session: ([a-f0-9-]+)');
-      expect(config.outputMarker).toBe('>>');
       expect(config.sortOrder).toBe(10);
+    });
+
+    it('ignores legacy CLI fields if a stale client sends them (issue #581)', () => {
+      const config = repo.insert({
+        label: 'Stale Client',
+        icon: 'assets/agents/stale.png',
+        // Legacy fields — should be silently ignored on write
+        command: 'stalecmd',
+        canResume: true,
+        resumeCommand: 'stalecmd --resume {{sessionId}}',
+        sessionIdPattern: 'Session: ([a-f0-9-]+)',
+        outputMarker: '>>',
+      });
+      // None of the legacy fields should be echoed back on the read shape.
+      expect(config.command).toBeUndefined();
+      expect(config.canResume).toBeUndefined();
+      expect(config.resumeCommand).toBeUndefined();
+      expect(config.sessionIdPattern).toBeUndefined();
+      expect(config.outputMarker).toBeUndefined();
     });
   });
 
@@ -155,13 +166,12 @@ describe('AgentConfigsRepository', () => {
       const created = repo.insert({
         label: 'Old Label',
         icon: 'assets/agents/old.png',
-        command: 'oldcmd',
       });
 
       const updated = repo.update(created.id, { label: 'New Label' });
       expect(updated).not.toBeNull();
       expect(updated?.label).toBe('New Label');
-      expect(updated?.command).toBe('oldcmd'); // unchanged
+      expect(updated?.icon).toBe('assets/agents/old.png'); // unchanged
     });
 
     it('can disable a preset (enabled = false)', () => {
@@ -180,7 +190,6 @@ describe('AgentConfigsRepository', () => {
       const created = repo.insert({
         label: 'Timestamp Test',
         icon: 'assets/agents/ts.png',
-        command: 'tscmd',
       });
 
       // Small delay to ensure timestamp differs
@@ -189,21 +198,27 @@ describe('AgentConfigsRepository', () => {
       expect(updated?.updatedAt).toBeTypeOf('string');
     });
 
-    it('can update nullable fields to null', () => {
+    it('ignores legacy CLI fields on update if a stale client sends them (issue #581)', () => {
       const created = repo.insert({
-        label: 'Nullable Test',
-        icon: 'assets/agents/nullable.png',
-        command: 'nullablecmd',
-        resumeCommand: 'resume {{sessionId}}',
-        outputMarker: '>>',
+        label: 'Stale Update',
+        icon: 'assets/agents/stale.png',
       });
 
       const updated = repo.update(created.id, {
-        resumeCommand: null,
-        outputMarker: null,
+        label: 'After Update',
+        // Legacy fields — should be silently ignored
+        command: 'newcmd',
+        canResume: true,
+        resumeCommand: 'newcmd --resume {{sessionId}}',
+        sessionIdPattern: 'Session: ([a-f0-9-]+)',
+        outputMarker: '>>',
       });
-      expect(updated?.resumeCommand).toBeNull();
-      expect(updated?.outputMarker).toBeNull();
+      expect(updated?.label).toBe('After Update');
+      expect(updated?.command).toBeUndefined();
+      expect(updated?.canResume).toBeUndefined();
+      expect(updated?.resumeCommand).toBeUndefined();
+      expect(updated?.sessionIdPattern).toBeUndefined();
+      expect(updated?.outputMarker).toBeUndefined();
     });
   });
 
@@ -212,7 +227,6 @@ describe('AgentConfigsRepository', () => {
       const created = repo.insert({
         label: 'To Delete',
         icon: 'assets/agents/delete.png',
-        command: 'deletecmd',
       });
 
       const result = repo.remove(created.id);

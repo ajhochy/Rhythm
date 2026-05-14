@@ -261,7 +261,9 @@ export function spawn(opts: SpawnOpts): void {
     );
   }
 
-  const parts = shlexSplit(config.command);
+  // Legacy CLI field. AgentConfig.command is now optional (issue #581);
+  // this dead-code path keeps the runtime check that already existed.
+  const parts = shlexSplit(config.command ?? '');
   if (parts.length === 0) {
     throw new Error(`Agent '${agentId}' has an empty command`);
   }

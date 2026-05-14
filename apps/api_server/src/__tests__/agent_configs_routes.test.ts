@@ -125,7 +125,8 @@ describe('POST /agent-configs', () => {
     expect(res.status).toBe(201);
     const config = (await res.json()) as Record<string, unknown>;
     expect(config.label).toBe('My Custom Agent');
-    expect(config.command).toBe('myagent --run');
+    // Legacy `command` field is no longer echoed back (issue #581).
+    expect(config.command).toBeUndefined();
     expect(config.presetId).toBeNull();
     expect(typeof config.id).toBe('string');
   });
@@ -147,8 +148,10 @@ describe('POST /agent-configs', () => {
 
     expect(res.status).toBe(201);
     const config = (await res.json()) as Record<string, unknown>;
-    expect(config.canResume).toBe(true);
-    expect(config.resumeCommand).toBe('myagent --resume {{sessionId}}');
+    // Legacy fields are no longer persisted or echoed back (issue #581).
+    // The route still accepts them on input for back-compat with stale clients.
+    expect(config.canResume).toBeUndefined();
+    expect(config.resumeCommand).toBeUndefined();
   });
 
   it('returns 400 when label is missing', async () => {
@@ -242,7 +245,8 @@ describe('POST /agent-configs', () => {
     expect(res.status).toBe(201);
     const config = (await res.json()) as Record<string, unknown>;
     expect(config.isAgent).toBe(false);
-    expect(config.canResume).toBe(false);
+    // Legacy `canResume` field is no longer echoed back (issue #581).
+    expect(config.canResume).toBeUndefined();
   });
 });
 
@@ -297,7 +301,9 @@ describe('PATCH /agent-configs/:id', () => {
     });
     expect(res.status).toBe(200);
     const updated = (await res.json()) as Record<string, unknown>;
-    expect(updated.command).toBe('claude --custom-flag');
+    // Legacy `command` field is silently ignored on write and no longer echoed
+    // back; the patch succeeds but the field is absent on the response (#581).
+    expect(updated.command).toBeUndefined();
   });
 
   it('returns 400 when patching label on a preset row', async () => {
