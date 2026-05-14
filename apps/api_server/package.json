@@ -13,6 +13,7 @@
     "postinstall": "node -e \"const{execSync}=require('child_process');['darwin-arm64','darwin-x64'].forEach(p=>{try{execSync('chmod +x node_modules/node-pty/prebuilds/'+p+'/spawn-helper')}catch(_){}});\""
   },
   "dependencies": {
+    "@opencode-ai/sdk": "^1.14.49",
     "@types/pg": "^8.20.0",
     "better-sqlite3": "^12.8.0",
     "cors": "^2.8.5",
