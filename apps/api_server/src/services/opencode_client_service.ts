@@ -95,11 +95,11 @@ export class OpencodeClientService {
   async setAuth(providerId: string, apiKey: string): Promise<boolean> {
     if (!this.client) return false;
     try {
-      await this.client.auth.set({
+      const raw = (await this.client.auth.set({
         path: { id: providerId },
         body: { type: 'api', key: apiKey },
-      });
-      return true;
+      })) as unknown as { data?: unknown; error?: unknown };
+      return raw.data === true;
     } catch (err) {
       logger.error(`[OpencodeClientService] setAuth failed for ${providerId}:`, err);
       return false;

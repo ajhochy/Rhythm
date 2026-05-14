@@ -64,4 +64,22 @@ describe('OpencodeClientService — SDK response unwrap (.data)', () => {
     ]);
     expect(await svc.listModels('unknown')).toEqual([]);
   });
+
+  it('setAuth returns true only when res.data === true', async () => {
+    const ok = makeService({
+      auth: { set: vi.fn().mockResolvedValue({ data: true, request: {}, response: {} }) },
+    });
+    expect(await ok.setAuth('openrouter', 'sk-or-test')).toBe(true);
+
+    const bad = makeService({
+      auth: {
+        set: vi.fn().mockResolvedValue({
+          data: undefined,
+          error: { data: { error: [{ message: 'invalid_type' }] }, success: false },
+          request: {}, response: {},
+        }),
+      },
+    });
+    expect(await bad.setAuth('openrouter', 'sk-or-test')).toBe(false);
+  });
 });
