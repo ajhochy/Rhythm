@@ -13,10 +13,13 @@ import '../../settings/views/settings_view.dart';
 import '../../agent_configs/widgets/agent_icon.dart';
 import '../../tasks/controllers/tasks_controller.dart';
 import '../../tasks/models/task.dart';
+import '../../agent_projects/controllers/agent_projects_controller.dart';
 import '../controllers/agents_controller.dart';
 import '../models/agent_session.dart';
 import '../models/agent_session_message.dart';
 import '../models/chat_models.dart';
+import '_project_vcs_chip.dart';
+import '_projects_rail.dart';
 
 class AgentsView extends StatefulWidget {
   const AgentsView({super.key});
@@ -64,6 +67,10 @@ class _AgentsViewState extends State<AgentsView> {
           padding: const EdgeInsets.all(12),
           child: Row(
             children: [
+              ProjectsRail(
+                onAddProject: () => _showNewProjectDialog(context),
+              ),
+              const SizedBox(width: 12),
               _SessionListPanel(
                 resumableSectionExpanded: _resumableSectionExpanded,
                 onToggleResumable: () => setState(
@@ -75,6 +82,25 @@ class _AgentsViewState extends State<AgentsView> {
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  // Placeholder until M1-6's EditProjectDialog lands. Keeps the rail's `+`
+  // button visibly responsive; replace this method when M1-6 ships.
+  // TODO(M1-6): swap for showEditProjectDialog(create: true, ...).
+  void _showNewProjectDialog(BuildContext context) {
+    showDialog<void>(
+      context: context,
+      builder: (_) => AlertDialog(
+        title: const Text('New project'),
+        content: const Text('Project creation lands in M1-6.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('OK'),
+          ),
+        ],
       ),
     );
   }
@@ -260,8 +286,18 @@ class _SessionListPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     final controller = context.watch<AgentsController>();
     final agentServerController = context.watch<AgentServerController>();
+    final projectsController = context.watch<AgentProjectsController>();
     final canStartSession =
         agentServerController.isReady && agentServerController.hasAnyAgent;
+
+    final selectedProject = projectsController.selectedProject;
+    final selectedProjectId = projectsController.selectedProjectId;
+    // selectedProjectId == null → All sessions (no filter). Otherwise filter.
+    final filteredSessions = selectedProjectId == null
+        ? controller.sessions
+        : controller.sessions
+            .where((s) => s.projectId == selectedProjectId)
+            .toList();
 
     return Container(
       width: 320,
@@ -278,23 +314,35 @@ class _SessionListPanel extends StatelessWidget {
             onNewSession:
                 canStartSession ? () => _showNewSessionDialog(context) : null,
           ),
+          if (selectedProject != null && selectedProject.vcsRoot != null)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: ProjectVcsChip(
+                  project: selectedProject,
+                  onRefresh: () =>
+                      projectsController.refreshVcs(selectedProject.id),
+                ),
+              ),
+            ),
           Divider(height: 1, color: context.rhythm.borderSubtle),
           const _DisconnectedBanner(),
           Expanded(
             child: controller.status == AgentsLoadStatus.loading &&
-                    controller.sessions.isEmpty
+                    filteredSessions.isEmpty
                 ? Center(
                     child: CircularProgressIndicator(
                       color: context.rhythm.accent,
                     ),
                   )
-                : controller.sessions.isEmpty && controller.resumable.isEmpty
+                : filteredSessions.isEmpty && controller.resumable.isEmpty
                     ? const _EmptySessionsState()
                     : ListView(
                         padding: const EdgeInsets.fromLTRB(12, 12, 12, 14),
                         children: [
-                          // Active sessions
-                          for (final session in controller.sessions) ...[
+                          // Active sessions (filtered by selected project).
+                          for (final session in filteredSessions) ...[
                             _SessionRow(
                               session: session,
                               isSelected:
