@@ -5,16 +5,10 @@ import type { AgentConfigInput } from '../repositories/agent_configs_repository'
 
 const repo = new AgentConfigsRepository();
 
-// Fields that are forbidden to patch on preset rows
-const PRESET_PROTECTED_FIELDS = [
-  'label',
-  'icon',
-  'isAgent',
-  'canResume',
-  'resumeCommand',
-  'sessionIdPattern',
-  'outputMarker',
-];
+// Fields that are forbidden to patch on preset rows. Reduced to identity
+// fields now that the legacy CLI fields (canResume/resumeCommand/etc.) are
+// no longer persisted or used (#575/#577/#581).
+const PRESET_PROTECTED_FIELDS = ['label', 'icon', 'isAgent'];
 
 function validateBody(body: Record<string, unknown>, requireLabel = true): void {
   if (requireLabel) {
@@ -27,50 +21,12 @@ function validateBody(body: Record<string, unknown>, requireLabel = true): void 
     }
   }
 
-  if (body.command !== undefined) {
-    if (typeof body.command !== 'string' || body.command.trim() === '') {
-      throw AppError.badRequest('command must be a non-empty string');
-    }
-    const tokens = body.command.trim().split(/\s+/);
-    if (tokens.length === 0 || tokens[0] === '') {
-      throw AppError.badRequest('command must contain at least one token');
-    }
-  } else if (requireLabel) {
-    // command is required on create
-    throw AppError.badRequest('command must be a non-empty string');
-  }
-
-  // Normalize booleans for validation checks
-  const isAgent = body.isAgent !== undefined ? Boolean(body.isAgent) : true;
-  const canResume = body.canResume !== undefined ? Boolean(body.canResume) : false;
-
-  if (isAgent === false && canResume === true) {
-    throw AppError.badRequest('canResume cannot be true when isAgent is false');
-  }
-
-  if (canResume) {
-    if (
-      !body.resumeCommand ||
-      typeof body.resumeCommand !== 'string' ||
-      body.resumeCommand.trim() === ''
-    ) {
-      throw AppError.badRequest('resumeCommand is required when canResume is true');
-    }
-    if (!body.resumeCommand.includes('{{sessionId}}')) {
-      throw AppError.badRequest('resumeCommand must contain {{sessionId}}');
-    }
-  }
-
-  if (body.sessionIdPattern !== undefined && body.sessionIdPattern !== null) {
-    if (typeof body.sessionIdPattern !== 'string') {
-      throw AppError.badRequest('sessionIdPattern must be a string');
-    }
-    try {
-      new RegExp(body.sessionIdPattern);
-    } catch {
-      throw AppError.badRequest('sessionIdPattern is not a valid regular expression');
-    }
-  }
+  // Legacy CLI fields (command, canResume, resumeCommand, sessionIdPattern,
+  // outputMarker) used to be required here. The Opencode SDK migration
+  // dropped them from the data model (#575) and the Flutter client no
+  // longer sends them. We accept-and-ignore for backward compatibility
+  // with old payloads instead of rejecting outright. The repository layer
+  // is the source of truth for what actually gets stored.
 }
 
 export class AgentConfigsController {
@@ -101,22 +57,17 @@ export class AgentConfigsController {
       const input: AgentConfigInput = {
         label: (body.label as string).trim(),
         icon: typeof body.icon === 'string' ? body.icon : '',
-        command: (body.command as string).trim(),
+        // Legacy CLI fields (#581) — accept-and-ignore. The repository
+        // writes empty/null values for the underlying columns regardless.
+        command: typeof body.command === 'string' ? body.command.trim() : '',
         enabled: body.enabled !== false,
         isAgent: body.isAgent !== false,
-        canResume: body.canResume === true,
-        resumeCommand: typeof body.resumeCommand === 'string' ? body.resumeCommand : null,
-        sessionIdPattern:
-          typeof body.sessionIdPattern === 'string' ? body.sessionIdPattern : null,
-        outputMarker: typeof body.outputMarker === 'string' ? body.outputMarker : null,
+        canResume: false,
+        resumeCommand: null,
+        sessionIdPattern: null,
+        outputMarker: null,
         presetId: null,
       };
-
-      // isAgent: false forces canResume: false
-      if (!input.isAgent) {
-        input.canResume = false;
-        input.resumeCommand = null;
-      }
 
       const config = repo.insert(input);
       res.status(201).json(config);
@@ -149,26 +100,10 @@ export class AgentConfigsController {
       const patch: Partial<AgentConfigInput> = {};
       if (body.label !== undefined) patch.label = (body.label as string).trim();
       if (body.icon !== undefined) patch.icon = body.icon as string;
-      if (body.command !== undefined) patch.command = (body.command as string).trim();
       if (body.enabled !== undefined) patch.enabled = Boolean(body.enabled);
       if (body.isAgent !== undefined) patch.isAgent = Boolean(body.isAgent);
-      if (body.canResume !== undefined) patch.canResume = Boolean(body.canResume);
-      if ('resumeCommand' in body)
-        patch.resumeCommand =
-          body.resumeCommand != null ? (body.resumeCommand as string) : null;
-      if ('sessionIdPattern' in body)
-        patch.sessionIdPattern =
-          body.sessionIdPattern != null ? (body.sessionIdPattern as string) : null;
-      if ('outputMarker' in body)
-        patch.outputMarker = body.outputMarker != null ? (body.outputMarker as string) : null;
-
-      // isAgent: false forces canResume: false
-      const effectiveIsAgent =
-        patch.isAgent !== undefined ? patch.isAgent : existing.isAgent;
-      if (!effectiveIsAgent) {
-        patch.canResume = false;
-        if (!('resumeCommand' in patch)) patch.resumeCommand = null;
-      }
+      // Legacy CLI fields (#581) — accept on the wire for back-compat
+      // with old payloads but never propagate to the repository layer.
 
       const updated = repo.update(req.params.id, patch);
       if (!updated) throw AppError.notFound('AgentConfig');
