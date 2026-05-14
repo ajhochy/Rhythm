@@ -12,35 +12,63 @@ const repo = new AgentSessionsRepository();
 const messagesRepo = new AgentSessionMessagesRepository();
 
 /**
- * Default model to route a session to when the agentId is a known preset.
+ * Ordered fallback list of {providerID, modelID} routes per agentId.
  *
- * IMPORTANT: the SDK only successfully routes to providers that have a
- * built-in loader: openrouter, openai, github-copilot, opencode. Direct
- * 'anthropic' / 'google' provider IDs are in the catalog but have no
- * loader — session.prompt to them throws ProviderModelNotFoundError.
+ * IMPORTANT: the SDK only successfully routes to providers with a built-in
+ * loader: openrouter, openai, github-copilot, opencode. Direct 'anthropic'
+ * / 'google' provider IDs are in the catalog but have no loader —
+ * session.prompt to them throws ProviderModelNotFoundError. So even when
+ * anthropic is bridged in auth.json, we must route Claude prompts through
+ * openrouter (provider-prefixed model) or github-copilot (which exposes a
+ * subset of Claude models via the Copilot subscription).
  *
- * For claude-code and gemini-cli we therefore route via openrouter using
- * provider-prefixed model IDs (e.g. `anthropic/claude-sonnet-4-6`). When
- * a future Anthropic-subscription loader plugin lands we can switch
- * claude-code back to the direct anthropic provider.
+ * Routes are tried in order. First entry whose providerID is in the user's
+ * listAuthedProviders() wins.
  *
- * Model IDs verified against the live SDK catalog (GET /provider).
+ * Verified model IDs:
+ *   github-copilot — gpt-5-mini, gpt-4o, claude-haiku-4.5, gpt-4.1
+ *   openrouter     — anthropic/claude-sonnet-4.6, google/gemini-3.1-pro-…
+ *   openai         — gpt-5.3-codex (and others)
  */
-const DEFAULT_MODEL_BY_AGENT: Record<
+const ROUTE_FALLBACKS_BY_AGENT: Record<
   string,
-  { providerID: string; modelID: string }
+  Array<{ providerID: string; modelID: string }>
 > = {
-  'claude-code': {
-    providerID: 'openrouter',
-    modelID: 'anthropic/claude-sonnet-4.6',
-  },
-  codex: { providerID: 'openai', modelID: 'gpt-5.3-codex' },
-  'gemini-cli': {
-    providerID: 'openrouter',
-    modelID: 'google/gemini-3.1-pro-preview-customtools',
-  },
+  'claude-code': [
+    { providerID: 'openrouter', modelID: 'anthropic/claude-sonnet-4.6' },
+    { providerID: 'github-copilot', modelID: 'claude-haiku-4.5' },
+  ],
+  codex: [
+    { providerID: 'openai', modelID: 'gpt-5.3-codex' },
+    { providerID: 'github-copilot', modelID: 'gpt-5-mini' },
+    { providerID: 'openrouter', modelID: 'openai/gpt-5.3-codex' },
+  ],
+  'gemini-cli': [
+    {
+      providerID: 'openrouter',
+      modelID: 'google/gemini-3.1-pro-preview-customtools',
+    },
+  ],
   // 'opencode' is intentionally unmapped — user picks via opencode config.
 };
+
+/** Pick the first authed route for the given agent, or null if none authed. */
+async function resolveModel(
+  agentId: string,
+): Promise<{ providerID: string; modelID: string } | undefined> {
+  const routes = ROUTE_FALLBACKS_BY_AGENT[agentId];
+  if (!routes || routes.length === 0) return undefined;
+  const authed = new Set(await opencodeClient.listAuthedProviders());
+  // 'opencode' is always available when the SDK is ready and counts as authed
+  // for routing purposes via openrouter/openai/copilot variants only — direct
+  // 'opencode' provider is not selectable per-agent.
+  for (const route of routes) {
+    if (authed.has(route.providerID)) return route;
+  }
+  // No authed provider matches — return first fallback so the SDK error
+  // (ProviderModelNotFoundError) propagates clearly instead of silent failure.
+  return routes[0];
+}
 
 /**
  * Expands '~' at the start of a path string to the current user's home directory.
@@ -151,7 +179,11 @@ export class AgentSessionsController {
         ? `I need help with: ${taskTitle}\n\nSession name: ${name}`
         : `Starting session: ${name}`;
 
-      const model = DEFAULT_MODEL_BY_AGENT[agentId];
+      const model = await resolveModel(agentId);
+      console.log(
+        `[AgentSessionsController] Routing ${agentId} session ${session.id} via ` +
+          (model ? `${model.providerID}/${model.modelID}` : '<unmapped>'),
+      );
       opencodeClient.promptAsync(
         opencodeSession.id,
         initialPrompt,

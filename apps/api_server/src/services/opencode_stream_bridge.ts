@@ -2,6 +2,8 @@ import { broadcast } from './ws_gateway';
 import { opencodeClient } from './opencode_engine';
 import { opencodeSessionMap } from './opencode_engine';
 import { logger } from '../utils/logger';
+import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
+import { AgentSessionMessagesRepository } from '../repositories/agent_session_messages_repository';
 
 /**
  * Bridges Opencode SSE events to the existing WebSocket gateway.
@@ -25,6 +27,8 @@ export class OpencodeStreamBridge {
   private streamAbort: AbortController | null = null;
   private listenerPromise: Promise<void> | null = null;
   private subscribed = false;
+  private sessionsRepo = new AgentSessionsRepository();
+  private messagesRepo = new AgentSessionMessagesRepository();
 
   /** Start streaming events for a given local session. */
   async streamSession(
@@ -166,12 +170,37 @@ export class OpencodeStreamBridge {
       case 'session.error': {
         const errProps = event.properties as Record<string, unknown>;
         const errorInfo = errProps?.error as Record<string, unknown> | undefined;
+        const message = String(
+          errorInfo?.message ?? errorInfo ?? 'Unknown error',
+        );
         broadcast({
           v: 1,
           type: 'error',
           id: eventId,
-          message: String(errorInfo?.message ?? errorInfo ?? 'Unknown error'),
+          message,
         });
+        // Persist the error so the Agents view doesn't spin "Starting"
+        // forever. We can't add a 'failed' status (the type union doesn't
+        // include one without a migration), so we append an error message
+        // and mark the session 'closed'. The UI's session detail view will
+        // render the appended message and the resumable list will surface
+        // the closure.
+        if (localSessionId) {
+          try {
+            this.messagesRepo.append(
+              localSessionId,
+              'system',
+              `Error: ${message}`,
+              `Error: ${message}`,
+            );
+            this.sessionsRepo.markClosed(localSessionId);
+          } catch (err) {
+            logger.error(
+              '[OpencodeStreamBridge] Failed to persist session error:',
+              err,
+            );
+          }
+        }
         break;
       }
 
