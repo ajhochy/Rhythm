@@ -22,8 +22,13 @@ export class OpencodeClientService {
   async initialize(config?: { directory?: string }): Promise<void> {
     try {
       // Dynamic import — SDK is ESM-only, api_server uses CommonJS.
-      // Node.js import() can load ESM modules from CJS at runtime.
-      const mod = (await import('@opencode-ai/sdk')) as {
+      // TS with module:commonjs rewrites `import()` to `require()`, which
+      // fails on ESM-only packages. The `Function` wrapper hides the call
+      // from the TS transformer so Node executes a real dynamic import.
+      const dynamicImport = new Function('s', 'return import(s)') as (
+        s: string,
+      ) => Promise<unknown>;
+      const mod = (await dynamicImport('@opencode-ai/sdk')) as {
         createOpencode: (opts?: Record<string, unknown>) => Promise<{
           client: OpencodeClient;
         }>;
