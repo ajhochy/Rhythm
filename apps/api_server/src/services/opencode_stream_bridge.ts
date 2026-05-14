@@ -75,8 +75,18 @@ export class OpencodeStreamBridge {
   private _relayEvent(
     event: import('@opencode-ai/sdk').Event,
   ): void {
-    // Extract the Opencode session ID from the event (most events have one)
-    const opencodeSessionId = (event.properties as Record<string, unknown>)?.sessionID as string | undefined;
+    // Extract the Opencode session ID — different event types nest it
+    // differently:
+    //   session.*           → properties.sessionID
+    //   message.updated     → properties.info.sessionID
+    //   message.part.updated→ properties.part.sessionID
+    //   message.removed     → properties.sessionID
+    const props = (event.properties ?? {}) as Record<string, unknown>;
+    const propsInfo = props.info as Record<string, unknown> | undefined;
+    const propsPart = props.part as Record<string, unknown> | undefined;
+    const opencodeSessionId = (props.sessionID ??
+      propsInfo?.sessionID ??
+      propsPart?.sessionID) as string | undefined;
 
     // Look up the local session ID from the opencodeSessionMap.
     // Map is opencodeSessionId → localSessionId, so we need to reverse look up.
