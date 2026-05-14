@@ -204,12 +204,21 @@ export class OpencodeStreamBridge {
     // Map Opencode event types to Flutter's expected WS message format
     switch (event.type) {
       case 'message.part.updated': {
-        // The 'delta' property here is incremental streaming text for the
-        // current assistant part — broadcast for UI live update, but DO NOT
-        // accumulate (we'd double-count vs message.part.delta). The
-        // part.text field carries the user's echoed prompt for user parts,
-        // so we deliberately ignore it for persistence.
+        // Forward the full part object to the client so it can mirror
+        // Opencode Desktop's `setStore("part", messageID, ...)` pattern —
+        // upsert by part.id keyed under part.messageID. Also keep emitting
+        // the legacy `output` delta for any client still on the old buffer
+        // model (used only for the live preview animation).
+        const part = props?.part as Record<string, unknown> | undefined;
         const delta = props?.delta as string | undefined;
+        if (part) {
+          broadcast({
+            v: 1,
+            type: 'message.part.updated',
+            id: eventId,
+            part,
+          });
+        }
         if (delta) {
           broadcast({
             v: 1,
@@ -222,15 +231,32 @@ export class OpencodeStreamBridge {
       }
 
       case 'message.part.delta': {
-        // Streaming text delta during an assistant turn. This is the
-        // canonical source of assistant text — accumulate for persistence.
-        const delta = props?.delta as string | undefined;
+        // Streaming text delta during an assistant turn. Forward verbatim
+        // so the client can append delta into the right part by partID.
+        const messageID = props?.messageID as string | undefined;
+        const partID = props?.partID as string | undefined;
         const field = props?.field as string | undefined;
+        const delta = props?.delta as string | undefined;
         if (delta && field === 'text' && localSessionId) {
+          // Keep the accumulator so we can persist assistant turns on idle.
           this.pendingText.set(
             localSessionId,
             (this.pendingText.get(localSessionId) ?? '') + delta,
           );
+        }
+        if (messageID && partID && typeof delta === 'string') {
+          broadcast({
+            v: 1,
+            type: 'message.part.delta',
+            id: eventId,
+            messageId: messageID,
+            partId: partID,
+            field: field ?? 'text',
+            delta,
+          });
+        }
+        // Keep legacy `output` event for older client builds.
+        if (delta && field === 'text') {
           broadcast({
             v: 1,
             type: 'output',
@@ -242,14 +268,37 @@ export class OpencodeStreamBridge {
       }
 
       case 'message.updated': {
-        // Final message — flush remaining output. Persistence happens on
-        // session.idle so we have the complete assistant turn assembled.
+        // Forward the full message info so the client can upsert it under
+        // its sessionID — same as Opencode Desktop's reducer pattern.
+        const info = props?.info as Record<string, unknown> | undefined;
+        if (info) {
+          broadcast({
+            v: 1,
+            type: 'message.updated',
+            id: eventId,
+            info,
+          });
+        }
+        // Legacy flush event kept for back-compat.
         broadcast({
           v: 1,
           type: 'output.flush',
           id: eventId,
           properties: event.properties ?? {},
         });
+        break;
+      }
+
+      case 'message.removed': {
+        const messageID = props?.messageID as string | undefined;
+        if (messageID) {
+          broadcast({
+            v: 1,
+            type: 'message.removed',
+            id: eventId,
+            messageId: messageID,
+          });
+        }
         break;
       }
 

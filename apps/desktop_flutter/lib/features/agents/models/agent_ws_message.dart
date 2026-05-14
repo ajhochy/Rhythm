@@ -21,6 +21,14 @@ abstract class AgentWsMessage {
         return OutputMessage.fromJson(json);
       case 'transcript.append':
         return TranscriptAppendMessage.fromJson(json);
+      case 'message.updated':
+        return MessageUpdatedMessage.fromJson(json);
+      case 'message.part.updated':
+        return MessagePartUpdatedMessage.fromJson(json);
+      case 'message.part.delta':
+        return MessagePartDeltaMessage.fromJson(json);
+      case 'message.removed':
+        return MessageRemovedMessage.fromJson(json);
       case 'trigger.fired':
         return TriggerFiredMessage.fromJson(json);
       case 'notification.push':
@@ -200,6 +208,96 @@ class WsErrorMessage extends AgentWsMessage {
     return WsErrorMessage(
       id: asString(json['id']) ?? '',
       message: asString(json['message']) ?? '',
+    );
+  }
+}
+
+/// Opencode SDK `message.updated` event forwarded by the api_server bridge.
+/// `info` is the SDK Message object: { id, sessionID, role, time, ... }.
+class MessageUpdatedMessage extends AgentWsMessage {
+  const MessageUpdatedMessage({
+    required this.sessionId,
+    required this.info,
+  });
+
+  final String sessionId;
+  final Map<String, dynamic> info;
+
+  String get messageId => asString(info['id']) ?? '';
+  String get role => asString(info['role']) ?? 'assistant';
+
+  factory MessageUpdatedMessage.fromJson(Map<String, dynamic> json) {
+    return MessageUpdatedMessage(
+      sessionId: asString(json['id']) ?? '',
+      info: (json['info'] as Map<String, dynamic>?) ?? const {},
+    );
+  }
+}
+
+/// Opencode SDK `message.part.updated` event. `part` is { id, messageID,
+/// sessionID, type, text?, ... }.
+class MessagePartUpdatedMessage extends AgentWsMessage {
+  const MessagePartUpdatedMessage({
+    required this.sessionId,
+    required this.part,
+  });
+
+  final String sessionId;
+  final Map<String, dynamic> part;
+
+  String get partId => asString(part['id']) ?? '';
+  String get messageId => asString(part['messageID']) ?? '';
+  String get partType => asString(part['type']) ?? 'text';
+  String get text => asString(part['text']) ?? '';
+
+  factory MessagePartUpdatedMessage.fromJson(Map<String, dynamic> json) {
+    return MessagePartUpdatedMessage(
+      sessionId: asString(json['id']) ?? '',
+      part: (json['part'] as Map<String, dynamic>?) ?? const {},
+    );
+  }
+}
+
+/// Opencode SDK `message.part.delta` event — append `delta` to part[field].
+class MessagePartDeltaMessage extends AgentWsMessage {
+  const MessagePartDeltaMessage({
+    required this.sessionId,
+    required this.messageId,
+    required this.partId,
+    required this.field,
+    required this.delta,
+  });
+
+  final String sessionId;
+  final String messageId;
+  final String partId;
+  final String field;
+  final String delta;
+
+  factory MessagePartDeltaMessage.fromJson(Map<String, dynamic> json) {
+    return MessagePartDeltaMessage(
+      sessionId: asString(json['id']) ?? '',
+      messageId: asString(json['messageId']) ?? '',
+      partId: asString(json['partId']) ?? '',
+      field: asString(json['field']) ?? 'text',
+      delta: asString(json['delta']) ?? '',
+    );
+  }
+}
+
+class MessageRemovedMessage extends AgentWsMessage {
+  const MessageRemovedMessage({
+    required this.sessionId,
+    required this.messageId,
+  });
+
+  final String sessionId;
+  final String messageId;
+
+  factory MessageRemovedMessage.fromJson(Map<String, dynamic> json) {
+    return MessageRemovedMessage(
+      sessionId: asString(json['id']) ?? '',
+      messageId: asString(json['messageId']) ?? '',
     );
   }
 }

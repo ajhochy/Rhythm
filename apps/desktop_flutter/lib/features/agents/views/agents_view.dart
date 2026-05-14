@@ -15,6 +15,7 @@ import '../../tasks/models/task.dart';
 import '../controllers/agents_controller.dart';
 import '../models/agent_session.dart';
 import '../models/agent_session_message.dart';
+import '../models/chat_models.dart';
 
 class AgentsView extends StatefulWidget {
   const AgentsView({super.key});
@@ -881,11 +882,16 @@ class _TranscriptPanelState extends State<_TranscriptPanel> {
     AgentsController controller,
     AgentSession session,
   ) {
-    final messages = controller.transcript;
+    // Parts-based chat (Opencode Desktop port). Each ChatMessage holds an
+    // ordered list of ChatParts; streaming deltas append to part.text in
+    // place so the same bubble grows.
+    final chatMessages = controller.chatMessagesFor(session.id);
+    final legacyTranscript = controller.transcript;
     final liveOutput = controller.liveOutputFor(session.id);
-    final hasContent = messages.isNotEmpty || liveOutput.isNotEmpty;
+    final hasChat = chatMessages.isNotEmpty;
+    final hasLegacy = legacyTranscript.isNotEmpty || liveOutput.isNotEmpty;
 
-    if (!hasContent) {
+    if (!hasChat && !hasLegacy) {
       return Center(
         child: Text(
           'Session started. Waiting for output…',
@@ -897,18 +903,35 @@ class _TranscriptPanelState extends State<_TranscriptPanel> {
       );
     }
 
+    // Prefer the parts-based chat when the server emits the new events.
+    if (hasChat) {
+      return ListView.builder(
+        controller: _scrollController,
+        padding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
+        itemCount: chatMessages.length,
+        itemBuilder: (context, index) {
+          final m = chatMessages[index];
+          final parts = controller.chatPartsFor(m.id);
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: _ChatBubble(message: m, parts: parts),
+          );
+        },
+      );
+    }
+
+    // Legacy fallback (older servers / replay path).
     return ListView.builder(
       controller: _scrollController,
       padding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
-      itemCount: messages.length + (liveOutput.isNotEmpty ? 1 : 0),
+      itemCount: legacyTranscript.length + (liveOutput.isNotEmpty ? 1 : 0),
       itemBuilder: (context, index) {
-        if (index < messages.length) {
+        if (index < legacyTranscript.length) {
           return Padding(
             padding: const EdgeInsets.only(bottom: 8),
-            child: _MessageBlock(message: messages[index]),
+            child: _MessageBlock(message: legacyTranscript[index]),
           );
         }
-        // Live output block
         return Padding(
           padding: const EdgeInsets.only(bottom: 8),
           child: _LiveOutputBlock(text: liveOutput),
@@ -1188,6 +1211,88 @@ class _MessageBlock extends StatelessWidget {
         style: TextStyle(
           fontSize: 12,
           fontFamily: 'Menlo',
+          color: context.rhythm.textPrimary,
+          height: 1.5,
+        ),
+      ),
+    );
+  }
+}
+
+/// Renders one ChatMessage and its ordered Parts.
+/// User parts are right-aligned with an accent bubble; assistant parts are
+/// left-aligned in a muted surface. Streaming deltas mutate part.text in
+/// place — the same bubble re-renders larger on each notifyListeners().
+class _ChatBubble extends StatelessWidget {
+  const _ChatBubble({required this.message, required this.parts});
+
+  final ChatMessage message;
+  final List<ChatPart> parts;
+
+  @override
+  Widget build(BuildContext context) {
+    final isUser = message.role == 'user';
+    final text = parts.map((p) => p.text).join('').trim();
+    if (text.isEmpty) {
+      // Empty assistant bubble while waiting for first delta — render a
+      // subtle "thinking" pip so the user knows the turn was accepted.
+      if (!isUser) {
+        return Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: context.rhythm.surfaceMuted,
+            borderRadius: BorderRadius.circular(RhythmRadius.md),
+            border: Border.all(color: context.rhythm.borderSubtle),
+          ),
+          child: Text(
+            '…',
+            style: TextStyle(color: context.rhythm.textMuted, fontSize: 12),
+          ),
+        );
+      }
+      return const SizedBox.shrink();
+    }
+
+    if (isUser) {
+      return Align(
+        alignment: Alignment.centerRight,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 560),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              color: context.rhythm.accentMuted,
+              borderRadius: BorderRadius.circular(RhythmRadius.md),
+              border: Border.all(
+                color: context.rhythm.accent.withValues(alpha: 0.2),
+              ),
+            ),
+            child: SelectableText(
+              text,
+              style: TextStyle(
+                fontSize: 13,
+                color: context.rhythm.accent,
+                height: 1.4,
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: context.rhythm.surfaceMuted,
+        borderRadius: BorderRadius.circular(RhythmRadius.md),
+        border: Border.all(color: context.rhythm.borderSubtle),
+      ),
+      child: SelectableText(
+        text,
+        style: TextStyle(
+          fontSize: 13,
           color: context.rhythm.textPrimary,
           height: 1.5,
         ),
