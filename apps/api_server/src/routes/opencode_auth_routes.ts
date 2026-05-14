@@ -1,7 +1,14 @@
 import { Router, Request, Response } from 'express';
+import { existsSync } from 'fs';
+import { homedir } from 'os';
+import { join } from 'path';
 import { opencodeClient } from '../services/opencode_engine';
+import { CredentialsBridgeService } from '../services/credentials_bridge_service';
 
 export const opencodeAuthRouter = Router();
+
+const credentialsBridge = new CredentialsBridgeService();
+export { credentialsBridge };
 
 // GET / — List connected provider IDs
 opencodeAuthRouter.get('/', async (_req: Request, res: Response) => {
@@ -88,4 +95,32 @@ opencodeAuthRouter.post('/:provider', async (req: Request, res: Response) => {
   } else {
     res.status(500).json({ error: 'Failed to store API key' });
   }
+});
+
+// GET /sources — Report whether Claude Code or Codex credentials are available
+opencodeAuthRouter.get('/sources', (_req: Request, res: Response) => {
+  res.json({
+    claudeCode: credentialsBridge.hasClaudeCode(),
+    codex: existsSync(join(homedir(), '.codex', 'auth.json')),
+  });
+});
+
+// POST /anthropic/bridge — Bridge Claude Code OAuth tokens into the SDK
+opencodeAuthRouter.post('/anthropic/bridge', async (_req: Request, res: Response) => {
+  if (!opencodeClient.isReady) {
+    res.status(503).json({ success: false, reason: 'sdk_not_ready' });
+    return;
+  }
+  const result = await credentialsBridge.bridgeAnthropic(opencodeClient);
+  if (result.success) {
+    res.json(result);
+    return;
+  }
+  const status =
+    result.reason === 'keychain_denied'
+      ? 401
+      : result.reason === 'sdk_not_ready'
+        ? 503
+        : 500;
+  res.status(status).json(result);
 });
