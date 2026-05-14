@@ -41,4 +41,27 @@ describe('OpencodeClientService — SDK response unwrap (.data)', () => {
     });
     expect(await svc.listProviders()).toEqual([]);
   });
+
+  it('listModels unwraps res.data.providers[].models', async () => {
+    const svc = makeService({
+      config: {
+        providers: vi.fn().mockResolvedValue({
+          data: {
+            providers: [
+              {
+                id: 'anthropic',
+                models: [{ id: 'claude-sonnet-4-5', name: 'Claude Sonnet 4.5' }],
+              },
+              { id: 'openrouter', models: [] },
+            ],
+          },
+          request: {}, response: {},
+        }),
+      },
+    });
+    expect(await svc.listModels('anthropic')).toEqual([
+      { id: 'claude-sonnet-4-5', name: 'Claude Sonnet 4.5' },
+    ]);
+    expect(await svc.listModels('unknown')).toEqual([]);
+  });
 });

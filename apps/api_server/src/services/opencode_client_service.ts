@@ -74,10 +74,16 @@ export class OpencodeClientService {
   ): Promise<Array<{ id: string; name?: string }>> {
     if (!this.client) return [];
     try {
-      const res = await this.client.config.providers();
-      const provider = (res.providers ?? []).find(
-        (p) => p.id === providerId,
-      );
+      const raw = (await this.client.config.providers()) as unknown as {
+        data?: {
+          providers?: Array<{
+            id: string;
+            models?: Array<{ id: string; name?: string }>;
+          }>;
+        };
+      };
+      const providers = raw.data?.providers ?? [];
+      const provider = providers.find((p) => p.id === providerId);
       return provider?.models ?? [];
     } catch (err) {
       logger.error(`[OpencodeClientService] listModels failed for ${providerId}:`, err);
