@@ -76,6 +76,23 @@ export function createApp() {
 
   // Opencode engine auth & health
   app.use('/opencode/auth', opencodeAuthRouter);
+
+  // M5-2: custom provider definitions placeholder. Returns 501 until the
+  // SDK config writer is wired through `opencode_plugin_config.ts`.
+  app.put('/opencode/providers', (_req, res) => {
+    res.status(501).json({
+      error: 'NOT_IMPLEMENTED',
+      message:
+        'Custom provider definitions are not yet wired through opencode_plugin_config.ts. Edit opencode.json directly for now.',
+    });
+  });
+
+  // M5-1 (Providers tab) / M4-3 — list user-defined commands from the SDK.
+  // Returns [] until the SDK exposes client.command.list end-to-end so the
+  // Flutter popover renders an empty state instead of throwing.
+  app.get('/opencode/commands', (_req, res) => {
+    res.json([]);
+  });
   app.get('/opencode/health', (_req, res) => {
     res.json({
       status: opencodeClient.isReady ? 'ready' : 'unavailable',

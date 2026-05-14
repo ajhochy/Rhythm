@@ -53,6 +53,9 @@ import 'app/core/workspace/workspace_repository.dart';
 import 'features/notifications/controllers/notifications_controller.dart';
 import 'features/notifications/data/notifications_data_source.dart';
 import 'features/notifications/repositories/notifications_repository.dart';
+import 'features/settings/services/destructive_modal_service.dart';
+import 'features/settings/services/keybinds_service.dart';
+import 'features/settings/services/opencode_server_service.dart';
 import 'features/agent_projects/controllers/agent_projects_controller.dart';
 import 'features/agent_projects/data/agent_projects_remote_data_source.dart';
 import 'features/agent_projects/repositories/agent_projects_repository.dart';
@@ -86,6 +89,14 @@ void main() async {
   await serverConfigService.load();
   final themeModeService = ThemeModeService();
   await themeModeService.load();
+  // M5 — settings-driven services. Load synchronously before runApp so the
+  // first frame already reflects persisted preferences.
+  final destructiveModalService = DestructiveModalService();
+  await destructiveModalService.load();
+  final keybindsService = KeybindsService();
+  await keybindsService.load();
+  final opencodeServerService = OpencodeServerService();
+  await opencodeServerService.load();
 
   // Create the server controller and kick off startup before runApp so the
   // service object is available immediately. The UI shows a loading screen
@@ -111,6 +122,9 @@ void main() async {
       agentServerController: agentServerController,
       serverConfigService: serverConfigService,
       themeModeService: themeModeService,
+      destructiveModalService: destructiveModalService,
+      keybindsService: keybindsService,
+      opencodeServerService: opencodeServerService,
     ),
   );
 }
@@ -124,6 +138,9 @@ class RhythmApp extends StatelessWidget {
     required this.agentServerController,
     required this.serverConfigService,
     required this.themeModeService,
+    required this.destructiveModalService,
+    required this.keybindsService,
+    required this.opencodeServerService,
   });
 
   final AuthSessionService authSessionService;
@@ -132,6 +149,9 @@ class RhythmApp extends StatelessWidget {
   final AgentServerController agentServerController;
   final ServerConfigService serverConfigService;
   final ThemeModeService themeModeService;
+  final DestructiveModalService destructiveModalService;
+  final KeybindsService keybindsService;
+  final OpencodeServerService opencodeServerService;
 
   @override
   Widget build(BuildContext context) {
@@ -143,6 +163,9 @@ class RhythmApp extends StatelessWidget {
         ChangeNotifierProvider.value(value: serverConfigService),
         ChangeNotifierProvider.value(value: authSessionService),
         ChangeNotifierProvider.value(value: themeModeService),
+        ChangeNotifierProvider.value(value: destructiveModalService),
+        ChangeNotifierProvider.value(value: keybindsService),
+        ChangeNotifierProvider.value(value: opencodeServerService),
         ChangeNotifierProvider(
           create: (_) => TasksController(
             TasksRepository(TasksLocalDataSource(baseUrl: baseUrl)),
