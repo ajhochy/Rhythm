@@ -557,6 +557,15 @@ class _SessionListHeader extends StatelessWidget {
                 ),
               ),
               IconButton(
+                icon: const Icon(Icons.refresh, size: 18),
+                tooltip: 'Refresh session list',
+                onPressed: () => context.read<AgentsController>().load(),
+                style: IconButton.styleFrom(
+                  minimumSize: const Size(34, 34),
+                  padding: EdgeInsets.zero,
+                ),
+              ),
+              IconButton(
                 icon: const Icon(Icons.settings_outlined, size: 18),
                 tooltip: 'Agent settings',
                 onPressed: () => showAgentSettingsSheet(context),
