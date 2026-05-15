@@ -166,6 +166,22 @@ class _ModelPickerButton extends StatelessWidget {
       r.providerId == activeRoute!.providerId &&
       r.modelId == activeRoute!.modelId;
 
+  /// Pretty label for a direct provider ID. Falls through unknown IDs.
+  String _providerLabel(String providerId) {
+    switch (providerId) {
+      case 'anthropic':
+        return 'Anthropic';
+      case 'openai':
+        return 'OpenAI';
+      case 'google':
+        return 'Google';
+      case 'github-copilot':
+        return 'GitHub Copilot';
+      default:
+        return providerId;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final accent = context.rhythm.accent;
@@ -237,23 +253,38 @@ class _ModelPickerButton extends StatelessWidget {
     final aggregatorRoutes = routes.where((r) => r.isAggregator).toList();
 
     if (directRoutes.isNotEmpty) {
-      items.add(
-        PopupMenuItem<_ModelPickerEntry>(
-          enabled: false,
-          height: 28,
-          child: Text(
-            'DIRECT ACCOUNTS',
-            style: TextStyle(
-              fontSize: 10,
-              fontWeight: FontWeight.w700,
-              color: context.rhythm.textMuted,
-              letterSpacing: 0.6,
+      // Sub-group direct routes by providerId so users can tell which
+      // "direct" route hits Anthropic vs OpenAI vs Copilot etc. when the
+      // model IDs overlap.
+      final byProvider = <String, List<AgentModelRoute>>{};
+      final order = <String>[];
+      for (final r in directRoutes) {
+        if (byProvider[r.providerId] == null) {
+          order.add(r.providerId);
+          byProvider[r.providerId] = [];
+        }
+        byProvider[r.providerId]!.add(r);
+      }
+      for (final providerId in order) {
+        if (items.isNotEmpty) items.add(const PopupMenuDivider());
+        items.add(
+          PopupMenuItem<_ModelPickerEntry>(
+            enabled: false,
+            height: 28,
+            child: Text(
+              _providerLabel(providerId).toUpperCase(),
+              style: TextStyle(
+                fontSize: 10,
+                fontWeight: FontWeight.w700,
+                color: context.rhythm.textMuted,
+                letterSpacing: 0.6,
+              ),
             ),
           ),
-        ),
-      );
-      for (final route in directRoutes) {
-        items.add(_routeItem(context, route));
+        );
+        for (final route in byProvider[providerId]!) {
+          items.add(_routeItem(context, route));
+        }
       }
     }
 
