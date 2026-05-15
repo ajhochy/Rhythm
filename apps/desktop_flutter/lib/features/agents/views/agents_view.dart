@@ -507,7 +507,10 @@ class _SessionListPanelState extends State<_SessionListPanel> {
             value: context.read<AgentServerController>(),
             child: ChangeNotifierProvider.value(
               value: context.read<AgentConfigsController>(),
-              child: const _NewSessionDialog(),
+              child: ChangeNotifierProvider.value(
+                value: context.read<AgentProjectsController>(),
+                child: const _NewSessionDialog(),
+              ),
             ),
           ),
         ),
@@ -1705,8 +1708,16 @@ class _NewSessionDialogState extends State<_NewSessionDialog> {
   @override
   void initState() {
     super.initState();
-    final home = Platform.environment['HOME'] ?? '~';
-    _cwdController.text = home;
+    // Default the cwd to the selected project's folder when one is active;
+    // otherwise fall back to $HOME. Read once in initState — the user can
+    // still type a different path manually.
+    final projectsCtrl = context.read<AgentProjectsController>();
+    final selectedProject = projectsCtrl.selectedProject;
+    if (selectedProject != null && selectedProject.cwd.isNotEmpty) {
+      _cwdController.text = selectedProject.cwd;
+    } else {
+      _cwdController.text = Platform.environment['HOME'] ?? '~';
+    }
 
     // Compute the default agent: first enabled config whose CLI is installed,
     // falling back to the first enabled config if none are installed.
