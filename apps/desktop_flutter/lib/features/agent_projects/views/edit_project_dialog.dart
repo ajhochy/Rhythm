@@ -1,4 +1,5 @@
-import 'package:file_picker/file_picker.dart';
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -158,16 +159,8 @@ class _EditProjectDialogState extends State<_EditProjectDialog> {
                 const SizedBox(width: 8),
                 OutlinedButton(
                   onPressed: () async {
-                    // Defer one frame so the NSOpenPanel attaches to the
-                    // app's key window instead of getting suppressed behind
-                    // the showDialog modal.
-                    await Future<void>.delayed(Duration.zero);
-                    final path = await FilePicker.getDirectoryPath(
-                      dialogTitle: 'Choose project folder',
-                      lockParentWindow: true,
-                      initialDirectory: _cwd.text.isEmpty ? null : _cwd.text,
-                    );
-                    if (path != null) {
+                    final path = await _pickFolder(_cwd.text);
+                    if (path != null && path.isNotEmpty) {
                       _cwd.text = path;
                     }
                   },
@@ -254,5 +247,47 @@ class _VcsConfirmationLine extends StatelessWidget {
         ),
       ],
     );
+  }
+}
+
+/// Opens the native macOS folder picker via osascript. We use osascript here
+/// instead of the file_picker plugin because the plugin's beginSheetModal
+/// attaches the NSOpenPanel as a sheet of the FlutterView's window, and
+/// macOS only allows one sheet per window at a time. When Pick is invoked
+/// from inside `showDialog`, the Flutter dialog (an in-app overlay) does not
+/// register as a sheet, but in practice the panel gets suppressed and the
+/// click appears to do nothing. osascript invokes Finder directly with a
+/// standalone window — reliable across macOS versions and unaffected by
+/// Flutter overlay state.
+Future<String?> _pickFolder(String initial) async {
+  if (!Platform.isMacOS) return null;
+  // Build the AppleScript. Each `-e` arg is a logical line.
+  final lines = <String>[
+    'tell application "System Events" to activate',
+  ];
+  if (initial.isNotEmpty) {
+    final escaped = initial.replaceAll(r'\', r'\\').replaceAll('"', r'\"');
+    lines.add(
+      'set chosen to (choose folder with prompt "Choose project folder" '
+      'default location (POSIX file "$escaped"))',
+    );
+  } else {
+    lines.add(
+      'set chosen to (choose folder with prompt "Choose project folder")',
+    );
+  }
+  lines.add('return POSIX path of chosen');
+  final args = <String>[];
+  for (final l in lines) {
+    args
+      ..add('-e')
+      ..add(l);
+  }
+  try {
+    final result = await Process.run('/usr/bin/osascript', args);
+    if (result.exitCode != 0) return null;
+    return (result.stdout as String).trim();
+  } catch (_) {
+    return null;
   }
 }
