@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../ui/tokens/rhythm_theme.dart';
+
 /// A consistent error banner used across all views.
 /// Shows a red-tinted message strip with an optional retry button.
 class ErrorBanner extends StatelessWidget {
@@ -10,22 +12,23 @@ class ErrorBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final danger = context.rhythm.danger;
     return Container(
       margin: const EdgeInsets.all(16),
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: BoxDecoration(
-        color: const Color(0xFFFEF2F2),
-        border: Border.all(color: const Color(0xFFFCA5A5)),
+        color: danger.withValues(alpha: 0.10),
+        border: Border.all(color: danger.withValues(alpha: 0.28)),
         borderRadius: BorderRadius.circular(8),
       ),
       child: Row(
         children: [
-          const Icon(Icons.error_outline, color: Color(0xFFDC2626), size: 18),
+          Icon(Icons.error_outline, color: danger, size: 18),
           const SizedBox(width: 10),
           Expanded(
             child: Text(
               message,
-              style: const TextStyle(color: Color(0xFF991B1B), fontSize: 13),
+              style: TextStyle(color: danger, fontSize: 13),
             ),
           ),
           if (onRetry != null) ...[
@@ -33,7 +36,7 @@ class ErrorBanner extends StatelessWidget {
             TextButton(
               onPressed: onRetry,
               style: TextButton.styleFrom(
-                foregroundColor: const Color(0xFFDC2626),
+                foregroundColor: danger,
                 padding: const EdgeInsets.symmetric(
                   horizontal: 12,
                   vertical: 6,
