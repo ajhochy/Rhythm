@@ -217,12 +217,12 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     notifyListeners();
     try {
       final result = await _repository.listSessions();
+      // Show closed sessions in the main list so users can read past
+      // transcripts; the row UI greys them out and they can be removed via
+      // the row's hard-delete action. Only `resumable` sessions move to the
+      // dedicated section.
       _sessions = result
-          .where(
-            (s) =>
-                s.status != AgentSessionStatus.closed &&
-                s.status != AgentSessionStatus.resumable,
-          )
+          .where((s) => s.status != AgentSessionStatus.resumable)
           .toList();
       _resumable = result
           .where((s) => s.status == AgentSessionStatus.resumable)
@@ -570,11 +570,7 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   void _onWsMessage(AgentWsMessage msg) {
     if (msg is SessionsListMessage) {
       _sessions = msg.sessions
-          .where(
-            (s) =>
-                s.status != AgentSessionStatus.closed &&
-                s.status != AgentSessionStatus.resumable,
-          )
+          .where((s) => s.status != AgentSessionStatus.resumable)
           .toList();
       _resumable = [
         ...msg.sessions.where((s) => s.status == AgentSessionStatus.resumable),

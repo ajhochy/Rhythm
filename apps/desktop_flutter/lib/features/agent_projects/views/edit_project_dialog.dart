@@ -1,3 +1,4 @@
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -8,9 +9,9 @@ import '../models/agent_project.dart';
 /// Shared create / edit project dialog. Called from the rail's `+` button
 /// (create) and from a long-press / context-menu on a rail icon (edit).
 ///
-/// Folder picker UX is currently a plain text field — `file_picker` is not
-/// yet a dependency. The "Pick…" button is reserved for a follow-up; users
-/// paste/type the absolute path for now.
+/// The "Pick…" button opens the native folder picker (macOS/Windows/Linux)
+/// and writes the chosen absolute path into the field. Users can still type
+/// the path directly.
 ///
 /// On save the dialog stays open for ~800ms to show the server's VCS probe
 /// result before dismissing.
@@ -155,13 +156,17 @@ class _EditProjectDialogState extends State<_EditProjectDialog> {
                   ),
                 ),
                 const SizedBox(width: 8),
-                // Folder picker stub — needs file_picker dep (follow-up).
-                const Tooltip(
-                  message: 'Folder picker coming soon — paste path for now',
-                  child: OutlinedButton(
-                    onPressed: null,
-                    child: Text('Pick…'),
-                  ),
+                OutlinedButton(
+                  onPressed: () async {
+                    final path = await FilePicker.getDirectoryPath(
+                      dialogTitle: 'Choose project folder',
+                      initialDirectory: _cwd.text.isEmpty ? null : _cwd.text,
+                    );
+                    if (path != null) {
+                      _cwd.text = path;
+                    }
+                  },
+                  child: const Text('Pick…'),
                 ),
               ],
             ),
