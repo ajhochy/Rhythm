@@ -20,6 +20,10 @@ import 'package:rhythm_desktop/features/agents/views/agents_view.dart';
 import 'package:rhythm_desktop/features/notifications/controllers/notifications_controller.dart';
 import 'package:rhythm_desktop/features/notifications/data/notifications_data_source.dart';
 import 'package:rhythm_desktop/features/notifications/repositories/notifications_repository.dart';
+import 'package:rhythm_desktop/features/agent_projects/controllers/agent_projects_controller.dart';
+import 'package:rhythm_desktop/features/agent_projects/data/agent_projects_remote_data_source.dart';
+import 'package:rhythm_desktop/features/agent_projects/models/agent_project.dart';
+import 'package:rhythm_desktop/features/agent_projects/repositories/agent_projects_repository.dart';
 import 'package:rhythm_desktop/features/tasks/controllers/tasks_controller.dart';
 import 'package:rhythm_desktop/features/tasks/data/tasks_local_data_source.dart';
 import 'package:rhythm_desktop/features/tasks/models/task.dart';
@@ -109,6 +113,7 @@ class _ErrorAgentsRepository implements AgentsRepository {
     String? taskId,
     required String cwd,
     required String name,
+    String? projectId,
   }) async {
     throw AppError(
       message,
@@ -122,6 +127,21 @@ class _ErrorAgentsRepository implements AgentsRepository {
 
   @override
   Future<void> deleteSession(String id) async {}
+
+  @override
+  Future<void> cancelSession(String id) async {}
+
+  @override
+  Future<AgentSession> updateSession(
+    String id, {
+    String? name,
+    String? providerId,
+    String? modelId,
+    bool clearProvider = false,
+    bool clearModel = false,
+  }) async {
+    throw UnimplementedError();
+  }
 
   @override
   Future<AgentSession> resumeSession(String id) async {
@@ -194,6 +214,10 @@ Future<Widget> _buildTestApp({
     TasksRepository(_EmptyTasksLocalDataSource()),
   );
 
+  final agentProjectsController = AgentProjectsController(
+    AgentProjectsRepository(_EmptyAgentProjectsRemote()),
+  );
+
   return MultiProvider(
     providers: [
       ChangeNotifierProvider<AgentServerController>.value(
@@ -204,9 +228,19 @@ Future<Widget> _buildTestApp({
       ),
       ChangeNotifierProvider<AgentsController>.value(value: agentsController),
       ChangeNotifierProvider<TasksController>.value(value: tasksController),
+      ChangeNotifierProvider<AgentProjectsController>.value(
+        value: agentProjectsController,
+      ),
     ],
     child: const MaterialApp(home: Scaffold(body: AgentsView())),
   );
+}
+
+class _EmptyAgentProjectsRemote extends AgentProjectsRemoteDataSource {
+  _EmptyAgentProjectsRemote() : super();
+  @override
+  Future<List<AgentProject>> list({bool includeArchived = false}) async =>
+      const [];
 }
 
 class _EmptyTasksLocalDataSource extends TasksLocalDataSource {

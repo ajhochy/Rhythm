@@ -1049,4 +1049,43 @@ export function runMigrations(db: Database.Database): void {
     // 5. Log affected row counts at INFO level for audit after deploy.
     console.log(`backfill_scheduled_date_v1: tasks updated=${tasksUpdated}, project_steps updated=${stepsUpdated}`);
   }
+
+  // M1-1 (issue #586) — Projects: parent entity for agent sessions.
+  // Local-only (SQLite); no Postgres path. VCS fields populated by services/vcs_probe.ts
+  // at create / on demand via POST /projects/:id/refresh-vcs.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS projects (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      cwd TEXT NOT NULL,
+      icon TEXT,
+      vcs_root TEXT,
+      vcs_branch TEXT,
+      vcs_dirty INTEGER NOT NULL DEFAULT 0,
+      vcs_checked_at TEXT,
+      created_at TEXT NOT NULL,
+      archived_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_projects_archived ON projects(archived_at);
+  `);
+
+  // M2-1 (issue #593) — session-level provider/model/agentMode overrides.
+  const m2Cols = (db.pragma('table_info(agent_sessions)') as { name: string }[]).map((c) => c.name);
+  if (!m2Cols.includes('provider_id')) {
+    db.exec(`ALTER TABLE agent_sessions ADD COLUMN provider_id TEXT`);
+  }
+  if (!m2Cols.includes('model_id')) {
+    db.exec(`ALTER TABLE agent_sessions ADD COLUMN model_id TEXT`);
+  }
+  if (!m2Cols.includes('agent_mode')) {
+    db.exec(`ALTER TABLE agent_sessions ADD COLUMN agent_mode TEXT`);
+  }
+
+  // M1-2 (issue #587) — agent_sessions.project_id (nullable, logical FK to projects.id).
+  // PRAGMA foreign_keys is not enabled globally in this repo, so REFERENCES is informational.
+  const agentSessionColsM1 = (db.pragma('table_info(agent_sessions)') as { name: string }[]).map((c) => c.name);
+  if (!agentSessionColsM1.includes('project_id')) {
+    db.exec(`ALTER TABLE agent_sessions ADD COLUMN project_id TEXT REFERENCES projects(id)`);
+  }
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_agent_sessions_project ON agent_sessions(project_id)`);
 }

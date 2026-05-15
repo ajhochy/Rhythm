@@ -26,6 +26,7 @@ class AgentSession {
     this.sessionToken,
     required this.cwd,
     required this.name,
+    this.projectId,
     this.lastPreview,
     this.lastActivityAt,
     required this.createdAt,
@@ -39,6 +40,7 @@ class AgentSession {
   final String? sessionToken;
   final String cwd;
   final String name;
+  final String? projectId;
   final String? lastPreview;
   final DateTime? lastActivityAt;
   final DateTime createdAt;
@@ -60,6 +62,7 @@ class AgentSession {
       sessionToken: asString(json['sessionToken']),
       cwd: asString(json['cwd']) ?? '',
       name: asString(json['name']) ?? '',
+      projectId: asString(json['projectId']),
       lastPreview: asString(json['lastPreview']),
       lastActivityAt: _parseDateTime(asString(json['lastActivityAt'])),
       createdAt: _parseDateTime(asString(json['createdAt'])) ?? _epoch,
@@ -76,6 +79,7 @@ class AgentSession {
       if (sessionToken != null) 'sessionToken': sessionToken,
       'cwd': cwd,
       'name': name,
+      if (projectId != null) 'projectId': projectId,
       if (lastPreview != null) 'lastPreview': lastPreview,
       if (lastActivityAt != null)
         'lastActivityAt': lastActivityAt!.toUtc().toIso8601String(),

@@ -151,6 +151,7 @@ class AgentsDataSource {
     String? taskId,
     required String cwd,
     required String name,
+    String? projectId,
   }) async {
     final response = await http.post(
       Uri.parse('$_baseUrl/agent-sessions'),
@@ -160,12 +161,56 @@ class AgentsDataSource {
         'cwd': cwd,
         'name': name,
         if (taskId != null) 'taskId': taskId,
+        if (projectId != null) 'projectId': projectId,
       }),
     );
     assertOk(response);
     return AgentSession.fromJson(
       jsonDecode(response.body) as Map<String, dynamic>,
     );
+  }
+
+  // M2-1: session-level rename + provider/model override.
+  Future<AgentSession> updateSession(
+    String id, {
+    String? name,
+    String? providerId,
+    String? modelId,
+    bool clearProvider = false,
+    bool clearModel = false,
+  }) async {
+    final payload = <String, dynamic>{};
+    if (name != null) payload['name'] = name;
+    if (clearProvider) {
+      payload['providerId'] = null;
+    } else if (providerId != null) {
+      payload['providerId'] = providerId;
+    }
+    if (clearModel) {
+      payload['modelId'] = null;
+    } else if (modelId != null) {
+      payload['modelId'] = modelId;
+    }
+    final response = await http.patch(
+      Uri.parse('$_baseUrl/agent-sessions/$id'),
+      headers: AuthSessionStore.headers(json: true),
+      body: jsonEncode(payload),
+    );
+    assertOk(response);
+    return AgentSession.fromJson(
+      jsonDecode(response.body) as Map<String, dynamic>,
+    );
+  }
+
+  // M2-4: cancel an in-flight turn for a session.
+  Future<void> cancelSession(String id) async {
+    final response = await http.post(
+      Uri.parse('$_baseUrl/agent-sessions/$id/cancel'),
+      headers: AuthSessionStore.headers(),
+    );
+    if (response.statusCode != 204) {
+      assertOk(response);
+    }
   }
 
   Future<void> closeSession(String id) async {

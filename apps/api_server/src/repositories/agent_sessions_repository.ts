@@ -14,6 +14,10 @@ interface AgentSessionRow {
   session_token: string | null;
   cwd: string;
   name: string;
+  project_id: string | null;
+  provider_id: string | null;
+  model_id: string | null;
+  agent_mode: string | null;
   last_preview: string | null;
   last_activity_at: string | null;
   created_at: string;
@@ -30,6 +34,10 @@ function rowToModel(row: AgentSessionRow): AgentSession {
     sessionToken: row.session_token,
     cwd: row.cwd,
     name: row.name,
+    projectId: row.project_id ?? null,
+    providerId: row.provider_id ?? null,
+    modelId: row.model_id ?? null,
+    agentMode: row.agent_mode ?? null,
     lastPreview: row.last_preview,
     lastActivityAt: row.last_activity_at,
     createdAt: row.created_at,
@@ -43,11 +51,31 @@ export class AgentSessionsRepository {
     const now = new Date().toISOString();
     getDb()
       .prepare(
-        `INSERT INTO agent_sessions (id, task_id, task_title, agent_kind, status, cwd, name, created_at, updated_at)
-         VALUES (?, ?, ?, ?, 'starting', ?, ?, ?, ?)`,
+        `INSERT INTO agent_sessions (id, task_id, task_title, agent_kind, status, cwd, name, project_id, created_at, updated_at)
+         VALUES (?, ?, ?, ?, 'starting', ?, ?, ?, ?, ?)`,
       )
-      .run(id, dto.taskId ?? null, dto.taskTitle ?? null, dto.agentKind, dto.cwd, dto.name, now, now);
+      .run(
+        id,
+        dto.taskId ?? null,
+        dto.taskTitle ?? null,
+        dto.agentKind,
+        dto.cwd,
+        dto.name,
+        dto.projectId ?? null,
+        now,
+        now,
+      );
     return this.findById(id)!;
+  }
+
+  listByProject(projectId: string | null, limit = 100): AgentSession[] {
+    const sql = projectId === null
+      ? `SELECT * FROM agent_sessions WHERE project_id IS NULL ORDER BY created_at DESC LIMIT ?`
+      : `SELECT * FROM agent_sessions WHERE project_id = ? ORDER BY created_at DESC LIMIT ?`;
+    const rows = projectId === null
+      ? (getDb().prepare(sql).all(limit) as AgentSessionRow[])
+      : (getDb().prepare(sql).all(projectId, limit) as AgentSessionRow[]);
+    return rows.map(rowToModel);
   }
 
   findById(id: string): AgentSession | null {
@@ -128,6 +156,42 @@ export class AgentSessionsRepository {
       .prepare(`DELETE FROM agent_sessions WHERE id = ?`)
       .run(id);
     return result.changes;
+  }
+
+  updateFields(
+    id: string,
+    fields: {
+      name?: string;
+      providerId?: string | null;
+      modelId?: string | null;
+      agentMode?: string | null;
+    },
+  ): void {
+    const sets: string[] = [];
+    const values: unknown[] = [];
+    if (fields.name !== undefined) {
+      sets.push('name = ?');
+      values.push(fields.name);
+    }
+    if (fields.providerId !== undefined) {
+      sets.push('provider_id = ?');
+      values.push(fields.providerId);
+    }
+    if (fields.modelId !== undefined) {
+      sets.push('model_id = ?');
+      values.push(fields.modelId);
+    }
+    if (fields.agentMode !== undefined) {
+      sets.push('agent_mode = ?');
+      values.push(fields.agentMode);
+    }
+    if (sets.length === 0) return;
+    sets.push('updated_at = ?');
+    values.push(new Date().toISOString());
+    values.push(id);
+    getDb()
+      .prepare(`UPDATE agent_sessions SET ${sets.join(', ')} WHERE id = ?`)
+      .run(...values);
   }
 
   deleteOlderThan(cutoffIso: string): number {

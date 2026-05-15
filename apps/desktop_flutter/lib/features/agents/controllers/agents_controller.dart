@@ -293,6 +293,44 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     }
   }
 
+  /// M2-1 / M2-5: PATCH the session row (rename + persistent provider/model).
+  Future<void> updateSession(
+    String id, {
+    String? name,
+    String? providerId,
+    String? modelId,
+    bool clearProvider = false,
+    bool clearModel = false,
+  }) async {
+    try {
+      final updated = await _repository.updateSession(
+        id,
+        name: name,
+        providerId: providerId,
+        modelId: modelId,
+        clearProvider: clearProvider,
+        clearModel: clearModel,
+      );
+      _sessions = [
+        for (final s in _sessions) s.id == id ? updated : s,
+      ];
+      notifyListeners();
+    } catch (e) {
+      _error = e is AppError ? e.message : e.toString();
+      notifyListeners();
+    }
+  }
+
+  /// M2-4: cancel an in-flight turn.
+  Future<void> cancelSession(String id) async {
+    try {
+      await _repository.cancelSession(id);
+    } catch (e) {
+      _error = e is AppError ? e.message : e.toString();
+      notifyListeners();
+    }
+  }
+
   Future<void> closeSession(String id) async {
     if (!_agentServerController.isReady) {
       _sessions = _sessions.where((s) => s.id != id).toList();
@@ -361,45 +399,56 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   // WebSocket send helpers
   // --------------------------------------------------------------------------
 
-  void sendInput(String sessionId, String data) {
+  void sendInput(
+    String sessionId,
+    String data, {
+    List<Map<String, dynamic>>? attachments,
+  }) {
     final override = _pendingTurnOverride;
-    _pendingTurnOverride = null;
-    final msg = <String, dynamic>{
+    final useParts = attachments != null && attachments.isNotEmpty;
+    _repository.send({
       'type': 'session.input',
       'id': sessionId,
-      'data': data,
-    };
+      // M4-1: when attachments exist, send a structured parts array; the
+      // backend composes text + files into the SDK promptAsync call.
+      if (useParts)
+        'parts': [
+          {'type': 'text', 'text': data},
+          ...attachments,
+        ]
+      else
+        'data': data,
+      // M2-2: per-turn override is consumed once on send, never persisted.
+      if (override != null)
+        'modelOverride': {
+          'providerId': override.providerId,
+          'modelId': override.modelId,
+        },
+    });
     if (override != null) {
-      msg['modelOverride'] = {
-        'providerId': override.providerId,
-        'modelId': override.modelId,
-      };
+      _pendingTurnOverride = null;
+      notifyListeners();
     }
-    _repository.send(msg);
   }
 
-  /// Set a per-turn model override to be attached to the next [sendInput] call.
-  /// Pass null to clear the override.
+  /// Convenience wrapper used by SessionModelPicker — stages a per-turn
+  /// override using the picker's row type. Pass null to clear.
   void setTurnOverride(AgentModelRoute? route) {
     _pendingTurnOverride = route;
     notifyListeners();
   }
 
-  /// Persist a session-level model default via PATCH /agent-sessions/:id.
+  /// Convenience wrapper used by SessionModelPicker — persists the route as
+  /// the session-level default via [updateSession].
   Future<void> setSessionModel(
     String sessionId,
     AgentModelRoute route,
   ) async {
-    try {
-      await _modelsDataSource.updateSessionModel(
-        sessionId,
-        route.providerId,
-        route.modelId,
-      );
-    } catch (e) {
-      _error = e.toString();
-      notifyListeners();
-    }
+    await updateSession(
+      sessionId,
+      providerId: route.providerId,
+      modelId: route.modelId,
+    );
   }
 
   void resize(String sessionId, int cols, int rows) {
@@ -580,6 +629,7 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
         partId: msg.partId,
         type: msg.partType,
         text: msg.text,
+        raw: msg.part,
       );
     } else if (msg is MessagePartDeltaMessage) {
       _appendChatDelta(
@@ -680,6 +730,7 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     required String partId,
     required String type,
     required String text,
+    Map<String, dynamic>? raw,
   }) {
     if (messageId.isEmpty || partId.isEmpty) return;
     final list = _chatPartsByMessage.putIfAbsent(messageId, () => []);
@@ -687,13 +738,16 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     if (idx >= 0) {
       // Re-emit replaces text (the SDK sends the canonical part on update).
       list[idx].text = text;
+      if (raw != null) list[idx].mergePart(raw);
     } else {
-      list.add(ChatPart(
+      final part = ChatPart(
         id: partId,
         messageId: messageId,
         type: type,
         text: text,
-      ));
+      );
+      if (raw != null) part.mergePart(raw);
+      list.add(part);
     }
   }
 
