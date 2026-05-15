@@ -185,7 +185,10 @@ class _EditProjectDialogState extends State<_EditProjectDialog> {
                 labelText: 'Icon (emoji or #RRGGBB)',
                 hintText: 'optional',
               ),
-              maxLength: 7,
+              // No maxLength — emojis can span many code points (ZWJ
+              // sequences, skin-tone modifiers, etc.) and a 7-char cap
+              // truncates them into U+FFFC replacement characters. Hex
+              // codes are 7 chars; users can paste either.
             ),
             if (_showVcsConfirmation && _vcsResult != null) ...[
               const SizedBox(height: 8),

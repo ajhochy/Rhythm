@@ -11,17 +11,36 @@ import '../../agent_projects/views/edit_project_dialog.dart';
 /// Layout: ⭐ All-sessions pseudo-project, divider, one icon per project,
 /// `+` button at the bottom. Selected entry uses the primary-tint background
 /// from theme tokens.
-class ProjectsRail extends StatelessWidget {
+class ProjectsRail extends StatefulWidget {
   const ProjectsRail({super.key, this.onAddProject});
 
-  /// Called when the user taps the `+` button. M1-6 wires this to the
-  /// create-project dialog; M1-5 ships a no-op placeholder until then.
+  /// Called when the user taps the `+` button.
   final VoidCallback? onAddProject;
 
   static const double railWidth = 64;
 
   @override
+  State<ProjectsRail> createState() => _ProjectsRailState();
+}
+
+class _ProjectsRailState extends State<ProjectsRail> {
+  @override
+  void initState() {
+    super.initState();
+    // Fetch existing projects from the server on first paint so the rail
+    // reflects what is persisted, not just whatever the user creates this
+    // session.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      context.read<AgentProjectsController>().load();
+    });
+  }
+
+  static const double railWidth = ProjectsRail.railWidth;
+
+  @override
   Widget build(BuildContext context) {
+    final onAddProject = widget.onAddProject;
     final controller = context.watch<AgentProjectsController>();
     final selectedId = controller.selectedProjectId;
 
