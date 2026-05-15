@@ -8,7 +8,6 @@ import '../../../app/core/agents/agent_server_controller.dart';
 import '../../../app/core/ui/tokens/rhythm_theme.dart';
 import '../../agent_configs/controllers/agent_configs_controller.dart';
 import '../../agent_configs/models/agent_config.dart';
-import '../../agent_configs/views/manage_agents_view.dart';
 import '../../settings/views/settings_view.dart';
 import '../../agent_configs/widgets/agent_icon.dart';
 import '../../tasks/controllers/tasks_controller.dart';
@@ -261,7 +260,7 @@ class _NoAgentsAvailable extends StatelessWidget {
 // Left panel — session list
 // ---------------------------------------------------------------------------
 
-class _SessionListPanel extends StatelessWidget {
+class _SessionListPanel extends StatefulWidget {
   const _SessionListPanel({
     required this.resumableSectionExpanded,
     required this.onToggleResumable,
@@ -271,7 +270,69 @@ class _SessionListPanel extends StatelessWidget {
   final VoidCallback onToggleResumable;
 
   @override
+  State<_SessionListPanel> createState() => _SessionListPanelState();
+}
+
+class _SessionListPanelState extends State<_SessionListPanel> {
+  /// Sessions selected via Shift-click for bulk actions.
+  final Set<String> _multiSelected = {};
+
+  bool get _hasMultiSelection => _multiSelected.isNotEmpty;
+
+  void _onRowTap(String id) {
+    final isShift = HardwareKeyboard.instance.isShiftPressed;
+    if (isShift) {
+      setState(() {
+        if (_multiSelected.contains(id)) {
+          _multiSelected.remove(id);
+        } else {
+          _multiSelected.add(id);
+        }
+      });
+      return;
+    }
+    if (_hasMultiSelection) {
+      setState(() => _multiSelected.clear());
+    }
+    context.read<AgentsController>().selectSession(id);
+  }
+
+  Future<void> _confirmBulkDelete() async {
+    final ids = _multiSelected.toList();
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Delete ${ids.length} sessions?'),
+        content: const Text(
+          'This permanently removes the selected sessions and all of their '
+          'messages. This cannot be undone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(ctx).colorScheme.error,
+            ),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: Text('Delete ${ids.length}'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    if (!mounted) return;
+    await context.read<AgentsController>().deleteSessions(ids);
+    if (!mounted) return;
+    setState(() => _multiSelected.clear());
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final resumableSectionExpanded = widget.resumableSectionExpanded;
+    final onToggleResumable = widget.onToggleResumable;
     final controller = context.watch<AgentsController>();
     final agentServerController = context.watch<AgentServerController>();
     final projectsController = context.watch<AgentProjectsController>();
@@ -316,6 +377,47 @@ class _SessionListPanel extends StatelessWidget {
             ),
           Divider(height: 1, color: context.rhythm.borderSubtle),
           const _DisconnectedBanner(),
+          if (_hasMultiSelection)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              color: context.rhythm.accentMuted,
+              child: Row(
+                children: [
+                  Text(
+                    '${_multiSelected.length} selected',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: context.rhythm.accent,
+                    ),
+                  ),
+                  const Spacer(),
+                  TextButton(
+                    onPressed: () => setState(() => _multiSelected.clear()),
+                    style: TextButton.styleFrom(
+                      minimumSize: Size.zero,
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
+                    child: const Text('Cancel'),
+                  ),
+                  const SizedBox(width: 6),
+                  FilledButton.tonal(
+                    onPressed: _confirmBulkDelete,
+                    style: FilledButton.styleFrom(
+                      backgroundColor:
+                          Theme.of(context).colorScheme.error.withValues(
+                                alpha: 0.18,
+                              ),
+                      foregroundColor: Theme.of(context).colorScheme.error,
+                      minimumSize: const Size(0, 30),
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                    ),
+                    child: const Text('Delete'),
+                  ),
+                ],
+              ),
+            ),
           Expanded(
             child: controller.status == AgentsLoadStatus.loading &&
                     filteredSessions.isEmpty
@@ -335,12 +437,12 @@ class _SessionListPanel extends StatelessWidget {
                               session: session,
                               isSelected:
                                   controller.selectedSessionId == session.id,
+                              isMultiSelected:
+                                  _multiSelected.contains(session.id),
                               isWorking: controller.isWorking(session.id),
                               isStuck:
                                   controller.connectivity.isStuck(session.id),
-                              onTap: () => context
-                                  .read<AgentsController>()
-                                  .selectSession(session.id),
+                              onTap: () => _onRowTap(session.id),
                             ),
                             const SizedBox(height: 8),
                           ],
@@ -496,40 +598,6 @@ class _SessionListHeader extends StatelessWidget {
           const SizedBox(height: 10),
           Row(
             children: [
-              TextButton.icon(
-                icon: Icon(
-                  Icons.tune,
-                  size: 15,
-                  color: context.rhythm.textSecondary,
-                ),
-                label: Text(
-                  'Manage agents',
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    color: context.rhythm.textSecondary,
-                  ),
-                ),
-                onPressed: () {
-                  Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                      builder: (_) => const ManageAgentsView(),
-                    ),
-                  );
-                },
-                style: TextButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 6,
-                  ),
-                  minimumSize: Size.zero,
-                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(RhythmRadius.sm),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
               const _AgentServerStatusDot(),
             ],
           ),
@@ -588,16 +656,19 @@ class _SessionRow extends StatelessWidget {
     required this.isWorking,
     required this.isStuck,
     required this.onTap,
+    this.isMultiSelected = false,
   });
 
   final AgentSession session;
   final bool isSelected;
+  final bool isMultiSelected;
   final bool isWorking;
   final bool isStuck;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
+    final highlighted = isSelected || isMultiSelected;
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(RhythmRadius.lg),
@@ -606,16 +677,19 @@ class _SessionRow extends StatelessWidget {
         curve: Curves.easeOut,
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: isSelected
+          color: highlighted
               ? context.rhythm.accentMuted
               : context.rhythm.surfaceMuted,
           borderRadius: BorderRadius.circular(RhythmRadius.lg),
           border: Border.all(
-            color: isSelected
-                ? context.rhythm.accent.withValues(alpha: 0.28)
-                : context.rhythm.border,
+            color: isMultiSelected
+                ? context.rhythm.accent
+                : isSelected
+                    ? context.rhythm.accent.withValues(alpha: 0.28)
+                    : context.rhythm.border,
+            width: isMultiSelected ? 2 : 1,
           ),
-          boxShadow: isSelected
+          boxShadow: highlighted
               ? [
                   BoxShadow(
                     color: context.rhythm.accent.withValues(alpha: 0.08),

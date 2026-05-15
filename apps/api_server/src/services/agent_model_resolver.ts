@@ -19,21 +19,34 @@ export const ROUTE_FALLBACKS_BY_AGENT: Record<
   Array<{ providerID: string; modelID: string }>
 > = {
   'claude-code': [
+    { providerID: 'anthropic', modelID: 'claude-opus-4-7' },
+    { providerID: 'anthropic', modelID: 'claude-opus-4-5' },
     { providerID: 'anthropic', modelID: 'claude-sonnet-4-6' },
+    { providerID: 'anthropic', modelID: 'claude-haiku-4-5' },
+    { providerID: 'github-copilot', modelID: 'claude-opus-4-7' },
+    { providerID: 'github-copilot', modelID: 'claude-sonnet-4-6' },
     { providerID: 'github-copilot', modelID: 'claude-haiku-4.5' },
+    { providerID: 'openrouter', modelID: 'anthropic/claude-opus-4.7' },
+    { providerID: 'openrouter', modelID: 'anthropic/claude-opus-4.5' },
     { providerID: 'openrouter', modelID: 'anthropic/claude-sonnet-4.6' },
+    { providerID: 'openrouter', modelID: 'anthropic/claude-haiku-4.5' },
   ],
   codex: [
     { providerID: 'openai', modelID: 'gpt-5.3-codex' },
+    { providerID: 'openai', modelID: 'gpt-5.3' },
+    { providerID: 'openai', modelID: 'gpt-5-mini' },
     { providerID: 'github-copilot', modelID: 'gpt-5-mini' },
     { providerID: 'openrouter', modelID: 'openai/gpt-5.3-codex' },
+    { providerID: 'openrouter', modelID: 'openai/gpt-5.3' },
   ],
   'gemini-cli': [
     { providerID: 'google', modelID: 'gemini-3-pro-preview' },
+    { providerID: 'google', modelID: 'gemini-3-flash' },
     {
       providerID: 'openrouter',
       modelID: 'google/gemini-3.1-pro-preview-customtools',
     },
+    { providerID: 'openrouter', modelID: 'google/gemini-3-flash' },
   ],
   // The bare "opencode" agent kind: prefer the user's opencode config
   // (left unmapped so the SDK uses its own defaults), but fall back to

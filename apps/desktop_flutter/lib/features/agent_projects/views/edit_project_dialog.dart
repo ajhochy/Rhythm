@@ -158,8 +158,13 @@ class _EditProjectDialogState extends State<_EditProjectDialog> {
                 const SizedBox(width: 8),
                 OutlinedButton(
                   onPressed: () async {
+                    // Defer one frame so the NSOpenPanel attaches to the
+                    // app's key window instead of getting suppressed behind
+                    // the showDialog modal.
+                    await Future<void>.delayed(Duration.zero);
                     final path = await FilePicker.getDirectoryPath(
                       dialogTitle: 'Choose project folder',
+                      lockParentWindow: true,
                       initialDirectory: _cwd.text.isEmpty ? null : _cwd.text,
                     );
                     if (path != null) {

@@ -33,6 +33,7 @@ import '../../../app/core/ui/tokens/rhythm_theme.dart';
 import '../../settings/services/destructive_modal_service.dart';
 import '../../settings/services/keybinds_service.dart';
 import '../../settings/services/opencode_server_service.dart';
+import '../../settings/widgets/ai_account_section.dart';
 
 /// Opens the "Agent settings" dialog.  Call from the gear IconButton's
 /// onPressed in _SessionListHeader.
@@ -92,12 +93,17 @@ class _AgentSettingsDialog extends StatelessWidget {
         ],
       ),
       content: SizedBox(
-        width: 480,
+        width: 520,
+        height: 640,
         child: SingleChildScrollView(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: const [
+              _AccountsSection(),
+              SizedBox(height: 20),
+              _Divider(),
+              SizedBox(height: 20),
               _BehaviorSection(),
               SizedBox(height: 20),
               _Divider(),
@@ -130,6 +136,24 @@ class _AgentSettingsDialog extends StatelessWidget {
 // ---------------------------------------------------------------------------
 // Section 1 — Behavior
 // ---------------------------------------------------------------------------
+
+/// Wraps the existing AiAccountSection (provider/API-key auth flows) so it
+/// renders inside the Agent settings sheet instead of the main app Settings.
+class _AccountsSection extends StatelessWidget {
+  const _AccountsSection();
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: const [
+        _SectionHeader('Accounts'),
+        SizedBox(height: 12),
+        AiAccountSection(),
+      ],
+    );
+  }
+}
 
 class _BehaviorSection extends StatelessWidget {
   const _BehaviorSection();

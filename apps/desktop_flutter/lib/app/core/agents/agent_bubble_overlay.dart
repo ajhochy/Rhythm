@@ -5,7 +5,6 @@ import 'package:provider/provider.dart';
 
 import '../../../features/agent_configs/controllers/agent_configs_controller.dart';
 import '../../../features/agent_configs/models/agent_config.dart';
-import '../../../features/agent_configs/views/manage_agents_view.dart';
 import '../../../features/agent_configs/widgets/agent_icon.dart';
 import '../../../features/agents/controllers/agents_controller.dart';
 import '../../../features/agents/models/agent_session.dart';
@@ -550,23 +549,12 @@ class _ExpandedTriggerBubbleState extends State<_ExpandedTriggerBubble> {
                       ],
                     )
             else
-              GestureDetector(
-                onTap: () {
-                  Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                      builder: (_) => const ManageAgentsView(),
-                    ),
-                  );
-                },
-                child: Text(
-                  'No agents configured. Open Manage agents.',
-                  style: TextStyle(
-                    fontSize: 11.5,
-                    color: context.rhythm.accent,
-                    decoration: TextDecoration.underline,
-                    decorationColor: context.rhythm.accent,
-                    height: 1.35,
-                  ),
+              Text(
+                'No agents configured. Open Agent settings to connect.',
+                style: TextStyle(
+                  fontSize: 11.5,
+                  color: context.rhythm.textMuted,
+                  height: 1.35,
                 ),
               ),
             if (_errorMessage != null) ...[

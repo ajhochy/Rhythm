@@ -267,6 +267,41 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     }
   }
 
+  /// Bulk hard-delete sessions in parallel. Optimistically removes all
+  /// rows from local state up-front; on per-row server failure the row
+  /// is restored and an error surfaced. Used by Shift-click multi-select.
+  Future<void> deleteSessions(Iterable<String> ids) async {
+    final idSet = ids.toSet();
+    if (idSet.isEmpty) return;
+    final previous = _sessions;
+    _sessions = _sessions.where((s) => !idSet.contains(s.id)).toList();
+    if (_selectedSessionId != null && idSet.contains(_selectedSessionId)) {
+      _selectedSessionId = null;
+    }
+    for (final id in idSet) {
+      _liveOutputBuffer.remove(id);
+      sessionFirstSeenAt.remove(id);
+    }
+    notifyListeners();
+
+    if (!_agentServerController.isReady) return;
+    final failed = <String>[];
+    await Future.wait(idSet.map((id) async {
+      try {
+        await _repository.deleteSession(id);
+      } catch (_) {
+        failed.add(id);
+      }
+    }));
+    if (failed.isNotEmpty) {
+      // Restore the rows that failed (best effort: re-attach from `previous`).
+      final restored = previous.where((s) => failed.contains(s.id)).toList();
+      _sessions = [...restored, ..._sessions];
+      _error = 'Failed to delete ${failed.length} session(s).';
+      notifyListeners();
+    }
+  }
+
   /// Hard-delete a session (row + messages) via the new
   /// `DELETE /agent-sessions/:id/hard` endpoint. The list is updated
   /// optimistically; on failure we restore the row and surface the error.
