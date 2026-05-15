@@ -17,6 +17,8 @@ import '../controllers/agents_controller.dart';
 import '../models/agent_session.dart';
 import '../models/agent_session_message.dart';
 import '../models/chat_models.dart';
+import '_agent_settings_sheet.dart';
+import '_session_model_picker.dart';
 
 class AgentsView extends StatefulWidget {
   const AgentsView({super.key});
@@ -415,6 +417,16 @@ class _SessionListHeader extends StatelessWidget {
                   ],
                 ),
               ),
+              IconButton(
+                icon: const Icon(Icons.settings_outlined, size: 18),
+                tooltip: 'Agent settings',
+                onPressed: () => showAgentSettingsSheet(context),
+                style: IconButton.styleFrom(
+                  minimumSize: const Size(34, 34),
+                  padding: EdgeInsets.zero,
+                ),
+              ),
+              const SizedBox(width: 6),
               if (onNewSession != null)
                 FilledButton.tonal(
                   onPressed: onNewSession,
@@ -958,6 +970,8 @@ class _TranscriptHeader extends StatelessWidget {
           ),
           const SizedBox(width: 8),
           _StatusChip(status: session.status, isWorking: isWorking),
+          const SizedBox(width: 8),
+          SessionModelPicker(session: session),
           const SizedBox(width: 8),
           if (showReconnect) ...[
             OutlinedButton(

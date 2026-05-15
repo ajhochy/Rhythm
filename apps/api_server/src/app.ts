@@ -23,6 +23,7 @@ import claudeTriggersRouter from './routes/claude_triggers_routes';
 import { agentConfigsRouter } from './routes/agent_configs_routes';
 import { agentSessionsRouter } from './routes/agent_sessions_routes';
 import { agentsCapabilitiesRouter } from './routes/agents_capabilities_routes';
+import { agentsModelsRouter } from './routes/agents_models_routes';
 import { notificationsAgentRouter } from './routes/notifications_agent_routes';
 import { opencodeAuthRouter } from './routes/opencode_auth_routes';
 import { opencodeClient } from './services/opencode_engine';
@@ -52,6 +53,7 @@ export function createApp() {
   app.use('/health', healthRouter);
   // NOTE: /agents/capabilities is unauthenticated for now; Phase 3.1 will add the AGENT_LOCAL bypass.
   app.use('/agents/capabilities', agentsCapabilitiesRouter);
+  app.use('/agents/models', agentsModelsRouter);
   app.use('/dashboard', dashboardRouter);
   app.use('/auth', authRouter);
   app.use('/automation-catalog', automationCatalogRouter);

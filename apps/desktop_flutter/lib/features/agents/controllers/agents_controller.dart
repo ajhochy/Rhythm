@@ -7,6 +7,8 @@ import '../../../app/core/agents/agent_server_controller.dart';
 import '../../../app/core/errors/app_error.dart';
 import '../../../app/core/notifications/local_notification_service.dart';
 import '../../notifications/controllers/notifications_controller.dart';
+import '../data/agent_models_data_source.dart';
+import '../models/agent_model_route.dart';
 import '../models/agent_session.dart';
 import '../models/agent_session_connectivity.dart';
 import '../models/agent_session_message.dart';
@@ -34,9 +36,10 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     this._agentServerController,
     this._notificationService,
     this._notificationsController,
-  );
+  ) : _modelsDataSource = AgentModelsDataSource();
 
   final AgentsRepository _repository;
+  final AgentModelsDataSource _modelsDataSource;
   final AgentServerController _agentServerController;
   final LocalNotificationService _notificationService;
   final NotificationsController _notificationsController;
@@ -74,6 +77,21 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   final Map<String, bool> _working = {};
 
   final List<PendingTrigger> _pendingTriggers = [];
+
+  // --------------------------------------------------------------------------
+  // Model-picker state
+  // --------------------------------------------------------------------------
+
+  /// Catalogue of available routes for the currently selected session's agent.
+  /// Refreshed whenever the selected session changes.
+  List<AgentModelRoute> _modelRoutes = [];
+
+  /// Loaded: true once a catalogue fetch has completed (even if empty).
+  bool _modelRoutesLoaded = false;
+
+  /// The per-turn override that will accompany the NEXT sendInput call.
+  /// Cleared after the message is sent.
+  AgentModelRoute? _pendingTurnOverride;
 
   AgentSessionConnectivity _connectivity = const AgentSessionConnectivity();
 
@@ -123,6 +141,15 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
 
   List<PendingTrigger> get pendingTriggers =>
       List.unmodifiable(_pendingTriggers);
+
+  /// Available (provider, model, routeKind) rows for the current session's agent.
+  List<AgentModelRoute> get modelRoutes => List.unmodifiable(_modelRoutes);
+
+  /// True once the model catalogue has been fetched at least once.
+  bool get modelRoutesLoaded => _modelRoutesLoaded;
+
+  /// Per-turn model override that will ride the next [sendInput] call.
+  AgentModelRoute? get pendingTurnOverride => _pendingTurnOverride;
 
   // --------------------------------------------------------------------------
   // Lifecycle
@@ -309,7 +336,44 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   // --------------------------------------------------------------------------
 
   void sendInput(String sessionId, String data) {
-    _repository.send({'type': 'session.input', 'id': sessionId, 'data': data});
+    final override = _pendingTurnOverride;
+    _pendingTurnOverride = null;
+    final msg = <String, dynamic>{
+      'type': 'session.input',
+      'id': sessionId,
+      'data': data,
+    };
+    if (override != null) {
+      msg['modelOverride'] = {
+        'providerId': override.providerId,
+        'modelId': override.modelId,
+      };
+    }
+    _repository.send(msg);
+  }
+
+  /// Set a per-turn model override to be attached to the next [sendInput] call.
+  /// Pass null to clear the override.
+  void setTurnOverride(AgentModelRoute? route) {
+    _pendingTurnOverride = route;
+    notifyListeners();
+  }
+
+  /// Persist a session-level model default via PATCH /agent-sessions/:id.
+  Future<void> setSessionModel(
+    String sessionId,
+    AgentModelRoute route,
+  ) async {
+    try {
+      await _modelsDataSource.updateSessionModel(
+        sessionId,
+        route.providerId,
+        route.modelId,
+      );
+    } catch (e) {
+      _error = e.toString();
+      notifyListeners();
+    }
   }
 
   void resize(String sessionId, int cols, int rows) {
@@ -328,6 +392,9 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   Future<void> selectSession(String id) async {
     _selectedSessionId = id;
     _transcript = [];
+    _modelRoutes = [];
+    _modelRoutesLoaded = false;
+    _pendingTurnOverride = null;
     notifyListeners();
     try {
       final result = await _repository.getSession(id);
@@ -340,6 +407,19 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
       _error = e.toString();
       notifyListeners();
     }
+    // Load model routes for the newly selected session in the background.
+    _loadModelRoutes(id);
+  }
+
+  Future<void> _loadModelRoutes(String sessionId) async {
+    final session = _sessions.firstWhereOrNull((s) => s.id == sessionId) ??
+        _resumable.firstWhereOrNull((s) => s.id == sessionId);
+    if (session == null) return;
+    final routes = await _modelsDataSource.fetchRoutes(session.agentId);
+    if (_selectedSessionId != sessionId) return;
+    _modelRoutes = routes;
+    _modelRoutesLoaded = true;
+    notifyListeners();
   }
 
   // --------------------------------------------------------------------------
