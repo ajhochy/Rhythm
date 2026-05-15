@@ -62,8 +62,18 @@ class SessionModelPicker extends StatelessWidget {
     final loaded = controller.modelRoutesLoaded;
     final turnOverride = controller.pendingTurnOverride;
 
-    // Determine what to display on the pill.
-    final effectiveRoute = turnOverride ?? _defaultRoute(routes);
+    // Effective route resolution order, mirroring server-side resolver:
+    //   1. Per-turn override (about to be sent next).
+    //   2. Session's persisted providerId+modelId.
+    //   3. First direct route in catalogue (fallback display only).
+    final sessionDefault = _findRoute(
+      routes,
+      providerId: session.providerId,
+      modelId: session.modelId,
+    );
+    final effectiveRoute =
+        turnOverride ?? sessionDefault ?? _firstDirectOrAny(routes);
+
     final pillLabel = _pillLabel(loaded, effectiveRoute, turnOverride != null);
 
     final hasRoutes = routes.isNotEmpty;
@@ -72,6 +82,7 @@ class SessionModelPicker extends StatelessWidget {
       label: pillLabel,
       enabled: hasRoutes,
       hasTurnOverride: turnOverride != null,
+      activeRoute: effectiveRoute,
       onPick: hasRoutes
           ? (route, applyAs) => _applyPick(context, controller, route, applyAs)
           : null,
@@ -90,9 +101,22 @@ class SessionModelPicker extends StatelessWidget {
     return '$prefix${route.modelId} · ${route.isDirect ? "direct" : "via ${route.aggregatorVia ?? route.providerId}"}';
   }
 
-  AgentModelRoute? _defaultRoute(List<AgentModelRoute> routes) {
+  /// Find a [AgentModelRoute] matching the given provider+model in [routes].
+  /// Returns null on no match or when either field is null.
+  AgentModelRoute? _findRoute(
+    List<AgentModelRoute> routes, {
+    String? providerId,
+    String? modelId,
+  }) {
+    if (providerId == null || modelId == null) return null;
+    for (final r in routes) {
+      if (r.providerId == providerId && r.modelId == modelId) return r;
+    }
+    return null;
+  }
+
+  AgentModelRoute? _firstDirectOrAny(List<AgentModelRoute> routes) {
     if (routes.isEmpty) return null;
-    // Prefer the first direct route; fall back to first aggregator.
     return routes.firstWhere(
       (r) => r.isDirect,
       orElse: () => routes.first,
@@ -124,6 +148,7 @@ class _ModelPickerButton extends StatelessWidget {
     required this.hasTurnOverride,
     required this.routes,
     required this.onPick,
+    required this.activeRoute,
   });
 
   final String label;
@@ -131,6 +156,15 @@ class _ModelPickerButton extends StatelessWidget {
   final bool hasTurnOverride;
   final List<AgentModelRoute> routes;
   final OnModelPicked? onPick;
+
+  /// The route currently in effect (turn override > session default > fallback).
+  /// Used to render a checkmark next to the matching row.
+  final AgentModelRoute? activeRoute;
+
+  bool _isActive(AgentModelRoute r) =>
+      activeRoute != null &&
+      r.providerId == activeRoute!.providerId &&
+      r.modelId == activeRoute!.modelId;
 
   @override
   Widget build(BuildContext context) {
@@ -273,18 +307,27 @@ class _ModelPickerButton extends StatelessWidget {
     final tagColor = isAgg
         ? context.rhythm.warning.withValues(alpha: 0.85)
         : context.rhythm.success;
+    final isActive = _isActive(route);
+    final accent = context.rhythm.accent;
 
     return PopupMenuItem<_ModelPickerEntry>(
       value: _ModelPickerEntry(route: route),
       height: 40,
       child: Row(
         children: [
+          SizedBox(
+            width: 18,
+            child: isActive
+                ? Icon(Icons.check, size: 14, color: accent)
+                : const SizedBox.shrink(),
+          ),
           Expanded(
             child: Text(
               route.modelId,
               style: TextStyle(
                 fontSize: 13,
-                color: context.rhythm.textPrimary,
+                fontWeight: isActive ? FontWeight.w700 : FontWeight.w400,
+                color: isActive ? accent : context.rhythm.textPrimary,
               ),
             ),
           ),

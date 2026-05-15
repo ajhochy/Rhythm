@@ -27,6 +27,8 @@ class AgentSession {
     required this.cwd,
     required this.name,
     this.projectId,
+    this.providerId,
+    this.modelId,
     this.lastPreview,
     this.lastActivityAt,
     required this.createdAt,
@@ -41,6 +43,8 @@ class AgentSession {
   final String cwd;
   final String name;
   final String? projectId;
+  final String? providerId;
+  final String? modelId;
   final String? lastPreview;
   final DateTime? lastActivityAt;
   final DateTime createdAt;
@@ -63,6 +67,8 @@ class AgentSession {
       cwd: asString(json['cwd']) ?? '',
       name: asString(json['name']) ?? '',
       projectId: asString(json['projectId']),
+      providerId: asString(json['providerId']),
+      modelId: asString(json['modelId']),
       lastPreview: asString(json['lastPreview']),
       lastActivityAt: _parseDateTime(asString(json['lastActivityAt'])),
       createdAt: _parseDateTime(asString(json['createdAt'])) ?? _epoch,
@@ -80,6 +86,8 @@ class AgentSession {
       'cwd': cwd,
       'name': name,
       if (projectId != null) 'projectId': projectId,
+      if (providerId != null) 'providerId': providerId,
+      if (modelId != null) 'modelId': modelId,
       if (lastPreview != null) 'lastPreview': lastPreview,
       if (lastActivityAt != null)
         'lastActivityAt': lastActivityAt!.toUtc().toIso8601String(),
@@ -96,6 +104,8 @@ class AgentSession {
     Object? sessionToken = _sentinel,
     String? cwd,
     String? name,
+    Object? providerId = _sentinel,
+    Object? modelId = _sentinel,
     Object? lastPreview = _sentinel,
     Object? lastActivityAt = _sentinel,
     DateTime? createdAt,
@@ -111,6 +121,10 @@ class AgentSession {
           : sessionToken as String?,
       cwd: cwd ?? this.cwd,
       name: name ?? this.name,
+      projectId: projectId,
+      providerId:
+          providerId == _sentinel ? this.providerId : providerId as String?,
+      modelId: modelId == _sentinel ? this.modelId : modelId as String?,
       lastPreview:
           lastPreview == _sentinel ? this.lastPreview : lastPreview as String?,
       lastActivityAt: lastActivityAt == _sentinel
