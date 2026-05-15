@@ -69,6 +69,14 @@ export class ProjectsController {
         throw AppError.badRequest('icon must be a string');
       }
       const cwd = normalizeCwd(body.cwd);
+      // Reject duplicates so the rail never shows two icons for the same
+      // folder and sessions auto-assign deterministically.
+      const existing = repo.findByExactCwd(cwd);
+      if (existing) {
+        throw AppError.badRequest(
+          `A project already exists at this folder ("${existing.name}").`,
+        );
+      }
       const project = repo.insert({
         name: name.trim(),
         cwd,

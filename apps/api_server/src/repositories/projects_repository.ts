@@ -134,6 +134,17 @@ export class ProjectsRepository {
    * (e.g. nested projects). Strings are compared after stripping trailing
    * slashes; no symlink resolution.
    */
+  /** Exact-cwd lookup (active rows only). Used by create() to reject duplicates. */
+  findByExactCwd(cwd: string): Project | null {
+    const normalized = cwd.length > 1 ? cwd.replace(/\/+$/, '') : cwd;
+    const row = getDb()
+      .prepare(
+        `SELECT * FROM projects WHERE archived_at IS NULL AND cwd = ? LIMIT 1`,
+      )
+      .get(normalized) as ProjectRow | undefined;
+    return row ? rowToModel(row) : null;
+  }
+
   findByCwdPrefix(sessionCwd: string): Project | null {
     const normalized = sessionCwd.length > 1
       ? sessionCwd.replace(/\/+$/, '')
