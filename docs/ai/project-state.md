@@ -1,6 +1,40 @@
 # Project State
 
-## Current Status (2026-05-14 v3 — all five milestones shipped to draft PRs)
+## Current Status (2026-05-15 — M1–M5 consolidated + UX follow-ups on PR #598)
+
+🟢 **PR [#598](https://github.com/ajhochhalter/Rhythm/pull/598) (`fix-session-list-decode` → `main`) is the consolidated landing for M1–M5 plus the UX work this session.** Open, awaiting CI re-run + manual smoke + merge by hand.
+
+### What PR #598 contains
+- **M1–M5 merged in**: projects rail + VCS chip (M1), session header PATCH + per-turn override + cancel (M2), inspector + tool-call parts + permission card (M3), composer attachments + commands (M4), settings services + opencode-auth surfaces (M5). Brought in via `git merge origin/m5-settings` after the original `fix-session-list-decode` branch shipped the decode fix off `main`.
+- **Session list decode fix**: `agents_data_source.listSessions()` now accepts the `{sessions, resumable}` envelope (server has returned this since #580; client was still casting to `List`).
+- **Show closed sessions**: controller stopped filtering `status='closed'`, so historical rows are visible. Greyed by the row status chip; removable via hard-delete.
+- **Model picker (#599)**: `GET /agents/models?agentId=…` joins `ROUTE_FALLBACKS_BY_AGENT` with authed providers; rows tagged `routeKind: 'direct' | 'aggregator'`. Picker pill in transcript header shows the **active** model with a check-mark on the matching row when open; sections separate "Direct accounts" vs "Via OpenRouter/Together/Groq". Catalogue expanded to opus-4-7 / opus-4-5 / sonnet-4-6 / haiku-4-5 (claude-code), gpt-5.3 / -codex / -mini (codex), gemini-3-pro / -flash (gemini-cli).
+- **Agent settings sheet (#600)**: gear button on Agents header opens dialog with four sections — Accounts (full `AiAccountSection` moved here from main Settings), Behavior (destructive-modal toggle), Keybindings (4 actions + reset), Opencode server URL. Wired in `main.dart`.
+- **Hard-delete session**: new `DELETE /agent-sessions/:id/hard` route (true delete + FK cascade). Three-dot trailing menu on each row → "Delete session" with confirm dialog. Distinct from existing soft-close `DELETE /agent-sessions/:id`.
+- **Shift-click multi-select + bulk delete**: `_SessionListPanel` is stateful; Shift-click toggles membership in `_multiSelected`; banner at top of list shows "N selected · Cancel · Delete" → confirm dialog → parallel hard-deletes with per-row rollback on failure.
+- **Manage agents view removed**: the page, the button on Agents header, the agent-bubble-overlay link, and the source file — all gone.
+- **AI Accounts removed from main Settings**: section moved into the gear sheet.
+- **Folder picker (osascript)**: the file_picker plugin's `beginSheetModal` was being suppressed under Flutter's showDialog overlay; replaced with `/usr/bin/osascript "choose folder"` for a standalone Finder dialog. Wired in the project create/edit dialog.
+- **Auto-derived project name**: picking a folder fills the Name field with the folder's basename if empty or unchanged from the previously-picked basename.
+- **Icon field accepts long emoji**: dropped `maxLength: 7` from the project Icon TextField; multi-codepoint emoji no longer truncate to `U+FFFC`.
+- **Projects rail loads on mount**: `ProjectsRail` is now stateful and calls `controller.load()` in `initState`, so the rail reflects server state (not just in-session creations).
+- **New-session dialog defaults cwd to selected project's folder** when one is active.
+- **CI repairs**: `vcs_probe.ts` now calls `git` directly (Ubuntu runners don't ship zsh, which the original `/bin/zsh -lc` wrapper relied on); `agents_models_routes.test.ts` asserts shape rather than length so the expanded catalogue doesn't break it; duplicate `features/settings/services/*` imports in `main.dart` dropped.
+
+### Open follow-up issues (filed during this session)
+- [#599](https://github.com/ajhochhalter/Rhythm/issues/599) — Model picker (closed-by #598).
+- [#600](https://github.com/ajhochhalter/Rhythm/issues/600) — Agent settings sheet (closed-by #598).
+- [#601](https://github.com/ajhochhalter/Rhythm/issues/601) — Archive / soft-delete for sessions (separate column in DB; opt-in `?includeArchived`).
+- [#602](https://github.com/ajhochhalter/Rhythm/issues/602) — Composer redesign: relocate model picker to composer area, add file attach, agent-less session start, unified agent selector with Authorized/Connect rows.
+- [#603](https://github.com/ajhochhalter/Rhythm/issues/603) — Branch selector in new-session dialog (git checkout before session start; dirty-tree UX).
+
+### Pre-merge state
+- CI: latest run on `4b4f7b3` — server tests fix + duplicate-imports fix in flight. Watch [#598 checks](https://github.com/ajhochhalter/Rhythm/pull/598/checks).
+- Smoke: see `docs/testing/manual-smoke.md` (predates this work; gap noted — sheet/picker/multi-select/projects rail/hard-delete need explicit smoke steps).
+- M2–M5 sibling PRs (#592–#596) remain open but their content lives on this branch; manual merge of #598 effectively supersedes them.
+- Manual merge only. No auto-merge.
+
+## Prior Status (2026-05-14 v3 — all five milestones shipped to draft PRs)
 
 🟢 **All five milestones (M1–M5, 25/26 atomic issues) landed across stacked draft PRs in a single power-through session.**
 
