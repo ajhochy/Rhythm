@@ -117,7 +117,12 @@ class AgentsDataSource {
       headers: AuthSessionStore.headers(),
     );
     assertOk(response);
-    final list = jsonDecode(response.body) as List<dynamic>;
+    final body = jsonDecode(response.body);
+    // Server returns { sessions: [...], resumable: [...] }. Older builds
+    // returned a bare list; accept both for forward/back compat.
+    final list = body is Map<String, dynamic>
+        ? (body['sessions'] as List<dynamic>? ?? const [])
+        : body as List<dynamic>;
     return list
         .map((j) => AgentSession.fromJson(j as Map<String, dynamic>))
         .toList();
