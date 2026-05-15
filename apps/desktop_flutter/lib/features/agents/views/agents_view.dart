@@ -22,6 +22,7 @@ import '_agent_settings_sheet.dart';
 import '_project_vcs_chip.dart';
 import '_projects_rail.dart';
 import '_session_model_picker.dart';
+import '_tool_call_part.dart';
 
 class AgentsView extends StatefulWidget {
   const AgentsView({super.key});
@@ -1357,12 +1358,22 @@ class _ChatBubble extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isUser = message.role == 'user';
-    final text = parts.map((p) => p.text).join('').trim();
-    if (text.isEmpty) {
-      // Empty assistant bubble while waiting for first delta — render a
-      // subtle "thinking" pip so the user knows the turn was accepted.
-      if (!isUser) {
-        return Container(
+
+    if (isUser) {
+      return _UserBubble(parts: parts);
+    }
+
+    // Assistant bubble: walk parts in order, rendering text spans as a
+    // SelectableText block and tool parts as collapsible ToolCallPart cards.
+    final children = <Widget>[];
+    final textBuffer = StringBuffer();
+
+    void flushText() {
+      final text = textBuffer.toString().trim();
+      textBuffer.clear();
+      if (text.isEmpty) return;
+      children.add(
+        Container(
           width: double.infinity,
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
@@ -1370,56 +1381,88 @@ class _ChatBubble extends StatelessWidget {
             borderRadius: BorderRadius.circular(RhythmRadius.md),
             border: Border.all(color: context.rhythm.borderSubtle),
           ),
-          child: Text(
-            '…',
-            style: TextStyle(color: context.rhythm.textMuted, fontSize: 12),
-          ),
-        );
-      }
-      return const SizedBox.shrink();
-    }
-
-    if (isUser) {
-      return Align(
-        alignment: Alignment.centerRight,
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 560),
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            decoration: BoxDecoration(
-              color: context.rhythm.accentMuted,
-              borderRadius: BorderRadius.circular(RhythmRadius.md),
-              border: Border.all(
-                color: context.rhythm.accent.withValues(alpha: 0.2),
-              ),
-            ),
-            child: SelectableText(
-              text,
-              style: TextStyle(
-                fontSize: 13,
-                color: context.rhythm.accent,
-                height: 1.4,
-              ),
+          child: SelectableText(
+            text,
+            style: TextStyle(
+              fontSize: 13,
+              color: context.rhythm.textPrimary,
+              height: 1.5,
             ),
           ),
         ),
       );
     }
 
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: context.rhythm.surfaceMuted,
-        borderRadius: BorderRadius.circular(RhythmRadius.md),
-        border: Border.all(color: context.rhythm.borderSubtle),
-      ),
-      child: SelectableText(
-        text,
-        style: TextStyle(
-          fontSize: 13,
-          color: context.rhythm.textPrimary,
-          height: 1.5,
+    for (final part in parts) {
+      if (part.type == 'tool') {
+        flushText();
+        children.add(ToolCallPart(part: part));
+      } else {
+        textBuffer.write(part.text);
+      }
+    }
+    flushText();
+
+    if (children.isEmpty) {
+      // Awaiting first delta — render the "thinking" pip.
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: context.rhythm.surfaceMuted,
+          borderRadius: BorderRadius.circular(RhythmRadius.md),
+          border: Border.all(color: context.rhythm.borderSubtle),
+        ),
+        child: Text(
+          '…',
+          style: TextStyle(color: context.rhythm.textMuted, fontSize: 12),
+        ),
+      );
+    }
+
+    if (children.length == 1) return children.first;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        for (var i = 0; i < children.length; i++) ...[
+          if (i > 0) const SizedBox(height: 6),
+          children[i],
+        ],
+      ],
+    );
+  }
+}
+
+class _UserBubble extends StatelessWidget {
+  const _UserBubble({required this.parts});
+
+  final List<ChatPart> parts;
+
+  @override
+  Widget build(BuildContext context) {
+    final text = parts.map((p) => p.text).join('').trim();
+    if (text.isEmpty) return const SizedBox.shrink();
+    return Align(
+      alignment: Alignment.centerRight,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 560),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: context.rhythm.accentMuted,
+            borderRadius: BorderRadius.circular(RhythmRadius.md),
+            border: Border.all(
+              color: context.rhythm.accent.withValues(alpha: 0.2),
+            ),
+          ),
+          child: SelectableText(
+            text,
+            style: TextStyle(
+              fontSize: 13,
+              color: context.rhythm.accent,
+              height: 1.4,
+            ),
+          ),
         ),
       ),
     );
