@@ -267,6 +267,32 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     }
   }
 
+  /// Hard-delete a session (row + messages) via the new
+  /// `DELETE /agent-sessions/:id/hard` endpoint. The list is updated
+  /// optimistically; on failure we restore the row and surface the error.
+  Future<void> deleteSession(String id) async {
+    final previous = _sessions;
+    _sessions = _sessions.where((s) => s.id != id).toList();
+    if (_selectedSessionId == id) _selectedSessionId = null;
+    _liveOutputBuffer.remove(id);
+    sessionFirstSeenAt.remove(id);
+    notifyListeners();
+
+    if (!_agentServerController.isReady) return;
+    try {
+      await _repository.deleteSession(id);
+    } catch (e) {
+      _sessions = previous;
+      if (e is AppError) {
+        _error = e.message;
+        _lastErrorStatus = e.statusCode;
+      } else {
+        _error = e.toString();
+      }
+      notifyListeners();
+    }
+  }
+
   Future<void> closeSession(String id) async {
     if (!_agentServerController.isReady) {
       _sessions = _sessions.where((s) => s.id != id).toList();

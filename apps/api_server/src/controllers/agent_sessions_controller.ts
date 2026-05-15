@@ -183,6 +183,27 @@ export class AgentSessionsController {
     }
   }
 
+  /**
+   * Hard-delete a session row plus its messages (cascade). This is the
+   * "clear from history" action — distinct from `remove`, which only flips
+   * status to closed. See #598 follow-up; archive lives at #601.
+   */
+  destroy(req: Request, res: Response, next: NextFunction): void {
+    try {
+      const session = repo.findById(req.params.id);
+      if (!session) throw AppError.notFound('AgentSession');
+
+      streamBridge.stopStream(session.id);
+      opencodeSessionMap.delete(session.id);
+      const changes = repo.deleteById(session.id);
+      if (changes === 0) throw AppError.notFound('AgentSession');
+
+      res.status(204).end();
+    } catch (err) {
+      next(err);
+    }
+  }
+
   async resume(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const session = repo.findById(req.params.id);

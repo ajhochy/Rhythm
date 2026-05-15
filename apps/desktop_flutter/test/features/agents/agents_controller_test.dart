@@ -128,10 +128,16 @@ class _FakeAgentsRepository implements AgentsRepository {
   }
 
   final List<String> closeSessionCalls = [];
+  final List<String> deleteSessionCalls = [];
 
   @override
   Future<void> closeSession(String id) async {
     closeSessionCalls.add(id);
+  }
+
+  @override
+  Future<void> deleteSession(String id) async {
+    deleteSessionCalls.add(id);
   }
 
   @override

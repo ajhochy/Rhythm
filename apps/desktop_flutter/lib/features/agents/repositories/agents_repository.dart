@@ -36,6 +36,8 @@ class AgentsRepository {
 
   Future<void> closeSession(String id) => _dataSource.closeSession(id);
 
+  Future<void> deleteSession(String id) => _dataSource.deleteSession(id);
+
   Future<AgentSession> resumeSession(String id) =>
       _dataSource.resumeSession(id);
 

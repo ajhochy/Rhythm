@@ -178,6 +178,18 @@ class AgentsDataSource {
     }
   }
 
+  /// Hard-delete a session row and its messages. Distinct from
+  /// [closeSession], which only flips status to closed.
+  Future<void> deleteSession(String id) async {
+    final response = await http.delete(
+      Uri.parse('$_baseUrl/agent-sessions/$id/hard'),
+      headers: AuthSessionStore.headers(),
+    );
+    if (response.statusCode != 204) {
+      assertOk(response);
+    }
+  }
+
   Future<AgentSession> resumeSession(String id) async {
     final response = await http.post(
       Uri.parse('$_baseUrl/agent-sessions/$id/resume'),

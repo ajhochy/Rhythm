@@ -122,6 +122,14 @@ export class AgentSessionsRepository {
     this.updateStatus(id, 'closed');
   }
 
+  /** Hard-delete a single session row. Foreign-key cascade removes messages. */
+  deleteById(id: string): number {
+    const result = getDb()
+      .prepare(`DELETE FROM agent_sessions WHERE id = ?`)
+      .run(id);
+    return result.changes;
+  }
+
   deleteOlderThan(cutoffIso: string): number {
     const result = getDb()
       .prepare(`DELETE FROM agent_sessions WHERE status = 'closed' AND created_at < ?`)

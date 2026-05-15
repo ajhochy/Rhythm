@@ -121,6 +121,9 @@ class _ErrorAgentsRepository implements AgentsRepository {
   Future<void> closeSession(String id) async {}
 
   @override
+  Future<void> deleteSession(String id) async {}
+
+  @override
   Future<AgentSession> resumeSession(String id) async {
     throw UnimplementedError();
   }
