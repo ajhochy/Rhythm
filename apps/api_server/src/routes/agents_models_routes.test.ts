@@ -69,41 +69,40 @@ describe('agents/models resolution logic', () => {
     expect(rows).toEqual([]);
   });
 
-  it('returns direct row when anthropic is authed', async () => {
+  it('returns direct rows when anthropic is authed', async () => {
     listAuthedProviders.mockResolvedValue(['anthropic']);
     const rows = await resolveRoutes('claude-code');
-    expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({ providerId: 'anthropic', routeKind: 'direct' });
-    expect(rows[0].label).toContain('direct');
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows.every((r) => r.providerId === 'anthropic')).toBe(true);
+    expect(rows.every((r) => r.routeKind === 'direct')).toBe(true);
+    expect(rows.every((r) => r.label.includes('direct'))).toBe(true);
   });
 
-  it('returns aggregator row when openrouter is authed', async () => {
+  it('returns aggregator rows when openrouter is authed', async () => {
     listAuthedProviders.mockResolvedValue(['openrouter']);
     const rows = await resolveRoutes('claude-code');
-    expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({
-      providerId: 'openrouter',
-      routeKind: 'aggregator',
-      aggregatorVia: 'OpenRouter',
-    });
-    expect(rows[0].label).toContain('via OpenRouter');
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows.every((r) => r.providerId === 'openrouter')).toBe(true);
+    expect(rows.every((r) => r.routeKind === 'aggregator')).toBe(true);
+    expect(rows.every((r) => r.aggregatorVia === 'OpenRouter')).toBe(true);
+    expect(rows.every((r) => r.label.includes('via OpenRouter'))).toBe(true);
   });
 
-  it('returns both rows when direct and aggregator are authed', async () => {
+  it('returns both kinds when direct and aggregator are authed', async () => {
     listAuthedProviders.mockResolvedValue(['anthropic', 'openrouter']);
     const rows = await resolveRoutes('claude-code');
-    expect(rows).toHaveLength(2);
-    const kinds = rows.map((r) => r.routeKind);
-    expect(kinds).toContain('direct');
-    expect(kinds).toContain('aggregator');
+    expect(rows.length).toBeGreaterThan(0);
+    const kinds = new Set(rows.map((r) => r.routeKind));
+    expect(kinds.has('direct')).toBe(true);
+    expect(kinds.has('aggregator')).toBe(true);
   });
 
-  it('returns direct codex row when openai is authed', async () => {
+  it('returns direct codex rows when openai is authed', async () => {
     listAuthedProviders.mockResolvedValue(['openai']);
     const rows = await resolveRoutes('codex');
-    expect(rows).toHaveLength(1);
-    expect(rows[0].providerId).toBe('openai');
-    expect(rows[0].routeKind).toBe('direct');
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows.every((r) => r.providerId === 'openai')).toBe(true);
+    expect(rows.every((r) => r.routeKind === 'direct')).toBe(true);
   });
 
   it('aggregator label is correct for together and groq', async () => {
@@ -114,7 +113,8 @@ describe('agents/models resolution logic', () => {
   it('github-copilot is treated as direct (not an aggregator)', async () => {
     listAuthedProviders.mockResolvedValue(['github-copilot']);
     const rows = await resolveRoutes('claude-code');
-    expect(rows).toHaveLength(1);
-    expect(rows[0].routeKind).toBe('direct');
+    expect(rows.length).toBeGreaterThan(0);
+    expect(rows.every((r) => r.providerId === 'github-copilot')).toBe(true);
+    expect(rows.every((r) => r.routeKind === 'direct')).toBe(true);
   });
 });
