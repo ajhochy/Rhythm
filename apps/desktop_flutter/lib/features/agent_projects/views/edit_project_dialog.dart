@@ -160,8 +160,18 @@ class _EditProjectDialogState extends State<_EditProjectDialog> {
                 OutlinedButton(
                   onPressed: () async {
                     final path = await _pickFolder(_cwd.text);
-                    if (path != null && path.isNotEmpty) {
-                      _cwd.text = path;
+                    if (path == null || path.isEmpty) return;
+                    // Capture the basename of the previously-picked folder
+                    // BEFORE overwriting _cwd so we can detect whether the
+                    // current name field was auto-derived from it.
+                    final prevBasename = _basenameOf(_cwd.text);
+                    _cwd.text = path;
+                    final basename = _basenameOf(path);
+                    final trimmedName = _name.text.trim();
+                    final shouldFill =
+                        trimmedName.isEmpty || trimmedName == prevBasename;
+                    if (shouldFill && basename.isNotEmpty) {
+                      _name.text = basename;
                     }
                   },
                   child: const Text('Pick…'),
@@ -259,6 +269,17 @@ class _VcsConfirmationLine extends StatelessWidget {
 /// click appears to do nothing. osascript invokes Finder directly with a
 /// standalone window — reliable across macOS versions and unaffected by
 /// Flutter overlay state.
+/// Returns the trailing folder name of an absolute POSIX path, e.g.
+/// "/Users/me/code/Rhythm" → "Rhythm". Strips one trailing slash.
+String _basenameOf(String path) {
+  if (path.isEmpty) return '';
+  final trimmed = path.endsWith('/') && path.length > 1
+      ? path.substring(0, path.length - 1)
+      : path;
+  final idx = trimmed.lastIndexOf('/');
+  return idx < 0 ? trimmed : trimmed.substring(idx + 1);
+}
+
 Future<String?> _pickFolder(String initial) async {
   if (!Platform.isMacOS) return null;
   // Build the AppleScript. Each `-e` arg is a logical line.
