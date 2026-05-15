@@ -6,16 +6,21 @@ export interface VcsInfo {
   vcsDirty: boolean;
 }
 
-// Single-quote a string for safe embedding in a `/bin/zsh -lc` argument.
-function shellQuote(s: string): string {
-  return `'${s.replace(/'/g, `'\\''`)}'`;
-}
-
-function run(cmd: string): { ok: boolean; stdout: string } {
+function runGit(args: string[], cwd: string): { ok: boolean; stdout: string } {
   try {
-    const stdout = execFileSync('/bin/zsh', ['-lc', cmd], {
+    const stdout = execFileSync('git', args, {
+      cwd,
       stdio: ['ignore', 'pipe', 'ignore'],
       encoding: 'utf8',
+      // Augment PATH so GUI-launched Node (Flutter desktop spawns the embedded
+      // server with a stripped PATH on macOS) can still find git in standard
+      // system locations.
+      env: {
+        ...process.env,
+        PATH: [process.env.PATH, '/usr/bin', '/usr/local/bin', '/opt/homebrew/bin']
+          .filter(Boolean)
+          .join(':'),
+      },
     });
     return { ok: true, stdout };
   } catch {
@@ -24,28 +29,20 @@ function run(cmd: string): { ok: boolean; stdout: string } {
 }
 
 /**
- * Best-effort git working-tree probe for a project cwd.
- *
- * Runs via `/bin/zsh -lc` so a GUI-stripped PATH (Flutter desktop launches
- * the embedded Node server, which inherits a sparse PATH on macOS) still
- * resolves `git`. Returns null when the directory is not a git repo or git
- * is unavailable. Never throws to the caller.
+ * Best-effort git working-tree probe for a project cwd. Returns null when the
+ * directory is not a git repo or git is unavailable. Never throws.
  */
 export function probeVcs(cwd: string): VcsInfo | null {
-  const q = shellQuote(cwd);
-
-  const rootRes = run(`git -C ${q} rev-parse --show-toplevel`);
+  const rootRes = runGit(['-C', cwd, 'rev-parse', '--show-toplevel'], cwd);
   if (!rootRes.ok) return null;
   const vcsRoot = rootRes.stdout.trim();
   if (vcsRoot === '') return null;
 
-  // Detached HEAD: symbolic-ref exits non-zero. Treat branch as null but
-  // still return a populated record (the working tree is a real git repo).
-  const branchRes = run(`git -C ${q} symbolic-ref --quiet --short HEAD`);
+  const branchRes = runGit(['-C', cwd, 'symbolic-ref', '--quiet', '--short', 'HEAD'], cwd);
   const branch = branchRes.ok ? branchRes.stdout.trim() : '';
   const vcsBranch = branch === '' ? null : branch;
 
-  const statusRes = run(`git -C ${q} status --porcelain`);
+  const statusRes = runGit(['-C', cwd, 'status', '--porcelain'], cwd);
   const vcsDirty = statusRes.ok && statusRes.stdout.trim().length > 0;
 
   return { vcsRoot, vcsBranch, vcsDirty };
