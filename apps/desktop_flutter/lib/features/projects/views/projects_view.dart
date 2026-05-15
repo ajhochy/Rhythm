@@ -43,12 +43,16 @@ class _ProjectsViewState extends State<ProjectsView> {
   @override
   Widget build(BuildContext context) {
     return Container(
-      decoration: const BoxDecoration(
+      decoration: BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [Color(0xFFF7F4EF), Color(0xFFFDFBF7), Color(0xFFF6F1EA)],
-          stops: [0.0, 0.5, 1.0],
+          colors: [
+            context.rhythm.canvas,
+            context.rhythm.surfaceRaised,
+            context.rhythm.canvas,
+          ],
+          stops: const [0.0, 0.5, 1.0],
         ),
       ),
       child: Consumer<ProjectTemplateController>(
