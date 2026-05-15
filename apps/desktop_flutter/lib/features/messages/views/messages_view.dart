@@ -49,7 +49,7 @@ class _MessagesViewState extends State<MessagesView> {
             end: Alignment.bottomRight,
             colors: [
               context.rhythm.canvas,
-              const Color(0xFFF7F4EF),
+              context.rhythm.surfaceRaised,
               context.rhythm.canvas
             ],
             stops: const [0.0, 0.45, 1.0],
