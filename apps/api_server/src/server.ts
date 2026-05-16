@@ -29,13 +29,13 @@ async function main() {
   await initDb();
   logger.info('Database initialized');
 
-  startRecurrenceGenerationJob();
-  startSyncOrchestratorJob();
+  const recurrenceJob = startRecurrenceGenerationJob();
+  const syncJob = startSyncOrchestratorJob();
 
   const app = createApp();
 
   const httpServer = http.createServer(app);
-  attachWsGateway(httpServer);
+  const wss = attachWsGateway(httpServer);
 
   // Make sure the community auth plugins are listed in opencode.json before
   // we spawn the SDK subprocess. The plugins extend the provider catalog
@@ -61,6 +61,43 @@ async function main() {
   httpServer.listen(port, () => {
     logger.info(`Rhythm API listening on port ${port}`);
   });
+
+  // #614 — Clean shutdown handler.
+  // Registered once here so it applies to both SIGTERM (Flutter kill) and
+  // SIGINT (Ctrl-C in dev). The handler is idempotent via the `shuttingDown`
+  // guard so double-signals don't race.
+  let shuttingDown = false;
+  const shutdown = (signal: string) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    logger.info(`[server] ${signal} received — starting clean shutdown`);
+
+    // 1. Stop cron jobs so no new work is kicked off.
+    try { recurrenceJob?.stop(); } catch (_) { /* ignore */ }
+    try { syncJob?.stop(); } catch (_) { /* ignore */ }
+
+    // 2. Dispose the Opencode SDK subprocess.
+    try { opencodeClient.dispose(); } catch (_) { /* ignore */ }
+
+    // 3. Close the WebSocket server (no new connections).
+    wss.close(() => {
+      // 4. Close the HTTP server; fall back to force-exit after 1 s.
+      const forceExit = setTimeout(() => {
+        logger.info('[server] HTTP close timeout — forcing exit');
+        process.exit(0);
+      }, 1000);
+      // Allow the timeout to be garbage-collected if the server closes cleanly.
+      if (forceExit.unref) forceExit.unref();
+
+      httpServer.close(() => {
+        logger.info('[server] clean shutdown complete');
+        process.exit(0);
+      });
+    });
+  };
+
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
+  process.on('SIGINT', () => shutdown('SIGINT'));
 }
 
 main().catch((error) => {

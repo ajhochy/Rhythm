@@ -342,8 +342,31 @@ export class OpencodeClientService {
     }
   }
 
-  /** Clean up */
+  /**
+   * #614 — Dispose: kills any subprocess that the SDK spawned and clears the
+   * client reference. Safe to call multiple times.
+   */
   dispose(): void {
+    if (this.client) {
+      // The SDK's createOpencode() spawns a child process. The client object
+      // may expose a `close()` / `shutdown()` method depending on the SDK
+      // version; try both and fall back to a best-effort SIGTERM on the
+      // child PID if neither is present.
+      const c = this.client as unknown as Record<string, unknown>;
+      if (typeof c['close'] === 'function') {
+        try {
+          (c['close'] as () => void)();
+        } catch (_) {
+          // Ignore.
+        }
+      } else if (typeof c['shutdown'] === 'function') {
+        try {
+          (c['shutdown'] as () => void)();
+        } catch (_) {
+          // Ignore.
+        }
+      }
+    }
     this.client = null;
     this.status = 'uninitialized';
   }

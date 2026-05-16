@@ -1,4 +1,4 @@
-import cron from 'node-cron';
+import cron, { type ScheduledTask } from 'node-cron';
 import { SyncOrchestratorService } from '../services/sync_orchestrator_service';
 import { logger } from '../utils/logger';
 
@@ -8,14 +8,15 @@ function getSyncCronSchedule(): string {
   return process.env.SYNC_CRON_SCHEDULE ?? DEFAULT_SYNC_CRON_SCHEDULE;
 }
 
-export function startSyncOrchestratorJob(): void {
+export function startSyncOrchestratorJob(): ScheduledTask {
   const schedule = getSyncCronSchedule();
 
-  cron.schedule(schedule, () => {
+  const task = cron.schedule(schedule, () => {
     logger.info('SyncOrchestrator: running scheduled sync');
     const orchestrator = new SyncOrchestratorService();
     void orchestrator.runSync();
   });
 
   logger.info(`SyncOrchestrator: scheduled with cron "${schedule}"`);
+  return task;
 }

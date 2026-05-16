@@ -36,7 +36,7 @@ import 'package:rhythm_desktop/features/tasks/repositories/tasks_repository.dart
 class _FakeApiServerService extends ApiServerService {
   @override
   Future<AgentServerStartResult> start() async =>
-      (ok: true, reason: null, stderrTail: null);
+      (ok: true, reason: null, stderrTail: null, failureMessage: null);
 
   @override
   void stop() {}

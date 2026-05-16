@@ -27,7 +27,7 @@ import 'package:rhythm_desktop/features/notifications/repositories/notifications
 class _FakeApiServerService extends ApiServerService {
   @override
   Future<AgentServerStartResult> start() async =>
-      (ok: true, reason: null, stderrTail: null);
+      (ok: true, reason: null, stderrTail: null, failureMessage: null);
   @override
   Future<void> stop() async {}
 }
