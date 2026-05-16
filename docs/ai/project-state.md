@@ -1,8 +1,22 @@
 # Project State
 
-## Current Status (2026-05-16 — PR #598 merged; vbeta.18.31 building)
+## Current Status (2026-05-16 evening — vbeta.18.31 shipped; install-time gotchas filed)
 
-🟢 **PR #598 merged to `main` via commit `d7a0775`.** Desktop release `vbeta.18.31` triggered (Actions run 25968794136). Local main is in sync; sibling PRs #593–#596 closed (content lives on main via #598); their branches deleted.
+🟢 **PR #598 merged to `main` via commit `d7a0775`.** Desktop release `vbeta.18.31` is **published** (DMG + ZIP) and verified running locally. Sibling PRs #593–#596 closed (content lives on main via #598); their branches deleted.
+
+### Release-day discoveries (worth knowing before the next install)
+Two install-time issues bit the post-install smoke after the DMG landed. Both have follow-up issues filed; the immediate workarounds are recorded here so the next person doesn't re-debug.
+
+1. **First release build failed** — the "Bundle CLI server into app" workflow step ran `npm install` inside the bundled `Rhythm.app/.../api_server/`, which triggered the `package.json` postinstall (`node scripts/postinstall.js`) — but the workflow only copied `dist/`, `package.json`, and `package-lock.json` into the bundle, not `scripts/`. Fixed in **PR #613**: copy `scripts/` alongside `dist/` and add `test -f $DEST/scripts/postinstall.js` to the verify step so it fails at the gate next time. Re-triggered run was green.
+
+2. **Orphan api_server kept old code alive across app updates** — quitting Rhythm.app does not kill the spawned api_server (PPID=1 orphan). The orphan keeps holding port :4001, the next launch of the updated app silently connects to the stale orphan, and the user sees ghost behavior that looks like the new fixes never shipped. **Workaround**: `kill <pid>` from `lsof -iTCP:4001`. **Proper fix tracked in #614**: window_manager.onWindowClose → SIGTERM → 2s grace → SIGKILL on the Node child; matching SIGTERM/SIGINT handler in api_server that also disposes the opencode subprocess; force-quit safety net auto-detects the PPID=1 orphan on next launch and kills it with a clear recovery log line.
+
+3. **better-sqlite3 ABI mismatch after orphan kill** — the bundled `better-sqlite3` is built in CI against Node v22.22.2 (ABI 127); `ApiServerService._readRuntimeSentinel()` only checks the dev sentinel path (`$dir/apps/api_server/.node-runtime.json`), not the bundled one at `Resources/api_server/.node-runtime.json`. So on a fresh machine the runtime falls through to `/opt/homebrew/bin/node` (commonly v24 ABI 137 on Apple Silicon today) and the spawn fails with NODE_MODULE_VERSION mismatch, surfacing as "Agent server unavailable". **Workaround**: `cd Rhythm.app/Contents/Resources/api_server && /opt/homebrew/bin/node $(dirname /opt/homebrew/bin/node)/npm rebuild better-sqlite3 --build-from-source`. **Proper fix tracked in #615**: Flutter reads the bundled sentinel, validates `nodePath` existence, ABI-matches against installed Node binaries when the install-time one is missing, and surfaces the rebuild command in the error dialog instead of the generic 502.
+
+### Bottom line for the next agent or sprint
+- The release is up and working locally.
+- **#614 and #615 are the highest-priority follow-ups** — they bite every install until fixed.
+- Everything else is iterative UX (composer redesign, permissions, OpenRouter curation, branch selector, etc.) — see the full follow-up list below.
 
 ### What PR #598 landed
 Everything below is now on `main`, embedded in the `vbeta.18.31` build.
@@ -74,6 +88,10 @@ Confirmed end-to-end on local build:
 - **#609** — OpenRouter model curation: browse full catalog in Agent Settings; pick which surface in the in-session picker.
 - **#610** — Composer slash-command popover (`CommandsDataSource` already exists, widget never built).
 - **#611** — Permission Mode pill in chat sessions (default / acceptEdits / plan / bypassPermissions) — depends on #608.
+- **#612** — Docs: project-state snapshot after #598 merge (merged).
+- **#613** — Release: bundle `apps/api_server/scripts` into the macOS .app so postinstall can run during the bundling step (merged).
+- **#614** — Lifecycle: quitting Rhythm.app must terminate spawned api_server + opencode subprocesses (no orphans). Force-quit safety net on next launch. **High priority — bites every install today.**
+- **#615** — `ApiServerService`: read bundled `.node-runtime.json` + ABI-match fallback when the install-time Node is missing. Surface a copy-paste rebuild command in the error dialog. **High priority — same root cause class as #614.**
 
 ### Release
 - **No Synology release needed.** The api_server in this PR is bundled inside the macOS .app; production Synology server owns only user-facing data (tasks, rhythms, project-templates, messages, facilities, users, claude-triggers) — none of which changed.
