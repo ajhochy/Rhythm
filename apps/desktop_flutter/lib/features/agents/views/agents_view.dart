@@ -20,11 +20,13 @@ import '../models/agent_session_message.dart';
 import '../models/chat_models.dart';
 import '../../settings/services/destructive_modal_service.dart';
 import '_agent_settings_sheet.dart';
+import '_message_actions_row.dart';
 import '_permission_card.dart';
 import '_permission_mode_picker.dart';
 import '_project_vcs_chip.dart';
 import '_projects_rail.dart';
 import '_session_model_picker.dart';
+import '_slash_command_popover.dart';
 import '_tool_call_part.dart';
 
 class AgentsView extends StatefulWidget {
@@ -1132,18 +1134,33 @@ class _TranscriptPanelState extends State<_TranscriptPanel> {
 
     // Prefer the parts-based chat when the server emits the new events.
     if (hasChat) {
-      return ListView.builder(
-        controller: _scrollController,
-        padding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
-        itemCount: chatMessages.length,
-        itemBuilder: (context, index) {
-          final m = chatMessages[index];
-          final parts = controller.chatPartsFor(m.id);
-          return Padding(
-            padding: const EdgeInsets.only(bottom: 8),
-            child: _ChatBubble(message: m, parts: parts),
-          );
-        },
+      return MessageTimeTicker(
+        child: ListView.builder(
+          controller: _scrollController,
+          padding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
+          itemCount: chatMessages.length,
+          itemBuilder: (context, index) {
+            final m = chatMessages[index];
+            final parts = controller.chatPartsFor(m.id);
+            // Collect full text for copy action.
+            final copyText = parts.map((p) => p.text).join('').trim();
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  _ChatBubble(message: m, parts: parts),
+                  MessageActionsRow(
+                    sessionId: session.id,
+                    messageId: m.id,
+                    createdAt: m.createdAt,
+                    text: copyText,
+                  ),
+                ],
+              ),
+            );
+          },
+        ),
       );
     }
 
@@ -1205,6 +1222,10 @@ class _TranscriptHeader extends StatelessWidget {
           SessionModelPicker(session: session),
           const SizedBox(width: 6),
           PermissionModePicker(session: session),
+          const SizedBox(width: 6),
+          _ThinkingBudgetPicker(session: session),
+          const SizedBox(width: 6),
+          _FastModeToggle(session: session),
           const SizedBox(width: 8),
           if (showReconnect) ...[
             OutlinedButton(
@@ -1336,6 +1357,164 @@ class _StatusChip extends StatelessWidget {
     );
   }
 }
+
+// ---------------------------------------------------------------------------
+// Reasoning effort picker (#604)
+// ---------------------------------------------------------------------------
+
+/// Compact dropdown for selecting the per-session thinking budget.
+/// Maps user-facing effort labels to budget_tokens values.
+class _ThinkingBudgetPicker extends StatelessWidget {
+  const _ThinkingBudgetPicker({required this.session});
+
+  final AgentSession session;
+
+  static const _labels = ['Low', 'Med', 'High', 'X-High', 'Max'];
+  static const _budgets = [1024, 4096, 12288, 32768, 64000];
+
+  String get _currentLabel {
+    final b = session.thinkingBudget;
+    if (b == null) return 'Off';
+    final idx = _budgets.indexOf(b);
+    return idx >= 0 ? _labels[idx] : '${(b / 1024).round()}K';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = context.watch<AgentsController>();
+
+    return Tooltip(
+      message: 'Reasoning effort (thinking budget)',
+      child: Container(
+        height: 30,
+        padding: const EdgeInsets.symmetric(horizontal: 8),
+        decoration: BoxDecoration(
+          color: session.thinkingBudget != null
+              ? context.rhythm.accentMuted
+              : context.rhythm.surfaceMuted,
+          borderRadius: BorderRadius.circular(RhythmRadius.md),
+          border: Border.all(
+            color: session.thinkingBudget != null
+                ? context.rhythm.accent.withValues(alpha: 0.3)
+                : context.rhythm.border,
+          ),
+        ),
+        child: DropdownButtonHideUnderline(
+          child: DropdownButton<int?>(
+            value: session.thinkingBudget,
+            isDense: true,
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              color: session.thinkingBudget != null
+                  ? context.rhythm.accent
+                  : context.rhythm.textSecondary,
+            ),
+            dropdownColor: context.rhythm.surfaceRaised,
+            icon: Icon(
+              Icons.expand_more,
+              size: 14,
+              color: context.rhythm.textMuted,
+            ),
+            items: [
+              DropdownMenuItem<int?>(
+                value: null,
+                child: Text(
+                  'Off',
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: context.rhythm.textSecondary,
+                  ),
+                ),
+              ),
+              for (var i = 0; i < _labels.length; i++)
+                DropdownMenuItem<int?>(
+                  value: _budgets[i],
+                  child: Text(
+                    _labels[i],
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: context.rhythm.textPrimary,
+                    ),
+                  ),
+                ),
+            ],
+            onChanged: (v) => controller.setThinkingBudget(session.id, v),
+            hint: Text(
+              _currentLabel,
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                color: context.rhythm.textSecondary,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Compact toggle button for per-session fast mode.
+class _FastModeToggle extends StatelessWidget {
+  const _FastModeToggle({required this.session});
+
+  final AgentSession session;
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = context.watch<AgentsController>();
+    final active = session.fastMode;
+
+    return Tooltip(
+      message: active ? 'Fast mode on — tap to disable' : 'Enable fast mode',
+      child: InkWell(
+        onTap: () => controller.setFastMode(session.id, enabled: !active),
+        borderRadius: BorderRadius.circular(RhythmRadius.md),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 120),
+          height: 30,
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          decoration: BoxDecoration(
+            color: active
+                ? context.rhythm.accentMuted
+                : context.rhythm.surfaceMuted,
+            borderRadius: BorderRadius.circular(RhythmRadius.md),
+            border: Border.all(
+              color: active
+                  ? context.rhythm.accent.withValues(alpha: 0.3)
+                  : context.rhythm.border,
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.bolt,
+                size: 14,
+                color:
+                    active ? context.rhythm.accent : context.rhythm.textMuted,
+              ),
+              const SizedBox(width: 3),
+              Text(
+                'Fast',
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: active
+                      ? context.rhythm.accent
+                      : context.rhythm.textSecondary,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
 
 class _EmptyTranscriptState extends StatelessWidget {
   const _EmptyTranscriptState();
@@ -1658,6 +1837,7 @@ class _InputArea extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final controller = context.watch<AgentsController>();
     return Container(
       padding: const EdgeInsets.fromLTRB(18, 14, 18, 18),
       decoration: BoxDecoration(
@@ -1685,52 +1865,63 @@ class _InputArea extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 10),
-          Focus(
-            onKeyEvent: (node, event) {
-              // Enter sends; Shift+Enter inserts a newline.
-              if (event is KeyDownEvent &&
-                  event.logicalKey == LogicalKeyboardKey.enter &&
-                  !HardwareKeyboard.instance.isShiftPressed) {
-                onSend();
-                return KeyEventResult.handled;
-              }
-              return KeyEventResult.ignored;
+          SlashCommandPopover(
+            inputController: inputController,
+            commands: controller.slashCommands,
+            onCommandSelected: (cmd) {
+              inputController.value = TextEditingValue(
+                text: cmd,
+                selection: TextSelection.collapsed(offset: cmd.length),
+              );
             },
-            child: TextField(
-              controller: inputController,
-              style: TextStyle(
-                fontSize: 13,
-                fontFamily: 'Menlo',
-                color: context.rhythm.textPrimary,
-              ),
-              maxLines: 3,
-              minLines: 1,
-              onSubmitted: (_) => onSend(),
-              decoration: InputDecoration(
-                hintText: 'Type a command or reply… (Shift+Enter for newline)',
-                hintStyle: TextStyle(
-                  color: context.rhythm.textMuted,
+            child: Focus(
+              onKeyEvent: (node, event) {
+                // Enter sends; Shift+Enter inserts a newline.
+                if (event is KeyDownEvent &&
+                    event.logicalKey == LogicalKeyboardKey.enter &&
+                    !HardwareKeyboard.instance.isShiftPressed) {
+                  onSend();
+                  return KeyEventResult.handled;
+                }
+                return KeyEventResult.ignored;
+              },
+              child: TextField(
+                controller: inputController,
+                style: TextStyle(
                   fontSize: 13,
                   fontFamily: 'Menlo',
+                  color: context.rhythm.textPrimary,
                 ),
-                isDense: true,
-                filled: true,
-                fillColor: context.rhythm.canvas.withValues(alpha: 0.6),
-                contentPadding: const EdgeInsets.symmetric(
-                  horizontal: 14,
-                  vertical: 12,
-                ),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(RhythmRadius.lg),
-                  borderSide: BorderSide(color: context.rhythm.border),
-                ),
-                enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(RhythmRadius.lg),
-                  borderSide: BorderSide(color: context.rhythm.border),
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(RhythmRadius.lg),
-                  borderSide: BorderSide(color: context.rhythm.accent),
+                maxLines: 3,
+                minLines: 1,
+                onSubmitted: (_) => onSend(),
+                decoration: InputDecoration(
+                  hintText:
+                      'Type a command or reply… (Shift+Enter for newline)',
+                  hintStyle: TextStyle(
+                    color: context.rhythm.textMuted,
+                    fontSize: 13,
+                    fontFamily: 'Menlo',
+                  ),
+                  isDense: true,
+                  filled: true,
+                  fillColor: context.rhythm.canvas.withValues(alpha: 0.6),
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 12,
+                  ),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(RhythmRadius.lg),
+                    borderSide: BorderSide(color: context.rhythm.border),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(RhythmRadius.lg),
+                    borderSide: BorderSide(color: context.rhythm.border),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(RhythmRadius.lg),
+                    borderSide: BorderSide(color: context.rhythm.accent),
+                  ),
                 ),
               ),
             ),

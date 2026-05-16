@@ -134,6 +134,11 @@ function handleClientMessage(ws: WebSocket, raw: import('ws').RawData): void {
         providerId?: string;
         modelId?: string;
       } | null;
+      // Issue #604: per-turn reasoning budget + fast-mode, never persisted.
+      const perTurnThinking = (msg.thinking ?? null) as {
+        budget_tokens?: number;
+      } | null;
+      const perTurnFastMode = typeof msg.fastMode === 'boolean' ? msg.fastMode : null;
       if (id && typeof data === 'string') {
         (async () => {
           let opencodeId = opencodeSessionMap.get(id);
@@ -142,6 +147,8 @@ function handleClientMessage(ws: WebSocket, raw: import('ws').RawData): void {
           let sessionName: string | undefined;
           let sessionProviderId: string | null = null;
           let sessionModelId: string | null = null;
+          let sessionThinkingBudget: number | null = null;
+          let sessionFastMode = false;
           try {
             const session = new AgentSessionsRepository().findById(id);
             if (session) {
@@ -150,6 +157,8 @@ function handleClientMessage(ws: WebSocket, raw: import('ws').RawData): void {
               sessionName = session.name;
               sessionProviderId = session.providerId;
               sessionModelId = session.modelId;
+              sessionThinkingBudget = session.thinkingBudget ?? null;
+              sessionFastMode = session.fastMode ?? false;
             }
           } catch {
             /* DB unavailable — proceed without context */
@@ -230,7 +239,28 @@ function handleClientMessage(ws: WebSocket, raw: import('ws').RawData): void {
                   perTurnOverride,
                 })
               : undefined;
-            await opencodeClient.promptAsync(opencodeId, data, model, cwd);
+
+            // Issue #604: build optional thinking / fast-mode opts to pass through.
+            // Resolution order: per-turn field overrides session-level field.
+            const effectiveThinkingBudget = perTurnThinking?.budget_tokens ?? sessionThinkingBudget;
+            const effectiveFastMode = perTurnFastMode ?? sessionFastMode;
+            const sdkOpts = (effectiveThinkingBudget !== null || effectiveFastMode)
+              ? {
+                  ...(effectiveThinkingBudget !== null ? { thinking: { budget_tokens: effectiveThinkingBudget } } : {}),
+                  ...(effectiveFastMode ? { fastMode: true } : {}),
+                }
+              : undefined;
+
+            // Cast through unknown to allow passing extra opts that the hand-typed
+            // SDK typedef may not list — these are forwarded best-effort.
+            const promptFn = (opencodeClient.promptAsync as unknown) as (
+              id: string,
+              data: string,
+              model?: { providerID: string; modelID: string },
+              cwd?: string,
+              opts?: Record<string, unknown>,
+            ) => Promise<unknown>;
+            await promptFn(opencodeId, data, model, cwd, sdkOpts);
           } catch (err) {
             console.error(
               `[ws_gateway] SDK prompt error for session ${id}:`,

@@ -212,6 +212,8 @@ export class AgentSessionsController {
         modelId?: string | null;
         agentMode?: string | null;
         permissionMode?: PermissionMode;
+        thinkingBudget?: number | null;
+        fastMode?: boolean;
       } = {};
 
       if (body.name !== undefined) {
@@ -251,6 +253,20 @@ export class AgentSessionsController {
           throw AppError.badRequest(`permissionMode must be one of: ${PERMISSION_MODES.join(', ')}`);
         }
         fields.permissionMode = body.permissionMode as PermissionMode;
+      }
+
+      // Issue #604 — reasoning budget + fast-mode
+      if (body.thinkingBudget !== undefined) {
+        if (body.thinkingBudget !== null && (typeof body.thinkingBudget !== 'number' || !Number.isInteger(body.thinkingBudget) || body.thinkingBudget < 0)) {
+          throw AppError.badRequest('thinkingBudget must be a non-negative integer or null');
+        }
+        fields.thinkingBudget = body.thinkingBudget as number | null;
+      }
+      if (body.fastMode !== undefined) {
+        if (typeof body.fastMode !== 'boolean') {
+          throw AppError.badRequest('fastMode must be a boolean');
+        }
+        fields.fastMode = body.fastMode;
       }
 
       // Issue #601 — archive / unarchive via PATCH { archived: boolean }

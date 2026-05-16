@@ -1,7 +1,18 @@
 import { opencodeClient } from './opencode_engine';
 
 /**
- * Ordered fallback list of {providerID, modelID} routes per agentId.
+ * Optional variant label rendered as a sub-label in the model picker.
+ * Examples: "1M context", "Legacy", "Thinking".
+ */
+export interface ModelRoute {
+  providerID: string;
+  modelID: string;
+  /** Optional human-readable variant label shown below the model ID in the picker. */
+  variantLabel?: string;
+}
+
+/**
+ * Ordered fallback list of ModelRoute entries per agentId.
  *
  * The SDK only successfully routes to providers with a built-in loader
  * (openrouter, openai, github-copilot, opencode) plus any community plugin
@@ -14,12 +25,11 @@ import { opencodeClient } from './opencode_engine';
  * returned and the SDK will surface the error (ProviderModelNotFoundError)
  * to the UI via the stream bridge — better than silent failure.
  */
-export const ROUTE_FALLBACKS_BY_AGENT: Record<
-  string,
-  Array<{ providerID: string; modelID: string }>
-> = {
+export const ROUTE_FALLBACKS_BY_AGENT: Record<string, ModelRoute[]> = {
   'claude-code': [
     { providerID: 'anthropic', modelID: 'claude-opus-4-7' },
+    { providerID: 'anthropic', modelID: 'claude-opus-4-7-1m', variantLabel: '1M context' },
+    { providerID: 'anthropic', modelID: 'claude-opus-4-6-legacy', variantLabel: 'Legacy' },
     { providerID: 'anthropic', modelID: 'claude-opus-4-5' },
     { providerID: 'anthropic', modelID: 'claude-sonnet-4-6' },
     { providerID: 'anthropic', modelID: 'claude-haiku-4-5' },
@@ -27,6 +37,7 @@ export const ROUTE_FALLBACKS_BY_AGENT: Record<
     { providerID: 'github-copilot', modelID: 'claude-sonnet-4-6' },
     { providerID: 'github-copilot', modelID: 'claude-haiku-4.5' },
     { providerID: 'openrouter', modelID: 'anthropic/claude-opus-4.7' },
+    { providerID: 'openrouter', modelID: 'anthropic/claude-opus-4.7:extended', variantLabel: '1M context' },
     { providerID: 'openrouter', modelID: 'anthropic/claude-opus-4.5' },
     { providerID: 'openrouter', modelID: 'anthropic/claude-sonnet-4.6' },
     { providerID: 'openrouter', modelID: 'anthropic/claude-haiku-4.5' },
@@ -35,9 +46,11 @@ export const ROUTE_FALLBACKS_BY_AGENT: Record<
     { providerID: 'openai', modelID: 'gpt-5.3-codex' },
     { providerID: 'openai', modelID: 'gpt-5.3' },
     { providerID: 'openai', modelID: 'gpt-5-mini' },
+    { providerID: 'openai', modelID: 'gpt-5-thinking', variantLabel: 'Thinking' },
     { providerID: 'github-copilot', modelID: 'gpt-5-mini' },
     { providerID: 'openrouter', modelID: 'openai/gpt-5.3-codex' },
     { providerID: 'openrouter', modelID: 'openai/gpt-5.3' },
+    { providerID: 'openrouter', modelID: 'openai/gpt-5-mini' },
   ],
   'gemini-cli': [
     { providerID: 'google', modelID: 'gemini-3-pro-preview' },
@@ -57,10 +70,10 @@ export const ROUTE_FALLBACKS_BY_AGENT: Record<
   ],
 };
 
-/** Pick the first authed route for the given agent, or null if none authed. */
+/** Pick the first authed route for the given agent, or the first route if none authed. */
 export async function resolveModelForAgent(
   agentId: string,
-): Promise<{ providerID: string; modelID: string } | undefined> {
+): Promise<ModelRoute | undefined> {
   const routes = ROUTE_FALLBACKS_BY_AGENT[agentId];
   if (!routes || routes.length === 0) return undefined;
   const authed = new Set(await opencodeClient.listAuthedProviders());
@@ -84,7 +97,7 @@ export async function resolveModelForSessionTurn(opts: {
   sessionProviderId: string | null;
   sessionModelId: string | null;
   perTurnOverride?: { providerId?: string; modelId?: string } | null;
-}): Promise<{ providerID: string; modelID: string } | undefined> {
+}): Promise<ModelRoute | undefined> {
   const override = opts.perTurnOverride;
   if (override?.providerId && override.modelId) {
     return { providerID: override.providerId, modelID: override.modelId };

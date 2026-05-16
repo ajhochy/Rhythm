@@ -53,6 +53,7 @@ class AgentsRepository {
     bool clearProvider = false,
     bool clearModel = false,
     String? permissionMode,
+    bool? fastMode,
   }) =>
       _dataSource.updateSession(
         id,
@@ -62,7 +63,15 @@ class AgentsRepository {
         clearProvider: clearProvider,
         clearModel: clearModel,
         permissionMode: permissionMode,
+        fastMode: fastMode,
       );
+
+  /// Issue #604 — dedicated helper to update thinking budget (null = clear).
+  Future<AgentSession> updateSessionThinkingBudget(
+    String id,
+    int? budget,
+  ) =>
+      _dataSource.updateSession(id, thinkingBudget: budget);
 
   /// #608 — respond to a pending permission (accept or deny).
   Future<void> respondPermission(

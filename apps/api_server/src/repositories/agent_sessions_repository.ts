@@ -20,6 +20,8 @@ interface AgentSessionRow {
   model_id: string | null;
   agent_mode: string | null;
   permission_mode: string | null;
+  thinking_budget: number | null;
+  fast_mode: number;
   last_preview: string | null;
   last_activity_at: string | null;
   archived_at: string | null;
@@ -42,6 +44,8 @@ function rowToModel(row: AgentSessionRow): AgentSession {
     modelId: row.model_id ?? null,
     agentMode: row.agent_mode ?? null,
     permissionMode: (row.permission_mode ?? 'default') as PermissionMode,
+    thinkingBudget: row.thinking_budget ?? null,
+    fastMode: row.fast_mode === 1,
     lastPreview: row.last_preview,
     lastActivityAt: row.last_activity_at,
     archivedAt: row.archived_at ?? null,
@@ -197,6 +201,8 @@ export class AgentSessionsRepository {
       modelId?: string | null;
       agentMode?: string | null;
       permissionMode?: PermissionMode;
+      thinkingBudget?: number | null;
+      fastMode?: boolean;
     },
   ): void {
     const sets: string[] = [];
@@ -220,6 +226,14 @@ export class AgentSessionsRepository {
     if (fields.permissionMode !== undefined) {
       sets.push('permission_mode = ?');
       values.push(fields.permissionMode);
+    }
+    if (fields.thinkingBudget !== undefined) {
+      sets.push('thinking_budget = ?');
+      values.push(fields.thinkingBudget);
+    }
+    if (fields.fastMode !== undefined) {
+      sets.push('fast_mode = ?');
+      values.push(fields.fastMode ? 1 : 0);
     }
     if (sets.length === 0) return;
     sets.push('updated_at = ?');

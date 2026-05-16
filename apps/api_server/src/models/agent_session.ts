@@ -19,6 +19,10 @@ export interface AgentSession {
   modelId: string | null;
   agentMode: string | null;
   permissionMode: PermissionMode;
+  /** Reasoning budget in tokens (null = off). Only applied when the model supports extended thinking. */
+  thinkingBudget: number | null;
+  /** When true, ask the SDK to use fast-mode (lower latency, less thorough). */
+  fastMode: boolean;
   lastPreview: string | null;
   lastActivityAt: string | null;
   archivedAt: string | null;

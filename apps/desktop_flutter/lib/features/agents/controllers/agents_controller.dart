@@ -8,6 +8,7 @@ import '../../../app/core/errors/app_error.dart';
 import '../../../app/core/notifications/local_notification_service.dart';
 import '../../notifications/controllers/notifications_controller.dart';
 import '../data/agent_models_data_source.dart';
+import '../data/commands_data_source.dart';
 import '../models/agent_model_route.dart';
 import '../models/agent_session.dart';
 import '../models/agent_session_connectivity.dart';
@@ -52,10 +53,12 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     this._agentServerController,
     this._notificationService,
     this._notificationsController,
-  ) : _modelsDataSource = AgentModelsDataSource();
+  )   : _modelsDataSource = AgentModelsDataSource(),
+        _commandsDataSource = CommandsDataSource();
 
   final AgentsRepository _repository;
   final AgentModelsDataSource _modelsDataSource;
+  final CommandsDataSource _commandsDataSource;
   final AgentServerController _agentServerController;
   final LocalNotificationService _notificationService;
   final NotificationsController _notificationsController;
@@ -113,6 +116,21 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   /// The per-turn override that will accompany the NEXT sendInput call.
   /// Cleared after the message is sent.
   AgentModelRoute? _pendingTurnOverride;
+
+  // --------------------------------------------------------------------------
+  // Slash-command cache (Issue #610)
+  // --------------------------------------------------------------------------
+  /// Cached slash-commands per session id. Populated on first selectSession.
+  final Map<String, List<SlashCommand>> _commandsBySession = {};
+  bool _commandsFetchInFlight = false;
+
+  // --------------------------------------------------------------------------
+  // Notify-on-completion state (Issue #606)
+  // --------------------------------------------------------------------------
+  /// Set of (sessionId, messageId) pairs that have notify-on-completion armed.
+  /// When the parent session transitions out of working, a desktop notification
+  /// is fired for all messages in the working session that are armed.
+  final Set<String> _notifyOnCompletion = {};
 
   AgentSessionConnectivity _connectivity = const AgentSessionConnectivity();
 
@@ -176,6 +194,24 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
 
   /// Per-turn model override that will ride the next [sendInput] call.
   AgentModelRoute? get pendingTurnOverride => _pendingTurnOverride;
+
+  /// Slash-commands for the current session, cached after first fetch.
+  List<SlashCommand> get slashCommands =>
+      List.unmodifiable(_commandsBySession[_selectedSessionId] ?? const []);
+
+  /// Returns true if notify-on-completion is armed for [messageKey] (format: "$sessionId:$messageId").
+  bool isNotifyArmed(String messageKey) =>
+      _notifyOnCompletion.contains(messageKey);
+
+  /// Toggle the notify-on-completion flag for a given message key.
+  void toggleNotify(String messageKey) {
+    if (_notifyOnCompletion.contains(messageKey)) {
+      _notifyOnCompletion.remove(messageKey);
+    } else {
+      _notifyOnCompletion.add(messageKey);
+    }
+    notifyListeners();
+  }
 
   // --------------------------------------------------------------------------
   // Lifecycle
@@ -645,6 +681,76 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     );
   }
 
+  /// Issue #604 — set the session-level thinking budget (null = off).
+  Future<void> setThinkingBudget(String sessionId, int? budget) async {
+    // Optimistic update.
+    _sessions = [
+      for (final s in _sessions)
+        if (s.id == sessionId)
+          // Pass null via the sentinel path to actually clear the field.
+          AgentSession(
+            id: s.id,
+            taskId: s.taskId,
+            agentId: s.agentId,
+            status: s.status,
+            sessionToken: s.sessionToken,
+            cwd: s.cwd,
+            name: s.name,
+            projectId: s.projectId,
+            providerId: s.providerId,
+            modelId: s.modelId,
+            permissionMode: s.permissionMode,
+            thinkingBudget: budget,
+            fastMode: s.fastMode,
+            lastPreview: s.lastPreview,
+            lastActivityAt: s.lastActivityAt,
+            archivedAt: s.archivedAt,
+            createdAt: s.createdAt,
+            updatedAt: s.updatedAt,
+          )
+        else
+          s,
+    ];
+    notifyListeners();
+    try {
+      // Pass budget explicitly; null clears the field on the server.
+      final updated = await _repository.updateSessionThinkingBudget(
+        sessionId,
+        budget,
+      );
+      _sessions = [
+        for (final s in _sessions) s.id == sessionId ? updated : s,
+      ];
+      notifyListeners();
+    } catch (e) {
+      _error = e is AppError ? e.message : e.toString();
+      notifyListeners();
+    }
+  }
+
+  /// Issue #604 — set the session-level fast-mode flag.
+  Future<void> setFastMode(String sessionId, {required bool enabled}) async {
+    // Optimistic update.
+    _sessions = [
+      for (final s in _sessions)
+        if (s.id == sessionId) s.copyWith(fastMode: enabled) else s,
+    ];
+    notifyListeners();
+    try {
+      final updated = await _repository.updateSession(
+        sessionId,
+        fastMode: enabled,
+      );
+      _sessions = [
+        for (final s in _sessions) s.id == sessionId ? updated : s,
+      ];
+      notifyListeners();
+    } catch (e) {
+      _error = e is AppError ? e.message : e.toString();
+      notifyListeners();
+    }
+  }
+
   void resize(String sessionId, int cols, int rows) {
     _repository.send({
       'type': 'session.resize',
@@ -678,6 +784,24 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     }
     // Load model routes for the newly selected session in the background.
     _loadModelRoutes(id);
+    // Load slash commands for this session (Issue #610).
+    _loadSlashCommands(id);
+  }
+
+  Future<void> _loadSlashCommands(String sessionId) async {
+    // If already cached or a fetch is already in flight, skip.
+    if (_commandsBySession.containsKey(sessionId)) return;
+    if (_commandsFetchInFlight) return;
+    _commandsFetchInFlight = true;
+    try {
+      final commands = await _commandsDataSource.list();
+      _commandsBySession[sessionId] = commands;
+      if (_selectedSessionId == sessionId) notifyListeners();
+    } catch (_) {
+      // Silently degrade — popover shows empty state.
+    } finally {
+      _commandsFetchInFlight = false;
+    }
   }
 
   Future<void> _loadModelRoutes(String sessionId) async {
@@ -794,7 +918,13 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
         ];
       }
     } else if (msg is SessionStatusMessage) {
+      final wasWorking = _working[msg.id] ?? false;
       _working[msg.id] = msg.working;
+      // Issue #606 — when a session transitions from working to not-working,
+      // fire notifications for any messages with notify-on-completion armed.
+      if (wasWorking && !msg.working) {
+        _fireArmedNotifications(msg.id);
+      }
     } else if (msg is OutputMessage) {
       final prev = _liveOutputBuffer[msg.id] ?? '';
       final next = prev + msg.data;
@@ -1010,6 +1140,22 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   }) {
     _chatMessagesBySession[sessionId]?.removeWhere((m) => m.id == messageId);
     _chatPartsByMessage.remove(messageId);
+  }
+
+  // Issue #606 — fire desktop notifications for all armed messages in a session.
+  void _fireArmedNotifications(String sessionId) {
+    final prefix = '$sessionId:';
+    final armed =
+        _notifyOnCompletion.where((k) => k.startsWith(prefix)).toList();
+    if (armed.isEmpty) return;
+    for (final key in armed) {
+      _notifyOnCompletion.remove(key);
+    }
+    _notificationService.showMessageNotification(
+      id: sessionId.hashCode & 0x7FFFFFFF,
+      title: 'Agent session finished',
+      body: 'The agent finished working in the session you were watching.',
+    );
   }
 
   // --------------------------------------------------------------------------

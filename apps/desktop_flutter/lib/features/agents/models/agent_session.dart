@@ -79,6 +79,8 @@ class AgentSession {
     this.providerId,
     this.modelId,
     this.permissionMode = PermissionMode.defaultMode,
+    this.thinkingBudget,
+    this.fastMode = false,
     this.lastPreview,
     this.lastActivityAt,
     this.archivedAt,
@@ -97,6 +99,12 @@ class AgentSession {
   final String? providerId;
   final String? modelId;
   final PermissionMode permissionMode;
+
+  /// Reasoning budget in tokens (null = off). Only used when the model supports thinking.
+  final int? thinkingBudget;
+
+  /// When true, ask the SDK to use fast-mode (lower latency, less thorough).
+  final bool fastMode;
   final String? lastPreview;
   final DateTime? lastActivityAt;
   final DateTime? archivedAt;
@@ -125,6 +133,8 @@ class AgentSession {
       providerId: asString(json['providerId']),
       modelId: asString(json['modelId']),
       permissionMode: PermissionMode.fromWire(asString(json['permissionMode'])),
+      thinkingBudget: json['thinkingBudget'] as int?,
+      fastMode: json['fastMode'] as bool? ?? false,
       lastPreview: asString(json['lastPreview']),
       lastActivityAt: _parseDateTime(asString(json['lastActivityAt'])),
       archivedAt: _parseDateTime(asString(json['archivedAt'])),
@@ -146,6 +156,8 @@ class AgentSession {
       if (providerId != null) 'providerId': providerId,
       if (modelId != null) 'modelId': modelId,
       'permissionMode': permissionMode.wireValue,
+      if (thinkingBudget != null) 'thinkingBudget': thinkingBudget,
+      'fastMode': fastMode,
       if (lastPreview != null) 'lastPreview': lastPreview,
       if (lastActivityAt != null)
         'lastActivityAt': lastActivityAt!.toUtc().toIso8601String(),
@@ -166,6 +178,8 @@ class AgentSession {
     Object? providerId = _sentinel,
     Object? modelId = _sentinel,
     PermissionMode? permissionMode,
+    Object? thinkingBudget = _sentinel,
+    bool? fastMode,
     Object? lastPreview = _sentinel,
     Object? lastActivityAt = _sentinel,
     Object? archivedAt = _sentinel,
@@ -187,6 +201,10 @@ class AgentSession {
           providerId == _sentinel ? this.providerId : providerId as String?,
       modelId: modelId == _sentinel ? this.modelId : modelId as String?,
       permissionMode: permissionMode ?? this.permissionMode,
+      thinkingBudget: thinkingBudget == _sentinel
+          ? this.thinkingBudget
+          : thinkingBudget as int?,
+      fastMode: fastMode ?? this.fastMode,
       lastPreview:
           lastPreview == _sentinel ? this.lastPreview : lastPreview as String?,
       lastActivityAt: lastActivityAt == _sentinel

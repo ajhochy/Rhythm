@@ -1117,4 +1117,24 @@ export function runMigrations(db: Database.Database): void {
   if (!agentSessionColsPerm.includes('permission_mode')) {
     db.exec(`ALTER TABLE agent_sessions ADD COLUMN permission_mode TEXT NOT NULL DEFAULT 'default'`);
   }
+
+  // Issue #604 — reasoning effort (thinking_budget) and fast-mode columns for agent_sessions.
+  // Both are additive and idempotent via pragma check.
+  const agentSessionCols604 = (db.pragma('table_info(agent_sessions)') as { name: string }[]).map((c) => c.name);
+  if (!agentSessionCols604.includes('thinking_budget')) {
+    db.exec(`ALTER TABLE agent_sessions ADD COLUMN thinking_budget INTEGER`);
+  }
+  if (!agentSessionCols604.includes('fast_mode')) {
+    db.exec(`ALTER TABLE agent_sessions ADD COLUMN fast_mode INTEGER NOT NULL DEFAULT 0`);
+  }
+
+  // Issue #609 — agent_model_visibility table for OpenRouter model curation.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS agent_model_visibility (
+      provider TEXT NOT NULL,
+      model_id TEXT NOT NULL,
+      visible INTEGER NOT NULL DEFAULT 1,
+      PRIMARY KEY (provider, model_id)
+    )
+  `);
 }

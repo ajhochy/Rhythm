@@ -12,6 +12,17 @@ import '../models/agent_session.dart';
 import '../models/agent_session_message.dart';
 import '../models/agent_ws_message.dart';
 
+// Sentinel used by updateSession to distinguish "not provided" from "null".
+// Must use a named object rather than a bare const Object() so comparisons work.
+const _dssentinel = _DsSentinel();
+
+class _DsSentinel {
+  const _DsSentinel();
+}
+
+// The sentinel value used at runtime (same object as _dssentinel since it's const).
+const Object _dssentinelValue = _dssentinel;
+
 class AgentsDataSource {
   AgentsDataSource()
       : _baseUrl = AppConstants.agentLocalBaseUrl,
@@ -179,7 +190,7 @@ class AgentsDataSource {
     );
   }
 
-  // M2-1 / #611: session-level rename + provider/model/permissionMode override.
+  // M2-1 / #611 / #604: session-level rename + provider/model/permissionMode/thinking/fastMode override.
   Future<AgentSession> updateSession(
     String id, {
     String? name,
@@ -188,6 +199,9 @@ class AgentsDataSource {
     bool clearProvider = false,
     bool clearModel = false,
     String? permissionMode,
+    // Use Object? sentinel so callers can pass null explicitly to clear the field.
+    Object? thinkingBudget = _dssentinel,
+    bool? fastMode,
   }) async {
     final payload = <String, dynamic>{};
     if (name != null) payload['name'] = name;
@@ -203,6 +217,12 @@ class AgentsDataSource {
     }
     if (permissionMode != null) {
       payload['permissionMode'] = permissionMode;
+    }
+    if (thinkingBudget != _dssentinelValue) {
+      payload['thinkingBudget'] = thinkingBudget;
+    }
+    if (fastMode != null) {
+      payload['fastMode'] = fastMode;
     }
     final response = await http.patch(
       Uri.parse('$_baseUrl/agent-sessions/$id'),

@@ -27,6 +27,8 @@ import { agentsCapabilitiesRouter } from './routes/agents_capabilities_routes';
 import { agentsModelsRouter } from './routes/agents_models_routes';
 import { notificationsAgentRouter } from './routes/notifications_agent_routes';
 import { opencodeAuthRouter } from './routes/opencode_auth_routes';
+import { agentModelVisibilityRouter } from './routes/agent_model_visibility_routes';
+import { opencodeModelsRouter } from './routes/opencode_models_routes';
 import { opencodeClient } from './services/opencode_engine';
 
 export function createApp() {
@@ -78,6 +80,10 @@ export function createApp() {
 
   // Opencode engine auth & health
   app.use('/opencode/auth', opencodeAuthRouter);
+  // Issue #609 — OpenRouter / opencode model catalog browse (server-side proxy)
+  app.use('/opencode/models', opencodeModelsRouter);
+  // Issue #609 — agent model visibility CRUD
+  app.use('/agent-models/visibility', agentModelVisibilityRouter);
 
   // M5-2: custom provider definitions placeholder. Returns 501 until the
   // SDK config writer is wired through `opencode_plugin_config.ts`.

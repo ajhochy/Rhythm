@@ -144,7 +144,16 @@ class _ErrorAgentsRepository implements AgentsRepository {
     String? permissionMode,
     bool clearProvider = false,
     bool clearModel = false,
+    bool? fastMode,
   }) async {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<AgentSession> updateSessionThinkingBudget(
+    String id,
+    int? budget,
+  ) async {
     throw UnimplementedError();
   }
 

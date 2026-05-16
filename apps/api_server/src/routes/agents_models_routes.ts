@@ -3,6 +3,7 @@ import { requireAuth } from '../middleware/auth_middleware';
 import { env } from '../config/env';
 import { opencodeClient } from '../services/opencode_engine';
 import { ROUTE_FALLBACKS_BY_AGENT } from '../services/agent_model_resolver';
+import { getDb } from '../database/db';
 
 export const agentsModelsRouter = Router();
 
@@ -66,16 +67,38 @@ agentsModelsRouter.get('/', async (req: Request, res: Response) => {
     const authedProviders = await opencodeClient.listAuthedProviders();
     const authedSet = new Set(authedProviders);
 
+    // Issue #609 — load visibility map for openrouter (other providers always visible).
+    let visibilityMap: Map<string, boolean> | null = null;
+    try {
+      const rows = getDb().prepare(
+        `SELECT model_id, visible FROM agent_model_visibility WHERE provider = 'openrouter'`,
+      ).all() as { model_id: string; visible: number }[];
+      if (rows.length > 0) {
+        visibilityMap = new Map(rows.map((r) => [r.model_id, r.visible === 1]));
+      }
+    } catch {
+      // DB may not have the table yet on first run — degrade gracefully.
+    }
+
     const rows: Array<{
       providerId: string;
       modelId: string;
       routeKind: 'direct' | 'aggregator';
       aggregatorVia?: string;
       label: string;
+      variantLabel?: string;
     }> = [];
 
-    for (const { providerID, modelID } of routes) {
+    for (const route of routes) {
+      const { providerID, modelID, variantLabel } = route;
       if (!authedSet.has(providerID)) continue;
+
+      // Issue #609 — filter openrouter models by visibility if a visibility row exists.
+      // If no row exists for this model_id, default to visible=true.
+      if (AGGREGATOR_PROVIDERS.has(providerID) && providerID === 'openrouter' && visibilityMap !== null) {
+        const isVisible = visibilityMap.get(modelID);
+        if (isVisible === false) continue;
+      }
 
       const isAggregator = AGGREGATOR_PROVIDERS.has(providerID);
       if (isAggregator) {
@@ -86,6 +109,7 @@ agentsModelsRouter.get('/', async (req: Request, res: Response) => {
           routeKind: 'aggregator',
           aggregatorVia: via,
           label: `${modelID} · via ${via}`,
+          ...(variantLabel ? { variantLabel } : {}),
         });
       } else {
         rows.push({
@@ -93,6 +117,7 @@ agentsModelsRouter.get('/', async (req: Request, res: Response) => {
           modelId: modelID,
           routeKind: 'direct',
           label: `${modelID} · direct`,
+          ...(variantLabel ? { variantLabel } : {}),
         });
       }
     }
