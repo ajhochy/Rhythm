@@ -99,7 +99,11 @@ class _ErrorAgentsRepository implements AgentsRepository {
   void send(Map<String, dynamic> msg) {}
 
   @override
-  Future<List<AgentSession>> listSessions() async => [];
+  Future<List<AgentSession>> listSessions({
+    bool includeArchived = false,
+    bool archivedOnly = false,
+  }) async =>
+      [];
 
   @override
   Future<({AgentSession session, List<AgentSessionMessage> messages})>
@@ -145,6 +149,16 @@ class _ErrorAgentsRepository implements AgentsRepository {
 
   @override
   Future<AgentSession> resumeSession(String id) async {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<AgentSession> archiveSession(String id) async {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<AgentSession> unarchiveSession(String id) async {
     throw UnimplementedError();
   }
 

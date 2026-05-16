@@ -8,6 +8,7 @@ import { ProjectsRepository } from '../repositories/projects_repository';
 import type { AgentKind, CreateAgentSessionDto } from '../models/agent_session';
 import { opencodeClient, opencodeSessionMap } from '../services/opencode_engine';
 import { streamBridge } from '../services/opencode_stream_bridge';
+import { broadcastSessionUpdated, broadcastSessionRemoved } from '../services/ws_gateway';
 
 // Legacy agentId aliases. Older Rhythm clients (and a handful of historical
 // scripts) used short names. /agents/capabilities and the seed both use
@@ -42,16 +43,19 @@ export class AgentSessionsController {
   list(req: Request, res: Response, next: NextFunction): void {
     try {
       const projectIdParam = req.query.projectId;
+      const includeArchived = req.query.includeArchived === 'true';
+      const archivedOnly = req.query.archivedOnly === 'true';
+      const archiveOpts = { includeArchived, archivedOnly };
       let sessions;
       if (typeof projectIdParam === 'string') {
         // Literal "null" → unassigned bucket; any other string → filter by id.
         sessions = projectIdParam === 'null'
-          ? repo.listByProject(null, 100)
-          : repo.listByProject(projectIdParam, 100);
+          ? repo.listByProject(null, 100, archiveOpts)
+          : repo.listByProject(projectIdParam, 100, archiveOpts);
       } else {
-        sessions = repo.listAll(100);
+        sessions = repo.listAll(100, archiveOpts);
       }
-      const resumable = repo.listResumable();
+      const resumable = archivedOnly ? [] : repo.listResumable();
       res.json({ sessions, resumable });
     } catch (err) {
       next(err);
@@ -240,8 +244,21 @@ export class AgentSessionsController {
         fields.agentMode = body.agentMode as string | null;
       }
 
+      // Issue #601 — archive / unarchive via PATCH { archived: boolean }
+      if (body.archived !== undefined) {
+        if (typeof body.archived !== 'boolean') {
+          throw AppError.badRequest('archived must be a boolean');
+        }
+        const updated = repo.setArchived(session.id, body.archived);
+        if (updated) broadcastSessionUpdated(updated);
+        res.json(updated ?? repo.findById(session.id)!);
+        return;
+      }
+
       repo.updateFields(session.id, fields);
-      res.json(repo.findById(session.id)!);
+      const updated = repo.findById(session.id)!;
+      broadcastSessionUpdated(updated);
+      res.json(updated);
     } catch (err) {
       next(err);
     }
@@ -333,6 +350,10 @@ export class AgentSessionsController {
       opencodeSessionMap.delete(session.id);
       repo.markClosed(session.id);
 
+      // Issue #605 — broadcast the status change so live clients update without polling.
+      const closed = repo.findById(session.id);
+      if (closed) broadcastSessionUpdated(closed);
+
       res.status(204).end();
     } catch (err) {
       next(err);
@@ -353,6 +374,9 @@ export class AgentSessionsController {
       opencodeSessionMap.delete(session.id);
       const changes = repo.deleteById(session.id);
       if (changes === 0) throw AppError.notFound('AgentSession');
+
+      // Issue #605 — broadcast row removal so live clients drop it from their cache.
+      broadcastSessionRemoved(session.id);
 
       res.status(204).end();
     } catch (err) {

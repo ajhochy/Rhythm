@@ -79,7 +79,11 @@ class _FakeAgentsRepository implements AgentsRepository {
   void send(Map<String, dynamic> msg) {}
 
   @override
-  Future<List<AgentSession>> listSessions() async => [];
+  Future<List<AgentSession>> listSessions({
+    bool includeArchived = false,
+    bool archivedOnly = false,
+  }) async =>
+      [];
 
   @override
   Future<({AgentSession session, List<AgentSessionMessage> messages})>
@@ -149,6 +153,35 @@ class _FakeAgentsRepository implements AgentsRepository {
       status: AgentSessionStatus.idle,
       cwd: '/tmp',
       name: 'Resumed',
+      createdAt: now,
+      updatedAt: now,
+    );
+  }
+
+  @override
+  Future<AgentSession> archiveSession(String id) async {
+    final now = DateTime.now();
+    return AgentSession(
+      id: id,
+      agentId: 'claude-code',
+      status: AgentSessionStatus.closed,
+      cwd: '/tmp',
+      name: 'Archived',
+      archivedAt: now,
+      createdAt: now,
+      updatedAt: now,
+    );
+  }
+
+  @override
+  Future<AgentSession> unarchiveSession(String id) async {
+    final now = DateTime.now();
+    return AgentSession(
+      id: id,
+      agentId: 'claude-code',
+      status: AgentSessionStatus.idle,
+      cwd: '/tmp',
+      name: 'Unarchived',
       createdAt: now,
       updatedAt: now,
     );

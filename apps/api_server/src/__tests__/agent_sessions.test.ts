@@ -748,4 +748,119 @@ describe('Agent Sessions API', () => {
     });
     expect(res.status).toBe(400);
   });
+
+  // ── Issue #601: archive / soft-delete ─────────────────────────────────────
+
+  it('PATCH { archived: true } sets archivedAt and the row is excluded from default GET', async () => {
+    // Create a session via REST so the SDK mapping is populated (required by create).
+    const createRes = await fetch(`${baseUrl}/agent-sessions`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({ agentId: 'claude-code', cwd: os.homedir(), name: 'ToArchive', projectId: null }),
+    });
+    expect(createRes.status).toBe(201);
+    const { id } = (await createRes.json()) as { id: string };
+
+    // Archive it.
+    const archiveRes = await fetch(`${baseUrl}/agent-sessions/${id}`, {
+      method: 'PATCH',
+      headers: authHeaders,
+      body: JSON.stringify({ archived: true }),
+    });
+    expect(archiveRes.status).toBe(200);
+    const archived = (await archiveRes.json()) as { id: string; archivedAt: string | null };
+    expect(archived.archivedAt).not.toBeNull();
+
+    // Default list must NOT include the archived row.
+    const listRes = await fetch(`${baseUrl}/agent-sessions`, { headers: authHeaders });
+    const listBody = (await listRes.json()) as { sessions: Array<{ id: string }> };
+    expect(listBody.sessions.find((s) => s.id === id)).toBeUndefined();
+  });
+
+  it('GET ?archivedOnly=true returns only archived rows', async () => {
+    const createRes = await fetch(`${baseUrl}/agent-sessions`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({ agentId: 'claude-code', cwd: os.homedir(), name: 'ArchivedOnly', projectId: null }),
+    });
+    const { id } = (await createRes.json()) as { id: string };
+
+    await fetch(`${baseUrl}/agent-sessions/${id}`, {
+      method: 'PATCH',
+      headers: authHeaders,
+      body: JSON.stringify({ archived: true }),
+    });
+
+    // Also create a non-archived session.
+    await fetch(`${baseUrl}/agent-sessions`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({ agentId: 'claude-code', cwd: os.homedir(), name: 'NotArchived', projectId: null }),
+    });
+
+    const res = await fetch(`${baseUrl}/agent-sessions?archivedOnly=true`, { headers: authHeaders });
+    const body = (await res.json()) as { sessions: Array<{ id: string; archivedAt: string | null }> };
+    expect(body.sessions.every((s) => s.archivedAt !== null)).toBe(true);
+    expect(body.sessions.find((s) => s.id === id)).toBeDefined();
+  });
+
+  it('GET ?includeArchived=true includes both archived and non-archived rows', async () => {
+    const r1 = await fetch(`${baseUrl}/agent-sessions`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({ agentId: 'claude-code', cwd: os.homedir(), name: 'IncludedArchive', projectId: null }),
+    });
+    const { id: archivedId } = (await r1.json()) as { id: string };
+    await fetch(`${baseUrl}/agent-sessions/${archivedId}`, {
+      method: 'PATCH',
+      headers: authHeaders,
+      body: JSON.stringify({ archived: true }),
+    });
+    const r2 = await fetch(`${baseUrl}/agent-sessions`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({ agentId: 'claude-code', cwd: os.homedir(), name: 'IncludedActive', projectId: null }),
+    });
+    const { id: activeId } = (await r2.json()) as { id: string };
+
+    const res = await fetch(`${baseUrl}/agent-sessions?includeArchived=true`, { headers: authHeaders });
+    const body = (await res.json()) as { sessions: Array<{ id: string }> };
+    expect(body.sessions.find((s) => s.id === archivedId)).toBeDefined();
+    expect(body.sessions.find((s) => s.id === activeId)).toBeDefined();
+  });
+
+  it('PATCH { archived: false } clears archivedAt and row reappears in default GET', async () => {
+    const createRes = await fetch(`${baseUrl}/agent-sessions`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({ agentId: 'claude-code', cwd: os.homedir(), name: 'UnarchiveMe', projectId: null }),
+    });
+    const { id } = (await createRes.json()) as { id: string };
+
+    // Archive then unarchive.
+    await fetch(`${baseUrl}/agent-sessions/${id}`, {
+      method: 'PATCH',
+      headers: authHeaders,
+      body: JSON.stringify({ archived: true }),
+    });
+    const unarchiveRes = await fetch(`${baseUrl}/agent-sessions/${id}`, {
+      method: 'PATCH',
+      headers: authHeaders,
+      body: JSON.stringify({ archived: false }),
+    });
+    expect(unarchiveRes.status).toBe(200);
+    const unarchived = (await unarchiveRes.json()) as { archivedAt: string | null };
+    expect(unarchived.archivedAt).toBeNull();
+
+    // Must reappear in default list.
+    const listRes = await fetch(`${baseUrl}/agent-sessions`, { headers: authHeaders });
+    const listBody = (await listRes.json()) as { sessions: Array<{ id: string }> };
+    expect(listBody.sessions.find((s) => s.id === id)).toBeDefined();
+  });
+
+  it('archived_at migration is idempotent (running migrations twice is a no-op)', async () => {
+    const { runMigrations: run } = await import('../database/migrations');
+    const { getDb } = await import('../database/db');
+    expect(() => run(getDb())).not.toThrow();
+  });
 });

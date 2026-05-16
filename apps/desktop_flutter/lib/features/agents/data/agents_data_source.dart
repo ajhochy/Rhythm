@@ -111,9 +111,18 @@ class AgentsDataSource {
   // HTTP REST
   // --------------------------------------------------------------------------
 
-  Future<List<AgentSession>> listSessions() async {
+  Future<List<AgentSession>> listSessions({
+    bool includeArchived = false,
+    bool archivedOnly = false,
+  }) async {
+    final uri = Uri.parse('$_baseUrl/agent-sessions').replace(
+      queryParameters: {
+        if (includeArchived) 'includeArchived': 'true',
+        if (archivedOnly) 'archivedOnly': 'true',
+      },
+    );
     final response = await http.get(
-      Uri.parse('$_baseUrl/agent-sessions'),
+      uri,
       headers: AuthSessionStore.headers(),
     );
     assertOk(response);
@@ -233,6 +242,32 @@ class AgentsDataSource {
     if (response.statusCode != 204) {
       assertOk(response);
     }
+  }
+
+  /// Archive a session (soft-delete, keeps history). Distinct from [deleteSession].
+  Future<AgentSession> archiveSession(String id) async {
+    final response = await http.patch(
+      Uri.parse('$_baseUrl/agent-sessions/$id'),
+      headers: AuthSessionStore.headers(json: true),
+      body: jsonEncode({'archived': true}),
+    );
+    assertOk(response);
+    return AgentSession.fromJson(
+      jsonDecode(response.body) as Map<String, dynamic>,
+    );
+  }
+
+  /// Unarchive a session, returning it to the active list.
+  Future<AgentSession> unarchiveSession(String id) async {
+    final response = await http.patch(
+      Uri.parse('$_baseUrl/agent-sessions/$id'),
+      headers: AuthSessionStore.headers(json: true),
+      body: jsonEncode({'archived': false}),
+    );
+    assertOk(response);
+    return AgentSession.fromJson(
+      jsonDecode(response.body) as Map<String, dynamic>,
+    );
   }
 
   Future<AgentSession> resumeSession(String id) async {

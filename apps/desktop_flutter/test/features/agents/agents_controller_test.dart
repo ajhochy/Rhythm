@@ -108,7 +108,11 @@ class _FakeAgentsRepository implements AgentsRepository {
   }
 
   @override
-  Future<List<AgentSession>> listSessions() async => sessionsToReturn;
+  Future<List<AgentSession>> listSessions({
+    bool includeArchived = false,
+    bool archivedOnly = false,
+  }) async =>
+      sessionsToReturn;
 
   @override
   Future<({AgentSession session, List<AgentSessionMessage> messages})>
@@ -158,6 +162,16 @@ class _FakeAgentsRepository implements AgentsRepository {
 
   @override
   Future<AgentSession> resumeSession(String id) async {
+    return _makeSession(id, AgentSessionStatus.idle);
+  }
+
+  @override
+  Future<AgentSession> archiveSession(String id) async {
+    return _makeSession(id, AgentSessionStatus.closed);
+  }
+
+  @override
+  Future<AgentSession> unarchiveSession(String id) async {
     return _makeSession(id, AgentSessionStatus.idle);
   }
 

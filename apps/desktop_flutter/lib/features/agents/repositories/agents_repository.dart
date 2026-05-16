@@ -16,7 +16,14 @@ class AgentsRepository {
   Future<void> dispose() => _dataSource.dispose();
   void send(Map<String, dynamic> msg) => _dataSource.send(msg);
 
-  Future<List<AgentSession>> listSessions() => _dataSource.listSessions();
+  Future<List<AgentSession>> listSessions({
+    bool includeArchived = false,
+    bool archivedOnly = false,
+  }) =>
+      _dataSource.listSessions(
+        includeArchived: includeArchived,
+        archivedOnly: archivedOnly,
+      );
 
   Future<({AgentSession session, List<AgentSessionMessage> messages})>
       getSession(String id) => _dataSource.getSession(id);
@@ -56,6 +63,12 @@ class AgentsRepository {
       );
 
   Future<void> cancelSession(String id) => _dataSource.cancelSession(id);
+
+  Future<AgentSession> archiveSession(String id) =>
+      _dataSource.archiveSession(id);
+
+  Future<AgentSession> unarchiveSession(String id) =>
+      _dataSource.unarchiveSession(id);
 
   Future<AgentSession> resumeSession(String id) =>
       _dataSource.resumeSession(id);

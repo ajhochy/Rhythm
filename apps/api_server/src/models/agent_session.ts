@@ -16,6 +16,7 @@ export interface AgentSession {
   agentMode: string | null;
   lastPreview: string | null;
   lastActivityAt: string | null;
+  archivedAt: string | null;
   createdAt: string;
   updatedAt: string;
 }

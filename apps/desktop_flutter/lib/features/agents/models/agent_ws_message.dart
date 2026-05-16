@@ -29,6 +29,10 @@ abstract class AgentWsMessage {
         return MessagePartDeltaMessage.fromJson(json);
       case 'message.removed':
         return MessageRemovedMessage.fromJson(json);
+      case 'session.updated':
+        return SessionUpdatedMessage.fromJson(json);
+      case 'session.removed':
+        return SessionRemovedMessage.fromJson(json);
       case 'trigger.fired':
         return TriggerFiredMessage.fromJson(json);
       case 'notification.push':
@@ -299,6 +303,36 @@ class MessageRemovedMessage extends AgentWsMessage {
       sessionId: asString(json['id']) ?? '',
       messageId: asString(json['messageId']) ?? '',
     );
+  }
+}
+
+/// #605 — server broadcast of a full updated session row.
+/// Received whenever the server mutates a session (status change, rename,
+/// archive toggle, etc.). The client should upsert the row in its local cache.
+class SessionUpdatedMessage extends AgentWsMessage {
+  const SessionUpdatedMessage({required this.session});
+
+  final AgentSession session;
+
+  factory SessionUpdatedMessage.fromJson(Map<String, dynamic> json) {
+    return SessionUpdatedMessage(
+      session: AgentSession.fromJson(
+        (json['session'] as Map<String, dynamic>?) ?? const {},
+      ),
+    );
+  }
+}
+
+/// #605 — server broadcast of a hard-deleted session.
+/// Received after `DELETE /agent-sessions/:id/hard`. The client should drop
+/// the row from all local caches.
+class SessionRemovedMessage extends AgentWsMessage {
+  const SessionRemovedMessage({required this.id});
+
+  final String id;
+
+  factory SessionRemovedMessage.fromJson(Map<String, dynamic> json) {
+    return SessionRemovedMessage(id: asString(json['id']) ?? '');
   }
 }
 

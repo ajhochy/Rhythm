@@ -278,6 +278,8 @@ class _SessionListPanelState extends State<_SessionListPanel> {
   /// Sessions selected via Shift-click for bulk actions.
   final Set<String> _multiSelected = {};
 
+  bool _archivedSectionExpanded = false;
+
   bool get _hasMultiSelection => _multiSelected.isNotEmpty;
 
   void _onRowTap(String id) {
@@ -489,6 +491,53 @@ class _SessionListPanelState extends State<_SessionListPanel> {
                                 const SizedBox(height: 8),
                               ],
                           ],
+                          // Archived section — collapsible, fetched on expand.
+                          GestureDetector(
+                            onTap: () async {
+                              setState(() => _archivedSectionExpanded =
+                                  !_archivedSectionExpanded);
+                              if (_archivedSectionExpanded) {
+                                await context
+                                    .read<AgentsController>()
+                                    .loadArchivedSessions();
+                              }
+                            },
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 6),
+                              child: Row(
+                                children: [
+                                  Icon(
+                                    _archivedSectionExpanded
+                                        ? Icons.expand_less
+                                        : Icons.expand_more,
+                                    size: 16,
+                                    color: context.rhythm.textMuted,
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    'Archived'
+                                    ' (${controller.archived.length})',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w700,
+                                      color: context.rhythm.textMuted,
+                                      letterSpacing: 0.6,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                          if (_archivedSectionExpanded)
+                            for (final session in controller.archived) ...[
+                              _ArchivedSessionRow(
+                                session: session,
+                                onUnarchive: () => context
+                                    .read<AgentsController>()
+                                    .unarchiveSession(session.id),
+                              ),
+                              const SizedBox(height: 8),
+                            ],
                         ],
                       ),
           ),
@@ -808,6 +857,61 @@ class _ResumableSessionRow extends StatelessWidget {
               tapTargetSize: MaterialTapTargetSize.shrinkWrap,
             ),
             child: const Text('Resume', style: TextStyle(fontSize: 12)),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Row for an archived session. Tapping "Restore" calls [onUnarchive].
+class _ArchivedSessionRow extends StatelessWidget {
+  const _ArchivedSessionRow({
+    required this.session,
+    required this.onUnarchive,
+  });
+
+  final AgentSession session;
+  final VoidCallback onUnarchive;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: context.rhythm.surfaceMuted.withValues(alpha: 0.6),
+        borderRadius: BorderRadius.circular(RhythmRadius.lg),
+        border: Border.all(color: context.rhythm.borderSubtle),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            Icons.archive_outlined,
+            size: 14,
+            color: context.rhythm.textMuted,
+          ),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(
+              session.name,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 12.5,
+                fontWeight: FontWeight.w500,
+                color: context.rhythm.textMuted,
+              ),
+            ),
+          ),
+          TextButton(
+            onPressed: onUnarchive,
+            style: TextButton.styleFrom(
+              foregroundColor: context.rhythm.accent,
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              minimumSize: Size.zero,
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+            child: const Text('Restore', style: TextStyle(fontSize: 12)),
           ),
         ],
       ),
@@ -2344,6 +2448,20 @@ class _SessionRowMenu extends StatelessWidget {
       splashRadius: 16,
       itemBuilder: (_) => [
         PopupMenuItem<String>(
+          value: 'archive',
+          child: Row(
+            children: [
+              Icon(
+                Icons.archive_outlined,
+                size: 16,
+                color: context.rhythm.textSecondary,
+              ),
+              const SizedBox(width: 8),
+              const Text('Archive'),
+            ],
+          ),
+        ),
+        PopupMenuItem<String>(
           value: 'delete',
           child: Row(
             children: [
@@ -2353,13 +2471,22 @@ class _SessionRowMenu extends StatelessWidget {
                 color: Theme.of(context).colorScheme.error,
               ),
               const SizedBox(width: 8),
-              const Text('Delete session'),
+              Text(
+                'Delete session',
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.error,
+                ),
+              ),
             ],
           ),
         ),
       ],
       onSelected: (v) {
-        if (v == 'delete') _confirmDelete(context);
+        if (v == 'archive') {
+          context.read<AgentsController>().archiveSession(session.id);
+        } else if (v == 'delete') {
+          _confirmDelete(context);
+        }
       },
     );
   }

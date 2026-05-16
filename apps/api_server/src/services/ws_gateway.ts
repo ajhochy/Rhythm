@@ -72,6 +72,24 @@ export function broadcast(msg: object): void {
   }
 }
 
+/**
+ * Broadcast a full session row update to all connected WS clients.
+ * Used by controller / stream bridge whenever a session row changes
+ * in a way the client's local cache should reflect immediately (rename,
+ * status transition, archive toggle, etc.).
+ */
+export function broadcastSessionUpdated(session: import('../models/agent_session').AgentSession): void {
+  broadcast({ v: 1, type: 'session.updated', session });
+}
+
+/**
+ * Broadcast a session removal (hard-delete) to all connected WS clients so
+ * they can drop the row from their local cache immediately.
+ */
+export function broadcastSessionRemoved(id: string): void {
+  broadcast({ v: 1, type: 'session.removed', id });
+}
+
 function handleClientMessage(ws: WebSocket, raw: import('ws').RawData): void {
   let msg: Record<string, unknown>;
   try {

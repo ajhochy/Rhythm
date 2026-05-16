@@ -31,6 +31,7 @@ class AgentSession {
     this.modelId,
     this.lastPreview,
     this.lastActivityAt,
+    this.archivedAt,
     required this.createdAt,
     required this.updatedAt,
   });
@@ -47,8 +48,11 @@ class AgentSession {
   final String? modelId;
   final String? lastPreview;
   final DateTime? lastActivityAt;
+  final DateTime? archivedAt;
   final DateTime createdAt;
   final DateTime updatedAt;
+
+  bool get isArchived => archivedAt != null;
 
   factory AgentSession.fromJson(Map<String, dynamic> json) {
     // Accept `agent_id` (new) or fall back to `agent_kind` (legacy) for one
@@ -71,6 +75,7 @@ class AgentSession {
       modelId: asString(json['modelId']),
       lastPreview: asString(json['lastPreview']),
       lastActivityAt: _parseDateTime(asString(json['lastActivityAt'])),
+      archivedAt: _parseDateTime(asString(json['archivedAt'])),
       createdAt: _parseDateTime(asString(json['createdAt'])) ?? _epoch,
       updatedAt: _parseDateTime(asString(json['updatedAt'])) ?? _epoch,
     );
@@ -91,6 +96,7 @@ class AgentSession {
       if (lastPreview != null) 'lastPreview': lastPreview,
       if (lastActivityAt != null)
         'lastActivityAt': lastActivityAt!.toUtc().toIso8601String(),
+      'archivedAt': archivedAt?.toUtc().toIso8601String(),
       'createdAt': createdAt.toUtc().toIso8601String(),
       'updatedAt': updatedAt.toUtc().toIso8601String(),
     };
@@ -108,6 +114,7 @@ class AgentSession {
     Object? modelId = _sentinel,
     Object? lastPreview = _sentinel,
     Object? lastActivityAt = _sentinel,
+    Object? archivedAt = _sentinel,
     DateTime? createdAt,
     DateTime? updatedAt,
   }) {
@@ -130,6 +137,8 @@ class AgentSession {
       lastActivityAt: lastActivityAt == _sentinel
           ? this.lastActivityAt
           : lastActivityAt as DateTime?,
+      archivedAt:
+          archivedAt == _sentinel ? this.archivedAt : archivedAt as DateTime?,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
     );

@@ -1102,4 +1102,12 @@ export function runMigrations(db: Database.Database): void {
     db.exec(`ALTER TABLE agent_sessions ADD COLUMN project_id TEXT REFERENCES projects(id)`);
   }
   db.exec(`CREATE INDEX IF NOT EXISTS idx_agent_sessions_project ON agent_sessions(project_id)`);
+
+  // Issue #601 — agent_sessions.archived_at (soft-archive, distinct from hard-delete)
+  // Additive, nullable, no default. Idempotent via pragma check.
+  const agentSessionColsArchive = (db.pragma('table_info(agent_sessions)') as { name: string }[]).map((c) => c.name);
+  if (!agentSessionColsArchive.includes('archived_at')) {
+    db.exec(`ALTER TABLE agent_sessions ADD COLUMN archived_at TEXT`);
+  }
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_agent_sessions_archived ON agent_sessions(archived_at)`);
 }

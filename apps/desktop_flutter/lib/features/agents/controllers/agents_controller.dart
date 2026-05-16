@@ -58,6 +58,7 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
 
   List<AgentSession> _sessions = [];
   List<AgentSession> _resumable = [];
+  List<AgentSession> _archived = [];
   String? _selectedSessionId;
   List<AgentSessionMessage> _transcript = [];
 
@@ -119,6 +120,7 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   int? get lastErrorStatus => _lastErrorStatus;
   List<AgentSession> get sessions => List.unmodifiable(_sessions);
   List<AgentSession> get resumable => List.unmodifiable(_resumable);
+  List<AgentSession> get archived => List.unmodifiable(_archived);
   String? get selectedSessionId => _selectedSessionId;
 
   AgentSession? get selectedSession =>
@@ -403,6 +405,65 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
       } else {
         _error = e.toString();
       }
+      notifyListeners();
+    }
+  }
+
+  /// Archive a session (soft-delete: hidden from main list, kept in history).
+  /// Optimistically moves the row to [_archived]; the server's WS `session.updated`
+  /// broadcast will confirm the change without a reload.
+  Future<void> archiveSession(String id) async {
+    final session = _sessions.firstWhereOrNull((s) => s.id == id) ??
+        _resumable.firstWhereOrNull((s) => s.id == id);
+    if (session == null) return;
+    _sessions = _sessions.where((s) => s.id != id).toList();
+    _resumable = _resumable.where((s) => s.id != id).toList();
+    if (_selectedSessionId == id) _selectedSessionId = null;
+    notifyListeners();
+
+    if (!_agentServerController.isReady) return;
+    try {
+      final updated = await _repository.archiveSession(id);
+      // Insert into archived cache (dedupe by id).
+      _archived = _upsertById(_archived, updated);
+      notifyListeners();
+    } catch (e) {
+      // Restore on failure.
+      _sessions = [..._sessions, session];
+      _error = e is AppError ? e.message : e.toString();
+      notifyListeners();
+    }
+  }
+
+  /// Unarchive a session, moving it back to the main [_sessions] list.
+  Future<void> unarchiveSession(String id) async {
+    final session = _archived.firstWhereOrNull((s) => s.id == id);
+    if (session == null) return;
+    _archived = _archived.where((s) => s.id != id).toList();
+    notifyListeners();
+
+    if (!_agentServerController.isReady) return;
+    try {
+      final updated = await _repository.unarchiveSession(id);
+      _sessions = _upsertById(_sessions, updated);
+      notifyListeners();
+    } catch (e) {
+      _archived = [..._archived, session];
+      _error = e is AppError ? e.message : e.toString();
+      notifyListeners();
+    }
+  }
+
+  /// Load archived sessions on demand (e.g. when the Archived section is expanded).
+  /// Caches results in [_archived]; call again to refresh.
+  Future<void> loadArchivedSessions() async {
+    if (!_agentServerController.isReady) return;
+    try {
+      final sessions = await _repository.listSessions(archivedOnly: true);
+      _archived = sessions;
+      notifyListeners();
+    } catch (e) {
+      _error = e is AppError ? e.message : e.toString();
       notifyListeners();
     }
   }
@@ -707,6 +768,32 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
         ];
       }
       _liveOutputBuffer.remove(msg.id);
+    } else if (msg is SessionUpdatedMessage) {
+      // #605 — server pushed a full updated session row. Upsert into the
+      // appropriate list based on archivedAt / status.
+      final s = msg.session;
+      if (s.isArchived) {
+        // Move / upsert into archived; remove from active lists.
+        _sessions = _sessions.where((x) => x.id != s.id).toList();
+        _resumable = _resumable.where((x) => x.id != s.id).toList();
+        _archived = _upsertById(_archived, s);
+      } else if (s.status == AgentSessionStatus.resumable) {
+        _sessions = _sessions.where((x) => x.id != s.id).toList();
+        _archived = _archived.where((x) => x.id != s.id).toList();
+        _resumable = _upsertById(_resumable, s);
+      } else {
+        _resumable = _resumable.where((x) => x.id != s.id).toList();
+        _archived = _archived.where((x) => x.id != s.id).toList();
+        _sessions = _upsertById(_sessions, s);
+      }
+    } else if (msg is SessionRemovedMessage) {
+      // #605 — hard-deleted row; drop from all local caches.
+      _sessions = _sessions.where((x) => x.id != msg.id).toList();
+      _resumable = _resumable.where((x) => x.id != msg.id).toList();
+      _archived = _archived.where((x) => x.id != msg.id).toList();
+      _liveOutputBuffer.remove(msg.id);
+      sessionFirstSeenAt.remove(msg.id);
+      if (_selectedSessionId == msg.id) _selectedSessionId = null;
     } else if (msg is TriggerFiredMessage) {
       _pendingTriggers.add(
         PendingTrigger(
@@ -866,6 +953,22 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     _repository.dispose();
     super.dispose();
   }
+}
+
+// ---------------------------------------------------------------------------
+// Private helpers
+// ---------------------------------------------------------------------------
+
+/// Upsert [item] into [list] by id. If a row with the same id exists it is
+/// replaced; otherwise [item] is appended.
+List<AgentSession> _upsertById(List<AgentSession> list, AgentSession item) {
+  final idx = list.indexWhere((s) => s.id == item.id);
+  if (idx >= 0) {
+    final result = [...list];
+    result[idx] = item;
+    return result;
+  }
+  return [...list, item];
 }
 
 // ---------------------------------------------------------------------------

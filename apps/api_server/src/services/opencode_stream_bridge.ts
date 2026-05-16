@@ -1,4 +1,4 @@
-import { broadcast } from './ws_gateway';
+import { broadcast, broadcastSessionUpdated } from './ws_gateway';
 import { opencodeClient } from './opencode_engine';
 import { opencodeSessionMap } from './opencode_engine';
 import { logger } from '../utils/logger';
@@ -321,6 +321,8 @@ export class OpencodeStreamBridge {
             try {
               const dbStatus = status.type === 'busy' ? 'working' : 'idle';
               this.sessionsRepo.updateStatus(localSessionId, dbStatus);
+              const updated = this.sessionsRepo.findById(localSessionId);
+              if (updated) broadcastSessionUpdated(updated);
             } catch (err) {
               logger.error(
                 '[OpencodeStreamBridge] Failed to update session status:',
@@ -342,6 +344,8 @@ export class OpencodeStreamBridge {
         if (localSessionId && !this.erroredSessions.has(localSessionId)) {
           try {
             this.sessionsRepo.updateStatus(localSessionId, 'idle');
+            const updated = this.sessionsRepo.findById(localSessionId);
+            if (updated) broadcastSessionUpdated(updated);
           } catch (err) {
             logger.error(
               '[OpencodeStreamBridge] Failed to update session status to idle:',
@@ -439,6 +443,8 @@ export class OpencodeStreamBridge {
               `Error: ${message}`,
             );
             this.sessionsRepo.markClosed(localSessionId);
+            const closed = this.sessionsRepo.findById(localSessionId);
+            if (closed) broadcastSessionUpdated(closed);
           } catch (err) {
             logger.error(
               '[OpencodeStreamBridge] Failed to persist session error:',
