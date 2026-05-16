@@ -1773,10 +1773,15 @@ class _NewSessionDialogState extends State<_NewSessionDialog> {
 
     // Compute the default agent: first enabled config whose CLI is installed,
     // falling back to the first enabled config if none are installed.
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (!mounted) return;
       final agentConfigs = context.read<AgentConfigsController>();
       final agentServerController = context.read<AgentServerController>();
+      // Refresh capabilities on dialog open — the initial fetch happens
+      // before the Opencode SDK finishes booting, so `opencode` is often
+      // stale-false until we re-poll.
+      await agentServerController.refreshCapabilities();
+      if (!mounted) return;
       final enabledAgents = agentConfigs.enabledAgents;
       if (enabledAgents.isNotEmpty && _agentId.isEmpty) {
         final firstInstalled = enabledAgents.firstWhere(
