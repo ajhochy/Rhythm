@@ -366,4 +366,386 @@ describe('Agent Sessions API', () => {
     const msgsBody = (await msgsRes.json()) as { messages: unknown[] };
     expect(Array.isArray(msgsBody.messages)).toBe(true);
   });
+
+  // ── M1-2 #587: project_id FK + filtering ──────────────────────────────────
+
+  async function createProject(name: string, cwd: string): Promise<string> {
+    const res = await fetch(`${baseUrl}/projects`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({ name, cwd }),
+    });
+    const project = (await res.json()) as { id: string };
+    return project.id;
+  }
+
+  it('POST /agent-sessions without projectId persists NULL', async () => {
+    const res = await fetch(`${baseUrl}/agent-sessions`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({ agentId: 'claude-code', cwd: os.homedir(), name: 'No project' }),
+    });
+    expect(res.status).toBe(201);
+    const session = (await res.json()) as { projectId: string | null };
+    expect(session.projectId).toBeNull();
+  });
+
+  it('POST /agent-sessions with explicit projectId persists it', async () => {
+    const projectId = await createProject('Proj A', os.homedir());
+    const res = await fetch(`${baseUrl}/agent-sessions`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({
+        agentId: 'claude-code',
+        cwd: os.homedir(),
+        name: 'In project',
+        projectId,
+      }),
+    });
+    expect(res.status).toBe(201);
+    const session = (await res.json()) as { projectId: string | null };
+    expect(session.projectId).toBe(projectId);
+  });
+
+  it('GET /agent-sessions?projectId=<id> filters by project', async () => {
+    const projectId = await createProject('Filter', os.homedir());
+    await fetch(`${baseUrl}/agent-sessions`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({ agentId: 'claude-code', cwd: os.homedir(), name: 'In', projectId }),
+    });
+    await fetch(`${baseUrl}/agent-sessions`, {
+      method: 'POST',
+      headers: authHeaders,
+      // Explicit null so M1-3 cwd-prefix auto-assign does not pick up Filter.
+      body: JSON.stringify({ agentId: 'claude-code', cwd: os.homedir(), name: 'Out', projectId: null }),
+    });
+
+    const res = await fetch(`${baseUrl}/agent-sessions?projectId=${projectId}`, {
+      headers: authHeaders,
+    });
+    const body = (await res.json()) as { sessions: Array<{ name: string; projectId: string | null }> };
+    expect(body.sessions.every((s) => s.projectId === projectId)).toBe(true);
+    expect(body.sessions.find((s) => s.name === 'In')).toBeDefined();
+    expect(body.sessions.find((s) => s.name === 'Out')).toBeUndefined();
+  });
+
+  it('GET /agent-sessions?projectId=null returns only unassigned sessions', async () => {
+    const projectId = await createProject('Nullbucket', os.homedir());
+    await fetch(`${baseUrl}/agent-sessions`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({ agentId: 'claude-code', cwd: os.homedir(), name: 'AssignedX', projectId }),
+    });
+    await fetch(`${baseUrl}/agent-sessions`, {
+      method: 'POST',
+      headers: authHeaders,
+      // Explicit null bypasses cwd-prefix auto-assign.
+      body: JSON.stringify({ agentId: 'claude-code', cwd: os.homedir(), name: 'UnassignedY', projectId: null }),
+    });
+
+    const res = await fetch(`${baseUrl}/agent-sessions?projectId=null`, { headers: authHeaders });
+    const body = (await res.json()) as { sessions: Array<{ name: string; projectId: string | null }> };
+    expect(body.sessions.every((s) => s.projectId === null)).toBe(true);
+    expect(body.sessions.find((s) => s.name === 'UnassignedY')).toBeDefined();
+    expect(body.sessions.find((s) => s.name === 'AssignedX')).toBeUndefined();
+  });
+
+  it('projects migration is idempotent (running it twice on same DB is a no-op)', async () => {
+    const { runMigrations: run } = await import('../database/migrations');
+    const { getDb } = await import('../database/db');
+    // Calling again must not throw.
+    expect(() => run(getDb())).not.toThrow();
+  });
+
+  // ── M1-3 #588: auto-assign project on session create by cwd prefix ───────
+
+  it('auto-assigns project when omitted and cwd exactly matches a project', async () => {
+    const projectId = await createProject('Exact', '/Users/x/Documents/Rhythm');
+    const res = await fetch(`${baseUrl}/agent-sessions`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({
+        agentId: 'claude-code',
+        cwd: '/Users/x/Documents/Rhythm',
+        name: 'Exact',
+      }),
+    });
+    const session = (await res.json()) as { projectId: string | null };
+    expect(session.projectId).toBe(projectId);
+  });
+
+  it('auto-assigns project when cwd is a prefix-deeper path', async () => {
+    const projectId = await createProject('Prefix', '/Users/x/Documents/Rhythm');
+    const res = await fetch(`${baseUrl}/agent-sessions`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({
+        agentId: 'claude-code',
+        cwd: '/Users/x/Documents/Rhythm/apps/api_server',
+        name: 'Deep',
+      }),
+    });
+    const session = (await res.json()) as { projectId: string | null };
+    expect(session.projectId).toBe(projectId);
+  });
+
+  it('returns projectId=null when no project matches', async () => {
+    await createProject('Unrelated', '/Users/x/Documents/Rhythm');
+    const res = await fetch(`${baseUrl}/agent-sessions`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({
+        agentId: 'claude-code',
+        cwd: '/Users/x/elsewhere',
+        name: 'NoMatch',
+      }),
+    });
+    const session = (await res.json()) as { projectId: string | null };
+    expect(session.projectId).toBeNull();
+  });
+
+  it('explicit projectId=null is not overridden by auto-assign', async () => {
+    await createProject('Wouldmatch', '/Users/x/Documents/Rhythm');
+    const res = await fetch(`${baseUrl}/agent-sessions`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({
+        agentId: 'claude-code',
+        cwd: '/Users/x/Documents/Rhythm/apps',
+        name: 'IntentionalNull',
+        projectId: null,
+      }),
+    });
+    const session = (await res.json()) as { projectId: string | null };
+    expect(session.projectId).toBeNull();
+  });
+
+  it('longest cwd prefix wins when multiple projects match', async () => {
+    await createProject('Outer', '/Users/x/A');
+    const innerId = await createProject('Inner', '/Users/x/A/sub');
+    const res = await fetch(`${baseUrl}/agent-sessions`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({
+        agentId: 'claude-code',
+        cwd: '/Users/x/A/sub/inner',
+        name: 'Nested',
+      }),
+    });
+    const session = (await res.json()) as { projectId: string | null };
+    expect(session.projectId).toBe(innerId);
+  });
+
+  it('skips archived projects in cwd-prefix lookup', async () => {
+    const archivedId = await createProject('Archived', '/Users/x/archived');
+    await fetch(`${baseUrl}/projects/${archivedId}`, {
+      method: 'PATCH',
+      headers: authHeaders,
+      body: JSON.stringify({ archivedAt: new Date().toISOString() }),
+    });
+    const res = await fetch(`${baseUrl}/agent-sessions`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({
+        agentId: 'claude-code',
+        cwd: '/Users/x/archived/deeper',
+        name: 'SkipArchived',
+      }),
+    });
+    const session = (await res.json()) as { projectId: string | null };
+    expect(session.projectId).toBeNull();
+  });
+
+  // ── M2-1 #593: PATCH /agent-sessions/:id ──────────────────────────────────
+
+  async function createSession(): Promise<string> {
+    const res = await fetch(`${baseUrl}/agent-sessions`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({
+        agentId: 'claude-code',
+        cwd: os.homedir(),
+        name: 'For PATCH',
+        projectId: null,
+      }),
+    });
+    const s = (await res.json()) as { id: string };
+    return s.id;
+  }
+
+  it('PATCH /agent-sessions/:id updates name', async () => {
+    const id = await createSession();
+    const res = await fetch(`${baseUrl}/agent-sessions/${id}`, {
+      method: 'PATCH',
+      headers: authHeaders,
+      body: JSON.stringify({ name: 'Renamed' }),
+    });
+    expect(res.status).toBe(200);
+    const updated = (await res.json()) as { name: string };
+    expect(updated.name).toBe('Renamed');
+  });
+
+  it('PATCH /agent-sessions/:id sets providerId+modelId when provider is authed', async () => {
+    const id = await createSession();
+    const res = await fetch(`${baseUrl}/agent-sessions/${id}`, {
+      method: 'PATCH',
+      headers: authHeaders,
+      body: JSON.stringify({ providerId: 'anthropic', modelId: 'claude-sonnet-4-6' }),
+    });
+    expect(res.status).toBe(200);
+    const updated = (await res.json()) as { providerId: string | null; modelId: string | null };
+    expect(updated.providerId).toBe('anthropic');
+    expect(updated.modelId).toBe('claude-sonnet-4-6');
+  });
+
+  it('PATCH /agent-sessions/:id rejects an unknown provider', async () => {
+    const id = await createSession();
+    const res = await fetch(`${baseUrl}/agent-sessions/${id}`, {
+      method: 'PATCH',
+      headers: authHeaders,
+      body: JSON.stringify({ providerId: 'not-real-provider', modelId: 'foo' }),
+    });
+    expect(res.status).toBe(400);
+  });
+
+  it('PATCH /agent-sessions/:id with providerId=null clears the override', async () => {
+    const id = await createSession();
+    await fetch(`${baseUrl}/agent-sessions/${id}`, {
+      method: 'PATCH',
+      headers: authHeaders,
+      body: JSON.stringify({ providerId: 'anthropic', modelId: 'claude-sonnet-4-6' }),
+    });
+    const res = await fetch(`${baseUrl}/agent-sessions/${id}`, {
+      method: 'PATCH',
+      headers: authHeaders,
+      body: JSON.stringify({ providerId: null, modelId: null }),
+    });
+    const cleared = (await res.json()) as { providerId: string | null };
+    expect(cleared.providerId).toBeNull();
+  });
+
+  // ── M2-2 #594: resolveModelForSessionTurn precedence ─────────────────────
+
+  it('resolveModelForSessionTurn: per-turn override beats session default', async () => {
+    const { resolveModelForSessionTurn } = await import('../services/agent_model_resolver');
+    const r = await resolveModelForSessionTurn({
+      agentId: 'claude-code',
+      sessionProviderId: 'anthropic',
+      sessionModelId: 'claude-sonnet-4-6',
+      perTurnOverride: { providerId: 'openrouter', modelId: 'meta/llama' },
+    });
+    expect(r).toEqual({ providerID: 'openrouter', modelID: 'meta/llama' });
+  });
+
+  it('resolveModelForSessionTurn: session default beats agent fallback', async () => {
+    const { resolveModelForSessionTurn } = await import('../services/agent_model_resolver');
+    const r = await resolveModelForSessionTurn({
+      agentId: 'claude-code',
+      sessionProviderId: 'openrouter',
+      sessionModelId: 'anthropic/claude-sonnet-4.6',
+      perTurnOverride: null,
+    });
+    expect(r).toEqual({ providerID: 'openrouter', modelID: 'anthropic/claude-sonnet-4.6' });
+  });
+
+  it('resolveModelForSessionTurn: falls back to agent fallback when nothing set', async () => {
+    const { resolveModelForSessionTurn } = await import('../services/agent_model_resolver');
+    const r = await resolveModelForSessionTurn({
+      agentId: 'claude-code',
+      sessionProviderId: null,
+      sessionModelId: null,
+      perTurnOverride: null,
+    });
+    expect(r).toBeDefined();
+    // The fallback list's first authed entry; in tests listAuthedProviders
+    // returns anthropic/openai (from the mock).
+    expect(r?.providerID).toBe('anthropic');
+  });
+
+  // ── M2-4 #596: POST /agent-sessions/:id/cancel ───────────────────────────
+
+  it('POST /agent-sessions/:id/cancel aborts via the SDK', async () => {
+    // create() registers an SDK mapping via the mocked opencodeClient.createSession
+    // so the cancel endpoint can find it.
+    const createRes = await fetch(`${baseUrl}/agent-sessions`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({
+        agentId: 'claude-code',
+        cwd: os.homedir(),
+        name: 'For Cancel',
+      }),
+    });
+    const session = (await createRes.json()) as { id: string };
+
+    // Add an abortSession mock to the engine.
+    const { opencodeClient } = await import('../services/opencode_engine');
+    (opencodeClient as unknown as { abortSession: (s: string) => Promise<boolean> })
+      .abortSession = vi.fn().mockResolvedValue(true);
+
+    const res = await fetch(`${baseUrl}/agent-sessions/${session.id}/cancel`, {
+      method: 'POST',
+      headers: authHeaders,
+    });
+    expect(res.status).toBe(204);
+  });
+
+  // ── M3-4 #601: GET /agent-sessions/:id/diff ───────────────────────────
+
+  it('GET /agent-sessions/:id/diff returns [] when no SDK mapping', async () => {
+    const sessionsRepoLocal = new AgentSessionsRepository();
+    const inserted = sessionsRepoLocal.insert({
+      agentKind: 'claude-code',
+      taskId: null,
+      taskTitle: null,
+      cwd: os.homedir(),
+      name: 'NoMap',
+    });
+    const res = await fetch(`${baseUrl}/agent-sessions/${inserted.id}/diff`, {
+      headers: authHeaders,
+    });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual([]);
+  });
+
+  it('GET /agent-sessions/:id/diff calls SDK diffSession when available', async () => {
+    const createRes = await fetch(`${baseUrl}/agent-sessions`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({
+        agentId: 'claude-code',
+        cwd: os.homedir(),
+        name: 'WithDiff',
+      }),
+    });
+    const session = (await createRes.json()) as { id: string };
+    const { opencodeClient } = await import('../services/opencode_engine');
+    (opencodeClient as unknown as { diffSession: (s: string) => Promise<unknown[]> })
+      .diffSession = vi.fn().mockResolvedValue([
+        { path: 'a.txt', before: 'old', after: 'new' },
+      ]);
+    const res = await fetch(`${baseUrl}/agent-sessions/${session.id}/diff`, {
+      headers: authHeaders,
+    });
+    const body = (await res.json()) as Array<{ path: string }>;
+    expect(body).toHaveLength(1);
+    expect(body[0].path).toBe('a.txt');
+  });
+
+  it('POST /agent-sessions/:id/cancel returns 400 when no SDK mapping exists', async () => {
+    const sessionsRepoLocal = new AgentSessionsRepository();
+    const inserted = sessionsRepoLocal.insert({
+      agentKind: 'claude-code',
+      taskId: null,
+      taskTitle: null,
+      cwd: os.homedir(),
+      name: 'Stale',
+    });
+    const res = await fetch(`${baseUrl}/agent-sessions/${inserted.id}/cancel`, {
+      method: 'POST',
+      headers: authHeaders,
+    });
+    expect(res.status).toBe(400);
+  });
 });

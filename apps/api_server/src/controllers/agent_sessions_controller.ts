@@ -4,6 +4,7 @@ import { AppError } from '../errors/app_error';
 import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
 import { AgentSessionMessagesRepository } from '../repositories/agent_session_messages_repository';
 import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
+import { ProjectsRepository } from '../repositories/projects_repository';
 import type { AgentKind, CreateAgentSessionDto } from '../models/agent_session';
 import { opencodeClient, opencodeSessionMap } from '../services/opencode_engine';
 import { streamBridge } from '../services/opencode_stream_bridge';
@@ -38,9 +39,18 @@ function expandHome(path: string): string {
 }
 
 export class AgentSessionsController {
-  list(_req: Request, res: Response, next: NextFunction): void {
+  list(req: Request, res: Response, next: NextFunction): void {
     try {
-      const sessions = repo.listAll(100);
+      const projectIdParam = req.query.projectId;
+      let sessions;
+      if (typeof projectIdParam === 'string') {
+        // Literal "null" → unassigned bucket; any other string → filter by id.
+        sessions = projectIdParam === 'null'
+          ? repo.listByProject(null, 100)
+          : repo.listByProject(projectIdParam, 100);
+      } else {
+        sessions = repo.listAll(100);
+      }
       const resumable = repo.listResumable();
       res.json({ sessions, resumable });
     } catch (err) {
@@ -100,12 +110,30 @@ export class AgentSessionsController {
         throw AppError.badRequest('taskTitle must be a string');
       }
 
+      // projectId: optional in body. Explicit `null` is honored (intentional
+      // "unassigned"). When the client omits the field entirely, fall back to
+      // cwd-prefix lookup against the projects table (longest match wins,
+      // archived projects skipped).
+      const expandedCwd = expandHome(cwd.trim());
+      let projectId: string | null = null;
+      if (Object.prototype.hasOwnProperty.call(body, 'projectId')) {
+        const raw = body.projectId;
+        if (raw !== null && typeof raw !== 'string') {
+          throw AppError.badRequest('projectId must be a string or null');
+        }
+        projectId = (raw as string | null) ?? null;
+      } else {
+        const match = new ProjectsRepository().findByCwdPrefix(expandedCwd);
+        projectId = match?.id ?? null;
+      }
+
       const dto: CreateAgentSessionDto = {
         agentKind: normalizedAgentId as AgentKind,
         taskId: taskId != null ? (taskId as string) : null,
         taskTitle: taskTitle != null ? (taskTitle as string) : null,
-        cwd: expandHome(cwd.trim()),
+        cwd: expandedCwd,
         name: name.trim(),
+        projectId,
       };
 
       const session = repo.insert(dto);
@@ -167,6 +195,134 @@ export class AgentSessionsController {
     }
   }
 
+  async update(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const session = repo.findById(req.params.id);
+      if (!session) throw AppError.notFound('AgentSession');
+      const body = (req.body ?? {}) as Record<string, unknown>;
+
+      const fields: {
+        name?: string;
+        providerId?: string | null;
+        modelId?: string | null;
+        agentMode?: string | null;
+      } = {};
+
+      if (body.name !== undefined) {
+        if (typeof body.name !== 'string' || body.name.trim() === '') {
+          throw AppError.badRequest('name must be a non-empty string');
+        }
+        fields.name = body.name.trim();
+      }
+      if (body.providerId !== undefined) {
+        if (body.providerId !== null && typeof body.providerId !== 'string') {
+          throw AppError.badRequest('providerId must be a string or null');
+        }
+        // Validate against the authed providers list. Null clears the override.
+        if (typeof body.providerId === 'string') {
+          const authed = await opencodeClient.listAuthedProviders();
+          if (!authed.includes(body.providerId)) {
+            throw AppError.badRequest(`provider not authenticated: '${body.providerId}'`);
+          }
+        }
+        fields.providerId = body.providerId as string | null;
+      }
+      if (body.modelId !== undefined) {
+        if (body.modelId !== null && typeof body.modelId !== 'string') {
+          throw AppError.badRequest('modelId must be a string or null');
+        }
+        fields.modelId = body.modelId as string | null;
+      }
+      if (body.agentMode !== undefined) {
+        if (body.agentMode !== null && typeof body.agentMode !== 'string') {
+          throw AppError.badRequest('agentMode must be a string or null');
+        }
+        fields.agentMode = body.agentMode as string | null;
+      }
+
+      repo.updateFields(session.id, fields);
+      res.json(repo.findById(session.id)!);
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  // M3-4: return a session's working-tree diff. Wraps client.session.diff when
+  // available; falls back to an empty list when the SDK build doesn't expose
+  // diff (older SDKs). The empty-list path is shippable — the Flutter side
+  // panel renders an empty Changes tab and the user gets correct UX.
+  async getDiff(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const session = repo.findById(req.params.id);
+      if (!session) throw AppError.notFound('AgentSession');
+      const opencodeId = opencodeSessionMap.get(session.id);
+      if (!opencodeId) {
+        res.json([]);
+        return;
+      }
+      const sdk = (opencodeClient as unknown as {
+        diffSession?: (id: string) => Promise<Array<{ path: string; before: string; after: string }>>;
+      });
+      if (typeof sdk.diffSession !== 'function') {
+        res.json([]);
+        return;
+      }
+      const diff = await sdk.diffSession(opencodeId);
+      res.json(Array.isArray(diff) ? diff : []);
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  // M3-6: respond to a permission prompt forwarded by the SDK.
+  async respondPermission(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const session = repo.findById(req.params.id);
+      if (!session) throw AppError.notFound('AgentSession');
+      const opencodeId = opencodeSessionMap.get(session.id);
+      if (!opencodeId) {
+        throw AppError.badRequest('Session has no SDK mapping for permission.');
+      }
+      const decision = req.params.decision;
+      if (decision !== 'accept' && decision !== 'deny') {
+        throw AppError.badRequest('decision must be accept or deny');
+      }
+      const sdk = opencodeClient as unknown as {
+        respondPermission?: (sessionId: string, permissionId: string, decision: 'accept' | 'deny') => Promise<boolean>;
+      };
+      if (typeof sdk.respondPermission !== 'function') {
+        res.status(204).end();
+        return;
+      }
+      const ok = await sdk.respondPermission(opencodeId, req.params.permissionId, decision);
+      if (!ok) {
+        throw AppError.badRequest('SDK rejected the permission response.');
+      }
+      res.status(204).end();
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  // M2-4: cancel an in-flight turn for a session.
+  async cancel(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const session = repo.findById(req.params.id);
+      if (!session) throw AppError.notFound('AgentSession');
+      const opencodeId = opencodeSessionMap.get(session.id);
+      if (!opencodeId) {
+        throw AppError.badRequest('Session has no active SDK mapping; cannot cancel.');
+      }
+      const ok = await opencodeClient.abortSession(opencodeId);
+      if (!ok) {
+        throw AppError.badRequest('Cancel failed at the SDK level.');
+      }
+      res.status(204).end();
+    } catch (err) {
+      next(err);
+    }
+  }
+
   remove(req: Request, res: Response, next: NextFunction): void {
     try {
       const session = repo.findById(req.params.id);
@@ -176,6 +332,27 @@ export class AgentSessionsController {
       streamBridge.stopStream(session.id);
       opencodeSessionMap.delete(session.id);
       repo.markClosed(session.id);
+
+      res.status(204).end();
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * Hard-delete a session row plus its messages (cascade). This is the
+   * "clear from history" action — distinct from `remove`, which only flips
+   * status to closed. See #598 follow-up; archive lives at #601.
+   */
+  destroy(req: Request, res: Response, next: NextFunction): void {
+    try {
+      const session = repo.findById(req.params.id);
+      if (!session) throw AppError.notFound('AgentSession');
+
+      streamBridge.stopStream(session.id);
+      opencodeSessionMap.delete(session.id);
+      const changes = repo.deleteById(session.id);
+      if (changes === 0) throw AppError.notFound('AgentSession');
 
       res.status(204).end();
     } catch (err) {

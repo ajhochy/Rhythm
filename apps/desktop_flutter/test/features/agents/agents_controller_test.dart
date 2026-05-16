@@ -123,15 +123,37 @@ class _FakeAgentsRepository implements AgentsRepository {
     String? taskId,
     required String cwd,
     required String name,
+    String? projectId,
   }) async {
     return _makeSession('new-session', AgentSessionStatus.starting);
   }
 
   final List<String> closeSessionCalls = [];
+  final List<String> deleteSessionCalls = [];
 
   @override
   Future<void> closeSession(String id) async {
     closeSessionCalls.add(id);
+  }
+
+  @override
+  Future<void> deleteSession(String id) async {
+    deleteSessionCalls.add(id);
+  }
+
+  @override
+  Future<void> cancelSession(String id) async {}
+
+  @override
+  Future<AgentSession> updateSession(
+    String id, {
+    String? name,
+    String? providerId,
+    String? modelId,
+    bool clearProvider = false,
+    bool clearModel = false,
+  }) async {
+    throw UnimplementedError();
   }
 
   @override

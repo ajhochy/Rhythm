@@ -8,15 +8,21 @@ import '../../../app/core/agents/agent_server_controller.dart';
 import '../../../app/core/ui/tokens/rhythm_theme.dart';
 import '../../agent_configs/controllers/agent_configs_controller.dart';
 import '../../agent_configs/models/agent_config.dart';
-import '../../agent_configs/views/manage_agents_view.dart';
 import '../../settings/views/settings_view.dart';
 import '../../agent_configs/widgets/agent_icon.dart';
 import '../../tasks/controllers/tasks_controller.dart';
 import '../../tasks/models/task.dart';
+import '../../agent_projects/controllers/agent_projects_controller.dart';
+import '../../agent_projects/views/edit_project_dialog.dart';
 import '../controllers/agents_controller.dart';
 import '../models/agent_session.dart';
 import '../models/agent_session_message.dart';
 import '../models/chat_models.dart';
+import '_agent_settings_sheet.dart';
+import '_project_vcs_chip.dart';
+import '_projects_rail.dart';
+import '_session_model_picker.dart';
+import '_tool_call_part.dart';
 
 class AgentsView extends StatefulWidget {
   const AgentsView({super.key});
@@ -64,6 +70,10 @@ class _AgentsViewState extends State<AgentsView> {
           padding: const EdgeInsets.all(12),
           child: Row(
             children: [
+              ProjectsRail(
+                onAddProject: () => _showNewProjectDialog(context),
+              ),
+              const SizedBox(width: 12),
               _SessionListPanel(
                 resumableSectionExpanded: _resumableSectionExpanded,
                 onToggleResumable: () => setState(
@@ -77,6 +87,10 @@ class _AgentsViewState extends State<AgentsView> {
         ),
       ),
     );
+  }
+
+  void _showNewProjectDialog(BuildContext context) {
+    showEditProjectDialog(context);
   }
 }
 
@@ -247,7 +261,7 @@ class _NoAgentsAvailable extends StatelessWidget {
 // Left panel — session list
 // ---------------------------------------------------------------------------
 
-class _SessionListPanel extends StatelessWidget {
+class _SessionListPanel extends StatefulWidget {
   const _SessionListPanel({
     required this.resumableSectionExpanded,
     required this.onToggleResumable,
@@ -257,11 +271,83 @@ class _SessionListPanel extends StatelessWidget {
   final VoidCallback onToggleResumable;
 
   @override
+  State<_SessionListPanel> createState() => _SessionListPanelState();
+}
+
+class _SessionListPanelState extends State<_SessionListPanel> {
+  /// Sessions selected via Shift-click for bulk actions.
+  final Set<String> _multiSelected = {};
+
+  bool get _hasMultiSelection => _multiSelected.isNotEmpty;
+
+  void _onRowTap(String id) {
+    final isShift = HardwareKeyboard.instance.isShiftPressed;
+    if (isShift) {
+      setState(() {
+        if (_multiSelected.contains(id)) {
+          _multiSelected.remove(id);
+        } else {
+          _multiSelected.add(id);
+        }
+      });
+      return;
+    }
+    if (_hasMultiSelection) {
+      setState(() => _multiSelected.clear());
+    }
+    context.read<AgentsController>().selectSession(id);
+  }
+
+  Future<void> _confirmBulkDelete() async {
+    final ids = _multiSelected.toList();
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('Delete ${ids.length} sessions?'),
+        content: const Text(
+          'This permanently removes the selected sessions and all of their '
+          'messages. This cannot be undone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(ctx).colorScheme.error,
+            ),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: Text('Delete ${ids.length}'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    if (!mounted) return;
+    await context.read<AgentsController>().deleteSessions(ids);
+    if (!mounted) return;
+    setState(() => _multiSelected.clear());
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final resumableSectionExpanded = widget.resumableSectionExpanded;
+    final onToggleResumable = widget.onToggleResumable;
     final controller = context.watch<AgentsController>();
     final agentServerController = context.watch<AgentServerController>();
+    final projectsController = context.watch<AgentProjectsController>();
     final canStartSession =
         agentServerController.isReady && agentServerController.hasAnyAgent;
+
+    final selectedProject = projectsController.selectedProject;
+    final selectedProjectId = projectsController.selectedProjectId;
+    // selectedProjectId == null → All sessions (no filter). Otherwise filter.
+    final filteredSessions = selectedProjectId == null
+        ? controller.sessions
+        : controller.sessions
+            .where((s) => s.projectId == selectedProjectId)
+            .toList();
 
     return Container(
       width: 320,
@@ -278,33 +364,86 @@ class _SessionListPanel extends StatelessWidget {
             onNewSession:
                 canStartSession ? () => _showNewSessionDialog(context) : null,
           ),
+          if (selectedProject != null && selectedProject.vcsRoot != null)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: ProjectVcsChip(
+                  project: selectedProject,
+                  onRefresh: () =>
+                      projectsController.refreshVcs(selectedProject.id),
+                ),
+              ),
+            ),
           Divider(height: 1, color: context.rhythm.borderSubtle),
           const _DisconnectedBanner(),
+          if (_hasMultiSelection)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              color: context.rhythm.accentMuted,
+              child: Row(
+                children: [
+                  Text(
+                    '${_multiSelected.length} selected',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: context.rhythm.accent,
+                    ),
+                  ),
+                  const Spacer(),
+                  TextButton(
+                    onPressed: () => setState(() => _multiSelected.clear()),
+                    style: TextButton.styleFrom(
+                      minimumSize: Size.zero,
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
+                    child: const Text('Cancel'),
+                  ),
+                  const SizedBox(width: 6),
+                  FilledButton.tonal(
+                    onPressed: _confirmBulkDelete,
+                    style: FilledButton.styleFrom(
+                      backgroundColor:
+                          Theme.of(context).colorScheme.error.withValues(
+                                alpha: 0.18,
+                              ),
+                      foregroundColor: Theme.of(context).colorScheme.error,
+                      minimumSize: const Size(0, 30),
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                    ),
+                    child: const Text('Delete'),
+                  ),
+                ],
+              ),
+            ),
           Expanded(
             child: controller.status == AgentsLoadStatus.loading &&
-                    controller.sessions.isEmpty
+                    filteredSessions.isEmpty
                 ? Center(
                     child: CircularProgressIndicator(
                       color: context.rhythm.accent,
                     ),
                   )
-                : controller.sessions.isEmpty && controller.resumable.isEmpty
+                : filteredSessions.isEmpty && controller.resumable.isEmpty
                     ? const _EmptySessionsState()
                     : ListView(
                         padding: const EdgeInsets.fromLTRB(12, 12, 12, 14),
                         children: [
-                          // Active sessions
-                          for (final session in controller.sessions) ...[
+                          // Active sessions (filtered by selected project).
+                          for (final session in filteredSessions) ...[
                             _SessionRow(
                               session: session,
                               isSelected:
                                   controller.selectedSessionId == session.id,
+                              isMultiSelected:
+                                  _multiSelected.contains(session.id),
                               isWorking: controller.isWorking(session.id),
                               isStuck:
                                   controller.connectivity.isStuck(session.id),
-                              onTap: () => context
-                                  .read<AgentsController>()
-                                  .selectSession(session.id),
+                              onTap: () => _onRowTap(session.id),
                             ),
                             const SizedBox(height: 8),
                           ],
@@ -369,7 +508,10 @@ class _SessionListPanel extends StatelessWidget {
             value: context.read<AgentServerController>(),
             child: ChangeNotifierProvider.value(
               value: context.read<AgentConfigsController>(),
-              child: const _NewSessionDialog(),
+              child: ChangeNotifierProvider.value(
+                value: context.read<AgentProjectsController>(),
+                child: const _NewSessionDialog(),
+              ),
             ),
           ),
         ),
@@ -415,6 +557,25 @@ class _SessionListHeader extends StatelessWidget {
                   ],
                 ),
               ),
+              IconButton(
+                icon: const Icon(Icons.refresh, size: 18),
+                tooltip: 'Refresh session list',
+                onPressed: () => context.read<AgentsController>().load(),
+                style: IconButton.styleFrom(
+                  minimumSize: const Size(34, 34),
+                  padding: EdgeInsets.zero,
+                ),
+              ),
+              IconButton(
+                icon: const Icon(Icons.settings_outlined, size: 18),
+                tooltip: 'Agent settings',
+                onPressed: () => showAgentSettingsSheet(context),
+                style: IconButton.styleFrom(
+                  minimumSize: const Size(34, 34),
+                  padding: EdgeInsets.zero,
+                ),
+              ),
+              const SizedBox(width: 6),
               if (onNewSession != null)
                 FilledButton.tonal(
                   onPressed: onNewSession,
@@ -450,40 +611,6 @@ class _SessionListHeader extends StatelessWidget {
           const SizedBox(height: 10),
           Row(
             children: [
-              TextButton.icon(
-                icon: Icon(
-                  Icons.tune,
-                  size: 15,
-                  color: context.rhythm.textSecondary,
-                ),
-                label: Text(
-                  'Manage agents',
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    color: context.rhythm.textSecondary,
-                  ),
-                ),
-                onPressed: () {
-                  Navigator.of(context).push(
-                    MaterialPageRoute<void>(
-                      builder: (_) => const ManageAgentsView(),
-                    ),
-                  );
-                },
-                style: TextButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 8,
-                    vertical: 6,
-                  ),
-                  minimumSize: Size.zero,
-                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(RhythmRadius.sm),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 8),
               const _AgentServerStatusDot(),
             ],
           ),
@@ -542,16 +669,19 @@ class _SessionRow extends StatelessWidget {
     required this.isWorking,
     required this.isStuck,
     required this.onTap,
+    this.isMultiSelected = false,
   });
 
   final AgentSession session;
   final bool isSelected;
+  final bool isMultiSelected;
   final bool isWorking;
   final bool isStuck;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
+    final highlighted = isSelected || isMultiSelected;
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(RhythmRadius.lg),
@@ -560,16 +690,19 @@ class _SessionRow extends StatelessWidget {
         curve: Curves.easeOut,
         padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: isSelected
+          color: highlighted
               ? context.rhythm.accentMuted
               : context.rhythm.surfaceMuted,
           borderRadius: BorderRadius.circular(RhythmRadius.lg),
           border: Border.all(
-            color: isSelected
-                ? context.rhythm.accent.withValues(alpha: 0.28)
-                : context.rhythm.border,
+            color: isMultiSelected
+                ? context.rhythm.accent
+                : isSelected
+                    ? context.rhythm.accent.withValues(alpha: 0.28)
+                    : context.rhythm.border,
+            width: isMultiSelected ? 2 : 1,
           ),
-          boxShadow: isSelected
+          boxShadow: highlighted
               ? [
                   BoxShadow(
                     color: context.rhythm.accent.withValues(alpha: 0.08),
@@ -587,6 +720,8 @@ class _SessionRow extends StatelessWidget {
                 _AgentKindBadge(agentId: session.agentId),
                 const Spacer(),
                 _StatusDot(status: session.status, isWorking: isWorking),
+                const SizedBox(width: 4),
+                _SessionRowMenu(session: session),
               ],
             ),
             const SizedBox(height: 6),
@@ -959,6 +1094,8 @@ class _TranscriptHeader extends StatelessWidget {
           const SizedBox(width: 8),
           _StatusChip(status: session.status, isWorking: isWorking),
           const SizedBox(width: 8),
+          SessionModelPicker(session: session),
+          const SizedBox(width: 8),
           if (showReconnect) ...[
             OutlinedButton(
               onPressed: () =>
@@ -1221,12 +1358,22 @@ class _ChatBubble extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isUser = message.role == 'user';
-    final text = parts.map((p) => p.text).join('').trim();
-    if (text.isEmpty) {
-      // Empty assistant bubble while waiting for first delta — render a
-      // subtle "thinking" pip so the user knows the turn was accepted.
-      if (!isUser) {
-        return Container(
+
+    if (isUser) {
+      return _UserBubble(parts: parts);
+    }
+
+    // Assistant bubble: walk parts in order, rendering text spans as a
+    // SelectableText block and tool parts as collapsible ToolCallPart cards.
+    final children = <Widget>[];
+    final textBuffer = StringBuffer();
+
+    void flushText() {
+      final text = textBuffer.toString().trim();
+      textBuffer.clear();
+      if (text.isEmpty) return;
+      children.add(
+        Container(
           width: double.infinity,
           padding: const EdgeInsets.all(12),
           decoration: BoxDecoration(
@@ -1234,56 +1381,88 @@ class _ChatBubble extends StatelessWidget {
             borderRadius: BorderRadius.circular(RhythmRadius.md),
             border: Border.all(color: context.rhythm.borderSubtle),
           ),
-          child: Text(
-            '…',
-            style: TextStyle(color: context.rhythm.textMuted, fontSize: 12),
-          ),
-        );
-      }
-      return const SizedBox.shrink();
-    }
-
-    if (isUser) {
-      return Align(
-        alignment: Alignment.centerRight,
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 560),
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            decoration: BoxDecoration(
-              color: context.rhythm.accentMuted,
-              borderRadius: BorderRadius.circular(RhythmRadius.md),
-              border: Border.all(
-                color: context.rhythm.accent.withValues(alpha: 0.2),
-              ),
-            ),
-            child: SelectableText(
-              text,
-              style: TextStyle(
-                fontSize: 13,
-                color: context.rhythm.accent,
-                height: 1.4,
-              ),
+          child: SelectableText(
+            text,
+            style: TextStyle(
+              fontSize: 13,
+              color: context.rhythm.textPrimary,
+              height: 1.5,
             ),
           ),
         ),
       );
     }
 
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: context.rhythm.surfaceMuted,
-        borderRadius: BorderRadius.circular(RhythmRadius.md),
-        border: Border.all(color: context.rhythm.borderSubtle),
-      ),
-      child: SelectableText(
-        text,
-        style: TextStyle(
-          fontSize: 13,
-          color: context.rhythm.textPrimary,
-          height: 1.5,
+    for (final part in parts) {
+      if (part.type == 'tool') {
+        flushText();
+        children.add(ToolCallPart(part: part));
+      } else {
+        textBuffer.write(part.text);
+      }
+    }
+    flushText();
+
+    if (children.isEmpty) {
+      // Awaiting first delta — render the "thinking" pip.
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: context.rhythm.surfaceMuted,
+          borderRadius: BorderRadius.circular(RhythmRadius.md),
+          border: Border.all(color: context.rhythm.borderSubtle),
+        ),
+        child: Text(
+          '…',
+          style: TextStyle(color: context.rhythm.textMuted, fontSize: 12),
+        ),
+      );
+    }
+
+    if (children.length == 1) return children.first;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        for (var i = 0; i < children.length; i++) ...[
+          if (i > 0) const SizedBox(height: 6),
+          children[i],
+        ],
+      ],
+    );
+  }
+}
+
+class _UserBubble extends StatelessWidget {
+  const _UserBubble({required this.parts});
+
+  final List<ChatPart> parts;
+
+  @override
+  Widget build(BuildContext context) {
+    final text = parts.map((p) => p.text).join('').trim();
+    if (text.isEmpty) return const SizedBox.shrink();
+    return Align(
+      alignment: Alignment.centerRight,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 560),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: context.rhythm.accentMuted,
+            borderRadius: BorderRadius.circular(RhythmRadius.md),
+            border: Border.all(
+              color: context.rhythm.accent.withValues(alpha: 0.2),
+            ),
+          ),
+          child: SelectableText(
+            text,
+            style: TextStyle(
+              fontSize: 13,
+              color: context.rhythm.accent,
+              height: 1.4,
+            ),
+          ),
         ),
       ),
     );
@@ -1581,15 +1760,28 @@ class _NewSessionDialogState extends State<_NewSessionDialog> {
   @override
   void initState() {
     super.initState();
-    final home = Platform.environment['HOME'] ?? '~';
-    _cwdController.text = home;
+    // Default the cwd to the selected project's folder when one is active;
+    // otherwise fall back to $HOME. Read once in initState — the user can
+    // still type a different path manually.
+    final projectsCtrl = context.read<AgentProjectsController>();
+    final selectedProject = projectsCtrl.selectedProject;
+    if (selectedProject != null && selectedProject.cwd.isNotEmpty) {
+      _cwdController.text = selectedProject.cwd;
+    } else {
+      _cwdController.text = Platform.environment['HOME'] ?? '~';
+    }
 
     // Compute the default agent: first enabled config whose CLI is installed,
     // falling back to the first enabled config if none are installed.
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (!mounted) return;
       final agentConfigs = context.read<AgentConfigsController>();
       final agentServerController = context.read<AgentServerController>();
+      // Refresh capabilities on dialog open — the initial fetch happens
+      // before the Opencode SDK finishes booting, so `opencode` is often
+      // stale-false until we re-poll.
+      await agentServerController.refreshCapabilities();
+      if (!mounted) return;
       final enabledAgents = agentConfigs.enabledAgents;
       if (enabledAgents.isNotEmpty && _agentId.isEmpty) {
         final firstInstalled = enabledAgents.firstWhere(
@@ -2098,6 +2290,77 @@ class _AgentToggleButton extends StatelessWidget {
     return IgnorePointer(
       ignoring: !enabled,
       child: GestureDetector(onTap: onTap, child: content),
+    );
+  }
+}
+
+/// Three-dot trailing menu on each session row. For now the only action is
+/// hard-delete (#598 follow-up); archive lives in #601.
+class _SessionRowMenu extends StatelessWidget {
+  const _SessionRowMenu({required this.session});
+
+  final AgentSession session;
+
+  Future<void> _confirmDelete(BuildContext context) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete session?'),
+        content: Text(
+          'This permanently removes "${session.name}" and all of its messages. '
+          'This cannot be undone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(ctx).colorScheme.error,
+            ),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    if (!context.mounted) return;
+    await context.read<AgentsController>().deleteSession(session.id);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return PopupMenuButton<String>(
+      tooltip: 'Session actions',
+      icon: Icon(
+        Icons.more_horiz,
+        size: 16,
+        color: context.rhythm.textMuted,
+      ),
+      padding: EdgeInsets.zero,
+      iconSize: 16,
+      splashRadius: 16,
+      itemBuilder: (_) => [
+        PopupMenuItem<String>(
+          value: 'delete',
+          child: Row(
+            children: [
+              Icon(
+                Icons.delete_outline,
+                size: 16,
+                color: Theme.of(context).colorScheme.error,
+              ),
+              const SizedBox(width: 8),
+              const Text('Delete session'),
+            ],
+          ),
+        ),
+      ],
+      onSelected: (v) {
+        if (v == 'delete') _confirmDelete(context);
+      },
     );
   }
 }

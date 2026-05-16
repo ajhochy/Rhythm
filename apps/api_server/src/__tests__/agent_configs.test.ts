@@ -110,7 +110,7 @@ describe('agent_configs migration', () => {
       .prepare(`SELECT * FROM agent_configs WHERE id = 'opencode'`)
       .get() as Record<string, unknown> | undefined;
     expect(row).toBeDefined();
-    expect(row?.label).toBe('OpenCode');
+    expect(row?.label).toBe('OpenRouter');
     expect(row?.command).toBe('opencode');
     // Issue #498: can_resume is 1 — opencode --session <id> successfully resumes sessions.
     expect(row?.can_resume).toBe(1);

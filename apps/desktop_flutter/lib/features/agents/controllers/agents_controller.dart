@@ -7,6 +7,8 @@ import '../../../app/core/agents/agent_server_controller.dart';
 import '../../../app/core/errors/app_error.dart';
 import '../../../app/core/notifications/local_notification_service.dart';
 import '../../notifications/controllers/notifications_controller.dart';
+import '../data/agent_models_data_source.dart';
+import '../models/agent_model_route.dart';
 import '../models/agent_session.dart';
 import '../models/agent_session_connectivity.dart';
 import '../models/agent_session_message.dart';
@@ -34,9 +36,10 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     this._agentServerController,
     this._notificationService,
     this._notificationsController,
-  );
+  ) : _modelsDataSource = AgentModelsDataSource();
 
   final AgentsRepository _repository;
+  final AgentModelsDataSource _modelsDataSource;
   final AgentServerController _agentServerController;
   final LocalNotificationService _notificationService;
   final NotificationsController _notificationsController;
@@ -74,6 +77,21 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   final Map<String, bool> _working = {};
 
   final List<PendingTrigger> _pendingTriggers = [];
+
+  // --------------------------------------------------------------------------
+  // Model-picker state
+  // --------------------------------------------------------------------------
+
+  /// Catalogue of available routes for the currently selected session's agent.
+  /// Refreshed whenever the selected session changes.
+  List<AgentModelRoute> _modelRoutes = [];
+
+  /// Loaded: true once a catalogue fetch has completed (even if empty).
+  bool _modelRoutesLoaded = false;
+
+  /// The per-turn override that will accompany the NEXT sendInput call.
+  /// Cleared after the message is sent.
+  AgentModelRoute? _pendingTurnOverride;
 
   AgentSessionConnectivity _connectivity = const AgentSessionConnectivity();
 
@@ -123,6 +141,15 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
 
   List<PendingTrigger> get pendingTriggers =>
       List.unmodifiable(_pendingTriggers);
+
+  /// Available (provider, model, routeKind) rows for the current session's agent.
+  List<AgentModelRoute> get modelRoutes => List.unmodifiable(_modelRoutes);
+
+  /// True once the model catalogue has been fetched at least once.
+  bool get modelRoutesLoaded => _modelRoutesLoaded;
+
+  /// Per-turn model override that will ride the next [sendInput] call.
+  AgentModelRoute? get pendingTurnOverride => _pendingTurnOverride;
 
   // --------------------------------------------------------------------------
   // Lifecycle
@@ -190,12 +217,12 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     notifyListeners();
     try {
       final result = await _repository.listSessions();
+      // Show closed sessions in the main list so users can read past
+      // transcripts; the row UI greys them out and they can be removed via
+      // the row's hard-delete action. Only `resumable` sessions move to the
+      // dedicated section.
       _sessions = result
-          .where(
-            (s) =>
-                s.status != AgentSessionStatus.closed &&
-                s.status != AgentSessionStatus.resumable,
-          )
+          .where((s) => s.status != AgentSessionStatus.resumable)
           .toList();
       _resumable = result
           .where((s) => s.status == AgentSessionStatus.resumable)
@@ -237,6 +264,105 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
       }
       notifyListeners();
       return null;
+    }
+  }
+
+  /// Bulk hard-delete sessions in parallel. Optimistically removes all
+  /// rows from local state up-front; on per-row server failure the row
+  /// is restored and an error surfaced. Used by Shift-click multi-select.
+  Future<void> deleteSessions(Iterable<String> ids) async {
+    final idSet = ids.toSet();
+    if (idSet.isEmpty) return;
+    final previous = _sessions;
+    _sessions = _sessions.where((s) => !idSet.contains(s.id)).toList();
+    if (_selectedSessionId != null && idSet.contains(_selectedSessionId)) {
+      _selectedSessionId = null;
+    }
+    for (final id in idSet) {
+      _liveOutputBuffer.remove(id);
+      sessionFirstSeenAt.remove(id);
+    }
+    notifyListeners();
+
+    if (!_agentServerController.isReady) return;
+    final failed = <String>[];
+    await Future.wait(idSet.map((id) async {
+      try {
+        await _repository.deleteSession(id);
+      } catch (_) {
+        failed.add(id);
+      }
+    }));
+    if (failed.isNotEmpty) {
+      // Restore the rows that failed (best effort: re-attach from `previous`).
+      final restored = previous.where((s) => failed.contains(s.id)).toList();
+      _sessions = [...restored, ..._sessions];
+      _error = 'Failed to delete ${failed.length} session(s).';
+      notifyListeners();
+    }
+  }
+
+  /// Hard-delete a session (row + messages) via the new
+  /// `DELETE /agent-sessions/:id/hard` endpoint. The list is updated
+  /// optimistically; on failure we restore the row and surface the error.
+  Future<void> deleteSession(String id) async {
+    final previous = _sessions;
+    _sessions = _sessions.where((s) => s.id != id).toList();
+    if (_selectedSessionId == id) _selectedSessionId = null;
+    _liveOutputBuffer.remove(id);
+    sessionFirstSeenAt.remove(id);
+    notifyListeners();
+
+    if (!_agentServerController.isReady) return;
+    try {
+      await _repository.deleteSession(id);
+    } catch (e) {
+      _sessions = previous;
+      if (e is AppError) {
+        _error = e.message;
+        _lastErrorStatus = e.statusCode;
+      } else {
+        _error = e.toString();
+      }
+      notifyListeners();
+    }
+  }
+
+  /// M2-1 / M2-5: PATCH the session row (rename + persistent provider/model).
+  Future<void> updateSession(
+    String id, {
+    String? name,
+    String? providerId,
+    String? modelId,
+    bool clearProvider = false,
+    bool clearModel = false,
+  }) async {
+    try {
+      final updated = await _repository.updateSession(
+        id,
+        name: name,
+        providerId: providerId,
+        modelId: modelId,
+        clearProvider: clearProvider,
+        clearModel: clearModel,
+      );
+      _sessions = [
+        for (final s in _sessions) s.id == id ? updated : s,
+      ];
+      notifyListeners();
+    } catch (e) {
+      _error = e is AppError ? e.message : e.toString();
+      notifyListeners();
+    }
+  }
+
+  /// M2-4: cancel an in-flight turn.
+  Future<void> cancelSession(String id) async {
+    try {
+      await _repository.cancelSession(id);
+    } catch (e) {
+      _error = e is AppError ? e.message : e.toString();
+      notifyListeners();
     }
   }
 
@@ -308,8 +434,56 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   // WebSocket send helpers
   // --------------------------------------------------------------------------
 
-  void sendInput(String sessionId, String data) {
-    _repository.send({'type': 'session.input', 'id': sessionId, 'data': data});
+  void sendInput(
+    String sessionId,
+    String data, {
+    List<Map<String, dynamic>>? attachments,
+  }) {
+    final override = _pendingTurnOverride;
+    final useParts = attachments != null && attachments.isNotEmpty;
+    _repository.send({
+      'type': 'session.input',
+      'id': sessionId,
+      // M4-1: when attachments exist, send a structured parts array; the
+      // backend composes text + files into the SDK promptAsync call.
+      if (useParts)
+        'parts': [
+          {'type': 'text', 'text': data},
+          ...attachments,
+        ]
+      else
+        'data': data,
+      // M2-2: per-turn override is consumed once on send, never persisted.
+      if (override != null)
+        'modelOverride': {
+          'providerId': override.providerId,
+          'modelId': override.modelId,
+        },
+    });
+    if (override != null) {
+      _pendingTurnOverride = null;
+      notifyListeners();
+    }
+  }
+
+  /// Convenience wrapper used by SessionModelPicker — stages a per-turn
+  /// override using the picker's row type. Pass null to clear.
+  void setTurnOverride(AgentModelRoute? route) {
+    _pendingTurnOverride = route;
+    notifyListeners();
+  }
+
+  /// Convenience wrapper used by SessionModelPicker — persists the route as
+  /// the session-level default via [updateSession].
+  Future<void> setSessionModel(
+    String sessionId,
+    AgentModelRoute route,
+  ) async {
+    await updateSession(
+      sessionId,
+      providerId: route.providerId,
+      modelId: route.modelId,
+    );
   }
 
   void resize(String sessionId, int cols, int rows) {
@@ -328,6 +502,9 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   Future<void> selectSession(String id) async {
     _selectedSessionId = id;
     _transcript = [];
+    _modelRoutes = [];
+    _modelRoutesLoaded = false;
+    _pendingTurnOverride = null;
     notifyListeners();
     try {
       final result = await _repository.getSession(id);
@@ -340,6 +517,19 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
       _error = e.toString();
       notifyListeners();
     }
+    // Load model routes for the newly selected session in the background.
+    _loadModelRoutes(id);
+  }
+
+  Future<void> _loadModelRoutes(String sessionId) async {
+    final session = _sessions.firstWhereOrNull((s) => s.id == sessionId) ??
+        _resumable.firstWhereOrNull((s) => s.id == sessionId);
+    if (session == null) return;
+    final routes = await _modelsDataSource.fetchRoutes(session.agentId);
+    if (_selectedSessionId != sessionId) return;
+    _modelRoutes = routes;
+    _modelRoutesLoaded = true;
+    notifyListeners();
   }
 
   // --------------------------------------------------------------------------
@@ -415,11 +605,7 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   void _onWsMessage(AgentWsMessage msg) {
     if (msg is SessionsListMessage) {
       _sessions = msg.sessions
-          .where(
-            (s) =>
-                s.status != AgentSessionStatus.closed &&
-                s.status != AgentSessionStatus.resumable,
-          )
+          .where((s) => s.status != AgentSessionStatus.resumable)
           .toList();
       _resumable = [
         ...msg.sessions.where((s) => s.status == AgentSessionStatus.resumable),
@@ -474,6 +660,7 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
         partId: msg.partId,
         type: msg.partType,
         text: msg.text,
+        raw: msg.part,
       );
     } else if (msg is MessagePartDeltaMessage) {
       _appendChatDelta(
@@ -574,6 +761,7 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     required String partId,
     required String type,
     required String text,
+    Map<String, dynamic>? raw,
   }) {
     if (messageId.isEmpty || partId.isEmpty) return;
     final list = _chatPartsByMessage.putIfAbsent(messageId, () => []);
@@ -581,13 +769,16 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     if (idx >= 0) {
       // Re-emit replaces text (the SDK sends the canonical part on update).
       list[idx].text = text;
+      if (raw != null) list[idx].mergePart(raw);
     } else {
-      list.add(ChatPart(
+      final part = ChatPart(
         id: partId,
         messageId: messageId,
         type: type,
         text: text,
-      ));
+      );
+      if (raw != null) part.mergePart(raw);
+      list.add(part);
     }
   }
 

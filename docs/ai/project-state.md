@@ -1,20 +1,94 @@
 # Project State
 
-## Current Status (2026-05-14, session-end snapshot)
+## Current Status (2026-05-15 — M1–M5 consolidated + UX follow-ups on PR #598)
 
-🟢 **Agents chat is fully working end-to-end.** User confirmed in a live smoke: user bubble right-aligned, assistant bubble streams in place, Enter sends, Shift+Enter inserts newlines, auto-resume rebinds orphan sessions from previous launches transparently.
+🟢 **PR [#598](https://github.com/ajhochhalter/Rhythm/pull/598) (`fix-session-list-decode` → `main`) is the consolidated landing for M1–M5 plus the UX work this session.** Open, awaiting CI re-run + manual smoke + merge by hand.
+
+### What PR #598 contains
+- **M1–M5 merged in**: projects rail + VCS chip (M1), session header PATCH + per-turn override + cancel (M2), inspector + tool-call parts + permission card (M3), composer attachments + commands (M4), settings services + opencode-auth surfaces (M5). Brought in via `git merge origin/m5-settings` after the original `fix-session-list-decode` branch shipped the decode fix off `main`.
+- **Session list decode fix**: `agents_data_source.listSessions()` now accepts the `{sessions, resumable}` envelope (server has returned this since #580; client was still casting to `List`).
+- **Show closed sessions**: controller stopped filtering `status='closed'`, so historical rows are visible. Greyed by the row status chip; removable via hard-delete.
+- **Model picker (#599)**: `GET /agents/models?agentId=…` joins `ROUTE_FALLBACKS_BY_AGENT` with authed providers; rows tagged `routeKind: 'direct' | 'aggregator'`. Picker pill in transcript header shows the **active** model with a check-mark on the matching row when open; sections separate "Direct accounts" vs "Via OpenRouter/Together/Groq". Catalogue expanded to opus-4-7 / opus-4-5 / sonnet-4-6 / haiku-4-5 (claude-code), gpt-5.3 / -codex / -mini (codex), gemini-3-pro / -flash (gemini-cli).
+- **Agent settings sheet (#600)**: gear button on Agents header opens dialog with four sections — Accounts (full `AiAccountSection` moved here from main Settings), Behavior (destructive-modal toggle), Keybindings (4 actions + reset), Opencode server URL. Wired in `main.dart`.
+- **Hard-delete session**: new `DELETE /agent-sessions/:id/hard` route (true delete + FK cascade). Three-dot trailing menu on each row → "Delete session" with confirm dialog. Distinct from existing soft-close `DELETE /agent-sessions/:id`.
+- **Shift-click multi-select + bulk delete**: `_SessionListPanel` is stateful; Shift-click toggles membership in `_multiSelected`; banner at top of list shows "N selected · Cancel · Delete" → confirm dialog → parallel hard-deletes with per-row rollback on failure.
+- **Manage agents view removed**: the page, the button on Agents header, the agent-bubble-overlay link, and the source file — all gone.
+- **AI Accounts removed from main Settings**: section moved into the gear sheet.
+- **Folder picker (osascript)**: the file_picker plugin's `beginSheetModal` was being suppressed under Flutter's showDialog overlay; replaced with `/usr/bin/osascript "choose folder"` for a standalone Finder dialog. Wired in the project create/edit dialog.
+- **Auto-derived project name**: picking a folder fills the Name field with the folder's basename if empty or unchanged from the previously-picked basename.
+- **Icon field accepts long emoji**: dropped `maxLength: 7` from the project Icon TextField; multi-codepoint emoji no longer truncate to `U+FFFC`.
+- **Projects rail loads on mount**: `ProjectsRail` is now stateful and calls `controller.load()` in `initState`, so the rail reflects server state (not just in-session creations).
+- **New-session dialog defaults cwd to selected project's folder** when one is active.
+- **CI repairs**: `vcs_probe.ts` now calls `git` directly (Ubuntu runners don't ship zsh, which the original `/bin/zsh -lc` wrapper relied on); `agents_models_routes.test.ts` asserts shape rather than length so the expanded catalogue doesn't break it; duplicate `features/settings/services/*` imports in `main.dart` dropped.
+
+### Open follow-up issues (filed during this session)
+- [#599](https://github.com/ajhochhalter/Rhythm/issues/599) — Model picker (closed-by #598).
+- [#600](https://github.com/ajhochhalter/Rhythm/issues/600) — Agent settings sheet (closed-by #598).
+- [#601](https://github.com/ajhochhalter/Rhythm/issues/601) — Archive / soft-delete for sessions (separate column in DB; opt-in `?includeArchived`).
+- [#602](https://github.com/ajhochhalter/Rhythm/issues/602) — Composer redesign: relocate model picker to composer area, add file attach, agent-less session start, unified agent selector with Authorized/Connect rows.
+- [#603](https://github.com/ajhochhalter/Rhythm/issues/603) — Branch selector in new-session dialog (git checkout before session start; dirty-tree UX).
+
+### Pre-merge state
+- CI: latest run on `4b4f7b3` — server tests fix + duplicate-imports fix in flight. Watch [#598 checks](https://github.com/ajhochhalter/Rhythm/pull/598/checks).
+- Smoke: see `docs/testing/manual-smoke.md` (predates this work; gap noted — sheet/picker/multi-select/projects rail/hard-delete need explicit smoke steps).
+- M2–M5 sibling PRs (#592–#596) remain open but their content lives on this branch; manual merge of #598 effectively supersedes them.
+- Manual merge only. No auto-merge.
+
+## Prior Status (2026-05-14 v3 — all five milestones shipped to draft PRs)
+
+🟢 **All five milestones (M1–M5, 25/26 atomic issues) landed across stacked draft PRs in a single power-through session.**
+
+| Milestone | Branch | PR | Status |
+|---|---|---|---|
+| M1 — Sessions ↔ Projects | `m1-projects` | [#592](https://github.com/ajhochy/Rhythm/pull/592) base=main | 6/6 issues #586–#591, full UI shipped |
+| M2 — Session header toolbar | `m2-session-header` | [#593](https://github.com/ajhochy/Rhythm/pull/593) base=m1-projects | Backend + Flutter data layer; visible header UI follow-up |
+| M3 — Details / inspector | `m3-inspector` | [#594](https://github.com/ajhochy/Rhythm/pull/594) base=m2-session-header | Widgets + endpoints shipped; agents_view rewrite follow-up |
+| M4 — Composer upgrades | `m4-composer` | [#595](https://github.com/ajhochy/Rhythm/pull/595) base=m3-inspector | WS protocol + data sources; popover widgets follow-up |
+| M5 — Settings surface | `m5-settings` | [#596](https://github.com/ajhochy/Rhythm/pull/596) base=m4-composer | Persistence services + backend stubs; tab UI + dark-mode audit follow-up |
+
+**Automated checks at every milestone boundary:** `ai-workflow checks --level pr` exited 0 (flutter analyze, dart format, tsc --noEmit, vitest, flutter test 218/218, vitest 38/38 incl. M3-1 tool-call fixture).
+
+**The stacked PR chain is ordered for sequential review:**
+1. Review and merge #592 first (smoke the rail, VCS chip, project dialog).
+2. Then #593 (PATCH endpoint, cancel, per-turn override — data layer only).
+3. Then #594 (tool-call widgets, side panel, permission card — visual integration in a follow-up).
+4. Then #595 (composer parts protocol — visible popovers in a follow-up).
+5. Then #596 (settings services — tab UI in a follow-up).
+
+### Known UI integration follow-ups (intentional gaps)
+
+This session shipped backend completeness for M2–M5 and Flutter data-layer + scaffold widgets, but **did not** rewrite the live UI surfaces to integrate them. The composable pieces are import-clean and tested where reasonable. Visible follow-ups:
+
+- **M2 session header**: model picker dropdown chip, Stop button on `working` status, token/cost meter, inline rename.
+- **M3 chat thread**: hang `SessionSidePanel` off `agents_view`, render `ToolCallPart` inside assistant bubbles when `ChatPart.type == 'tool'`, surface `PermissionCard` for `permission.asked` WS events, wire backend `respondPermission` to the real SDK call.
+- **M4 composer**: drag-drop region (needs `desktop_drop` plugin), slash-command popover widget, @-mention fuzzy file finder, file picker.
+- **M5 settings**: `SettingsView` left-rail tab scaffold + Providers/Appearance/Keybinds/Servers/About tab widgets. **Full dark-mode token audit across all 11 screens** (Tasks/Projects/Rhythms/WeeklyPlanner/Messages/Facilities/Dashboard/Integrations/Imports/Agents/Settings) — services exist, but per-screen hex-literal flush deferred.
+- **M5-1 destructive modal**: `PermissionCard` does not yet read `DestructiveModalService.enabled`; needs a single-line wiring in the consumer when the inline-vs-modal switch is implemented.
+- **M5-5 server switching**: `OpencodeClientService` does not yet consume `OpencodeServerService.effectiveUrl`. Restart-on-switch is a follow-up.
+
+### Backend stubs vs. functional endpoints
+
+These endpoints return graceful empty/501 responses until the SDK methods are wired:
+
+- `GET /agent-sessions/:id/diff` → `[]` when `opencodeClient.diffSession` is absent.
+- `POST /agent-sessions/:id/permission/:permissionId/{accept,deny}` → 204 no-op when `opencodeClient.respondPermission` is absent.
+- `PUT /opencode/providers` → 501 ("edit opencode.json directly") until `opencode_plugin_config.ts` writer lands.
+- `GET /opencode/commands` → `[]` until `client.command.list` is wrapped.
+
+### Project-state hygiene
+
+- Local plan/issues match GitHub state (milestone #86, issues #586–#591 closed; M2–M5 implementations posted to PRs without per-issue tickets).
+- All 5 branches pushed and tracked; no uncommitted local work outside `auth-strategy-probe.ts` (pre-existing untracked dev script).
+
+## Prior Status (2026-05-14, session-end snapshot — PRE-merge)
+
+🟢 **Agents chat was fully working end-to-end** at PR #574 merge: user bubble right-aligned, assistant streams in place, Enter sends, auto-resume rebinds orphan sessions.
 
 **Routing verification (live, `/opencode/auth/`):** authed providers = `["openrouter","anthropic","openai","github-copilot"]`. Local cred sources = `{"claudeCode":true,"codex":true}`. So:
-- `claude-code` agent → `anthropic / claude-sonnet-4-6` (direct Anthropic account via `opencode-claude-auth` Keychain bridge — NOT OpenRouter)
-- `codex` agent → `openai / gpt-5.3-codex` (direct OpenAI account via `opencode-openai-codex-auth` — NOT OpenRouter)
-- `gemini-cli` agent → `openrouter / google/gemini-3.1-pro-preview-customtools` (Google not signed in)
-- `opencode` (bare) agent → `openrouter / anthropic/claude-sonnet-4.6` (fallback added this session)
-
-**Branch state.** `opencode-engine-issue-564`, local HEAD `9b26aa1`, 42 commits ahead of last push at `70b87d7`. **NOT pushed.** Awaiting user `git push origin opencode-engine-issue-564` then PR #574 merge.
-
-**Issue backlog.** All Opencode-implementation issues (#564–#585) closed today. Open issues remaining are non-Opencode: #48 (PCO UX), #71 (mobile MVP), #418 (mobile smoke), #476 (AgentTriggerWatcher dev-gating).
-
-**Active plan.** `docs/ai/current-plan.md` replaced — now holds the full Opencode Desktop UI parity roadmap (5 milestones M1–M5, ~25 atomic issues, ~15–17 sessions). Next session branches off a clean `main` after PR #574 merges and starts at M1 issue #1 (`projects` table + CRUD).
+- `claude-code` → `anthropic / claude-sonnet-4-6` (direct, via `opencode-claude-auth` Keychain bridge)
+- `codex` → `openai / gpt-5.3-codex` (direct, via `opencode-openai-codex-auth`)
+- `gemini-cli` → `openrouter / google/gemini-3.1-pro-preview-customtools` (Google not signed in)
+- `opencode` (bare) → `openrouter / anthropic/claude-sonnet-4.6` (fallback)
 
 Automated checks (last run, post 9b26aa1):
 - **417/417 tests** (vitest, api_server) — `agents_ws_e2e.test.ts` has 4 cases (chat→server, server→chat, full round-trip, auto-resume regression)
@@ -213,7 +287,9 @@ Flutter → DELETE /agent-sessions/:id → controller stops bridge + clears map 
 ```
 
 ## Branch / PR
-`opencode-engine-issue-564` — Draft PR #574 — **local HEAD `ef5ea12`, 38 commits ahead of last push at `70b87d7`**. NOT YET PUSHED. Auth rework (Issues A–G), follow-up smoke fixes, plugin auto-installer, plus today's chat round-trip fix all stacked here. See "Outstanding Issues" at top and "Chat round-trip fix" section for verification status.
+`m1-projects` — branched off clean `main` at `84eef44` (post PR #574 merge). Local-only commit `7ccadbf` adds the M1 issue bodies under `docs/ai/generated-issues/`. M1-1 implementation is on disk, not yet committed.
+
+Historic: `opencode-engine-issue-564` → PR #574 — **MERGED** 2026-05-14.
 
 ## Active plan
 `docs/ai/current-plan.md` is no longer a placeholder. It contains the full 8-issue UI port plan (Opencode Desktop reference at `github.com/anomalyco/opencode/tree/dev/packages/desktop`). Status of the plan's issues:
@@ -235,13 +311,38 @@ All Opencode-implementation issues (#564–#585) are closed. Final disposition:
 
 Open issues remaining (none Opencode-related): #48 (PCO automation rules UX), #71 (mobile MVP scope), #418 (mobile smoke fail), #476 (AgentTriggerWatcher dev-gating).
 
+## M1 — Sessions ↔ Projects (milestone #86)
+
+| # | Issue | Status |
+|---|---|---|
+| #586 | M1-1 Backend: projects table + CRUD with VCS detection | **Implemented + verified** on `m1-projects`, uncommitted |
+| #587 | M1-2 Backend: agent_sessions.project_id FK + per-project listing | Not started |
+| #588 | M1-3 Backend: auto-assign project on session create | Not started |
+| #589 | M1-4 Flutter: Project model + repository + controller | Not started |
+| #590 | M1-5 Flutter: sidebar rail + project panel with VCS chip | Not started |
+| #591 | M1-6 Flutter: edit-project dialog | Not started |
+
+### M1-1 (#586) summary
+
+Files added/changed on `m1-projects`:
+- `apps/api_server/src/database/migrations.ts` — `CREATE TABLE IF NOT EXISTS projects` + `idx_projects_archived` (additive, idempotent)
+- `apps/api_server/src/models/project.ts` (NEW) — `Project`, `CreateProjectDto`, `UpdateProjectDto`
+- `apps/api_server/src/services/vcs_probe.ts` (NEW) — `probeVcs(cwd)` via `/bin/zsh -lc` (rev-parse → symbolic-ref → status --porcelain); best-effort, never throws
+- `apps/api_server/src/repositories/projects_repository.ts` (NEW)
+- `apps/api_server/src/controllers/projects_controller.ts` (NEW) — expandHome, absolute-path rejection (400), trailing-slash normalization, VCS re-probe on cwd change
+- `apps/api_server/src/routes/projects_routes.ts` (NEW) — mirrors `agent_sessions_routes` AGENT_LOCAL bypass
+- `apps/api_server/src/app.ts` — register `projectsRouter` at `/projects`
+- `apps/api_server/src/__tests__/vcs_probe.test.ts` (NEW) — 5 tests (git, non-git, dirty toggle, detached HEAD, mocked spawn failure)
+- `apps/api_server/src/__tests__/projects_routes.test.ts` (NEW) — 8 tests (CRUD + archive filter + cwd re-probe + refresh-vcs)
+
+Endpoints: `GET/POST /projects`, `GET/PATCH/DELETE /projects/:id`, `POST /projects/:id/refresh-vcs`.
+
 ## What to do next (resume notes)
 
-1. **Push the branch** (`git push origin opencode-engine-issue-564`) — manual smoke already passed; user confirmed chat round-trip works (user bubble + streaming assistant bubble visible, Enter sends, auto-resume works for orphan sessions).
-2. **Merge PR #574** after CI passes; the M1–M5 parity work in `docs/ai/current-plan.md` should branch off a clean `main` after this lands.
-3. **Sign in with Google AI** via the Settings tile so `gemini-cli` routes to the direct google provider (still outstanding).
-4. **Resolve OpenRouter rate-limit** on the test account if free-model fallback is needed (Outstanding #3).
-5. **Continue the UI port** by picking up issues #593–#597 from `docs/ai/current-plan.md`.
-6. **Document plugin requirements in CLAUDE.md** — the auto-installer adds `opencode-claude-auth`, `opencode-openai-codex-auth`, `opencode-gemini-auth`. Hard requirement for direct routing.
-
-Working-tree note: 3 unrelated dirty files (`.gitignore`, `apps/mcp_server/package.json`, `apps/mcp_server/tsconfig.json`) are pre-existing churn, deliberately not committed.
+1. **Manual UI smoke** of M1 in particular — rail visible, project create/edit dialog, VCS chip, session filter. PR #592 is the gating change for everything stacked on top.
+2. **Merge PRs in order** (`#592 → #593 → #594 → #595 → #596`); each one rebases cleanly because of the stacked branch strategy.
+3. **Pick up the UI integration follow-ups** as separate small PRs:
+   - Session header chip (M2) — biggest user-facing win.
+   - agents_view rewrite to host `SessionSidePanel` + render tool/permission cards inline (M3).
+   - Settings tabs scaffold (M5) — unblocks the dark-mode audit.
+4. Outstanding non-M1..M5 items still apply: Google AI sign-in for direct gemini routing; OpenRouter rate-limit on test account; plugin requirements doc in CLAUDE.md.

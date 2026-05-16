@@ -84,19 +84,54 @@ function handleClientMessage(ws: WebSocket, raw: import('ws').RawData): void {
   switch (msg?.type) {
     case 'session.input': {
       const id = msg.id as string | undefined;
-      const data = msg.data as string | undefined;
+      // M4-1: accept either legacy `data: string` or new `parts: Array<...>`.
+      // When `parts` is present, the first text part becomes the prompt
+      // string we hand to promptAsync; file/image parts are appended as a
+      // bullet list so the agent can see them. Real multimodal hand-off
+      // requires the SDK's `parts` array — wired here for forward-compat,
+      // gracefully degraded when the SDK doesn't support it yet.
+      let data = msg.data as string | undefined;
+      const partsInput = msg.parts as
+        | Array<Record<string, unknown>>
+        | undefined;
+      if (!data && Array.isArray(partsInput)) {
+        const textParts = partsInput
+          .filter((p) => p.type === 'text' && typeof p.text === 'string')
+          .map((p) => p.text as string);
+        const fileParts = partsInput.filter((p) => p.type === 'file');
+        const imageParts = partsInput.filter((p) => p.type === 'image');
+        const lines: string[] = [...textParts];
+        for (const fp of fileParts) {
+          const path = (fp.filePath ?? fp.path) as unknown;
+          if (typeof path === 'string') lines.push(`@${path}`);
+        }
+        for (const ip of imageParts) {
+          const path = (ip.filePath ?? ip.url) as unknown;
+          if (typeof path === 'string') lines.push(`[image] ${path}`);
+        }
+        data = lines.join('\n').trim();
+      }
+      // M2-2: per-turn override on the WS frame, never persisted.
+      const perTurnOverride = (msg.modelOverride ?? null) as {
+        providerId?: string;
+        modelId?: string;
+      } | null;
       if (id && typeof data === 'string') {
         (async () => {
           let opencodeId = opencodeSessionMap.get(id);
           let cwd: string | undefined;
           let agentKind: string | undefined;
           let sessionName: string | undefined;
+          let sessionProviderId: string | null = null;
+          let sessionModelId: string | null = null;
           try {
             const session = new AgentSessionsRepository().findById(id);
             if (session) {
               cwd = session.cwd;
               agentKind = session.agentKind;
               sessionName = session.name;
+              sessionProviderId = session.providerId;
+              sessionModelId = session.modelId;
             }
           } catch {
             /* DB unavailable — proceed without context */
@@ -166,11 +201,16 @@ function handleClientMessage(ws: WebSocket, raw: import('ws').RawData): void {
           }
 
           try {
-            const { resolveModelForAgent } = await import(
+            const { resolveModelForSessionTurn } = await import(
               './agent_model_resolver'
             );
             const model = agentKind
-              ? await resolveModelForAgent(agentKind)
+              ? await resolveModelForSessionTurn({
+                  agentId: agentKind,
+                  sessionProviderId,
+                  sessionModelId,
+                  perTurnOverride,
+                })
               : undefined;
             await opencodeClient.promptAsync(opencodeId, data, model, cwd);
           } catch (err) {
