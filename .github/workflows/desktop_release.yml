@@ -99,6 +99,7 @@ jobs:
           DEST="$APP/Contents/Resources/api_server"
           mkdir -p "$DEST"
           cp -r ../api_server/dist "$DEST/"
+          cp -r ../api_server/scripts "$DEST/"
           cp ../api_server/package.json "$DEST/"
           cp ../api_server/package-lock.json "$DEST/"
           (
@@ -116,6 +117,7 @@ jobs:
         run: |
           DEST="build/macos/Build/Products/Release/Rhythm.app/Contents/Resources/api_server"
           test -f "$DEST/dist/server.js"
+          test -f "$DEST/scripts/postinstall.js"
           test -f "$DEST/package.json"
           test -f "$DEST/package-lock.json"
           test -f "$DEST/.env"
