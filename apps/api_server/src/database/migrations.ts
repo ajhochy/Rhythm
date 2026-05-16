@@ -1110,4 +1110,11 @@ export function runMigrations(db: Database.Database): void {
     db.exec(`ALTER TABLE agent_sessions ADD COLUMN archived_at TEXT`);
   }
   db.exec(`CREATE INDEX IF NOT EXISTS idx_agent_sessions_archived ON agent_sessions(archived_at)`);
+
+  // Issue #611 — agent_sessions.permission_mode (default / acceptEdits / plan / bypassPermissions)
+  // Additive, NOT NULL with DEFAULT 'default'. Idempotent via pragma check.
+  const agentSessionColsPerm = (db.pragma('table_info(agent_sessions)') as { name: string }[]).map((c) => c.name);
+  if (!agentSessionColsPerm.includes('permission_mode')) {
+    db.exec(`ALTER TABLE agent_sessions ADD COLUMN permission_mode TEXT NOT NULL DEFAULT 'default'`);
+  }
 }

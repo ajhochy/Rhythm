@@ -37,6 +37,10 @@ abstract class AgentWsMessage {
         return TriggerFiredMessage.fromJson(json);
       case 'notification.push':
         return NotificationPushMessage.fromJson(json);
+      case 'permission.asked':
+        return PermissionAskedMessage.fromJson(json);
+      case 'permission.resolved':
+        return PermissionResolvedMessage.fromJson(json);
       case 'error':
         return WsErrorMessage.fromJson(json);
       default:
@@ -333,6 +337,58 @@ class SessionRemovedMessage extends AgentWsMessage {
 
   factory SessionRemovedMessage.fromJson(Map<String, dynamic> json) {
     return SessionRemovedMessage(id: asString(json['id']) ?? '');
+  }
+}
+
+/// #608 — server broadcast when the SDK emits `permission.asked`.
+/// The client should surface a [PermissionCard] for this session.
+class PermissionAskedMessage extends AgentWsMessage {
+  const PermissionAskedMessage({
+    required this.sessionId,
+    required this.permissionId,
+    required this.toolName,
+    required this.args,
+    required this.summary,
+  });
+
+  final String sessionId;
+  final String permissionId;
+  final String toolName;
+  final Map<String, dynamic> args;
+  final String summary;
+
+  factory PermissionAskedMessage.fromJson(Map<String, dynamic> json) {
+    return PermissionAskedMessage(
+      sessionId: asString(json['sessionId']) ?? '',
+      permissionId: asString(json['permissionId']) ?? '',
+      toolName: asString(json['toolName']) ?? '',
+      args: (json['args'] as Map<String, dynamic>?) ?? const {},
+      summary: asString(json['summary']) ?? '',
+    );
+  }
+}
+
+/// #608 — server broadcast when a permission has been resolved (accepted or denied),
+/// either by the user or by the permission-mode auto-logic.
+class PermissionResolvedMessage extends AgentWsMessage {
+  const PermissionResolvedMessage({
+    required this.sessionId,
+    required this.permissionId,
+    required this.decision,
+  });
+
+  final String sessionId;
+  final String permissionId;
+
+  /// Either 'accept' or 'deny'.
+  final String decision;
+
+  factory PermissionResolvedMessage.fromJson(Map<String, dynamic> json) {
+    return PermissionResolvedMessage(
+      sessionId: asString(json['sessionId']) ?? '',
+      permissionId: asString(json['permissionId']) ?? '',
+      decision: asString(json['decision']) ?? 'deny',
+    );
   }
 }
 

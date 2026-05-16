@@ -1,6 +1,10 @@
 export type AgentKind = 'claude-code' | 'codex';
 export type AgentSessionStatus = 'starting' | 'working' | 'idle' | 'resumable' | 'closed';
 
+export type PermissionMode = 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions';
+
+export const PERMISSION_MODES: PermissionMode[] = ['default', 'acceptEdits', 'plan', 'bypassPermissions'];
+
 export interface AgentSession {
   id: string;
   taskId: string | null;
@@ -14,6 +18,7 @@ export interface AgentSession {
   providerId: string | null;
   modelId: string | null;
   agentMode: string | null;
+  permissionMode: PermissionMode;
   lastPreview: string | null;
   lastActivityAt: string | null;
   archivedAt: string | null;

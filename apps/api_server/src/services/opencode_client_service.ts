@@ -297,6 +297,41 @@ export class OpencodeClientService {
     }
   }
 
+  /**
+   * Respond to a pending permission request from the SDK.
+   * `permissionId` is the ID from the `permission.asked` event.
+   * Returns true when the SDK accepted the response, false otherwise
+   * (including when the SDK version doesn't expose the permission endpoint).
+   */
+  async respondPermission(
+    sessionId: string,
+    permissionId: string,
+    decision: 'accept' | 'deny',
+  ): Promise<boolean> {
+    if (!this.client) return false;
+    try {
+      const sessionClient = this.client.session as unknown as Record<string, unknown>;
+      const permApi = sessionClient['permission'] as {
+        respond?: (opts: {
+          path: { id: string; permissionId: string };
+          body: { decision: 'accept' | 'deny' };
+        }) => Promise<unknown>;
+      } | undefined;
+      if (!permApi || typeof permApi.respond !== 'function') {
+        logger.info('[OpencodeClientService] SDK does not expose session.permission.respond — skipping');
+        return false;
+      }
+      await permApi.respond({
+        path: { id: sessionId, permissionId },
+        body: { decision },
+      });
+      return true;
+    } catch (err) {
+      logger.error(`[OpencodeClientService] respondPermission failed for session ${sessionId}:`, err);
+      return false;
+    }
+  }
+
   /** Abort a running session */
   async abortSession(sessionId: string): Promise<boolean> {
     if (!this.client) return false;

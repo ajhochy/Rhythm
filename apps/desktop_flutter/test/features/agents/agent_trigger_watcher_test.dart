@@ -138,11 +138,19 @@ class _FakeAgentsRepository implements AgentsRepository {
     String? name,
     String? providerId,
     String? modelId,
+    String? permissionMode,
     bool clearProvider = false,
     bool clearModel = false,
   }) async {
     throw UnimplementedError();
   }
+
+  @override
+  Future<void> respondPermission(
+    String sessionId,
+    String permissionId,
+    String decision,
+  ) async {}
 
   @override
   Future<AgentSession> resumeSession(String id) async {

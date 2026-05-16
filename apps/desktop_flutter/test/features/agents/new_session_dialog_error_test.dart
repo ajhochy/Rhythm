@@ -141,9 +141,19 @@ class _ErrorAgentsRepository implements AgentsRepository {
     String? name,
     String? providerId,
     String? modelId,
+    String? permissionMode,
     bool clearProvider = false,
     bool clearModel = false,
   }) async {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<void> respondPermission(
+    String sessionId,
+    String permissionId,
+    String decision,
+  ) async {
     throw UnimplementedError();
   }
 

@@ -52,6 +52,7 @@ class AgentsRepository {
     String? modelId,
     bool clearProvider = false,
     bool clearModel = false,
+    String? permissionMode,
   }) =>
       _dataSource.updateSession(
         id,
@@ -60,7 +61,16 @@ class AgentsRepository {
         modelId: modelId,
         clearProvider: clearProvider,
         clearModel: clearModel,
+        permissionMode: permissionMode,
       );
+
+  /// #608 — respond to a pending permission (accept or deny).
+  Future<void> respondPermission(
+    String sessionId,
+    String permissionId,
+    String decision,
+  ) =>
+      _dataSource.respondPermission(sessionId, permissionId, decision);
 
   Future<void> cancelSession(String id) => _dataSource.cancelSession(id);
 

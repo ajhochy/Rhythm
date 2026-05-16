@@ -154,6 +154,7 @@ class _FakeAgentsRepository implements AgentsRepository {
     String? name,
     String? providerId,
     String? modelId,
+    String? permissionMode,
     bool clearProvider = false,
     bool clearModel = false,
   }) async {
@@ -174,6 +175,13 @@ class _FakeAgentsRepository implements AgentsRepository {
   Future<AgentSession> unarchiveSession(String id) async {
     return _makeSession(id, AgentSessionStatus.idle);
   }
+
+  @override
+  Future<void> respondPermission(
+    String sessionId,
+    String permissionId,
+    String decision,
+  ) async {}
 
   @override
   Future<List<AgentSessionMessage>> getMessages(String id, {int? limit}) async {

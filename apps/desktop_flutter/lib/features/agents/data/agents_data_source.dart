@@ -179,7 +179,7 @@ class AgentsDataSource {
     );
   }
 
-  // M2-1: session-level rename + provider/model override.
+  // M2-1 / #611: session-level rename + provider/model/permissionMode override.
   Future<AgentSession> updateSession(
     String id, {
     String? name,
@@ -187,6 +187,7 @@ class AgentsDataSource {
     String? modelId,
     bool clearProvider = false,
     bool clearModel = false,
+    String? permissionMode,
   }) async {
     final payload = <String, dynamic>{};
     if (name != null) payload['name'] = name;
@@ -200,6 +201,9 @@ class AgentsDataSource {
     } else if (modelId != null) {
       payload['modelId'] = modelId;
     }
+    if (permissionMode != null) {
+      payload['permissionMode'] = permissionMode;
+    }
     final response = await http.patch(
       Uri.parse('$_baseUrl/agent-sessions/$id'),
       headers: AuthSessionStore.headers(json: true),
@@ -209,6 +213,22 @@ class AgentsDataSource {
     return AgentSession.fromJson(
       jsonDecode(response.body) as Map<String, dynamic>,
     );
+  }
+
+  /// #608 — respond to a pending permission (accept or deny).
+  Future<void> respondPermission(
+    String sessionId,
+    String permissionId,
+    String decision,
+  ) async {
+    final response = await http.post(
+      Uri.parse(
+          '$_baseUrl/agent-sessions/$sessionId/permission/$permissionId/$decision'),
+      headers: AuthSessionStore.headers(),
+    );
+    if (response.statusCode != 204) {
+      assertOk(response);
+    }
   }
 
   // M2-4: cancel an in-flight turn for a session.

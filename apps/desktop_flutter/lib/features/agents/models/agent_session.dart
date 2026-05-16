@@ -17,6 +17,55 @@ enum AgentSessionStatus {
       );
 }
 
+/// The four permission modes available for an agent session.
+enum PermissionMode {
+  /// Wait for user confirmation on every tool call.
+  defaultMode('default'),
+
+  /// Auto-accept write/edit tools; wait on others.
+  acceptEdits('acceptEdits'),
+
+  /// Auto-deny all tool calls (plan-only mode).
+  plan('plan'),
+
+  /// Auto-accept all tool calls without user confirmation.
+  bypassPermissions('bypassPermissions');
+
+  final String wireValue;
+  const PermissionMode(this.wireValue);
+
+  static PermissionMode fromWire(String? s) => PermissionMode.values.firstWhere(
+        (m) => m.wireValue == s,
+        orElse: () => PermissionMode.defaultMode,
+      );
+
+  String get displayLabel {
+    switch (this) {
+      case PermissionMode.defaultMode:
+        return 'Default';
+      case PermissionMode.acceptEdits:
+        return 'Accept Edits';
+      case PermissionMode.plan:
+        return 'Plan Only';
+      case PermissionMode.bypassPermissions:
+        return 'Bypass All';
+    }
+  }
+
+  String get description {
+    switch (this) {
+      case PermissionMode.defaultMode:
+        return 'Prompt for every tool call.';
+      case PermissionMode.acceptEdits:
+        return 'Auto-accept write/edit tools; prompt for others.';
+      case PermissionMode.plan:
+        return 'Deny all tools — plan mode only.';
+      case PermissionMode.bypassPermissions:
+        return 'Auto-accept all tools without confirmation.';
+    }
+  }
+}
+
 class AgentSession {
   const AgentSession({
     required this.id,
@@ -29,6 +78,7 @@ class AgentSession {
     this.projectId,
     this.providerId,
     this.modelId,
+    this.permissionMode = PermissionMode.defaultMode,
     this.lastPreview,
     this.lastActivityAt,
     this.archivedAt,
@@ -46,6 +96,7 @@ class AgentSession {
   final String? projectId;
   final String? providerId;
   final String? modelId;
+  final PermissionMode permissionMode;
   final String? lastPreview;
   final DateTime? lastActivityAt;
   final DateTime? archivedAt;
@@ -73,6 +124,7 @@ class AgentSession {
       projectId: asString(json['projectId']),
       providerId: asString(json['providerId']),
       modelId: asString(json['modelId']),
+      permissionMode: PermissionMode.fromWire(asString(json['permissionMode'])),
       lastPreview: asString(json['lastPreview']),
       lastActivityAt: _parseDateTime(asString(json['lastActivityAt'])),
       archivedAt: _parseDateTime(asString(json['archivedAt'])),
@@ -93,6 +145,7 @@ class AgentSession {
       if (projectId != null) 'projectId': projectId,
       if (providerId != null) 'providerId': providerId,
       if (modelId != null) 'modelId': modelId,
+      'permissionMode': permissionMode.wireValue,
       if (lastPreview != null) 'lastPreview': lastPreview,
       if (lastActivityAt != null)
         'lastActivityAt': lastActivityAt!.toUtc().toIso8601String(),
@@ -112,6 +165,7 @@ class AgentSession {
     String? name,
     Object? providerId = _sentinel,
     Object? modelId = _sentinel,
+    PermissionMode? permissionMode,
     Object? lastPreview = _sentinel,
     Object? lastActivityAt = _sentinel,
     Object? archivedAt = _sentinel,
@@ -132,6 +186,7 @@ class AgentSession {
       providerId:
           providerId == _sentinel ? this.providerId : providerId as String?,
       modelId: modelId == _sentinel ? this.modelId : modelId as String?,
+      permissionMode: permissionMode ?? this.permissionMode,
       lastPreview:
           lastPreview == _sentinel ? this.lastPreview : lastPreview as String?,
       lastActivityAt: lastActivityAt == _sentinel

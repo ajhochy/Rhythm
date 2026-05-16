@@ -5,7 +5,8 @@ import { AgentSessionsRepository } from '../repositories/agent_sessions_reposito
 import { AgentSessionMessagesRepository } from '../repositories/agent_session_messages_repository';
 import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
 import { ProjectsRepository } from '../repositories/projects_repository';
-import type { AgentKind, CreateAgentSessionDto } from '../models/agent_session';
+import type { AgentKind, CreateAgentSessionDto, PermissionMode } from '../models/agent_session';
+import { PERMISSION_MODES } from '../models/agent_session';
 import { opencodeClient, opencodeSessionMap } from '../services/opencode_engine';
 import { streamBridge } from '../services/opencode_stream_bridge';
 import { broadcastSessionUpdated, broadcastSessionRemoved } from '../services/ws_gateway';
@@ -210,6 +211,7 @@ export class AgentSessionsController {
         providerId?: string | null;
         modelId?: string | null;
         agentMode?: string | null;
+        permissionMode?: PermissionMode;
       } = {};
 
       if (body.name !== undefined) {
@@ -242,6 +244,13 @@ export class AgentSessionsController {
           throw AppError.badRequest('agentMode must be a string or null');
         }
         fields.agentMode = body.agentMode as string | null;
+      }
+      // Issue #611 — permission mode
+      if (body.permissionMode !== undefined) {
+        if (typeof body.permissionMode !== 'string' || !PERMISSION_MODES.includes(body.permissionMode as PermissionMode)) {
+          throw AppError.badRequest(`permissionMode must be one of: ${PERMISSION_MODES.join(', ')}`);
+        }
+        fields.permissionMode = body.permissionMode as PermissionMode;
       }
 
       // Issue #601 — archive / unarchive via PATCH { archived: boolean }
@@ -291,7 +300,7 @@ export class AgentSessionsController {
     }
   }
 
-  // M3-6: respond to a permission prompt forwarded by the SDK.
+  // M3-6 / #608: respond to a permission prompt forwarded by the SDK.
   async respondPermission(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const session = repo.findById(req.params.id);
@@ -300,21 +309,35 @@ export class AgentSessionsController {
       if (!opencodeId) {
         throw AppError.badRequest('Session has no SDK mapping for permission.');
       }
-      const decision = req.params.decision;
+      const decision = req.params.decision as string;
       if (decision !== 'accept' && decision !== 'deny') {
         throw AppError.badRequest('decision must be accept or deny');
       }
-      const sdk = opencodeClient as unknown as {
-        respondPermission?: (sessionId: string, permissionId: string, decision: 'accept' | 'deny') => Promise<boolean>;
-      };
-      if (typeof sdk.respondPermission !== 'function') {
-        res.status(204).end();
-        return;
-      }
-      const ok = await sdk.respondPermission(opencodeId, req.params.permissionId, decision);
+      const permissionId = req.params.permissionId;
+
+      // Forward to the SDK.
+      const ok = await opencodeClient.respondPermission(opencodeId, permissionId, decision);
+      // If the SDK doesn't support this endpoint, respond gracefully (204).
+      // The caller can still update their local state.
+
+      // Clear the pending permission from the bridge.
+      streamBridge.clearPendingPermission(session.id, permissionId);
+
+      // Broadcast resolution so other connected clients update their UI.
+      const { broadcast } = await import('../services/ws_gateway');
+      broadcast({
+        v: 1,
+        type: 'permission.resolved',
+        sessionId: session.id,
+        permissionId,
+        decision,
+      });
+
       if (!ok) {
-        throw AppError.badRequest('SDK rejected the permission response.');
+        // Non-fatal: SDK may not support this endpoint yet.
+        console.warn(`[AgentSessionsController] respondPermission: SDK returned false for session ${session.id}`);
       }
+
       res.status(204).end();
     } catch (err) {
       next(err);

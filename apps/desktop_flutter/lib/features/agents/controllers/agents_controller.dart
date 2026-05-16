@@ -16,6 +16,22 @@ import '../models/agent_ws_message.dart';
 import '../models/chat_models.dart';
 import '../repositories/agents_repository.dart';
 
+class PendingPermission {
+  const PendingPermission({
+    required this.sessionId,
+    required this.permissionId,
+    required this.toolName,
+    required this.args,
+    required this.summary,
+  });
+
+  final String sessionId;
+  final String permissionId;
+  final String toolName;
+  final Map<String, dynamic> args;
+  final String summary;
+}
+
 enum AgentsLoadStatus { idle, loading, error }
 
 class PendingTrigger {
@@ -78,6 +94,10 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   final Map<String, bool> _working = {};
 
   final List<PendingTrigger> _pendingTriggers = [];
+
+  // -- Permission state (#608) -----------------------------------------------
+  // Keyed by sessionId → list of pending permissions.
+  final Map<String, List<PendingPermission>> _pendingPermissions = {};
 
   // --------------------------------------------------------------------------
   // Model-picker state
@@ -143,6 +163,10 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
 
   List<PendingTrigger> get pendingTriggers =>
       List.unmodifiable(_pendingTriggers);
+
+  /// Pending permissions for [sessionId], in arrival order.
+  List<PendingPermission> pendingPermissionsFor(String sessionId) =>
+      List.unmodifiable(_pendingPermissions[sessionId] ?? const []);
 
   /// Available (provider, model, routeKind) rows for the current session's agent.
   List<AgentModelRoute> get modelRoutes => List.unmodifiable(_modelRoutes);
@@ -330,7 +354,7 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     }
   }
 
-  /// M2-1 / M2-5: PATCH the session row (rename + persistent provider/model).
+  /// M2-1 / M2-5 / #611: PATCH the session row (rename + persistent provider/model/permissionMode).
   Future<void> updateSession(
     String id, {
     String? name,
@@ -338,6 +362,7 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     String? modelId,
     bool clearProvider = false,
     bool clearModel = false,
+    String? permissionMode,
   }) async {
     try {
       final updated = await _repository.updateSession(
@@ -347,6 +372,7 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
         modelId: modelId,
         clearProvider: clearProvider,
         clearModel: clearModel,
+        permissionMode: permissionMode,
       );
       _sessions = [
         for (final s in _sessions) s.id == id ? updated : s,
@@ -362,6 +388,78 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   Future<void> cancelSession(String id) async {
     try {
       await _repository.cancelSession(id);
+    } catch (e) {
+      _error = e is AppError ? e.message : e.toString();
+      notifyListeners();
+    }
+  }
+
+  // --------------------------------------------------------------------------
+  // Permission flow (#608)
+  // --------------------------------------------------------------------------
+
+  /// Accept a pending permission — POST to the server and remove from local state.
+  Future<void> acceptPermission(
+    String sessionId,
+    String permissionId,
+  ) async {
+    _removePendingPermission(sessionId, permissionId);
+    notifyListeners();
+    try {
+      await _repository.respondPermission(sessionId, permissionId, 'accept');
+    } catch (e) {
+      _error = e is AppError ? e.message : e.toString();
+      notifyListeners();
+    }
+  }
+
+  /// Deny a pending permission — POST to the server and remove from local state.
+  Future<void> denyPermission(
+    String sessionId,
+    String permissionId,
+  ) async {
+    _removePendingPermission(sessionId, permissionId);
+    notifyListeners();
+    try {
+      await _repository.respondPermission(sessionId, permissionId, 'deny');
+    } catch (e) {
+      _error = e is AppError ? e.message : e.toString();
+      notifyListeners();
+    }
+  }
+
+  void _removePendingPermission(String sessionId, String permissionId) {
+    final list = _pendingPermissions[sessionId];
+    if (list != null) {
+      list.removeWhere((p) => p.permissionId == permissionId);
+      if (list.isEmpty) _pendingPermissions.remove(sessionId);
+    }
+  }
+
+  // --------------------------------------------------------------------------
+  // Permission mode (#611)
+  // --------------------------------------------------------------------------
+
+  /// PATCH the session's permissionMode. Optimistically updates the local row.
+  Future<void> setPermissionMode(
+    String sessionId,
+    PermissionMode mode,
+  ) async {
+    // Optimistic update.
+    _sessions = [
+      for (final s in _sessions)
+        if (s.id == sessionId) s.copyWith(permissionMode: mode) else s,
+    ];
+    notifyListeners();
+    try {
+      final updated = await _repository.updateSession(
+        sessionId,
+        permissionMode: mode.wireValue,
+      );
+      _sessions = [
+        for (final s in _sessions) s.id == sessionId ? updated : s,
+      ];
+      notifyListeners();
     } catch (e) {
       _error = e is AppError ? e.message : e.toString();
       notifyListeners();
@@ -794,6 +892,20 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
       _liveOutputBuffer.remove(msg.id);
       sessionFirstSeenAt.remove(msg.id);
       if (_selectedSessionId == msg.id) _selectedSessionId = null;
+    } else if (msg is PermissionAskedMessage) {
+      final list = _pendingPermissions.putIfAbsent(msg.sessionId, () => []);
+      // Deduplicate by permissionId.
+      if (!list.any((p) => p.permissionId == msg.permissionId)) {
+        list.add(PendingPermission(
+          sessionId: msg.sessionId,
+          permissionId: msg.permissionId,
+          toolName: msg.toolName,
+          args: msg.args,
+          summary: msg.summary,
+        ));
+      }
+    } else if (msg is PermissionResolvedMessage) {
+      _removePendingPermission(msg.sessionId, msg.permissionId);
     } else if (msg is TriggerFiredMessage) {
       _pendingTriggers.add(
         PendingTrigger(

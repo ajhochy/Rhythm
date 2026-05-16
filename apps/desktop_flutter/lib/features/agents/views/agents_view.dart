@@ -18,7 +18,10 @@ import '../controllers/agents_controller.dart';
 import '../models/agent_session.dart';
 import '../models/agent_session_message.dart';
 import '../models/chat_models.dart';
+import '../../settings/services/destructive_modal_service.dart';
 import '_agent_settings_sheet.dart';
+import '_permission_card.dart';
+import '_permission_mode_picker.dart';
 import '_project_vcs_chip.dart';
 import '_projects_rail.dart';
 import '_session_model_picker.dart';
@@ -1091,6 +1094,7 @@ class _TranscriptPanelState extends State<_TranscriptPanel> {
                           ),
                         ),
                       ),
+                      _PendingPermissionArea(session: selected),
                       _InputArea(
                         inputController: _inputController,
                         onSend: () => _sendInput(context),
@@ -1199,6 +1203,8 @@ class _TranscriptHeader extends StatelessWidget {
           _StatusChip(status: session.status, isWorking: isWorking),
           const SizedBox(width: 8),
           SessionModelPicker(session: session),
+          const SizedBox(width: 6),
+          PermissionModePicker(session: session),
           const SizedBox(width: 8),
           if (showReconnect) ...[
             OutlinedButton(
@@ -1596,6 +1602,49 @@ class _LiveOutputBlock extends StatelessWidget {
           color: context.rhythm.textPrimary,
           height: 1.5,
         ),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Pending permissions area (#608)
+// ---------------------------------------------------------------------------
+
+/// Renders inline [PermissionCard] widgets for each pending permission in the
+/// active session. When [DestructiveModalService.enabled] is true and the tool
+/// is destructive, the PermissionCard itself elevates to a modal dialog.
+class _PendingPermissionArea extends StatelessWidget {
+  const _PendingPermissionArea({required this.session});
+
+  final AgentSession session;
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = context.watch<AgentsController>();
+    // DestructiveModalService is watched here so the card can read it.
+    context.watch<DestructiveModalService>();
+    final pending = controller.pendingPermissionsFor(session.id);
+    if (pending.isEmpty) return const SizedBox.shrink();
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(18, 8, 18, 0),
+      decoration: BoxDecoration(
+        border: Border(top: BorderSide(color: context.rhythm.borderSubtle)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          for (final p in pending)
+            PermissionCard(
+              key: ValueKey('perm-${session.id}-${p.permissionId}'),
+              sessionId: session.id,
+              permissionId: p.permissionId,
+              title: 'Allow ${p.toolName}?',
+              toolName: p.toolName,
+              description: p.summary.isNotEmpty ? p.summary : null,
+            ),
+        ],
       ),
     );
   }

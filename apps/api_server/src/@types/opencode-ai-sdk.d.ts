@@ -169,6 +169,19 @@ declare module '@opencode-ai/sdk' {
     };
   };
 
+  // ── Permission event ──
+
+  export type EventPermissionAsked = {
+    type: 'permission.asked';
+    properties: {
+      sessionID: string;
+      permissionID: string;
+      toolName: string;
+      args?: Record<string, unknown>;
+      summary?: string;
+    };
+  };
+
   export type Event =
     | EventMessagePartUpdated
     | EventMessagePartDelta
@@ -178,7 +191,8 @@ declare module '@opencode-ai/sdk' {
     | EventSessionIdle
     | EventSessionCreated
     | EventSessionError
-    | EventFileEdited;
+    | EventFileEdited
+    | EventPermissionAsked;
 
   // ── Provider types ──
 
@@ -234,6 +248,16 @@ declare module '@opencode-ai/sdk' {
         path: { id: string };
       }): Promise<Array<Message>>;
       abort(options: { path: { id: string } }): Promise<void>;
+      /**
+       * Respond to a pending permission request.
+       * `permissionID` is the ID from the `permission.asked` event.
+       */
+      permission?: {
+        respond(options: {
+          path: { id: string; permissionId: string };
+          body: { decision: 'accept' | 'deny' };
+        }): Promise<void>;
+      };
     };
     provider: {
       list(): Promise<Array<{ id: string }>>;

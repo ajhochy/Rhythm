@@ -3,6 +3,7 @@ import type {
   AgentSession,
   AgentSessionStatus,
   CreateAgentSessionDto,
+  PermissionMode,
 } from '../models/agent_session';
 
 interface AgentSessionRow {
@@ -18,6 +19,7 @@ interface AgentSessionRow {
   provider_id: string | null;
   model_id: string | null;
   agent_mode: string | null;
+  permission_mode: string | null;
   last_preview: string | null;
   last_activity_at: string | null;
   archived_at: string | null;
@@ -39,6 +41,7 @@ function rowToModel(row: AgentSessionRow): AgentSession {
     providerId: row.provider_id ?? null,
     modelId: row.model_id ?? null,
     agentMode: row.agent_mode ?? null,
+    permissionMode: (row.permission_mode ?? 'default') as PermissionMode,
     lastPreview: row.last_preview,
     lastActivityAt: row.last_activity_at,
     archivedAt: row.archived_at ?? null,
@@ -177,6 +180,15 @@ export class AgentSessionsRepository {
     return result.changes;
   }
 
+  updatePermissionMode(id: string, mode: PermissionMode): void {
+    const now = new Date().toISOString();
+    getDb()
+      .prepare(
+        `UPDATE agent_sessions SET permission_mode = ?, updated_at = ? WHERE id = ?`,
+      )
+      .run(mode, now, id);
+  }
+
   updateFields(
     id: string,
     fields: {
@@ -184,6 +196,7 @@ export class AgentSessionsRepository {
       providerId?: string | null;
       modelId?: string | null;
       agentMode?: string | null;
+      permissionMode?: PermissionMode;
     },
   ): void {
     const sets: string[] = [];
@@ -203,6 +216,10 @@ export class AgentSessionsRepository {
     if (fields.agentMode !== undefined) {
       sets.push('agent_mode = ?');
       values.push(fields.agentMode);
+    }
+    if (fields.permissionMode !== undefined) {
+      sets.push('permission_mode = ?');
+      values.push(fields.permissionMode);
     }
     if (sets.length === 0) return;
     sets.push('updated_at = ?');
