@@ -976,6 +976,20 @@ export function runMigrations(db: Database.Database): void {
     WHERE id = 'opencode';
   `);
 
+  // PR #598 follow-up — relabel the bare "opencode" agent kind to "OpenRouter"
+  // for the UI. The internal id stays 'opencode' (matches the SDK agent kind);
+  // only the display label changes. This is the catch-all agent that routes
+  // through whichever aggregator is authed — in practice always OpenRouter
+  // today. The proper agent/model selector redesign in #602 will retire the
+  // per-agent button row entirely.
+  db.exec(`
+    UPDATE agent_configs
+    SET
+      label      = 'OpenRouter',
+      updated_at = datetime('now')
+    WHERE id = 'opencode' AND label = 'OpenCode';
+  `);
+
   // agent_notifications — local delivery store for MCP-initiated push notifications
   db.exec(`
     CREATE TABLE IF NOT EXISTS agent_notifications (
