@@ -1,8 +1,87 @@
 # Project State
 
-## Current Status (2026-05-15 — M1–M5 consolidated + UX follow-ups on PR #598)
+## Current Status (2026-05-16 — PR #598 merged; vbeta.18.31 building)
 
-🟢 **PR [#598](https://github.com/ajhochhalter/Rhythm/pull/598) (`fix-session-list-decode` → `main`) is the consolidated landing for M1–M5 plus the UX work this session.** Open, awaiting CI re-run + manual smoke + merge by hand.
+🟢 **PR #598 merged to `main` via commit `d7a0775`.** Desktop release `vbeta.18.31` triggered (Actions run 25968794136). Local main is in sync; sibling PRs #593–#596 closed (content lives on main via #598); their branches deleted.
+
+### What PR #598 landed
+Everything below is now on `main`, embedded in the `vbeta.18.31` build.
+
+**M1–M5 consolidation** (originally stacked PRs #593–#596 — superseded):
+- M1 — projects rail + VCS chip + per-project session filter.
+- M2 — `PATCH /agent-sessions/:id` (rename + provider/model override), per-turn `modelOverride` over WS, cancel endpoint.
+- M3 — inspector side panel + tool-call cards (now actually rendering inline) + permission card widget (WS pipeline still pending #608).
+- M4 — composer attachments + structured-parts WS protocol + commands data source (slash popover deferred #610).
+- M5 — settings services (destructive-modal, keybinds, opencode-server-URL).
+
+**Net-new in this PR**:
+- Session-list decode fix: client accepts the `{sessions, resumable}` envelope (server has returned this since #580).
+- Closed sessions no longer filtered out of the list. Greyed via status chip; hard-deletable via the three-dot menu.
+- `DELETE /agent-sessions/:id/hard` endpoint (true row delete + cascade) + per-row trailing menu + confirm dialog.
+- Shift-click multi-select on session rows + bulk-delete banner.
+- Model picker (`SessionModelPicker`): sub-grouped by provider (Anthropic / OpenAI / Google / GitHub Copilot direct vs Via OpenRouter); check-mark + accent-bold on the active row; pill reflects resolver precedence (turn override > session default > fallback).
+- `GET /agents/models?agentId=…` endpoint joining `ROUTE_FALLBACKS_BY_AGENT` with authed providers.
+- Expanded model catalog: claude-opus-4-7 / 4-5, sonnet-4-6, haiku-4-5 across anthropic + github-copilot + openrouter; gpt-5.3-codex / 5.3 / mini; gemini-3-pro-preview + flash.
+- Agent settings sheet (gear icon on session list header): four sections — Accounts (full `AiAccountSection` moved here from main Settings), Behavior (destructive-modal toggle), Keybindings (4 actions + reset), Opencode server URL.
+- AI Accounts section removed from main app Settings.
+- Manage Agents view and button removed (file deleted, references cleaned up).
+- "OpenCode" agent label renamed to "OpenRouter" via migration — the catch-all kind routes through OpenRouter in practice.
+- Projects rail loads from server on mount; new-session dialog cwd defaults to selected project's folder; duplicate-cwd guard rejects with 400.
+- Project name auto-derives from picked folder when empty or matches previous basename.
+- Folder picker uses `osascript "choose folder"` (file_picker plugin's beginSheetModal was suppressed under the showDialog overlay).
+- Icon field accepts long emoji (dropped `maxLength: 7` that was truncating multi-codepoint emoji into U+FFFC).
+- Refresh button on session list header (stop-gap for #605).
+- Capabilities refetched on new-session dialog open (server's first response often arrives before the SDK boot finishes, so `opencode: false` was cached stale).
+- Keybinds + opencode-server-URL persistence: switched from onSubmitted/onEditingComplete to onChanged so closing the sheet without pressing Enter still saves.
+- Tool-call cards default to expanded inline so output shows without an extra click.
+- `_ChatBubble` now walks parts in order: text → SelectableText spans; tool → `ToolCallPart` cards. Previously it joined every part's text and silently dropped tool parts.
+- CI repairs: `vcs_probe.ts` calls `git` directly (no zsh dep, fixes Ubuntu runners); `agents_models_routes.test.ts` count-agnostic shape assertions; duplicate `features/settings/services/*` imports in `main.dart` removed.
+
+### Smoke pass (manual)
+Confirmed end-to-end on local build:
+1. Session list populates and historical rows visible.
+2. Project rail loads + filter narrows correctly.
+3. Bulk shift-click + bulk-delete confirm flow.
+4. Folder picker + name auto-derive on new project.
+5. Cwd defaults to selected project on new session.
+6. Send turn through model picker (per-turn + session-default).
+7. Session-default model persists across Cmd+Q restart.
+8. Closed-session refresh via the new refresh icon.
+9. AI Accounts moved into gear → Accounts; removed from main Settings.
+10. Tool-call inspector renders bash output inline by default.
+11. VCS chip displays current branch.
+12. Picker sub-groups (Anthropic / OpenAI / GitHub Copilot / Via OpenRouter).
+13. OpenCode label is "OpenRouter" and selectable (not greyed).
+14. Manage Agents button gone.
+15. Keybinds + Opencode-server-URL persist across restart.
+
+### Known data-layer-only items (functional gap, not regressions)
+- M5 **destructive-modal toggle**: no permission flow exists for the SDK's tool calls. The toggle is armed but nothing triggers it — tool calls fire instantly. Tracked in **#608**.
+- M5 **Opencode-server-URL switch**: `OpencodeClientService` doesn't consume the persisted URL yet — value persists but the SDK stays on the embedded endpoint. Tracked separately as part of M5 follow-ups.
+- M5 **Keybind editing**: persists, but no `Shortcuts`/`Actions` widget tree consumes the values yet — typed shortcuts don't actually fire.
+
+### Open follow-up issues
+- **#599** — Per-turn / per-session model picker (closed-by #598).
+- **#600** — Agent settings sheet (closed-by #598).
+- **#601** — Archive / soft-delete for sessions (separate column + `?includeArchived`).
+- **#602** — Composer redesign: relocate model picker to composer area, add file attach, agent-less session start, unified agent selector with Authorized/Connect rows.
+- **#603** — Branch selector in new-session dialog (git checkout before session start; dirty-tree UX).
+- **#604** — Variant model IDs (1M context, legacy) + reasoning effort + fast-mode.
+- **#605** — Server broadcasts `session.updated` / `session.removed` WS events on status / row changes.
+- **#606** — Per-message action row (copy, notify on completion, timestamp).
+- **#607** — Clickable VCS chip → branch switcher with dirty-tree handling.
+- **#608** — Permission flow: surface `permission.asked` WS events + accept/deny endpoints + gate destructive tools.
+- **#609** — OpenRouter model curation: browse full catalog in Agent Settings; pick which surface in the in-session picker.
+- **#610** — Composer slash-command popover (`CommandsDataSource` already exists, widget never built).
+- **#611** — Permission Mode pill in chat sessions (default / acceptEdits / plan / bypassPermissions) — depends on #608.
+
+### Release
+- **No Synology release needed.** The api_server in this PR is bundled inside the macOS .app; production Synology server owns only user-facing data (tasks, rhythms, project-templates, messages, facilities, users, claude-triggers) — none of which changed.
+- Desktop release `vbeta.18.31` in flight on Actions run 25968794136. Triggered with version `beta.18.31` since the latest stable was `v18.30` and the latest beta was `vbeta.18.29`.
+
+## Prior Status (2026-05-15 — M1–M5 consolidated + UX follow-ups on PR #598)
+
+PR #598 was open at this point; this prior status is preserved for chronology.
 
 ### What PR #598 contains
 - **M1–M5 merged in**: projects rail + VCS chip (M1), session header PATCH + per-turn override + cancel (M2), inspector + tool-call parts + permission card (M3), composer attachments + commands (M4), settings services + opencode-auth surfaces (M5). Brought in via `git merge origin/m5-settings` after the original `fix-session-list-decode` branch shipped the decode fix off `main`.
