@@ -367,6 +367,10 @@ class _KeybindRow extends StatelessWidget {
                 borderSide: BorderSide(color: context.rhythm.accent),
               ),
             ),
+            // Save on every keystroke so closing the sheet without pressing
+            // Enter still persists. onSubmitted/onEditingComplete only fire
+            // on explicit submit / focus blur.
+            onChanged: onSubmitted,
             onSubmitted: onSubmitted,
             onEditingComplete: () => onSubmitted(controller.text),
           ),
@@ -476,6 +480,9 @@ class _OpencodeServerSectionState extends State<_OpencodeServerSection> {
               borderSide: BorderSide(color: context.rhythm.accent),
             ),
           ),
+          // Persist on every keystroke; closing the sheet without pressing
+          // Enter still saves.
+          onChanged: (_) => _save(),
           onSubmitted: (_) => _save(),
           onEditingComplete: _save,
         ),
