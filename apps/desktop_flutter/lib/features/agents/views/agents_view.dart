@@ -1852,7 +1852,7 @@ class _InputAreaState extends State<_InputArea> {
   final List<_AttachmentChip> _attachments = [];
 
   Future<void> _pickFiles() async {
-    final result = await FilePicker.platform.pickFiles(allowMultiple: true);
+    final result = await FilePicker.pickFiles(allowMultiple: true);
     if (result == null) return;
     setState(() {
       for (final f in result.files) {

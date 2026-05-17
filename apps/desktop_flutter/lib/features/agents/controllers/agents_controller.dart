@@ -296,16 +296,30 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   /// Safe to call multiple times; a fresh server round-trip is performed
   /// each time. Called automatically on WS connect and on auth-state-change events.
   Future<void> refreshCatalog() async {
+    final List<CatalogModelEntry> entries;
     try {
-      final entries = await _modelsDataSource.fetchCatalog();
-      _catalog = entries;
-      _catalogLoaded = true;
-      notifyListeners();
+      entries = await _modelsDataSource.fetchCatalog();
     } catch (_) {
-      // Degrade gracefully — keep stale catalog if any.
-      _catalogLoaded = true;
-      notifyListeners();
+      return;
     }
+    if (_disposed) return;
+    final changed = !_catalogLoaded || !_catalogEquals(_catalog, entries);
+    _catalog = entries;
+    _catalogLoaded = true;
+    if (changed && entries.isNotEmpty) notifyListeners();
+  }
+
+  static bool _catalogEquals(
+    List<CatalogModelEntry> a,
+    List<CatalogModelEntry> b,
+  ) {
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i].modelId != b[i].modelId || a[i].provider != b[i].provider) {
+        return false;
+      }
+    }
+    return true;
   }
 
   Future<void> load() async {
@@ -1240,8 +1254,11 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   // Dispose
   // --------------------------------------------------------------------------
 
+  bool _disposed = false;
+
   @override
   void dispose() {
+    _disposed = true;
     WidgetsBinding.instance.removeObserver(this);
     _stuckCheckTimer?.cancel();
     _wsSub?.cancel();

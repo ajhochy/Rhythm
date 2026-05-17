@@ -123,11 +123,10 @@ class _FakeAgentsRepository implements AgentsRepository {
 
   @override
   Future<AgentSession> createSession({
-    required String agentId,
+    String? agentId,
     String? taskId,
     required String cwd,
     required String name,
-    String? projectId,
     String? branch,
     String? stash,
     bool createBranch = false,
