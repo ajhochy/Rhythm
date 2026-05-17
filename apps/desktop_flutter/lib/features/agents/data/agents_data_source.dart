@@ -167,7 +167,7 @@ class AgentsDataSource {
   }
 
   Future<AgentSession> createSession({
-    required String agentId,
+    String? agentId, // #602: null → agent-less session
     String? taskId,
     required String cwd,
     required String name,
@@ -180,7 +180,9 @@ class AgentsDataSource {
       Uri.parse('$_baseUrl/agent-sessions'),
       headers: AuthSessionStore.headers(json: true),
       body: jsonEncode({
-        'agentId': agentId,
+        if (agentId != null) 'agentId': agentId,
+        // When agentId is null, omit the field entirely so the server treats it
+        // as an agent-less session (agentId: null path in the controller).
         'cwd': cwd,
         'name': name,
         if (taskId != null) 'taskId': taskId,

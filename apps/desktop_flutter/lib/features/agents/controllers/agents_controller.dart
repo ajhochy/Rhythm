@@ -10,6 +10,7 @@ import '../../notifications/controllers/notifications_controller.dart';
 import '../data/agent_models_data_source.dart';
 import '../data/commands_data_source.dart';
 import '../models/agent_model_route.dart';
+import '../models/catalog_model_entry.dart';
 import '../models/agent_session.dart';
 import '../models/agent_session_connectivity.dart';
 import '../models/agent_session_message.dart';
@@ -118,6 +119,15 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   AgentModelRoute? _pendingTurnOverride;
 
   // --------------------------------------------------------------------------
+  // Full catalog cache (#602 — unified picker)
+  // --------------------------------------------------------------------------
+
+  /// Cross-agent model catalog from GET /agents/models/catalog.
+  /// Cached for the app lifetime; refreshed on explicit [refreshCatalog] call.
+  List<CatalogModelEntry> _catalog = [];
+  bool _catalogLoaded = false;
+
+  // --------------------------------------------------------------------------
   // Slash-command cache (Issue #610)
   // --------------------------------------------------------------------------
   /// Cached slash-commands per session id. Populated on first selectSession.
@@ -195,6 +205,12 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   /// Per-turn model override that will ride the next [sendInput] call.
   AgentModelRoute? get pendingTurnOverride => _pendingTurnOverride;
 
+  /// Full cross-agent model catalog (#602).
+  List<CatalogModelEntry> get catalog => List.unmodifiable(_catalog);
+
+  /// True once the catalog has been fetched at least once.
+  bool get catalogLoaded => _catalogLoaded;
+
   /// Slash-commands for the current session, cached after first fetch.
   List<SlashCommand> get slashCommands =>
       List.unmodifiable(_commandsBySession[_selectedSessionId] ?? const []);
@@ -268,11 +284,29 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
       (_) => _recomputeStuck(),
     );
     await load();
+    // Kick off the initial catalog fetch in the background.
+    unawaited(refreshCatalog());
   }
 
   // --------------------------------------------------------------------------
   // REST operations
   // --------------------------------------------------------------------------
+
+  /// #602 — Refresh the full cross-agent model catalog.
+  /// Safe to call multiple times; a fresh server round-trip is performed
+  /// each time. Called automatically on WS connect and on auth-state-change events.
+  Future<void> refreshCatalog() async {
+    try {
+      final entries = await _modelsDataSource.fetchCatalog();
+      _catalog = entries;
+      _catalogLoaded = true;
+      notifyListeners();
+    } catch (_) {
+      // Degrade gracefully — keep stale catalog if any.
+      _catalogLoaded = true;
+      notifyListeners();
+    }
+  }
 
   Future<void> load() async {
     _status = AgentsLoadStatus.loading;
@@ -299,7 +333,8 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   Future<AgentSession?> createSession({
-    required String agentId,
+    /// #602: null → agent-less session (model picked in the composer).
+    String? agentId,
     String? taskId,
     required String cwd,
     required String name,
@@ -311,7 +346,7 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     _lastErrorStatus = null;
     try {
       final session = await _repository.createSession(
-        agentId: agentId,
+        agentId: agentId, // null → server creates a __pending__ session
         taskId: taskId,
         cwd: cwd,
         name: name,

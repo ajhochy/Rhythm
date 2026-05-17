@@ -184,6 +184,16 @@ export class AgentSessionsRepository {
     return result.changes;
   }
 
+  /** #602 — update agent_kind for agent-less sessions on first model pick. */
+  updateAgentKind(id: string, agentKind: string): void {
+    const now = new Date().toISOString();
+    getDb()
+      .prepare(
+        `UPDATE agent_sessions SET agent_kind = ?, updated_at = ? WHERE id = ?`,
+      )
+      .run(agentKind, now, id);
+  }
+
   updatePermissionMode(id: string, mode: PermissionMode): void {
     const now = new Date().toISOString();
     getDb()

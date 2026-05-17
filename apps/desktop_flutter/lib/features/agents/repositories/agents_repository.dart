@@ -29,7 +29,7 @@ class AgentsRepository {
       getSession(String id) => _dataSource.getSession(id);
 
   Future<AgentSession> createSession({
-    required String agentId,
+    String? agentId, // #602: null → agent-less session
     String? taskId,
     required String cwd,
     required String name,

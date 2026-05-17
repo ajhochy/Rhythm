@@ -164,6 +164,52 @@ function handleClientMessage(ws: WebSocket, raw: import('ws').RawData): void {
             /* DB unavailable — proceed without context */
           }
 
+          // #602: agent-less session (agentKind === '__pending__').
+          // The first session.input frame must carry a modelOverride that
+          // identifies the provider+model. We derive the agent kind from
+          // the provider, persist it on the session row, then proceed to
+          // create the SDK session as normal.
+          if (agentKind === '__pending__') {
+            if (!perTurnOverride?.providerId || !perTurnOverride.modelId) {
+              ws.send(
+                JSON.stringify({
+                  v: 1,
+                  type: 'error',
+                  id,
+                  message: 'Pick a model before sending the first message.',
+                }),
+              );
+              return;
+            }
+            // Derive agent kind from provider — map to the best-fit agent.
+            const PROVIDER_TO_AGENT: Record<string, string> = {
+              anthropic: 'claude-code',
+              'github-copilot': 'claude-code',
+              openai: 'codex',
+              google: 'gemini-cli',
+              openrouter: 'claude-code', // fallback; refined per modelId prefix below
+            };
+            let resolvedAgent = PROVIDER_TO_AGENT[perTurnOverride.providerId] ?? 'claude-code';
+            // Refine openrouter routing by model prefix.
+            if (perTurnOverride.providerId === 'openrouter') {
+              const mid = perTurnOverride.modelId;
+              if (mid.startsWith('openai/')) resolvedAgent = 'codex';
+              else if (mid.startsWith('google/')) resolvedAgent = 'gemini-cli';
+              else resolvedAgent = 'claude-code';
+            }
+            agentKind = resolvedAgent;
+            // Persist the resolved agent kind on the session row so subsequent turns
+            // don't need a modelOverride.
+            try {
+              new AgentSessionsRepository().updateAgentKind(id, resolvedAgent);
+            } catch {
+              /* best-effort — don't block the prompt if DB write fails */
+            }
+            console.log(
+              `[ws_gateway] agent-less session ${id}: resolved agent '${resolvedAgent}' from provider '${perTurnOverride.providerId}'`,
+            );
+          }
+
           // Auto-resume: sessions persist in SQLite across api_server
           // restarts, but `opencodeSessionMap` is in-process and is wiped
           // on each boot. If the user sends input to a session that has

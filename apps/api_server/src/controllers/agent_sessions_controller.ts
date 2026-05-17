@@ -80,24 +80,39 @@ export class AgentSessionsController {
       const body = req.body as Record<string, unknown>;
       const { taskId, taskTitle, cwd, name } = body;
 
-      // Accept agentId (preferred) with agentKind as a deprecated fallback
+      // Accept agentId (preferred) with agentKind as a deprecated fallback.
+      // #602: agentId may be omitted / explicitly null to create an "agent-less"
+      // session that defers model selection to the first turn.
       let agentId = body.agentId;
       if (!agentId && body.agentKind) {
         console.warn('[deprecated] agentKind is deprecated in POST /agent-sessions — use agentId instead');
         agentId = body.agentKind;
       }
 
-      if (!agentId || typeof agentId !== 'string') {
-        throw AppError.badRequest('agentId is required');
-      }
-      const normalizedAgentId = normalizeAgentId(agentId);
-      // Validate that a matching, enabled agent config exists
-      const agentConfig = new AgentConfigsRepository().getById(normalizedAgentId);
-      if (!agentConfig) {
-        throw AppError.badRequest(`agent not configured: '${normalizedAgentId}'`);
-      }
-      if (!agentConfig.enabled) {
-        throw AppError.badRequest(`agent disabled: '${normalizedAgentId}'`);
+      // #602: null/omitted agentId → agent-less session. We store a sentinel
+      // agent kind ('__pending__') and skip SDK session creation until the
+      // first session.input WS frame carries a modelOverride that resolves
+      // the agent kind.
+      const isAgentLess = agentId === null || agentId === undefined || agentId === '';
+      let normalizedAgentId: string;
+
+      if (isAgentLess) {
+        normalizedAgentId = '__pending__';
+      } else {
+        if (typeof agentId !== 'string') {
+          throw AppError.badRequest('agentId must be a string or null');
+        }
+        normalizedAgentId = normalizeAgentId(agentId);
+        // Validate that a matching, enabled agent config exists (only for known agents).
+        if (normalizedAgentId !== '__pending__') {
+          const agentConfig = new AgentConfigsRepository().getById(normalizedAgentId);
+          if (!agentConfig) {
+            throw AppError.badRequest(`agent not configured: '${normalizedAgentId}'`);
+          }
+          if (!agentConfig.enabled) {
+            throw AppError.badRequest(`agent disabled: '${normalizedAgentId}'`);
+          }
+        }
       }
       if (!cwd || typeof cwd !== 'string' || cwd.trim() === '') {
         throw AppError.badRequest('cwd is required and must be a non-empty string');
@@ -177,6 +192,15 @@ export class AgentSessionsController {
 
       const session = repo.insert(dto);
 
+      // #602: agent-less sessions skip SDK session creation.
+      // The first session.input WS frame with a modelOverride will resolve
+      // the agent kind, create the SDK session, and forward the prompt.
+      if (isAgentLess) {
+        console.log(`[AgentSessionsController] Created agent-less session ${session.id} — awaiting first model pick`);
+        res.status(201).json(session);
+        return;
+      }
+
       // Create an Opencode SDK session instead of spawning a PTY subprocess
       if (!opencodeClient.isReady) {
         repo.markClosed(session.id);
@@ -212,9 +236,9 @@ export class AgentSessionsController {
         ? `I need help with: ${taskTitle}\n\nSession name: ${name}`
         : `Starting session: ${name}`;
 
-      const model = await resolveModel(agentId);
+      const model = await resolveModel(normalizedAgentId);
       console.log(
-        `[AgentSessionsController] Routing ${agentId} session ${session.id} via ` +
+        `[AgentSessionsController] Routing ${normalizedAgentId} session ${session.id} via ` +
           (model ? `${model.providerID}/${model.modelID}` : '<unmapped>'),
       );
       opencodeClient.promptAsync(

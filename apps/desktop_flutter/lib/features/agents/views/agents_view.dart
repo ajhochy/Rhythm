@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -25,9 +26,9 @@ import '_permission_card.dart';
 import '_permission_mode_picker.dart';
 import '_project_vcs_chip.dart';
 import '_projects_rail.dart';
-import '_session_model_picker.dart';
 import '_slash_command_popover.dart';
 import '_tool_call_part.dart';
+import '_unified_agent_model_picker.dart';
 
 class AgentsView extends StatefulWidget {
   const AgentsView({super.key});
@@ -1086,16 +1087,26 @@ class _TranscriptPanelState extends State<_TranscriptPanel> {
                     children: [
                       _TranscriptHeader(session: selected),
                       Divider(height: 1, color: context.rhythm.borderSubtle),
-                      Expanded(
-                        child: Container(
-                          color: context.rhythm.canvas.withValues(alpha: 0.45),
-                          child: _buildTranscriptBody(
-                            context,
-                            controller,
-                            selected,
+                      // #602: agent-less sessions show a centred "choose model" prompt
+                      // until the first message is sent.
+                      if (selected.agentId == '__pending__' &&
+                          controller.chatMessagesFor(selected.id).isEmpty &&
+                          controller.transcript.isEmpty)
+                        Expanded(
+                          child: _AgentLessSessionPrompt(session: selected),
+                        )
+                      else
+                        Expanded(
+                          child: Container(
+                            color:
+                                context.rhythm.canvas.withValues(alpha: 0.45),
+                            child: _buildTranscriptBody(
+                              context,
+                              controller,
+                              selected,
+                            ),
                           ),
                         ),
-                      ),
                       _PendingPermissionArea(session: selected),
                       _InputArea(
                         inputController: _inputController,
@@ -1218,14 +1229,6 @@ class _TranscriptHeader extends StatelessWidget {
           ),
           const SizedBox(width: 8),
           _StatusChip(status: session.status, isWorking: isWorking),
-          const SizedBox(width: 8),
-          SessionModelPicker(session: session),
-          const SizedBox(width: 6),
-          PermissionModePicker(session: session),
-          const SizedBox(width: 6),
-          _ThinkingBudgetPicker(session: session),
-          const SizedBox(width: 6),
-          _FastModeToggle(session: session),
           const SizedBox(width: 8),
           if (showReconnect) ...[
             OutlinedButton(
@@ -1829,15 +1832,69 @@ class _PendingPermissionArea extends StatelessWidget {
   }
 }
 
-class _InputArea extends StatelessWidget {
+/// #602 — Redesigned input area.
+///
+/// Bottom-left cluster: model picker pill + permission mode pill + file-attach
+/// button + reasoning/fast-mode "Tuning" pill (collapsed using Wrap).
+/// Attached files are shown as chips above the text field.
+class _InputArea extends StatefulWidget {
   const _InputArea({required this.inputController, required this.onSend});
 
   final TextEditingController inputController;
   final VoidCallback onSend;
 
   @override
+  State<_InputArea> createState() => _InputAreaState();
+}
+
+class _InputAreaState extends State<_InputArea> {
+  /// Pending file attachments shown as chips above the text field.
+  final List<_AttachmentChip> _attachments = [];
+
+  Future<void> _pickFiles() async {
+    final result = await FilePicker.platform.pickFiles(allowMultiple: true);
+    if (result == null) return;
+    setState(() {
+      for (final f in result.files) {
+        final path = f.path;
+        if (path != null) {
+          _attachments.add(_AttachmentChip(path: path, name: f.name));
+        }
+      }
+    });
+  }
+
+  void _removeAttachment(int index) {
+    setState(() => _attachments.removeAt(index));
+  }
+
+  void _send() {
+    if (_attachments.isNotEmpty) {
+      // Wire attachments into the WS parts array via AgentsController.
+      final controller = context.read<AgentsController>();
+      final id = controller.selectedSessionId;
+      if (id == null) return;
+      final text = widget.inputController.text;
+      if (text.isEmpty && _attachments.isEmpty) return;
+      controller.sendInput(
+        id,
+        '${text}\n',
+        attachments: _attachments
+            .map((a) => {'type': 'file', 'filePath': a.path})
+            .toList(),
+      );
+      widget.inputController.clear();
+      setState(() => _attachments.clear());
+    } else {
+      widget.onSend();
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     final controller = context.watch<AgentsController>();
+    final session = controller.selectedSession;
+
     return Container(
       padding: const EdgeInsets.fromLTRB(18, 14, 18, 18),
       decoration: BoxDecoration(
@@ -1847,46 +1904,43 @@ class _InputArea extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Row(
-            children: [
-              Text(
-                'Send input',
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
-                  color: context.rhythm.textPrimary,
-                ),
-              ),
-              const Spacer(),
-              Text(
-                'Enter to send',
-                style: TextStyle(fontSize: 11, color: context.rhythm.textMuted),
-              ),
-            ],
-          ),
-          const SizedBox(height: 10),
+          // Attachment chips
+          if (_attachments.isNotEmpty) ...[
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: [
+                for (var i = 0; i < _attachments.length; i++)
+                  _AttachmentChipWidget(
+                    chip: _attachments[i],
+                    onRemove: () => _removeAttachment(i),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 8),
+          ],
+          // Text field
           SlashCommandPopover(
-            inputController: inputController,
+            inputController: widget.inputController,
             commands: controller.slashCommands,
             onCommandSelected: (cmd) {
-              inputController.value = TextEditingValue(
+              widget.inputController.value = TextEditingValue(
                 text: cmd,
                 selection: TextSelection.collapsed(offset: cmd.length),
               );
             },
             child: Focus(
               onKeyEvent: (node, event) {
-                // Enter sends; Shift+Enter inserts a newline.
                 if (event is KeyDownEvent &&
                     event.logicalKey == LogicalKeyboardKey.enter &&
                     !HardwareKeyboard.instance.isShiftPressed) {
-                  onSend();
+                  _send();
                   return KeyEventResult.handled;
                 }
                 return KeyEventResult.ignored;
               },
               child: TextField(
-                controller: inputController,
+                controller: widget.inputController,
                 style: TextStyle(
                   fontSize: 13,
                   fontFamily: 'Menlo',
@@ -1894,7 +1948,7 @@ class _InputArea extends StatelessWidget {
                 ),
                 maxLines: 3,
                 minLines: 1,
-                onSubmitted: (_) => onSend(),
+                onSubmitted: (_) => _send(),
                 decoration: InputDecoration(
                   hintText:
                       'Type a command or reply… (Shift+Enter for newline)',
@@ -1926,33 +1980,215 @@ class _InputArea extends StatelessWidget {
               ),
             ),
           ),
-          const SizedBox(height: 12),
-          Align(
-            alignment: Alignment.centerRight,
-            child: FilledButton(
-              onPressed: onSend,
-              style: FilledButton.styleFrom(
-                backgroundColor: context.rhythm.accent,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 22,
-                  vertical: 12,
-                ),
-                minimumSize: const Size(88, 40),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(999),
+          const SizedBox(height: 10),
+          // Bottom row: left cluster (pickers) + right (Send)
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              // Left cluster: model picker + permission mode + file-attach +
+              // reasoning/fast-mode (Wrap so narrow windows don't overflow)
+              Expanded(
+                child: Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    if (session != null)
+                      UnifiedAgentModelPicker(session: session),
+                    if (session != null) PermissionModePicker(session: session),
+                    if (session != null) ...[
+                      _ThinkingBudgetPicker(session: session),
+                      _FastModeToggle(session: session),
+                    ],
+                    // File-attach button
+                    Tooltip(
+                      message: 'Attach files',
+                      child: InkWell(
+                        onTap: _pickFiles,
+                        borderRadius: BorderRadius.circular(RhythmRadius.md),
+                        child: Container(
+                          height: 30,
+                          padding: const EdgeInsets.symmetric(horizontal: 8),
+                          decoration: BoxDecoration(
+                            color: context.rhythm.surfaceMuted,
+                            borderRadius:
+                                BorderRadius.circular(RhythmRadius.md),
+                            border: Border.all(color: context.rhythm.border),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.attach_file,
+                                size: 14,
+                                color: context.rhythm.textSecondary,
+                              ),
+                              if (_attachments.isNotEmpty) ...[
+                                const SizedBox(width: 3),
+                                Text(
+                                  '${_attachments.length}',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w600,
+                                    color: context.rhythm.accent,
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
-              child: const Text(
-                'Send',
-                style: TextStyle(
-                  fontSize: 13,
-                  color: Colors.white,
-                  fontWeight: FontWeight.w600,
+              const SizedBox(width: 10),
+              // Send button
+              FilledButton(
+                onPressed: _send,
+                style: FilledButton.styleFrom(
+                  backgroundColor: context.rhythm.accent,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 22,
+                    vertical: 12,
+                  ),
+                  minimumSize: const Size(88, 40),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(999),
+                  ),
                 ),
+                child: const Text(
+                  'Send',
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: Colors.white,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Attachment chip data + widget
+// ---------------------------------------------------------------------------
+
+class _AttachmentChip {
+  const _AttachmentChip({required this.path, required this.name});
+  final String path;
+  final String name;
+}
+
+class _AttachmentChipWidget extends StatelessWidget {
+  const _AttachmentChipWidget({required this.chip, required this.onRemove});
+
+  final _AttachmentChip chip;
+  final VoidCallback onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: context.rhythm.accentMuted,
+        borderRadius: BorderRadius.circular(RhythmRadius.pill),
+        border: Border.all(
+          color: context.rhythm.accent.withValues(alpha: 0.3),
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.attach_file, size: 11, color: context.rhythm.accent),
+          const SizedBox(width: 4),
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 180),
+            child: Text(
+              chip.name,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 11,
+                color: context.rhythm.accent,
+                fontWeight: FontWeight.w500,
               ),
             ),
           ),
+          const SizedBox(width: 4),
+          GestureDetector(
+            onTap: onRemove,
+            child: Icon(
+              Icons.close,
+              size: 12,
+              color: context.rhythm.accent.withValues(alpha: 0.7),
+            ),
+          ),
         ],
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// #602 — Agent-less session prompt ("Choose a model to begin")
+// ---------------------------------------------------------------------------
+
+/// Shown in the transcript area when a session has agentId == '__pending__'
+/// and no messages have been sent yet.
+class _AgentLessSessionPrompt extends StatelessWidget {
+  const _AgentLessSessionPrompt({required this.session});
+
+  final AgentSession session;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Container(
+        width: 380,
+        padding: const EdgeInsets.all(32),
+        decoration: BoxDecoration(
+          color: context.rhythm.surfaceRaised,
+          borderRadius: BorderRadius.circular(RhythmRadius.xl),
+          border: Border.all(color: context.rhythm.border),
+          boxShadow: RhythmElevation.panel,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.model_training_outlined,
+              size: 40,
+              color: context.rhythm.textMuted,
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'Choose a model to begin',
+              style: TextStyle(
+                fontSize: 17,
+                fontWeight: FontWeight.w700,
+                color: context.rhythm.textPrimary,
+              ),
+            ),
+            const SizedBox(height: 10),
+            Text(
+              'Select a model from the picker in the composer below, '
+              'then type your first message.',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 13,
+                color: context.rhythm.textSecondary,
+                height: 1.45,
+              ),
+            ),
+            const SizedBox(height: 20),
+            UnifiedAgentModelPicker(session: session),
+          ],
+        ),
       ),
     );
   }
@@ -2095,7 +2331,6 @@ class _NewSessionDialog extends StatefulWidget {
 class _NewSessionDialogState extends State<_NewSessionDialog> {
   final _nameController = TextEditingController();
   final _cwdController = TextEditingController();
-  String _agentId = '';
   Task? _selectedTask;
   bool _isSubmitting = false;
   String? _error;
@@ -2124,26 +2359,9 @@ class _NewSessionDialogState extends State<_NewSessionDialog> {
       _cwdController.text = Platform.environment['HOME'] ?? '~';
     }
 
-    // Compute the default agent: first enabled config whose CLI is installed,
-    // falling back to the first enabled config if none are installed.
+    // #602: no default agent to compute — model is chosen in the composer.
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (!mounted) return;
-      final agentConfigs = context.read<AgentConfigsController>();
-      final agentServerController = context.read<AgentServerController>();
-      // Refresh capabilities on dialog open — the initial fetch happens
-      // before the Opencode SDK finishes booting, so `opencode` is often
-      // stale-false until we re-poll.
-      await agentServerController.refreshCapabilities();
-      if (!mounted) return;
-      final enabledAgents = agentConfigs.enabledAgents;
-      if (enabledAgents.isNotEmpty && _agentId.isEmpty) {
-        final firstInstalled = enabledAgents.firstWhere(
-          (c) => agentServerController.isAgentAvailable(c.id),
-          orElse: () => enabledAgents.first,
-        );
-        setState(() => _agentId = firstInstalled.id);
-      }
-
       // Load tasks if not already loaded.
       final tasksController = context.read<TasksController>();
       if (tasksController.tasks.isEmpty &&
@@ -2237,8 +2455,9 @@ class _NewSessionDialogState extends State<_NewSessionDialog> {
     });
 
     final controller = context.read<AgentsController>();
+    // #602: always create agent-less sessions; model is chosen in the composer.
     final session = await controller.createSession(
-      agentId: _agentId,
+      agentId: null,
       taskId: _selectedTask?.id,
       cwd: _cwdController.text.trim().isEmpty
           ? (Platform.environment['HOME'] ?? '/')
@@ -2267,23 +2486,13 @@ class _NewSessionDialogState extends State<_NewSessionDialog> {
   @override
   Widget build(BuildContext context) {
     final tasksController = context.watch<TasksController>();
-    final agentServerController = context.watch<AgentServerController>();
-    final agentConfigs = context.watch<AgentConfigsController>();
-    final enabledAgents = agentConfigs.enabledAgents;
+    // agentServerController and agentConfigs still watched so the view
+    // rebuilds on capability changes (branch loading etc.).
+    context.watch<AgentServerController>();
+    context.watch<AgentConfigsController>();
     final tasks = tasksController.tasks
         .where((t) => t.status != TaskStatus.done)
         .toList();
-
-    // If the currently selected agent is not in the enabled list, pick a
-    // better default: first installed, otherwise first enabled.
-    if (enabledAgents.isNotEmpty &&
-        !enabledAgents.any((c) => c.id == _agentId)) {
-      final firstInstalled = enabledAgents.firstWhere(
-        (c) => agentServerController.isAgentAvailable(c.id),
-        orElse: () => enabledAgents.first,
-      );
-      _agentId = firstInstalled.id;
-    }
 
     return AlertDialog(
       backgroundColor: context.rhythm.surfaceRaised,
@@ -2330,46 +2539,7 @@ class _NewSessionDialogState extends State<_NewSessionDialog> {
             ),
             const SizedBox(height: 14),
 
-            // Agent kind — render one toggle per enabled config.
-            if (enabledAgents.isNotEmpty) ...[
-              Text(
-                'Agent',
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  color: context.rhythm.textSecondary,
-                ),
-              ),
-              const SizedBox(height: 6),
-              Container(
-                decoration: BoxDecoration(
-                  color: context.rhythm.surfaceMuted,
-                  borderRadius: BorderRadius.circular(RhythmRadius.md),
-                  border: Border.all(color: context.rhythm.borderSubtle),
-                ),
-                child: Row(
-                  children: [
-                    for (final config in enabledAgents)
-                      Expanded(
-                        child: _AgentToggleButton(
-                          label: config.label,
-                          selected: _agentId == config.id,
-                          color: _colorForAgent(config.id),
-                          enabled: agentServerController.isAgentAvailable(
-                            config.id,
-                          ),
-                          disabledLabel: '(not installed)',
-                          onTap:
-                              agentServerController.isAgentAvailable(config.id)
-                                  ? () => setState(() => _agentId = config.id)
-                                  : null,
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 14),
-            ],
+            // #602: agent selector removed — model is chosen in the composer after session starts.
 
             // Task selector (optional)
             Text(
@@ -2408,9 +2578,6 @@ class _NewSessionDialogState extends State<_NewSessionDialog> {
               ],
               onChanged: (task) => setState(() {
                 _selectedTask = task;
-                if (task != null && task.preferredAgent != null) {
-                  _agentId = task.preferredAgent!;
-                }
               }),
             ),
             const SizedBox(height: 14),
@@ -2660,12 +2827,6 @@ class _NewSessionDialogState extends State<_NewSessionDialog> {
     );
   }
 
-  Color _colorForAgent(String id) => switch (id) {
-        'claude-code' => const Color(0xFF6B46C1),
-        'codex' => const Color(0xFF059669),
-        _ => context.rhythm.accent,
-      };
-
   InputDecoration _inputDecoration(
     BuildContext context, {
     String? hint,
@@ -2798,67 +2959,6 @@ class _AgentServerStatusDot extends StatelessWidget {
         height: 8,
         decoration: BoxDecoration(color: color, shape: BoxShape.circle),
       ),
-    );
-  }
-}
-
-class _AgentToggleButton extends StatelessWidget {
-  const _AgentToggleButton({
-    required this.label,
-    required this.selected,
-    required this.color,
-    required this.onTap,
-    this.enabled = true,
-    this.disabledLabel,
-  });
-
-  final String label;
-  final bool selected;
-  final Color color;
-  final VoidCallback? onTap;
-  final bool enabled;
-  final String? disabledLabel;
-
-  @override
-  Widget build(BuildContext context) {
-    final effectiveColor = enabled ? color : context.rhythm.textMuted;
-    final Widget content = AnimatedContainer(
-      duration: const Duration(milliseconds: 140),
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      decoration: BoxDecoration(
-        color: selected && enabled ? color : Colors.transparent,
-        borderRadius: BorderRadius.circular(RhythmRadius.md),
-      ),
-      alignment: Alignment.center,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
-              color: selected && enabled
-                  ? Colors.white
-                  : enabled
-                      ? context.rhythm.textSecondary
-                      : context.rhythm.textMuted,
-            ),
-          ),
-          if (!enabled && disabledLabel != null) ...[
-            const SizedBox(height: 2),
-            Text(
-              disabledLabel!,
-              style: TextStyle(fontSize: 10, color: effectiveColor),
-            ),
-          ],
-        ],
-      ),
-    );
-
-    return IgnorePointer(
-      ignoring: !enabled,
-      child: GestureDetector(onTap: onTap, child: content),
     );
   }
 }

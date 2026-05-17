@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import { requireAuth } from '../middleware/auth_middleware';
 import { env } from '../config/env';
 import { opencodeClient } from '../services/opencode_engine';
-import { ROUTE_FALLBACKS_BY_AGENT } from '../services/agent_model_resolver';
+import { ROUTE_FALLBACKS_BY_AGENT, listAllRoutes } from '../services/agent_model_resolver';
 import { getDb } from '../database/db';
 
 export const agentsModelsRouter = Router();
@@ -50,6 +50,81 @@ function aggregatorLabel(providerId: string): string {
  *
  * If agentId is omitted or has no fallback map, returns an empty array.
  */
+/**
+ * GET /agents/models/catalog
+ *
+ * Returns the full cross-agent model catalog annotated with authorization state.
+ * No `agentId` filter — every (agent, provider, model) triple is included so
+ * the unified picker can show Authorized vs "Connect" rows.
+ *
+ * Applies the visibility map from #609 to OpenRouter rows: if a model_id has
+ * a `visible=0` row in `agent_model_visibility`, it is excluded.
+ *
+ * Response row shape:
+ *   {
+ *     agent: 'claude-code' | 'codex' | 'gemini-cli' | 'opencode',
+ *     provider: string,
+ *     modelId: string,
+ *     displayName: string,
+ *     variantLabel?: string,
+ *     route: 'direct' | 'aggregator',
+ *     authorized: boolean,
+ *     authProvider: string,
+ *     connectUrl?: string,
+ *   }
+ */
+agentsModelsRouter.get('/catalog', async (_req: Request, res: Response) => {
+  try {
+    const authedProviders = await opencodeClient.listAuthedProviders();
+    const authedSet = new Set(authedProviders);
+
+    // Load visibility map for openrouter (same as existing GET / endpoint).
+    let visibilityMap: Map<string, boolean> | null = null;
+    try {
+      const rows = getDb().prepare(
+        `SELECT model_id, visible FROM agent_model_visibility WHERE provider = 'openrouter'`,
+      ).all() as { model_id: string; visible: number }[];
+      if (rows.length > 0) {
+        visibilityMap = new Map(rows.map((r) => [r.model_id, r.visible === 1]));
+      }
+    } catch {
+      // Table may not exist yet on first run — degrade gracefully.
+    }
+
+    const allEntries = await listAllRoutes(authedSet);
+
+    const filtered = allEntries.filter((entry) => {
+      // Apply visibility filter to openrouter models only.
+      if (
+        entry.route === 'aggregator' &&
+        entry.authProvider === 'openrouter' &&
+        visibilityMap !== null
+      ) {
+        const visible = visibilityMap.get(entry.modelID);
+        if (visible === false) return false;
+      }
+      return true;
+    });
+
+    const response = filtered.map((entry) => ({
+      agent: entry.agent,
+      provider: entry.authProvider,
+      modelId: entry.modelID,
+      displayName: entry.modelID,
+      variantLabel: entry.variantLabel,
+      route: entry.route,
+      authorized: entry.authorized,
+      authProvider: entry.authProvider,
+      connectUrl: entry.connectUrl,
+    }));
+
+    res.json(response);
+  } catch (err) {
+    console.error('[agents/models/catalog] Unexpected error:', err);
+    res.json([]);
+  }
+});
+
 agentsModelsRouter.get('/', async (req: Request, res: Response) => {
   try {
     const agentId = (req.query.agentId as string | undefined)?.trim();

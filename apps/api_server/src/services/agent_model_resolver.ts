@@ -84,6 +84,66 @@ export async function resolveModelForAgent(
 }
 
 /**
+ * #602 — Returns every route across all agents, annotated with the auth state.
+ *
+ * Each entry carries:
+ *   agent       — the agent kind (claude-code, codex, gemini-cli, opencode)
+ *   provider    — provider ID (anthropic, openai, github-copilot, openrouter, …)
+ *   modelId     — model identifier
+ *   displayName — human-readable label (same as existing ModelRoute fields)
+ *   variantLabel — optional sub-label
+ *   route       — 'direct' | 'aggregator'
+ *   authorized  — true when the provider is in the authed set
+ *   authProvider — canonical provider string used to look up the auth start URL
+ *   connectUrl  — relative URL to open in a browser to connect this provider
+ */
+export interface CatalogEntry extends ModelRoute {
+  agent: string;
+  route: 'direct' | 'aggregator';
+  authorized: boolean;
+  authProvider: string;
+  connectUrl?: string;
+}
+
+/** Mapping from provider ID → OAuth start path. */
+const PROVIDER_CONNECT_URL: Record<string, string> = {
+  anthropic: '/opencode/auth/anthropic/authorize',
+  openai: '/opencode/auth/openai/authorize',
+  google: '/opencode/auth/google/authorize',
+  'github-copilot': '/opencode/auth/github-copilot/device-start',
+  openrouter: '/opencode/auth/openrouter',
+};
+
+const AGGREGATOR_IDS = new Set(['openrouter', 'together', 'groq']);
+
+/**
+ * Returns the full cross-agent catalog with authorization state.
+ * Callers may pass a pre-loaded authedSet to avoid redundant I/O.
+ */
+export async function listAllRoutes(
+  authedSet?: Set<string>,
+): Promise<CatalogEntry[]> {
+  const authSet =
+    authedSet ?? new Set(await opencodeClient.listAuthedProviders());
+
+  const entries: CatalogEntry[] = [];
+  for (const [agent, routes] of Object.entries(ROUTE_FALLBACKS_BY_AGENT)) {
+    for (const route of routes) {
+      const isAggregator = AGGREGATOR_IDS.has(route.providerID);
+      entries.push({
+        ...route,
+        agent,
+        route: isAggregator ? 'aggregator' : 'direct',
+        authorized: authSet.has(route.providerID),
+        authProvider: route.providerID,
+        connectUrl: PROVIDER_CONNECT_URL[route.providerID],
+      });
+    }
+  }
+  return entries;
+}
+
+/**
  * M2-2 precedence helper. Resolve the model for one turn of a session.
  *
  * Order:
