@@ -1,6 +1,50 @@
 # Project State
 
-## Current Status (2026-05-16 evening — vbeta.18.31 shipped; install-time gotchas filed)
+## Current Status (2026-05-16 late evening — all follow-ups stacked on PR #617 "Follow Up")
+
+🟡 **Branch `follow-up` (draft PR [#617](https://github.com/ajhochy/Rhythm/pull/617)) implements every open follow-up filed in the prior snapshot — #601, #602, #603, #604, #605, #606, #607, #608, #609, #610, #611, #614, #615.** Verification is green locally; the PR is awaiting manual UI smoke and manual merge.
+
+### What this branch lands
+- **Install hardening (#614, #615)**: SIGTERM/SIGINT shutdown chain in api_server + lifecycle hooks in Flutter (window_manager onWindowClose, SIGINT/SIGTERM watchers, AppLifecycleState.detached). Orphan self-heal on next launch kills any node holding :4001 with PPID=1. `ApiServerService._readRuntimeSentinel` reads the bundled `Resources/api_server/.node-runtime.json` and ABI-matches against installed Node binaries; on total mismatch the failure dialog surfaces the exact `npm rebuild better-sqlite3 --build-from-source` command.
+- **Sessions / archive / WS events (#601, #605)**: `agent_sessions.archived_at` column; `PATCH { archived }`; `?includeArchived` and `?archivedOnly` filters; new "Archive" row action and collapsible Archived section. `session.updated` / `session.removed` WS events emitted from every status / archive / PATCH / hard-delete touchpoint; Flutter dedupes and routes rows into sessions/resumable/archived live.
+- **Permissions (#608, #611)**: `permission.asked` events from the SDK now broadcast via WS and surface as a PermissionCard (modal when DestructiveModalService.enabled). `accept` / `deny` endpoints invoke `respondPermission`. `agent_sessions.permission_mode` column with `default | acceptEdits | plan | bypassPermissions`. All four paths invoke `respondPermission` so the SDK never hangs. First selection of `bypassPermissions` requires confirmation.
+- **Model picker enhancements (#604, #609, #610)**: Variant rows in `ROUTE_FALLBACKS_BY_AGENT['claude-code']` (Opus 4.7, Opus 4.7 1M, Opus 4.6 Legacy) and `['codex']`. `thinking_budget` + `fast_mode` columns; effort picker (Low → Max → budget_tokens map) + fast-mode toggle wired through WS `session.input`. New `agent_model_visibility` table + `GET /opencode/models?provider=openrouter` proxy + `GET/PATCH /agent-models/visibility`; AiAccountSection gains an expandable OpenRouter catalog with search/pricing/checkboxes. `SlashCommandPopover` anchored to the composer TextField with arrow-key navigation.
+- **Per-message action row (#606)**: copy / notify-on-completion (LocalNotificationService) / relative timestamp under every bubble. Single global ticker drives timestamp updates.
+- **Branch / VCS (#603, #607)**: `vcs_probe.listBranches` + `gitCheckout` helpers. New-session dialog gets a Branch dropdown with current/recent/local sections and "+ New branch from current" inline input. Dirty-tree → Stash/Cancel confirm. The VCS chip becomes a button; tapping it opens a popover with the same branch list, Stash/Discard/Cancel dirty-tree handling, and verbatim git errors in a SnackBar.
+- **Composer redesign (#602)**: `GET /agents/models/catalog` returns the whole catalog grouped by Authorized — Claude/Codex/Copilot/Gemini → Free — OpenRouter, with `connectUrl` for unauthorized rows. Model picker, permission-mode pill, reasoning effort, fast-mode toggle, and a new file-attach button all live in the composer area. New sessions start agent-less (`agent_kind='__pending__'`); `agent_kind` is resolved from the first `modelOverride` on the first turn.
+
+### Verification (local, 2026-05-16)
+
+| Check | Result |
+|---|---|
+| `apps/api_server` `tsc --noEmit` | clean |
+| `apps/api_server` `vitest run` | **499/499** (50+ new tests across permission modes, archive flow, branch checkout, visibility, catalog) |
+| `apps/api_server` `npm run build` | clean |
+| `apps/desktop_flutter` `dart format --set-exit-if-changed lib test` | clean |
+| `apps/desktop_flutter` `flutter analyze --no-fatal-infos` | 0 errors (180 pre-existing infos) |
+| `apps/desktop_flutter` `flutter test` | **218/218** |
+| Server-side endpoint smoke (HTTP) | **22/22** — catalog, visibility, archive, permission modes, tuning fields, branch list + checkout, OpenRouter proxy |
+
+### What still needs a human
+
+Playwright cannot drive the Flutter macOS UI. The server side is fully smoked; the UI bits below need a manual pass against `flutter run -d macos`. Before launching, **fully quit Rhythm.app and free :4001** because #614 changes the lifecycle of the spawned child:
+
+```
+lsof -iTCP:4001 -sTCP:LISTEN -n -P    # find pid
+kill <pid>
+```
+
+Then walk the PR #617 manual smoke checklist (full list lives in the PR body — copied here for reference):
+
+- Install / lifecycle (#614, #615): Cmd+Q ↔ `lsof` empty; force-quit + relaunch self-heals; ABI-fallback on a v24-only machine.
+- Sessions / archive / WS (#601, #605): live status updates without manual refresh; archive↔unarchive round-trip.
+- Permissions (#608, #611): each of the four modes exhibits the documented behavior against a bash/write/edit prompt.
+- Composer (#602, #604, #606, #609, #610): unified picker layout, agent-less new session, file attach, effort/fast-mode, slash popover, action row.
+- Branch / VCS (#603, #607): branch dropdown in new-session, clickable chip with branch popover, dirty-tree handling.
+
+After smoke, merge PR #617 manually on GitHub.
+
+## Prior Status (2026-05-16 evening — vbeta.18.31 shipped; install-time gotchas filed)
 
 🟢 **PR #598 merged to `main` via commit `d7a0775`.** Desktop release `vbeta.18.31` is **published** (DMG + ZIP) and verified running locally. Sibling PRs #593–#596 closed (content lives on main via #598); their branches deleted.
 
