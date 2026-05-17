@@ -2101,6 +2101,15 @@ class _NewSessionDialogState extends State<_NewSessionDialog> {
   String? _error;
   int? _errorStatus;
 
+  // Branch selection state (only shown when selected project has a vcsRoot).
+  String? _selectedBranch; // null = keep current branch
+  List<String> _localBranches = [];
+  List<String> _recentBranches = [];
+  String? _currentBranch;
+  bool _loadingBranches = false;
+  bool _newBranchMode = false;
+  final _newBranchController = TextEditingController();
+
   @override
   void initState() {
     super.initState();
@@ -2141,13 +2150,39 @@ class _NewSessionDialogState extends State<_NewSessionDialog> {
           tasksController.status != TasksStatus.loading) {
         tasksController.load();
       }
+
+      // Load branches for the selected project if it has a vcsRoot.
+      final project = context.read<AgentProjectsController>().selectedProject;
+      if (project != null && project.vcsRoot != null) {
+        await _loadBranches(project.id);
+      }
     });
+  }
+
+  Future<void> _loadBranches(String projectId) async {
+    if (!mounted) return;
+    setState(() => _loadingBranches = true);
+    try {
+      final branches =
+          await context.read<AgentProjectsController>().listBranches(projectId);
+      if (!mounted) return;
+      setState(() {
+        _currentBranch = branches.current;
+        _localBranches = branches.local;
+        _recentBranches = branches.recent;
+        _selectedBranch ??= branches.current; // default to current
+        _loadingBranches = false;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _loadingBranches = false);
+    }
   }
 
   @override
   void dispose() {
     _nameController.dispose();
     _cwdController.dispose();
+    _newBranchController.dispose();
     super.dispose();
   }
 
@@ -2156,6 +2191,45 @@ class _NewSessionDialogState extends State<_NewSessionDialog> {
 
   Future<void> _submit() async {
     if (!_canSubmit) return;
+
+    // Resolve the target branch.
+    final targetBranch =
+        _newBranchMode ? _newBranchController.text.trim() : _selectedBranch;
+    final createBranch =
+        _newBranchMode && targetBranch != null && targetBranch.isNotEmpty;
+
+    // If switching to a different branch on a dirty tree, ask what to do.
+    final project = context.read<AgentProjectsController>().selectedProject;
+    final isDirty = project?.vcsDirty ?? false;
+    final isSwitchingBranch =
+        targetBranch != null && targetBranch != _currentBranch;
+
+    String? stashMode;
+    if (isSwitchingBranch && isDirty && !createBranch) {
+      final choice = await showDialog<String>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Working tree has uncommitted changes'),
+          content: const Text(
+            'The working directory has unsaved changes. '
+            'What should happen to them before switching branches?',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(null),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop('stash'),
+              child: const Text('Stash'),
+            ),
+          ],
+        ),
+      );
+      if (choice == null) return; // user cancelled
+      stashMode = choice;
+    }
+
     setState(() {
       _isSubmitting = true;
       _error = null;
@@ -2170,6 +2244,9 @@ class _NewSessionDialogState extends State<_NewSessionDialog> {
           ? (Platform.environment['HOME'] ?? '/')
           : _cwdController.text.trim(),
       name: _nameController.text.trim(),
+      branch: isSwitchingBranch || createBranch ? targetBranch : null,
+      stash: stashMode,
+      createBranch: createBranch,
     );
 
     if (!mounted) return;
@@ -2357,6 +2434,154 @@ class _NewSessionDialogState extends State<_NewSessionDialog> {
               ),
               decoration: _inputDecoration(context, hint: '~/'),
             ),
+
+            // Branch selector — only shown when the selected project has a
+            // vcsRoot and branches have been (or are being) loaded.
+            if (context
+                    .read<AgentProjectsController>()
+                    .selectedProject
+                    ?.vcsRoot !=
+                null) ...[
+              const SizedBox(height: 14),
+              Text(
+                'Branch',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: context.rhythm.textSecondary,
+                ),
+              ),
+              const SizedBox(height: 6),
+              if (_loadingBranches)
+                Row(
+                  children: [
+                    SizedBox(
+                      width: 14,
+                      height: 14,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: context.rhythm.accent,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Loading branches…',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: context.rhythm.textMuted,
+                      ),
+                    ),
+                  ],
+                )
+              else if (_newBranchMode)
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: _newBranchController,
+                        autofocus: true,
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontFamily: 'Menlo',
+                          color: context.rhythm.textPrimary,
+                        ),
+                        decoration: _inputDecoration(
+                          context,
+                          hint: 'new-branch-name',
+                        ),
+                        onChanged: (_) => setState(() {}),
+                        onSubmitted: (_) => _submit(),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    TextButton(
+                      onPressed: () => setState(() {
+                        _newBranchMode = false;
+                        _newBranchController.clear();
+                      }),
+                      child: const Text('Cancel'),
+                    ),
+                  ],
+                )
+              else
+                DropdownButtonFormField<String>(
+                  value: _selectedBranch,
+                  isExpanded: true,
+                  dropdownColor: context.rhythm.surfaceRaised,
+                  decoration: _inputDecoration(context, hint: 'Current branch'),
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontFamily: 'Menlo',
+                    color: context.rhythm.textPrimary,
+                  ),
+                  items: [
+                    // Current branch first (acts as the "keep" option).
+                    if (_currentBranch != null)
+                      DropdownMenuItem<String>(
+                        value: _currentBranch,
+                        child: Row(
+                          children: [
+                            Icon(
+                              Icons.check,
+                              size: 14,
+                              color: context.rhythm.accent,
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              _currentBranch!,
+                              style: TextStyle(
+                                fontWeight: FontWeight.w700,
+                                color: context.rhythm.textPrimary,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    // Recent branches (de-duplicated against current).
+                    for (final b in _recentBranches)
+                      if (b != _currentBranch)
+                        DropdownMenuItem<String>(
+                          value: b,
+                          child: Text(b),
+                        ),
+                    // Remaining local branches not already shown.
+                    for (final b in _localBranches)
+                      if (b != _currentBranch && !_recentBranches.contains(b))
+                        DropdownMenuItem<String>(
+                          value: b,
+                          child: Text(b),
+                        ),
+                    // Sentinel for "create new branch".
+                    DropdownMenuItem<String>(
+                      value: '__new__',
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.add,
+                            size: 14,
+                            color: context.rhythm.accent,
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            'New branch from current',
+                            style: TextStyle(color: context.rhythm.accent),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                  onChanged: (val) {
+                    if (val == '__new__') {
+                      setState(() {
+                        _newBranchMode = true;
+                        _selectedBranch = _currentBranch;
+                      });
+                    } else {
+                      setState(() => _selectedBranch = val);
+                    }
+                  },
+                ),
+            ],
 
             if (_error != null) ...[
               const SizedBox(height: 12),

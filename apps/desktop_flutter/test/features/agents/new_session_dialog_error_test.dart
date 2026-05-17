@@ -118,6 +118,9 @@ class _ErrorAgentsRepository implements AgentsRepository {
     required String cwd,
     required String name,
     String? projectId,
+    String? branch,
+    String? stash,
+    bool createBranch = false,
   }) async {
     throw AppError(
       message,

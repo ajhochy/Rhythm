@@ -1,5 +1,6 @@
 import '../data/agent_projects_remote_data_source.dart';
 import '../models/agent_project.dart';
+import '../models/project_branches.dart';
 
 class AgentProjectsRepository {
   AgentProjectsRepository(this._remote);
@@ -36,4 +37,15 @@ class AgentProjectsRepository {
   Future<void> delete(String id) => _remote.delete(id);
 
   Future<AgentProject> refreshVcs(String id) => _remote.refreshVcs(id);
+
+  Future<ProjectBranches> listBranches(String id) => _remote.listBranches(id);
+
+  Future<AgentProject> checkout(
+    String id, {
+    required String branch,
+    String stash = 'none',
+    bool createBranch = false,
+  }) =>
+      _remote.checkout(id,
+          branch: branch, stash: stash, createBranch: createBranch);
 }

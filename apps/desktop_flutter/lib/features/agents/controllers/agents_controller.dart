@@ -303,6 +303,9 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     String? taskId,
     required String cwd,
     required String name,
+    String? branch,
+    String? stash,
+    bool createBranch = false,
   }) async {
     _error = null;
     _lastErrorStatus = null;
@@ -312,6 +315,9 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
         taskId: taskId,
         cwd: cwd,
         name: name,
+        branch: branch,
+        stash: stash,
+        createBranch: createBranch,
       );
       _sessions = [..._sessions, session];
       sessionFirstSeenAt[session.id] = DateTime.now();

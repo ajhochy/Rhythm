@@ -29,6 +29,7 @@ const repo = new AgentSessionsRepository();
 const messagesRepo = new AgentSessionMessagesRepository();
 
 import { resolveModelForAgent as resolveModel } from '../services/agent_model_resolver';
+import { gitCheckout, probeVcs } from '../services/vcs_probe';
 
 /**
  * Expands '~' at the start of a path string to the current user's home directory.
@@ -120,6 +121,39 @@ export class AgentSessionsController {
       // cwd-prefix lookup against the projects table (longest match wins,
       // archived projects skipped).
       const expandedCwd = expandHome(cwd.trim());
+
+      // Optional branch checkout before starting the session.
+      const branchParam = body.branch;
+      const stashParam = body.stash;
+      const createBranchParam = body.createBranch;
+      if (typeof branchParam === 'string' && branchParam.trim() !== '') {
+        // Only checkout when requested branch differs from current HEAD.
+        const currentBranch = (() => {
+          try {
+            const info = probeVcs(expandedCwd);
+            return info?.vcsBranch ?? null;
+          } catch {
+            return null;
+          }
+        })();
+        if (currentBranch !== branchParam.trim()) {
+          const stashMode: 'none' | 'stash' | 'discard' =
+            stashParam === 'stash'
+              ? 'stash'
+              : stashParam === 'discard'
+                ? 'discard'
+                : 'none';
+          const checkoutResult = gitCheckout(expandedCwd, branchParam.trim(), {
+            stash: stashMode,
+            createBranch: createBranchParam === true,
+          });
+          if (!checkoutResult.ok) {
+            res.status(409).json({ error: checkoutResult.stderr });
+            return;
+          }
+        }
+      }
+
       let projectId: string | null = null;
       if (Object.prototype.hasOwnProperty.call(body, 'projectId')) {
         const raw = body.projectId;

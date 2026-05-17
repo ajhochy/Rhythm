@@ -172,6 +172,9 @@ class AgentsDataSource {
     required String cwd,
     required String name,
     String? projectId,
+    String? branch,
+    String? stash,
+    bool createBranch = false,
   }) async {
     final response = await http.post(
       Uri.parse('$_baseUrl/agent-sessions'),
@@ -182,6 +185,9 @@ class AgentsDataSource {
         'name': name,
         if (taskId != null) 'taskId': taskId,
         if (projectId != null) 'projectId': projectId,
+        if (branch != null) 'branch': branch,
+        if (stash != null) 'stash': stash,
+        if (createBranch) 'createBranch': true,
       }),
     );
     assertOk(response);

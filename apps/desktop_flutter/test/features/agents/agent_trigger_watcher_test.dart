@@ -110,6 +110,9 @@ class _FakeAgentsRepository implements AgentsRepository {
     required String cwd,
     required String name,
     String? projectId,
+    String? branch,
+    String? stash,
+    bool createBranch = false,
   }) async {
     final now = DateTime.now();
     return AgentSession(

@@ -128,6 +128,9 @@ class _FakeAgentsRepository implements AgentsRepository {
     required String cwd,
     required String name,
     String? projectId,
+    String? branch,
+    String? stash,
+    bool createBranch = false,
   }) async {
     return _makeSession('new-session', AgentSessionStatus.starting);
   }

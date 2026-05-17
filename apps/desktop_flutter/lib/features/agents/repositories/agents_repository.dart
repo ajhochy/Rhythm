@@ -33,12 +33,18 @@ class AgentsRepository {
     String? taskId,
     required String cwd,
     required String name,
+    String? branch,
+    String? stash,
+    bool createBranch = false,
   }) =>
       _dataSource.createSession(
         agentId: agentId,
         taskId: taskId,
         cwd: cwd,
         name: name,
+        branch: branch,
+        stash: stash,
+        createBranch: createBranch,
       );
 
   Future<void> closeSession(String id) => _dataSource.closeSession(id);
