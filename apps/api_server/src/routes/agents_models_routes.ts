@@ -2,7 +2,7 @@ import { Router, Request, Response } from 'express';
 import { requireAuth } from '../middleware/auth_middleware';
 import { env } from '../config/env';
 import { opencodeClient } from '../services/opencode_engine';
-import { ROUTE_FALLBACKS_BY_AGENT, listAllRoutes } from '../services/agent_model_resolver';
+import { ROUTE_FALLBACKS_BY_AGENT, listAllRoutes, type CatalogEntry } from '../services/agent_model_resolver';
 import { getDb } from '../database/db';
 
 export const agentsModelsRouter = Router();
@@ -25,6 +25,27 @@ function aggregatorLabel(providerId: string): string {
     groq: 'Groq',
   };
   return map[providerId] ?? providerId;
+}
+
+async function loadProviderModelIds(
+  providerIds: Iterable<string>,
+): Promise<Map<string, Set<string>>> {
+  const out = new Map<string, Set<string>>();
+  await Promise.all(
+    [...new Set(providerIds)].map(async (providerId) => {
+      const models = await opencodeClient.listModels(providerId);
+      out.set(providerId, new Set(models.map((m) => m.id)));
+    }),
+  );
+  return out;
+}
+
+function routeExistsInProviderCatalog(
+  modelIdsByProvider: Map<string, Set<string>>,
+  providerId: string,
+  modelId: string,
+): boolean {
+  return modelIdsByProvider.get(providerId)?.has(modelId) ?? false;
 }
 
 /**
@@ -92,8 +113,22 @@ agentsModelsRouter.get('/catalog', async (_req: Request, res: Response) => {
     }
 
     const allEntries = await listAllRoutes(authedSet);
+    const modelIdsByProvider = await loadProviderModelIds(
+      allEntries.map((entry) => entry.authProvider),
+    );
 
     const filtered = allEntries.filter((entry) => {
+      // If the SDK returned an empty model list for this provider (couldn't
+      // enumerate — e.g. direct Anthropic/OpenAI API isn't configured but the
+      // user routes through OpenRouter), skip the existence check rather than
+      // hiding valid entries. Only filter entries out when we actually have a
+      // non-empty catalog to compare against.
+      const providerModelSet = modelIdsByProvider.get(entry.authProvider);
+      if (providerModelSet && providerModelSet.size > 0) {
+        if (!providerModelSet.has(entry.modelID)) {
+          return false;
+        }
+      }
       // Apply visibility filter to openrouter models only.
       if (
         entry.route === 'aggregator' &&
@@ -106,7 +141,48 @@ agentsModelsRouter.get('/catalog', async (_req: Request, res: Response) => {
       return true;
     });
 
-    const response = filtered.map((entry) => ({
+    // Issue #609 — include curated OpenRouter models that are NOT in the
+    // hardcoded ROUTE_FALLBACKS_BY_AGENT list. The curation UI lets users
+    // browse the full OpenRouter catalog and mark models visible; those
+    // selected models need to appear in the picker even if they aren't in
+    // the fallback list.
+    const curatedEntries: CatalogEntry[] = [];
+    if (authedSet.has('openrouter') && visibilityMap !== null) {
+      const existingModelIds = new Set(
+        filtered
+          .filter((e) => e.authProvider === 'openrouter')
+          .map((e) => e.modelID),
+      );
+      const openRouterModelIds = modelIdsByProvider.get('openrouter');
+      // If the SDK hasn't populated its model catalog yet (empty set during
+      // early startup), skip the existence check to avoid hiding visible
+      // curated models. Only filter when the set is non-empty.
+      const skipLiveCheck = !openRouterModelIds || openRouterModelIds.size === 0;
+      for (const [modelId, visible] of visibilityMap) {
+        if (!visible) continue;
+        if (existingModelIds.has(modelId)) continue;
+        // Verify the model actually exists in the live OpenRouter catalog.
+        // When the SDK hasn't populated its catalog yet (skipLiveCheck), be
+        // permissive — the visibility table already confirms the user wants it.
+        if (!skipLiveCheck && !openRouterModelIds?.has(modelId)) continue;
+        // Derive agent kind from model ID prefix (matching ws_gateway.ts).
+        let agent = 'claude-code';
+        if (modelId.startsWith('openai/')) agent = 'codex';
+        else if (modelId.startsWith('google/')) agent = 'gemini-cli';
+        curatedEntries.push({
+          agent,
+          providerID: 'openrouter',
+          modelID: modelId,
+          route: 'aggregator',
+          authorized: true,
+          authProvider: 'openrouter',
+          connectUrl: '/opencode/auth/openrouter',
+        });
+      }
+    }
+
+    const allModels = [...filtered, ...curatedEntries];
+    const response = allModels.map((entry) => ({
       agent: entry.agent,
       provider: entry.authProvider,
       modelId: entry.modelID,
@@ -141,6 +217,7 @@ agentsModelsRouter.get('/', async (req: Request, res: Response) => {
 
     const authedProviders = await opencodeClient.listAuthedProviders();
     const authedSet = new Set(authedProviders);
+    const modelIdsByProvider = await loadProviderModelIds(authedSet);
 
     // Issue #609 — load visibility map for openrouter (other providers always visible).
     let visibilityMap: Map<string, boolean> | null = null;
@@ -167,6 +244,14 @@ agentsModelsRouter.get('/', async (req: Request, res: Response) => {
     for (const route of routes) {
       const { providerID, modelID, variantLabel } = route;
       if (!authedSet.has(providerID)) continue;
+      // If the SDK returned an empty model list for this provider, skip the
+      // existence check; an empty list means "can't enumerate" not "no models."
+      const providerSet = modelIdsByProvider.get(providerID);
+      if (providerSet && providerSet.size > 0) {
+        if (!providerSet.has(modelID)) {
+          continue;
+        }
+      }
 
       // Issue #609 — filter openrouter models by visibility if a visibility row exists.
       // If no row exists for this model_id, default to visible=true.

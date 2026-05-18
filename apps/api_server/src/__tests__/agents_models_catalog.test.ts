@@ -20,6 +20,30 @@ vi.mock('../services/opencode_engine', () => {
   const mockClient = {
     isReady: true,
     listProviders: vi.fn().mockResolvedValue([]),
+    listModels: vi.fn().mockImplementation((providerId: string) => {
+      const byProvider: Record<string, Array<{ id: string; name?: string }>> = {
+        anthropic: [
+          { id: 'claude-opus-4-7' },
+          { id: 'claude-opus-4-5' },
+          { id: 'claude-sonnet-4-6' },
+          { id: 'claude-haiku-4-5' },
+        ],
+        openai: [
+          { id: 'gpt-5.3-codex' },
+          { id: 'gpt-5.4' },
+          { id: 'gpt-5.4-mini' },
+        ],
+        openrouter: [
+          { id: 'anthropic/claude-opus-4.7' },
+          { id: 'anthropic/claude-sonnet-4.6' },
+          { id: 'anthropic/claude-haiku-4.5' },
+          { id: 'openai/gpt-5.3-codex' },
+          { id: 'openai/gpt-5.4' },
+          { id: 'openai/gpt-5.4-mini' },
+        ],
+      };
+      return Promise.resolve(byProvider[providerId] ?? []);
+    }),
     listAuthedProviders: vi.fn().mockImplementation(() =>
       Promise.resolve(mockAuthedProviders),
     ),
@@ -178,6 +202,58 @@ describe('GET /agents/models/catalog', () => {
       (r) => r.provider === 'openrouter' && r.modelId === 'anthropic/claude-sonnet-4.6',
     );
     expect(visible).toBeDefined();
+  });
+
+  it('includes curated openrouter models not in the hardcoded fallback list', async () => {
+    mockAuthedProviders.push('openrouter');
+
+    // Extend the OpenRouter mock catalog with a model NOT in ROUTE_FALLBACKS_BY_AGENT.
+    const { opencodeClient } = await import('../services/opencode_engine');
+    const mockListModels = vi.mocked(opencodeClient.listModels);
+    const origImpl = mockListModels.getMockImplementation()!;
+    try {
+      mockListModels.mockImplementation(
+        async (providerId: string) => {
+          const base = (await origImpl(providerId)) as Array<{ id: string }>;
+          if (providerId === 'openrouter') {
+            return [...base, { id: 'custom/qwen-2.5-72b' }];
+          }
+          return base;
+        },
+      );
+
+      const { getDb } = await import('../database/db');
+      getDb().prepare(
+        `INSERT OR REPLACE INTO agent_model_visibility (provider, model_id, visible) VALUES ('openrouter', 'custom/qwen-2.5-72b', 1)`,
+      ).run();
+
+      const res = await fetch(`${baseUrl}/agents/models/catalog`, {
+        headers: authHeaders,
+      });
+      const rows = await res.json() as Array<Record<string, unknown>>;
+      const curated = rows.find(
+        (r) => r.provider === 'openrouter' && r.modelId === 'custom/qwen-2.5-72b',
+      );
+      expect(curated).toBeDefined();
+      expect(curated?.authorized).toBe(true);
+      expect(curated?.route).toBe('aggregator');
+      // Verify it derives the correct agent from the model ID prefix ("custom/" → claude-code default).
+      expect(curated?.agent).toBe('claude-code');
+    } finally {
+      mockListModels.mockImplementation(origImpl);
+    }
+  });
+
+  it('filters out hardcoded fallback rows missing from the live provider catalog', async () => {
+    mockAuthedProviders.push('openai');
+
+    const res = await fetch(`${baseUrl}/agents/models/catalog`, {
+      headers: authHeaders,
+    });
+    const rows = await res.json() as Array<Record<string, unknown>>;
+
+    expect(rows.find((r) => r.provider === 'openai' && r.modelId === 'gpt-5-mini')).toBeUndefined();
+    expect(rows.find((r) => r.provider === 'openai' && r.modelId === 'gpt-5.4-mini')).toBeDefined();
   });
 
   afterEach(async () => {

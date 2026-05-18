@@ -44,13 +44,12 @@ export const ROUTE_FALLBACKS_BY_AGENT: Record<string, ModelRoute[]> = {
   ],
   codex: [
     { providerID: 'openai', modelID: 'gpt-5.3-codex' },
-    { providerID: 'openai', modelID: 'gpt-5.3' },
-    { providerID: 'openai', modelID: 'gpt-5-mini' },
-    { providerID: 'openai', modelID: 'gpt-5-thinking', variantLabel: 'Thinking' },
+    { providerID: 'openai', modelID: 'gpt-5.4' },
+    { providerID: 'openai', modelID: 'gpt-5.4-mini' },
     { providerID: 'github-copilot', modelID: 'gpt-5-mini' },
     { providerID: 'openrouter', modelID: 'openai/gpt-5.3-codex' },
-    { providerID: 'openrouter', modelID: 'openai/gpt-5.3' },
-    { providerID: 'openrouter', modelID: 'openai/gpt-5-mini' },
+    { providerID: 'openrouter', modelID: 'openai/gpt-5.4' },
+    { providerID: 'openrouter', modelID: 'openai/gpt-5.4-mini' },
   ],
   'gemini-cli': [
     { providerID: 'google', modelID: 'gemini-3-pro-preview' },
