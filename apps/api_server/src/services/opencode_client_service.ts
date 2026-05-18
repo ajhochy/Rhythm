@@ -23,9 +23,12 @@ export function augmentPathForOpencode(): void {
   process.env.PATH = [...missing, ...current].filter(Boolean).join(':');
 }
 
+type OpencodeServerHandle = { url: string; close(): void };
+
 export class OpencodeClientService {
   private status: EngineStatus = 'uninitialized';
   private client: OpencodeClient | null = null;
+  private server: OpencodeServerHandle | null = null;
   private error: Error | null = null;
   private authStore = new OpencodeAuthStore();
 
@@ -53,15 +56,20 @@ export class OpencodeClientService {
       const mod = (await dynamicImport('@opencode-ai/sdk')) as {
         createOpencode: (opts?: Record<string, unknown>) => Promise<{
           client: OpencodeClient;
+          server: OpencodeServerHandle;
         }>;
         createOpencodeClient: (config?: {
           baseUrl?: string;
           directory?: string;
         }) => OpencodeClient;
       };
-      // Use createOpencode which starts an in-process Opencode server
-      const { client } = await mod.createOpencode({});
+      // Use createOpencode which starts an in-process Opencode server.
+      // `server.close()` is the only documented way to stop the spawned
+      // opencode subprocess on :4096 — we MUST hold this handle for clean
+      // shutdown (see dispose()).
+      const { client, server } = await mod.createOpencode({});
       this.client = client;
+      this.server = server;
       this.status = 'ready';
       this.error = null;
       logger.info('[OpencodeClientService] SDK initialized');
@@ -398,30 +406,25 @@ export class OpencodeClientService {
   }
 
   /**
-   * #614 — Dispose: kills any subprocess that the SDK spawned and clears the
-   * client reference. Safe to call multiple times.
+   * #614 — Dispose: kills the opencode subprocess that the SDK spawned and
+   * clears the client reference. Safe to call multiple times.
+   *
+   * The SDK returns `{ client, server }` from `createOpencode()`. The
+   * `server.close()` method is the only documented way to stop the
+   * spawned opencode subprocess (which holds :4096). Earlier versions of
+   * this code probed `client.close()` / `client.shutdown()` — neither
+   * exists, so dispose was a no-op and the opencode child orphaned on
+   * every shutdown. Captured server handle in `initialize()`.
    */
   dispose(): void {
-    if (this.client) {
-      // The SDK's createOpencode() spawns a child process. The client object
-      // may expose a `close()` / `shutdown()` method depending on the SDK
-      // version; try both and fall back to a best-effort SIGTERM on the
-      // child PID if neither is present.
-      const c = this.client as unknown as Record<string, unknown>;
-      if (typeof c['close'] === 'function') {
-        try {
-          (c['close'] as () => void)();
-        } catch (_) {
-          // Ignore.
-        }
-      } else if (typeof c['shutdown'] === 'function') {
-        try {
-          (c['shutdown'] as () => void)();
-        } catch (_) {
-          // Ignore.
-        }
+    if (this.server) {
+      try {
+        this.server.close();
+      } catch (err) {
+        logger.error('[OpencodeClientService] server.close() threw:', err);
       }
     }
+    this.server = null;
     this.client = null;
     this.status = 'uninitialized';
   }
