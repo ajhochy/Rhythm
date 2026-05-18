@@ -725,10 +725,20 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
 
   /// Convenience wrapper used by SessionModelPicker — persists the route as
   /// the session-level default via [updateSession].
+  ///
+  /// Also sets the pending turn override so the very next [send] still ships
+  /// a `modelOverride` in the WS message. Without this, the session row in
+  /// the DB has the model persisted but the server-side resolver for
+  /// `agentKind === '__pending__'` rejects the input ("Pick a model before
+  /// sending the first message.") because the per-turn override is empty —
+  /// the persisted default is read from the DB but it hasn't been written
+  /// yet from the server's perspective when `session.input` arrives.
   Future<void> setSessionModel(
     String sessionId,
     AgentModelRoute route,
   ) async {
+    _pendingTurnOverride = route;
+    notifyListeners();
     await updateSession(
       sessionId,
       providerId: route.providerId,

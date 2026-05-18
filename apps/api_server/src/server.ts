@@ -98,6 +98,26 @@ async function main() {
 
   process.on('SIGTERM', () => shutdown('SIGTERM'));
   process.on('SIGINT', () => shutdown('SIGINT'));
+
+  // #614b — Parent-PID watchdog. macOS Cmd+Q routes through NSApp.terminate,
+  // which kills the Flutter engine before Dart cleanup can SIGTERM us. The
+  // child is then reparented to launchd (ppid=1) and orphans, holding :4001
+  // and the opencode subprocess on :4096 indefinitely.
+  //
+  // Defense-in-depth: poll our own ppid; if it becomes 1 after starting with
+  // a non-1 parent, run the clean shutdown sequence. This works no matter
+  // how the parent dies (Cmd+Q, force-quit, crash) and is independent of any
+  // platform-specific window-manager hook.
+  const originalParentPid = process.ppid;
+  const watchdog = setInterval(() => {
+    if (originalParentPid !== 1 && process.ppid === 1) {
+      logger.info(
+        `[server] parent ${originalParentPid} died (now orphaned to launchd) — self-shutdown`,
+      );
+      shutdown('PARENT_GONE');
+    }
+  }, 2000);
+  if (typeof watchdog.unref === 'function') watchdog.unref();
 }
 
 main().catch((error) => {
