@@ -72,6 +72,10 @@ async function main() {
     shuttingDown = true;
     logger.info(`[server] ${signal} received — starting clean shutdown`);
 
+    // Mark the opencode engine as intentionally shutting down so its
+    // ensureReady() does not attempt to re-initialize during teardown.
+    (opencodeClient as unknown as Record<string, unknown>)['_shuttingDown'] = true;
+
     // 1. Stop cron jobs so no new work is kicked off.
     try { recurrenceJob?.stop(); } catch (_) { /* ignore */ }
     try { syncJob?.stop(); } catch (_) { /* ignore */ }
@@ -109,10 +113,11 @@ async function main() {
   // how the parent dies (Cmd+Q, force-quit, crash) and is independent of any
   // platform-specific window-manager hook.
   const originalParentPid = process.ppid;
+  logger.info(`[server] watchdog: started with ppid=${originalParentPid} (AGENT_LOCAL=${process.env.AGENT_LOCAL ?? '(unset)'}, spawn-via=${process.env.SPAWN_VIA ?? '(unset)'})`);
   const watchdog = setInterval(() => {
     if (originalParentPid !== 1 && process.ppid === 1) {
       logger.info(
-        `[server] parent ${originalParentPid} died (now orphaned to launchd) — self-shutdown`,
+        `[server] parent ${originalParentPid} died (now orphaned to launchd) — self-shutdown (watchdog)`,
       );
       shutdown('PARENT_GONE');
     }

@@ -201,10 +201,20 @@ export class AgentSessionsController {
         return;
       }
 
-      // Create an Opencode SDK session instead of spawning a PTY subprocess
+      // Create an Opencode SDK session instead of spawning a PTY subprocess.
+      // Try to auto-recover if the engine was disposed accidentally (e.g.,
+      // PARENT_GONE watchdog raced against a request).
       if (!opencodeClient.isReady) {
-        repo.markClosed(session.id);
-        throw AppError.badRequest('Opencode engine is not ready — check Settings to connect an AI account');
+        console.log(
+          `[AgentSessionsController] Engine status="${opencodeClient.statusMessage}" — attempting auto-recovery for session ${session.id}`,
+        );
+        if (!(await opencodeClient.ensureReady())) {
+          repo.markClosed(session.id);
+          throw AppError.badRequest(
+            `Opencode engine is not ready (${opencodeClient.statusMessage}) — check Settings to connect an AI account`,
+          );
+        }
+        console.log(`[AgentSessionsController] Engine recovered — continuing session ${session.id} creation`);
       }
 
       const opencodeSession = await opencodeClient.createSession(name.trim(), dto.cwd);
@@ -508,9 +518,17 @@ export class AgentSessionsController {
         );
       }
 
-      // Resume via Opencode SDK — create a fresh session with context
+      // Resume via Opencode SDK — create a fresh session with context.
+      // Auto-recover if the engine was disposed accidentally.
       if (!opencodeClient.isReady) {
-        throw AppError.badRequest('Opencode engine is not ready');
+        console.log(
+          `[AgentSessionsController] Resume: engine status="${opencodeClient.statusMessage}" — attempting auto-recovery`,
+        );
+        if (!(await opencodeClient.ensureReady())) {
+          throw AppError.badRequest(
+            `Opencode engine is not ready (${opencodeClient.statusMessage})`,
+          );
+        }
       }
 
       // "Resume" means continue the local row with a *fresh* SDK session.

@@ -25,6 +25,7 @@ vi.mock('../services/opencode_engine', () => {
     prompt: vi.fn().mockResolvedValue({}),
     promptAsync: vi.fn().mockResolvedValue(true),
     subscribeToEvents: vi.fn().mockResolvedValue(null),
+    ensureReady: vi.fn().mockImplementation(async () => _ready),
   };
   return {
     opencodeClient: mockClient,
