@@ -297,9 +297,17 @@ function handleClientMessage(ws: WebSocket, raw: import('ws').RawData): void {
                 }
               : undefined;
 
-            // Cast through unknown to allow passing extra opts that the hand-typed
-            // SDK typedef may not list — these are forwarded best-effort.
-            const promptFn = (opencodeClient.promptAsync as unknown) as (
+            // Bind through unknown to allow passing extra opts that the
+            // hand-typed SDK typedef may not list — these are forwarded
+            // best-effort. CRITICAL: use `.bind(opencodeClient)` so the
+            // method retains its `this` binding. Bare `as unknown as` cast
+            // loses `this`, and the very first line of promptAsync reads
+            // `this.client` → throws `TypeError: Cannot read properties of
+            // undefined (reading 'client')` on every prompt. Regression from
+            // acdc835 (#604) which introduced the casted alias.
+            const promptFn = opencodeClient.promptAsync.bind(
+              opencodeClient,
+            ) as unknown as (
               id: string,
               data: string,
               model?: { providerID: string; modelID: string },
