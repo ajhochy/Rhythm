@@ -1,8 +1,27 @@
+import { homedir } from 'os';
+import { join } from 'path';
 import type { OpencodeClient, Event } from '@opencode-ai/sdk';
 import { logger } from '../utils/logger';
 import { OpencodeAuthStore } from './opencode_auth_store';
 
 type EngineStatus = 'uninitialized' | 'ready' | 'error';
+
+/**
+ * Directories the SDK's `cross-spawn("opencode")` may need on PATH. GUI-spawned
+ * .app children on macOS only inherit `/usr/bin:/bin:/usr/sbin:/sbin` — none of
+ * which contain the opencode binary. Idempotent: prepends each dir at most once.
+ */
+export function augmentPathForOpencode(): void {
+  const extras = [
+    join(homedir(), '.opencode', 'bin'),
+    '/opt/homebrew/bin',
+    '/usr/local/bin',
+  ];
+  const current = (process.env.PATH ?? '').split(':');
+  const missing = extras.filter((d) => !current.includes(d));
+  if (missing.length === 0) return;
+  process.env.PATH = [...missing, ...current].filter(Boolean).join(':');
+}
 
 export class OpencodeClientService {
   private status: EngineStatus = 'uninitialized';
@@ -23,6 +42,7 @@ export class OpencodeClientService {
 
   async initialize(config?: { directory?: string }): Promise<void> {
     try {
+      augmentPathForOpencode();
       // Dynamic import — SDK is ESM-only, api_server uses CommonJS.
       // TS with module:commonjs rewrites `import()` to `require()`, which
       // fails on ESM-only packages. The `Function` wrapper hides the call
