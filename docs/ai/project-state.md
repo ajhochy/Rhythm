@@ -1,8 +1,24 @@
 # Project State
 
-## Current Status (2026-05-16 late evening — all follow-ups stacked on PR #617 "Follow Up")
+## Current Status (2026-05-18 — triage round 2: isReady flip + dispose diagnostics)
 
-🟡 **Branch `follow-up` (draft PR [#617](https://github.com/ajhochy/Rhythm/pull/617)) implements every open follow-up filed in the prior snapshot — #601, #602, #603, #604, #605, #606, #607, #608, #609, #610, #611, #614, #615.** Verification is green locally; the PR is awaiting manual UI smoke and manual merge.
+🟡 **Branch `follow-up` — 3 commits this session on top of PR #617 batch.**
+
+### Fixes this session (2026-05-18)
+
+1. **Chat broken for all sessions (`promptAsync` TypeError)** — committed as `49ef628`. Root cause: commit `acdc835` (#604) extracted `opencodeClient.promptAsync` from its object and cast it as a bare function reference, losing `this`. Every prompt threw `TypeError: Cannot read properties of undefined (reading 'client')`. Fix: `.bind(opencodeClient)` preserves `this`.
+
+2. **Curated OpenRouter models not surfacing in model picker** — `listAllRoutes()` in `agent_model_resolver.ts` only iterates the hardcoded `ROUTE_FALLBACKS_BY_AGENT` map. The `agent_model_visibility` table (used by the "Browse & Curate" UI) was only applied to *hide* models from this hardcoded list — it never *added* curated models. **Fix**: Modified `GET /agents/models/catalog` to include curated OpenRouter models with `visible=1` not in the hardcoded fallback list. Commit `6b341d4`.
+
+3. **`isReady` flip between `/opencode/health` and `POST /agent-sessions`** — the `OpencodeClientService.isReady` getter returned `true` for the health endpoint but `false` for the session-creation controller. Root cause: the PARENT_GONE watchdog (2s interval in `server.ts`) fires when `process.ppid` becomes 1 (parent process exits). This resets `this.status = 'uninitialized'` via `dispose()`, which is called by the shutdown handler. The watchdog is designed to catch macOS Cmd+Q (Flutter killed before it can SIGTERM the child), but it also fires during development when the shell or process-manager parent exits between requests.
+
+   **Fix (commits `2f5fbdb`):**
+   - Added `ensureReady()` to `OpencodeClientService` — auto-reinitializes the engine when `isReady` is false, unless the server is in intentional shutdown (`_shuttingDown` flag).
+   - Made `initialize()` idempotent and re-entrant with `_initializing` guard (prevents double-init races from concurrent `ensureReady` calls).
+   - Added dispose diagnostics: stack-trace logging on `dispose()`, idempotency guard, `isDisposed` getter.
+   - Controller `create()` and `resume()` now log the current `statusMessage` and call `ensureReady()` before failing — gives a recovery window if the watchdog fired seconds earlier.
+   - Server shutdown handler sets `_shuttingDown` on `opencodeClient` so `ensureReady()` does not wastefully re-initialize during teardown.
+   - Raised Express JSON body parser limit to 1 MB (default 100 KB was causing `PayloadTooLargeError` on large OAuth callback payloads).
 
 ### What this branch lands
 - **Install hardening (#614, #615)**: SIGTERM/SIGINT shutdown chain in api_server + lifecycle hooks in Flutter (window_manager onWindowClose, SIGINT/SIGTERM watchers, AppLifecycleState.detached). Orphan self-heal on next launch kills any node holding :4001 with PPID=1. `ApiServerService._readRuntimeSentinel` reads the bundled `Resources/api_server/.node-runtime.json` and ABI-matches against installed Node binaries; on total mismatch the failure dialog surfaces the exact `npm rebuild better-sqlite3 --build-from-source` command.
@@ -18,7 +34,7 @@
 | Check | Result |
 |---|---|
 | `apps/api_server` `tsc --noEmit` | clean |
-| `apps/api_server` `vitest run` | **499/499** (50+ new tests across permission modes, archive flow, branch checkout, visibility, catalog) |
+| `apps/api_server` `vitest run` | **506/506** (catalog curated-model test added + opencode_client_service object-map unwrap) |
 | `apps/api_server` `npm run build` | clean |
 | `apps/desktop_flutter` `dart format --set-exit-if-changed lib test` | clean |
 | `apps/desktop_flutter` `flutter analyze --no-fatal-infos` | 0 errors (180 pre-existing infos) |

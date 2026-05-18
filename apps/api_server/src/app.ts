@@ -51,7 +51,11 @@ export function createApp() {
       },
     }),
   );
-  app.use(express.json());
+  // Allow larger bodies for OAuth token exchange and session creation.
+  // The OpenAI OAuth access token alone can exceed 4 KB; the default 100 KB
+  // limit is sufficient for normal requests but we raise it to 1 MB as a
+  // safety margin.
+  app.use(express.json({ limit: '1mb' }));
 
   app.use('/health', healthRouter);
   // NOTE: /agents/capabilities is unauthenticated for now; Phase 3.1 will add the AGENT_LOCAL bypass.
