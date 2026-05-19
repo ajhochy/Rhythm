@@ -2,6 +2,27 @@
 
 ## Recent coding-agent runs
 
+### 2026-05-19 — feat/agents-question-tool-selector (#622)
+- Files modified:
+  - `apps/desktop_flutter/lib/features/agents/views/_question_tool_card.dart` — new file; `QuestionToolCard` StatefulWidget; parses `toolArgs.questions[]` into interactive answer buttons; submits via `AgentsController.sendInput`; shows "Answered: <label>" stub after selection; handles multi-question batch flows
+  - `apps/desktop_flutter/lib/features/agents/views/agents_view.dart` — added `sessionId` param to `_ChatBubble`; routing in tool-part loop: `toolName == 'question'` → `QuestionToolCard`, else → `ToolCallPart`; added import for `_question_tool_card.dart`; updated `_buildTranscriptBody` call site to pass `session.id`
+- Checks run: `ai-workflow checks --level issue` → `flutter analyze` ✓, `dart format` ✓, `tsc --noEmit` ✓
+- Decisions made: tool lookup key is `part.toolName?.toLowerCase() == 'question'` (case-insensitive match for the SDK's tool name); submission goes via existing `controller.sendInput(sessionId, text)` — no new controller methods; `session.input` is the only upstream path in the WS gateway (see `ws_gateway.ts`); a TODO comment marks the spot to switch to a dedicated tool-result path if one is added later (#622 follow-up)
+- Deviations from spec: "free-text Other" not implemented — the SDK's `question` tool schema doesn't expose a free-text field in `toolArgs`; spec item is aspirational. Multi-select via checkboxes replaced by multi-question sequential selection (each question still gets exactly one answer per the SDK contract).
+- Concerns: submission path uses `session.input` which triggers a new agent turn rather than a true tool-result reply. This is the only path available in the current WS gateway. If the SDK exposes a `question.answer` or `tool.result` event type in the future, `_submit()` in `_question_tool_card.dart` is the one place to update.
+
+---
+
+### 2026-05-19 — feat/agents-bubble-agentless-session (#623)
+- Files modified:
+  - `apps/desktop_flutter/lib/app/core/agents/agent_bubble_overlay.dart` — replaced `startAgent(String agentId)` + multi-button layout with `_openChat()` that creates an agent-less session (`agentId: null`); single "Open chat" button; simplified `_bubbleHeight` to a fixed getter
+- Checks run: `ai-workflow checks --level issue` → `flutter analyze` ✓, `dart format` ✓, `tsc --noEmit` ✓
+- Decisions made: preferred-agent default not plumbed — `PendingTrigger` / `AgentBubbleEntry` carry no `preferredAgentId`; wiring it into the composer would require touching `agents_view.dart` (out of scope); left `TODO(#623 follow-up)` comment in `_openChat()`
+- Deviations from spec: preferred-agent default for claude-trigger payloads deferred (spec said "if no clean way, leave a TODO" — done)
+- Concerns: none; `createSession(agentId: null)` path already verified working server-side per PR #617/#602
+
+---
+
 ### 2026-05-19 — fix/agents-bubble-transcript-per-session (#625)
 - Files modified:
   - `apps/desktop_flutter/lib/features/agents/controllers/agents_controller.dart` — added `_transcriptsBySession` map and `transcriptFor(sessionId)` getter; updated all `_transcript` write sites (reconnect, selectSession, TranscriptAppendMessage, WsErrorMessage) to also write per-session

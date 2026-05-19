@@ -27,6 +27,7 @@ import '_permission_mode_picker.dart';
 import '_project_vcs_chip.dart';
 import '_projects_rail.dart';
 import '_slash_command_popover.dart';
+import '_question_tool_card.dart';
 import '_tool_call_part.dart';
 import '_unified_agent_model_picker.dart';
 
@@ -1160,7 +1161,11 @@ class _TranscriptPanelState extends State<_TranscriptPanel> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  _ChatBubble(message: m, parts: parts),
+                  _ChatBubble(
+                    message: m,
+                    parts: parts,
+                    sessionId: session.id,
+                  ),
                   MessageActionsRow(
                     sessionId: session.id,
                     messageId: m.id,
@@ -1642,10 +1647,15 @@ class _MessageBlock extends StatelessWidget {
 /// left-aligned in a muted surface. Streaming deltas mutate part.text in
 /// place — the same bubble re-renders larger on each notifyListeners().
 class _ChatBubble extends StatelessWidget {
-  const _ChatBubble({required this.message, required this.parts});
+  const _ChatBubble({
+    required this.message,
+    required this.parts,
+    required this.sessionId,
+  });
 
   final ChatMessage message;
   final List<ChatPart> parts;
+  final String sessionId;
 
   @override
   Widget build(BuildContext context) {
@@ -1688,7 +1698,15 @@ class _ChatBubble extends StatelessWidget {
     for (final part in parts) {
       if (part.type == 'tool') {
         flushText();
-        children.add(ToolCallPart(part: part));
+        // Route `question` / AskUserQuestion tool calls to the interactive
+        // answer selector. All other tool calls use the generic card.
+        if (part.toolName?.toLowerCase() == 'question') {
+          children.add(
+            QuestionToolCard(part: part, sessionId: sessionId),
+          );
+        } else {
+          children.add(ToolCallPart(part: part));
+        }
       } else {
         textBuffer.write(part.text);
       }
