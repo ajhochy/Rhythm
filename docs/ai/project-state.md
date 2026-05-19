@@ -115,7 +115,7 @@
 
 ---
 
-## Current Status (2026-05-19 — follow-up fixes for #622, #623, #624, #625 committed; smoke pending)
+## Current Status (2026-05-19 — follow-up fixes for #606, #622, #623, #624, #625 committed; smoke pending)
 
 🟡 **Branch `follow-up` stays open. PR #617 still not merged.** PR #621 stacked on top — FK tolerance for production task IDs in the local SQLite. Independent and shippable.
 
@@ -155,8 +155,9 @@
 
 ### Critical-path before next release
 
-- All critical-path blockers (#622–#625) have fixes committed on `follow-up`.
+- All critical-path blockers (#606, #622–#625) have fixes committed on `follow-up`.
 - **#624 fix needs manual smoke confirmation** — no opencode SDK available for live reproduction; fix was by code review. Key behavior: follow-up user messages in an agent session should trigger a new LLM stream.
+- **#606 (action row)** — purely additive Flutter UI; no API changes. Manual smoke should confirm: Copy copies text, Bell arms notification, timestamp shows correctly below each bubble.
 - **#620** is lower-urgency; PR #621 keeps the symptom invisible.
 
 ### Tooling lessons recorded
