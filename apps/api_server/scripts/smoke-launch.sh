@@ -50,22 +50,33 @@ cleanup() {
     sleep 1
     kill -9 -- "-$SPAWN_PID" 2>/dev/null || kill -9 "$SPAWN_PID" 2>/dev/null || true
   fi
-  # Belt-and-suspenders: nuke anything still bound to :4001 that we spawned.
-  STRAY=$(lsof -iTCP:4001 -sTCP:LISTEN -t 2>/dev/null || true)
-  if [ -n "$STRAY" ]; then
-    info "cleanup: killing stray :4001 listener(s) $STRAY"
-    kill -9 $STRAY 2>/dev/null || true
-  fi
+  # Belt-and-suspenders: nuke anything still bound to :4001 or :4096 that
+  # we spawned. The Opencode SDK starts a child 'opencode serve' on :4096
+  # which can survive even with set -m if it was double-forked.
+  for port in 4001 4096; do
+    STRAY=$(lsof -iTCP:"$port" -sTCP:LISTEN -t 2>/dev/null || true)
+    if [ -n "$STRAY" ]; then
+      info "cleanup: killing stray :$port listener(s) $STRAY"
+      kill -9 $STRAY 2>/dev/null || true
+    fi
+  done
+  pkill -9 -f "opencode serve" 2>/dev/null || true
 }
 trap cleanup EXIT INT TERM
 
-# 0. Free :4001 (kill any orphan)
-ORPHAN=$(lsof -iTCP:4001 -sTCP:LISTEN -t 2>/dev/null || true)
-if [ -n "$ORPHAN" ]; then
-  info "killing existing :4001 listener(s): $ORPHAN"
-  kill $ORPHAN 2>/dev/null || true
-  sleep 2
-fi
+# 0. Free :4001 AND :4096 (the Opencode SDK's internal server port).
+# Both can be held by orphans from earlier runs that double-forked past
+# the process group. An orphan on :4096 makes the SDK fail to start with
+# "Failed to start server on port 4096" even though :4001 is free.
+for port in 4001 4096; do
+  ORPHAN=$(lsof -iTCP:"$port" -sTCP:LISTEN -t 2>/dev/null || true)
+  if [ -n "$ORPHAN" ]; then
+    info "killing existing :$port listener(s): $ORPHAN"
+    kill -9 $ORPHAN 2>/dev/null || true
+  fi
+done
+pkill -9 -f "opencode serve" 2>/dev/null || true
+sleep 1
 
 # 1. Sentinel present
 [ -f "$SENTINEL" ] || fail "$SENTINEL missing — run apps/api_server postinstall"
