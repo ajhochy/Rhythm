@@ -2,7 +2,9 @@ import cron, { type ScheduledTask } from 'node-cron';
 import { SyncOrchestratorService } from '../services/sync_orchestrator_service';
 import { logger } from '../utils/logger';
 
-const DEFAULT_SYNC_CRON_SCHEDULE = '*/30 * * * *'; // Every 30 minutes
+// Tightened from */30 to */10 to reduce the window in which production tasks
+// created after the last sync are invisible to the agent server (issue #620).
+const DEFAULT_SYNC_CRON_SCHEDULE = '*/10 * * * *'; // Every 10 minutes
 
 function getSyncCronSchedule(): string {
   return process.env.SYNC_CRON_SCHEDULE ?? DEFAULT_SYNC_CRON_SCHEDULE;

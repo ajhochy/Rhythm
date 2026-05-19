@@ -29,6 +29,7 @@ import { notificationsAgentRouter } from './routes/notifications_agent_routes';
 import { opencodeAuthRouter } from './routes/opencode_auth_routes';
 import { agentModelVisibilityRouter } from './routes/agent_model_visibility_routes';
 import { opencodeModelsRouter } from './routes/opencode_models_routes';
+import { syncRouter } from './routes/sync_routes';
 import { opencodeClient } from './services/opencode_engine';
 
 export function createApp() {
@@ -81,6 +82,7 @@ export function createApp() {
   app.use('/agent-configs', agentConfigsRouter);
   app.use('/agent-sessions', agentSessionsRouter);
   app.use('/projects', projectsRouter);
+  app.use('/sync', syncRouter);
 
   // Opencode engine auth & health
   app.use('/opencode/auth', opencodeAuthRouter);

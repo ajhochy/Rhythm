@@ -2,6 +2,59 @@
 
 ## Recent coding-agent runs
 
+### 2026-05-19 — fix/sync-production-task-mirror (#620)
+- Files modified:
+  - `apps/api_server/src/config/env.ts` — added `prodApiUrl` and `prodAuthToken` fields (read from `PROD_API_URL` / `PROD_AUTH_TOKEN` env vars); defaults to `null` so existing deployments are unaffected
+  - `apps/api_server/src/services/sync_orchestrator_service.ts` — added `mirrorProductionTasksAsync()` method and `fetchProductionTasks()` helper; `runSync()` now calls the mirror before integrations loop. Pagination: fetches pages of 100 until a page is shorter than the limit. Upsert strategy: tasks whose ID already exists verbatim in local DB (pre-split) are updated in-place; new tasks are inserted as `source_type='prod_mirror'` + `source_id=<prod uuid>` so subsequent syncs are idempotent.
+  - `apps/api_server/src/jobs/sync_orchestrator_job.ts` — cron tightened from `*/30` to `*/10` minutes (issue: 30-min window is too large)
+  - `apps/api_server/src/controllers/sync_controller.ts` — new; `POST /sync/now` handler; calls `mirrorProductionTasksAsync()` synchronously and fires `runSync()` in background; returns `{ status, upserted, skipped }`
+  - `apps/api_server/src/routes/sync_routes.ts` — new; mounts `/sync/now`; respects `AGENT_LOCAL` bypass same as all other agent-local routes
+  - `apps/api_server/src/app.ts` — added `syncRouter` import and `app.use('/sync', syncRouter)`
+  - `apps/api_server/src/services/__tests__/sync_orchestrator_service.test.ts` — new; 6 unit tests covering: first-sync upsert, idempotency, pagination, no-op when env unconfigured, graceful failure on network error, in-place update for pre-split tasks
+- Checks run: `ai-workflow checks --level issue` → `flutter analyze` ✓, `dart format` ✓, `tsc --noEmit` ✓. Vitest: pre-existing ABI mismatch (`better-sqlite3` compiled for NODE_MODULE_VERSION 127, runtime requires 137) prevents all SQLite-based tests from running in this environment; this is a known pre-existing condition affecting ALL tests in the repo, not introduced here.
+- Decisions made: root cause is architectural — `SyncOrchestratorService` never had production task mirroring; the local SQLite only had tasks created locally or pre-split. Fix adds OPTIONAL mirroring (no-op when env vars absent) so existing deployments are unaffected. `source_type='prod_mirror'` is used rather than inserting with the original UUID to keep upsert idempotent without collision risk against locally-created tasks with the same UUID; verbatim-ID tasks (pre-split) are handled as a special case. Cron tightened to */10 + manual `/sync/now` endpoint added as dual mitigation.
+- Deviations from spec: none
+- Concerns: `mirrorProductionTasksAsync()` fetches ALL tasks in pages — for very large task lists this could be slow. No incremental sync (e.g. `updatedSince`) because the production API endpoint (`GET /tasks`) doesn't expose a filter param. A future incremental-sync feature would require a server-side `updated_since` query param. The test file is logically correct but cannot execute in this CI environment due to the pre-existing better-sqlite3 ABI issue.
+
+---
+
+### 2026-05-19 — feat/agents-session-ws-events (#605)
+- Files modified: none — all implementation was already committed to this branch prior to this coding-agent run.
+  - `apps/api_server/src/services/ws_gateway.ts` — exports `broadcastSessionUpdated(session)` and `broadcastSessionRemoved(id)` helper functions.
+  - `apps/api_server/src/controllers/agent_sessions_controller.ts` — imports and calls `broadcastSessionUpdated` in `remove` (soft-close) and `update` (PATCH, including archive toggle), and `broadcastSessionRemoved` in `destroy` (hard-delete).
+  - `apps/desktop_flutter/lib/features/agents/models/agent_ws_message.dart` — `SessionUpdatedMessage` and `SessionRemovedMessage` classes with `fromJson` factories; both registered in `AgentWsMessage.parse` switch.
+  - `apps/desktop_flutter/lib/features/agents/controllers/agents_controller.dart` — `_onWsMessage` handles `SessionUpdatedMessage` (upsert via `_upsertById` across sessions/resumable/archived based on archivedAt/status) and `SessionRemovedMessage` (filter from all three lists + clean up liveOutputBuffer, sessionFirstSeenAt, selectedSessionId).
+- Checks run: `ai-workflow checks --level issue` → `flutter analyze` ✓, `dart format` ✓, `tsc --noEmit` ✗ (pre-existing errors in out-of-scope files `sync_orchestrator_service.ts` and `sync_routes.ts`; owned files compile clean).
+- Decisions made: this coding-agent run confirmed all changes already in place. Stream bridge status transitions deferred per issue spec (no trivial hook; regression risk). Follow-up needed: "emit session.updated on stream bridge status transitions".
+- Deviations from spec: stream bridge transitions deferred as spec allowed.
+- Concerns: pre-existing TypeScript errors in out-of-scope files cause `ai-workflow checks` to show failure; owned code is clean.
+
+---
+
+### 2026-05-19 — fix/server-bundled-sentinel-abi-fallback (#615)
+- Files modified:
+  - `apps/desktop_flutter/lib/app/core/server/api_server_service.dart` — implementation was already present from commit `726a5c4` ("fix(server): lifecycle cleanup + ABI-matched Node selection"). No code change was needed; coding-agent verified completeness and ran checks.
+- Checks run: `ai-workflow checks --level issue` → `flutter analyze` ✓ (0 errors), `dart format` ✓ (0 changes), `tsc --noEmit` ✗ (pre-existing errors in out-of-scope unstaged WIP files `sync_orchestrator_service.ts`, `sync_routes.ts`, `sync_controller.ts`; owned `api_server_service.dart` compiles clean)
+- Decisions made: Issue #615 was fully implemented in commit `726a5c4` on 2026-05-16. The implementation covers: (1) `_readRuntimeSentinelFull()` probes both dev walk-up path and `Resources/api_server/.node-runtime.json` bundled path; (2) `File(sentinelNodePath).existsSync()` validation; (3) `_findAbiMatchedNode()` scans candidates + `which node` login-shell fallback with `node -e 'process.stdout.write(process.versions.modules)'`; (4) Rich rebuild error message when no ABI match found.
+- Deviations from spec: none — all four acceptance requirements satisfied in existing code
+- Concerns: ABI fallback startup time: `_findAbiMatchedNode` runs `which node` via login shell + probes up to 4 Node binaries; login shell spawn is ~100-200ms and each `node -e` probe is ~50-100ms. Total overhead on worst-case path: ~500ms. Results are not cached between app launches (no persistent cache). In practice this path only runs when the sentinel's nodePath is missing (e.g. Node uninstalled/moved), so it's not on the hot path.
+
+---
+
+### 2026-05-19 — fix/lifecycle-terminate-spawned-processes (#614)
+- Files modified: none — all implementation was already committed in prior coding-agent runs on this branch
+  - `apps/desktop_flutter/lib/app/core/server/api_server_service.dart` — `stopGracefully()` (SIGTERM→2s→SIGKILL), `_killOrphanIfPresent()` (orphan-port reclaim on boot with PPID=1 check)
+  - `apps/desktop_flutter/lib/main.dart` — SIGINT/SIGTERM signal handlers; `didChangeAppLifecycleState(detached)` calls `stopAndDispose()`
+  - `apps/desktop_flutter/lib/app/core/layout/app_shell.dart` — `WindowListener.onWindowClose()` with `preventClose=true`; calls `AgentServerController.stopAndDispose()` then `windowManager.destroy()`
+  - `apps/api_server/src/server.ts` — SIGTERM/SIGINT shutdown handler: stops cron jobs, calls `opencodeClient.dispose()`, closes WS server, closes HTTP server with 1s force-exit fallback; parent-PID watchdog (polls ppid every 2s; self-shuts on orphan)
+  - `apps/api_server/src/services/opencode_client_service.ts` — `dispose()` calls `server.close()` to kill the opencode subprocess on :4096
+- Checks run: `ai-workflow checks --level issue` → `flutter analyze` ✓, `dart format` ✓, `tsc --noEmit` ✓
+- Decisions made: all lifecycle work was already in place from prior runs in this batch. This coding-agent run confirmed completeness by reading all owned files, then ran validation.
+- Deviations from spec: none
+- Concerns: `didChangeAppLifecycleState(detached)` is a best-effort last resort; Cmd+Q flows through `onWindowClose` which is the primary graceful path. Force-quit (Cmd+Opt+Esc) cannot be intercepted but is handled by the startup orphan-reclaim logic.
+
+---
+
 ### 2026-05-19 — fix/agents-ws-gateway-model-follow-up (#624)
 - Files modified:
   - `apps/api_server/src/services/ws_gateway.ts` — two changes: (1) in the `__pending__` block, persist `providerId`+`modelId` on the session row when the first turn resolves agent kind, so follow-up turns use `resolveModelForSessionTurn`'s session-level path instead of falling back through the authed-provider list; (2) after model resolution, added a guard that sends a `type: 'error'` WS frame and returns early if `model` is `undefined` (unknown agentKind not in resolver catalog), with a `console.log` logging the resolved route for every turn to make silent failures visible
