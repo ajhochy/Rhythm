@@ -2,6 +2,16 @@
 
 ## Recent coding-agent runs
 
+### 2026-05-19 — fix/agents-ws-gateway-model-follow-up (#624)
+- Files modified:
+  - `apps/api_server/src/services/ws_gateway.ts` — two changes: (1) in the `__pending__` block, persist `providerId`+`modelId` on the session row when the first turn resolves agent kind, so follow-up turns use `resolveModelForSessionTurn`'s session-level path instead of falling back through the authed-provider list; (2) after model resolution, added a guard that sends a `type: 'error'` WS frame and returns early if `model` is `undefined` (unknown agentKind not in resolver catalog), with a `console.log` logging the resolved route for every turn to make silent failures visible
+- Checks run: `ai-workflow checks --level issue` → `flutter analyze` ✓, `dart format` ✓, `tsc --noEmit` ✓
+- Decisions made: fix by code-review only (no opencode SDK available for live reproduction). Root-cause theory: `__pending__` sessions' first `session.input` carries `perTurnOverride` but never persisted `providerId`/`modelId` on the session row; follow-up turns (no override) fell back to `resolveModelForAgent` which could return a different model or `undefined` for unknown agent kinds. Added both the persistence fix and the defensive guard. Analogous to commit `40d4fee` which added model resolution in the first place.
+- Deviations from spec: none
+- Concerns: live reproduction requires the opencode SDK; manual smoke at end of batch will confirm. The `updateFields` call in the `__pending__` block is best-effort (wrapped in try-catch); if it fails, the follow-up will still use `resolveModelForAgent` as fallback. The new guard for `undefined` model will surface previously-silent failures as a WS error frame.
+
+---
+
 ### 2026-05-19 — feat/agents-question-tool-selector (#622)
 - Files modified:
   - `apps/desktop_flutter/lib/features/agents/views/_question_tool_card.dart` — new file; `QuestionToolCard` StatefulWidget; parses `toolArgs.questions[]` into interactive answer buttons; submits via `AgentsController.sendInput`; shows "Answered: <label>" stub after selection; handles multi-question batch flows

@@ -199,14 +199,28 @@ function handleClientMessage(ws: WebSocket, raw: import('ws').RawData): void {
             }
             agentKind = resolvedAgent;
             // Persist the resolved agent kind on the session row so subsequent turns
-            // don't need a modelOverride.
+            // don't need a modelOverride.  Also persist the chosen provider+model so
+            // resolveModelForSessionTurn can use them directly on follow-up turns
+            // instead of falling back through the authed-provider list (which may
+            // return a different model if auth state has changed).
             try {
-              new AgentSessionsRepository().updateAgentKind(id, resolvedAgent);
+              const pendingRepo = new AgentSessionsRepository();
+              pendingRepo.updateAgentKind(id, resolvedAgent);
+              // Persist the specific model the user chose so follow-up turns
+              // (which carry no modelOverride) resolve to the same provider/model.
+              pendingRepo.updateFields(id, {
+                providerId: perTurnOverride.providerId,
+                modelId: perTurnOverride.modelId,
+              });
+              // Reflect persisted values in local vars so the resolver below
+              // uses them for this very turn (avoids a second DB read).
+              sessionProviderId = perTurnOverride.providerId;
+              sessionModelId = perTurnOverride.modelId;
             } catch {
               /* best-effort — don't block the prompt if DB write fails */
             }
             console.log(
-              `[ws_gateway] agent-less session ${id}: resolved agent '${resolvedAgent}' from provider '${perTurnOverride.providerId}'`,
+              `[ws_gateway] agent-less session ${id}: resolved agent '${resolvedAgent}' from provider '${perTurnOverride.providerId}', model '${perTurnOverride.modelId}'`,
             );
           }
 
@@ -285,6 +299,30 @@ function handleClientMessage(ws: WebSocket, raw: import('ws').RawData): void {
                   perTurnOverride,
                 })
               : undefined;
+
+            // Guard: if model is undefined (unknown agentKind not in the
+            // resolver's fallback table), surface the problem explicitly
+            // instead of forwarding an undeclared model to the SDK.  The SDK
+            // silently no-ops on undefined model — it stores the user message
+            // part and publishes message.updated events, but never fires an
+            // LLM call, leaving the UI stuck on "working" indefinitely.
+            if (!model && agentKind) {
+              console.error(
+                `[ws_gateway] session ${id}: could not resolve model for agentKind='${agentKind}' — no route in catalog`,
+              );
+              ws.send(
+                JSON.stringify({
+                  v: 1,
+                  type: 'error',
+                  id,
+                  message: `Could not resolve a model for agent '${agentKind}'. Please select a model in the session settings.`,
+                }),
+              );
+              return;
+            }
+            console.log(
+              `[ws_gateway] session ${id}: routing turn to ${model ? `${model.providerID}/${model.modelID}` : '<no model>'}`,
+            );
 
             // Issue #604: build optional thinking / fast-mode opts to pass through.
             // Resolution order: per-turn field overrides session-level field.
