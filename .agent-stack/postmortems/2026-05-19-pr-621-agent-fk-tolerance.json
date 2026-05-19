@@ -1,0 +1,58 @@
+{
+  "date": "2026-05-19",
+  "pr": 621,
+  "title": "fix(agent-sessions): tolerate taskId missing from local SQLite",
+  "branch": "fix/agent-session-fk-task-id-tolerance-followup",
+  "base": "follow-up (PR #617)",
+  "verification_gate": {
+    "tsc": "clean",
+    "tests": "508/508 (apps/api_server)",
+    "flutter_analyze": "0 errors (info-only)",
+    "smoke_pipeline": "PASS via npm run smoke:launch",
+    "live_acceptance": "POST against running Rhythm.app api_server with bogus taskId returned HTTP 201, WARN logged, taskTitle preserved",
+    "red_green_proof": "reverting controller fix while keeping tests fails 2 acceptance tests with HTTP 500 expected 201; restoring fix returns to 508/508"
+  },
+  "manual_smoke_result": "PASS for the PR's scope (FK tolerance); 4 unrelated defects caught during smoke and filed as follow-ups",
+  "followups_filed_during_smoke": [
+    { "id": 620, "title": "sync: local SQLite tasks table missing tasks that exist on production", "relation": "the underlying gap the FK tolerance defends against; #621 is the boundary fix, #620 fixes the mirror" },
+    { "id": 622, "title": "agent chat: 'question' tool call renders as raw args instead of an answer selector" },
+    { "id": 623, "title": "agent chat: Task-ready bubble forces agent pre-selection instead of using the composer picker" },
+    { "id": 624, "title": "agent chat: follow-up user message accepted by SDK but no LLM call fires; UI stuck on 'working'" },
+    { "id": 625, "title": "agent chat: mini-bubble transcript blanks when a different session is selected in the Agents tab" }
+  ],
+  "what_went_well": [
+    "Acceptance contract caught a real claim that the original test only covered 'row inserted' — strengthened to assert opencodeClient.createSession + opencodeSessionMap + promptAsync, the actual 'session launches' invariants.",
+    "Red/green proof (revert fix → 2 fail with HTTP 500; restore fix → 508/508) demonstrated the tests gate on the fix, not on incidental setup.",
+    "smoke-launch.sh + npm run smoke:launch caught two distinct orphan classes that had been costing the user repeated 'click Retry' cycles."
+  ],
+  "what_went_wrong": [
+    {
+      "issue": "PR opened against stale main",
+      "cost": "Forced a re-base to the follow-up branch (PR #617) after the user pointed out the agent picker dialog UI was obsolete. PR #619 had to be closed and superseded by #621.",
+      "root_cause": "Default branch verification step skipped — orchestrator didn't run 'ai-workflow status' or audit open draft PRs before branching off main.",
+      "prevention": "Workflow-orchestrator must check `gh pr list --state open` for active draft PRs that may be the true trunk before branching. Update planning skill to make this explicit."
+    },
+    {
+      "issue": "Smoke script v1 leaked process-group children, orphaning opencode-serve on :4096",
+      "cost": "User saw 'Opencode Engine not ready' on retry; Rhythm.app silently 'reused' the stale dev-DB api_server, surfacing as 'old code reverted' confusion.",
+      "root_cause": "Spawn without `set -m`; cleanup only killed the main PID, not the SDK's child opencode-serve. Combined with cwd-defaulted DB_PATH writing apps/api_server/rhythm.db.",
+      "prevention": "Smoke now uses set -m, kills the process group, additionally pkills 'opencode serve', and points DB_PATH at /tmp/rhythm-smoke/smoke.db. Hardened in commit 0cdd255."
+    },
+    {
+      "issue": "User had to click Retry repeatedly while ABI was diagnosed",
+      "cost": "Friction; user explicitly asked for an automated test to replace manual clicks.",
+      "root_cause": "Initial better-sqlite3 rebuild used PATH-shadowed Node (v24 ABI 137 instead of v22 ABI 127). The rebuild ran nominally through /usr/local/bin/npm but its node-gyp child picked up /opt/homebrew/bin/node from PATH.",
+      "prevention": "When rebuilding native modules in a session where 'which node' differs from the sentinel Node, prefix the rebuild with explicit PATH=/usr/local/bin:$PATH. The smoke script now ABI-checks the binary against the sentinel Node before spawn so this fails fast next time."
+    }
+  ],
+  "decisions": [
+    "Closed PR #619 and opened PR #621 against follow-up rather than rebasing main forward. Cleaner: #617/#621 ship together; main carries no half-baked staging.",
+    "Hardened smoke covers :4001, :4096, and any 'opencode serve' process — not just :4001 — because the SDK's child server matters as much as the api_server itself for end-to-end behavior.",
+    "Used an isolated DB_PATH for smoke so stray orphan processes can never corrupt user data."
+  ],
+  "lessons_for_workflow_orchestrator": [
+    "Branch-detection: before creating a new branch off main, check `gh pr list --state open` for draft/long-lived trunk PRs.",
+    "Smoke definition: 'session actually launches' means SDK session created + map registered + initial prompt fired, not just 'HTTP 201'. Acceptance contract should encode the full chain.",
+    "Spawn cleanup: any subprocess that creates further subprocesses needs process-group lifecycle. Cleanup must enumerate ports the child binds, not just the parent's port."
+  ]
+}

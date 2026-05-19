@@ -1,6 +1,51 @@
 # Project State
 
-## Current Status (2026-05-18 — manual smoke of vbeta.18.36; iterate on `follow-up`, do not merge #617 yet)
+## Current Status (2026-05-19 — PR #621 open against follow-up; 5 follow-up bugs filed during smoke)
+
+🟡 **Branch `follow-up` stays open. PR #617 still not merged.** PR #621 stacked on top — FK tolerance for production task IDs in the local SQLite. Independent and shippable.
+
+### Today's work
+
+[**PR #621**](https://github.com/ajhochy/Rhythm/pull/621) — `fix(agent-sessions): tolerate taskId missing from local SQLite (rebased onto #617/follow-up)`. Branch `fix/agent-session-fk-task-id-tolerance-followup`. Supersedes the closed PR #619 (which was against stale `main`).
+
+**Bug fixed**: POST `/agent-sessions` with a `taskId` not in the local SQLite `tasks` table returned 500. Flutter picker reads tasks from production (`api.vcrcapps.com`) but POSTs hit localhost; the sync mirror is incomplete; SQLite raises `SQLITE_CONSTRAINT_FOREIGNKEY` on `agent_sessions.task_id REFERENCES tasks(id)`; controller doesn't catch it. New-session dialog showed "Something went wrong on the server"; Task-ready bubble showed "Internal server error".
+
+**Fix**: in `agent_sessions_controller.create()`, probe `TasksRepository.findByIdIncludingLegacy(taskId)` before insert. On miss, log `warn` and null out `task_id`; `task_title` is preserved (the schema stores them independently — see migration comment introducing `task_title`).
+
+**Acceptance contract** at `docs/ai/contracts/pr-619.json`. Two strengthened tests assert the full launch path: HTTP 201 + reconciled taskId + preserved taskTitle + `opencodeClient.createSession(name, cwd)` invoked + `opencodeSessionMap` populated + `promptAsync` invoked with initial prompt containing taskTitle. Red proven by reverting the controller fix → 2 fail with `expected 500 to be 201`. Green: 508/508.
+
+**Smoke infrastructure**: `apps/api_server/scripts/smoke-launch.sh` (`npm run smoke:launch`). Verifies sentinel Node + ABI match + dist build, spawns the api_server with exactly the env Flutter uses (`PORT=4001 AGENT_LOCAL=true DB_PATH=/tmp/rhythm-smoke/smoke.db`), hits `/health`, `/agents/capabilities`, and the PR's regression POST. Uses `set -m` + process-group kill on cleanup + `pkill -9 -f "opencode serve"` so the SDK's child server on `:4096` can't orphan and surface as "Reusing existing server on :4001" on the next Rhythm.app launch (which silently coupled stale dev servers earlier in this session).
+
+**Live verification**: against the running `flutter run -d macos` app, POST with bogus taskId returned **HTTP 201**, WARN was logged, taskTitle preserved. End-to-end through the actual SDK and Anthropic provider.
+
+### Bugs caught during manual smoke and filed as follow-ups
+
+| # | Title | Notes |
+|---|---|---|
+| [#620](https://github.com/ajhochy/Rhythm/issues/620) | sync: local SQLite tasks table missing tasks that exist on production | The underlying gap PR #621 defends against. #621 is the boundary fix; #620 fixes the mirror. |
+| [#622](https://github.com/ajhochy/Rhythm/issues/622) | agent chat: `question` tool call renders as raw args instead of an answer selector | Wall of JSON shown instead of clickable options. Any agent that asks structured questions becomes unusable. |
+| [#623](https://github.com/ajhochy/Rhythm/issues/623) | agent chat: Task-ready bubble forces agent pre-selection instead of using the composer picker | Bubble's `startAgent(agentId)` predates the #602 composer redesign. Should open agent-less. |
+| [#624](https://github.com/ajhochy/Rhythm/issues/624) | agent chat: follow-up user message accepted by SDK but no LLM call fires; UI stuck on "working" | **Critical**: first prompt's 7-step output works; second prompt logs only `message.updated` — no `step=N loop`, no `service=llm`, no deltas. Smells like a regression of the `40d4fee` "model on follow-up turns" fix. Includes the SDK timeline as repro. Also covers the related persistence desync (`lastActivityAt` stays null even after streamed output). |
+| [#625](https://github.com/ajhochy/Rhythm/issues/625) | agent chat: mini-bubble transcript blanks when a different session is selected in the Agents tab | Bubble reads from `_transcript[selectedSessionId]` instead of its own `widget.entry.sessionId`. Breaks the persistent-chat premise of the bubble overlay entirely. |
+
+### Critical-path before next release
+
+- **#624** blocks every follow-up turn → no agent chat usable past the first prompt.
+- **#622** + **#625** break the agent UX even when #624 lands.
+- **#620** is lower-urgency because PR #621 now keeps the symptom invisible to users.
+
+### Tooling lessons recorded
+
+Postmortem: `.agent-stack/postmortems/2026-05-19-pr-621-agent-fk-tolerance.json`. Two reusable artifacts:
+
+1. `apps/api_server/scripts/smoke-launch.sh` — repeatable build+spawn pipeline check. Catches ABI mismatches and orphan-port issues programmatically instead of "click Retry, repeat."
+2. The acceptance-contract pattern (`docs/ai/contracts/pr-619.json`) — tests that prove **launch**, not just **insert**. The mandate "PASS = sessions actually launch" came directly from the user when the earlier test was only proving the row was inserted.
+
+Workflow lesson: **before branching off `main`, check `gh pr list --state open` for an active draft trunk** (#617 was the real trunk; the original PR #619 was wasted effort branching off stale `main`).
+
+---
+
+## Previous Status (2026-05-18 — manual smoke of vbeta.18.36; iterate on `follow-up`, do not merge #617 yet)
 
 🟡 **Branch `follow-up` stays open. PR #617 NOT merged.** User decision after a full manual smoke pass: keep grinding bugs on this branch, re-smoke after each fix cluster, merge to `main` only when ≥80% of the original smoke checklist passes cleanly.
 
