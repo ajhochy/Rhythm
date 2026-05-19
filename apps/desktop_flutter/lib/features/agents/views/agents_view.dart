@@ -871,7 +871,7 @@ class _ResumableSessionRow extends StatelessWidget {
   }
 }
 
-/// Row for an archived session. Tapping "Restore" calls [onUnarchive].
+/// Row for an archived session. Has "Restore" and "Delete permanently" actions.
 class _ArchivedSessionRow extends StatelessWidget {
   const _ArchivedSessionRow({
     required this.session,
@@ -880,6 +880,35 @@ class _ArchivedSessionRow extends StatelessWidget {
 
   final AgentSession session;
   final VoidCallback onUnarchive;
+
+  Future<void> _confirmDelete(BuildContext context) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete session permanently?'),
+        content: Text(
+          'This permanently removes "${session.name}" and all of its messages. '
+          'This cannot be undone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(ctx).colorScheme.error,
+            ),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    if (!context.mounted) return;
+    await context.read<AgentsController>().deleteSession(session.id);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -919,6 +948,41 @@ class _ArchivedSessionRow extends StatelessWidget {
               tapTargetSize: MaterialTapTargetSize.shrinkWrap,
             ),
             child: const Text('Restore', style: TextStyle(fontSize: 12)),
+          ),
+          PopupMenuButton<String>(
+            tooltip: 'More actions',
+            icon: Icon(
+              Icons.more_horiz,
+              size: 15,
+              color: context.rhythm.textMuted,
+            ),
+            padding: EdgeInsets.zero,
+            iconSize: 15,
+            splashRadius: 14,
+            itemBuilder: (_) => [
+              PopupMenuItem<String>(
+                value: 'delete',
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.delete_outline,
+                      size: 16,
+                      color: Theme.of(context).colorScheme.error,
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Delete permanently',
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.error,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+            onSelected: (v) {
+              if (v == 'delete') _confirmDelete(context);
+            },
           ),
         ],
       ),
