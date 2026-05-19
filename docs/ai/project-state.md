@@ -2,6 +2,24 @@
 
 ## Recent coding-agent runs
 
+### 2026-05-19 — feat/agents-per-message-action-row (#606)
+- Files modified:
+  - `apps/desktop_flutter/lib/features/agents/views/_message_actions_row.dart` — new file; `MessageActionsRow` StatefulWidget with Copy icon (flash animation), Bell/notify toggle, relative timestamp; `MessageTimeTicker` wrapper using a global `_TimeTick` ChangeNotifier (single `Timer.periodic` shared across all rows); `_relativeTime` helper (just now / Xm / Xh / full date).
+  - `apps/desktop_flutter/lib/features/agents/views/agents_view.dart` — wired `MessageActionsRow` and `MessageTimeTicker` into `_buildTranscriptBody`; `copyText` computed from parts before `_ChatBubble` call; action row inserted in Column after bubble, inside `ListView.builder`.
+  - `apps/desktop_flutter/lib/features/agents/controllers/agents_controller.dart` — `_notifyOnCompletion` Set<String>, `isNotifyArmed`, `toggleNotify`, `_fireArmedNotifications`; `LocalNotificationService.showMessageNotification` called when session finishes working with armed messages.
+- Checks run: `ai-workflow checks --level issue` → `flutter analyze` ✓, `dart format` ✓, `tsc --noEmit` ✓
+- Decisions made: used a single global `_TimeTick` ChangeNotifier (one Timer for all rows) instead of per-bubble timers to avoid timer proliferation in long transcripts. Action row is outside `_ChatBubble` (in the ListView itemBuilder Column), not inside, to keep `_ChatBubble` a pure renderer. Notify key format is `"$sessionId:$messageId"` to scope flags per session.
+- Deviations from spec: none — all acceptance criteria implemented; action row not shown for "…" placeholder (empty children guard in `_ChatBubble` returns early before the Column wrapping the row is reached).
+- Concerns: `_globalTimeTick` is a module-level singleton — it runs for the app lifetime even when no chat is visible. Overhead is minimal (one tick per minute, no widget rebuild unless `MessageTimeTicker` is in tree). Timer is properly cancelled in `_TimeTick.dispose()` but dispose is never called on the singleton; acceptable for a long-lived app-level resource.
+
+### 2026-05-19 — feat/agents-archive-ui (#601)
+- Files modified:
+  - `apps/desktop_flutter/lib/features/agents/views/agents_view.dart` — added `_confirmDelete` method and "Delete permanently" `PopupMenuButton` to `_ArchivedSessionRow` so hard-delete is available from archived rows; all other acceptance criteria were already implemented on this branch
+- Checks run: `ai-workflow checks --level issue` → `flutter analyze` ✓, `dart format` ✓, `tsc --noEmit` ✓
+- Decisions made: All archive infrastructure (model `archivedAt` field, data source `archiveSession`/`unarchiveSession`, controller `archiveSession`/`unarchiveSession`/`loadArchivedSessions`/`archived` getter, WS `session.updated` routing, collapsible Archived section in `_SessionListPanelState`, `_SessionRowMenu` with Archive + Delete items, `_ArchivedSessionRow` with Restore button) was already implemented in prior runs on this branch (#605 WS broadcasts). The only gap was "Delete permanently" on archived rows — added as a `PopupMenuButton` with confirm dialog.
+- Deviations from spec: none — all four acceptance criteria satisfied
+- Concerns: none; the `deleteSession` controller method handles archived rows correctly (removes from `_sessions` but `_archived` is managed by WS `session.removed` broadcast; optimistic local removal works because `deleteSession` filters all three lists indirectly via WS)
+
 ### 2026-05-19 — fix/sync-production-task-mirror (#620)
 - Files modified:
   - `apps/api_server/src/config/env.ts` — added `prodApiUrl` and `prodAuthToken` fields (read from `PROD_API_URL` / `PROD_AUTH_TOKEN` env vars); defaults to `null` so existing deployments are unaffected
