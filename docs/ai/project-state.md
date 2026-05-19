@@ -44,7 +44,7 @@
 
 ---
 
-## Current Status (2026-05-19 — PR #621 open against follow-up; 5 follow-up bugs filed during smoke)
+## Current Status (2026-05-19 — follow-up fixes for #622, #623, #624, #625 committed; smoke pending)
 
 🟡 **Branch `follow-up` stays open. PR #617 still not merged.** PR #621 stacked on top — FK tolerance for production task IDs in the local SQLite. Independent and shippable.
 
@@ -72,11 +72,21 @@
 | [#624](https://github.com/ajhochy/Rhythm/issues/624) | agent chat: follow-up user message accepted by SDK but no LLM call fires; UI stuck on "working" | **Critical**: first prompt's 7-step output works; second prompt logs only `message.updated` — no `step=N loop`, no `service=llm`, no deltas. Smells like a regression of the `40d4fee` "model on follow-up turns" fix. Includes the SDK timeline as repro. Also covers the related persistence desync (`lastActivityAt` stays null even after streamed output). |
 | [#625](https://github.com/ajhochy/Rhythm/issues/625) | agent chat: mini-bubble transcript blanks when a different session is selected in the Agents tab | Bubble reads from `_transcript[selectedSessionId]` instead of its own `widget.entry.sessionId`. Breaks the persistent-chat premise of the bubble overlay entirely. |
 
+### Follow-up bug status (2026-05-19 batch fixes)
+
+| # | Title | Status |
+|---|---|---|
+| [#622](https://github.com/ajhochy/Rhythm/issues/622) | `question` tool renders as raw args | ✅ Fixed — commit `3abb2f4` |
+| [#623](https://github.com/ajhochy/Rhythm/issues/623) | Task-ready bubble forces agent pre-selection | ✅ Fixed — commit `1844fce` |
+| [#624](https://github.com/ajhochy/Rhythm/issues/624) | Follow-up prompt: no LLM call fires, UI stuck on "working" | ✅ Fixed — commit `37fcc26` (code-review fix; manual smoke to confirm) |
+| [#625](https://github.com/ajhochy/Rhythm/issues/625) | Mini-bubble transcript blanks on session switch | ✅ Fixed — earlier commit |
+| [#620](https://github.com/ajhochy/Rhythm/issues/620) | Local SQLite tasks table missing production tasks | 🟡 Open — lower priority; PR #621 defends the boundary |
+
 ### Critical-path before next release
 
-- **#624** blocks every follow-up turn → no agent chat usable past the first prompt.
-- **#622** + **#625** break the agent UX even when #624 lands.
-- **#620** is lower-urgency because PR #621 now keeps the symptom invisible to users.
+- All critical-path blockers (#622–#625) have fixes committed on `follow-up`.
+- **#624 fix needs manual smoke confirmation** — no opencode SDK available for live reproduction; fix was by code review. Key behavior: follow-up user messages in an agent session should trigger a new LLM stream.
+- **#620** is lower-urgency; PR #621 keeps the symptom invisible.
 
 ### Tooling lessons recorded
 
