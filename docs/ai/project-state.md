@@ -1,5 +1,18 @@
 # Project State
 
+## Recent coding-agent runs
+
+### 2026-05-19 — fix/agents-bubble-transcript-per-session (#625)
+- Files modified:
+  - `apps/desktop_flutter/lib/features/agents/controllers/agents_controller.dart` — added `_transcriptsBySession` map and `transcriptFor(sessionId)` getter; updated all `_transcript` write sites (reconnect, selectSession, TranscriptAppendMessage, WsErrorMessage) to also write per-session
+  - `apps/desktop_flutter/lib/app/core/agents/agent_bubble_overlay.dart` — replaced `agents.transcript` + `isSelected` gate with `agents.transcriptFor(sessionId)` so bubble always shows its own session's transcript
+- Checks run: `flutter analyze` ✓, `dart format` ✓, `tsc --noEmit` ✓
+- Decisions made: added `_transcriptsBySession` as an additive map alongside the existing `_transcript` flat list; `_transcript` retained unchanged for backward compat with the main Agents tab view; both stores are updated in lock-step at every write site
+- Deviations from spec: none
+- Concerns: `_transcriptsBySession` grows unbounded for long-running sessions with many messages (same as `_liveOutputBuffer`); no concern for typical church-staff use; same behavior as existing `_liveOutputBuffer`.
+
+---
+
 ## Current Status (2026-05-19 — PR #621 open against follow-up; 5 follow-up bugs filed during smoke)
 
 🟡 **Branch `follow-up` stays open. PR #617 still not merged.** PR #621 stacked on top — FK tolerance for production task IDs in the local SQLite. Independent and shippable.

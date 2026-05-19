@@ -82,6 +82,12 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   String? _selectedSessionId;
   List<AgentSessionMessage> _transcript = [];
 
+  /// Per-session transcript store — keyed by sessionId.
+  /// The mini-bubble overlay reads from here so it always shows its own
+  /// session's transcript regardless of which session is selected in the
+  /// main Agents tab.
+  final Map<String, List<AgentSessionMessage>> _transcriptsBySession = {};
+
   /// Live PTY output buffer keyed by session id.
   /// Plain string concatenation; capped at ~200 KB to prevent unbounded growth.
   /// Retained for legacy `_LiveOutputBlock` rendering during the transition.
@@ -176,6 +182,12 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
       _resumable.firstWhereOrNull((s) => s.id == _selectedSessionId);
 
   List<AgentSessionMessage> get transcript => List.unmodifiable(_transcript);
+
+  /// Per-session transcript for [sessionId], independent of which session is
+  /// currently selected.  Used by the mini-bubble overlay so it always shows
+  /// its own session's transcript.
+  List<AgentSessionMessage> transcriptFor(String sessionId) =>
+      List.unmodifiable(_transcriptsBySession[sessionId] ?? const []);
 
   String liveOutputFor(String sessionId) => _liveOutputBuffer[sessionId] ?? '';
 
@@ -668,6 +680,7 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
       }
       _repository.send({'type': 'session.subscribe', 'id': id});
       final result = await _repository.getSession(id);
+      _transcriptsBySession[id] = result.messages;
       if (_selectedSessionId == id) {
         _transcript = result.messages;
         notifyListeners();
@@ -838,6 +851,7 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     notifyListeners();
     try {
       final result = await _repository.getSession(id);
+      _transcriptsBySession[id] = result.messages;
       if (_selectedSessionId == id) {
         _transcript = result.messages;
         notifyListeners();
@@ -1032,33 +1046,39 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
       // Finalize the streamed assistant turn into the visible transcript and
       // drop the live preview buffer for this session. The bridge emits this
       // on session.idle (and on session.error with partial text).
+      final appendedMsg = AgentSessionMessage(
+        id: 0,
+        sessionId: msg.id,
+        role: msg.role.isEmpty ? 'output' : msg.role,
+        rawText: msg.text,
+        strippedText: msg.text,
+        createdAt: DateTime.now(),
+      );
+      // Always update the per-session store (used by mini-bubble overlay).
+      _transcriptsBySession[msg.id] = [
+        ...(_transcriptsBySession[msg.id] ?? []),
+        appendedMsg,
+      ];
       if (msg.id == _selectedSessionId) {
-        _transcript = [
-          ..._transcript,
-          AgentSessionMessage(
-            id: 0,
-            sessionId: msg.id,
-            role: msg.role.isEmpty ? 'output' : msg.role,
-            rawText: msg.text,
-            strippedText: msg.text,
-            createdAt: DateTime.now(),
-          ),
-        ];
+        _transcript = [..._transcript, appendedMsg];
       }
       _liveOutputBuffer.remove(msg.id);
     } else if (msg is WsErrorMessage) {
+      final errorMsg = AgentSessionMessage(
+        id: 0,
+        sessionId: msg.id,
+        role: 'system',
+        rawText: 'Error: ${msg.message}',
+        strippedText: 'Error: ${msg.message}',
+        createdAt: DateTime.now(),
+      );
+      // Always update the per-session store (used by mini-bubble overlay).
+      _transcriptsBySession[msg.id] = [
+        ...(_transcriptsBySession[msg.id] ?? []),
+        errorMsg,
+      ];
       if (msg.id == _selectedSessionId) {
-        _transcript = [
-          ..._transcript,
-          AgentSessionMessage(
-            id: 0,
-            sessionId: msg.id,
-            role: 'system',
-            rawText: 'Error: ${msg.message}',
-            strippedText: 'Error: ${msg.message}',
-            createdAt: DateTime.now(),
-          ),
-        ];
+        _transcript = [..._transcript, errorMsg];
       }
       _liveOutputBuffer.remove(msg.id);
     } else if (msg is SessionUpdatedMessage) {

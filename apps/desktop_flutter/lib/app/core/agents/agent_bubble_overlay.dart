@@ -273,11 +273,10 @@ class _ExpandedSessionBubbleState extends State<_ExpandedSessionBubble> {
     final sessionId = widget.entry.sessionId!;
 
     final liveOutput = agents.liveOutputFor(sessionId);
-    final transcript = agents.transcript;
-    // Show transcript only when this session is selected in AgentsController
-    final isSelected = agents.selectedSessionId == sessionId;
-    final messages =
-        isSelected ? transcript.take(50).toList() : <AgentSessionMessage>[];
+    // Always read from the per-session store so the bubble shows its own
+    // session's transcript regardless of which session is selected in the
+    // main Agents tab (fix #625).
+    final messages = agents.transcriptFor(sessionId).take(50).toList();
 
     _scrollToBottom();
 
