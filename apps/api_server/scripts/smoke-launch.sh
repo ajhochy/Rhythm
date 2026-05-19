@@ -19,6 +19,12 @@
 #
 # Usage: bash apps/api_server/scripts/smoke-launch.sh
 set -uo pipefail
+# Enable job control so the background spawn lives in its own process group;
+# this lets us kill the whole tree (including the Opencode SDK's child node
+# server) on cleanup. Without this the Opencode child reparents to launchd
+# and keeps :4001 bound — causing the next Rhythm.app launch to "reuse" a
+# stale server pointing at the wrong DB.
+set -m
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 API_SERVER_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -27,7 +33,11 @@ SENTINEL="$API_SERVER_DIR/.node-runtime.json"
 DIST="$API_SERVER_DIR/dist/server.js"
 LOG_DIR="/tmp/rhythm-smoke"
 LOG="$LOG_DIR/api-server.log"
+# Isolated DB so smoke can never overwrite the user's real data at
+# ~/Library/Application Support/Rhythm/rhythm.db.
+SMOKE_DB="$LOG_DIR/smoke.db"
 mkdir -p "$LOG_DIR"
+rm -f "$SMOKE_DB" "$SMOKE_DB-shm" "$SMOKE_DB-wal"
 
 fail() { echo "❌ FAIL: $*"; exit "${2:-1}"; }
 ok()   { echo "✅ $*"; }
@@ -35,12 +45,19 @@ info() { echo "ℹ️  $*"; }
 
 cleanup() {
   if [ -n "${SPAWN_PID:-}" ]; then
-    kill "$SPAWN_PID" 2>/dev/null || true
+    # Kill the whole process group so the Opencode SDK child node dies too.
+    kill -- "-$SPAWN_PID" 2>/dev/null || kill "$SPAWN_PID" 2>/dev/null || true
     sleep 1
-    kill -9 "$SPAWN_PID" 2>/dev/null || true
+    kill -9 -- "-$SPAWN_PID" 2>/dev/null || kill -9 "$SPAWN_PID" 2>/dev/null || true
+  fi
+  # Belt-and-suspenders: nuke anything still bound to :4001 that we spawned.
+  STRAY=$(lsof -iTCP:4001 -sTCP:LISTEN -t 2>/dev/null || true)
+  if [ -n "$STRAY" ]; then
+    info "cleanup: killing stray :4001 listener(s) $STRAY"
+    kill -9 $STRAY 2>/dev/null || true
   fi
 }
-trap cleanup EXIT
+trap cleanup EXIT INT TERM
 
 # 0. Free :4001 (kill any orphan)
 ORPHAN=$(lsof -iTCP:4001 -sTCP:LISTEN -t 2>/dev/null || true)
@@ -70,8 +87,8 @@ ok "better-sqlite3 loads under sentinel Node"
 ok "dist/server.js present"
 
 # 4. Spawn the server exactly like Rhythm.app does
-info "spawning: $NODE_PATH $DIST (PORT=4001 AGENT_LOCAL=true) — same env Flutter ApiServerService uses"
-( cd "$API_SERVER_DIR" && AGENT_LOCAL=true PORT=4001 "$NODE_PATH" "$DIST" >"$LOG" 2>&1 ) &
+info "spawning: $NODE_PATH $DIST (PORT=4001 AGENT_LOCAL=true DB_PATH=$SMOKE_DB)"
+( cd "$API_SERVER_DIR" && AGENT_LOCAL=true PORT=4001 DB_PATH="$SMOKE_DB" "$NODE_PATH" "$DIST" >"$LOG" 2>&1 ) &
 SPAWN_PID=$!
 info "pid=$SPAWN_PID waiting for :4001 (25s budget)"
 
