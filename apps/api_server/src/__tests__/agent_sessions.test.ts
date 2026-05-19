@@ -748,4 +748,58 @@ describe('Agent Sessions API', () => {
     });
     expect(res.status).toBe(400);
   });
+
+  // ── FK tolerance: taskId not in local tasks table ─────────────────────────
+
+  it('creates a session with taskId=null when taskId is not present in the local tasks table', async () => {
+    // foreign_keys = ON is set in makeDb(); this taskId does not exist in tasks.
+    const bogusTaskId = 'definitely-not-in-local-db';
+    const taskTitle = 'Synthetic task from production';
+
+    const res = await fetch(`${baseUrl}/agent-sessions`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({
+        agentId: 'claude-code',
+        cwd: os.homedir(),
+        name: 'FK tolerance test',
+        taskId: bogusTaskId,
+        taskTitle,
+      }),
+    });
+
+    expect(res.status).toBe(201);
+    const session = (await res.json()) as { taskId: string | null; taskTitle: string | null };
+    // taskId should be nulled out (not in local DB); taskTitle preserved for UI
+    expect(session.taskId).toBeNull();
+    expect(session.taskTitle).toBe(taskTitle);
+  });
+
+  it('creates a session with taskId set when taskId exists in the local tasks table', async () => {
+    // Insert a real task into the local DB so the FK check passes.
+    const { getDb } = await import('../database/db');
+    const db = getDb();
+    const taskId = 'local-task-abc123';
+    db.prepare(
+      `INSERT INTO tasks (id, title, status, created_at, updated_at)
+       VALUES (?, 'Local Task', 'pending', datetime('now'), datetime('now'))`,
+    ).run(taskId);
+
+    const res = await fetch(`${baseUrl}/agent-sessions`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({
+        agentId: 'claude-code',
+        cwd: os.homedir(),
+        name: 'Real task FK test',
+        taskId,
+        taskTitle: 'Local Task',
+      }),
+    });
+
+    expect(res.status).toBe(201);
+    const session = (await res.json()) as { taskId: string | null; taskTitle: string | null };
+    expect(session.taskId).toBe(taskId);
+    expect(session.taskTitle).toBe('Local Task');
+  });
 });

@@ -5,9 +5,11 @@ import { AgentSessionsRepository } from '../repositories/agent_sessions_reposito
 import { AgentSessionMessagesRepository } from '../repositories/agent_session_messages_repository';
 import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
 import { ProjectsRepository } from '../repositories/projects_repository';
+import { TasksRepository } from '../repositories/tasks_repository';
 import type { AgentKind, CreateAgentSessionDto } from '../models/agent_session';
 import { opencodeClient, opencodeSessionMap } from '../services/opencode_engine';
 import { streamBridge } from '../services/opencode_stream_bridge';
+import { logger } from '../utils/logger';
 
 // Legacy agentId aliases. Older Rhythm clients (and a handful of historical
 // scripts) used short names. /agents/capabilities and the seed both use
@@ -100,9 +102,25 @@ export class AgentSessionsController {
         throw AppError.badRequest('name is required and must be a non-empty string');
       }
 
+      let resolvedTaskId: string | null = null;
       if (taskId !== undefined && taskId !== null) {
         if (typeof taskId !== 'string') {
           throw AppError.badRequest('taskId must be a string');
+        }
+        // Defensive FK check: the local SQLite tasks table may not contain
+        // production task IDs (sync gap). Rather than let SQLite raise
+        // SQLITE_CONSTRAINT_FOREIGNKEY (which becomes a 500), we probe the
+        // local table and silently null out the foreign key when not found.
+        // task_title is preserved so the UI still shows context.
+        try {
+          new TasksRepository().findByIdIncludingLegacy(taskId);
+          resolvedTaskId = taskId;
+        } catch {
+          logger.warn(
+            `[AgentSessionsController] taskId "${taskId}" not found in local tasks table — ` +
+              'creating agent session with task_id=null; task_title will be preserved.',
+          );
+          resolvedTaskId = null;
         }
       }
 
@@ -129,7 +147,7 @@ export class AgentSessionsController {
 
       const dto: CreateAgentSessionDto = {
         agentKind: normalizedAgentId as AgentKind,
-        taskId: taskId != null ? (taskId as string) : null,
+        taskId: resolvedTaskId,
         taskTitle: taskTitle != null ? (taskTitle as string) : null,
         cwd: expandedCwd,
         name: name.trim(),
