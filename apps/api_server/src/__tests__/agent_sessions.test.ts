@@ -749,34 +749,67 @@ describe('Agent Sessions API', () => {
     expect(res.status).toBe(400);
   });
 
-  // ── FK tolerance: taskId not in local tasks table ─────────────────────────
+  // ── PR #619 acceptance: SESSIONS ACTUALLY LAUNCH when taskId is missing locally
+  // Contract: docs/ai/contracts/pr-619.json
+  // These tests assert the full launch path, not just "row inserted":
+  //   - 201 with the expected taskId/taskTitle reconciliation
+  //   - opencodeClient.createSession invoked (SDK session created)
+  //   - opencodeSessionMap populated (stream-bridge can route prompts → SDK)
+  //   - opencodeClient.promptAsync invoked (initial prompt actually dispatched)
 
-  it('creates a session with taskId=null when taskId is not present in the local tasks table', async () => {
+  it('launches a session end-to-end when taskId is not present in the local tasks table (PR #619 acceptance)', async () => {
     // foreign_keys = ON is set in makeDb(); this taskId does not exist in tasks.
     const bogusTaskId = 'definitely-not-in-local-db';
     const taskTitle = 'Synthetic task from production';
+    const sessionName = 'FK launch test';
+    const cwd = os.homedir();
+
+    const { opencodeClient, opencodeSessionMap } = await import('../services/opencode_engine');
+    const mock = opencodeClient as unknown as {
+      createSession: ReturnType<typeof vi.fn>;
+      promptAsync: ReturnType<typeof vi.fn>;
+    };
+    mock.createSession.mockResolvedValueOnce({ id: 'sdk-launch-no-fk' });
 
     const res = await fetch(`${baseUrl}/agent-sessions`, {
       method: 'POST',
       headers: authHeaders,
       body: JSON.stringify({
         agentId: 'claude-code',
-        cwd: os.homedir(),
-        name: 'FK tolerance test',
+        cwd,
+        name: sessionName,
         taskId: bogusTaskId,
         taskTitle,
       }),
     });
 
     expect(res.status).toBe(201);
-    const session = (await res.json()) as { taskId: string | null; taskTitle: string | null };
-    // taskId should be nulled out (not in local DB); taskTitle preserved for UI
+    const session = (await res.json()) as {
+      id: string;
+      taskId: string | null;
+      taskTitle: string | null;
+      status: string;
+    };
+    // FK reconciliation: id is dropped, title is kept for UI display.
     expect(session.taskId).toBeNull();
     expect(session.taskTitle).toBe(taskTitle);
+    expect(session.status).toBe('starting');
+
+    // The session ACTUALLY LAUNCHED — assert the three SDK-side invariants:
+    //   1. SDK session was created with our cwd + name
+    expect(mock.createSession).toHaveBeenCalledWith(sessionName, cwd);
+    //   2. local id ↔ SDK id mapping is registered (otherwise WS prompts can't route)
+    expect(opencodeSessionMap.get(session.id)).toBe('sdk-launch-no-fk');
+    //   3. initial prompt was dispatched (session is doing work, not parked)
+    expect(mock.promptAsync).toHaveBeenCalled();
+    const [sdkId, promptText] = mock.promptAsync.mock.calls.at(-1)!;
+    expect(sdkId).toBe('sdk-launch-no-fk');
+    expect(promptText).toContain(sessionName);
+    // taskTitle should be folded into the initial prompt when present
+    expect(promptText).toContain(taskTitle);
   });
 
-  it('creates a session with taskId set when taskId exists in the local tasks table', async () => {
-    // Insert a real task into the local DB so the FK check passes.
+  it('launches a session end-to-end when taskId IS present in the local tasks table (happy path)', async () => {
     const { getDb } = await import('../database/db');
     const db = getDb();
     const taskId = 'local-task-abc123';
@@ -785,21 +818,39 @@ describe('Agent Sessions API', () => {
        VALUES (?, 'Local Task', 'pending', datetime('now'), datetime('now'))`,
     ).run(taskId);
 
+    const sessionName = 'Real task launch';
+    const cwd = os.homedir();
+    const { opencodeClient, opencodeSessionMap } = await import('../services/opencode_engine');
+    const mock = opencodeClient as unknown as {
+      createSession: ReturnType<typeof vi.fn>;
+      promptAsync: ReturnType<typeof vi.fn>;
+    };
+    mock.createSession.mockResolvedValueOnce({ id: 'sdk-launch-with-fk' });
+
     const res = await fetch(`${baseUrl}/agent-sessions`, {
       method: 'POST',
       headers: authHeaders,
       body: JSON.stringify({
         agentId: 'claude-code',
-        cwd: os.homedir(),
-        name: 'Real task FK test',
+        cwd,
+        name: sessionName,
         taskId,
         taskTitle: 'Local Task',
       }),
     });
 
     expect(res.status).toBe(201);
-    const session = (await res.json()) as { taskId: string | null; taskTitle: string | null };
+    const session = (await res.json()) as {
+      id: string;
+      taskId: string | null;
+      taskTitle: string | null;
+      status: string;
+    };
     expect(session.taskId).toBe(taskId);
     expect(session.taskTitle).toBe('Local Task');
+    expect(session.status).toBe('starting');
+    expect(mock.createSession).toHaveBeenCalledWith(sessionName, cwd);
+    expect(opencodeSessionMap.get(session.id)).toBe('sdk-launch-with-fk');
+    expect(mock.promptAsync).toHaveBeenCalled();
   });
 });
