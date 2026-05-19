@@ -1,5 +1,11 @@
 # triage(agents): WS `session.input` throws `TypeError: Cannot read properties of undefined (reading 'client')` — hits NEW sessions too, not only auto-resume
 
+## RESOLVED in vbeta.18.36 by commit 49ef628 (binding fix for ws_gateway.ts)
+
+Confirmed during vbeta.18.36 smoke: both new agent-less sessions AND auto-resume of archived sessions complete the send round-trip successfully. The error was a `this`-binding loss in the casted `promptFn` alias introduced by acdc835 (#604) — see that fix commit for full diagnosis. This triage doc preserved for archaeology; can be closed.
+
+---
+
 **Updated during vbeta.18.33 smoke:** originally filed as auto-resume-only. Confirmed it also fires on the **first send of a brand-new agent-less (`__pending__`) session** after the user picks a model in the composer and presses Send. Repro now matches the most common "ship a turn" path, not just the obscure resume-after-restart path. Severity upgraded — this blocks Permissions and notify-on-completion smoke items in PR #617.
 
 **Additional clue from vbeta.18.33 opencode log:** opencode binary loaded cleanly (plugins: opencode-claude-auth, opencode-gemini-auth, clideck-bridge — opencode-superpowers removed from config because it was failing module resolution with `Cannot find module` and broadcasting `session.error`). The opencode binary then created the session successfully, subscribed to events, and reported `200 POST /session`. **No TypeError in opencode log.** Error must originate in Rhythm-side WS gateway or Flutter UI, not in the opencode binary.

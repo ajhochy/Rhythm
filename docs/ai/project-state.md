@@ -1,6 +1,51 @@
 # Project State
 
-## Current Status (2026-05-18 — triage round 2: isReady flip + dispose diagnostics)
+## Current Status (2026-05-18 — manual smoke of vbeta.18.36; iterate on `follow-up`, do not merge #617 yet)
+
+🟡 **Branch `follow-up` stays open. PR #617 NOT merged.** User decision after a full manual smoke pass: keep grinding bugs on this branch, re-smoke after each fix cluster, merge to `main` only when ≥80% of the original smoke checklist passes cleanly.
+
+### What landed this session
+
+Six commits on `follow-up` (mine + a parallel agent's):
+
+1. **`promptAsync` TypeError** — commit `49ef628`. `apps/api_server/src/services/ws_gateway.ts` was extracting `opencodeClient.promptAsync` as a bare function reference (cast-to-alias pattern from `acdc835`), losing `this`. Every send threw `Cannot read properties of undefined (reading 'client')`. Fix: `.bind(opencodeClient)`. Most user-visible regression on the branch — user hit it ~5× during smoke before root-cause.
+2. **PATH discovery for opencode binary** — folded in via merge `34d57bf` (closed PR #618). `apps/api_server/src/services/opencode_client_service.ts` exports `augmentPathForOpencode()`, prepends `~/.opencode/bin`, `/opt/homebrew/bin`, `/usr/local/bin` before `createOpencode()`. GUI-spawned `.app` children get a stripped PATH; without this, opencode binary not found. +4 unit tests.
+3. **Parent-PID watchdog** — `apps/api_server/src/server.ts` polls `process.ppid` every 2s; if it flips to 1 (orphaned to launchd), runs the SIGTERM clean-shutdown. Defense in depth for Cmd+Q via NSApp.terminate killing the Dart engine before its lifecycle hooks fire.
+4. **`server.close()` in `dispose()`** — `OpencodeClientService.initialize()` now destructures and stores the `server` handle from `createOpencode()`; `dispose()` calls `server.close()` to actually kill the :4096 subprocess (previous `client.close()` / `client.shutdown()` probes didn't exist on the SDK).
+5. **`_pendingTurnOverride` in `setSessionModel`** — `apps/desktop_flutter/lib/features/agents/controllers/agents_controller.dart`. Picking session-default in the model picker no longer leaves the per-turn override unset; "Pick a model before sending the first message" error gone.
+6. **From parallel agent:** `ensureReady()` auto-recovery + dispose stack traces (`2f5fbdb`), curated OpenRouter models in catalog (`6b341d4`), Express body limit → 1 MB (`f52d3b0`).
+
+Verification: **503/503 vitest**, **218/218 flutter test**, `tsc --noEmit` clean, `dart format` + `flutter analyze` clean.
+
+### Smoke results (vbeta.18.36 against `/Applications/Rhythm.app/`)
+
+**6 PASS / 1 PARTIAL / 10 FAIL** of 20 testable items. Lifecycle 4 (ABI fallback) skipped — needs v24-only machine.
+
+PASS: Cmd+Q clears :4001 and :4096 ≤3s; new session + model picker + send to DeepSeek (TypeError gone); soft-close + hard-delete live; new-session has no agent dropdown + "Choose a model" placeholder; unified picker layout with Connect on unauthorized rows.
+
+PARTIAL: Archive — DB write + active-list removal live, but **Archived section doesn't update live** (needs refresh). Issue: `docs/ai/generated-issues/fix-archived-section-not-updating-live.md`.
+
+FAIL (each filed under `docs/ai/generated-issues/`):
+- **Permissions pipeline never fires for Claude direct in default mode (#608)** — Bash runs unprompted, no PermissionCard. Highest severity, safety feature broken. `fix-permission-pipeline-not-firing-claude-direct.md`.
+- **Reasoning effort + fast-mode never reach SDK (#604)** — 5th `sdkOpts` param in ws_gateway promptFn alias silently dropped; `OpencodeClientService.promptAsync` only accepts 4 params. `fix-thinking-budget-fast-mode-never-applied.md`.
+- **File-attach paperclip is a no-op (#602)** — `fix-composer-file-attach-paperclip-no-op.md`.
+- **Slash popover never appears (#610)** — `fix-slash-command-popover-not-firing.md`.
+- **Notify-on-completion + relative timestamp ticker dead (#606)** — copy works; the other two don't. `fix-notify-on-completion-not-firing.md`.
+- **OpenRouter curation overhaul (#609)** — picker filter too aggressive (hundreds curated → ~6 visible) + duplicate `anthropic/claude-sonnet-4.6` row. `fix-openrouter-curation-overhaul.md`.
+- **VCS branch dropdown (#603)** — Dart type cast error `String is not subtype of Map<String, dynamic>?`, no "Current" section, switch fails silently. `fix-vcs-branch-dropdown-type-cast-and-switch.md`.
+- **VCS chip never renders in session header (#607)** — entire surface invisible. `fix-vcs-chip-not-rendering-in-session-header.md`.
+
+Inline UX findings filed: auto-scroll steals focus during streaming (`fix-agent-chat-auto-scroll-steals-focus.md`); pill mislabels non-Anthropic OpenRouter models as "Claude Code" (`fix-agent-kind-mislabels-non-anthropic-openrouter-models.md`); default model should be Sonnet not Opus (`tweak-default-model-sonnet-over-opus.md`); Google OAuth dialog hangs because route + UI assume auto-callback but SDK requires paste-back (`fix-google-oauth-paste-back-ui.md`).
+
+### Next-session plan
+
+1. High-severity: permission pipeline (#608), VCS parse error (#603), VCS chip (#607).
+2. Medium: thinking/fast-mode SDK plumbing (#604), file attach (#602), slash popover (#610), notify + ticker (#606), OpenRouter curation overhaul (#609).
+3. UX: archived live update, auto-scroll, pill mislabel.
+4. Trivial: default Sonnet.
+5. Re-smoke each cluster on a new DMG. Merge #617 only at ≥80% checklist pass.
+
+## Prior Status (2026-05-18 — triage round 2: isReady flip + dispose diagnostics)
 
 🟡 **Branch `follow-up` — 3 commits this session on top of PR #617 batch.**
 
