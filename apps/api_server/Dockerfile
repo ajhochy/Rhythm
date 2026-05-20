@@ -9,6 +9,7 @@ RUN apt-get update \
 
 FROM build-tools AS deps
 COPY package.json package-lock.json ./
+COPY scripts ./scripts
 RUN npm ci
 
 FROM deps AS build
@@ -20,6 +21,7 @@ RUN npm run build
 # and we only compile native modules once (here).
 FROM build-tools AS prod-deps
 COPY package.json package-lock.json ./
+COPY scripts ./scripts
 RUN npm ci --omit=dev && npm cache clean --force
 
 FROM base AS runtime
