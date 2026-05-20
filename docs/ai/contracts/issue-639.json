@@ -1,0 +1,27 @@
+{
+  "issue": 639,
+  "generated": "2026-05-20",
+  "stack": "typescript+dart",
+  "criteria": [
+    {
+      "criterion_id": "issue-639-c1",
+      "text": "GET /agents/models?agentId=claude-code and GET /agents/models/catalog must NOT return openrouter aggregator entries whose modelId prefix matches a provider that is already directly authed. When authedProviders=['anthropic','openrouter'], the response must not include {providerId:'openrouter', modelId:'anthropic/claude-opus-4.7'} (or any other 'anthropic/' openrouter row) because anthropic is directly reachable. When authedProviders=['openrouter'] only (no direct anthropic), those openrouter/anthropic/* routes SHOULD still appear as fallback.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_639_contract.test.ts",
+      "test_id": "issue-639-c1: GET /agents/models must not include openrouter aggregator rows when direct provider is authed",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-639-c2",
+      "text": "AgentsController must expose a public refreshModelRoutes() method. Calling it after selectSession must re-fetch the current session's routes from the server (triggering a second call to the underlying data source) and update the modelRoutes list, also firing notifyListeners so the picker widget rebuilds with the fresh result.",
+      "mode": "unit",
+      "test_file": "apps/desktop_flutter/test/features/agents/issue_639_contract_test.dart",
+      "test_id": "issue-639-c2: AgentsController.refreshModelRoutes() re-fetches and notifies",
+      "status": "pending"
+    }
+  ],
+  "not_tested": [
+    "UI: Settings save actually triggers a refresh — covered by manual smoke after coding-agent wires the Settings save handler to call refreshModelRoutes().",
+    "Deduplication of the direct-provider row itself — the direct anthropic/claude-opus-4-7 row must still appear in the response when anthropic is authed; this is an existing behavior asserted by agents_models_routes.test.ts."
+  ]
+}

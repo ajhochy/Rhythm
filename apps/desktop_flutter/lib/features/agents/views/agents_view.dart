@@ -1194,7 +1194,7 @@ class _TranscriptPanelState extends State<_TranscriptPanel> {
     // ordered list of ChatParts; streaming deltas append to part.text in
     // place so the same bubble grows.
     final chatMessages = controller.chatMessagesFor(session.id);
-    final legacyTranscript = controller.transcript;
+    final legacyTranscript = controller.transcriptFor(session.id);
     final liveOutput = controller.liveOutputFor(session.id);
     final hasChat = chatMessages.isNotEmpty;
     final hasLegacy = legacyTranscript.isNotEmpty || liveOutput.isNotEmpty;

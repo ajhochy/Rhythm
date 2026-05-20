@@ -9,8 +9,10 @@
 library;
 
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
 import '../../../app/core/ui/tokens/rhythm_theme.dart';
+import '../controllers/agents_controller.dart';
 import '../data/agent_model_visibility_data_source.dart';
 import '../models/agent_model_route.dart';
 
@@ -91,6 +93,11 @@ class _OpenRouterModelsSectionState extends State<OpenRouterModelsSection> {
           visible: visible,
         ),
       ]);
+      // #639 — refresh the in-session model picker so the visibility change
+      // is reflected immediately without requiring a session switch.
+      if (mounted) {
+        context.read<AgentsController>().refreshModelRoutes();
+      }
     } catch (_) {
       // Revert on failure.
       setState(() {

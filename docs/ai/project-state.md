@@ -2,6 +2,19 @@
 
 ## Recent coding-agent runs
 
+### 2026-05-20 — fix/pr-617-third-round-smoke (#638, #639)
+- Third-round smoke on commit 2d5c7d6 surfaced: (a) the #636 error frame rendered in the mini-bubble but not in the full Agents view, and (b) the OpenRouter picker section showed duplicate routes the user has direct auth for, and didn't update when Settings visibility changed. Two new tickets filed (#638, #639), both fixed here.
+- Files modified:
+  - `apps/desktop_flutter/lib/features/agents/views/agents_view.dart:1197` — changed `final legacyTranscript = controller.transcript;` to `final legacyTranscript = controller.transcriptFor(session.id);`. The full-view transcript now reads from the same per-session store the mini-bubble uses, bypassing the `_selectedSessionId == msg.id` race that caused `WsErrorMessage` frames to be dropped when session selection was briefly out of sync (#638).
+  - `apps/api_server/src/routes/agents_models_routes.ts` — both the root `GET /agents/models` handler and the `GET /agents/models/catalog` handler now drop openrouter aggregator entries whose modelId prefix matches a directly-authed provider. Concretely: when authedSet contains `anthropic`, `anthropic/claude-opus-4.7` via openrouter is suppressed. Avoids duplicate routes that the user can hit directly through their provider auth (#639 c1).
+  - `apps/desktop_flutter/lib/features/agents/controllers/agents_controller.dart` — added public `Future<void> refreshModelRoutes()` method that re-invokes the private `_loadModelRoutes(_selectedSessionId!)` when a session is selected (#639 c2).
+  - `apps/desktop_flutter/lib/features/agents/views/_open_router_models_section.dart` — `_setVisible` now calls `context.read<AgentsController>().refreshModelRoutes()` after a successful `patchVisibility`. The picker is already `Consumer<AgentsController>` so it rebuilds immediately on `notifyListeners()` (#639 c2).
+- New tests/contracts: `docs/ai/contracts/issue-638.json`, `issue-639.json`; test files: `apps/desktop_flutter/test/features/agents/issue_638_contract_test.dart` (widget pump of full AgentsView; FAILS before fix on `find.textContaining('Model not found')` finding 0 widgets), `apps/api_server/src/__tests__/issue_639_contract.test.ts` (server dedup), `apps/desktop_flutter/test/features/agents/issue_639_contract_test.dart` (client refresh).
+- Checks run: `tsc --noEmit` ✓, `flutter analyze` ✓, `dart format` ✓, `npx vitest run` 527/527 ✓ (was 522 baseline + 5 new contract tests), all 10 flutter contract tests ✓.
+- Decisions made: #638 contract redone after first acceptance-contract pass produced regression-guard tests that passed today — the discipline requires the contract test to FAIL before implementation. Used a `testWidgets` pump of the real `AgentsView` with a hanging `getSession` repository so the controller stays in the intermediate state where the bug manifests. #639 server dedup applied symmetrically to both `/` and `/catalog` handlers so the picker and Settings AI Account page see consistent shapes.
+- Deviations from spec: none.
+- Follow-up still open: #635 (mini-bubble hides user messages) — diagnosis stalled at server-query investigation. Out of scope for this batch.
+
 ### 2026-05-20 — fix/pr-617-633-smoke-followups (#634, #636, #637)
 - Smoke on commit 6a05544 surfaced 4 FAILs. Three fixed here; #635 deferred (needs server-side query investigation, separate PR). Postmortem: `.agent-stack/postmortems/2026-05-20-pr-617-633-batch.json`.
 - Files modified:

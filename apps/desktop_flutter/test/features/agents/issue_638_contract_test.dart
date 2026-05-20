@@ -1,0 +1,469 @@
+/// Acceptance contract for issue #638 — WS error frame not visible in full
+/// Agents view transcript when session is not selected at frame arrival time.
+///
+/// STRICT CONTRACT: c1 FAILS today (before the production fix) and PASSES
+/// after the fix is applied to agents_view.dart line ~1197.
+///
+/// Background
+/// ----------
+/// The `WsErrorMessage` handler in AgentsController writes to
+/// `_transcriptsBySession[msg.id]` unconditionally, but only appends to the
+/// flat `_transcript` list when `msg.id == _selectedSessionId`.
+///
+/// The full Agents view (`_buildTranscriptBody`, agents_view.dart ~line 1197):
+///   final legacyTranscript = controller.transcript;   ← TODAY (BUG)
+///
+/// Fix (NOT applied here):
+///   final legacyTranscript = controller.transcriptFor(session.id);
+///
+/// Test scenario (c1)
+/// ------------------
+/// 1. Initialize the controller (sets up WS subscription + timer).
+/// 2. Push SessionCreatedMessage to register 'sid-1' in sessions list.
+/// 3. Push WsErrorMessage for 'sid-1' while _selectedSessionId == null.
+///    → error lands in _transcriptsBySession['sid-1'] but NOT in _transcript.
+/// 4. Call selectSession('sid-1') (stub getSession hangs so it stays in the
+///    intermediate state: _selectedSessionId='sid-1', _transcript=[]).
+/// 5. Pump the widget — transcript panel for 'sid-1' is shown.
+///    TODAY (reads controller.transcript = []):
+///      legacyTranscript empty → shows "Waiting for output…" → no error text
+///      → assertion FAILS ✗
+///    AFTER FIX (reads controller.transcriptFor(session.id) = [errorMsg]):
+///      legacyTranscript = [errorMsg] → renders SelectableText with error
+///      → assertion PASSES ✓
+///
+/// Note on timers
+/// --------------
+/// AgentsController.initialize() creates a Timer.periodic (5 s) for stuck
+/// detection. testWidgets uses FakeAsync, which would hang on pumpAndSettle
+/// with a live periodic timer. We avoid this by:
+///   (a) running all async setup via tester.runAsync() so setup executes in
+///       real async, not FakeAsync;
+///   (b) calling controller.dispose() explicitly BEFORE the widget tree is
+///       torn down, which cancels the timer;
+///   (c) using tester.pump() (single frame) instead of pumpAndSettle() for
+///       the final widget assertion.
+library;
+
+import 'dart:async';
+
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:provider/provider.dart';
+import 'package:rhythm_desktop/app/core/agents/agent_server_controller.dart';
+import 'package:rhythm_desktop/app/core/notifications/local_notification_service.dart';
+import 'package:rhythm_desktop/app/core/server/api_server_service.dart';
+import 'package:rhythm_desktop/features/agent_configs/controllers/agent_configs_controller.dart';
+import 'package:rhythm_desktop/features/agent_configs/data/agent_configs_data_source.dart';
+import 'package:rhythm_desktop/features/agent_configs/models/agent_config.dart';
+import 'package:rhythm_desktop/features/agent_configs/repositories/agent_configs_repository.dart';
+import 'package:rhythm_desktop/features/agents/controllers/agents_controller.dart';
+import 'package:rhythm_desktop/features/agents/models/agent_session.dart';
+import 'package:rhythm_desktop/features/agents/models/agent_session_message.dart';
+import 'package:rhythm_desktop/features/agents/models/agent_ws_message.dart';
+import 'package:rhythm_desktop/features/agents/repositories/agents_repository.dart';
+import 'package:rhythm_desktop/features/agents/views/agents_view.dart';
+import 'package:rhythm_desktop/features/agent_projects/controllers/agent_projects_controller.dart';
+import 'package:rhythm_desktop/features/agent_projects/data/agent_projects_remote_data_source.dart';
+import 'package:rhythm_desktop/features/agent_projects/models/agent_project.dart';
+import 'package:rhythm_desktop/features/agent_projects/repositories/agent_projects_repository.dart';
+import 'package:rhythm_desktop/features/notifications/controllers/notifications_controller.dart';
+import 'package:rhythm_desktop/features/notifications/data/notifications_data_source.dart';
+import 'package:rhythm_desktop/features/notifications/repositories/notifications_repository.dart';
+import 'package:rhythm_desktop/features/settings/services/destructive_modal_service.dart';
+import 'package:rhythm_desktop/features/tasks/controllers/tasks_controller.dart';
+import 'package:rhythm_desktop/features/tasks/data/tasks_local_data_source.dart';
+import 'package:rhythm_desktop/features/tasks/models/task.dart';
+import 'package:rhythm_desktop/features/tasks/repositories/tasks_repository.dart';
+
+// ---------------------------------------------------------------------------
+// Stubs / fakes
+// ---------------------------------------------------------------------------
+
+class _FakeApiServerService extends ApiServerService {
+  @override
+  Future<AgentServerStartResult> start() async =>
+      (ok: true, reason: null, stderrTail: null, failureMessage: null);
+
+  @override
+  void stop() {}
+
+  @override
+  noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class _ReadyAgentServerController extends AgentServerController {
+  _ReadyAgentServerController() : super(_FakeApiServerService());
+
+  @override
+  AgentServerStatus get status => AgentServerStatus.ready;
+
+  @override
+  bool get isReady => true;
+
+  @override
+  bool get hasAnyAgent => true;
+
+  @override
+  bool isAgentAvailable(String kind) => true;
+
+  @override
+  Future<void> initialize() async {}
+
+  @override
+  Future<void> retry() async {}
+}
+
+/// Repository whose getSession() hangs (Completer never completed).
+/// This freezes the controller in the intermediate selectSession() state:
+///   _selectedSessionId = 'sid-1', _transcript = [], transcriptFor = [error]
+///
+/// The Completer is stored so tests can complete it in tearDown if needed to
+/// satisfy FakeAsync cleanup (only required when using pumpAndSettle).
+class _HangingGetSessionRepository implements AgentsRepository {
+  _HangingGetSessionRepository();
+
+  final StreamController<AgentWsMessage> _msgCtrl =
+      StreamController<AgentWsMessage>.broadcast();
+  final StreamController<bool> _connCtrl = StreamController<bool>.broadcast();
+
+  // Completers for in-flight getSession calls. Complete them in tearDown to
+  // let the widget tree clean up without hanging.
+  final List<
+          Completer<
+              ({AgentSession session, List<AgentSessionMessage> messages})>>
+      pendingGetSession = [];
+
+  @override
+  Stream<AgentWsMessage> get messages => _msgCtrl.stream;
+
+  @override
+  Stream<bool> get connectivityStream => _connCtrl.stream;
+
+  @override
+  bool get isConnected => true;
+
+  @override
+  Future<void> connect() async {}
+
+  @override
+  Future<void> dispose() async {
+    // Do NOT complete the pending getSession Completers here — completing them
+    // after the controller is disposed would trigger the selectSession()
+    // continuation and call notifyListeners() on a disposed controller.
+    // The Completers are simply abandoned; the GC will collect them.
+    await _msgCtrl.close();
+    await _connCtrl.close();
+  }
+
+  @override
+  void send(Map<String, dynamic> msg) {}
+
+  @override
+  Future<List<AgentSession>> listSessions({
+    bool includeArchived = false,
+    bool archivedOnly = false,
+  }) async =>
+      [];
+
+  @override
+  Future<({AgentSession session, List<AgentSessionMessage> messages})>
+      getSession(String id) {
+    final c = Completer<
+        ({AgentSession session, List<AgentSessionMessage> messages})>();
+    pendingGetSession.add(c);
+    return c.future;
+  }
+
+  void push(AgentWsMessage msg) => _msgCtrl.add(msg);
+
+  @override
+  noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
+class _FakeLocalNotificationService extends LocalNotificationService {
+  @override
+  Future<void> showMessageNotification({
+    required int id,
+    required String title,
+    required String body,
+  }) async {}
+}
+
+class _FakeNotificationsController extends NotificationsController {
+  _FakeNotificationsController()
+      : super(NotificationsRepository(NotificationsDataSource()));
+
+  @override
+  void pushAgentNotification({
+    required int id,
+    required String title,
+    required String body,
+  }) {}
+}
+
+class _FakeAgentConfigsDataSource extends AgentConfigsDataSource {
+  _FakeAgentConfigsDataSource(this._configs);
+
+  final List<AgentConfig> _configs;
+
+  @override
+  Future<List<AgentConfig>> list() async => _configs;
+}
+
+class _EmptyAgentProjectsRemote extends AgentProjectsRemoteDataSource {
+  _EmptyAgentProjectsRemote() : super();
+
+  @override
+  Future<List<AgentProject>> list({bool includeArchived = false}) async =>
+      const [];
+}
+
+class _EmptyTasksLocalDataSource extends TasksLocalDataSource {
+  @override
+  Future<List<Task>> fetchAll() async => [];
+}
+
+// ---------------------------------------------------------------------------
+// Test widget builder — mirrors new_session_dialog_error_test.dart
+// ---------------------------------------------------------------------------
+
+final _claudeCodeConfig = AgentConfig(
+  id: 'claude-code',
+  label: 'Claude Code',
+  icon: 'assets/icons/claude_code.png',
+  enabled: true,
+  isAgent: true,
+  sortOrder: 0,
+);
+
+Future<Widget> _buildTestApp(
+    {required AgentsController agentsController}) async {
+  final agentServerController = _ReadyAgentServerController();
+  final agentConfigsController = AgentConfigsController(
+    AgentConfigsRepository(_FakeAgentConfigsDataSource([_claudeCodeConfig])),
+  );
+  await agentConfigsController.refresh();
+
+  final tasksController = TasksController(
+    TasksRepository(_EmptyTasksLocalDataSource()),
+  );
+  final agentProjectsController = AgentProjectsController(
+    AgentProjectsRepository(_EmptyAgentProjectsRemote()),
+  );
+
+  return MultiProvider(
+    providers: [
+      ChangeNotifierProvider<AgentServerController>.value(
+        value: agentServerController,
+      ),
+      ChangeNotifierProvider<AgentConfigsController>.value(
+        value: agentConfigsController,
+      ),
+      ChangeNotifierProvider<AgentsController>.value(
+        value: agentsController,
+      ),
+      ChangeNotifierProvider<TasksController>.value(value: tasksController),
+      ChangeNotifierProvider<AgentProjectsController>.value(
+        value: agentProjectsController,
+      ),
+      ChangeNotifierProvider<DestructiveModalService>(
+        create: (_) => DestructiveModalService(),
+      ),
+    ],
+    child: const MaterialApp(home: Scaffold(body: AgentsView())),
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Contract tests
+// ---------------------------------------------------------------------------
+
+void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
+  // -------------------------------------------------------------------------
+  // c1 — UI widget test (STRICT: FAILS today, PASSES after the line-1197 fix)
+  // -------------------------------------------------------------------------
+  group(
+    'issue-638-c1: WS error frame visible in full Agents view transcript',
+    () {
+      testWidgets(
+        'error injected before session selection appears in transcript panel',
+        (tester) async {
+          await tester.binding.setSurfaceSize(const Size(1400, 900));
+          addTearDown(() => tester.binding.setSurfaceSize(null));
+
+          final repo = _HangingGetSessionRepository();
+          final controller = AgentsController(
+            repo,
+            _ReadyAgentServerController(),
+            _FakeLocalNotificationService(),
+            _FakeNotificationsController(),
+          );
+
+          // All async setup runs via runAsync() — real time, not FakeAsync —
+          // so the Timer.periodic created by initialize() is a real timer and
+          // does not interfere with the widget-pump FakeAsync environment.
+          await tester.runAsync(() async {
+            await controller.initialize();
+
+            // Register 'sid-1' in the sessions list via WS.
+            repo.push(
+              SessionCreatedMessage(
+                session: AgentSession(
+                  id: 'sid-1',
+                  agentId: 'claude-code',
+                  name: 'Test session',
+                  cwd: '/tmp',
+                  status: AgentSessionStatus.idle,
+                  createdAt: DateTime(2026),
+                  updatedAt: DateTime(2026),
+                ),
+              ),
+            );
+            // Give the WS stream listener a microtask to process the message.
+            await Future<void>.delayed(const Duration(milliseconds: 10));
+
+            // Precondition: no session selected yet.
+            assert(controller.selectedSessionId == null);
+
+            // Inject WsErrorMessage for 'sid-1' while no session is selected.
+            // The handler writes to _transcriptsBySession['sid-1'] but NOT to
+            // _transcript (because _selectedSessionId != 'sid-1').
+            repo.push(
+              const WsErrorMessage(
+                id: 'sid-1',
+                message: 'Model not found: openrouter/google/gemini-3-flash',
+              ),
+            );
+            await Future<void>.delayed(const Duration(milliseconds: 10));
+
+            // Data-layer invariant: transcriptFor has the error; transcript empty.
+            assert(
+              controller.transcriptFor('sid-1').any(
+                    (m) => m.strippedText.contains('Model not found'),
+                  ),
+              'transcriptFor(sid-1) must have the error before selection',
+            );
+            assert(
+              controller.transcript.isEmpty,
+              'controller.transcript must be empty (no session selected)',
+            );
+
+            // Call selectSession — immediately sets _selectedSessionId='sid-1',
+            // _transcript=[], and fires notifyListeners(). Then hangs on
+            // getSession (Completer never completes), keeping the intermediate
+            // state that exposes the bug.
+            unawaited(controller.selectSession('sid-1'));
+            await Future<void>.delayed(const Duration(milliseconds: 10));
+
+            // Verify intermediate state: session selected, transcript empty,
+            // transcriptFor still has the error.
+            assert(controller.selectedSessionId == 'sid-1');
+            assert(controller.transcript.isEmpty);
+            assert(
+              controller.transcriptFor('sid-1').any(
+                    (m) => m.strippedText.contains('Model not found'),
+                  ),
+            );
+          });
+
+          // Pump the widget. The transcript panel for 'sid-1' is shown.
+          //
+          // TODAY (line 1197: controller.transcript):
+          //   legacyTranscript = [] → hasLegacy = false → "Waiting for output…"
+          //   → NO "Model not found" → assertion FAILS ✗
+          //
+          // AFTER FIX (line 1197: controller.transcriptFor(session.id)):
+          //   legacyTranscript = [errorMsg] → hasLegacy = true → renders
+          //   SelectableText("Error: Model not found: ...") → PASSES ✓
+          await tester
+              .pumpWidget(await _buildTestApp(agentsController: controller));
+          await tester.pump();
+
+          // THE FAILING ASSERTION (today): error text not rendered in view.
+          expect(
+            find.textContaining('Model not found'),
+            findsAtLeastNWidgets(1),
+            reason: 'The full Agents view transcript panel must display the WS '
+                'error. Today it reads controller.transcript (empty), missing '
+                'the error. After the fix it reads '
+                'controller.transcriptFor(session.id) and renders it.',
+          );
+
+          // Explicitly dispose the controller to cancel the Timer.periodic
+          // before the test framework's FakeAsync cleanup runs. Without this,
+          // the fake environment would see a pending timer and hang.
+          controller.dispose();
+        },
+      );
+    },
+  );
+
+  // -------------------------------------------------------------------------
+  // c2 — UNIT (regression guard for data layer)
+  // PASSES both before and after the fix; protects the controller invariant.
+  // -------------------------------------------------------------------------
+  group(
+    'issue-638-c2: transcriptFor(X) contains error even when '
+    '_selectedSessionId != X',
+    () {
+      test(
+        'error frame for non-selected session lands in transcriptFor — '
+        'regression guard for the view fix',
+        () async {
+          final repo = _HangingGetSessionRepository();
+          final controller = AgentsController(
+            repo,
+            _ReadyAgentServerController(),
+            _FakeLocalNotificationService(),
+            _FakeNotificationsController(),
+          );
+          addTearDown(controller.dispose);
+
+          await controller.initialize();
+
+          expect(controller.transcriptFor('sid-1'), isEmpty);
+          expect(controller.transcript, isEmpty);
+
+          var notifyCount = 0;
+          controller.addListener(() => notifyCount++);
+
+          repo.push(
+            const WsErrorMessage(
+              id: 'sid-1',
+              message: 'Model not found: foo',
+            ),
+          );
+          await Future<void>.delayed(Duration.zero);
+
+          final perSessionTranscript = controller.transcriptFor('sid-1');
+          expect(
+            perSessionTranscript,
+            isNotEmpty,
+            reason:
+                'transcriptFor(sid-1) must contain the error message even when '
+                'sid-1 is not the selected session.',
+          );
+          expect(
+            perSessionTranscript.any(
+              (m) => m.strippedText.contains('Model not found'),
+            ),
+            isTrue,
+          );
+
+          expect(
+            controller.transcript,
+            isEmpty,
+            reason:
+                'controller.transcript (flat selected-session list) must be '
+                'empty when no session is selected.',
+          );
+
+          expect(notifyCount, greaterThan(0));
+        },
+      );
+    },
+  );
+}

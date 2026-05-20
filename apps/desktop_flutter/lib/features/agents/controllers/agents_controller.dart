@@ -884,6 +884,16 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     }
   }
 
+  /// #639 — Re-fetch model routes for the currently-selected session.
+  /// Called after the OpenRouter visibility map is changed in Settings so the
+  /// picker refreshes without requiring a session switch.
+  /// No-op when no session is selected.
+  Future<void> refreshModelRoutes() async {
+    if (_selectedSessionId != null) {
+      await _loadModelRoutes(_selectedSessionId!);
+    }
+  }
+
   Future<void> _loadModelRoutes(String sessionId) async {
     final session = _sessions.firstWhereOrNull((s) => s.id == sessionId) ??
         _resumable.firstWhereOrNull((s) => s.id == sessionId);

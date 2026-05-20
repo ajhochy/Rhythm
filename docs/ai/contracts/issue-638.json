@@ -1,0 +1,27 @@
+{
+  "issue": 638,
+  "generated": "2026-05-20",
+  "stack": "dart",
+  "criteria": [
+    {
+      "criterion_id": "issue-638-c1",
+      "text": "When the api_server broadcasts an `error` WS frame (e.g. 'Model not found: foo'), the error message must appear in the full Agents view transcript — NOT only in the mini-bubble overlay. Specifically, the full view must read from controller.transcriptFor(session.id) rather than the flat controller.transcript list so that error frames arriving while _selectedSessionId is null or set to a different session are still surfaced.",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agents/issue_638_contract_test.dart",
+      "test_id": "issue-638-c1: WS error frame visible in full Agents view transcript error injected before session selection appears in transcript panel",
+      "status": "pending",
+      "notes": "Strict contract: testWidgets pumps AgentsView with full MultiProvider scaffolding. Injects WsErrorMessage for sid-1 while _selectedSessionId==null, then calls selectSession (stub getSession hangs), leaving controller in the intermediate state: selectedSession=sid-1, transcript=[], transcriptFor('sid-1')=[errorMsg]. Asserts find.textContaining('Model not found') findsAtLeastNWidgets(1). FAILS today (line 1197 reads controller.transcript=[]). PASSES after fix (line 1197 reads controller.transcriptFor(session.id)). Uses tester.runAsync() to avoid FakeAsync/Timer.periodic hang."
+    },
+    {
+      "criterion_id": "issue-638-c2",
+      "text": "When a WsErrorMessage arrives for sessionId X and _selectedSessionId is null or set to a different session Y, controller.transcriptFor(X) must still contain an AgentSessionMessage whose strippedText includes the error string. This is the data-layer invariant that the view fix (reading transcriptFor instead of transcript) relies on.",
+      "mode": "unit",
+      "test_file": "apps/desktop_flutter/test/features/agents/issue_638_contract_test.dart",
+      "test_id": "issue-638-c2: transcriptFor(X) contains error even when _selectedSessionId != X error frame for non-selected session lands in transcriptFor — regression guard for the view fix",
+      "status": "pending"
+    }
+  ],
+  "not_tested": [
+    "The case where the user manually navigates back to the errored session after the getSession() HTTP call has already overwritten the in-memory transcript (requires server-side persistence of WS error frames)."
+  ]
+}

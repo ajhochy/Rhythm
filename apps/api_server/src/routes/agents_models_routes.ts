@@ -118,6 +118,12 @@ agentsModelsRouter.get('/catalog', async (_req: Request, res: Response) => {
     );
 
     const filtered = allEntries.filter((entry) => {
+      // #639 — drop openrouter aggregator entries that duplicate a directly-authed provider.
+      // E.g. if user has direct anthropic auth, suppress anthropic/* routes via OpenRouter.
+      if (entry.authProvider === 'openrouter') {
+        const prefix = entry.modelID.split('/')[0];
+        if (authedSet.has(prefix)) return false;
+      }
       // If the SDK returned an empty model list for this provider (couldn't
       // enumerate — e.g. direct Anthropic/OpenAI API isn't configured but the
       // user routes through OpenRouter), skip the existence check rather than
@@ -241,6 +247,12 @@ agentsModelsRouter.get('/', async (req: Request, res: Response) => {
     for (const route of routes) {
       const { providerID, modelID, variantLabel } = route;
       if (!authedSet.has(providerID)) continue;
+      // #639 — drop openrouter aggregator entries that duplicate a directly-authed provider.
+      // E.g. if user has direct anthropic auth, suppress anthropic/* routes via OpenRouter.
+      if (providerID === 'openrouter') {
+        const prefix = modelID.split('/')[0];
+        if (authedSet.has(prefix)) continue;
+      }
       // If the SDK returned an empty model list for this provider, skip the
       // existence check; an empty list means "can't enumerate" not "no models."
       const providerSet = modelIdsByProvider.get(providerID);
