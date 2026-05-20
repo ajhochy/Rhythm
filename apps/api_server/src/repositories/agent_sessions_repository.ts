@@ -3,6 +3,7 @@ import type {
   AgentSession,
   AgentSessionStatus,
   CreateAgentSessionDto,
+  PermissionMode,
 } from '../models/agent_session';
 
 interface AgentSessionRow {
@@ -18,8 +19,12 @@ interface AgentSessionRow {
   provider_id: string | null;
   model_id: string | null;
   agent_mode: string | null;
+  permission_mode: string | null;
+  thinking_budget: number | null;
+  fast_mode: number;
   last_preview: string | null;
   last_activity_at: string | null;
+  archived_at: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -38,8 +43,12 @@ function rowToModel(row: AgentSessionRow): AgentSession {
     providerId: row.provider_id ?? null,
     modelId: row.model_id ?? null,
     agentMode: row.agent_mode ?? null,
+    permissionMode: (row.permission_mode ?? 'default') as PermissionMode,
+    thinkingBudget: row.thinking_budget ?? null,
+    fastMode: row.fast_mode === 1,
     lastPreview: row.last_preview,
     lastActivityAt: row.last_activity_at,
+    archivedAt: row.archived_at ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -68,10 +77,19 @@ export class AgentSessionsRepository {
     return this.findById(id)!;
   }
 
-  listByProject(projectId: string | null, limit = 100): AgentSession[] {
+  listByProject(
+    projectId: string | null,
+    limit = 100,
+    opts: { includeArchived?: boolean; archivedOnly?: boolean } = {},
+  ): AgentSession[] {
+    const archiveClause = opts.archivedOnly
+      ? ' AND archived_at IS NOT NULL'
+      : opts.includeArchived
+        ? ''
+        : ' AND archived_at IS NULL';
     const sql = projectId === null
-      ? `SELECT * FROM agent_sessions WHERE project_id IS NULL ORDER BY created_at DESC LIMIT ?`
-      : `SELECT * FROM agent_sessions WHERE project_id = ? ORDER BY created_at DESC LIMIT ?`;
+      ? `SELECT * FROM agent_sessions WHERE project_id IS NULL${archiveClause} ORDER BY created_at DESC LIMIT ?`
+      : `SELECT * FROM agent_sessions WHERE project_id = ?${archiveClause} ORDER BY created_at DESC LIMIT ?`;
     const rows = projectId === null
       ? (getDb().prepare(sql).all(limit) as AgentSessionRow[])
       : (getDb().prepare(sql).all(projectId, limit) as AgentSessionRow[]);
@@ -85,9 +103,17 @@ export class AgentSessionsRepository {
     return row ? rowToModel(row) : null;
   }
 
-  listAll(limit = 100): AgentSession[] {
+  listAll(
+    limit = 100,
+    opts: { includeArchived?: boolean; archivedOnly?: boolean } = {},
+  ): AgentSession[] {
+    const archiveClause = opts.archivedOnly
+      ? ' WHERE archived_at IS NOT NULL'
+      : opts.includeArchived
+        ? ''
+        : ' WHERE archived_at IS NULL';
     const rows = getDb()
-      .prepare(`SELECT * FROM agent_sessions ORDER BY created_at DESC LIMIT ?`)
+      .prepare(`SELECT * FROM agent_sessions${archiveClause} ORDER BY created_at DESC LIMIT ?`)
       .all(limit) as AgentSessionRow[];
     return rows.map(rowToModel);
   }
@@ -158,6 +184,25 @@ export class AgentSessionsRepository {
     return result.changes;
   }
 
+  /** #602 — update agent_kind for agent-less sessions on first model pick. */
+  updateAgentKind(id: string, agentKind: string): void {
+    const now = new Date().toISOString();
+    getDb()
+      .prepare(
+        `UPDATE agent_sessions SET agent_kind = ?, updated_at = ? WHERE id = ?`,
+      )
+      .run(agentKind, now, id);
+  }
+
+  updatePermissionMode(id: string, mode: PermissionMode): void {
+    const now = new Date().toISOString();
+    getDb()
+      .prepare(
+        `UPDATE agent_sessions SET permission_mode = ?, updated_at = ? WHERE id = ?`,
+      )
+      .run(mode, now, id);
+  }
+
   updateFields(
     id: string,
     fields: {
@@ -165,6 +210,9 @@ export class AgentSessionsRepository {
       providerId?: string | null;
       modelId?: string | null;
       agentMode?: string | null;
+      permissionMode?: PermissionMode;
+      thinkingBudget?: number | null;
+      fastMode?: boolean;
     },
   ): void {
     const sets: string[] = [];
@@ -185,6 +233,18 @@ export class AgentSessionsRepository {
       sets.push('agent_mode = ?');
       values.push(fields.agentMode);
     }
+    if (fields.permissionMode !== undefined) {
+      sets.push('permission_mode = ?');
+      values.push(fields.permissionMode);
+    }
+    if (fields.thinkingBudget !== undefined) {
+      sets.push('thinking_budget = ?');
+      values.push(fields.thinkingBudget);
+    }
+    if (fields.fastMode !== undefined) {
+      sets.push('fast_mode = ?');
+      values.push(fields.fastMode ? 1 : 0);
+    }
     if (sets.length === 0) return;
     sets.push('updated_at = ?');
     values.push(new Date().toISOString());
@@ -192,6 +252,18 @@ export class AgentSessionsRepository {
     getDb()
       .prepare(`UPDATE agent_sessions SET ${sets.join(', ')} WHERE id = ?`)
       .run(...values);
+  }
+
+  /** Set or clear archived_at. Returns the updated row or null if not found. */
+  setArchived(id: string, archived: boolean): AgentSession | null {
+    const now = new Date().toISOString();
+    const archivedAt = archived ? now : null;
+    getDb()
+      .prepare(
+        `UPDATE agent_sessions SET archived_at = ?, updated_at = ? WHERE id = ?`,
+      )
+      .run(archivedAt, now, id);
+    return this.findById(id);
   }
 
   deleteOlderThan(cutoffIso: string): number {

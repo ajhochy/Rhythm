@@ -39,7 +39,7 @@ void main() {
         () async {
       final controller = AgentServerController(
         _FakeApiServerService(
-          (ok: true, reason: null, stderrTail: null),
+          (ok: true, reason: null, stderrTail: null, failureMessage: null),
         ),
       );
 
@@ -63,6 +63,7 @@ void main() {
             ok: false,
             reason: AgentServerFailureReason.nodeNotFound,
             stderrTail: null,
+            failureMessage: null,
           ),
         ),
       );
@@ -85,6 +86,7 @@ void main() {
             ok: false,
             reason: AgentServerFailureReason.bundleNotFound,
             stderrTail: null,
+            failureMessage: null,
           ),
         ),
       );
@@ -106,6 +108,7 @@ void main() {
             ok: false,
             reason: AgentServerFailureReason.spawnThrew,
             stderrTail: 'spawn EACCES',
+            failureMessage: null,
           ),
         ),
       );
@@ -126,6 +129,7 @@ void main() {
             ok: false,
             reason: AgentServerFailureReason.healthCheckTimeout,
             stderrTail: 'listening on :4001',
+            failureMessage: null,
           ),
         ),
       );
@@ -150,6 +154,7 @@ void main() {
             ok: false,
             reason: AgentServerFailureReason.lostConnection,
             stderrTail: null,
+            failureMessage: null,
           ),
         ),
       );
@@ -172,7 +177,7 @@ void main() {
         () async {
       final controller = AgentServerController(
         _FakeApiServerService(
-          (ok: true, reason: null, stderrTail: null),
+          (ok: true, reason: null, stderrTail: null, failureMessage: null),
         ),
       );
 
@@ -199,7 +204,7 @@ void main() {
       // the controller reacts correctly when _onHealthChanged(false) fires.
       final controller = AgentServerController(
         _FakeApiServerService(
-          (ok: true, reason: null, stderrTail: null),
+          (ok: true, reason: null, stderrTail: null, failureMessage: null),
         ),
       );
 
@@ -223,7 +228,7 @@ void main() {
     test('health recovery transitions status back to ready', () async {
       final controller = AgentServerController(
         _FakeApiServerService(
-          (ok: true, reason: null, stderrTail: null),
+          (ok: true, reason: null, stderrTail: null, failureMessage: null),
         ),
       );
 
@@ -248,7 +253,7 @@ void main() {
     test('retry() disposes old poller and restarts lifecycle', () async {
       final controller = AgentServerController(
         _FakeApiServerService(
-          (ok: true, reason: null, stderrTail: null),
+          (ok: true, reason: null, stderrTail: null, failureMessage: null),
         ),
       );
 

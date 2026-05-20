@@ -61,8 +61,10 @@ class _AppShellState extends State<AppShell> with WindowListener {
   }
 
   @override
-  void onWindowClose() async {
-    context.read<AgentServerController>().dispose();
+  Future<void> onWindowClose() async {
+    // #614 — Graceful shutdown: SIGTERM the spawned api_server, wait up to 2 s,
+    // then SIGKILL if it hasn't exited, before destroying the window.
+    await context.read<AgentServerController>().stopAndDispose();
     await windowManager.destroy();
   }
 

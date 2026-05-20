@@ -1,0 +1,26 @@
+{
+  "issue": 636,
+  "generated": "2026-05-20",
+  "stack": "node",
+  "criteria": [
+    {
+      "criterion_id": "issue-636-c1",
+      "text": "When the opencode SDK emits a `session.idle` event for a session that has produced ZERO `message.part.delta` frames since the last user input, the stream bridge must broadcast an `{v:1, type:'error', id, message}` frame to the WS clients. Currently it broadcasts only `{type:'session.status', working:false}` (silent close — the bug).",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/issue_636_contract.test.ts",
+      "test_id": "issue-636-c1: session.idle with zero tokens broadcasts an error frame",
+      "status": "pending",
+      "reason": "Exercises the `session.idle` handler in OpencodeStreamBridge when pendingText is empty (no message.part.delta received). Asserts that an `error` frame with a non-empty `message` field is broadcast in addition to (or instead of) the silent session.status frame."
+    },
+    {
+      "criterion_id": "issue-636-c1-regression",
+      "text": "REGRESSION GUARD: When the opencode SDK emits `session.idle` for a session that DID produce at least one `message.part.delta` frame, no `error` frame must be broadcast.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/issue_636_contract.test.ts",
+      "test_id": "issue-636-c1-regression: session.idle after tokens — no error frame",
+      "status": "pending",
+      "reason": "Ensures the fix does not incorrectly flag normal completions as errors. Same bridge, same event sequence, but with a message.part.delta before idle."
+    }
+  ],
+  "not_tested": []
+}

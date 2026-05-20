@@ -1,0 +1,26 @@
+{
+  "pr": 619,
+  "title": "fix(agent-sessions): tolerate taskId missing from local SQLite",
+  "user_acceptance_criterion": "SESSIONS ACTUALLY LAUNCH — POST /agent-sessions with a taskId picked from production data (not present in the local SQLite tasks table) must successfully start a backing Opencode SDK session, not merely return 201 with a DB row.",
+  "failure_evidence_before_fix": [
+    "Curl repro on the running local agent server (PID 91607, :4001): POST /agent-sessions with {\"taskId\":\"<id-not-in-local-tasks>\"} returns HTTP 500 INTERNAL_ERROR with a correlationId.",
+    "Flutter desktop New-agent-session dialog: 'Something went wrong on the server.' under Details.",
+    "Flutter Task-ready bubble: 'Internal server error.'"
+  ],
+  "root_cause": "PRAGMA foreign_keys = ON (apps/api_server/src/database/db.ts:61) plus agent_sessions.task_id REFERENCES tasks(id). Flutter task picker reads from production (api.vcrcapps.com per ServerConfigService), but POSTs go to localhost:4001 whose local tasks table doesn't always have the picked row. SQLite raises SQLITE_CONSTRAINT_FOREIGNKEY, a plain Error (not AppError), so error_handler.ts returns 500.",
+  "required_assertions": [
+    "POST /agent-sessions with bogus taskId returns 201",
+    "Response.taskId === null (FK softly resolved to null)",
+    "Response.taskTitle === sent value (preserved for UI)",
+    "Response.status === 'starting'",
+    "opencodeClient.createSession was called with the session name and cwd (proves SDK session creation reached)",
+    "opencodeSessionMap contains an entry mapping local id → SDK id (proves stream-bridge mapping registered — without this, ws_gateway cannot route prompts to the SDK)",
+    "opencodeClient.promptAsync was called with the initial prompt (proves the session has actually started doing work, not just been created)"
+  ],
+  "test_file": "apps/api_server/src/__tests__/agent_sessions.test.ts",
+  "test_names": [
+    "launches a session end-to-end when taskId is not present in the local tasks table (PR #619 acceptance)",
+    "launches a session end-to-end when taskId IS present in the local tasks table (happy path)"
+  ],
+  "mandate": "PASS = the two contract tests above are green AND the full agent_sessions test suite is green. PASS is not 'tsc clean' alone, and not 'fix is implemented'."
+}

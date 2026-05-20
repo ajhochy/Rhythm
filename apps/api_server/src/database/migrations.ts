@@ -1102,4 +1102,39 @@ export function runMigrations(db: Database.Database): void {
     db.exec(`ALTER TABLE agent_sessions ADD COLUMN project_id TEXT REFERENCES projects(id)`);
   }
   db.exec(`CREATE INDEX IF NOT EXISTS idx_agent_sessions_project ON agent_sessions(project_id)`);
+
+  // Issue #601 — agent_sessions.archived_at (soft-archive, distinct from hard-delete)
+  // Additive, nullable, no default. Idempotent via pragma check.
+  const agentSessionColsArchive = (db.pragma('table_info(agent_sessions)') as { name: string }[]).map((c) => c.name);
+  if (!agentSessionColsArchive.includes('archived_at')) {
+    db.exec(`ALTER TABLE agent_sessions ADD COLUMN archived_at TEXT`);
+  }
+  db.exec(`CREATE INDEX IF NOT EXISTS idx_agent_sessions_archived ON agent_sessions(archived_at)`);
+
+  // Issue #611 — agent_sessions.permission_mode (default / acceptEdits / plan / bypassPermissions)
+  // Additive, NOT NULL with DEFAULT 'default'. Idempotent via pragma check.
+  const agentSessionColsPerm = (db.pragma('table_info(agent_sessions)') as { name: string }[]).map((c) => c.name);
+  if (!agentSessionColsPerm.includes('permission_mode')) {
+    db.exec(`ALTER TABLE agent_sessions ADD COLUMN permission_mode TEXT NOT NULL DEFAULT 'default'`);
+  }
+
+  // Issue #604 — reasoning effort (thinking_budget) and fast-mode columns for agent_sessions.
+  // Both are additive and idempotent via pragma check.
+  const agentSessionCols604 = (db.pragma('table_info(agent_sessions)') as { name: string }[]).map((c) => c.name);
+  if (!agentSessionCols604.includes('thinking_budget')) {
+    db.exec(`ALTER TABLE agent_sessions ADD COLUMN thinking_budget INTEGER`);
+  }
+  if (!agentSessionCols604.includes('fast_mode')) {
+    db.exec(`ALTER TABLE agent_sessions ADD COLUMN fast_mode INTEGER NOT NULL DEFAULT 0`);
+  }
+
+  // Issue #609 — agent_model_visibility table for OpenRouter model curation.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS agent_model_visibility (
+      provider TEXT NOT NULL,
+      model_id TEXT NOT NULL,
+      visible INTEGER NOT NULL DEFAULT 1,
+      PRIMARY KEY (provider, model_id)
+    )
+  `);
 }

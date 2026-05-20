@@ -25,6 +25,7 @@ vi.mock('../services/opencode_engine', () => {
     prompt: vi.fn().mockResolvedValue({}),
     promptAsync: vi.fn().mockResolvedValue(true),
     subscribeToEvents: vi.fn().mockResolvedValue(null),
+    ensureReady: vi.fn().mockImplementation(async () => _ready),
   };
   return {
     opencodeClient: mockClient,
@@ -747,5 +748,219 @@ describe('Agent Sessions API', () => {
       headers: authHeaders,
     });
     expect(res.status).toBe(400);
+  });
+
+  // ── Issue #601: archive / soft-delete ─────────────────────────────────────
+
+  it('PATCH { archived: true } sets archivedAt and the row is excluded from default GET', async () => {
+    // Create a session via REST so the SDK mapping is populated (required by create).
+    const createRes = await fetch(`${baseUrl}/agent-sessions`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({ agentId: 'claude-code', cwd: os.homedir(), name: 'ToArchive', projectId: null }),
+    });
+    expect(createRes.status).toBe(201);
+    const { id } = (await createRes.json()) as { id: string };
+
+    // Archive it.
+    const archiveRes = await fetch(`${baseUrl}/agent-sessions/${id}`, {
+      method: 'PATCH',
+      headers: authHeaders,
+      body: JSON.stringify({ archived: true }),
+    });
+    expect(archiveRes.status).toBe(200);
+    const archived = (await archiveRes.json()) as { id: string; archivedAt: string | null };
+    expect(archived.archivedAt).not.toBeNull();
+
+    // Default list must NOT include the archived row.
+    const listRes = await fetch(`${baseUrl}/agent-sessions`, { headers: authHeaders });
+    const listBody = (await listRes.json()) as { sessions: Array<{ id: string }> };
+    expect(listBody.sessions.find((s) => s.id === id)).toBeUndefined();
+  });
+
+  it('GET ?archivedOnly=true returns only archived rows', async () => {
+    const createRes = await fetch(`${baseUrl}/agent-sessions`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({ agentId: 'claude-code', cwd: os.homedir(), name: 'ArchivedOnly', projectId: null }),
+    });
+    const { id } = (await createRes.json()) as { id: string };
+
+    await fetch(`${baseUrl}/agent-sessions/${id}`, {
+      method: 'PATCH',
+      headers: authHeaders,
+      body: JSON.stringify({ archived: true }),
+    });
+
+    // Also create a non-archived session.
+    await fetch(`${baseUrl}/agent-sessions`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({ agentId: 'claude-code', cwd: os.homedir(), name: 'NotArchived', projectId: null }),
+    });
+
+    const res = await fetch(`${baseUrl}/agent-sessions?archivedOnly=true`, { headers: authHeaders });
+    const body = (await res.json()) as { sessions: Array<{ id: string; archivedAt: string | null }> };
+    expect(body.sessions.every((s) => s.archivedAt !== null)).toBe(true);
+    expect(body.sessions.find((s) => s.id === id)).toBeDefined();
+  });
+
+  it('GET ?includeArchived=true includes both archived and non-archived rows', async () => {
+    const r1 = await fetch(`${baseUrl}/agent-sessions`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({ agentId: 'claude-code', cwd: os.homedir(), name: 'IncludedArchive', projectId: null }),
+    });
+    const { id: archivedId } = (await r1.json()) as { id: string };
+    await fetch(`${baseUrl}/agent-sessions/${archivedId}`, {
+      method: 'PATCH',
+      headers: authHeaders,
+      body: JSON.stringify({ archived: true }),
+    });
+    const r2 = await fetch(`${baseUrl}/agent-sessions`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({ agentId: 'claude-code', cwd: os.homedir(), name: 'IncludedActive', projectId: null }),
+    });
+    const { id: activeId } = (await r2.json()) as { id: string };
+
+    const res = await fetch(`${baseUrl}/agent-sessions?includeArchived=true`, { headers: authHeaders });
+    const body = (await res.json()) as { sessions: Array<{ id: string }> };
+    expect(body.sessions.find((s) => s.id === archivedId)).toBeDefined();
+    expect(body.sessions.find((s) => s.id === activeId)).toBeDefined();
+  });
+
+  it('PATCH { archived: false } clears archivedAt and row reappears in default GET', async () => {
+    const createRes = await fetch(`${baseUrl}/agent-sessions`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({ agentId: 'claude-code', cwd: os.homedir(), name: 'UnarchiveMe', projectId: null }),
+    });
+    const { id } = (await createRes.json()) as { id: string };
+
+    // Archive then unarchive.
+    await fetch(`${baseUrl}/agent-sessions/${id}`, {
+      method: 'PATCH',
+      headers: authHeaders,
+      body: JSON.stringify({ archived: true }),
+    });
+    const unarchiveRes = await fetch(`${baseUrl}/agent-sessions/${id}`, {
+      method: 'PATCH',
+      headers: authHeaders,
+      body: JSON.stringify({ archived: false }),
+    });
+    expect(unarchiveRes.status).toBe(200);
+    const unarchived = (await unarchiveRes.json()) as { archivedAt: string | null };
+    expect(unarchived.archivedAt).toBeNull();
+
+    // Must reappear in default list.
+    const listRes = await fetch(`${baseUrl}/agent-sessions`, { headers: authHeaders });
+    const listBody = (await listRes.json()) as { sessions: Array<{ id: string }> };
+    expect(listBody.sessions.find((s) => s.id === id)).toBeDefined();
+  });
+
+  it('archived_at migration is idempotent (running migrations twice is a no-op)', async () => {
+    const { runMigrations: run } = await import('../database/migrations');
+    const { getDb } = await import('../database/db');
+    expect(() => run(getDb())).not.toThrow();
+  });
+
+  // ── PR #619 acceptance: SESSIONS ACTUALLY LAUNCH when taskId is missing locally
+  // Contract: docs/ai/contracts/pr-619.json
+  // These tests assert the full launch path, not just "row inserted":
+  //   - 201 with the expected taskId/taskTitle reconciliation
+  //   - opencodeClient.createSession invoked (SDK session created)
+  //   - opencodeSessionMap populated (stream-bridge can route prompts → SDK)
+  //   - opencodeClient.promptAsync invoked (initial prompt actually dispatched)
+
+  it('launches a session end-to-end when taskId is not present in the local tasks table (PR #619 acceptance)', async () => {
+    // foreign_keys = ON is set in makeDb(); this taskId does not exist in tasks.
+    const bogusTaskId = 'definitely-not-in-local-db';
+    const taskTitle = 'Synthetic task from production';
+    const sessionName = 'FK launch test';
+    const cwd = os.homedir();
+
+    const { opencodeClient, opencodeSessionMap } = await import('../services/opencode_engine');
+    const mock = opencodeClient as unknown as {
+      createSession: ReturnType<typeof vi.fn>;
+      promptAsync: ReturnType<typeof vi.fn>;
+    };
+    mock.createSession.mockResolvedValueOnce({ id: 'sdk-launch-no-fk' });
+
+    const res = await fetch(`${baseUrl}/agent-sessions`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({
+        agentId: 'claude-code',
+        cwd,
+        name: sessionName,
+        taskId: bogusTaskId,
+        taskTitle,
+      }),
+    });
+
+    expect(res.status).toBe(201);
+    const session = (await res.json()) as {
+      id: string;
+      taskId: string | null;
+      taskTitle: string | null;
+      status: string;
+    };
+    expect(session.taskId).toBeNull();
+    expect(session.taskTitle).toBe(taskTitle);
+    expect(session.status).toBe('starting');
+
+    expect(mock.createSession).toHaveBeenCalledWith(sessionName, cwd);
+    expect(opencodeSessionMap.get(session.id)).toBe('sdk-launch-no-fk');
+    expect(mock.promptAsync).toHaveBeenCalled();
+    const [sdkId, promptText] = mock.promptAsync.mock.calls.at(-1)!;
+    expect(sdkId).toBe('sdk-launch-no-fk');
+    expect(promptText).toContain(sessionName);
+    expect(promptText).toContain(taskTitle);
+  });
+
+  it('launches a session end-to-end when taskId IS present in the local tasks table (happy path)', async () => {
+    const { getDb } = await import('../database/db');
+    const db = getDb();
+    const taskId = 'local-task-abc123';
+    db.prepare(
+      `INSERT INTO tasks (id, title, status, created_at, updated_at)
+       VALUES (?, 'Local Task', 'pending', datetime('now'), datetime('now'))`,
+    ).run(taskId);
+
+    const sessionName = 'Real task launch';
+    const cwd = os.homedir();
+    const { opencodeClient, opencodeSessionMap } = await import('../services/opencode_engine');
+    const mock = opencodeClient as unknown as {
+      createSession: ReturnType<typeof vi.fn>;
+      promptAsync: ReturnType<typeof vi.fn>;
+    };
+    mock.createSession.mockResolvedValueOnce({ id: 'sdk-launch-with-fk' });
+
+    const res = await fetch(`${baseUrl}/agent-sessions`, {
+      method: 'POST',
+      headers: authHeaders,
+      body: JSON.stringify({
+        agentId: 'claude-code',
+        cwd,
+        name: sessionName,
+        taskId,
+        taskTitle: 'Local Task',
+      }),
+    });
+
+    expect(res.status).toBe(201);
+    const session = (await res.json()) as {
+      id: string;
+      taskId: string | null;
+      taskTitle: string | null;
+      status: string;
+    };
+    expect(session.taskId).toBe(taskId);
+    expect(session.taskTitle).toBe('Local Task');
+    expect(session.status).toBe('starting');
+    expect(mock.createSession).toHaveBeenCalledWith(sessionName, cwd);
+    expect(opencodeSessionMap.get(session.id)).toBe('sdk-launch-with-fk');
+    expect(mock.promptAsync).toHaveBeenCalled();
   });
 });

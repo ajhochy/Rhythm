@@ -9,6 +9,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../../app/core/agents/agent_server_controller.dart';
 import '../../../app/core/constants/app_constants.dart';
 import '../../../app/core/ui/tokens/rhythm_theme.dart';
+import '../../agents/views/_open_router_models_section.dart';
 
 /// Settings section for connecting AI provider accounts.
 ///
@@ -741,6 +742,8 @@ class _AiAccountSectionState extends State<AiAccountSection> {
           onSave: () => _saveApiKey('openrouter'),
           connected: _authorizedProviders.contains('openrouter'),
         ),
+        const SizedBox(height: 8),
+        const OpenRouterModelsSection(),
 
         if (_statusMessage != null)
           Padding(

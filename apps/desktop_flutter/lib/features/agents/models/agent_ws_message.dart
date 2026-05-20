@@ -29,10 +29,18 @@ abstract class AgentWsMessage {
         return MessagePartDeltaMessage.fromJson(json);
       case 'message.removed':
         return MessageRemovedMessage.fromJson(json);
+      case 'session.updated':
+        return SessionUpdatedMessage.fromJson(json);
+      case 'session.removed':
+        return SessionRemovedMessage.fromJson(json);
       case 'trigger.fired':
         return TriggerFiredMessage.fromJson(json);
       case 'notification.push':
         return NotificationPushMessage.fromJson(json);
+      case 'permission.asked':
+        return PermissionAskedMessage.fromJson(json);
+      case 'permission.resolved':
+        return PermissionResolvedMessage.fromJson(json);
       case 'error':
         return WsErrorMessage.fromJson(json);
       default:
@@ -298,6 +306,88 @@ class MessageRemovedMessage extends AgentWsMessage {
     return MessageRemovedMessage(
       sessionId: asString(json['id']) ?? '',
       messageId: asString(json['messageId']) ?? '',
+    );
+  }
+}
+
+/// #605 — server broadcast of a full updated session row.
+/// Received whenever the server mutates a session (status change, rename,
+/// archive toggle, etc.). The client should upsert the row in its local cache.
+class SessionUpdatedMessage extends AgentWsMessage {
+  const SessionUpdatedMessage({required this.session});
+
+  final AgentSession session;
+
+  factory SessionUpdatedMessage.fromJson(Map<String, dynamic> json) {
+    return SessionUpdatedMessage(
+      session: AgentSession.fromJson(
+        (json['session'] as Map<String, dynamic>?) ?? const {},
+      ),
+    );
+  }
+}
+
+/// #605 — server broadcast of a hard-deleted session.
+/// Received after `DELETE /agent-sessions/:id/hard`. The client should drop
+/// the row from all local caches.
+class SessionRemovedMessage extends AgentWsMessage {
+  const SessionRemovedMessage({required this.id});
+
+  final String id;
+
+  factory SessionRemovedMessage.fromJson(Map<String, dynamic> json) {
+    return SessionRemovedMessage(id: asString(json['id']) ?? '');
+  }
+}
+
+/// #608 — server broadcast when the SDK emits `permission.asked`.
+/// The client should surface a [PermissionCard] for this session.
+class PermissionAskedMessage extends AgentWsMessage {
+  const PermissionAskedMessage({
+    required this.sessionId,
+    required this.permissionId,
+    required this.toolName,
+    required this.args,
+    required this.summary,
+  });
+
+  final String sessionId;
+  final String permissionId;
+  final String toolName;
+  final Map<String, dynamic> args;
+  final String summary;
+
+  factory PermissionAskedMessage.fromJson(Map<String, dynamic> json) {
+    return PermissionAskedMessage(
+      sessionId: asString(json['sessionId']) ?? '',
+      permissionId: asString(json['permissionId']) ?? '',
+      toolName: asString(json['toolName']) ?? '',
+      args: (json['args'] as Map<String, dynamic>?) ?? const {},
+      summary: asString(json['summary']) ?? '',
+    );
+  }
+}
+
+/// #608 — server broadcast when a permission has been resolved (accepted or denied),
+/// either by the user or by the permission-mode auto-logic.
+class PermissionResolvedMessage extends AgentWsMessage {
+  const PermissionResolvedMessage({
+    required this.sessionId,
+    required this.permissionId,
+    required this.decision,
+  });
+
+  final String sessionId;
+  final String permissionId;
+
+  /// Either 'accept' or 'deny'.
+  final String decision;
+
+  factory PermissionResolvedMessage.fromJson(Map<String, dynamic> json) {
+    return PermissionResolvedMessage(
+      sessionId: asString(json['sessionId']) ?? '',
+      permissionId: asString(json['permissionId']) ?? '',
+      decision: asString(json['decision']) ?? 'deny',
     );
   }
 }

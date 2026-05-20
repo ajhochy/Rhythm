@@ -18,6 +18,9 @@ class AgentServerController extends ChangeNotifier {
   AgentServerStatus _status = AgentServerStatus.starting;
   AgentServerFailureReason? _failureReason;
   String? _stderrTail;
+
+  /// Rich failure message surfaced by the service (e.g. ABI rebuild command).
+  String? _richFailureMessage;
   Map<String, bool> _capabilities = const {};
   HealthPoller? _poller;
 
@@ -27,6 +30,8 @@ class AgentServerController extends ChangeNotifier {
   String? get stderrTail => _stderrTail;
 
   String? get errorMessage {
+    // If a rich failure message was surfaced (e.g. ABI rebuild command), use it.
+    if (_richFailureMessage != null) return _richFailureMessage;
     switch (_failureReason) {
       case AgentServerFailureReason.nodeNotFound:
         return "Couldn't find Node.js on this Mac. Install Node 20 or newer "
@@ -56,6 +61,7 @@ class AgentServerController extends ChangeNotifier {
     _status = AgentServerStatus.starting;
     _failureReason = null;
     _stderrTail = null;
+    _richFailureMessage = null;
     _capabilities = const {};
     notifyListeners();
 
@@ -63,6 +69,7 @@ class AgentServerController extends ChangeNotifier {
     _status = result.ok ? AgentServerStatus.ready : AgentServerStatus.failed;
     _failureReason = result.reason;
     _stderrTail = result.stderrTail;
+    _richFailureMessage = result.failureMessage;
     notifyListeners();
 
     if (result.ok) {
@@ -133,6 +140,14 @@ class AgentServerController extends ChangeNotifier {
     _poller?.dispose();
     _poller = null;
     return initialize();
+  }
+
+  /// Gracefully stop the server and clean up. Returns a Future that completes
+  /// once the process has exited (or been force-killed after 2 s).
+  Future<void> stopAndDispose() async {
+    _poller?.dispose();
+    _poller = null;
+    await _service.stopGracefully();
   }
 
   @override

@@ -9,6 +9,7 @@
     "start": "node dist/server.js",
     "lint": "echo 'TODO: add eslint'",
     "test": "vitest run",
+    "smoke:launch": "bash scripts/smoke-launch.sh",
     "migrate:sqlite-to-postgres": "tsx src/database/migrate_sqlite_to_postgres.ts",
     "postinstall": "node scripts/postinstall.js"
   },

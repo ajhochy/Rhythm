@@ -11,7 +11,7 @@ import 'package:rhythm_desktop/features/agents/views/agents_view.dart';
 class _FakeApiServerService implements ApiServerService {
   @override
   Future<AgentServerStartResult> start() async =>
-      (ok: false, reason: null, stderrTail: null);
+      (ok: false, reason: null, stderrTail: null, failureMessage: null);
 
   @override
   void stop() {}

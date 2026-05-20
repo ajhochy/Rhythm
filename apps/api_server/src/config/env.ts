@@ -78,4 +78,9 @@ export const env = {
   resendApiKey: process.env.RESEND_API_KEY ?? '',
   emailFromAddress: process.env.EMAIL_FROM_ADDRESS ?? 'Rhythm <onboarding@resend.dev>',
   agentLocal: process.env.AGENT_LOCAL === 'true',
+  /** URL of the production Rhythm API to mirror tasks from (agent-local mode only).
+   *  Set via PROD_API_URL env var.  When absent, production task mirroring is skipped. */
+  prodApiUrl: process.env.PROD_API_URL ?? null,
+  /** Bearer token to authenticate against the production API for task mirroring. */
+  prodAuthToken: process.env.PROD_AUTH_TOKEN ?? null,
 };

@@ -343,7 +343,7 @@ class _ModelPickerButton extends StatelessWidget {
 
     return PopupMenuItem<_ModelPickerEntry>(
       value: _ModelPickerEntry(route: route),
-      height: 40,
+      height: route.variantLabel != null ? 50 : 40,
       child: Row(
         children: [
           SizedBox(
@@ -353,13 +353,29 @@ class _ModelPickerButton extends StatelessWidget {
                 : const SizedBox.shrink(),
           ),
           Expanded(
-            child: Text(
-              route.modelId,
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: isActive ? FontWeight.w700 : FontWeight.w400,
-                color: isActive ? accent : context.rhythm.textPrimary,
-              ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  route.modelId,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: isActive ? FontWeight.w700 : FontWeight.w400,
+                    color: isActive ? accent : context.rhythm.textPrimary,
+                  ),
+                ),
+                if (route.variantLabel != null) ...[
+                  const SizedBox(height: 1),
+                  Text(
+                    route.variantLabel!,
+                    style: TextStyle(
+                      fontSize: 10,
+                      color: context.rhythm.textMuted,
+                    ),
+                  ),
+                ],
+              ],
             ),
           ),
           const SizedBox(width: 8),

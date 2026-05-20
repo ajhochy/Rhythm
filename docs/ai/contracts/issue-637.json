@@ -1,0 +1,25 @@
+{
+  "issue": 637,
+  "generated": "2026-05-20",
+  "stack": "typescript+dart",
+  "criteria": [
+    {
+      "criterion_id": "issue-637-c1",
+      "text": "GET /agents/models?agentId=claude-code must include curated OpenRouter model ids (rows in agent_model_visibility with visible=1) when the SDK live catalog confirms them — identical logic to the /catalog endpoint. Today the root GET / handler only iterates ROUTE_FALLBACKS_BY_AGENT and curated entries never appear.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_637_contract.test.ts",
+      "test_id": "issue-637-c1: GET /agents/models?agentId=claude-code must include SDK-confirmed curated openrouter ids",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-637-c2",
+      "text": "_OpenRouterModelsSection._isVisible(modelId) must default to false when no row exists in the visibility map. Today it defaults to true (everything appears checked on fresh install), causing all models to look selected before the user has curated anything.",
+      "mode": "source-read",
+      "source_read_rationale": "The widget method _isVisible is private to _OpenRouterModelsSectionState. The test reads _open_router_models_section.dart and asserts the correct '?? false' default is present. Faster and more reliable than pumping the full widget tree with HTTP stubs.",
+      "test_file": "apps/desktop_flutter/test/features/agents/issue_637_contract_test.dart",
+      "test_id": "issue-637-c2: _isVisible defaults to false when visibility map has no entry for model",
+      "status": "pending"
+    }
+  ],
+  "not_tested": []
+}

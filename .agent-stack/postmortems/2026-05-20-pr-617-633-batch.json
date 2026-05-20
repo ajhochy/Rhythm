@@ -1,0 +1,158 @@
+{
+  "run_id": "2026-05-20-pr-617-633-batch",
+  "issue": "batch:627,628,632,633",
+  "date": "2026-05-20",
+  "smoke_result": "fail",
+  "verification_claimed": "PASS",
+  "divergence": true,
+  "criteria_results": [
+    {
+      "criterion_id": "issue-633-launch",
+      "text": "App window appears as regular foreground app; no menu-bar-only state or black screen",
+      "contract_status": "absent",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "PASS via human click-through. No contract written; rendering-correctness criterion that genuinely requires visual confirmation."
+    },
+    {
+      "criterion_id": "issue-627-sync-now",
+      "text": "POST /sync/now returns HTTP 200 with status:ok against the live :4001",
+      "contract_status": "absent",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "PASS via curl. Could have been automated in verification-gate (and was — see suggested_follow_up)."
+    },
+    {
+      "criterion_id": "issue-627-tsx-path",
+      "text": "Dev-mode :4001 uses npx tsx against source rather than dist/server.js",
+      "contract_status": "absent",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "PASS via ps inspection. Could have been automated."
+    },
+    {
+      "criterion_id": "issue-628-c1",
+      "text": "reconnectSession notifies listeners for any session (cold bubble hydrates within ~2s)",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Unit contract passed; smoke confirmed user-visible behavior."
+    },
+    {
+      "criterion_id": "issue-628-c2",
+      "text": "WS streaming tokens append to bubble while expanded",
+      "contract_status": "untested",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Marked manual UNVERIFIED in contract; smoke confirmed."
+    },
+    {
+      "criterion_id": "issue-628-c3",
+      "text": "Opening full chat view doesn't duplicate messages",
+      "contract_status": "untested",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Marked manual UNVERIFIED in contract; smoke confirmed parity."
+    },
+    {
+      "criterion_id": "issue-628-followup-truncation",
+      "text": "Mini-bubble renders full assistant response text (not truncated into a small text box)",
+      "contract_status": "absent",
+      "smoke_status": "fail",
+      "category": "C1",
+      "notes": "Manual found that assistant responses are truncated into a smaller text box inside the bubble. Contract #628 covered data-flow + notification invariants but did not assert layout/sizing of the rendered transcript. Likely cause: when the bubble adopts its own transcript renderer for cold sessions, height/maxLines/Expanded constraints aren't matched to the full-view renderer."
+    },
+    {
+      "criterion_id": "issue-628-followup-user-messages",
+      "text": "Mini-bubble shows user messages, not only assistant responses",
+      "contract_status": "absent",
+      "smoke_status": "fail",
+      "category": "C1",
+      "notes": "Manual found bubble shows assistant turns but not user messages. Contract did not enumerate which roles must render. Likely cause: bubble's transcript filter excludes role='input' (or equivalent user role) while the full view includes it. Inspect _MiniMessageBlock / _ExpandedSessionBubble render path against agents_view.dart full-transcript filter."
+    },
+    {
+      "criterion_id": "issue-632-c1",
+      "text": "promptAsync surfaces error when SDK silently no-ops on unknown model id",
+      "contract_status": "pass",
+      "smoke_status": "fail",
+      "category": "C2",
+      "notes": "Unit contract passed for the {} empty-response branch. Real smoke failure is different: Gemini 3 Flash returns a data envelope (so promptAsync returns true) but the session then closes without producing tokens. The unit test simulation didn't cover the 'data envelope but no streamed tokens' case. The opencode_stream_bridge or session.idle/session.error event path is dropping the stream silently. WRONG CONTRACT — the test asserted the easier branch, not the actual failure mode."
+    },
+    {
+      "criterion_id": "issue-632-c2",
+      "text": "GET /catalog must not promote curated openrouter ids when live catalog is empty",
+      "contract_status": "pass",
+      "smoke_status": "fail",
+      "category": "C2",
+      "notes": "Unit contract passed for the empty-catalog branch. Real smoke failure is on the OPPOSITE branch: /agent-models/visibility and /agents/models/catalog both INCLUDE the visible curated models (baidu/cobuddy:free, deepseek/deepseek-v4-flash:free, inclusionai/ring-2.6-1t), but the composer per-turn picker does not surface them. The contract verified the server-side catalog gate; the actual gap is the Flutter picker's filtering/grouping of catalog entries. PLUS the Settings UI marks many models selected by default while only a small set persists. The contract did not test the Flutter-side picker rendering at all, nor the Settings selection-vs-persistence sync."
+    }
+  ],
+  "process_issues": [],
+  "workflow_adherence": {
+    "overall_score": "partial",
+    "expected_chain": [
+      "workflow-orchestrator",
+      "acceptance-contract",
+      "coding-agent",
+      "verification-gate",
+      "project-state-updater",
+      "failure-postmortem"
+    ],
+    "observed_chain": [
+      "workflow-orchestrator",
+      "failure-postmortem (prior)",
+      "failure-triage",
+      "acceptance-contract",
+      "coding-agent",
+      "verification-gate",
+      "failure-postmortem (this)"
+    ],
+    "skipped_skills": [
+      "project-state-updater"
+    ],
+    "issues": [
+      {
+        "workflow_category": "W1",
+        "affected_skill": "project-state-updater",
+        "description": "After verification-gate emitted PASS for the #627/#628/#632/#633 batch, the orchestrator went straight to commit + push + smoke without invoking project-state-updater as a discrete step. The state entry was instead written inline as part of the commit prep. The skill chain expects a separate dispatch so the update is auditable.",
+        "detected_by": "Transcript inspection: no Skill tool call for project-state-updater between verification-gate PASS and git commit."
+      },
+      {
+        "workflow_category": "W1",
+        "affected_skill": "verification-gate",
+        "description": "Smoke probes ran /health, /agents/capabilities, /sync/now against :4001 — but did not curl /agent-models/visibility, /agents/models/catalog, or compare them against the Flutter picker's actual rendered list. The #632 c2 failure was directly observable via two curl calls that compare visibility-table rows to picker-surfaced rows. verification-gate's smoke-probe set is too narrow — it covers health endpoints only, not feature endpoints.",
+        "detected_by": "User feedback in smoke results doc, 'Checks That Should Have Been Automated By Coding Agent' section."
+      },
+      {
+        "workflow_category": "W1",
+        "affected_skill": "workflow-orchestrator",
+        "description": "When emitting the focused smoke checklist for #627/#628/#632/#633, items that were fully verifiable by curl/ps/lsof/Computer Use were surfaced as 'manual smoke required'. User had to run curl /sync/now, ps for tsx, curl /agent-models/visibility, curl /agents/models/catalog themselves. The orchestrator's smoke-handoff prompt should pre-run every verifiable check and only ask the user about items that genuinely need eyes-on.",
+        "detected_by": "User explicit feedback: 'Several checks were completed without live click-through and should not have been surfaced as manual test required by the coding agent.' Saved to memory as feedback_automate_verifiable_smoke_checks.md."
+      },
+      {
+        "workflow_category": "W5",
+        "affected_skill": "verification-gate",
+        "description": "verification-gate emitted PASS with /sync/now 200 evidence, but did not exercise the composer model picker against the actual feature-endpoint catalog (would have caught #632 c2 visibility mismatch) and did not exercise an OpenRouter turn end-to-end (would have caught the silent-close on Gemini 3 Flash). The PASS report's smoke completeness assertion was effectively wishful.",
+        "detected_by": "Comparison of verification-gate captured probes (4 endpoints) vs the surface area the smoke failures landed on (2 additional endpoints + 1 end-to-end flow)."
+      },
+      {
+        "workflow_category": "W4",
+        "affected_skill": "acceptance-contract",
+        "description": "Contract #632 c1 unit test simulated the silent no-op as `{}` (no error, no data), but the real failure mode the user observed is the SDK returning a data envelope and then closing the session without streamed tokens. The contract author chose the easier-to-mock branch instead of the harder one. acceptance-contract's classification rubric should require listing 2-3 plausible failure modes and writing tests for the worst-case one, not the simplest.",
+        "detected_by": "Comparison of unit test mock (`{}` response) vs observed Gemini 3 Flash behavior (data returned, session closed silently)."
+      }
+    ]
+  },
+  "implementation_files": [
+    "apps/desktop_flutter/macos/Runner/AppDelegate.swift",
+    "apps/desktop_flutter/lib/app/core/server/api_server_service.dart",
+    "apps/desktop_flutter/lib/app/core/agents/agent_bubble_overlay.dart",
+    "apps/desktop_flutter/lib/features/agents/controllers/agents_controller.dart",
+    "apps/api_server/src/services/opencode_client_service.ts",
+    "apps/api_server/src/routes/agents_models_routes.ts",
+    "apps/api_server/src/services/__tests__/sync_orchestrator_service.test.ts"
+  ],
+  "failure_output": "User smoke report doc 2026-05-20: '#632 OpenRouter selected model can silently close the session. Observed with OpenRouter Gemini 3 Flash. Expected visible answer or explicit error frame. / #632 curated OpenRouter visibility is inconsistent. Settings appears to mark many models selected by default. Persisted visibility/catalog only expose a smaller set. Composer picker does not clearly surface visible curated non-core OpenRouter models. / #628 mini-bubble transcript rendering regressions. Assistant responses truncate into a small text box. User messages are missing from the bubble transcript.'",
+  "overall_category": "C2",
+  "suggested_follow_up": "Extend verification-gate smoke probes beyond /health to include /agent-models/visibility + /agents/models/catalog (the failing surface), AND extend acceptance-contract's failure-mode rubric to require the worst-case branch (data-envelope + session-close, not just {}). Also lift the orchestrator's smoke-handoff rule: never surface a check as manual when curl/ps/Computer Use can verify it."
+}

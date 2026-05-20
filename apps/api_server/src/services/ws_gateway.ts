@@ -72,6 +72,24 @@ export function broadcast(msg: object): void {
   }
 }
 
+/**
+ * Broadcast a full session row update to all connected WS clients.
+ * Used by controller / stream bridge whenever a session row changes
+ * in a way the client's local cache should reflect immediately (rename,
+ * status transition, archive toggle, etc.).
+ */
+export function broadcastSessionUpdated(session: import('../models/agent_session').AgentSession): void {
+  broadcast({ v: 1, type: 'session.updated', session });
+}
+
+/**
+ * Broadcast a session removal (hard-delete) to all connected WS clients so
+ * they can drop the row from their local cache immediately.
+ */
+export function broadcastSessionRemoved(id: string): void {
+  broadcast({ v: 1, type: 'session.removed', id });
+}
+
 function handleClientMessage(ws: WebSocket, raw: import('ws').RawData): void {
   let msg: Record<string, unknown>;
   try {
@@ -116,6 +134,11 @@ function handleClientMessage(ws: WebSocket, raw: import('ws').RawData): void {
         providerId?: string;
         modelId?: string;
       } | null;
+      // Issue #604: per-turn reasoning budget + fast-mode, never persisted.
+      const perTurnThinking = (msg.thinking ?? null) as {
+        budget_tokens?: number;
+      } | null;
+      const perTurnFastMode = typeof msg.fastMode === 'boolean' ? msg.fastMode : null;
       if (id && typeof data === 'string') {
         (async () => {
           let opencodeId = opencodeSessionMap.get(id);
@@ -124,6 +147,8 @@ function handleClientMessage(ws: WebSocket, raw: import('ws').RawData): void {
           let sessionName: string | undefined;
           let sessionProviderId: string | null = null;
           let sessionModelId: string | null = null;
+          let sessionThinkingBudget: number | null = null;
+          let sessionFastMode = false;
           try {
             const session = new AgentSessionsRepository().findById(id);
             if (session) {
@@ -132,9 +157,71 @@ function handleClientMessage(ws: WebSocket, raw: import('ws').RawData): void {
               sessionName = session.name;
               sessionProviderId = session.providerId;
               sessionModelId = session.modelId;
+              sessionThinkingBudget = session.thinkingBudget ?? null;
+              sessionFastMode = session.fastMode ?? false;
             }
           } catch {
             /* DB unavailable — proceed without context */
+          }
+
+          // #602: agent-less session (agentKind === '__pending__').
+          // The first session.input frame must carry a modelOverride that
+          // identifies the provider+model. We derive the agent kind from
+          // the provider, persist it on the session row, then proceed to
+          // create the SDK session as normal.
+          if (agentKind === '__pending__') {
+            if (!perTurnOverride?.providerId || !perTurnOverride.modelId) {
+              ws.send(
+                JSON.stringify({
+                  v: 1,
+                  type: 'error',
+                  id,
+                  message: 'Pick a model before sending the first message.',
+                }),
+              );
+              return;
+            }
+            // Derive agent kind from provider — map to the best-fit agent.
+            const PROVIDER_TO_AGENT: Record<string, string> = {
+              anthropic: 'claude-code',
+              'github-copilot': 'claude-code',
+              openai: 'codex',
+              google: 'gemini-cli',
+              openrouter: 'claude-code', // fallback; refined per modelId prefix below
+            };
+            let resolvedAgent = PROVIDER_TO_AGENT[perTurnOverride.providerId] ?? 'claude-code';
+            // Refine openrouter routing by model prefix.
+            if (perTurnOverride.providerId === 'openrouter') {
+              const mid = perTurnOverride.modelId;
+              if (mid.startsWith('openai/')) resolvedAgent = 'codex';
+              else if (mid.startsWith('google/')) resolvedAgent = 'gemini-cli';
+              else resolvedAgent = 'claude-code';
+            }
+            agentKind = resolvedAgent;
+            // Persist the resolved agent kind on the session row so subsequent turns
+            // don't need a modelOverride.  Also persist the chosen provider+model so
+            // resolveModelForSessionTurn can use them directly on follow-up turns
+            // instead of falling back through the authed-provider list (which may
+            // return a different model if auth state has changed).
+            try {
+              const pendingRepo = new AgentSessionsRepository();
+              pendingRepo.updateAgentKind(id, resolvedAgent);
+              // Persist the specific model the user chose so follow-up turns
+              // (which carry no modelOverride) resolve to the same provider/model.
+              pendingRepo.updateFields(id, {
+                providerId: perTurnOverride.providerId,
+                modelId: perTurnOverride.modelId,
+              });
+              // Reflect persisted values in local vars so the resolver below
+              // uses them for this very turn (avoids a second DB read).
+              sessionProviderId = perTurnOverride.providerId;
+              sessionModelId = perTurnOverride.modelId;
+            } catch {
+              /* best-effort — don't block the prompt if DB write fails */
+            }
+            console.log(
+              `[ws_gateway] agent-less session ${id}: resolved agent '${resolvedAgent}' from provider '${perTurnOverride.providerId}', model '${perTurnOverride.modelId}'`,
+            );
           }
 
           // Auto-resume: sessions persist in SQLite across api_server
@@ -212,7 +299,60 @@ function handleClientMessage(ws: WebSocket, raw: import('ws').RawData): void {
                   perTurnOverride,
                 })
               : undefined;
-            await opencodeClient.promptAsync(opencodeId, data, model, cwd);
+
+            // Guard: if model is undefined (unknown agentKind not in the
+            // resolver's fallback table), surface the problem explicitly
+            // instead of forwarding an undeclared model to the SDK.  The SDK
+            // silently no-ops on undefined model — it stores the user message
+            // part and publishes message.updated events, but never fires an
+            // LLM call, leaving the UI stuck on "working" indefinitely.
+            if (!model && agentKind) {
+              console.error(
+                `[ws_gateway] session ${id}: could not resolve model for agentKind='${agentKind}' — no route in catalog`,
+              );
+              ws.send(
+                JSON.stringify({
+                  v: 1,
+                  type: 'error',
+                  id,
+                  message: `Could not resolve a model for agent '${agentKind}'. Please select a model in the session settings.`,
+                }),
+              );
+              return;
+            }
+            console.log(
+              `[ws_gateway] session ${id}: routing turn to ${model ? `${model.providerID}/${model.modelID}` : '<no model>'}`,
+            );
+
+            // Issue #604: build optional thinking / fast-mode opts to pass through.
+            // Resolution order: per-turn field overrides session-level field.
+            const effectiveThinkingBudget = perTurnThinking?.budget_tokens ?? sessionThinkingBudget;
+            const effectiveFastMode = perTurnFastMode ?? sessionFastMode;
+            const sdkOpts = (effectiveThinkingBudget !== null || effectiveFastMode)
+              ? {
+                  ...(effectiveThinkingBudget !== null ? { thinking: { budget_tokens: effectiveThinkingBudget } } : {}),
+                  ...(effectiveFastMode ? { fastMode: true } : {}),
+                }
+              : undefined;
+
+            // Bind through unknown to allow passing extra opts that the
+            // hand-typed SDK typedef may not list — these are forwarded
+            // best-effort. CRITICAL: use `.bind(opencodeClient)` so the
+            // method retains its `this` binding. Bare `as unknown as` cast
+            // loses `this`, and the very first line of promptAsync reads
+            // `this.client` → throws `TypeError: Cannot read properties of
+            // undefined (reading 'client')` on every prompt. Regression from
+            // acdc835 (#604) which introduced the casted alias.
+            const promptFn = opencodeClient.promptAsync.bind(
+              opencodeClient,
+            ) as unknown as (
+              id: string,
+              data: string,
+              model?: { providerID: string; modelID: string },
+              cwd?: string,
+              opts?: Record<string, unknown>,
+            ) => Promise<unknown>;
+            await promptFn(opencodeId, data, model, cwd, sdkOpts);
           } catch (err) {
             console.error(
               `[ws_gateway] SDK prompt error for session ${id}:`,

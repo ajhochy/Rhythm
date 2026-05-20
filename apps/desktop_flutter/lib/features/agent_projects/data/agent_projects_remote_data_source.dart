@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 import '../../../app/core/constants/app_constants.dart';
 import '../../../app/core/utils/http_utils.dart';
 import '../models/agent_project.dart';
+import '../models/project_branches.dart';
 
 /// HTTP client for the embedded api_server's /projects endpoints.
 ///
@@ -89,6 +90,41 @@ class AgentProjectsRemoteDataSource {
   Future<AgentProject> refreshVcs(String id) async {
     final response = await _client.post(
       Uri.parse('$_baseUrl/projects/$id/refresh-vcs'),
+    );
+    assertOk(response);
+    return AgentProject.fromJson(
+      jsonDecode(response.body) as Map<String, dynamic>,
+    );
+  }
+
+  Future<ProjectBranches> listBranches(String id) async {
+    final response = await _client.get(
+      Uri.parse('$_baseUrl/projects/$id/branches'),
+    );
+    assertOk(response);
+    return ProjectBranches.fromJson(
+      jsonDecode(response.body) as Map<String, dynamic>,
+    );
+  }
+
+  /// Checkout [branch] in the project's working tree.
+  ///
+  /// Returns the updated [AgentProject] on success.
+  /// Throws an [AppError] (409) carrying the git stderr on conflict/failure.
+  Future<AgentProject> checkout(
+    String id, {
+    required String branch,
+    String stash = 'none',
+    bool createBranch = false,
+  }) async {
+    final response = await _client.post(
+      Uri.parse('$_baseUrl/projects/$id/checkout'),
+      headers: const {'Content-Type': 'application/json'},
+      body: jsonEncode({
+        'branch': branch,
+        'stash': stash,
+        'createBranch': createBranch,
+      }),
     );
     assertOk(response);
     return AgentProject.fromJson(

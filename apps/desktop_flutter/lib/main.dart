@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
@@ -105,8 +107,22 @@ void main() async {
     ApiServerService(),
     serverUrl: serverConfigService.url,
   )..initialize();
-  final agentServerController = AgentServerController(ApiServerService())
+
+  final agentService = ApiServerService();
+  final agentServerController = AgentServerController(agentService)
     ..initialize();
+
+  // #614 — Wire SIGINT / SIGTERM listeners so that a terminal kill (Ctrl-C or
+  // `kill <pid>`) still shuts down the spawned api_server cleanly.
+  void handleTermSignal() {
+    agentService.stopGracefully().then((_) => exit(0));
+  }
+
+  ProcessSignal.sigint.watch().listen((_) => handleTermSignal());
+  // SIGTERM is not catchable on Windows; guard it.
+  if (!Platform.isWindows) {
+    ProcessSignal.sigterm.watch().listen((_) => handleTermSignal());
+  }
   final authSessionService = AuthSessionService(
     AuthDataSource(baseUrl: serverConfigService.url),
     googleClient: DesktopGoogleOAuthClient(baseUrl: serverConfigService.url),
@@ -129,9 +145,74 @@ void main() async {
   );
 }
 
-class RhythmApp extends StatelessWidget {
+class RhythmApp extends StatefulWidget {
   const RhythmApp({
     super.key,
+    required this.authSessionService,
+    required this.localNotificationService,
+    required this.serverController,
+    required this.agentServerController,
+    required this.serverConfigService,
+    required this.themeModeService,
+    required this.destructiveModalService,
+    required this.keybindsService,
+    required this.opencodeServerService,
+  });
+
+  final AuthSessionService authSessionService;
+  final LocalNotificationService localNotificationService;
+  final ApiServerController serverController;
+  final AgentServerController agentServerController;
+  final ServerConfigService serverConfigService;
+  final ThemeModeService themeModeService;
+  final DestructiveModalService destructiveModalService;
+  final KeybindsService keybindsService;
+  final OpencodeServerService opencodeServerService;
+
+  @override
+  State<RhythmApp> createState() => _RhythmAppState();
+}
+
+class _RhythmAppState extends State<RhythmApp> with WidgetsBindingObserver {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  /// #614 — AppLifecycleState.detached fires when the Flutter engine is torn
+  /// down (e.g. force-quit). Use it as a last-resort shutdown signal.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.detached) {
+      widget.agentServerController.stopAndDispose();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return _RhythmAppContent(
+      authSessionService: widget.authSessionService,
+      localNotificationService: widget.localNotificationService,
+      serverController: widget.serverController,
+      agentServerController: widget.agentServerController,
+      serverConfigService: widget.serverConfigService,
+      themeModeService: widget.themeModeService,
+      destructiveModalService: widget.destructiveModalService,
+      keybindsService: widget.keybindsService,
+      opencodeServerService: widget.opencodeServerService,
+    );
+  }
+}
+
+class _RhythmAppContent extends StatelessWidget {
+  const _RhythmAppContent({
     required this.authSessionService,
     required this.localNotificationService,
     required this.serverController,

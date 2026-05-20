@@ -1,0 +1,26 @@
+{
+  "issue": 634,
+  "generated": "2026-05-20",
+  "stack": "dart",
+  "criteria": [
+    {
+      "criterion_id": "issue-634-c1",
+      "text": "When _MiniMessageBlock is rendered with an assistant-role AgentSessionMessage whose strippedText is longer than 5 lines worth of text (e.g. 800 chars), the rendered Text widget must NOT have maxLines: 5 set and must NOT have overflow: TextOverflow.ellipsis. (Equivalent assertion: the Text's maxLines is null and overflow is null/clip.)",
+      "mode": "widget",
+      "test_file": "apps/desktop_flutter/test/features/agents/issue_634_contract_test.dart",
+      "test_id": "issue-634-c1: MiniMessageBlock assistant text must not be capped at maxLines 5",
+      "status": "pending",
+      "reason": "Pumps AgentBubbleOverlayLayer with a stub AgentsController that returns one expanded session bubble containing an 800-char assistant message. Finds the Text widget showing that message and asserts maxLines == null and overflow != TextOverflow.ellipsis."
+    },
+    {
+      "criterion_id": "issue-634-c2",
+      "text": "Same assertion for _MiniLiveBlock — the live-output Text widget must NOT be capped at maxLines: 10.",
+      "mode": "widget",
+      "test_file": "apps/desktop_flutter/test/features/agents/issue_634_contract_test.dart",
+      "test_id": "issue-634-c2: MiniLiveBlock live output must not be capped at maxLines 10",
+      "status": "pending",
+      "reason": "Pumps AgentBubbleOverlayLayer with a stub AgentsController that returns an expanded session bubble with no transcript messages but with 800 chars of live output. Finds the live-output Text widget and asserts maxLines == null and overflow != TextOverflow.ellipsis."
+    }
+  ],
+  "not_tested": []
+}
