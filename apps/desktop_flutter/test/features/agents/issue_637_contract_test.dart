@@ -21,8 +21,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 
 void main() {
-  group(
-      'issue-637-c2: visibility map default must be false for unknown models',
+  group('issue-637-c2: visibility map default must be false for unknown models',
       () {
     test(
       '_isVisible in _open_router_models_section.dart must use ?? false, '
@@ -83,14 +82,14 @@ void main() {
         // to avoid false positives from comments.
         final isVisibleLine = src
             .split('\n')
-            .where((line) => line.contains('_isVisible') && line.contains('_visibilityMap'))
+            .where((line) =>
+                line.contains('_isVisible') && line.contains('_visibilityMap'))
             .join('\n');
 
         expect(
           isVisibleLine.contains('?? true'),
           isFalse,
-          reason:
-              'The _isVisible method still uses "?? true" (buggy default). '
+          reason: 'The _isVisible method still uses "?? true" (buggy default). '
               'Change it to "?? false".',
         );
       },

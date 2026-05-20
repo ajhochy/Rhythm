@@ -197,7 +197,8 @@ class _PreloadedAgentsController extends AgentsController {
         AgentSessionMessage(
           id: 1,
           sessionId: 'session-634',
-          role: 'output', // assistant / non-input role → triggers maxLines:5 bug
+          role:
+              'output', // assistant / non-input role → triggers maxLines:5 bug
           rawText: _longText,
           strippedText: _longText,
           createdAt: DateTime.fromMillisecondsSinceEpoch(0),
@@ -310,7 +311,8 @@ Widget _makeTestWidget({
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  group('issue-634-c1: MiniMessageBlock assistant text must not be capped at maxLines 5',
+  group(
+      'issue-634-c1: MiniMessageBlock assistant text must not be capped at maxLines 5',
       () {
     testWidgets(
       'Text widget for long assistant message must have maxLines == null',
@@ -342,7 +344,8 @@ void main() {
         final longText = 'A' * 800;
         final textWidgets = tester
             .widgetList<Text>(find.byType(Text))
-            .where((t) => t.data == longText || (t.data?.startsWith('AAA') ?? false))
+            .where((t) =>
+                t.data == longText || (t.data?.startsWith('AAA') ?? false))
             .toList();
 
         expect(
@@ -367,8 +370,7 @@ void main() {
           expect(
             tw.overflow,
             isNot(equals(TextOverflow.ellipsis)),
-            reason:
-                'Text widget for assistant message must NOT use '
+            reason: 'Text widget for assistant message must NOT use '
                 'overflow: TextOverflow.ellipsis (found overflow: '
                 '${tw.overflow}). Remove overflow: TextOverflow.ellipsis from '
                 '_MiniMessageBlock output branch.',
@@ -378,7 +380,8 @@ void main() {
     );
   });
 
-  group('issue-634-c2: MiniLiveBlock live output must not be capped at maxLines 10',
+  group(
+      'issue-634-c2: MiniLiveBlock live output must not be capped at maxLines 10',
       () {
     testWidgets(
       'Text widget for live output must have maxLines == null',
@@ -418,8 +421,7 @@ void main() {
         expect(
           textWidgets,
           isNotEmpty,
-          reason:
-              'Expected to find a Text widget with the live output text.',
+          reason: 'Expected to find a Text widget with the live output text.',
         );
 
         for (final tw in textWidgets) {
@@ -427,8 +429,7 @@ void main() {
           expect(
             tw.maxLines,
             isNull,
-            reason:
-                'Text widget for live output must NOT have maxLines set '
+            reason: 'Text widget for live output must NOT have maxLines set '
                 '(found maxLines: ${tw.maxLines}). Remove maxLines: 10 from '
                 '_MiniLiveBlock.',
           );
@@ -437,8 +438,7 @@ void main() {
           expect(
             tw.overflow,
             isNot(equals(TextOverflow.ellipsis)),
-            reason:
-                'Text widget for live output must NOT use '
+            reason: 'Text widget for live output must NOT use '
                 'overflow: TextOverflow.ellipsis (found overflow: '
                 '${tw.overflow}). Remove overflow: TextOverflow.ellipsis from '
                 '_MiniLiveBlock.',
