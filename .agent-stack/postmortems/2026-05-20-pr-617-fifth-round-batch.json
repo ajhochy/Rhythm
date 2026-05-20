@@ -1,0 +1,202 @@
+{
+  "run_id": "2026-05-20-pr-617-rounds-1-5",
+  "issue": "batch:627,628,632,633,634,636,637,638,639",
+  "date": "2026-05-20",
+  "smoke_result": "fail",
+  "verification_claimed": "PASS",
+  "divergence": true,
+  "criteria_results": [
+    {
+      "criterion_id": "issue-627-c1",
+      "text": "POST /sync/now returns 200 on the live :4001 spawned by Flutter (not stale dist).",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Dev-mode tsx preference shipped; verified curl-side and via fresh-server probe. Fix landed in commit e5eb640."
+    },
+    {
+      "criterion_id": "issue-628-c1",
+      "text": "Cold mini-bubble back-fills historical messages on expand.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Verified user-side. initState post-frame callback fires reconnectSession."
+    },
+    {
+      "criterion_id": "issue-632-c1",
+      "text": "promptAsync returns false on silent SDK no-op (empty data envelope).",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Bubble error frame from session.idle-with-zero-tokens visible. WS gateway surfaces explicit error."
+    },
+    {
+      "criterion_id": "issue-632-c2",
+      "text": "Curated openrouter ids not promoted when SDK catalog empty.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Server curl confirms conservative gate honored; no unverified ids in /catalog."
+    },
+    {
+      "criterion_id": "issue-633",
+      "text": "Black-screen launch regression — invalid super.applicationDidFinishLaunching call.",
+      "contract_status": "absent",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "User-applied 1-line removal committed in e5eb640. Latent regression from PR #473."
+    },
+    {
+      "criterion_id": "issue-634-c1",
+      "text": "Mini-bubble assistant response text not truncated to 5 lines.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "User confirmed full message scrolls inside 460px bubble."
+    },
+    {
+      "criterion_id": "issue-636-c1",
+      "text": "session.idle with zero tokens broadcasts user-visible error frame.",
+      "contract_status": "pass",
+      "smoke_status": "pass_partial",
+      "category": "C2",
+      "notes": "Contract test asserts error frame is broadcast. Smoke confirms it renders in mini-bubble. BUT for newly-created sessions, it does NOT render in the full Agents view transcript — see #638 c4 series. The contract verified the bridge layer (correct); the user-visible criterion was incomplete."
+    },
+    {
+      "criterion_id": "issue-637-c1",
+      "text": "Picker openrouter section excludes anthropic/openai/google duplicate routes when user has direct auth.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Server curl + UI confirm. authedSet.has(prefix) gate works."
+    },
+    {
+      "criterion_id": "issue-637-c2",
+      "text": "Picker reflects Settings visibility changes immediately.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "refreshModelRoutes + refreshCatalog both fire; Consumer<AgentsController> rebuilds."
+    },
+    {
+      "criterion_id": "issue-638-c1",
+      "text": "WS error frame visible in full Agents view transcript when session is selected.",
+      "contract_status": "pass",
+      "smoke_status": "pass_partial",
+      "category": "C2",
+      "notes": "Widget pump test passes. Old/resumed sessions render error correctly. NEW sessions (with bogus model that errors immediately) still show empty transcript despite 5 rounds of fixes. Mini-bubble works as fallback."
+    },
+    {
+      "criterion_id": "issue-638-c3",
+      "text": "Locally-appended WS error frames survive selectSession REST resolution.",
+      "contract_status": "pass",
+      "smoke_status": "fail",
+      "category": "C2",
+      "notes": "Contract test green-fails then green-passes per the merge fix. Smoke STILL shows empty transcript for new sessions — the contract verified the merge invariant correctly, but the bug is elsewhere in the pipeline. Most likely: bubble's transcriptFor and full view's transcriptFor hit the same getter, so the discrepancy must be timing-of-build or a second clobber site not yet found."
+    },
+    {
+      "criterion_id": "issue-638-c4",
+      "text": "streamSession awaited before promptAsync; broadcast carries local session id.",
+      "contract_status": "pass",
+      "smoke_status": "fail",
+      "category": "C2",
+      "notes": "Server-side contract test verifies both assertions. SSE listener is now subscribed before prompt fires. Yet user-visible symptom (empty transcript for new sessions) persists. Suggests the remaining root cause is on the Flutter side, not the bridge."
+    },
+    {
+      "criterion_id": "issue-639-c1",
+      "text": "GET /agents/models drops openrouter duplicates of directly-authed providers.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Verified via curl + visual."
+    },
+    {
+      "criterion_id": "issue-639-c2",
+      "text": "AgentsController.refreshModelRoutes exists and re-fetches per-session routes.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Settings save -> patchVisibility -> refreshModelRoutes -> picker rebuilds. Verified."
+    },
+    {
+      "criterion_id": "issue-639-c3",
+      "text": "refreshModelRoutes also refreshes _catalog (unified cross-agent picker cache).",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "One-line addition; refreshCatalog is no-op when content unchanged so safe to call."
+    }
+  ],
+  "process_issues": [
+    {
+      "process_category": "P3",
+      "description": "Scope expansion across 5 rounds: PR #617 originally batched 20 issues, then absorbed 7 more (#627, #628, #629-631, #632, #633), then absorbed 4 more across the next two rounds (#634, #636, #637, #638, #639). User explicitly authorized scope expansion each time ('Try to fix all in this PR'), but the cumulative effect is a PR that diverged significantly from its original 'smoke-test follow-ups for PR #617' scope.",
+      "detected_by": "git log on follow-up branch since 2026-05-19 shows 9 commits adding 600+ lines of new code/tests. project-state.md shows 5 separate dated entries for the same PR."
+    }
+  ],
+  "workflow_adherence": {
+    "overall_score": "partial",
+    "expected_chain": [
+      "workflow-orchestrator",
+      "failure-postmortem",
+      "failure-triage",
+      "acceptance-contract",
+      "coding-agent",
+      "verification-gate",
+      "project-state-updater",
+      "failure-postmortem"
+    ],
+    "observed_chain": [
+      "workflow-orchestrator",
+      "failure-postmortem",
+      "failure-triage",
+      "acceptance-contract",
+      "coding-agent",
+      "verification-gate (inline)",
+      "project-state-updater (inline)",
+      "failure-postmortem"
+    ],
+    "skipped_skills": [],
+    "issues": [
+      {
+        "workflow_category": "W5",
+        "affected_skill": "acceptance-contract",
+        "description": "First-pass acceptance-contract for #638 c1 wrote regression-guard tests that PASSED today, violating the 'tests must FAIL before implementation' discipline. The skill produced a manual-mode c1 + a unit-test c2 that asserted invariants already holding, not the actual bug being targeted. User explicitly caught this with '638 didnt write anything?' and forced a redo.",
+        "detected_by": "First contract pass output: 'Result: +2: All tests passed!' before any fix was applied. Redo via widget-pump test was necessary."
+      },
+      {
+        "workflow_category": "W1",
+        "affected_skill": "workflow-orchestrator",
+        "description": "Multiple rounds where I (orchestrator) tried to dispatch coding-agent without running acceptance-contract first. User had to push back twice with 'arent you supposed to do /acceptance-contract before dispatching the coding agent' and 'follow the workflow protocol' to enforce the gate.",
+        "detected_by": "Conversation transcript shows two distinct moments where I sent 'Dispatching 2 parallel coding-agents...' before contract dispatch. User interrupted both times."
+      },
+      {
+        "workflow_category": "W1",
+        "affected_skill": "verification-gate",
+        "description": "Did not pre-run all verifiable smoke checks (curl /sync/now, /agents/models, /agent-models/visibility) before handing off to user. Surfaced as user feedback memorialized in feedback_automate_verifiable_smoke_checks.md and feedback_run_workflow_autonomously.md.",
+        "detected_by": "User feedback: 'Don't surface curl/ps/lsof/Computer Use checks as manual smoke; only true visual UI click-through is manual.' Required a memory entry to remediate."
+      },
+      {
+        "workflow_category": "W5",
+        "affected_skill": "verification-gate",
+        "description": "Round 1 of #638 declared PASS by verification-gate (widget test green) but smoke immediately revealed the contract was wrong (only tested resumed sessions, not new). Verification-gate cannot prevent this — that's an acceptance-contract failure — but verification-gate emitting PASS in this state is a contributing factor to repeated 'pipeline says green, user says broken' divergences.",
+        "detected_by": "Five rounds of (contract pass, verification pass, user smoke fail) on the same underlying issue #638."
+      }
+    ]
+  },
+  "implementation_files": [
+    "apps/api_server/src/controllers/agent_sessions_controller.ts",
+    "apps/api_server/src/routes/agents_models_routes.ts",
+    "apps/api_server/src/services/opencode_client_service.ts",
+    "apps/api_server/src/services/opencode_stream_bridge.ts",
+    "apps/desktop_flutter/lib/app/core/agents/agent_bubble_overlay.dart",
+    "apps/desktop_flutter/lib/app/core/server/api_server_service.dart",
+    "apps/desktop_flutter/lib/features/agents/controllers/agents_controller.dart",
+    "apps/desktop_flutter/lib/features/agents/views/_open_router_models_section.dart",
+    "apps/desktop_flutter/lib/features/agents/views/agents_view.dart",
+    "apps/desktop_flutter/macos/Runner/AppDelegate.swift"
+  ],
+  "failure_output": "User report (round 5, verbatim): '638 fail, 639 pass on both. The SDK error shows up on old sessions that were triggered with fake model and are already there on app launch, but when I start a new one with a fake model, they do not show up. They just silently change to closed.' Final: 'file this away as a known bug. I dont want to keep going around and around on it.'",
+  "overall_category": "C2",
+  "suggested_follow_up": "Acceptance-contract skill must enumerate 2-3 plausible failure modes per criterion (new session vs resumed, selected vs unselected, fast vs slow SDK response) and pick the worst-case for the failing test. A green contract test that only exercises one mode while the user-visible criterion spans multiple is the dominant C2 pattern in this batch and the prior batch."
+}
