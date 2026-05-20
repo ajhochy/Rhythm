@@ -2,6 +2,19 @@
 
 ## Recent coding-agent runs
 
+### 2026-05-20 — fix/pr-617-fourth-round-smoke (#638 c3, #639 c3)
+- Fourth-round smoke on commit 987cfe8 surfaced two remaining gaps: (#638) full-view error frame works for old sessions but NEW sessions silently swallow the error; (#639 c2) Settings visibility toggle doesn't refresh the picker.
+- Files modified:
+  - `apps/desktop_flutter/lib/features/agents/controllers/agents_controller.dart` — `selectSession` and `reconnectSession` now MERGE REST messages with locally-appended WS frames instead of unconditionally overwriting. The merge keeps any existing entry whose id is NOT in the REST result's id set. WS-synthesized error frames carry `id: 0`; REST persisted messages have positive server ids; so locally-appended frames survive. Also added a `_disposed` guard in `_loadModelRoutes` to prevent post-teardown notifyListeners (#638 c3).
+  - `apps/desktop_flutter/lib/features/agents/controllers/agents_controller.dart` — `refreshModelRoutes()` now also calls `refreshCatalog()` so the unified cross-agent `_catalog` cache (from PR #602) is refreshed when Settings visibility changes, not just the per-session `_modelRoutes` (#639 c3).
+- New tests/contracts: `docs/ai/contracts/issue-638.json` c3 added; `issue-639.json` c3 added; matching new test groups in the existing contract test files. Both new tests FAIL on commit 987cfe8 and PASS after this commit.
+- Checks run: `tsc --noEmit` ✓, `flutter analyze --no-fatal-infos` ✓ (194 info-only, no warnings/errors), `dart format` ✓, `npx vitest run` 527/527 ✓, all 7 flutter contract tests for #638 + #639 ✓.
+- Decisions made: chose merge-by-id-set over a "skip-overwrite-if-empty" check because the merge is correct in all cases (handles late WS frames after REST returns persisted messages, not just the new-session race). The 4-line patch lands identically at both call sites. Added the `_disposed` guard in `_loadModelRoutes` because the async fire-and-forget tail was triggering post-teardown crashes when the test harness disposed the controller mid-fetch.
+- Deviations from spec: none.
+- Follow-up still open: #635 (mini-bubble hides user messages) — diagnosis stalled at server-query investigation. Out of scope.
+
+
+
 ### 2026-05-20 — fix/pr-617-third-round-smoke (#638, #639)
 - Third-round smoke on commit 2d5c7d6 surfaced: (a) the #636 error frame rendered in the mini-bubble but not in the full Agents view, and (b) the OpenRouter picker section showed duplicate routes the user has direct auth for, and didn't update when Settings visibility changed. Two new tickets filed (#638, #639), both fixed here.
 - Files modified:

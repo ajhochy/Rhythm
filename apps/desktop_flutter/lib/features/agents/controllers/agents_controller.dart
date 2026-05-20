@@ -680,10 +680,17 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
       }
       _repository.send({'type': 'session.subscribe', 'id': id});
       final result = await _repository.getSession(id);
-      _transcriptsBySession[id] = result.messages;
+      final existing =
+          _transcriptsBySession[id] ?? const <AgentSessionMessage>[];
+      final restIds = result.messages.map((m) => m.id).toSet();
+      // Preserve any WS-appended entries (synthetic id==0) and any local
+      // rows not yet persisted server-side. REST messages always carry
+      // positive server-assigned ids; WS error frames carry id==0.
+      final localOnly = existing.where((m) => !restIds.contains(m.id)).toList();
+      _transcriptsBySession[id] = [...result.messages, ...localOnly];
       notifyListeners();
       if (_selectedSessionId == id) {
-        _transcript = result.messages;
+        _transcript = _transcriptsBySession[id]!;
         notifyListeners();
       }
     } catch (e) {
@@ -852,9 +859,16 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     notifyListeners();
     try {
       final result = await _repository.getSession(id);
-      _transcriptsBySession[id] = result.messages;
+      final existing =
+          _transcriptsBySession[id] ?? const <AgentSessionMessage>[];
+      final restIds = result.messages.map((m) => m.id).toSet();
+      // Preserve any WS-appended entries (synthetic id==0) and any local
+      // rows not yet persisted server-side. REST messages always carry
+      // positive server-assigned ids; WS error frames carry id==0.
+      final localOnly = existing.where((m) => !restIds.contains(m.id)).toList();
+      _transcriptsBySession[id] = [...result.messages, ...localOnly];
       if (_selectedSessionId == id) {
-        _transcript = result.messages;
+        _transcript = _transcriptsBySession[id]!;
         notifyListeners();
       }
       _repository.send({'type': 'session.subscribe', 'id': id});
@@ -892,6 +906,7 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     if (_selectedSessionId != null) {
       await _loadModelRoutes(_selectedSessionId!);
     }
+    await refreshCatalog();
   }
 
   Future<void> _loadModelRoutes(String sessionId) async {
@@ -899,6 +914,7 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
         _resumable.firstWhereOrNull((s) => s.id == sessionId);
     if (session == null) return;
     final routes = await _modelsDataSource.fetchRoutes(session.agentId);
+    if (_disposed) return;
     if (_selectedSessionId != sessionId) return;
     _modelRoutes = routes;
     _modelRoutesLoaded = true;

@@ -1,9 +1,14 @@
 /// Acceptance contract for issue #639 — OpenRouter picker doesn't refresh on
-/// Settings save (sub-issue B).
+/// Settings save (sub-issue B); also covers the _catalog staleness bug (c3).
 ///
-/// This test MUST fail before implementation (compile error: method not found)
+/// c2: This test MUST fail before implementation (compile error: method not found)
 /// and pass after the coding-agent adds `refreshModelRoutes()` to
 /// AgentsController.
+///
+/// c3: After `refreshModelRoutes()` is called, BOTH `_modelRoutes` (per-session)
+/// AND `_catalog` (cross-agent unified cache) must be re-fetched.
+/// TODAY: refreshModelRoutes() only calls _loadModelRoutes; it never calls
+/// refreshCatalog(), so the unified picker stays stale after a Settings save.
 ///
 /// Diagnosis:
 ///   When the user saves a new API server URL in Settings, the model-route
@@ -36,6 +41,7 @@ import 'package:rhythm_desktop/app/core/notifications/local_notification_service
 import 'package:rhythm_desktop/app/core/server/api_server_service.dart';
 import 'package:rhythm_desktop/features/agents/controllers/agents_controller.dart';
 import 'package:rhythm_desktop/features/agents/models/agent_model_route.dart';
+import 'package:rhythm_desktop/features/agents/models/catalog_model_entry.dart';
 import 'package:rhythm_desktop/features/agents/models/agent_session.dart';
 import 'package:rhythm_desktop/features/agents/models/agent_session_message.dart';
 import 'package:rhythm_desktop/features/agents/models/agent_ws_message.dart';
@@ -207,6 +213,65 @@ class _StubAgentsController extends AgentsController {
   }
 }
 
+/// AgentsController subclass for c3: overrides [refreshCatalog] so we can
+/// inject controlled catalog snapshots without making real HTTP calls.
+///
+/// The data source (_modelsDataSource) is final/private and constructed in the
+/// initialiser list, so HTTP stubbing must happen at the override level.
+///
+/// Call [queueCatalog] before the operation that triggers refreshCatalog to
+/// control what the controller sees on each successive call.
+class _CatalogCapturingController extends AgentsController {
+  _CatalogCapturingController(
+    AgentsRepository repo,
+    AgentServerController agentServer,
+    LocalNotificationService notifService,
+    NotificationsController notifController,
+  ) : super(repo, agentServer, notifService, notifController);
+
+  final List<List<CatalogModelEntry>> _catalogQueue = [];
+  int refreshCatalogCallCount = 0;
+
+  /// Queue a catalog snapshot to be returned on the next [refreshCatalog] call.
+  void queueCatalog(List<CatalogModelEntry> entries) =>
+      _catalogQueue.add(entries);
+
+  /// Override so we never hit real HTTP. Each call pops the front of the queue.
+  /// If the queue is empty the catalog stays unchanged (simulates no-change).
+  @override
+  Future<void> refreshCatalog() async {
+    refreshCatalogCallCount++;
+    if (_catalogQueue.isEmpty) return;
+    // Drop the queued entries; the test only asserts that refreshCatalog
+    // was invoked (refreshCatalogCallCount). The actual catalog content
+    // is irrelevant because the controller's private `_catalog` field
+    // cannot be mutated from a subclass without a @visibleForTesting
+    // setter on the production class — see the long comment below.
+    _catalogQueue.removeAt(0);
+    // Reach into the protected state through the public setter path:
+    // We can't write _catalog directly, so we simulate a "real" refreshCatalog
+    // by calling notifyListeners after updating state. Since _catalog is private,
+    // we use a workaround: the test inspects `.catalog` getter which mirrors
+    // _catalog. We expose a test-only setter via the @visibleForTesting hook
+    // pattern used elsewhere in this controller (see seedRoutes in _StubAgentsController).
+    //
+    // Dart doesn't allow direct field access to private members from subclasses.
+    // Instead, we inject the catalog by calling the real super implementation
+    // conceptually — but since it hits HTTP, we must bypass it.
+    //
+    // The cleanest approach: add a @visibleForTesting setter on AgentsController.
+    // Until that exists, we document this as a KNOWN LIMITATION of the test
+    // harness. The behavioral assertion (refreshCatalog is CALLED by
+    // refreshModelRoutes) is still verifiable via the call count.
+    //
+    // The test below asserts:
+    //   1. refreshCatalogCallCount > 0 after refreshModelRoutes() is called.
+    //   2. THIS IS THE FAILING ASSERTION TODAY: refreshModelRoutes() does NOT
+    //      call refreshCatalog(), so refreshCatalogCallCount stays 0.
+    notifyListeners();
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -358,6 +423,82 @@ void main() {
         // the contract is satisfied (the coding-agent still needs to make it
         // work end-to-end; the notifyListeners test above covers that).
         expect(true, isTrue);
+      },
+    );
+  });
+
+  // ---------------------------------------------------------------------------
+  // issue-639-c3: refreshModelRoutes() must also refresh _catalog
+  // ---------------------------------------------------------------------------
+
+  group(
+      'issue-639-c3: AgentsController.refreshModelRoutes() must also call refreshCatalog()',
+      () {
+    test(
+      'refreshModelRoutes() calls refreshCatalog() so the unified picker stays fresh',
+      () async {
+        // CONTRACT TEST — THIS FAILS TODAY.
+        //
+        // Bug: refreshModelRoutes() only calls _loadModelRoutes(). It never
+        // calls refreshCatalog(). After a Settings save (which calls
+        // refreshModelRoutes), the cross-agent unified picker (_catalog) stays
+        // stale — it still shows the old provider list even though the server
+        // URL (and therefore available routes) has changed.
+        //
+        // Fix (2-line addition to AgentsController.refreshModelRoutes):
+        //   Future<void> refreshModelRoutes() async {
+        //     if (_selectedSessionId != null) {
+        //       await _loadModelRoutes(_selectedSessionId!);
+        //     }
+        //     await refreshCatalog();   // ← ADD THIS LINE
+        //   }
+        //
+        // Test design:
+        //   _CatalogCapturingController overrides refreshCatalog() to count
+        //   calls without hitting HTTP. If refreshModelRoutes() does NOT call
+        //   refreshCatalog(), refreshCatalogCallCount remains 0 and the
+        //   assertion below fails — proving the bug is present.
+        //
+        //   After the fix, refreshCatalog() is called, the count becomes ≥ 1,
+        //   and the test passes.
+        final repo = _StubAgentsRepository(kSession);
+        final agentServer = _ReadyAgentServerController();
+        final notifService = _FakeLocalNotificationService();
+        final notifController = _FakeNotificationsController();
+
+        final controller = _CatalogCapturingController(
+          repo,
+          agentServer,
+          notifService,
+          notifController,
+        );
+        addTearDown(controller.dispose);
+
+        // Load sessions so _sessions is populated (required for _loadModelRoutes).
+        await controller.load();
+
+        // Select the session so _selectedSessionId is set.
+        await controller.selectSession('session-639');
+
+        // Reset the call counter — selectSession may have triggered side-effects.
+        controller.refreshCatalogCallCount = 0;
+
+        // Act: call refreshModelRoutes(). This should trigger BOTH
+        // _loadModelRoutes AND refreshCatalog.
+        await controller.refreshModelRoutes();
+
+        // Assert: refreshCatalog must have been called at least once.
+        // FAILS TODAY because refreshModelRoutes() does not call refreshCatalog().
+        expect(
+          controller.refreshCatalogCallCount,
+          greaterThan(0),
+          reason:
+              'AgentsController.refreshModelRoutes() must call refreshCatalog() '
+              'so the cross-agent unified picker (_catalog) is re-fetched when '
+              'the Settings server URL changes. Currently it only calls '
+              '_loadModelRoutes, leaving _catalog stale. '
+              'Fix: add `await refreshCatalog();` inside refreshModelRoutes().',
+        );
       },
     );
   });

@@ -18,6 +18,15 @@
       "test_file": "apps/desktop_flutter/test/features/agents/issue_639_contract_test.dart",
       "test_id": "issue-639-c2: AgentsController.refreshModelRoutes() re-fetches and notifies",
       "status": "pending"
+    },
+    {
+      "criterion_id": "issue-639-c3",
+      "text": "When refreshModelRoutes() is called on an AgentsController, both _modelRoutes (per-session routes from GET /agents/models) AND _catalog (cross-agent unified cache from #602, fetched via GET /agents/models/catalog) must be re-fetched and updated, and notifyListeners must fire for BOTH refreshes. Today refreshModelRoutes() only calls _loadModelRoutes; it never calls refreshCatalog(), so the unified cross-agent picker stays stale after a Settings URL change.",
+      "mode": "unit",
+      "test_file": "apps/desktop_flutter/test/features/agents/issue_639_contract_test.dart",
+      "test_id": "issue-639-c3: AgentsController.refreshModelRoutes() calls refreshCatalog() so the unified picker stays fresh",
+      "status": "pending",
+      "fix_description": "2-line addition to AgentsController.refreshModelRoutes() in apps/desktop_flutter/lib/features/agents/controllers/agents_controller.dart (line ~891): after the existing `await _loadModelRoutes(_selectedSessionId!)` call (or unconditionally after the null-guard), add `await refreshCatalog();`. This ensures the cross-agent catalog is re-fetched whenever the model routes are refreshed (e.g. after a Settings save). The refreshCatalog() method already handles errors gracefully (catches and returns) and fires notifyListeners only when the catalog actually changes."
     }
   ],
   "not_tested": [

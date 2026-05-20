@@ -20,6 +20,15 @@
       "test_id": "issue-638-c2: transcriptFor(X) contains error even when _selectedSessionId != X error frame for non-selected session lands in transcriptFor — regression guard for the view fix",
       "status": "pending"
     }
+    {
+      "criterion_id": "issue-638-c3",
+      "text": "When a WS error frame arrives between selectSession's REST call dispatch and its resolution (the race window), the locally-appended error frame must NOT be clobbered by the empty REST result. After the race sequence: (1) selectSession dispatches REST, (2) WS frame appends to _transcriptsBySession[id], (3) REST resolves with empty messages — controller.transcriptFor(id) must still contain the error frame.",
+      "mode": "unit",
+      "test_file": "apps/desktop_flutter/test/features/agents/issue_638_contract_test.dart",
+      "test_id": "issue-638-c3: WS error frame injected during selectSession REST race must survive REST resolution",
+      "status": "pending",
+      "notes": "Data-layer test; no widget pumping. Uses _HangingGetSessionRepository (Completer-based). Steps: (1) inject WsErrorMessage for sid-1 AFTER selectSession hangs on REST, (2) assert transcriptFor non-empty, (3) complete REST with empty messages, (4) assert transcriptFor STILL non-empty. FAILS TODAY on step 4 because line 855 overwrites _transcriptsBySession[id] = result.messages (empty). Fix: merge instead of overwrite — only backfill messages whose IDs are not already present, or unconditionally prepend the REST messages while preserving WS-appended entries that arrived after dispatch."
+    }
   ],
   "not_tested": [
     "The case where the user manually navigates back to the errored session after the getSession() HTTP call has already overwritten the in-memory transcript (requires server-side persistence of WS error frames)."

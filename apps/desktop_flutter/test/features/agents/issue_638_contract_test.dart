@@ -466,4 +466,147 @@ void main() {
       );
     },
   );
+
+  // -------------------------------------------------------------------------
+  // c3 — UNIT (STRICT: FAILS today, PASSES after the line-855 merge fix)
+  //
+  // Race window: WS error frame arrives AFTER selectSession dispatches REST
+  // but BEFORE the REST resolves. The REST result is empty (server has not
+  // persisted the WS error). Line 855 then overwrites _transcriptsBySession[id]
+  // with the empty REST list, silently dropping the WS-appended error.
+  //
+  // Fix (NOT applied here — see production code):
+  //   At line 855 (selectSession) AND line 683 (reconnectSession), replace the
+  //   unconditional overwrite:
+  //     _transcriptsBySession[id] = result.messages;
+  //   with a merge that preserves WS frames already in the map:
+  //     final existing = _transcriptsBySession[id] ?? const [];
+  //     final backfill = result.messages
+  //         .where((m) => !existing.any((e) => e.id != 0 && e.id == m.id))
+  //         .toList();
+  //     _transcriptsBySession[id] = [...backfill, ...existing];
+  // -------------------------------------------------------------------------
+  group(
+    'issue-638-c3: WS error frame injected during selectSession REST race '
+    'must survive REST resolution',
+    () {
+      test(
+        'WS error frame injected during selectSession REST race must survive '
+        'REST resolution',
+        () async {
+          final repo = _HangingGetSessionRepository();
+          final controller = AgentsController(
+            repo,
+            _ReadyAgentServerController(),
+            _FakeLocalNotificationService(),
+            _FakeNotificationsController(),
+          );
+          addTearDown(controller.dispose);
+
+          await controller.initialize();
+
+          // Register sid-1 via a fake SessionCreatedMessage so the controller
+          // knows about the session before we try to select it.
+          repo.push(
+            SessionCreatedMessage(
+              session: AgentSession(
+                id: 'sid-1',
+                agentId: 'claude-code',
+                name: 'Race test session',
+                cwd: '/tmp',
+                status: AgentSessionStatus.idle,
+                createdAt: DateTime(2026),
+                updatedAt: DateTime(2026),
+              ),
+            ),
+          );
+          await Future<void>.delayed(Duration.zero);
+
+          // Step 1: dispatch selectSession — hangs on REST (Completer not yet
+          // completed). The call immediately sets _selectedSessionId='sid-1'
+          // and _transcript=[] then notifies, but the REST future is pending.
+          final selectFuture = controller.selectSession('sid-1');
+
+          // Give the microtask queue a tick so selectSession's async body
+          // executes up to the `await _repository.getSession(id)` suspension
+          // point and registers the Completer.
+          await Future<void>.delayed(Duration.zero);
+
+          // Step 2: inject WS error frame DURING the REST race window.
+          // The WsErrorMessage handler is unconditional — it writes to
+          // _transcriptsBySession['sid-1'] regardless of selected session.
+          repo.push(
+            const WsErrorMessage(
+              id: 'sid-1',
+              message: 'SDK error during race window',
+            ),
+          );
+          await Future<void>.delayed(Duration.zero);
+
+          // Step 2 assertion: error must be in transcriptFor NOW (before REST
+          // resolves). This already passes today — WsErrorMessage is handled
+          // unconditionally.
+          expect(
+            controller.transcriptFor('sid-1'),
+            isNotEmpty,
+            reason: 'transcriptFor(sid-1) must contain the WS error after it '
+                'arrives during the REST race window (before REST resolves).',
+          );
+          expect(
+            controller.transcriptFor('sid-1').any(
+                  (m) =>
+                      m.strippedText.contains('SDK error during race window'),
+                ),
+            isTrue,
+          );
+
+          // Step 3: complete the REST with an EMPTY messages list — simulating
+          // a server that has not yet persisted the WS-delivered error frame.
+          final session = AgentSession(
+            id: 'sid-1',
+            agentId: 'claude-code',
+            name: 'Race test session',
+            cwd: '/tmp',
+            status: AgentSessionStatus.idle,
+            createdAt: DateTime(2026),
+            updatedAt: DateTime(2026),
+          );
+          expect(
+            repo.pendingGetSession,
+            isNotEmpty,
+            reason: 'There must be a pending getSession Completer to resolve.',
+          );
+          repo.pendingGetSession.first.complete(
+            (session: session, messages: const <AgentSessionMessage>[]),
+          );
+
+          // Await selectSession to fully resolve.
+          await selectFuture;
+
+          // Step 4 — THE FAILING ASSERTION TODAY:
+          // Line 855 overwrites _transcriptsBySession['sid-1'] = [] (the empty
+          // REST result), clobbering the WS-appended error frame.
+          // After the fix (merge instead of overwrite) the error must survive.
+          expect(
+            controller.transcriptFor('sid-1'),
+            isNotEmpty,
+            reason:
+                'transcriptFor(sid-1) must STILL contain the WS error after '
+                'selectSession resolves with an empty REST result. Today it is '
+                'empty because line 855 overwrites _transcriptsBySession[id] '
+                'with the empty list, clobbering the WS-appended error frame.',
+          );
+          expect(
+            controller.transcriptFor('sid-1').any(
+                  (m) =>
+                      m.strippedText.contains('SDK error during race window'),
+                ),
+            isTrue,
+            reason:
+                'The specific WS error text must survive the REST overwrite.',
+          );
+        },
+      );
+    },
+  );
 }
