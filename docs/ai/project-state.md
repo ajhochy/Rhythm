@@ -1,5 +1,17 @@
 # Project State
 
+## Known bugs (parked, not blocking PR #617)
+
+### #638 — full-view error rendering for newly-created sessions
+**Status**: parked 2026-05-20 after 5 rounds of fixes. See `gh issue view 638` for the full retro.
+- **Symptom**: when a brand-new session is created with a bogus model, the SDK error frame appears in the mini-bubble overlay but NOT in the main Agents view transcript. Resumed/old sessions render the error correctly.
+- **Fixes that DID land** (still useful, retained in PR #617): view binding switch to `transcriptFor`; session.idle zero-token error broadcast; selectSession/reconnectSession merge instead of overwrite; refreshModelRoutes also calls refreshCatalog; agent_sessions_controller awaits streamSession instead of fire-and-forget.
+- **Remaining unknown**: bubble's `transcriptFor(id)` shows the error, full view's `transcriptFor(id)` doesn't — same code path. Suggests a second clobber site OR an id mismatch between session.id at bubble vs view call sites. Needs instrumentation (logging on every `_transcriptsBySession[id]` write site + stack) to isolate.
+- **Not blocking**: error IS visible (in the bubble) and PR delivers the other 4 rounds of fixes.
+
+### #635 — mini-bubble hides user messages
+**Status**: parked from earlier round. Diagnostic agent's optimistic-echo hypothesis was wrong; renderer correctly handles `role=='input'`. Real cause is upstream (server query or persistence) — needs ~15-min investigation in its own PR.
+
 ## Recent coding-agent runs
 
 ### 2026-05-20 — fix/pr-617-fifth-round-smoke (#638 c4)
