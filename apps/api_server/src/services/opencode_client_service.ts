@@ -332,6 +332,12 @@ export class OpencodeClientService {
         logger.error(`[OpencodeClientService] promptAsync error for ${sessionId}:`, raw.error);
         return false;
       }
+      if (!raw.data) {
+        logger.warn(
+          `[OpencodeClientService] promptAsync silent no-op for ${sessionId}: SDK returned neither data nor error (model may not be supported)`,
+        );
+        return false;
+      }
       return true;
     } catch (err) {
       logger.error(`[OpencodeClientService] promptAsync failed for session ${sessionId}:`, err);

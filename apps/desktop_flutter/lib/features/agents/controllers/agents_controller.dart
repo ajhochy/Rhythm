@@ -681,6 +681,7 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
       _repository.send({'type': 'session.subscribe', 'id': id});
       final result = await _repository.getSession(id);
       _transcriptsBySession[id] = result.messages;
+      notifyListeners();
       if (_selectedSessionId == id) {
         _transcript = result.messages;
         notifyListeners();

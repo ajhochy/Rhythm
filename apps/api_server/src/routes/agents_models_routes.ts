@@ -154,17 +154,14 @@ agentsModelsRouter.get('/catalog', async (_req: Request, res: Response) => {
           .map((e) => e.modelID),
       );
       const openRouterModelIds = modelIdsByProvider.get('openrouter');
-      // If the SDK hasn't populated its model catalog yet (empty set during
-      // early startup), skip the existence check to avoid hiding visible
-      // curated models. Only filter when the set is non-empty.
-      const skipLiveCheck = !openRouterModelIds || openRouterModelIds.size === 0;
+      // Only promote curated models that the SDK's live OpenRouter catalog
+      // confirms exist. If the catalog is empty (e.g. early startup or SDK
+      // failure), no curated entries are promoted — admitting unverified ids
+      // produces silent failures when the model is actually selected.
       for (const [modelId, visible] of visibilityMap) {
         if (!visible) continue;
         if (existingModelIds.has(modelId)) continue;
-        // Verify the model actually exists in the live OpenRouter catalog.
-        // When the SDK hasn't populated its catalog yet (skipLiveCheck), be
-        // permissive — the visibility table already confirms the user wants it.
-        if (!skipLiveCheck && !openRouterModelIds?.has(modelId)) continue;
+        if (!openRouterModelIds || !openRouterModelIds.has(modelId)) continue;
         // Derive agent kind from model ID prefix (matching ws_gateway.ts).
         let agent = 'claude-code';
         if (modelId.startsWith('openai/')) agent = 'codex';

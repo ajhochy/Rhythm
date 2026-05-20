@@ -238,6 +238,18 @@ class _ExpandedSessionBubbleState extends State<_ExpandedSessionBubble> {
   final _scrollController = ScrollController();
 
   @override
+  void initState() {
+    super.initState();
+    final sessionId = widget.entry.sessionId;
+    if (sessionId != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        context.read<AgentsController>().reconnectSession(sessionId);
+      });
+    }
+  }
+
+  @override
   void dispose() {
     _inputController.dispose();
     _scrollController.dispose();

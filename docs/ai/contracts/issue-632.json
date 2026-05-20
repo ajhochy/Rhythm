@@ -1,0 +1,24 @@
+{
+  "issue": 632,
+  "generated": "2026-05-19",
+  "stack": "typescript",
+  "criteria": [
+    {
+      "criterion_id": "issue-632-c1",
+      "text": "When `promptAsync` invokes the opencode SDK with a model id that the SDK does not recognize, the call must surface an explicit error (WS error frame to client) instead of returning success silently.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/issue_632_contract.test.ts",
+      "test_id": "issue-632-c1: promptAsync must not report success when SDK silently no-ops",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-632-c2",
+      "text": "The agent_models_routes promotion path must not emit a curated OpenRouter model id into the picker catalog unless the live SDK catalog confirms it (no `skipLiveCheck` bypass for unrecognized ids).",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_632_contract.test.ts",
+      "test_id": "issue-632-c2: GET /agents/models must not promote curated openrouter ids when live catalog is empty",
+      "status": "pending"
+    }
+  ],
+  "not_tested": []
+}

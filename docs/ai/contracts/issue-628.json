@@ -1,0 +1,38 @@
+{
+  "issue": 628,
+  "generated": "2026-05-19",
+  "stack": "dart",
+  "criteria": [
+    {
+      "criterion_id": "issue-628-c1",
+      "text": "When the user expands a never-before-selected agent session bubble (cold bubble), the bubble must show historical messages from the session within ~2s of expand (REST back-fill via reconnectSession).",
+      "mode": "unit",
+      "test_file": "apps/desktop_flutter/test/features/agents/issue_628_contract_test.dart",
+      "test_id": "issue-628-c1: reconnectSession notifies listeners for any session",
+      "status": "pending",
+      "reason": "Unit-tests the data + notification invariant that makes the bubble's initState-driven reconnect actually update the UI. The widget-level wiring (_ExpandedSessionBubbleState.initState calling agents.reconnectSession) is covered by the smoke item below."
+    },
+    {
+      "criterion_id": "issue-628-c1b",
+      "text": "WIRING: _ExpandedSessionBubbleState.initState must call agents.reconnectSession(sessionId) when a session bubble first expands.",
+      "mode": "manual",
+      "status": "UNVERIFIED",
+      "reason": "Driving private-state-class initState requires pumping AgentBubbleOverlayLayer with full MultiProvider scaffolding (~150 lines of mocks for AgentsController + OverlayController + AgentServerController + AgentConfigsController + TasksController + AgentProjectsController). The fix itself is 3 lines. Verify via manual smoke: kick off an agent session from one tab, navigate away before opening it, then expand the mini-bubble for that session from the overlay — the historical messages must appear within ~2s without first opening the full Agents view."
+    },
+    {
+      "criterion_id": "issue-628-c2",
+      "text": "After expand, WS streaming tokens for that same session must continue appending to the bubble transcript without requiring the user to open the full chat view.",
+      "mode": "manual",
+      "status": "UNVERIFIED",
+      "reason": "Requires a live WS connection emitting message.part.delta frames to the cold session. Existing TranscriptAppendMessage handler already writes to _transcriptsBySession[msg.id] unconditionally (lines 1058-1061), so the fix-induced behavior is: send a message to the cold session from another client, then watch the bubble transcript grow in real time. Smoke check: open two desktop sessions for the same agent session id, type in one, observe streaming in the other's mini-bubble."
+    },
+    {
+      "criterion_id": "issue-628-c3",
+      "text": "Opening the full chat view later must not duplicate messages.",
+      "mode": "manual",
+      "status": "UNVERIFIED",
+      "reason": "Requires sequence: cold bubble back-fill (n messages) → user opens full view → selectSession runs (which calls _transcriptsBySession[id] = result.messages, REPLACE not append, on line 854). Replace semantics make duplication structurally impossible, but verify via smoke: count messages in expanded bubble, open full view, count again — counts must match."
+    }
+  ],
+  "not_tested": ["issue-628-c1b", "issue-628-c2", "issue-628-c3"]
+}

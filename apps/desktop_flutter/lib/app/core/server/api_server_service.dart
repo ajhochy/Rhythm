@@ -398,20 +398,15 @@ class ApiServerService {
 
     // 2. Development: walk up from the executable to find the workspace root.
     //    exe lives deep inside build/macos/Build/Products/*/Rhythm.app/...
+    //    In dev mode, always prefer tsx against source — a stale dist/ left
+    //    over from a previous `npm run build` would otherwise mask new routes
+    //    or controller changes (issue #627). The bundled production path
+    //    above is unaffected and continues to use dist/server.js as built by
+    //    the release pipeline.
     var dir = _dirname(exe);
     for (var i = 0; i < 12; i++) {
       final candidate = '$dir/apps/api_server';
       if (Directory(candidate).existsSync()) {
-        // Prefer a pre-built dist if available.
-        final distScript = '$candidate/dist/server.js';
-        if (File(distScript).existsSync()) {
-          return _ServerInfo(
-            executable: nodePath,
-            args: [distScript],
-            workingDir: candidate,
-          );
-        }
-        // Fall back to npx tsx (dev convenience — no build step needed).
         final npx = await _findNpx(nodePath);
         return _ServerInfo(
           executable: npx,

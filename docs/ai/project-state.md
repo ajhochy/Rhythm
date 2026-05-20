@@ -2,6 +2,21 @@
 
 ## Recent coding-agent runs
 
+### 2026-05-19 — fix/pr-617-batch-smoke-followups (#627, #628, #632, #633)
+- Smoke on PR #617 batch surfaced 5 FAIL/PARTIAL + 1 new bug + 1 latent launch regression. Postmortem at `.agent-stack/postmortems/2026-05-19-pr-617-batch-smoke.json`. Dominant pattern: C1 missing-contract (acceptance-contract skipped for the batch) — recorded as W1 in workflow_adherence.
+- Files modified:
+  - `apps/desktop_flutter/macos/Runner/AppDelegate.swift` — removed invalid `super.applicationDidFinishLaunching(notification)` call (latent regression from PR #473, ea206d0; caused black-screen launch). User-applied fix; committed in this batch (#633)
+  - `apps/desktop_flutter/lib/app/core/server/api_server_service.dart` — `_findServer` no longer prefers a stale local `dist/server.js` in dev mode; always uses `npx tsx src/server.ts` against source. Production .app bundle path unchanged (still uses bundled dist as built by CI) (#627)
+  - `apps/desktop_flutter/lib/app/core/agents/agent_bubble_overlay.dart` — `_ExpandedSessionBubbleState.initState` now schedules `agents.reconnectSession(sessionId)` via post-frame callback so cold mini-bubbles back-fill historical messages on expand (#628)
+  - `apps/desktop_flutter/lib/features/agents/controllers/agents_controller.dart` — `reconnectSession` notifies listeners unconditionally after writing `_transcriptsBySession[id]`; previously gated on `_selectedSessionId == id` so cold bubbles never rebuilt (#628)
+  - `apps/api_server/src/services/opencode_client_service.ts` — `promptAsync` tightened: returns `false` (with warning log) when SDK response carries neither `error` nor `data` (silent no-op case from OpenRouter on unrecognized model ids) (#632)
+  - `apps/api_server/src/routes/agents_models_routes.ts` — removed `skipLiveCheck` permissive bypass in `GET /catalog` curated-entries block. When SDK openrouter catalog is empty, NO curated entries are promoted — defer rather than admit unverified ids (#632)
+- New tests/contracts: `apps/desktop_flutter/test/features/agents/issue_628_contract_test.dart`; `apps/api_server/src/__tests__/issue_632_contract.test.ts`; `docs/ai/contracts/issue-628.json`; `docs/ai/contracts/issue-632.json`
+- Checks run: `tsc --noEmit` ✓, `flutter analyze` ✓, `npx vitest run` 511 passed / 6 pre-existing failures (confirmed identical on baseline 61c468f), contract tests #628 (1/1) ✓ and #632 (3/3) ✓, `npm run build` ✓, smoke probes against fresh tsx :4001 — `/health` 200, `/agents/capabilities` 200, `POST /sync/now` 200 ✓
+- Decisions made: dev-mode tsx preference makes source changes immediately visible in the Flutter-spawned :4001 (no manual `npm run build` step). Removed skipLiveCheck rather than tightening — conservative gate is correct even if it briefly hides valid ids during SDK startup race.
+- Deviations from spec: #628 widget-level wiring (c1b) covered by manual smoke not unit test — pumping the private state class has higher bug surface than the 3-line fix.
+- Follow-ups still open: #629 (task linkage — OUT-OF-SCOPE for this PR), #630 (question tool — BLOCKED upstream SDK), #631 (slash popover empty — OUT-OF-SCOPE; endpoint is hard-coded `[]` placeholder).
+
 ### 2026-05-19 — feat/agents-per-message-action-row (#606)
 - Files modified:
   - `apps/desktop_flutter/lib/features/agents/views/_message_actions_row.dart` — new file; `MessageActionsRow` StatefulWidget with Copy icon (flash animation), Bell/notify toggle, relative timestamp; `MessageTimeTicker` wrapper using a global `_TimeTick` ChangeNotifier (single `Timer.periodic` shared across all rows); `_relativeTime` helper (just now / Xm / Xh / full date).
