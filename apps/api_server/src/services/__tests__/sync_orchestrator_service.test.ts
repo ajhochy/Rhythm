@@ -31,37 +31,37 @@ import * as envModule from '../../config/env';
 // ---------------------------------------------------------------------------
 
 vi.mock('../rhythm_signal_generator_service', () => ({
-  RhythmSignalGeneratorService: vi.fn().mockImplementation(() => ({
+  RhythmSignalGeneratorService: vi.fn().mockImplementation(function () { return {
     generateTaskDueSignalsAsync: vi.fn().mockResolvedValue([]),
     generateProjectStepDueSignalsAsync: vi.fn().mockResolvedValue([]),
-  })),
+  }; }),
 }));
 
 vi.mock('../../repositories/automation_signals_repository', () => ({
-  AutomationSignalsRepository: vi.fn().mockImplementation(() => ({
+  AutomationSignalsRepository: vi.fn().mockImplementation(function () { return {
     upsertManyDetailedAsync: vi.fn().mockResolvedValue({ changedSignals: [] }),
-  })),
+  }; }),
 }));
 
 vi.mock('../automation_engine_service', () => ({
-  AutomationEngineService: vi.fn().mockImplementation(() => ({
+  AutomationEngineService: vi.fn().mockImplementation(function () { return {
     evaluateSignals: vi.fn().mockResolvedValue({ matchedRules: 0 }),
-  })),
+  }; }),
 }));
 
 vi.mock('../../repositories/integration_accounts_repository', () => ({
-  IntegrationAccountsRepository: vi.fn().mockImplementation(() => ({
+  IntegrationAccountsRepository: vi.fn().mockImplementation(function () { return {
     findAllAsync: vi.fn().mockResolvedValue([]),
     findByProviderAsync: vi.fn().mockResolvedValue(null),
-  })),
+  }; }),
 }));
 
 vi.mock('../integrations_service', () => ({
-  IntegrationsService: vi.fn().mockImplementation(() => ({
+  IntegrationsService: vi.fn().mockImplementation(function () { return {
     syncGoogleCalendar: vi.fn().mockResolvedValue({ syncedCount: 0 }),
     syncGmail: vi.fn().mockResolvedValue({ syncedCount: 0 }),
     syncPlanningCenter: vi.fn().mockResolvedValue({ planCount: 0 }),
-  })),
+  }; }),
 }));
 
 // ---------------------------------------------------------------------------

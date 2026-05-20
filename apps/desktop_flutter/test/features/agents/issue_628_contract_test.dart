@@ -147,7 +147,8 @@ class _FakeNotificationsController extends NotificationsController {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  group('issue-628-c1: reconnectSession notifies listeners for any session', () {
+  group('issue-628-c1: reconnectSession notifies listeners for any session',
+      () {
     test(
       'cold-session reconnect back-fills transcriptFor AND fires notifyListeners',
       () async {
@@ -161,7 +162,9 @@ void main() {
           strippedText: 'hello from cold session',
           createdAt: DateTime.now(),
         );
-        final repo = _StubAgentsRepository({'cold-1': [message]});
+        final repo = _StubAgentsRepository({
+          'cold-1': [message]
+        });
         final controller = AgentsController(
           repo,
           _ReadyAgentServerController(),
