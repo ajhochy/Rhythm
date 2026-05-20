@@ -2,6 +2,16 @@
 
 ## Recent coding-agent runs
 
+### 2026-05-20 — fix/pr-617-fifth-round-smoke (#638 c4)
+- Fifth-round smoke on commit 4f921ac surfaced: #638 still fails for newly-created sessions despite the c3 race-merge fix. Root cause is upstream of the controller: api_server's `streamBridge.streamSession()` was fire-and-forget, so the SSE listener loop wasn't subscribed when `promptAsync` fired immediately after. SDK-level errors (e.g. "Model not found") arrived before the bridge could resolve `localSessionId`, so the WS broadcast went out with the SDK UUID and the Flutter client couldn't route it.
+- Files modified:
+  - `apps/api_server/src/controllers/agent_sessions_controller.ts` — two call sites (`createSession` ~L251 and `resumeSession` ~L565) changed from `streamBridge.streamSession(...).catch(...)` to `await streamBridge.streamSession(...)` with try/catch. `streamSession` resolves promptly after `subscribeToEvents` completes (the long-running `_listen` for-await loop is fire-and-forget *inside* `streamSession`), so awaiting it doesn't block — it just guarantees the listener is consuming events when `promptAsync` fires (#638 c4).
+- New tests/contracts: `docs/ai/contracts/issue-638.json` c4 added; `apps/api_server/src/__tests__/issue_638_contract.test.ts` (new server-side vitest with 2 assertions). Both assertions FAIL on commit 4f921ac and PASS after this commit.
+- Checks run: `tsc --noEmit` ✓, `flutter analyze --no-fatal-infos` ✓ (no new warnings/errors), `dart format` ✓, `npx vitest run` 529/529 ✓ (was 527 baseline + 2 new c4 tests), all 7 flutter contract tests for #638 + #639 ✓.
+- Decisions made: chose awaiting `streamSession` over restructuring `streamSession` itself or making the bridge buffer pre-listener events. `streamSession`'s contract (resolves once subscription is established; _listen is internal fire-and-forget) makes await safe and the call-site fix surgical.
+- Deviations from spec: none.
+- Follow-up still open: #635 (mini-bubble user messages) deferred.
+
 ### 2026-05-20 — fix/pr-617-fourth-round-smoke (#638 c3, #639 c3)
 - Fourth-round smoke on commit 987cfe8 surfaced two remaining gaps: (#638) full-view error frame works for old sessions but NEW sessions silently swallow the error; (#639 c2) Settings visibility toggle doesn't refresh the picker.
 - Files modified:

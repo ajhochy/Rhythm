@@ -248,14 +248,14 @@ export class AgentSessionsController {
       // Pass the cwd so the bridge can subscribe to /event with the right
       // directory filter (opencode only delivers session/message events
       // for sessions whose cwd matches the subscription's directory).
-      streamBridge
-        .streamSession(session.id, opencodeSession.id, dto.cwd)
-        .catch((err) => {
-          console.error(
-            `[AgentSessionsController] Stream bridge error for session ${session.id}:`,
-            err,
-          );
-        });
+      try {
+        await streamBridge.streamSession(session.id, opencodeSession.id, dto.cwd);
+      } catch (err) {
+        console.error(
+          `[AgentSessionsController] Stream bridge error for session ${session.id}:`,
+          err,
+        );
+      }
 
       // Send the initial prompt with task context so the AI starts working immediately.
       // This uses promptAsync (fire-and-forget) so we return HTTP 201 quickly.
@@ -562,11 +562,11 @@ export class AgentSessionsController {
       opencodeSessionMap.set(session.id, opencodeSession.id);
 
       // Start streaming Opencode events through the WebSocket gateway
-      streamBridge
-        .streamSession(session.id, opencodeSession.id, session.cwd)
-        .catch((err) => {
+      try {
+        await streamBridge.streamSession(session.id, opencodeSession.id, session.cwd);
+      } catch (err) {
         console.error(`[AgentSessionsController] Stream bridge error for session ${session.id}:`, err);
-      });
+      }
 
       repo.updateStatus(session.id, 'starting');
       const updated = repo.findById(session.id)!;

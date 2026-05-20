@@ -19,7 +19,7 @@
       "test_file": "apps/desktop_flutter/test/features/agents/issue_638_contract_test.dart",
       "test_id": "issue-638-c2: transcriptFor(X) contains error even when _selectedSessionId != X error frame for non-selected session lands in transcriptFor — regression guard for the view fix",
       "status": "pending"
-    }
+    },
     {
       "criterion_id": "issue-638-c3",
       "text": "When a WS error frame arrives between selectSession's REST call dispatch and its resolution (the race window), the locally-appended error frame must NOT be clobbered by the empty REST result. After the race sequence: (1) selectSession dispatches REST, (2) WS frame appends to _transcriptsBySession[id], (3) REST resolves with empty messages — controller.transcriptFor(id) must still contain the error frame.",
@@ -28,6 +28,15 @@
       "test_id": "issue-638-c3: WS error frame injected during selectSession REST race must survive REST resolution",
       "status": "pending",
       "notes": "Data-layer test; no widget pumping. Uses _HangingGetSessionRepository (Completer-based). Steps: (1) inject WsErrorMessage for sid-1 AFTER selectSession hangs on REST, (2) assert transcriptFor non-empty, (3) complete REST with empty messages, (4) assert transcriptFor STILL non-empty. FAILS TODAY on step 4 because line 855 overwrites _transcriptsBySession[id] = result.messages (empty). Fix: merge instead of overwrite — only backfill messages whose IDs are not already present, or unconditionally prepend the REST messages while preserving WS-appended entries that arrived after dispatch."
+    },
+    {
+      "criterion_id": "issue-638-c4",
+      "text": "When POST /agent-sessions creates a new session, the streamBridge SSE listener must be active (subscribed and consuming events) BEFORE promptAsync is invoked. Specifically, streamBridge.streamSession must be awaited before opencodeClient.promptAsync is called in agent_sessions_controller.ts. If streamSession is still pending when the SDK starts emitting, events fired between promptAsync and subscribeToEvents resolving are silently dropped. Additionally, when an early session.error event fires, the broadcast frame's id MUST be the local session id (matching the row in agent_sessions table), NOT the SDK UUID.",
+      "mode": "server-integration",
+      "test_file": "apps/api_server/src/__tests__/issue_638_contract.test.ts",
+      "test_id": "issue-638-c4-a: promptAsync is not called before streamSession resolves",
+      "status": "pending",
+      "notes": "Server-side vitest integration test. Mocks streamBridge.streamSession as a held Promise and opencodeClient.promptAsync to record call order. POSTs to /agent-sessions. FAILS today because the controller calls streamSession fire-and-forget (lines 251-258) then immediately calls promptAsync (line 272), so 'promptAsync:called' appears in callOrder before 'streamSession:resolved'. Fix: await streamBridge.streamSession(session.id, opencodeSession.id, dto.cwd) OR split streamSession so it returns a ready-signal promise (the subscription-active moment) without blocking on the long-running _listen loop. Because _listen is an infinite for-await loop, a naive 'await streamSession()' would block forever — the correct fix is to split: streamSession awaits subscribeToEvents and starts _listen as fire-and-forget, then returns only after the first iterator.next() has been registered (listener-ready). One approach: use a Promise inside streamSession that resolves once _listen enters its first for-await tick."
     }
   ],
   "not_tested": [
