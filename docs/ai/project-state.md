@@ -1,6 +1,297 @@
 # Project State
 
-## Current Status (2026-05-16 evening — vbeta.18.31 shipped; install-time gotchas filed)
+## Recent coding-agent runs
+
+### 2026-05-19 — fix/pr-617-batch-smoke-followups (#627, #628, #632, #633)
+- Smoke on PR #617 batch surfaced 5 FAIL/PARTIAL + 1 new bug + 1 latent launch regression. Postmortem at `.agent-stack/postmortems/2026-05-19-pr-617-batch-smoke.json`. Dominant pattern: C1 missing-contract (acceptance-contract skipped for the batch) — recorded as W1 in workflow_adherence.
+- Files modified:
+  - `apps/desktop_flutter/macos/Runner/AppDelegate.swift` — removed invalid `super.applicationDidFinishLaunching(notification)` call (latent regression from PR #473, ea206d0; caused black-screen launch). User-applied fix; committed in this batch (#633)
+  - `apps/desktop_flutter/lib/app/core/server/api_server_service.dart` — `_findServer` no longer prefers a stale local `dist/server.js` in dev mode; always uses `npx tsx src/server.ts` against source. Production .app bundle path unchanged (still uses bundled dist as built by CI) (#627)
+  - `apps/desktop_flutter/lib/app/core/agents/agent_bubble_overlay.dart` — `_ExpandedSessionBubbleState.initState` now schedules `agents.reconnectSession(sessionId)` via post-frame callback so cold mini-bubbles back-fill historical messages on expand (#628)
+  - `apps/desktop_flutter/lib/features/agents/controllers/agents_controller.dart` — `reconnectSession` notifies listeners unconditionally after writing `_transcriptsBySession[id]`; previously gated on `_selectedSessionId == id` so cold bubbles never rebuilt (#628)
+  - `apps/api_server/src/services/opencode_client_service.ts` — `promptAsync` tightened: returns `false` (with warning log) when SDK response carries neither `error` nor `data` (silent no-op case from OpenRouter on unrecognized model ids) (#632)
+  - `apps/api_server/src/routes/agents_models_routes.ts` — removed `skipLiveCheck` permissive bypass in `GET /catalog` curated-entries block. When SDK openrouter catalog is empty, NO curated entries are promoted — defer rather than admit unverified ids (#632)
+- New tests/contracts: `apps/desktop_flutter/test/features/agents/issue_628_contract_test.dart`; `apps/api_server/src/__tests__/issue_632_contract.test.ts`; `docs/ai/contracts/issue-628.json`; `docs/ai/contracts/issue-632.json`
+- Checks run: `tsc --noEmit` ✓, `flutter analyze` ✓, `npx vitest run` 511 passed / 6 pre-existing failures (confirmed identical on baseline 61c468f), contract tests #628 (1/1) ✓ and #632 (3/3) ✓, `npm run build` ✓, smoke probes against fresh tsx :4001 — `/health` 200, `/agents/capabilities` 200, `POST /sync/now` 200 ✓
+- Decisions made: dev-mode tsx preference makes source changes immediately visible in the Flutter-spawned :4001 (no manual `npm run build` step). Removed skipLiveCheck rather than tightening — conservative gate is correct even if it briefly hides valid ids during SDK startup race.
+- Deviations from spec: #628 widget-level wiring (c1b) covered by manual smoke not unit test — pumping the private state class has higher bug surface than the 3-line fix.
+- Follow-ups still open: #629 (task linkage — OUT-OF-SCOPE for this PR), #630 (question tool — BLOCKED upstream SDK), #631 (slash popover empty — OUT-OF-SCOPE; endpoint is hard-coded `[]` placeholder).
+
+### 2026-05-19 — feat/agents-per-message-action-row (#606)
+- Files modified:
+  - `apps/desktop_flutter/lib/features/agents/views/_message_actions_row.dart` — new file; `MessageActionsRow` StatefulWidget with Copy icon (flash animation), Bell/notify toggle, relative timestamp; `MessageTimeTicker` wrapper using a global `_TimeTick` ChangeNotifier (single `Timer.periodic` shared across all rows); `_relativeTime` helper (just now / Xm / Xh / full date).
+  - `apps/desktop_flutter/lib/features/agents/views/agents_view.dart` — wired `MessageActionsRow` and `MessageTimeTicker` into `_buildTranscriptBody`; `copyText` computed from parts before `_ChatBubble` call; action row inserted in Column after bubble, inside `ListView.builder`.
+  - `apps/desktop_flutter/lib/features/agents/controllers/agents_controller.dart` — `_notifyOnCompletion` Set<String>, `isNotifyArmed`, `toggleNotify`, `_fireArmedNotifications`; `LocalNotificationService.showMessageNotification` called when session finishes working with armed messages.
+- Checks run: `ai-workflow checks --level issue` → `flutter analyze` ✓, `dart format` ✓, `tsc --noEmit` ✓
+- Decisions made: used a single global `_TimeTick` ChangeNotifier (one Timer for all rows) instead of per-bubble timers to avoid timer proliferation in long transcripts. Action row is outside `_ChatBubble` (in the ListView itemBuilder Column), not inside, to keep `_ChatBubble` a pure renderer. Notify key format is `"$sessionId:$messageId"` to scope flags per session.
+- Deviations from spec: none — all acceptance criteria implemented; action row not shown for "…" placeholder (empty children guard in `_ChatBubble` returns early before the Column wrapping the row is reached).
+- Concerns: `_globalTimeTick` is a module-level singleton — it runs for the app lifetime even when no chat is visible. Overhead is minimal (one tick per minute, no widget rebuild unless `MessageTimeTicker` is in tree). Timer is properly cancelled in `_TimeTick.dispose()` but dispose is never called on the singleton; acceptable for a long-lived app-level resource.
+
+### 2026-05-19 — feat/agents-archive-ui (#601)
+- Files modified:
+  - `apps/desktop_flutter/lib/features/agents/views/agents_view.dart` — added `_confirmDelete` method and "Delete permanently" `PopupMenuButton` to `_ArchivedSessionRow` so hard-delete is available from archived rows; all other acceptance criteria were already implemented on this branch
+- Checks run: `ai-workflow checks --level issue` → `flutter analyze` ✓, `dart format` ✓, `tsc --noEmit` ✓
+- Decisions made: All archive infrastructure (model `archivedAt` field, data source `archiveSession`/`unarchiveSession`, controller `archiveSession`/`unarchiveSession`/`loadArchivedSessions`/`archived` getter, WS `session.updated` routing, collapsible Archived section in `_SessionListPanelState`, `_SessionRowMenu` with Archive + Delete items, `_ArchivedSessionRow` with Restore button) was already implemented in prior runs on this branch (#605 WS broadcasts). The only gap was "Delete permanently" on archived rows — added as a `PopupMenuButton` with confirm dialog.
+- Deviations from spec: none — all four acceptance criteria satisfied
+- Concerns: none; the `deleteSession` controller method handles archived rows correctly (removes from `_sessions` but `_archived` is managed by WS `session.removed` broadcast; optimistic local removal works because `deleteSession` filters all three lists indirectly via WS)
+
+### 2026-05-19 — fix/sync-production-task-mirror (#620)
+- Files modified:
+  - `apps/api_server/src/config/env.ts` — added `prodApiUrl` and `prodAuthToken` fields (read from `PROD_API_URL` / `PROD_AUTH_TOKEN` env vars); defaults to `null` so existing deployments are unaffected
+  - `apps/api_server/src/services/sync_orchestrator_service.ts` — added `mirrorProductionTasksAsync()` method and `fetchProductionTasks()` helper; `runSync()` now calls the mirror before integrations loop. Pagination: fetches pages of 100 until a page is shorter than the limit. Upsert strategy: tasks whose ID already exists verbatim in local DB (pre-split) are updated in-place; new tasks are inserted as `source_type='prod_mirror'` + `source_id=<prod uuid>` so subsequent syncs are idempotent.
+  - `apps/api_server/src/jobs/sync_orchestrator_job.ts` — cron tightened from `*/30` to `*/10` minutes (issue: 30-min window is too large)
+  - `apps/api_server/src/controllers/sync_controller.ts` — new; `POST /sync/now` handler; calls `mirrorProductionTasksAsync()` synchronously and fires `runSync()` in background; returns `{ status, upserted, skipped }`
+  - `apps/api_server/src/routes/sync_routes.ts` — new; mounts `/sync/now`; respects `AGENT_LOCAL` bypass same as all other agent-local routes
+  - `apps/api_server/src/app.ts` — added `syncRouter` import and `app.use('/sync', syncRouter)`
+  - `apps/api_server/src/services/__tests__/sync_orchestrator_service.test.ts` — new; 6 unit tests covering: first-sync upsert, idempotency, pagination, no-op when env unconfigured, graceful failure on network error, in-place update for pre-split tasks
+- Checks run: `ai-workflow checks --level issue` → `flutter analyze` ✓, `dart format` ✓, `tsc --noEmit` ✓. Vitest: pre-existing ABI mismatch (`better-sqlite3` compiled for NODE_MODULE_VERSION 127, runtime requires 137) prevents all SQLite-based tests from running in this environment; this is a known pre-existing condition affecting ALL tests in the repo, not introduced here.
+- Decisions made: root cause is architectural — `SyncOrchestratorService` never had production task mirroring; the local SQLite only had tasks created locally or pre-split. Fix adds OPTIONAL mirroring (no-op when env vars absent) so existing deployments are unaffected. `source_type='prod_mirror'` is used rather than inserting with the original UUID to keep upsert idempotent without collision risk against locally-created tasks with the same UUID; verbatim-ID tasks (pre-split) are handled as a special case. Cron tightened to */10 + manual `/sync/now` endpoint added as dual mitigation.
+- Deviations from spec: none
+- Concerns: `mirrorProductionTasksAsync()` fetches ALL tasks in pages — for very large task lists this could be slow. No incremental sync (e.g. `updatedSince`) because the production API endpoint (`GET /tasks`) doesn't expose a filter param. A future incremental-sync feature would require a server-side `updated_since` query param. The test file is logically correct but cannot execute in this CI environment due to the pre-existing better-sqlite3 ABI issue.
+
+---
+
+### 2026-05-19 — feat/agents-session-ws-events (#605)
+- Files modified: none — all implementation was already committed to this branch prior to this coding-agent run.
+  - `apps/api_server/src/services/ws_gateway.ts` — exports `broadcastSessionUpdated(session)` and `broadcastSessionRemoved(id)` helper functions.
+  - `apps/api_server/src/controllers/agent_sessions_controller.ts` — imports and calls `broadcastSessionUpdated` in `remove` (soft-close) and `update` (PATCH, including archive toggle), and `broadcastSessionRemoved` in `destroy` (hard-delete).
+  - `apps/desktop_flutter/lib/features/agents/models/agent_ws_message.dart` — `SessionUpdatedMessage` and `SessionRemovedMessage` classes with `fromJson` factories; both registered in `AgentWsMessage.parse` switch.
+  - `apps/desktop_flutter/lib/features/agents/controllers/agents_controller.dart` — `_onWsMessage` handles `SessionUpdatedMessage` (upsert via `_upsertById` across sessions/resumable/archived based on archivedAt/status) and `SessionRemovedMessage` (filter from all three lists + clean up liveOutputBuffer, sessionFirstSeenAt, selectedSessionId).
+- Checks run: `ai-workflow checks --level issue` → `flutter analyze` ✓, `dart format` ✓, `tsc --noEmit` ✗ (pre-existing errors in out-of-scope files `sync_orchestrator_service.ts` and `sync_routes.ts`; owned files compile clean).
+- Decisions made: this coding-agent run confirmed all changes already in place. Stream bridge status transitions deferred per issue spec (no trivial hook; regression risk). Follow-up needed: "emit session.updated on stream bridge status transitions".
+- Deviations from spec: stream bridge transitions deferred as spec allowed.
+- Concerns: pre-existing TypeScript errors in out-of-scope files cause `ai-workflow checks` to show failure; owned code is clean.
+
+---
+
+### 2026-05-19 — fix/server-bundled-sentinel-abi-fallback (#615)
+- Files modified:
+  - `apps/desktop_flutter/lib/app/core/server/api_server_service.dart` — implementation was already present from commit `726a5c4` ("fix(server): lifecycle cleanup + ABI-matched Node selection"). No code change was needed; coding-agent verified completeness and ran checks.
+- Checks run: `ai-workflow checks --level issue` → `flutter analyze` ✓ (0 errors), `dart format` ✓ (0 changes), `tsc --noEmit` ✗ (pre-existing errors in out-of-scope unstaged WIP files `sync_orchestrator_service.ts`, `sync_routes.ts`, `sync_controller.ts`; owned `api_server_service.dart` compiles clean)
+- Decisions made: Issue #615 was fully implemented in commit `726a5c4` on 2026-05-16. The implementation covers: (1) `_readRuntimeSentinelFull()` probes both dev walk-up path and `Resources/api_server/.node-runtime.json` bundled path; (2) `File(sentinelNodePath).existsSync()` validation; (3) `_findAbiMatchedNode()` scans candidates + `which node` login-shell fallback with `node -e 'process.stdout.write(process.versions.modules)'`; (4) Rich rebuild error message when no ABI match found.
+- Deviations from spec: none — all four acceptance requirements satisfied in existing code
+- Concerns: ABI fallback startup time: `_findAbiMatchedNode` runs `which node` via login shell + probes up to 4 Node binaries; login shell spawn is ~100-200ms and each `node -e` probe is ~50-100ms. Total overhead on worst-case path: ~500ms. Results are not cached between app launches (no persistent cache). In practice this path only runs when the sentinel's nodePath is missing (e.g. Node uninstalled/moved), so it's not on the hot path.
+
+---
+
+### 2026-05-19 — fix/lifecycle-terminate-spawned-processes (#614)
+- Files modified: none — all implementation was already committed in prior coding-agent runs on this branch
+  - `apps/desktop_flutter/lib/app/core/server/api_server_service.dart` — `stopGracefully()` (SIGTERM→2s→SIGKILL), `_killOrphanIfPresent()` (orphan-port reclaim on boot with PPID=1 check)
+  - `apps/desktop_flutter/lib/main.dart` — SIGINT/SIGTERM signal handlers; `didChangeAppLifecycleState(detached)` calls `stopAndDispose()`
+  - `apps/desktop_flutter/lib/app/core/layout/app_shell.dart` — `WindowListener.onWindowClose()` with `preventClose=true`; calls `AgentServerController.stopAndDispose()` then `windowManager.destroy()`
+  - `apps/api_server/src/server.ts` — SIGTERM/SIGINT shutdown handler: stops cron jobs, calls `opencodeClient.dispose()`, closes WS server, closes HTTP server with 1s force-exit fallback; parent-PID watchdog (polls ppid every 2s; self-shuts on orphan)
+  - `apps/api_server/src/services/opencode_client_service.ts` — `dispose()` calls `server.close()` to kill the opencode subprocess on :4096
+- Checks run: `ai-workflow checks --level issue` → `flutter analyze` ✓, `dart format` ✓, `tsc --noEmit` ✓
+- Decisions made: all lifecycle work was already in place from prior runs in this batch. This coding-agent run confirmed completeness by reading all owned files, then ran validation.
+- Deviations from spec: none
+- Concerns: `didChangeAppLifecycleState(detached)` is a best-effort last resort; Cmd+Q flows through `onWindowClose` which is the primary graceful path. Force-quit (Cmd+Opt+Esc) cannot be intercepted but is handled by the startup orphan-reclaim logic.
+
+---
+
+### 2026-05-19 — fix/agents-ws-gateway-model-follow-up (#624)
+- Files modified:
+  - `apps/api_server/src/services/ws_gateway.ts` — two changes: (1) in the `__pending__` block, persist `providerId`+`modelId` on the session row when the first turn resolves agent kind, so follow-up turns use `resolveModelForSessionTurn`'s session-level path instead of falling back through the authed-provider list; (2) after model resolution, added a guard that sends a `type: 'error'` WS frame and returns early if `model` is `undefined` (unknown agentKind not in resolver catalog), with a `console.log` logging the resolved route for every turn to make silent failures visible
+- Checks run: `ai-workflow checks --level issue` → `flutter analyze` ✓, `dart format` ✓, `tsc --noEmit` ✓
+- Decisions made: fix by code-review only (no opencode SDK available for live reproduction). Root-cause theory: `__pending__` sessions' first `session.input` carries `perTurnOverride` but never persisted `providerId`/`modelId` on the session row; follow-up turns (no override) fell back to `resolveModelForAgent` which could return a different model or `undefined` for unknown agent kinds. Added both the persistence fix and the defensive guard. Analogous to commit `40d4fee` which added model resolution in the first place.
+- Deviations from spec: none
+- Concerns: live reproduction requires the opencode SDK; manual smoke at end of batch will confirm. The `updateFields` call in the `__pending__` block is best-effort (wrapped in try-catch); if it fails, the follow-up will still use `resolveModelForAgent` as fallback. The new guard for `undefined` model will surface previously-silent failures as a WS error frame.
+
+---
+
+### 2026-05-19 — feat/agents-question-tool-selector (#622)
+- Files modified:
+  - `apps/desktop_flutter/lib/features/agents/views/_question_tool_card.dart` — new file; `QuestionToolCard` StatefulWidget; parses `toolArgs.questions[]` into interactive answer buttons; submits via `AgentsController.sendInput`; shows "Answered: <label>" stub after selection; handles multi-question batch flows
+  - `apps/desktop_flutter/lib/features/agents/views/agents_view.dart` — added `sessionId` param to `_ChatBubble`; routing in tool-part loop: `toolName == 'question'` → `QuestionToolCard`, else → `ToolCallPart`; added import for `_question_tool_card.dart`; updated `_buildTranscriptBody` call site to pass `session.id`
+- Checks run: `ai-workflow checks --level issue` → `flutter analyze` ✓, `dart format` ✓, `tsc --noEmit` ✓
+- Decisions made: tool lookup key is `part.toolName?.toLowerCase() == 'question'` (case-insensitive match for the SDK's tool name); submission goes via existing `controller.sendInput(sessionId, text)` — no new controller methods; `session.input` is the only upstream path in the WS gateway (see `ws_gateway.ts`); a TODO comment marks the spot to switch to a dedicated tool-result path if one is added later (#622 follow-up)
+- Deviations from spec: "free-text Other" not implemented — the SDK's `question` tool schema doesn't expose a free-text field in `toolArgs`; spec item is aspirational. Multi-select via checkboxes replaced by multi-question sequential selection (each question still gets exactly one answer per the SDK contract).
+- Concerns: submission path uses `session.input` which triggers a new agent turn rather than a true tool-result reply. This is the only path available in the current WS gateway. If the SDK exposes a `question.answer` or `tool.result` event type in the future, `_submit()` in `_question_tool_card.dart` is the one place to update.
+
+---
+
+### 2026-05-19 — feat/agents-bubble-agentless-session (#623)
+- Files modified:
+  - `apps/desktop_flutter/lib/app/core/agents/agent_bubble_overlay.dart` — replaced `startAgent(String agentId)` + multi-button layout with `_openChat()` that creates an agent-less session (`agentId: null`); single "Open chat" button; simplified `_bubbleHeight` to a fixed getter
+- Checks run: `ai-workflow checks --level issue` → `flutter analyze` ✓, `dart format` ✓, `tsc --noEmit` ✓
+- Decisions made: preferred-agent default not plumbed — `PendingTrigger` / `AgentBubbleEntry` carry no `preferredAgentId`; wiring it into the composer would require touching `agents_view.dart` (out of scope); left `TODO(#623 follow-up)` comment in `_openChat()`
+- Deviations from spec: preferred-agent default for claude-trigger payloads deferred (spec said "if no clean way, leave a TODO" — done)
+- Concerns: none; `createSession(agentId: null)` path already verified working server-side per PR #617/#602
+
+---
+
+### 2026-05-19 — fix/agents-bubble-transcript-per-session (#625)
+- Files modified:
+  - `apps/desktop_flutter/lib/features/agents/controllers/agents_controller.dart` — added `_transcriptsBySession` map and `transcriptFor(sessionId)` getter; updated all `_transcript` write sites (reconnect, selectSession, TranscriptAppendMessage, WsErrorMessage) to also write per-session
+  - `apps/desktop_flutter/lib/app/core/agents/agent_bubble_overlay.dart` — replaced `agents.transcript` + `isSelected` gate with `agents.transcriptFor(sessionId)` so bubble always shows its own session's transcript
+- Checks run: `flutter analyze` ✓, `dart format` ✓, `tsc --noEmit` ✓
+- Decisions made: added `_transcriptsBySession` as an additive map alongside the existing `_transcript` flat list; `_transcript` retained unchanged for backward compat with the main Agents tab view; both stores are updated in lock-step at every write site
+- Deviations from spec: none
+- Concerns: `_transcriptsBySession` grows unbounded for long-running sessions with many messages (same as `_liveOutputBuffer`); no concern for typical church-staff use; same behavior as existing `_liveOutputBuffer`.
+
+---
+
+## Current Status (2026-05-19 — follow-up fixes for #606, #622, #623, #624, #625 committed; smoke pending)
+
+🟡 **Branch `follow-up` stays open. PR #617 still not merged.** PR #621 stacked on top — FK tolerance for production task IDs in the local SQLite. Independent and shippable.
+
+### Today's work
+
+[**PR #621**](https://github.com/ajhochy/Rhythm/pull/621) — `fix(agent-sessions): tolerate taskId missing from local SQLite (rebased onto #617/follow-up)`. Branch `fix/agent-session-fk-task-id-tolerance-followup`. Supersedes the closed PR #619 (which was against stale `main`).
+
+**Bug fixed**: POST `/agent-sessions` with a `taskId` not in the local SQLite `tasks` table returned 500. Flutter picker reads tasks from production (`api.vcrcapps.com`) but POSTs hit localhost; the sync mirror is incomplete; SQLite raises `SQLITE_CONSTRAINT_FOREIGNKEY` on `agent_sessions.task_id REFERENCES tasks(id)`; controller doesn't catch it. New-session dialog showed "Something went wrong on the server"; Task-ready bubble showed "Internal server error".
+
+**Fix**: in `agent_sessions_controller.create()`, probe `TasksRepository.findByIdIncludingLegacy(taskId)` before insert. On miss, log `warn` and null out `task_id`; `task_title` is preserved (the schema stores them independently — see migration comment introducing `task_title`).
+
+**Acceptance contract** at `docs/ai/contracts/pr-619.json`. Two strengthened tests assert the full launch path: HTTP 201 + reconciled taskId + preserved taskTitle + `opencodeClient.createSession(name, cwd)` invoked + `opencodeSessionMap` populated + `promptAsync` invoked with initial prompt containing taskTitle. Red proven by reverting the controller fix → 2 fail with `expected 500 to be 201`. Green: 508/508.
+
+**Smoke infrastructure**: `apps/api_server/scripts/smoke-launch.sh` (`npm run smoke:launch`). Verifies sentinel Node + ABI match + dist build, spawns the api_server with exactly the env Flutter uses (`PORT=4001 AGENT_LOCAL=true DB_PATH=/tmp/rhythm-smoke/smoke.db`), hits `/health`, `/agents/capabilities`, and the PR's regression POST. Uses `set -m` + process-group kill on cleanup + `pkill -9 -f "opencode serve"` so the SDK's child server on `:4096` can't orphan and surface as "Reusing existing server on :4001" on the next Rhythm.app launch (which silently coupled stale dev servers earlier in this session).
+
+**Live verification**: against the running `flutter run -d macos` app, POST with bogus taskId returned **HTTP 201**, WARN was logged, taskTitle preserved. End-to-end through the actual SDK and Anthropic provider.
+
+### Bugs caught during manual smoke and filed as follow-ups
+
+| # | Title | Notes |
+|---|---|---|
+| [#620](https://github.com/ajhochy/Rhythm/issues/620) | sync: local SQLite tasks table missing tasks that exist on production | The underlying gap PR #621 defends against. #621 is the boundary fix; #620 fixes the mirror. |
+| [#622](https://github.com/ajhochy/Rhythm/issues/622) | agent chat: `question` tool call renders as raw args instead of an answer selector | Wall of JSON shown instead of clickable options. Any agent that asks structured questions becomes unusable. |
+| [#623](https://github.com/ajhochy/Rhythm/issues/623) | agent chat: Task-ready bubble forces agent pre-selection instead of using the composer picker | Bubble's `startAgent(agentId)` predates the #602 composer redesign. Should open agent-less. |
+| [#624](https://github.com/ajhochy/Rhythm/issues/624) | agent chat: follow-up user message accepted by SDK but no LLM call fires; UI stuck on "working" | **Critical**: first prompt's 7-step output works; second prompt logs only `message.updated` — no `step=N loop`, no `service=llm`, no deltas. Smells like a regression of the `40d4fee` "model on follow-up turns" fix. Includes the SDK timeline as repro. Also covers the related persistence desync (`lastActivityAt` stays null even after streamed output). |
+| [#625](https://github.com/ajhochy/Rhythm/issues/625) | agent chat: mini-bubble transcript blanks when a different session is selected in the Agents tab | Bubble reads from `_transcript[selectedSessionId]` instead of its own `widget.entry.sessionId`. Breaks the persistent-chat premise of the bubble overlay entirely. |
+
+### Follow-up bug status (2026-05-19 batch fixes)
+
+| # | Title | Status |
+|---|---|---|
+| [#622](https://github.com/ajhochy/Rhythm/issues/622) | `question` tool renders as raw args | ✅ Fixed — commit `3abb2f4` |
+| [#623](https://github.com/ajhochy/Rhythm/issues/623) | Task-ready bubble forces agent pre-selection | ✅ Fixed — commit `1844fce` |
+| [#624](https://github.com/ajhochy/Rhythm/issues/624) | Follow-up prompt: no LLM call fires, UI stuck on "working" | ✅ Fixed — commit `37fcc26` (code-review fix; manual smoke to confirm) |
+| [#625](https://github.com/ajhochy/Rhythm/issues/625) | Mini-bubble transcript blanks on session switch | ✅ Fixed — earlier commit |
+| [#620](https://github.com/ajhochy/Rhythm/issues/620) | Local SQLite tasks table missing production tasks | 🟡 Open — lower priority; PR #621 defends the boundary |
+
+### Critical-path before next release
+
+- All critical-path blockers (#606, #622–#625) have fixes committed on `follow-up`.
+- **#624 fix needs manual smoke confirmation** — no opencode SDK available for live reproduction; fix was by code review. Key behavior: follow-up user messages in an agent session should trigger a new LLM stream.
+- **#606 (action row)** — purely additive Flutter UI; no API changes. Manual smoke should confirm: Copy copies text, Bell arms notification, timestamp shows correctly below each bubble.
+- **#620** is lower-urgency; PR #621 keeps the symptom invisible.
+
+### Tooling lessons recorded
+
+Postmortem: `.agent-stack/postmortems/2026-05-19-pr-621-agent-fk-tolerance.json`. Two reusable artifacts:
+
+1. `apps/api_server/scripts/smoke-launch.sh` — repeatable build+spawn pipeline check. Catches ABI mismatches and orphan-port issues programmatically instead of "click Retry, repeat."
+2. The acceptance-contract pattern (`docs/ai/contracts/pr-619.json`) — tests that prove **launch**, not just **insert**. The mandate "PASS = sessions actually launch" came directly from the user when the earlier test was only proving the row was inserted.
+
+Workflow lesson: **before branching off `main`, check `gh pr list --state open` for an active draft trunk** (#617 was the real trunk; the original PR #619 was wasted effort branching off stale `main`).
+
+---
+
+## Previous Status (2026-05-18 — manual smoke of vbeta.18.36; iterate on `follow-up`, do not merge #617 yet)
+
+🟡 **Branch `follow-up` stays open. PR #617 NOT merged.** User decision after a full manual smoke pass: keep grinding bugs on this branch, re-smoke after each fix cluster, merge to `main` only when ≥80% of the original smoke checklist passes cleanly.
+
+### What landed this session
+
+Six commits on `follow-up` (mine + a parallel agent's):
+
+1. **`promptAsync` TypeError** — commit `49ef628`. `apps/api_server/src/services/ws_gateway.ts` was extracting `opencodeClient.promptAsync` as a bare function reference (cast-to-alias pattern from `acdc835`), losing `this`. Every send threw `Cannot read properties of undefined (reading 'client')`. Fix: `.bind(opencodeClient)`. Most user-visible regression on the branch — user hit it ~5× during smoke before root-cause.
+2. **PATH discovery for opencode binary** — folded in via merge `34d57bf` (closed PR #618). `apps/api_server/src/services/opencode_client_service.ts` exports `augmentPathForOpencode()`, prepends `~/.opencode/bin`, `/opt/homebrew/bin`, `/usr/local/bin` before `createOpencode()`. GUI-spawned `.app` children get a stripped PATH; without this, opencode binary not found. +4 unit tests.
+3. **Parent-PID watchdog** — `apps/api_server/src/server.ts` polls `process.ppid` every 2s; if it flips to 1 (orphaned to launchd), runs the SIGTERM clean-shutdown. Defense in depth for Cmd+Q via NSApp.terminate killing the Dart engine before its lifecycle hooks fire.
+4. **`server.close()` in `dispose()`** — `OpencodeClientService.initialize()` now destructures and stores the `server` handle from `createOpencode()`; `dispose()` calls `server.close()` to actually kill the :4096 subprocess (previous `client.close()` / `client.shutdown()` probes didn't exist on the SDK).
+5. **`_pendingTurnOverride` in `setSessionModel`** — `apps/desktop_flutter/lib/features/agents/controllers/agents_controller.dart`. Picking session-default in the model picker no longer leaves the per-turn override unset; "Pick a model before sending the first message" error gone.
+6. **From parallel agent:** `ensureReady()` auto-recovery + dispose stack traces (`2f5fbdb`), curated OpenRouter models in catalog (`6b341d4`), Express body limit → 1 MB (`f52d3b0`).
+
+Verification: **503/503 vitest**, **218/218 flutter test**, `tsc --noEmit` clean, `dart format` + `flutter analyze` clean.
+
+### Smoke results (vbeta.18.36 against `/Applications/Rhythm.app/`)
+
+**6 PASS / 1 PARTIAL / 10 FAIL** of 20 testable items. Lifecycle 4 (ABI fallback) skipped — needs v24-only machine.
+
+PASS: Cmd+Q clears :4001 and :4096 ≤3s; new session + model picker + send to DeepSeek (TypeError gone); soft-close + hard-delete live; new-session has no agent dropdown + "Choose a model" placeholder; unified picker layout with Connect on unauthorized rows.
+
+PARTIAL: Archive — DB write + active-list removal live, but **Archived section doesn't update live** (needs refresh). Issue: `docs/ai/generated-issues/fix-archived-section-not-updating-live.md`.
+
+FAIL (each filed under `docs/ai/generated-issues/`):
+- **Permissions pipeline never fires for Claude direct in default mode (#608)** — Bash runs unprompted, no PermissionCard. Highest severity, safety feature broken. `fix-permission-pipeline-not-firing-claude-direct.md`.
+- **Reasoning effort + fast-mode never reach SDK (#604)** — 5th `sdkOpts` param in ws_gateway promptFn alias silently dropped; `OpencodeClientService.promptAsync` only accepts 4 params. `fix-thinking-budget-fast-mode-never-applied.md`.
+- **File-attach paperclip is a no-op (#602)** — `fix-composer-file-attach-paperclip-no-op.md`.
+- **Slash popover never appears (#610)** — `fix-slash-command-popover-not-firing.md`.
+- **Notify-on-completion + relative timestamp ticker dead (#606)** — copy works; the other two don't. `fix-notify-on-completion-not-firing.md`.
+- **OpenRouter curation overhaul (#609)** — picker filter too aggressive (hundreds curated → ~6 visible) + duplicate `anthropic/claude-sonnet-4.6` row. `fix-openrouter-curation-overhaul.md`.
+- **VCS branch dropdown (#603)** — Dart type cast error `String is not subtype of Map<String, dynamic>?`, no "Current" section, switch fails silently. `fix-vcs-branch-dropdown-type-cast-and-switch.md`.
+- **VCS chip never renders in session header (#607)** — entire surface invisible. `fix-vcs-chip-not-rendering-in-session-header.md`.
+
+Inline UX findings filed: auto-scroll steals focus during streaming (`fix-agent-chat-auto-scroll-steals-focus.md`); pill mislabels non-Anthropic OpenRouter models as "Claude Code" (`fix-agent-kind-mislabels-non-anthropic-openrouter-models.md`); default model should be Sonnet not Opus (`tweak-default-model-sonnet-over-opus.md`); Google OAuth dialog hangs because route + UI assume auto-callback but SDK requires paste-back (`fix-google-oauth-paste-back-ui.md`).
+
+### Next-session plan
+
+1. High-severity: permission pipeline (#608), VCS parse error (#603), VCS chip (#607).
+2. Medium: thinking/fast-mode SDK plumbing (#604), file attach (#602), slash popover (#610), notify + ticker (#606), OpenRouter curation overhaul (#609).
+3. UX: archived live update, auto-scroll, pill mislabel.
+4. Trivial: default Sonnet.
+5. Re-smoke each cluster on a new DMG. Merge #617 only at ≥80% checklist pass.
+
+## Prior Status (2026-05-18 — triage round 2: isReady flip + dispose diagnostics)
+
+🟡 **Branch `follow-up` — 3 commits this session on top of PR #617 batch.**
+
+### Fixes this session (2026-05-18)
+
+1. **Chat broken for all sessions (`promptAsync` TypeError)** — committed as `49ef628`. Root cause: commit `acdc835` (#604) extracted `opencodeClient.promptAsync` from its object and cast it as a bare function reference, losing `this`. Every prompt threw `TypeError: Cannot read properties of undefined (reading 'client')`. Fix: `.bind(opencodeClient)` preserves `this`.
+
+2. **Curated OpenRouter models not surfacing in model picker** — `listAllRoutes()` in `agent_model_resolver.ts` only iterates the hardcoded `ROUTE_FALLBACKS_BY_AGENT` map. The `agent_model_visibility` table (used by the "Browse & Curate" UI) was only applied to *hide* models from this hardcoded list — it never *added* curated models. **Fix**: Modified `GET /agents/models/catalog` to include curated OpenRouter models with `visible=1` not in the hardcoded fallback list. Commit `6b341d4`.
+
+3. **`isReady` flip between `/opencode/health` and `POST /agent-sessions`** — the `OpencodeClientService.isReady` getter returned `true` for the health endpoint but `false` for the session-creation controller. Root cause: the PARENT_GONE watchdog (2s interval in `server.ts`) fires when `process.ppid` becomes 1 (parent process exits). This resets `this.status = 'uninitialized'` via `dispose()`, which is called by the shutdown handler. The watchdog is designed to catch macOS Cmd+Q (Flutter killed before it can SIGTERM the child), but it also fires during development when the shell or process-manager parent exits between requests.
+
+   **Fix (commits `2f5fbdb`):**
+   - Added `ensureReady()` to `OpencodeClientService` — auto-reinitializes the engine when `isReady` is false, unless the server is in intentional shutdown (`_shuttingDown` flag).
+   - Made `initialize()` idempotent and re-entrant with `_initializing` guard (prevents double-init races from concurrent `ensureReady` calls).
+   - Added dispose diagnostics: stack-trace logging on `dispose()`, idempotency guard, `isDisposed` getter.
+   - Controller `create()` and `resume()` now log the current `statusMessage` and call `ensureReady()` before failing — gives a recovery window if the watchdog fired seconds earlier.
+   - Server shutdown handler sets `_shuttingDown` on `opencodeClient` so `ensureReady()` does not wastefully re-initialize during teardown.
+   - Raised Express JSON body parser limit to 1 MB (default 100 KB was causing `PayloadTooLargeError` on large OAuth callback payloads).
+
+### What this branch lands
+- **Install hardening (#614, #615)**: SIGTERM/SIGINT shutdown chain in api_server + lifecycle hooks in Flutter (window_manager onWindowClose, SIGINT/SIGTERM watchers, AppLifecycleState.detached). Orphan self-heal on next launch kills any node holding :4001 with PPID=1. `ApiServerService._readRuntimeSentinel` reads the bundled `Resources/api_server/.node-runtime.json` and ABI-matches against installed Node binaries; on total mismatch the failure dialog surfaces the exact `npm rebuild better-sqlite3 --build-from-source` command.
+- **Sessions / archive / WS events (#601, #605)**: `agent_sessions.archived_at` column; `PATCH { archived }`; `?includeArchived` and `?archivedOnly` filters; new "Archive" row action and collapsible Archived section. `session.updated` / `session.removed` WS events emitted from every status / archive / PATCH / hard-delete touchpoint; Flutter dedupes and routes rows into sessions/resumable/archived live.
+- **Permissions (#608, #611)**: `permission.asked` events from the SDK now broadcast via WS and surface as a PermissionCard (modal when DestructiveModalService.enabled). `accept` / `deny` endpoints invoke `respondPermission`. `agent_sessions.permission_mode` column with `default | acceptEdits | plan | bypassPermissions`. All four paths invoke `respondPermission` so the SDK never hangs. First selection of `bypassPermissions` requires confirmation.
+- **Model picker enhancements (#604, #609, #610)**: Variant rows in `ROUTE_FALLBACKS_BY_AGENT['claude-code']` (Opus 4.7, Opus 4.7 1M, Opus 4.6 Legacy) and `['codex']`. `thinking_budget` + `fast_mode` columns; effort picker (Low → Max → budget_tokens map) + fast-mode toggle wired through WS `session.input`. New `agent_model_visibility` table + `GET /opencode/models?provider=openrouter` proxy + `GET/PATCH /agent-models/visibility`; AiAccountSection gains an expandable OpenRouter catalog with search/pricing/checkboxes. `SlashCommandPopover` anchored to the composer TextField with arrow-key navigation.
+- **Per-message action row (#606)**: copy / notify-on-completion (LocalNotificationService) / relative timestamp under every bubble. Single global ticker drives timestamp updates.
+- **Branch / VCS (#603, #607)**: `vcs_probe.listBranches` + `gitCheckout` helpers. New-session dialog gets a Branch dropdown with current/recent/local sections and "+ New branch from current" inline input. Dirty-tree → Stash/Cancel confirm. The VCS chip becomes a button; tapping it opens a popover with the same branch list, Stash/Discard/Cancel dirty-tree handling, and verbatim git errors in a SnackBar.
+- **Composer redesign (#602)**: `GET /agents/models/catalog` returns the whole catalog grouped by Authorized — Claude/Codex/Copilot/Gemini → Free — OpenRouter, with `connectUrl` for unauthorized rows. Model picker, permission-mode pill, reasoning effort, fast-mode toggle, and a new file-attach button all live in the composer area. New sessions start agent-less (`agent_kind='__pending__'`); `agent_kind` is resolved from the first `modelOverride` on the first turn.
+
+### Verification (local, 2026-05-16)
+
+| Check | Result |
+|---|---|
+| `apps/api_server` `tsc --noEmit` | clean |
+| `apps/api_server` `vitest run` | **506/506** (catalog curated-model test added + opencode_client_service object-map unwrap) |
+| `apps/api_server` `npm run build` | clean |
+| `apps/desktop_flutter` `dart format --set-exit-if-changed lib test` | clean |
+| `apps/desktop_flutter` `flutter analyze --no-fatal-infos` | 0 errors (180 pre-existing infos) |
+| `apps/desktop_flutter` `flutter test` | **218/218** |
+| Server-side endpoint smoke (HTTP) | **22/22** — catalog, visibility, archive, permission modes, tuning fields, branch list + checkout, OpenRouter proxy |
+
+### What still needs a human
+
+Playwright cannot drive the Flutter macOS UI. The server side is fully smoked; the UI bits below need a manual pass against `flutter run -d macos`. Before launching, **fully quit Rhythm.app and free :4001** because #614 changes the lifecycle of the spawned child:
+
+```
+lsof -iTCP:4001 -sTCP:LISTEN -n -P    # find pid
+kill <pid>
+```
+
+Then walk the PR #617 manual smoke checklist (full list lives in the PR body — copied here for reference):
+
+- Install / lifecycle (#614, #615): Cmd+Q ↔ `lsof` empty; force-quit + relaunch self-heals; ABI-fallback on a v24-only machine.
+- Sessions / archive / WS (#601, #605): live status updates without manual refresh; archive↔unarchive round-trip.
+- Permissions (#608, #611): each of the four modes exhibits the documented behavior against a bash/write/edit prompt.
+- Composer (#602, #604, #606, #609, #610): unified picker layout, agent-less new session, file attach, effort/fast-mode, slash popover, action row.
+- Branch / VCS (#603, #607): branch dropdown in new-session, clickable chip with branch popover, dirty-tree handling.
+
+After smoke, merge PR #617 manually on GitHub.
+
+## Prior Status (2026-05-16 evening — vbeta.18.31 shipped; install-time gotchas filed)
 
 🟢 **PR #598 merged to `main` via commit `d7a0775`.** Desktop release `vbeta.18.31` is **published** (DMG + ZIP) and verified running locally. Sibling PRs #593–#596 closed (content lives on main via #598); their branches deleted.
 

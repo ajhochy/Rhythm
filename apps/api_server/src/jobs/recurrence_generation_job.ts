@@ -1,4 +1,4 @@
-import cron from 'node-cron';
+import cron, { type ScheduledTask } from 'node-cron';
 import { RecurrenceService } from '../services/recurrence_service';
 import { RecurringTaskRulesRepository } from '../repositories/recurring_task_rules_repository';
 import { logger } from '../utils/logger';
@@ -51,16 +51,17 @@ async function runGeneration(): Promise<void> {
   }
 }
 
-export function startRecurrenceGenerationJob(): void {
+export function startRecurrenceGenerationJob(): ScheduledTask {
   // Run immediately on startup
   void runGeneration();
 
   // Schedule recurring runs
   const schedule = getCronSchedule();
-  cron.schedule(schedule, () => {
+  const task = cron.schedule(schedule, () => {
     logger.info('RecurrenceGenerationJob: running scheduled generation');
     void runGeneration();
   });
 
   logger.info(`RecurrenceGenerationJob: scheduled with cron "${schedule}", lookahead ${getLookaheadWeeks()} weeks`);
+  return task;
 }

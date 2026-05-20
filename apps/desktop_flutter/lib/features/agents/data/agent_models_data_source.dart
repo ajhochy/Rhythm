@@ -6,6 +6,7 @@ import '../../../app/core/auth/auth_session_store.dart';
 import '../../../app/core/constants/app_constants.dart';
 import '../../../app/core/utils/http_utils.dart';
 import '../models/agent_model_route.dart';
+import '../models/catalog_model_entry.dart';
 
 class AgentModelsDataSource {
   AgentModelsDataSource() : _baseUrl = AppConstants.agentLocalBaseUrl;
@@ -28,6 +29,24 @@ class AgentModelsDataSource {
           .map(
             (j) => AgentModelRoute.fromJson(j as Map<String, dynamic>),
           )
+          .toList();
+    } catch (_) {
+      return [];
+    }
+  }
+
+  /// Fetches the full cross-agent model catalog from GET /agents/models/catalog.
+  ///
+  /// Returns every (agent, provider, model) triple annotated with auth state.
+  /// Returns an empty list on any error so callers can degrade gracefully.
+  Future<List<CatalogModelEntry>> fetchCatalog() async {
+    try {
+      final uri = Uri.parse('$_baseUrl/agents/models/catalog');
+      final response = await http.get(uri, headers: AuthSessionStore.headers());
+      assertOk(response);
+      final list = jsonDecode(response.body) as List<dynamic>;
+      return list
+          .map((j) => CatalogModelEntry.fromJson(j as Map<String, dynamic>))
           .toList();
     } catch (_) {
       return [];

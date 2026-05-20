@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -18,11 +19,17 @@ import '../controllers/agents_controller.dart';
 import '../models/agent_session.dart';
 import '../models/agent_session_message.dart';
 import '../models/chat_models.dart';
+import '../../settings/services/destructive_modal_service.dart';
 import '_agent_settings_sheet.dart';
+import '_message_actions_row.dart';
+import '_permission_card.dart';
+import '_permission_mode_picker.dart';
 import '_project_vcs_chip.dart';
 import '_projects_rail.dart';
-import '_session_model_picker.dart';
+import '_slash_command_popover.dart';
+import '_question_tool_card.dart';
 import '_tool_call_part.dart';
+import '_unified_agent_model_picker.dart';
 
 class AgentsView extends StatefulWidget {
   const AgentsView({super.key});
@@ -278,6 +285,8 @@ class _SessionListPanelState extends State<_SessionListPanel> {
   /// Sessions selected via Shift-click for bulk actions.
   final Set<String> _multiSelected = {};
 
+  bool _archivedSectionExpanded = false;
+
   bool get _hasMultiSelection => _multiSelected.isNotEmpty;
 
   void _onRowTap(String id) {
@@ -489,6 +498,53 @@ class _SessionListPanelState extends State<_SessionListPanel> {
                                 const SizedBox(height: 8),
                               ],
                           ],
+                          // Archived section — collapsible, fetched on expand.
+                          GestureDetector(
+                            onTap: () async {
+                              setState(() => _archivedSectionExpanded =
+                                  !_archivedSectionExpanded);
+                              if (_archivedSectionExpanded) {
+                                await context
+                                    .read<AgentsController>()
+                                    .loadArchivedSessions();
+                              }
+                            },
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 6),
+                              child: Row(
+                                children: [
+                                  Icon(
+                                    _archivedSectionExpanded
+                                        ? Icons.expand_less
+                                        : Icons.expand_more,
+                                    size: 16,
+                                    color: context.rhythm.textMuted,
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    'Archived'
+                                    ' (${controller.archived.length})',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w700,
+                                      color: context.rhythm.textMuted,
+                                      letterSpacing: 0.6,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                          if (_archivedSectionExpanded)
+                            for (final session in controller.archived) ...[
+                              _ArchivedSessionRow(
+                                session: session,
+                                onUnarchive: () => context
+                                    .read<AgentsController>()
+                                    .unarchiveSession(session.id),
+                              ),
+                              const SizedBox(height: 8),
+                            ],
                         ],
                       ),
           ),
@@ -815,6 +871,125 @@ class _ResumableSessionRow extends StatelessWidget {
   }
 }
 
+/// Row for an archived session. Has "Restore" and "Delete permanently" actions.
+class _ArchivedSessionRow extends StatelessWidget {
+  const _ArchivedSessionRow({
+    required this.session,
+    required this.onUnarchive,
+  });
+
+  final AgentSession session;
+  final VoidCallback onUnarchive;
+
+  Future<void> _confirmDelete(BuildContext context) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Delete session permanently?'),
+        content: Text(
+          'This permanently removes "${session.name}" and all of its messages. '
+          'This cannot be undone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(ctx).colorScheme.error,
+            ),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    if (!context.mounted) return;
+    await context.read<AgentsController>().deleteSession(session.id);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(10),
+      decoration: BoxDecoration(
+        color: context.rhythm.surfaceMuted.withValues(alpha: 0.6),
+        borderRadius: BorderRadius.circular(RhythmRadius.lg),
+        border: Border.all(color: context.rhythm.borderSubtle),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            Icons.archive_outlined,
+            size: 14,
+            color: context.rhythm.textMuted,
+          ),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(
+              session.name,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                fontSize: 12.5,
+                fontWeight: FontWeight.w500,
+                color: context.rhythm.textMuted,
+              ),
+            ),
+          ),
+          TextButton(
+            onPressed: onUnarchive,
+            style: TextButton.styleFrom(
+              foregroundColor: context.rhythm.accent,
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              minimumSize: Size.zero,
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+            child: const Text('Restore', style: TextStyle(fontSize: 12)),
+          ),
+          PopupMenuButton<String>(
+            tooltip: 'More actions',
+            icon: Icon(
+              Icons.more_horiz,
+              size: 15,
+              color: context.rhythm.textMuted,
+            ),
+            padding: EdgeInsets.zero,
+            iconSize: 15,
+            splashRadius: 14,
+            itemBuilder: (_) => [
+              PopupMenuItem<String>(
+                value: 'delete',
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.delete_outline,
+                      size: 16,
+                      color: Theme.of(context).colorScheme.error,
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Delete permanently',
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.error,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+            onSelected: (v) {
+              if (v == 'delete') _confirmDelete(context);
+            },
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _AgentKindBadge extends StatelessWidget {
   const _AgentKindBadge({required this.agentId});
 
@@ -977,16 +1152,27 @@ class _TranscriptPanelState extends State<_TranscriptPanel> {
                     children: [
                       _TranscriptHeader(session: selected),
                       Divider(height: 1, color: context.rhythm.borderSubtle),
-                      Expanded(
-                        child: Container(
-                          color: context.rhythm.canvas.withValues(alpha: 0.45),
-                          child: _buildTranscriptBody(
-                            context,
-                            controller,
-                            selected,
+                      // #602: agent-less sessions show a centred "choose model" prompt
+                      // until the first message is sent.
+                      if (selected.agentId == '__pending__' &&
+                          controller.chatMessagesFor(selected.id).isEmpty &&
+                          controller.transcript.isEmpty)
+                        Expanded(
+                          child: _AgentLessSessionPrompt(session: selected),
+                        )
+                      else
+                        Expanded(
+                          child: Container(
+                            color:
+                                context.rhythm.canvas.withValues(alpha: 0.45),
+                            child: _buildTranscriptBody(
+                              context,
+                              controller,
+                              selected,
+                            ),
                           ),
                         ),
-                      ),
+                      _PendingPermissionArea(session: selected),
                       _InputArea(
                         inputController: _inputController,
                         onSend: () => _sendInput(context),
@@ -1024,18 +1210,37 @@ class _TranscriptPanelState extends State<_TranscriptPanel> {
 
     // Prefer the parts-based chat when the server emits the new events.
     if (hasChat) {
-      return ListView.builder(
-        controller: _scrollController,
-        padding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
-        itemCount: chatMessages.length,
-        itemBuilder: (context, index) {
-          final m = chatMessages[index];
-          final parts = controller.chatPartsFor(m.id);
-          return Padding(
-            padding: const EdgeInsets.only(bottom: 8),
-            child: _ChatBubble(message: m, parts: parts),
-          );
-        },
+      return MessageTimeTicker(
+        child: ListView.builder(
+          controller: _scrollController,
+          padding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
+          itemCount: chatMessages.length,
+          itemBuilder: (context, index) {
+            final m = chatMessages[index];
+            final parts = controller.chatPartsFor(m.id);
+            // Collect full text for copy action.
+            final copyText = parts.map((p) => p.text).join('').trim();
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  _ChatBubble(
+                    message: m,
+                    parts: parts,
+                    sessionId: session.id,
+                  ),
+                  MessageActionsRow(
+                    sessionId: session.id,
+                    messageId: m.id,
+                    createdAt: m.createdAt,
+                    text: copyText,
+                  ),
+                ],
+              ),
+            );
+          },
+        ),
       );
     }
 
@@ -1093,8 +1298,6 @@ class _TranscriptHeader extends StatelessWidget {
           ),
           const SizedBox(width: 8),
           _StatusChip(status: session.status, isWorking: isWorking),
-          const SizedBox(width: 8),
-          SessionModelPicker(session: session),
           const SizedBox(width: 8),
           if (showReconnect) ...[
             OutlinedButton(
@@ -1227,6 +1430,164 @@ class _StatusChip extends StatelessWidget {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Reasoning effort picker (#604)
+// ---------------------------------------------------------------------------
+
+/// Compact dropdown for selecting the per-session thinking budget.
+/// Maps user-facing effort labels to budget_tokens values.
+class _ThinkingBudgetPicker extends StatelessWidget {
+  const _ThinkingBudgetPicker({required this.session});
+
+  final AgentSession session;
+
+  static const _labels = ['Low', 'Med', 'High', 'X-High', 'Max'];
+  static const _budgets = [1024, 4096, 12288, 32768, 64000];
+
+  String get _currentLabel {
+    final b = session.thinkingBudget;
+    if (b == null) return 'Off';
+    final idx = _budgets.indexOf(b);
+    return idx >= 0 ? _labels[idx] : '${(b / 1024).round()}K';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = context.watch<AgentsController>();
+
+    return Tooltip(
+      message: 'Reasoning effort (thinking budget)',
+      child: Container(
+        height: 30,
+        padding: const EdgeInsets.symmetric(horizontal: 8),
+        decoration: BoxDecoration(
+          color: session.thinkingBudget != null
+              ? context.rhythm.accentMuted
+              : context.rhythm.surfaceMuted,
+          borderRadius: BorderRadius.circular(RhythmRadius.md),
+          border: Border.all(
+            color: session.thinkingBudget != null
+                ? context.rhythm.accent.withValues(alpha: 0.3)
+                : context.rhythm.border,
+          ),
+        ),
+        child: DropdownButtonHideUnderline(
+          child: DropdownButton<int?>(
+            value: session.thinkingBudget,
+            isDense: true,
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              color: session.thinkingBudget != null
+                  ? context.rhythm.accent
+                  : context.rhythm.textSecondary,
+            ),
+            dropdownColor: context.rhythm.surfaceRaised,
+            icon: Icon(
+              Icons.expand_more,
+              size: 14,
+              color: context.rhythm.textMuted,
+            ),
+            items: [
+              DropdownMenuItem<int?>(
+                value: null,
+                child: Text(
+                  'Off',
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: context.rhythm.textSecondary,
+                  ),
+                ),
+              ),
+              for (var i = 0; i < _labels.length; i++)
+                DropdownMenuItem<int?>(
+                  value: _budgets[i],
+                  child: Text(
+                    _labels[i],
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: context.rhythm.textPrimary,
+                    ),
+                  ),
+                ),
+            ],
+            onChanged: (v) => controller.setThinkingBudget(session.id, v),
+            hint: Text(
+              _currentLabel,
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                color: context.rhythm.textSecondary,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Compact toggle button for per-session fast mode.
+class _FastModeToggle extends StatelessWidget {
+  const _FastModeToggle({required this.session});
+
+  final AgentSession session;
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = context.watch<AgentsController>();
+    final active = session.fastMode;
+
+    return Tooltip(
+      message: active ? 'Fast mode on — tap to disable' : 'Enable fast mode',
+      child: InkWell(
+        onTap: () => controller.setFastMode(session.id, enabled: !active),
+        borderRadius: BorderRadius.circular(RhythmRadius.md),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 120),
+          height: 30,
+          padding: const EdgeInsets.symmetric(horizontal: 8),
+          decoration: BoxDecoration(
+            color: active
+                ? context.rhythm.accentMuted
+                : context.rhythm.surfaceMuted,
+            borderRadius: BorderRadius.circular(RhythmRadius.md),
+            border: Border.all(
+              color: active
+                  ? context.rhythm.accent.withValues(alpha: 0.3)
+                  : context.rhythm.border,
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.bolt,
+                size: 14,
+                color:
+                    active ? context.rhythm.accent : context.rhythm.textMuted,
+              ),
+              const SizedBox(width: 3),
+              Text(
+                'Fast',
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: active
+                      ? context.rhythm.accent
+                      : context.rhythm.textSecondary,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+
 class _EmptyTranscriptState extends StatelessWidget {
   const _EmptyTranscriptState();
 
@@ -1350,10 +1711,15 @@ class _MessageBlock extends StatelessWidget {
 /// left-aligned in a muted surface. Streaming deltas mutate part.text in
 /// place — the same bubble re-renders larger on each notifyListeners().
 class _ChatBubble extends StatelessWidget {
-  const _ChatBubble({required this.message, required this.parts});
+  const _ChatBubble({
+    required this.message,
+    required this.parts,
+    required this.sessionId,
+  });
 
   final ChatMessage message;
   final List<ChatPart> parts;
+  final String sessionId;
 
   @override
   Widget build(BuildContext context) {
@@ -1396,7 +1762,15 @@ class _ChatBubble extends StatelessWidget {
     for (final part in parts) {
       if (part.type == 'tool') {
         flushText();
-        children.add(ToolCallPart(part: part));
+        // Route `question` / AskUserQuestion tool calls to the interactive
+        // answer selector. All other tool calls use the generic card.
+        if (part.toolName?.toLowerCase() == 'question') {
+          children.add(
+            QuestionToolCard(part: part, sessionId: sessionId),
+          );
+        } else {
+          children.add(ToolCallPart(part: part));
+        }
       } else {
         textBuffer.write(part.text);
       }
@@ -1497,14 +1871,112 @@ class _LiveOutputBlock extends StatelessWidget {
   }
 }
 
-class _InputArea extends StatelessWidget {
+// ---------------------------------------------------------------------------
+// Pending permissions area (#608)
+// ---------------------------------------------------------------------------
+
+/// Renders inline [PermissionCard] widgets for each pending permission in the
+/// active session. When [DestructiveModalService.enabled] is true and the tool
+/// is destructive, the PermissionCard itself elevates to a modal dialog.
+class _PendingPermissionArea extends StatelessWidget {
+  const _PendingPermissionArea({required this.session});
+
+  final AgentSession session;
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = context.watch<AgentsController>();
+    // DestructiveModalService is watched here so the card can read it.
+    context.watch<DestructiveModalService>();
+    final pending = controller.pendingPermissionsFor(session.id);
+    if (pending.isEmpty) return const SizedBox.shrink();
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(18, 8, 18, 0),
+      decoration: BoxDecoration(
+        border: Border(top: BorderSide(color: context.rhythm.borderSubtle)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          for (final p in pending)
+            PermissionCard(
+              key: ValueKey('perm-${session.id}-${p.permissionId}'),
+              sessionId: session.id,
+              permissionId: p.permissionId,
+              title: 'Allow ${p.toolName}?',
+              toolName: p.toolName,
+              description: p.summary.isNotEmpty ? p.summary : null,
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+/// #602 — Redesigned input area.
+///
+/// Bottom-left cluster: model picker pill + permission mode pill + file-attach
+/// button + reasoning/fast-mode "Tuning" pill (collapsed using Wrap).
+/// Attached files are shown as chips above the text field.
+class _InputArea extends StatefulWidget {
   const _InputArea({required this.inputController, required this.onSend});
 
   final TextEditingController inputController;
   final VoidCallback onSend;
 
   @override
+  State<_InputArea> createState() => _InputAreaState();
+}
+
+class _InputAreaState extends State<_InputArea> {
+  /// Pending file attachments shown as chips above the text field.
+  final List<_AttachmentChip> _attachments = [];
+
+  Future<void> _pickFiles() async {
+    final result = await FilePicker.pickFiles(allowMultiple: true);
+    if (result == null) return;
+    setState(() {
+      for (final f in result.files) {
+        final path = f.path;
+        if (path != null) {
+          _attachments.add(_AttachmentChip(path: path, name: f.name));
+        }
+      }
+    });
+  }
+
+  void _removeAttachment(int index) {
+    setState(() => _attachments.removeAt(index));
+  }
+
+  void _send() {
+    if (_attachments.isNotEmpty) {
+      // Wire attachments into the WS parts array via AgentsController.
+      final controller = context.read<AgentsController>();
+      final id = controller.selectedSessionId;
+      if (id == null) return;
+      final text = widget.inputController.text;
+      if (text.isEmpty && _attachments.isEmpty) return;
+      controller.sendInput(
+        id,
+        '${text}\n',
+        attachments: _attachments
+            .map((a) => {'type': 'file', 'filePath': a.path})
+            .toList(),
+      );
+      widget.inputController.clear();
+      setState(() => _attachments.clear());
+    } else {
+      widget.onSend();
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final controller = context.watch<AgentsController>();
+    final session = controller.selectedSession;
+
     return Container(
       padding: const EdgeInsets.fromLTRB(18, 14, 18, 18),
       decoration: BoxDecoration(
@@ -1514,101 +1986,291 @@ class _InputArea extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Row(
-            children: [
-              Text(
-                'Send input',
+          // Attachment chips
+          if (_attachments.isNotEmpty) ...[
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: [
+                for (var i = 0; i < _attachments.length; i++)
+                  _AttachmentChipWidget(
+                    chip: _attachments[i],
+                    onRemove: () => _removeAttachment(i),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 8),
+          ],
+          // Text field
+          SlashCommandPopover(
+            inputController: widget.inputController,
+            commands: controller.slashCommands,
+            onCommandSelected: (cmd) {
+              widget.inputController.value = TextEditingValue(
+                text: cmd,
+                selection: TextSelection.collapsed(offset: cmd.length),
+              );
+            },
+            child: Focus(
+              onKeyEvent: (node, event) {
+                if (event is KeyDownEvent &&
+                    event.logicalKey == LogicalKeyboardKey.enter &&
+                    !HardwareKeyboard.instance.isShiftPressed) {
+                  _send();
+                  return KeyEventResult.handled;
+                }
+                return KeyEventResult.ignored;
+              },
+              child: TextField(
+                controller: widget.inputController,
                 style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w700,
+                  fontSize: 13,
+                  fontFamily: 'Menlo',
                   color: context.rhythm.textPrimary,
                 ),
+                maxLines: 3,
+                minLines: 1,
+                onSubmitted: (_) => _send(),
+                decoration: InputDecoration(
+                  hintText:
+                      'Type a command or reply… (Shift+Enter for newline)',
+                  hintStyle: TextStyle(
+                    color: context.rhythm.textMuted,
+                    fontSize: 13,
+                    fontFamily: 'Menlo',
+                  ),
+                  isDense: true,
+                  filled: true,
+                  fillColor: context.rhythm.canvas.withValues(alpha: 0.6),
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 12,
+                  ),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(RhythmRadius.lg),
+                    borderSide: BorderSide(color: context.rhythm.border),
+                  ),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(RhythmRadius.lg),
+                    borderSide: BorderSide(color: context.rhythm.border),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(RhythmRadius.lg),
+                    borderSide: BorderSide(color: context.rhythm.accent),
+                  ),
+                ),
               ),
-              const Spacer(),
-              Text(
-                'Enter to send',
-                style: TextStyle(fontSize: 11, color: context.rhythm.textMuted),
+            ),
+          ),
+          const SizedBox(height: 10),
+          // Bottom row: left cluster (pickers) + right (Send)
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              // Left cluster: model picker + permission mode + file-attach +
+              // reasoning/fast-mode (Wrap so narrow windows don't overflow)
+              Expanded(
+                child: Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    if (session != null)
+                      UnifiedAgentModelPicker(session: session),
+                    if (session != null) PermissionModePicker(session: session),
+                    if (session != null) ...[
+                      _ThinkingBudgetPicker(session: session),
+                      _FastModeToggle(session: session),
+                    ],
+                    // File-attach button
+                    Tooltip(
+                      message: 'Attach files',
+                      child: InkWell(
+                        onTap: _pickFiles,
+                        borderRadius: BorderRadius.circular(RhythmRadius.md),
+                        child: Container(
+                          height: 30,
+                          padding: const EdgeInsets.symmetric(horizontal: 8),
+                          decoration: BoxDecoration(
+                            color: context.rhythm.surfaceMuted,
+                            borderRadius:
+                                BorderRadius.circular(RhythmRadius.md),
+                            border: Border.all(color: context.rhythm.border),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.attach_file,
+                                size: 14,
+                                color: context.rhythm.textSecondary,
+                              ),
+                              if (_attachments.isNotEmpty) ...[
+                                const SizedBox(width: 3),
+                                Text(
+                                  '${_attachments.length}',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w600,
+                                    color: context.rhythm.accent,
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 10),
+              // Send button
+              FilledButton(
+                onPressed: _send,
+                style: FilledButton.styleFrom(
+                  backgroundColor: context.rhythm.accent,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 22,
+                    vertical: 12,
+                  ),
+                  minimumSize: const Size(88, 40),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                ),
+                child: const Text(
+                  'Send',
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: Colors.white,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
               ),
             ],
           ),
-          const SizedBox(height: 10),
-          Focus(
-            onKeyEvent: (node, event) {
-              // Enter sends; Shift+Enter inserts a newline.
-              if (event is KeyDownEvent &&
-                  event.logicalKey == LogicalKeyboardKey.enter &&
-                  !HardwareKeyboard.instance.isShiftPressed) {
-                onSend();
-                return KeyEventResult.handled;
-              }
-              return KeyEventResult.ignored;
-            },
-            child: TextField(
-              controller: inputController,
+        ],
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Attachment chip data + widget
+// ---------------------------------------------------------------------------
+
+class _AttachmentChip {
+  const _AttachmentChip({required this.path, required this.name});
+  final String path;
+  final String name;
+}
+
+class _AttachmentChipWidget extends StatelessWidget {
+  const _AttachmentChipWidget({required this.chip, required this.onRemove});
+
+  final _AttachmentChip chip;
+  final VoidCallback onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: context.rhythm.accentMuted,
+        borderRadius: BorderRadius.circular(RhythmRadius.pill),
+        border: Border.all(
+          color: context.rhythm.accent.withValues(alpha: 0.3),
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.attach_file, size: 11, color: context.rhythm.accent),
+          const SizedBox(width: 4),
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 180),
+            child: Text(
+              chip.name,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
               style: TextStyle(
-                fontSize: 13,
-                fontFamily: 'Menlo',
-                color: context.rhythm.textPrimary,
-              ),
-              maxLines: 3,
-              minLines: 1,
-              onSubmitted: (_) => onSend(),
-              decoration: InputDecoration(
-                hintText: 'Type a command or reply… (Shift+Enter for newline)',
-                hintStyle: TextStyle(
-                  color: context.rhythm.textMuted,
-                  fontSize: 13,
-                  fontFamily: 'Menlo',
-                ),
-                isDense: true,
-                filled: true,
-                fillColor: context.rhythm.canvas.withValues(alpha: 0.6),
-                contentPadding: const EdgeInsets.symmetric(
-                  horizontal: 14,
-                  vertical: 12,
-                ),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(RhythmRadius.lg),
-                  borderSide: BorderSide(color: context.rhythm.border),
-                ),
-                enabledBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(RhythmRadius.lg),
-                  borderSide: BorderSide(color: context.rhythm.border),
-                ),
-                focusedBorder: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(RhythmRadius.lg),
-                  borderSide: BorderSide(color: context.rhythm.accent),
-                ),
+                fontSize: 11,
+                color: context.rhythm.accent,
+                fontWeight: FontWeight.w500,
               ),
             ),
           ),
-          const SizedBox(height: 12),
-          Align(
-            alignment: Alignment.centerRight,
-            child: FilledButton(
-              onPressed: onSend,
-              style: FilledButton.styleFrom(
-                backgroundColor: context.rhythm.accent,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 22,
-                  vertical: 12,
-                ),
-                minimumSize: const Size(88, 40),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(999),
-                ),
-              ),
-              child: const Text(
-                'Send',
-                style: TextStyle(
-                  fontSize: 13,
-                  color: Colors.white,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
+          const SizedBox(width: 4),
+          GestureDetector(
+            onTap: onRemove,
+            child: Icon(
+              Icons.close,
+              size: 12,
+              color: context.rhythm.accent.withValues(alpha: 0.7),
             ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// #602 — Agent-less session prompt ("Choose a model to begin")
+// ---------------------------------------------------------------------------
+
+/// Shown in the transcript area when a session has agentId == '__pending__'
+/// and no messages have been sent yet.
+class _AgentLessSessionPrompt extends StatelessWidget {
+  const _AgentLessSessionPrompt({required this.session});
+
+  final AgentSession session;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Container(
+        width: 380,
+        padding: const EdgeInsets.all(32),
+        decoration: BoxDecoration(
+          color: context.rhythm.surfaceRaised,
+          borderRadius: BorderRadius.circular(RhythmRadius.xl),
+          border: Border.all(color: context.rhythm.border),
+          boxShadow: RhythmElevation.panel,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.model_training_outlined,
+              size: 40,
+              color: context.rhythm.textMuted,
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'Choose a model to begin',
+              style: TextStyle(
+                fontSize: 17,
+                fontWeight: FontWeight.w700,
+                color: context.rhythm.textPrimary,
+              ),
+            ),
+            const SizedBox(height: 10),
+            Text(
+              'Select a model from the picker in the composer below, '
+              'then type your first message.',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontSize: 13,
+                color: context.rhythm.textSecondary,
+                height: 1.45,
+              ),
+            ),
+            const SizedBox(height: 20),
+            UnifiedAgentModelPicker(session: session),
+          ],
+        ),
       ),
     );
   }
@@ -1751,11 +2413,19 @@ class _NewSessionDialog extends StatefulWidget {
 class _NewSessionDialogState extends State<_NewSessionDialog> {
   final _nameController = TextEditingController();
   final _cwdController = TextEditingController();
-  String _agentId = '';
   Task? _selectedTask;
   bool _isSubmitting = false;
   String? _error;
   int? _errorStatus;
+
+  // Branch selection state (only shown when selected project has a vcsRoot).
+  String? _selectedBranch; // null = keep current branch
+  List<String> _localBranches = [];
+  List<String> _recentBranches = [];
+  String? _currentBranch;
+  bool _loadingBranches = false;
+  bool _newBranchMode = false;
+  final _newBranchController = TextEditingController();
 
   @override
   void initState() {
@@ -1771,39 +2441,48 @@ class _NewSessionDialogState extends State<_NewSessionDialog> {
       _cwdController.text = Platform.environment['HOME'] ?? '~';
     }
 
-    // Compute the default agent: first enabled config whose CLI is installed,
-    // falling back to the first enabled config if none are installed.
+    // #602: no default agent to compute — model is chosen in the composer.
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       if (!mounted) return;
-      final agentConfigs = context.read<AgentConfigsController>();
-      final agentServerController = context.read<AgentServerController>();
-      // Refresh capabilities on dialog open — the initial fetch happens
-      // before the Opencode SDK finishes booting, so `opencode` is often
-      // stale-false until we re-poll.
-      await agentServerController.refreshCapabilities();
-      if (!mounted) return;
-      final enabledAgents = agentConfigs.enabledAgents;
-      if (enabledAgents.isNotEmpty && _agentId.isEmpty) {
-        final firstInstalled = enabledAgents.firstWhere(
-          (c) => agentServerController.isAgentAvailable(c.id),
-          orElse: () => enabledAgents.first,
-        );
-        setState(() => _agentId = firstInstalled.id);
-      }
-
       // Load tasks if not already loaded.
       final tasksController = context.read<TasksController>();
       if (tasksController.tasks.isEmpty &&
           tasksController.status != TasksStatus.loading) {
         tasksController.load();
       }
+
+      // Load branches for the selected project if it has a vcsRoot.
+      final project = context.read<AgentProjectsController>().selectedProject;
+      if (project != null && project.vcsRoot != null) {
+        await _loadBranches(project.id);
+      }
     });
+  }
+
+  Future<void> _loadBranches(String projectId) async {
+    if (!mounted) return;
+    setState(() => _loadingBranches = true);
+    try {
+      final branches =
+          await context.read<AgentProjectsController>().listBranches(projectId);
+      if (!mounted) return;
+      setState(() {
+        _currentBranch = branches.current;
+        _localBranches = branches.local;
+        _recentBranches = branches.recent;
+        _selectedBranch ??= branches.current; // default to current
+        _loadingBranches = false;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _loadingBranches = false);
+    }
   }
 
   @override
   void dispose() {
     _nameController.dispose();
     _cwdController.dispose();
+    _newBranchController.dispose();
     super.dispose();
   }
 
@@ -1812,6 +2491,45 @@ class _NewSessionDialogState extends State<_NewSessionDialog> {
 
   Future<void> _submit() async {
     if (!_canSubmit) return;
+
+    // Resolve the target branch.
+    final targetBranch =
+        _newBranchMode ? _newBranchController.text.trim() : _selectedBranch;
+    final createBranch =
+        _newBranchMode && targetBranch != null && targetBranch.isNotEmpty;
+
+    // If switching to a different branch on a dirty tree, ask what to do.
+    final project = context.read<AgentProjectsController>().selectedProject;
+    final isDirty = project?.vcsDirty ?? false;
+    final isSwitchingBranch =
+        targetBranch != null && targetBranch != _currentBranch;
+
+    String? stashMode;
+    if (isSwitchingBranch && isDirty && !createBranch) {
+      final choice = await showDialog<String>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Working tree has uncommitted changes'),
+          content: const Text(
+            'The working directory has unsaved changes. '
+            'What should happen to them before switching branches?',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(null),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop('stash'),
+              child: const Text('Stash'),
+            ),
+          ],
+        ),
+      );
+      if (choice == null) return; // user cancelled
+      stashMode = choice;
+    }
+
     setState(() {
       _isSubmitting = true;
       _error = null;
@@ -1819,13 +2537,17 @@ class _NewSessionDialogState extends State<_NewSessionDialog> {
     });
 
     final controller = context.read<AgentsController>();
+    // #602: always create agent-less sessions; model is chosen in the composer.
     final session = await controller.createSession(
-      agentId: _agentId,
+      agentId: null,
       taskId: _selectedTask?.id,
       cwd: _cwdController.text.trim().isEmpty
           ? (Platform.environment['HOME'] ?? '/')
           : _cwdController.text.trim(),
       name: _nameController.text.trim(),
+      branch: isSwitchingBranch || createBranch ? targetBranch : null,
+      stash: stashMode,
+      createBranch: createBranch,
     );
 
     if (!mounted) return;
@@ -1846,23 +2568,13 @@ class _NewSessionDialogState extends State<_NewSessionDialog> {
   @override
   Widget build(BuildContext context) {
     final tasksController = context.watch<TasksController>();
-    final agentServerController = context.watch<AgentServerController>();
-    final agentConfigs = context.watch<AgentConfigsController>();
-    final enabledAgents = agentConfigs.enabledAgents;
+    // agentServerController and agentConfigs still watched so the view
+    // rebuilds on capability changes (branch loading etc.).
+    context.watch<AgentServerController>();
+    context.watch<AgentConfigsController>();
     final tasks = tasksController.tasks
         .where((t) => t.status != TaskStatus.done)
         .toList();
-
-    // If the currently selected agent is not in the enabled list, pick a
-    // better default: first installed, otherwise first enabled.
-    if (enabledAgents.isNotEmpty &&
-        !enabledAgents.any((c) => c.id == _agentId)) {
-      final firstInstalled = enabledAgents.firstWhere(
-        (c) => agentServerController.isAgentAvailable(c.id),
-        orElse: () => enabledAgents.first,
-      );
-      _agentId = firstInstalled.id;
-    }
 
     return AlertDialog(
       backgroundColor: context.rhythm.surfaceRaised,
@@ -1909,46 +2621,7 @@ class _NewSessionDialogState extends State<_NewSessionDialog> {
             ),
             const SizedBox(height: 14),
 
-            // Agent kind — render one toggle per enabled config.
-            if (enabledAgents.isNotEmpty) ...[
-              Text(
-                'Agent',
-                style: TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  color: context.rhythm.textSecondary,
-                ),
-              ),
-              const SizedBox(height: 6),
-              Container(
-                decoration: BoxDecoration(
-                  color: context.rhythm.surfaceMuted,
-                  borderRadius: BorderRadius.circular(RhythmRadius.md),
-                  border: Border.all(color: context.rhythm.borderSubtle),
-                ),
-                child: Row(
-                  children: [
-                    for (final config in enabledAgents)
-                      Expanded(
-                        child: _AgentToggleButton(
-                          label: config.label,
-                          selected: _agentId == config.id,
-                          color: _colorForAgent(config.id),
-                          enabled: agentServerController.isAgentAvailable(
-                            config.id,
-                          ),
-                          disabledLabel: '(not installed)',
-                          onTap:
-                              agentServerController.isAgentAvailable(config.id)
-                                  ? () => setState(() => _agentId = config.id)
-                                  : null,
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 14),
-            ],
+            // #602: agent selector removed — model is chosen in the composer after session starts.
 
             // Task selector (optional)
             Text(
@@ -1987,9 +2660,6 @@ class _NewSessionDialogState extends State<_NewSessionDialog> {
               ],
               onChanged: (task) => setState(() {
                 _selectedTask = task;
-                if (task != null && task.preferredAgent != null) {
-                  _agentId = task.preferredAgent!;
-                }
               }),
             ),
             const SizedBox(height: 14),
@@ -2013,6 +2683,154 @@ class _NewSessionDialogState extends State<_NewSessionDialog> {
               ),
               decoration: _inputDecoration(context, hint: '~/'),
             ),
+
+            // Branch selector — only shown when the selected project has a
+            // vcsRoot and branches have been (or are being) loaded.
+            if (context
+                    .read<AgentProjectsController>()
+                    .selectedProject
+                    ?.vcsRoot !=
+                null) ...[
+              const SizedBox(height: 14),
+              Text(
+                'Branch',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: context.rhythm.textSecondary,
+                ),
+              ),
+              const SizedBox(height: 6),
+              if (_loadingBranches)
+                Row(
+                  children: [
+                    SizedBox(
+                      width: 14,
+                      height: 14,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: context.rhythm.accent,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      'Loading branches…',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: context.rhythm.textMuted,
+                      ),
+                    ),
+                  ],
+                )
+              else if (_newBranchMode)
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextField(
+                        controller: _newBranchController,
+                        autofocus: true,
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontFamily: 'Menlo',
+                          color: context.rhythm.textPrimary,
+                        ),
+                        decoration: _inputDecoration(
+                          context,
+                          hint: 'new-branch-name',
+                        ),
+                        onChanged: (_) => setState(() {}),
+                        onSubmitted: (_) => _submit(),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    TextButton(
+                      onPressed: () => setState(() {
+                        _newBranchMode = false;
+                        _newBranchController.clear();
+                      }),
+                      child: const Text('Cancel'),
+                    ),
+                  ],
+                )
+              else
+                DropdownButtonFormField<String>(
+                  value: _selectedBranch,
+                  isExpanded: true,
+                  dropdownColor: context.rhythm.surfaceRaised,
+                  decoration: _inputDecoration(context, hint: 'Current branch'),
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontFamily: 'Menlo',
+                    color: context.rhythm.textPrimary,
+                  ),
+                  items: [
+                    // Current branch first (acts as the "keep" option).
+                    if (_currentBranch != null)
+                      DropdownMenuItem<String>(
+                        value: _currentBranch,
+                        child: Row(
+                          children: [
+                            Icon(
+                              Icons.check,
+                              size: 14,
+                              color: context.rhythm.accent,
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              _currentBranch!,
+                              style: TextStyle(
+                                fontWeight: FontWeight.w700,
+                                color: context.rhythm.textPrimary,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    // Recent branches (de-duplicated against current).
+                    for (final b in _recentBranches)
+                      if (b != _currentBranch)
+                        DropdownMenuItem<String>(
+                          value: b,
+                          child: Text(b),
+                        ),
+                    // Remaining local branches not already shown.
+                    for (final b in _localBranches)
+                      if (b != _currentBranch && !_recentBranches.contains(b))
+                        DropdownMenuItem<String>(
+                          value: b,
+                          child: Text(b),
+                        ),
+                    // Sentinel for "create new branch".
+                    DropdownMenuItem<String>(
+                      value: '__new__',
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.add,
+                            size: 14,
+                            color: context.rhythm.accent,
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            'New branch from current',
+                            style: TextStyle(color: context.rhythm.accent),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                  onChanged: (val) {
+                    if (val == '__new__') {
+                      setState(() {
+                        _newBranchMode = true;
+                        _selectedBranch = _currentBranch;
+                      });
+                    } else {
+                      setState(() => _selectedBranch = val);
+                    }
+                  },
+                ),
+            ],
 
             if (_error != null) ...[
               const SizedBox(height: 12),
@@ -2090,12 +2908,6 @@ class _NewSessionDialogState extends State<_NewSessionDialog> {
       ],
     );
   }
-
-  Color _colorForAgent(String id) => switch (id) {
-        'claude-code' => const Color(0xFF6B46C1),
-        'codex' => const Color(0xFF059669),
-        _ => context.rhythm.accent,
-      };
 
   InputDecoration _inputDecoration(
     BuildContext context, {
@@ -2233,67 +3045,6 @@ class _AgentServerStatusDot extends StatelessWidget {
   }
 }
 
-class _AgentToggleButton extends StatelessWidget {
-  const _AgentToggleButton({
-    required this.label,
-    required this.selected,
-    required this.color,
-    required this.onTap,
-    this.enabled = true,
-    this.disabledLabel,
-  });
-
-  final String label;
-  final bool selected;
-  final Color color;
-  final VoidCallback? onTap;
-  final bool enabled;
-  final String? disabledLabel;
-
-  @override
-  Widget build(BuildContext context) {
-    final effectiveColor = enabled ? color : context.rhythm.textMuted;
-    final Widget content = AnimatedContainer(
-      duration: const Duration(milliseconds: 140),
-      padding: const EdgeInsets.symmetric(vertical: 8),
-      decoration: BoxDecoration(
-        color: selected && enabled ? color : Colors.transparent,
-        borderRadius: BorderRadius.circular(RhythmRadius.md),
-      ),
-      alignment: Alignment.center,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
-              color: selected && enabled
-                  ? Colors.white
-                  : enabled
-                      ? context.rhythm.textSecondary
-                      : context.rhythm.textMuted,
-            ),
-          ),
-          if (!enabled && disabledLabel != null) ...[
-            const SizedBox(height: 2),
-            Text(
-              disabledLabel!,
-              style: TextStyle(fontSize: 10, color: effectiveColor),
-            ),
-          ],
-        ],
-      ),
-    );
-
-    return IgnorePointer(
-      ignoring: !enabled,
-      child: GestureDetector(onTap: onTap, child: content),
-    );
-  }
-}
-
 /// Three-dot trailing menu on each session row. For now the only action is
 /// hard-delete (#598 follow-up); archive lives in #601.
 class _SessionRowMenu extends StatelessWidget {
@@ -2344,6 +3095,20 @@ class _SessionRowMenu extends StatelessWidget {
       splashRadius: 16,
       itemBuilder: (_) => [
         PopupMenuItem<String>(
+          value: 'archive',
+          child: Row(
+            children: [
+              Icon(
+                Icons.archive_outlined,
+                size: 16,
+                color: context.rhythm.textSecondary,
+              ),
+              const SizedBox(width: 8),
+              const Text('Archive'),
+            ],
+          ),
+        ),
+        PopupMenuItem<String>(
           value: 'delete',
           child: Row(
             children: [
@@ -2353,13 +3118,22 @@ class _SessionRowMenu extends StatelessWidget {
                 color: Theme.of(context).colorScheme.error,
               ),
               const SizedBox(width: 8),
-              const Text('Delete session'),
+              Text(
+                'Delete session',
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.error,
+                ),
+              ),
             ],
           ),
         ),
       ],
       onSelected: (v) {
-        if (v == 'delete') _confirmDelete(context);
+        if (v == 'archive') {
+          context.read<AgentsController>().archiveSession(session.id);
+        } else if (v == 'delete') {
+          _confirmDelete(context);
+        }
       },
     );
   }

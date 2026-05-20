@@ -27,6 +27,9 @@ import { agentsCapabilitiesRouter } from './routes/agents_capabilities_routes';
 import { agentsModelsRouter } from './routes/agents_models_routes';
 import { notificationsAgentRouter } from './routes/notifications_agent_routes';
 import { opencodeAuthRouter } from './routes/opencode_auth_routes';
+import { agentModelVisibilityRouter } from './routes/agent_model_visibility_routes';
+import { opencodeModelsRouter } from './routes/opencode_models_routes';
+import { syncRouter } from './routes/sync_routes';
 import { opencodeClient } from './services/opencode_engine';
 
 export function createApp() {
@@ -49,7 +52,11 @@ export function createApp() {
       },
     }),
   );
-  app.use(express.json());
+  // Allow larger bodies for OAuth token exchange and session creation.
+  // The OpenAI OAuth access token alone can exceed 4 KB; the default 100 KB
+  // limit is sufficient for normal requests but we raise it to 1 MB as a
+  // safety margin.
+  app.use(express.json({ limit: '1mb' }));
 
   app.use('/health', healthRouter);
   // NOTE: /agents/capabilities is unauthenticated for now; Phase 3.1 will add the AGENT_LOCAL bypass.
@@ -75,9 +82,14 @@ export function createApp() {
   app.use('/agent-configs', agentConfigsRouter);
   app.use('/agent-sessions', agentSessionsRouter);
   app.use('/projects', projectsRouter);
+  app.use('/sync', syncRouter);
 
   // Opencode engine auth & health
   app.use('/opencode/auth', opencodeAuthRouter);
+  // Issue #609 — OpenRouter / opencode model catalog browse (server-side proxy)
+  app.use('/opencode/models', opencodeModelsRouter);
+  // Issue #609 — agent model visibility CRUD
+  app.use('/agent-models/visibility', agentModelVisibilityRouter);
 
   // M5-2: custom provider definitions placeholder. Returns 501 until the
   // SDK config writer is wired through `opencode_plugin_config.ts`.

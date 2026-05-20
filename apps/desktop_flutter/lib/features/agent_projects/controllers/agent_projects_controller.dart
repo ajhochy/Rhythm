@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 
 import '../models/agent_project.dart';
+import '../models/project_branches.dart';
 import '../repositories/agent_projects_repository.dart';
 
 enum AgentProjectsLoadStatus { idle, loading, error }
@@ -102,6 +103,26 @@ class AgentProjectsController extends ChangeNotifier {
 
   Future<AgentProject> refreshVcs(String id) async {
     final updated = await _repository.refreshVcs(id);
+    _replaceById(updated);
+    notifyListeners();
+    return updated;
+  }
+
+  Future<ProjectBranches> listBranches(String id) =>
+      _repository.listBranches(id);
+
+  Future<AgentProject> checkoutBranch(
+    String id, {
+    required String branch,
+    String stash = 'none',
+    bool createBranch = false,
+  }) async {
+    final updated = await _repository.checkout(
+      id,
+      branch: branch,
+      stash: stash,
+      createBranch: createBranch,
+    );
     _replaceById(updated);
     notifyListeners();
     return updated;

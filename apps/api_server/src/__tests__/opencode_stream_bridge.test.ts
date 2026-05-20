@@ -4,6 +4,8 @@ import { runMigrations } from '../database/migrations';
 import { setDb } from '../database/db';
 import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
 
+const respondPermissionSpy = vi.fn().mockResolvedValue(true);
+
 const { broadcastSpy, sessionMap } = vi.hoisted(() => ({
   broadcastSpy: vi.fn(),
   sessionMap: new Map<string, string>(),
@@ -11,11 +13,13 @@ const { broadcastSpy, sessionMap } = vi.hoisted(() => ({
 
 vi.mock('../services/ws_gateway', () => ({
   broadcast: (msg: unknown) => broadcastSpy(msg),
+  broadcastSessionUpdated: vi.fn(),
 }));
 
 vi.mock('../services/opencode_engine', () => ({
   opencodeClient: {
     subscribeToEvents: vi.fn().mockResolvedValue(null),
+    respondPermission: (...args: unknown[]) => respondPermissionSpy(...args),
   },
   opencodeSessionMap: sessionMap,
 }));
@@ -147,5 +151,135 @@ describe('OpencodeStreamBridge — transcript.append emission', () => {
       .map((c) => c[0] as Record<string, unknown>)
       .find((m) => m.type === 'transcript.append');
     expect(transcriptAppend).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Permission mode auto-accept / auto-deny logic (#608 + #611)
+// ---------------------------------------------------------------------------
+
+describe('OpencodeStreamBridge — permission mode auto-resolution', () => {
+  let bridge: OpencodeStreamBridge;
+  const SDK_ID = 'sdk-perm-1';
+  let localId: string;
+
+  function makePermEvent(opts: {
+    permissionID: string;
+    toolName: string;
+  }): Record<string, unknown> {
+    return {
+      type: 'permission.asked',
+      properties: {
+        sessionID: SDK_ID,
+        permissionID: opts.permissionID,
+        toolName: opts.toolName,
+        args: { path: '/tmp/file.ts' },
+        summary: `Allow ${opts.toolName}?`,
+      },
+    };
+  }
+
+  function relay(event: Record<string, unknown>): void {
+    (bridge as unknown as {
+      _relayEvent: (e: unknown) => void;
+    })._relayEvent(event);
+  }
+
+  beforeEach(() => {
+    const db = new Database(':memory:');
+    db.pragma('foreign_keys = ON');
+    runMigrations(db);
+    setDb(db);
+    sessionMap.clear();
+    broadcastSpy.mockClear();
+    respondPermissionSpy.mockClear();
+    bridge = new OpencodeStreamBridge();
+
+    const repo = new AgentSessionsRepository();
+    repo.insert({
+      agentKind: 'claude-code',
+      taskId: null,
+      taskTitle: null,
+      cwd: '/tmp',
+      name: 'perm-test',
+    });
+    localId = repo.listActive()[0].id;
+    sessionMap.set(localId, SDK_ID);
+  });
+
+  it('default mode: broadcasts permission.asked without auto-resolving', () => {
+    relay(makePermEvent({ permissionID: 'perm-1', toolName: 'bash' }));
+
+    const asked = broadcastSpy.mock.calls
+      .map((c) => c[0] as Record<string, unknown>)
+      .find((m) => m.type === 'permission.asked');
+    expect(asked).toBeDefined();
+    expect(asked?.permissionId).toBe('perm-1');
+    expect(asked?.toolName).toBe('bash');
+    expect(respondPermissionSpy).not.toHaveBeenCalled();
+
+    // Pending entry should be registered.
+    expect(bridge.getPendingPermission(localId, 'perm-1')).toBeDefined();
+  });
+
+  it('acceptEdits mode: auto-accepts edit tools', async () => {
+    const repo = new AgentSessionsRepository();
+    repo.updatePermissionMode(localId, 'acceptEdits');
+
+    relay(makePermEvent({ permissionID: 'perm-2', toolName: 'edit' }));
+
+    // Give the async respondPermission call a tick to run.
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(respondPermissionSpy).toHaveBeenCalledWith(SDK_ID, 'perm-2', 'accept');
+    const resolved = broadcastSpy.mock.calls
+      .map((c) => c[0] as Record<string, unknown>)
+      .find((m) => m.type === 'permission.resolved');
+    expect(resolved?.decision).toBe('accept');
+  });
+
+  it('acceptEdits mode: does NOT auto-accept non-edit tools', async () => {
+    const repo = new AgentSessionsRepository();
+    repo.updatePermissionMode(localId, 'acceptEdits');
+
+    relay(makePermEvent({ permissionID: 'perm-3', toolName: 'bash' }));
+
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(respondPermissionSpy).not.toHaveBeenCalled();
+    const asked = broadcastSpy.mock.calls
+      .map((c) => c[0] as Record<string, unknown>)
+      .find((m) => m.type === 'permission.asked');
+    expect(asked).toBeDefined();
+  });
+
+  it('plan mode: auto-denies all tools', async () => {
+    const repo = new AgentSessionsRepository();
+    repo.updatePermissionMode(localId, 'plan');
+
+    relay(makePermEvent({ permissionID: 'perm-4', toolName: 'bash' }));
+
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(respondPermissionSpy).toHaveBeenCalledWith(SDK_ID, 'perm-4', 'deny');
+    const resolved = broadcastSpy.mock.calls
+      .map((c) => c[0] as Record<string, unknown>)
+      .find((m) => m.type === 'permission.resolved');
+    expect(resolved?.decision).toBe('deny');
+  });
+
+  it('bypassPermissions mode: auto-accepts all tools', async () => {
+    const repo = new AgentSessionsRepository();
+    repo.updatePermissionMode(localId, 'bypassPermissions');
+
+    relay(makePermEvent({ permissionID: 'perm-5', toolName: 'bash' }));
+
+    await new Promise((r) => setTimeout(r, 10));
+
+    expect(respondPermissionSpy).toHaveBeenCalledWith(SDK_ID, 'perm-5', 'accept');
+    const resolved = broadcastSpy.mock.calls
+      .map((c) => c[0] as Record<string, unknown>)
+      .find((m) => m.type === 'permission.resolved');
+    expect(resolved?.decision).toBe('accept');
   });
 });

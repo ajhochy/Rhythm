@@ -66,6 +66,32 @@ describe('OpencodeClientService — SDK response unwrap (.data)', () => {
     expect(await svc.listModels('unknown')).toEqual([]);
   });
 
+  it('listModels unwraps object maps from newer SDK provider catalogs', async () => {
+    const svc = makeService({
+      config: {
+        providers: vi.fn().mockResolvedValue({
+          data: {
+            providers: [
+              {
+                id: 'openai',
+                models: {
+                  'gpt-5.4-mini': { id: 'gpt-5.4-mini', name: 'GPT-5.4 Mini' },
+                  'gpt-5.4': { name: 'GPT-5.4' },
+                },
+              },
+            ],
+          },
+          request: {},
+          response: {},
+        }),
+      },
+    });
+    expect(await svc.listModels('openai')).toEqual([
+      { id: 'gpt-5.4-mini', name: 'GPT-5.4 Mini' },
+      { id: 'gpt-5.4', name: 'GPT-5.4' },
+    ]);
+  });
+
   it('setAuth returns true only when res.data === true', async () => {
     const ok = makeService({
       auth: { set: vi.fn().mockResolvedValue({ data: true, request: {}, response: {} }) },

@@ -5,9 +5,13 @@ import { AgentSessionsRepository } from '../repositories/agent_sessions_reposito
 import { AgentSessionMessagesRepository } from '../repositories/agent_session_messages_repository';
 import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
 import { ProjectsRepository } from '../repositories/projects_repository';
-import type { AgentKind, CreateAgentSessionDto } from '../models/agent_session';
+import { TasksRepository } from '../repositories/tasks_repository';
+import type { AgentKind, CreateAgentSessionDto, PermissionMode } from '../models/agent_session';
+import { PERMISSION_MODES } from '../models/agent_session';
 import { opencodeClient, opencodeSessionMap } from '../services/opencode_engine';
 import { streamBridge } from '../services/opencode_stream_bridge';
+import { broadcastSessionUpdated, broadcastSessionRemoved } from '../services/ws_gateway';
+import { logger } from '../utils/logger';
 
 // Legacy agentId aliases. Older Rhythm clients (and a handful of historical
 // scripts) used short names. /agents/capabilities and the seed both use
@@ -27,6 +31,7 @@ const repo = new AgentSessionsRepository();
 const messagesRepo = new AgentSessionMessagesRepository();
 
 import { resolveModelForAgent as resolveModel } from '../services/agent_model_resolver';
+import { gitCheckout, probeVcs } from '../services/vcs_probe';
 
 /**
  * Expands '~' at the start of a path string to the current user's home directory.
@@ -42,16 +47,19 @@ export class AgentSessionsController {
   list(req: Request, res: Response, next: NextFunction): void {
     try {
       const projectIdParam = req.query.projectId;
+      const includeArchived = req.query.includeArchived === 'true';
+      const archivedOnly = req.query.archivedOnly === 'true';
+      const archiveOpts = { includeArchived, archivedOnly };
       let sessions;
       if (typeof projectIdParam === 'string') {
         // Literal "null" → unassigned bucket; any other string → filter by id.
         sessions = projectIdParam === 'null'
-          ? repo.listByProject(null, 100)
-          : repo.listByProject(projectIdParam, 100);
+          ? repo.listByProject(null, 100, archiveOpts)
+          : repo.listByProject(projectIdParam, 100, archiveOpts);
       } else {
-        sessions = repo.listAll(100);
+        sessions = repo.listAll(100, archiveOpts);
       }
-      const resumable = repo.listResumable();
+      const resumable = archivedOnly ? [] : repo.listResumable();
       res.json({ sessions, resumable });
     } catch (err) {
       next(err);
@@ -74,24 +82,39 @@ export class AgentSessionsController {
       const body = req.body as Record<string, unknown>;
       const { taskId, taskTitle, cwd, name } = body;
 
-      // Accept agentId (preferred) with agentKind as a deprecated fallback
+      // Accept agentId (preferred) with agentKind as a deprecated fallback.
+      // #602: agentId may be omitted / explicitly null to create an "agent-less"
+      // session that defers model selection to the first turn.
       let agentId = body.agentId;
       if (!agentId && body.agentKind) {
         console.warn('[deprecated] agentKind is deprecated in POST /agent-sessions — use agentId instead');
         agentId = body.agentKind;
       }
 
-      if (!agentId || typeof agentId !== 'string') {
-        throw AppError.badRequest('agentId is required');
-      }
-      const normalizedAgentId = normalizeAgentId(agentId);
-      // Validate that a matching, enabled agent config exists
-      const agentConfig = new AgentConfigsRepository().getById(normalizedAgentId);
-      if (!agentConfig) {
-        throw AppError.badRequest(`agent not configured: '${normalizedAgentId}'`);
-      }
-      if (!agentConfig.enabled) {
-        throw AppError.badRequest(`agent disabled: '${normalizedAgentId}'`);
+      // #602: null/omitted agentId → agent-less session. We store a sentinel
+      // agent kind ('__pending__') and skip SDK session creation until the
+      // first session.input WS frame carries a modelOverride that resolves
+      // the agent kind.
+      const isAgentLess = agentId === null || agentId === undefined || agentId === '';
+      let normalizedAgentId: string;
+
+      if (isAgentLess) {
+        normalizedAgentId = '__pending__';
+      } else {
+        if (typeof agentId !== 'string') {
+          throw AppError.badRequest('agentId must be a string or null');
+        }
+        normalizedAgentId = normalizeAgentId(agentId);
+        // Validate that a matching, enabled agent config exists (only for known agents).
+        if (normalizedAgentId !== '__pending__') {
+          const agentConfig = new AgentConfigsRepository().getById(normalizedAgentId);
+          if (!agentConfig) {
+            throw AppError.badRequest(`agent not configured: '${normalizedAgentId}'`);
+          }
+          if (!agentConfig.enabled) {
+            throw AppError.badRequest(`agent disabled: '${normalizedAgentId}'`);
+          }
+        }
       }
       if (!cwd || typeof cwd !== 'string' || cwd.trim() === '') {
         throw AppError.badRequest('cwd is required and must be a non-empty string');
@@ -100,9 +123,25 @@ export class AgentSessionsController {
         throw AppError.badRequest('name is required and must be a non-empty string');
       }
 
+      let resolvedTaskId: string | null = null;
       if (taskId !== undefined && taskId !== null) {
         if (typeof taskId !== 'string') {
           throw AppError.badRequest('taskId must be a string');
+        }
+        // Defensive FK check: the local SQLite tasks table may not contain
+        // production task IDs (sync gap). Rather than let SQLite raise
+        // SQLITE_CONSTRAINT_FOREIGNKEY (which becomes a 500), we probe the
+        // local table and silently null out the foreign key when not found.
+        // task_title is preserved so the UI still shows context.
+        try {
+          new TasksRepository().findByIdIncludingLegacy(taskId);
+          resolvedTaskId = taskId;
+        } catch {
+          logger.warn(
+            `[AgentSessionsController] taskId "${taskId}" not found in local tasks table — ` +
+              'creating agent session with task_id=null; task_title will be preserved.',
+          );
+          resolvedTaskId = null;
         }
       }
 
@@ -115,6 +154,39 @@ export class AgentSessionsController {
       // cwd-prefix lookup against the projects table (longest match wins,
       // archived projects skipped).
       const expandedCwd = expandHome(cwd.trim());
+
+      // Optional branch checkout before starting the session.
+      const branchParam = body.branch;
+      const stashParam = body.stash;
+      const createBranchParam = body.createBranch;
+      if (typeof branchParam === 'string' && branchParam.trim() !== '') {
+        // Only checkout when requested branch differs from current HEAD.
+        const currentBranch = (() => {
+          try {
+            const info = probeVcs(expandedCwd);
+            return info?.vcsBranch ?? null;
+          } catch {
+            return null;
+          }
+        })();
+        if (currentBranch !== branchParam.trim()) {
+          const stashMode: 'none' | 'stash' | 'discard' =
+            stashParam === 'stash'
+              ? 'stash'
+              : stashParam === 'discard'
+                ? 'discard'
+                : 'none';
+          const checkoutResult = gitCheckout(expandedCwd, branchParam.trim(), {
+            stash: stashMode,
+            createBranch: createBranchParam === true,
+          });
+          if (!checkoutResult.ok) {
+            res.status(409).json({ error: checkoutResult.stderr });
+            return;
+          }
+        }
+      }
+
       let projectId: string | null = null;
       if (Object.prototype.hasOwnProperty.call(body, 'projectId')) {
         const raw = body.projectId;
@@ -129,7 +201,7 @@ export class AgentSessionsController {
 
       const dto: CreateAgentSessionDto = {
         agentKind: normalizedAgentId as AgentKind,
-        taskId: taskId != null ? (taskId as string) : null,
+        taskId: resolvedTaskId,
         taskTitle: taskTitle != null ? (taskTitle as string) : null,
         cwd: expandedCwd,
         name: name.trim(),
@@ -138,10 +210,29 @@ export class AgentSessionsController {
 
       const session = repo.insert(dto);
 
-      // Create an Opencode SDK session instead of spawning a PTY subprocess
+      // #602: agent-less sessions skip SDK session creation.
+      // The first session.input WS frame with a modelOverride will resolve
+      // the agent kind, create the SDK session, and forward the prompt.
+      if (isAgentLess) {
+        console.log(`[AgentSessionsController] Created agent-less session ${session.id} — awaiting first model pick`);
+        res.status(201).json(session);
+        return;
+      }
+
+      // Create an Opencode SDK session instead of spawning a PTY subprocess.
+      // Try to auto-recover if the engine was disposed accidentally (e.g.,
+      // PARENT_GONE watchdog raced against a request).
       if (!opencodeClient.isReady) {
-        repo.markClosed(session.id);
-        throw AppError.badRequest('Opencode engine is not ready — check Settings to connect an AI account');
+        console.log(
+          `[AgentSessionsController] Engine status="${opencodeClient.statusMessage}" — attempting auto-recovery for session ${session.id}`,
+        );
+        if (!(await opencodeClient.ensureReady())) {
+          repo.markClosed(session.id);
+          throw AppError.badRequest(
+            `Opencode engine is not ready (${opencodeClient.statusMessage}) — check Settings to connect an AI account`,
+          );
+        }
+        console.log(`[AgentSessionsController] Engine recovered — continuing session ${session.id} creation`);
       }
 
       const opencodeSession = await opencodeClient.createSession(name.trim(), dto.cwd);
@@ -173,9 +264,9 @@ export class AgentSessionsController {
         ? `I need help with: ${taskTitle}\n\nSession name: ${name}`
         : `Starting session: ${name}`;
 
-      const model = await resolveModel(agentId);
+      const model = await resolveModel(normalizedAgentId);
       console.log(
-        `[AgentSessionsController] Routing ${agentId} session ${session.id} via ` +
+        `[AgentSessionsController] Routing ${normalizedAgentId} session ${session.id} via ` +
           (model ? `${model.providerID}/${model.modelID}` : '<unmapped>'),
       );
       opencodeClient.promptAsync(
@@ -206,6 +297,9 @@ export class AgentSessionsController {
         providerId?: string | null;
         modelId?: string | null;
         agentMode?: string | null;
+        permissionMode?: PermissionMode;
+        thinkingBudget?: number | null;
+        fastMode?: boolean;
       } = {};
 
       if (body.name !== undefined) {
@@ -239,9 +333,43 @@ export class AgentSessionsController {
         }
         fields.agentMode = body.agentMode as string | null;
       }
+      // Issue #611 — permission mode
+      if (body.permissionMode !== undefined) {
+        if (typeof body.permissionMode !== 'string' || !PERMISSION_MODES.includes(body.permissionMode as PermissionMode)) {
+          throw AppError.badRequest(`permissionMode must be one of: ${PERMISSION_MODES.join(', ')}`);
+        }
+        fields.permissionMode = body.permissionMode as PermissionMode;
+      }
+
+      // Issue #604 — reasoning budget + fast-mode
+      if (body.thinkingBudget !== undefined) {
+        if (body.thinkingBudget !== null && (typeof body.thinkingBudget !== 'number' || !Number.isInteger(body.thinkingBudget) || body.thinkingBudget < 0)) {
+          throw AppError.badRequest('thinkingBudget must be a non-negative integer or null');
+        }
+        fields.thinkingBudget = body.thinkingBudget as number | null;
+      }
+      if (body.fastMode !== undefined) {
+        if (typeof body.fastMode !== 'boolean') {
+          throw AppError.badRequest('fastMode must be a boolean');
+        }
+        fields.fastMode = body.fastMode;
+      }
+
+      // Issue #601 — archive / unarchive via PATCH { archived: boolean }
+      if (body.archived !== undefined) {
+        if (typeof body.archived !== 'boolean') {
+          throw AppError.badRequest('archived must be a boolean');
+        }
+        const updated = repo.setArchived(session.id, body.archived);
+        if (updated) broadcastSessionUpdated(updated);
+        res.json(updated ?? repo.findById(session.id)!);
+        return;
+      }
 
       repo.updateFields(session.id, fields);
-      res.json(repo.findById(session.id)!);
+      const updated = repo.findById(session.id)!;
+      broadcastSessionUpdated(updated);
+      res.json(updated);
     } catch (err) {
       next(err);
     }
@@ -274,7 +402,7 @@ export class AgentSessionsController {
     }
   }
 
-  // M3-6: respond to a permission prompt forwarded by the SDK.
+  // M3-6 / #608: respond to a permission prompt forwarded by the SDK.
   async respondPermission(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const session = repo.findById(req.params.id);
@@ -283,21 +411,35 @@ export class AgentSessionsController {
       if (!opencodeId) {
         throw AppError.badRequest('Session has no SDK mapping for permission.');
       }
-      const decision = req.params.decision;
+      const decision = req.params.decision as string;
       if (decision !== 'accept' && decision !== 'deny') {
         throw AppError.badRequest('decision must be accept or deny');
       }
-      const sdk = opencodeClient as unknown as {
-        respondPermission?: (sessionId: string, permissionId: string, decision: 'accept' | 'deny') => Promise<boolean>;
-      };
-      if (typeof sdk.respondPermission !== 'function') {
-        res.status(204).end();
-        return;
-      }
-      const ok = await sdk.respondPermission(opencodeId, req.params.permissionId, decision);
+      const permissionId = req.params.permissionId;
+
+      // Forward to the SDK.
+      const ok = await opencodeClient.respondPermission(opencodeId, permissionId, decision);
+      // If the SDK doesn't support this endpoint, respond gracefully (204).
+      // The caller can still update their local state.
+
+      // Clear the pending permission from the bridge.
+      streamBridge.clearPendingPermission(session.id, permissionId);
+
+      // Broadcast resolution so other connected clients update their UI.
+      const { broadcast } = await import('../services/ws_gateway');
+      broadcast({
+        v: 1,
+        type: 'permission.resolved',
+        sessionId: session.id,
+        permissionId,
+        decision,
+      });
+
       if (!ok) {
-        throw AppError.badRequest('SDK rejected the permission response.');
+        // Non-fatal: SDK may not support this endpoint yet.
+        console.warn(`[AgentSessionsController] respondPermission: SDK returned false for session ${session.id}`);
       }
+
       res.status(204).end();
     } catch (err) {
       next(err);
@@ -333,6 +475,10 @@ export class AgentSessionsController {
       opencodeSessionMap.delete(session.id);
       repo.markClosed(session.id);
 
+      // Issue #605 — broadcast the status change so live clients update without polling.
+      const closed = repo.findById(session.id);
+      if (closed) broadcastSessionUpdated(closed);
+
       res.status(204).end();
     } catch (err) {
       next(err);
@@ -353,6 +499,9 @@ export class AgentSessionsController {
       opencodeSessionMap.delete(session.id);
       const changes = repo.deleteById(session.id);
       if (changes === 0) throw AppError.notFound('AgentSession');
+
+      // Issue #605 — broadcast row removal so live clients drop it from their cache.
+      broadcastSessionRemoved(session.id);
 
       res.status(204).end();
     } catch (err) {
@@ -387,9 +536,17 @@ export class AgentSessionsController {
         );
       }
 
-      // Resume via Opencode SDK — create a fresh session with context
+      // Resume via Opencode SDK — create a fresh session with context.
+      // Auto-recover if the engine was disposed accidentally.
       if (!opencodeClient.isReady) {
-        throw AppError.badRequest('Opencode engine is not ready');
+        console.log(
+          `[AgentSessionsController] Resume: engine status="${opencodeClient.statusMessage}" — attempting auto-recovery`,
+        );
+        if (!(await opencodeClient.ensureReady())) {
+          throw AppError.badRequest(
+            `Opencode engine is not ready (${opencodeClient.statusMessage})`,
+          );
+        }
       }
 
       // "Resume" means continue the local row with a *fresh* SDK session.

@@ -1,9 +1,10 @@
-import { broadcast } from './ws_gateway';
+import { broadcast, broadcastSessionUpdated } from './ws_gateway';
 import { opencodeClient } from './opencode_engine';
 import { opencodeSessionMap } from './opencode_engine';
 import { logger } from '../utils/logger';
 import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
 import { AgentSessionMessagesRepository } from '../repositories/agent_session_messages_repository';
+import type { PermissionMode } from '../models/agent_session';
 
 /**
  * Bridges Opencode SSE events to the existing WebSocket gateway.
@@ -74,6 +75,16 @@ function extractErrorMessage(errorInfo: unknown): string {
   }
 }
 
+/** Shape of a pending permission stored in-memory. */
+export interface PendingPermission {
+  permissionId: string;
+  toolName: string;
+  args: Record<string, unknown>;
+  summary: string;
+  /** SDK session ID (needed to call respondPermission). */
+  sdkSessionId: string;
+}
+
 export class OpencodeStreamBridge {
   // One SSE subscription per directory, because opencode's /event endpoint
   // filters by ?directory= — sessions whose cwd is outside the subscribed
@@ -94,6 +105,20 @@ export class OpencodeStreamBridge {
   // which would clobber the 'closed' status we set on error. Track the
   // failure and let session.idle skip the status update.
   private erroredSessions = new Set<string>();
+
+  // In-memory map of pending permissions. Key = `${localSessionId}:${permissionId}`.
+  // Cleared when the user (or auto-logic) resolves the permission.
+  private pendingPermissions = new Map<string, PendingPermission>();
+
+  /** Return the pending permission for a session+permissionId, or undefined. */
+  getPendingPermission(localSessionId: string, permissionId: string): PendingPermission | undefined {
+    return this.pendingPermissions.get(`${localSessionId}:${permissionId}`);
+  }
+
+  /** Remove a pending permission after it is resolved. */
+  clearPendingPermission(localSessionId: string, permissionId: string): void {
+    this.pendingPermissions.delete(`${localSessionId}:${permissionId}`);
+  }
 
   /**
    * Start streaming events for a given local session.
@@ -321,6 +346,8 @@ export class OpencodeStreamBridge {
             try {
               const dbStatus = status.type === 'busy' ? 'working' : 'idle';
               this.sessionsRepo.updateStatus(localSessionId, dbStatus);
+              const updated = this.sessionsRepo.findById(localSessionId);
+              if (updated) broadcastSessionUpdated(updated);
             } catch (err) {
               logger.error(
                 '[OpencodeStreamBridge] Failed to update session status:',
@@ -342,6 +369,8 @@ export class OpencodeStreamBridge {
         if (localSessionId && !this.erroredSessions.has(localSessionId)) {
           try {
             this.sessionsRepo.updateStatus(localSessionId, 'idle');
+            const updated = this.sessionsRepo.findById(localSessionId);
+            if (updated) broadcastSessionUpdated(updated);
           } catch (err) {
             logger.error(
               '[OpencodeStreamBridge] Failed to update session status to idle:',
@@ -439,6 +468,8 @@ export class OpencodeStreamBridge {
               `Error: ${message}`,
             );
             this.sessionsRepo.markClosed(localSessionId);
+            const closed = this.sessionsRepo.findById(localSessionId);
+            if (closed) broadcastSessionUpdated(closed);
           } catch (err) {
             logger.error(
               '[OpencodeStreamBridge] Failed to persist session error:',
@@ -446,6 +477,80 @@ export class OpencodeStreamBridge {
             );
           }
         }
+        break;
+      }
+
+      case 'permission.asked': {
+        const permProps = event.properties as {
+          sessionID?: string;
+          permissionID?: string;
+          toolName?: string;
+          args?: Record<string, unknown>;
+          summary?: string;
+        };
+        const permissionId = permProps.permissionID;
+        if (!permissionId || !localSessionId) break;
+
+        const sdkSessionId = opencodeSessionId ?? '';
+        const toolName = permProps.toolName ?? '';
+        const args = permProps.args ?? {};
+        const summary = permProps.summary ?? toolName;
+
+        // Consult the session's permission_mode to decide whether to
+        // auto-respond or forward to the user.
+        let permissionMode: PermissionMode = 'default';
+        try {
+          const dbSession = this.sessionsRepo.findById(localSessionId);
+          permissionMode = (dbSession?.permissionMode ?? 'default') as PermissionMode;
+        } catch (err) {
+          logger.error('[OpencodeStreamBridge] Failed to load session for permission mode:', err);
+        }
+
+        const editTools = new Set(['write', 'edit', 'patch']);
+        const shouldAutoAccept =
+          permissionMode === 'bypassPermissions' ||
+          (permissionMode === 'acceptEdits' && editTools.has(toolName.toLowerCase()));
+        const shouldAutoDeny = permissionMode === 'plan';
+
+        if (shouldAutoAccept || shouldAutoDeny) {
+          const decision = shouldAutoAccept ? 'accept' : 'deny';
+          // Auto-resolve — call the SDK to unblock the agent.
+          (async () => {
+            try {
+              await opencodeClient.respondPermission(sdkSessionId, permissionId, decision);
+            } catch (err) {
+              logger.error(`[OpencodeStreamBridge] Auto-${decision} respondPermission failed:`, err);
+            }
+          })();
+          // Broadcast a permission.resolved so Flutter can update its UI.
+          broadcast({
+            v: 1,
+            type: 'permission.resolved',
+            sessionId: localSessionId,
+            permissionId,
+            decision,
+          });
+          break;
+        }
+
+        // Default / acceptEdits-but-non-edit path: store in pending map and broadcast.
+        const pending: PendingPermission = {
+          permissionId,
+          toolName,
+          args,
+          summary,
+          sdkSessionId,
+        };
+        this.pendingPermissions.set(`${localSessionId}:${permissionId}`, pending);
+        broadcast({
+          v: 1,
+          type: 'permission.asked',
+          sessionId: localSessionId,
+          permissionId,
+          toolName,
+          args,
+          summary,
+        });
         break;
       }
 

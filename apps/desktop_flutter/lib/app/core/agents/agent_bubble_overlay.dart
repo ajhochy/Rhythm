@@ -238,6 +238,18 @@ class _ExpandedSessionBubbleState extends State<_ExpandedSessionBubble> {
   final _scrollController = ScrollController();
 
   @override
+  void initState() {
+    super.initState();
+    final sessionId = widget.entry.sessionId;
+    if (sessionId != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        context.read<AgentsController>().reconnectSession(sessionId);
+      });
+    }
+  }
+
+  @override
   void dispose() {
     _inputController.dispose();
     _scrollController.dispose();
@@ -273,11 +285,10 @@ class _ExpandedSessionBubbleState extends State<_ExpandedSessionBubble> {
     final sessionId = widget.entry.sessionId!;
 
     final liveOutput = agents.liveOutputFor(sessionId);
-    final transcript = agents.transcript;
-    // Show transcript only when this session is selected in AgentsController
-    final isSelected = agents.selectedSessionId == sessionId;
-    final messages =
-        isSelected ? transcript.take(50).toList() : <AgentSessionMessage>[];
+    // Always read from the per-session store so the bubble shows its own
+    // session's transcript regardless of which session is selected in the
+    // main Agents tab (fix #625).
+    final messages = agents.transcriptFor(sessionId).take(50).toList();
 
     _scrollToBottom();
 
@@ -395,12 +406,22 @@ class _ExpandedTriggerBubbleState extends State<_ExpandedTriggerBubble> {
     });
   }
 
-  Future<void> startAgent(String agentId) async {
+  /// Opens an agent-less chat session linked to the task.
+  /// The user picks the agent + model via the composer picker inside the
+  /// Agents view — the same flow as "+ New session" (issue #623).
+  ///
+  /// TODO(#623 follow-up): if the claude-trigger payload includes a
+  /// preferred agent ID, plumb it as a *default* into the composer picker
+  /// (requires adding `preferredAgentId` to `PendingTrigger` and propagating
+  /// it through `AgentBubbleEntry` → composer without touching agents_view.dart).
+  Future<void> _openChat() async {
     setState(() => _errorMessage = null);
     final overlay = context.read<OverlayController>();
     final agents = context.read<AgentsController>();
+    // agentId: null → server creates a __pending__ session; the composer
+    // picker in the Agents view allows the user to choose agent + model.
     final session = await agents.createSession(
-      agentId: agentId,
+      agentId: null,
       taskId: widget.entry.triggerTaskId,
       cwd: Platform.environment['HOME'] ?? '/',
       name: widget.entry.label,
@@ -411,36 +432,19 @@ class _ExpandedTriggerBubbleState extends State<_ExpandedTriggerBubble> {
       overlay.requestNav(AppConstants.navAgents);
     } else {
       if (!mounted) return;
-      setState(() => _errorMessage = agents.error ?? 'Failed to start agent');
+      setState(() => _errorMessage = agents.error ?? 'Failed to open chat');
     }
   }
 
-  /// Compute bubble height based on the number of agent buttons and whether
-  /// an error is shown.  One row holds up to two buttons; additional buttons
-  /// wrap and add ~48 px per extra row.
-  double _bubbleHeight(int buttonCount) {
-    final extraRows = ((buttonCount - 1) ~/ 2).clamp(0, 10);
-    final base = 220.0 + extraRows * 48.0;
-    return _errorMessage == null ? base : base + 40.0;
-  }
+  double get _bubbleHeight => _errorMessage == null ? 220.0 : 260.0;
 
   @override
   Widget build(BuildContext context) {
     final overlay = context.read<OverlayController>();
-    final agentServer = context.watch<AgentServerController>();
-    final agentConfigs = context.watch<AgentConfigsController>();
-
-    // Enabled agents cross-referenced against server capability detection.
-    final availableAgents = agentConfigs.enabledAgents
-        .where((c) => agentServer.isAgentAvailable(c.id))
-        .toList();
-
-    final hasAnyAgent = availableAgents.isNotEmpty;
-    final useWrap = availableAgents.length > 2;
 
     return Container(
       width: 360,
-      height: _bubbleHeight(availableAgents.length),
+      height: _bubbleHeight,
       decoration: BoxDecoration(
         color: context.rhythm.surfaceRaised,
         borderRadius: BorderRadius.circular(RhythmRadius.xl),
@@ -500,7 +504,7 @@ class _ExpandedTriggerBubbleState extends State<_ExpandedTriggerBubble> {
             ),
             const SizedBox(height: 6),
             Text(
-              'Choose an agent to start this task automatically.',
+              'Open a chat to start this task. Choose your agent and model in the composer.',
               style: TextStyle(
                 fontSize: 11.5,
                 color: context.rhythm.textSecondary,
@@ -509,54 +513,15 @@ class _ExpandedTriggerBubbleState extends State<_ExpandedTriggerBubble> {
             ),
             const Spacer(),
 
-            // Action buttons — dynamic list from AgentConfigsController
-            if (hasAnyAgent)
-              useWrap
-                  ? Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: availableAgents
-                          .map(
-                            (config) => _TriggerButton(
-                              label: 'Start with ${config.label}',
-                              icon: AgentIcon(
-                                config.icon,
-                                size: 14,
-                                fallbackLabel: config.label,
-                              ),
-                              onPressed: () => startAgent(config.id),
-                            ),
-                          )
-                          .toList(),
-                    )
-                  : Row(
-                      children: [
-                        for (int i = 0; i < availableAgents.length; i++) ...[
-                          if (i > 0) const SizedBox(width: 8),
-                          Expanded(
-                            child: _TriggerButton(
-                              label: 'Start with ${availableAgents[i].label}',
-                              icon: AgentIcon(
-                                availableAgents[i].icon,
-                                size: 14,
-                                fallbackLabel: availableAgents[i].label,
-                              ),
-                              onPressed: () =>
-                                  startAgent(availableAgents[i].id),
-                            ),
-                          ),
-                        ],
-                      ],
-                    )
-            else
-              Text(
-                'No agents configured. Open Agent settings to connect.',
-                style: TextStyle(
-                  fontSize: 11.5,
-                  color: context.rhythm.textMuted,
-                  height: 1.35,
-                ),
+            // Single "Open chat" action — opens an agent-less session (#623)
+            SizedBox(
+              width: double.infinity,
+              child: _TriggerButton(
+                label: 'Open chat',
+                icon: const Icon(Icons.chat_outlined, size: 14),
+                onPressed: _openChat,
               ),
+            ),
             if (_errorMessage != null) ...[
               const SizedBox(height: 8),
               Text(

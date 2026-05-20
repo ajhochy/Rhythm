@@ -14,3 +14,5 @@ projectsRouter.post('/', controller.create.bind(controller));
 projectsRouter.patch('/:id', controller.update.bind(controller));
 projectsRouter.delete('/:id', controller.remove.bind(controller));
 projectsRouter.post('/:id/refresh-vcs', controller.refreshVcs.bind(controller));
+projectsRouter.get('/:id/branches', controller.getBranches.bind(controller));
+projectsRouter.post('/:id/checkout', controller.checkout.bind(controller));

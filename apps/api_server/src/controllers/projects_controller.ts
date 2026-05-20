@@ -3,7 +3,7 @@ import path from 'path';
 import type { NextFunction, Request, Response } from 'express';
 import { AppError } from '../errors/app_error';
 import { ProjectsRepository, type ProjectVcsFields } from '../repositories/projects_repository';
-import { probeVcs } from '../services/vcs_probe';
+import { probeVcs, listBranches, gitCheckout } from '../services/vcs_probe';
 
 function expandHome(p: string): string {
   if (p === '~' || p.startsWith('~/')) return p.replace('~', os.homedir());
@@ -151,6 +151,54 @@ export class ProjectsController {
     try {
       const project = repo.findById(req.params.id);
       if (!project) throw AppError.notFound('Project');
+      repo.updateVcs(project.id, probeFields(project.cwd));
+      res.json(repo.findById(project.id)!);
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  getBranches(req: Request, res: Response, next: NextFunction): void {
+    try {
+      const project = repo.findById(req.params.id);
+      if (!project) throw AppError.notFound('Project');
+      const branches = listBranches(project.cwd);
+      if (!branches) {
+        // Not a git repo — return empty lists instead of 404.
+        res.json({ current: null, local: [], recent: [] });
+        return;
+      }
+      res.json(branches);
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  checkout(req: Request, res: Response, next: NextFunction): void {
+    try {
+      const project = repo.findById(req.params.id);
+      if (!project) throw AppError.notFound('Project');
+
+      const body = (req.body ?? {}) as Record<string, unknown>;
+      const { branch, stash, createBranch } = body;
+
+      if (typeof branch !== 'string' || branch.trim() === '') {
+        throw AppError.badRequest('branch is required and must be a non-empty string');
+      }
+
+      const stashMode = stash === 'stash' ? 'stash' : stash === 'discard' ? 'discard' : 'none';
+
+      const result = gitCheckout(project.cwd, branch.trim(), {
+        stash: stashMode,
+        createBranch: createBranch === true,
+      });
+
+      if (!result.ok) {
+        res.status(409).json({ error: result.stderr });
+        return;
+      }
+
+      // Re-probe VCS so the response reflects the new branch.
       repo.updateVcs(project.id, probeFields(project.cwd));
       res.json(repo.findById(project.id)!);
     } catch (err) {

@@ -1,0 +1,128 @@
+{
+  "run_id": "2026-05-19-pr-617-batch",
+  "issue": "batch:599,600,601,605,606,610,611,614,615,620,622,623,624,625",
+  "date": "2026-05-19",
+  "smoke_result": "fail",
+  "verification_claimed": "PASS",
+  "divergence": true,
+  "criteria_results": [
+    {
+      "criterion_id": "issue-620-sync-live",
+      "text": "POST /sync/now against the live :4001 instance returns 200 and mirrors production tasks",
+      "contract_status": "absent",
+      "smoke_status": "fail",
+      "category": "C5",
+      "notes": "Source-tree implementation correct (/sync/now route wired in app.ts; sync_orchestrator_service.ts has mirrorProductionTasksAsync). Live :4001 returns 404 because the Flutter-spawned api_server resolves to apps/api_server/dist/server.js when present, and the dist build was not refreshed before smoke. No build step in CI dispatch path. Environment/build-pipeline gap."
+    },
+    {
+      "criterion_id": "issue-625-cold-bubble-transcript",
+      "text": "Mini-bubble shows the session transcript and streams new tokens without first opening the full chat view",
+      "contract_status": "absent",
+      "smoke_status": "fail",
+      "category": "C3",
+      "notes": "transcriptsBySession map is populated only after the session is selected (selectSession write site). WS frames for non-selected sessions never populate the per-session map, so cold bubbles render empty until the user opens the full view (which calls selectSession and triggers the population)."
+    },
+    {
+      "criterion_id": "issue-623-task-context",
+      "text": "Task-ready bubble Open Chat creates a session linked to the originating task with the task description seeded as initial context",
+      "contract_status": "absent",
+      "smoke_status": "fail",
+      "category": "C3",
+      "notes": "Open Chat calls agents.createSession(agentId: null, taskId: ..., ...) but the taskId argument is not threaded through to the persisted session, and no initial-context message is sent. Code already has TODO(#623 follow-up) comment for preferred-agent default — incomplete implementation acknowledged in-tree."
+    },
+    {
+      "criterion_id": "issue-622-question-tool",
+      "text": "When the agent emits a question tool call, QuestionToolCard renders options and submitting one feeds the answer back as session input",
+      "contract_status": "absent",
+      "smoke_status": "fail",
+      "category": "C6",
+      "notes": "Card lookup keyed on part.toolName?.toLowerCase() == 'question'. opencode SDK does not emit a tool_use part with that name on this build, so the card never renders. Diagnosis required: confirm whether opencode SDK exposes a question/elicit channel under a different name or version."
+    },
+    {
+      "criterion_id": "issue-610-slash-popover",
+      "text": "Typing '/' in the composer opens the slash-command popover with a non-empty list of commands",
+      "contract_status": "absent",
+      "smoke_status": "fail",
+      "category": "C6",
+      "notes": "_slash_command_popover.dart exists and the popover opens, but command list is empty on this build. Likely upstream: command source (opencode SDK config or local agent registry) returns no commands. Diagnosis required to discriminate C3 (local wiring) vs C6 (SDK gap)."
+    },
+    {
+      "criterion_id": "new-openrouter-no-answer",
+      "text": "Selecting an OpenRouter model in the per-turn picker and sending a message returns an assistant answer",
+      "contract_status": "absent",
+      "smoke_status": "fail",
+      "category": "C7",
+      "notes": "Some OpenRouter models selectable from the picker do not return answers. Surfaced fresh in this smoke. Likely scope: agent_model_resolver.ts or opencode_client_service.ts — model id passes the picker filter but the provider call no-ops or errors silently. May relate to #624's resolveModelForSessionTurn path."
+    },
+    {
+      "criterion_id": "appdelegate-launch-regression",
+      "text": "Flutter desktop app launches with a visible main window (no black screen)",
+      "contract_status": "absent",
+      "smoke_status": "fail",
+      "category": "C7",
+      "notes": "apps/desktop_flutter/macos/Runner/AppDelegate.swift line 14 contained `super.applicationDidFinishLaunching(notification)` — invalid call (FlutterAppDelegate's parent NSApplicationDelegate has no such method to forward). Caused black-screen launch. User removed the line. Verification-gate did not catch this because flutter analyze + build succeed; only a running smoke surfaces it. Not introduced by this PR's named issues — latent regression flushed out by smoke."
+    }
+  ],
+  "process_issues": [
+    {
+      "process_category": "P2",
+      "description": "apps/api_server vitest runs against better-sqlite3 binary compiled for NODE_MODULE_VERSION 127 (Node 22) while the dev shell now ships Node 24 (NODE_MODULE_VERSION 137). Workaround documented; not run in CI path on this branch.",
+      "detected_by": "Out-of-scope finding from prior verification-gate run on this batch"
+    }
+  ],
+  "workflow_adherence": {
+    "overall_score": "partial",
+    "expected_chain": [
+      "workflow-orchestrator",
+      "acceptance-contract",
+      "coding-agent",
+      "verification-gate",
+      "project-state-updater",
+      "failure-postmortem"
+    ],
+    "observed_chain": [
+      "workflow-orchestrator",
+      "coding-agent",
+      "verification-gate",
+      "project-state-updater",
+      "failure-postmortem"
+    ],
+    "skipped_skills": [
+      "acceptance-contract"
+    ],
+    "issues": [
+      {
+        "workflow_category": "W1",
+        "affected_skill": "workflow-orchestrator",
+        "description": "acceptance-contract was not dispatched for any of the 20 batched issues. No docs/ai/contracts/issue-N.json files exist for #599, #600, #601, #605, #606, #610, #611, #614, #615, #620, #622, #623, #624, #625. Every C3 finding (#625 cold-bubble, #623 task-linkage) would have been a failing acceptance-contract test that forced the coding-agent to satisfy it before claiming done.",
+        "detected_by": "ls docs/ai/contracts/ returned empty for these IDs"
+      },
+      {
+        "workflow_category": "W5",
+        "affected_skill": "verification-gate",
+        "description": "Verification-gate emitted PASS based on flutter analyze + tsc + green CI on commit 61c468f, but the running build had a launch-blocking regression (black-screen AppDelegate.swift line 14) that user discovered in smoke. The verification PASS contract did not include a launch-correctness probe (e.g., open the built app and assert main window renders).",
+        "detected_by": "User-applied AppDelegate.swift fix in working tree after verification-gate emitted PASS"
+      },
+      {
+        "workflow_category": "W1",
+        "affected_skill": "verification-gate",
+        "description": "Smoke probes in verification-gate did not run /sync/now against the spawned :4001 (only against source dev server via npm run dev). The stale-dist failure mode (#620) was therefore invisible to the gate. Required gate per testing-guide.md should curl every documented endpoint against the bundled artifact, not just the source.",
+        "detected_by": "User report: '/sync/now passes on source server, returns 404 on live :4001 build'"
+      }
+    ]
+  },
+  "implementation_files": [
+    "apps/api_server/src/services/sync_orchestrator_service.ts",
+    "apps/api_server/src/controllers/sync_controller.ts",
+    "apps/api_server/src/routes/sync_routes.ts",
+    "apps/api_server/src/services/ws_gateway.ts",
+    "apps/desktop_flutter/lib/features/agents/controllers/agents_controller.dart",
+    "apps/desktop_flutter/lib/app/core/agents/agent_bubble_overlay.dart",
+    "apps/desktop_flutter/lib/features/agents/views/_question_tool_card.dart",
+    "apps/desktop_flutter/lib/features/agents/views/_message_actions_row.dart",
+    "apps/desktop_flutter/lib/features/agents/views/agents_view.dart"
+  ],
+  "failure_output": "User smoke report, verbatim: '#620 Sync: source server passes /sync/now, but live :4001 build returns 404; stale dist. #625 mini-bubble transcripts: works after opening full view, but cold bubbles do not show transcript/stream directly. #623 task-ready bubble: opens agent-less session, but task linkage/context missing locally. #622 Question tool: fail on this build; opencode lacks the question tool. #610 Slash popover: fail on this build; commands unavailable. New bug: Some OpenRouter models selectable from the picker do not return answers. Fixed black-screen launch regression in AppDelegate.swift line 14 by removing invalid super.applicationDidFinishLaunching(notification) call.'",
+  "overall_category": "C1",
+  "suggested_follow_up": "Wire acceptance-contract into orchestrator's default smoke-test-followup dispatch (currently skipped) AND extend verification-gate smoke probes to exercise the bundled :4001 build, not only the source dev server. Both gaps account for all five FAILs plus the launch regression."
+}

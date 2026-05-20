@@ -20,7 +20,7 @@ import 'package:rhythm_desktop/features/notifications/repositories/notifications
 class _FakeApiServerService extends ApiServerService {
   @override
   Future<AgentServerStartResult> start() async =>
-      (ok: true, reason: null, stderrTail: null);
+      (ok: true, reason: null, stderrTail: null, failureMessage: null);
 
   @override
   Future<void> stop() async {}
@@ -108,7 +108,11 @@ class _FakeAgentsRepository implements AgentsRepository {
   }
 
   @override
-  Future<List<AgentSession>> listSessions() async => sessionsToReturn;
+  Future<List<AgentSession>> listSessions({
+    bool includeArchived = false,
+    bool archivedOnly = false,
+  }) async =>
+      sessionsToReturn;
 
   @override
   Future<({AgentSession session, List<AgentSessionMessage> messages})>
@@ -119,11 +123,13 @@ class _FakeAgentsRepository implements AgentsRepository {
 
   @override
   Future<AgentSession> createSession({
-    required String agentId,
+    String? agentId,
     String? taskId,
     required String cwd,
     required String name,
-    String? projectId,
+    String? branch,
+    String? stash,
+    bool createBranch = false,
   }) async {
     return _makeSession('new-session', AgentSessionStatus.starting);
   }
@@ -150,9 +156,19 @@ class _FakeAgentsRepository implements AgentsRepository {
     String? name,
     String? providerId,
     String? modelId,
+    String? permissionMode,
     bool clearProvider = false,
     bool clearModel = false,
+    bool? fastMode,
   }) async {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<AgentSession> updateSessionThinkingBudget(
+    String id,
+    int? budget,
+  ) async {
     throw UnimplementedError();
   }
 
@@ -160,6 +176,23 @@ class _FakeAgentsRepository implements AgentsRepository {
   Future<AgentSession> resumeSession(String id) async {
     return _makeSession(id, AgentSessionStatus.idle);
   }
+
+  @override
+  Future<AgentSession> archiveSession(String id) async {
+    return _makeSession(id, AgentSessionStatus.closed);
+  }
+
+  @override
+  Future<AgentSession> unarchiveSession(String id) async {
+    return _makeSession(id, AgentSessionStatus.idle);
+  }
+
+  @override
+  Future<void> respondPermission(
+    String sessionId,
+    String permissionId,
+    String decision,
+  ) async {}
 
   @override
   Future<List<AgentSessionMessage>> getMessages(String id, {int? limit}) async {
