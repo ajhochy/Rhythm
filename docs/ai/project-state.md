@@ -2,6 +2,19 @@
 
 ## Recent coding-agent runs
 
+### 2026-05-20 — fix/pr-617-633-smoke-followups (#634, #636, #637)
+- Smoke on commit 6a05544 surfaced 4 FAILs. Three fixed here; #635 deferred (needs server-side query investigation, separate PR). Postmortem: `.agent-stack/postmortems/2026-05-20-pr-617-633-batch.json`.
+- Files modified:
+  - `apps/desktop_flutter/lib/app/core/agents/agent_bubble_overlay.dart` — removed `maxLines: 5` + `overflow: TextOverflow.ellipsis` from `_MiniMessageBlock` assistant branch and `maxLines: 10` + `overflow: TextOverflow.ellipsis` from `_MiniLiveBlock`. The bubble's existing 460px Expanded+ListView envelope handles overflow by scrolling rather than clipping (#634).
+  - `apps/api_server/src/services/opencode_stream_bridge.ts` — `session.idle` handler now broadcasts `{v:1, type:'error', id, message:'The model returned an empty response.'}` when `pendingText` is empty (zero tokens streamed this turn). Gated on `!erroredSessions.has(localSessionId)` so we don't double-emit when `session.error` already fired. Catches the OpenRouter Gemini 3 Flash silent-close case where the SDK returns a data envelope but emits idle without any `message.part.delta` (#636).
+  - `apps/api_server/src/routes/agents_models_routes.ts` — `GET /agents/models?agentId=...` root handler now runs the same curated-promotion block that `/catalog` runs: visibility-table rows with `visible=1`, confirmed by the SDK's live OpenRouter catalog, are emitted with `agent` derived from the model id prefix (openai/→codex, google/→gemini-cli, else claude-code), filtered to match the requested agentId. Same conservative gate as #632: skip when SDK catalog is empty (#637 Bug A).
+  - `apps/desktop_flutter/lib/features/agents/views/_open_router_models_section.dart:80` — `_isVisible` default flipped from `?? true` to `?? false`. Models with no visibility row are now opt-in (unchecked) instead of "all visible by default" (#637 Bug B).
+- New tests/contracts: `docs/ai/contracts/issue-634.json`, `issue-636.json`, `issue-637.json`; test files: `apps/desktop_flutter/test/features/agents/issue_634_contract_test.dart`, `apps/api_server/src/__tests__/issue_636_contract.test.ts`, `apps/api_server/src/__tests__/issue_637_contract.test.ts`, `apps/desktop_flutter/test/features/agents/issue_637_contract_test.dart`.
+- Checks run: `tsc --noEmit` ✓, `flutter analyze` ✓, `npx vitest run` 522/522 ✓ (was 517 baseline + 5 new contract tests), all 5 Dart contract tests ✓.
+- Decisions made: #636 fix uses `pendingText` map as the "did we stream anything this turn" signal — empty after idle means zero tokens — same convention as the existing flush-on-idle path. Avoided adding a separate turn-start flag. #637 Bug A replicated /catalog's promotion block in /root rather than asking the picker to merge two endpoints — keeps the wire format symmetric and reduces Flutter-side complexity.
+- Deviations from spec: none.
+- Follow-up still open: #635 (mini-bubble hides user messages) — diagnostic agent's optimistic-echo hypothesis was wrong; renderer at agent_bubble_overlay.dart:880-901 already handles `role=='input'`. Real cause is upstream (server query or persistence), needs ~15-min investigation in its own PR.
+
 ### 2026-05-19 — fix/pr-617-batch-smoke-followups (#627, #628, #632, #633)
 - Smoke on PR #617 batch surfaced 5 FAIL/PARTIAL + 1 new bug + 1 latent launch regression. Postmortem at `.agent-stack/postmortems/2026-05-19-pr-617-batch-smoke.json`. Dominant pattern: C1 missing-contract (acceptance-contract skipped for the batch) — recorded as W1 in workflow_adherence.
 - Files modified:

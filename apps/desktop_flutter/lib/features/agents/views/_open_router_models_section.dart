@@ -77,7 +77,7 @@ class _OpenRouterModelsSectionState extends State<OpenRouterModelsSection> {
     }
   }
 
-  bool _isVisible(String modelId) => _visibilityMap[modelId] ?? true;
+  bool _isVisible(String modelId) => _visibilityMap[modelId] ?? false;
 
   Future<void> _setVisible(String modelId, {required bool visible}) async {
     setState(() {

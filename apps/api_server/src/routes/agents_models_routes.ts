@@ -279,6 +279,43 @@ agentsModelsRouter.get('/', async (req: Request, res: Response) => {
       }
     }
 
+    // Issue #637 — append curated OpenRouter models that are NOT in
+    // ROUTE_FALLBACKS_BY_AGENT. The curation UI can mark models visible; those
+    // must appear in the picker even when they're absent from the fallback list.
+    // Mirror the same "curatedEntries" promotion block in the /catalog handler.
+    if (authedSet.has('openrouter') && visibilityMap !== null) {
+      const existingModelIds = new Set(
+        rows
+          .filter((r) => r.providerId === 'openrouter')
+          .map((r) => r.modelId),
+      );
+      const openRouterModelIds = modelIdsByProvider.get('openrouter');
+      // Conservative gate: only promote when the SDK returned a non-empty
+      // catalog. An empty list means "can't enumerate" — admitting unverified
+      // ids causes silent failures when the model is actually selected.
+      if (openRouterModelIds && openRouterModelIds.size > 0) {
+        for (const [modelId, visible] of visibilityMap) {
+          if (!visible) continue;
+          if (existingModelIds.has(modelId)) continue;
+          if (!openRouterModelIds.has(modelId)) continue;
+          // Derive agent kind from model ID prefix (matching ws_gateway.ts).
+          let derivedAgent = 'claude-code';
+          if (modelId.startsWith('openai/')) derivedAgent = 'codex';
+          else if (modelId.startsWith('google/')) derivedAgent = 'gemini-cli';
+          // Only emit if it matches the requested agentId.
+          if (derivedAgent !== agentId) continue;
+          const via = aggregatorLabel('openrouter');
+          rows.push({
+            providerId: 'openrouter',
+            modelId,
+            routeKind: 'aggregator',
+            aggregatorVia: via,
+            label: `${modelId} · via ${via}`,
+          });
+        }
+      }
+    }
+
     res.json(rows);
   } catch (err) {
     console.error('[agents/models] Unexpected error:', err);

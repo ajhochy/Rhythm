@@ -909,8 +909,6 @@ class _MiniMessageBlock extends StatelessWidget {
       ),
       child: Text(
         message.strippedText,
-        maxLines: 5,
-        overflow: TextOverflow.ellipsis,
         style: TextStyle(
           fontSize: 11,
           fontFamily: 'Menlo',
@@ -944,8 +942,6 @@ class _MiniLiveBlock extends StatelessWidget {
       ),
       child: Text(
         display,
-        maxLines: 10,
-        overflow: TextOverflow.ellipsis,
         style: TextStyle(
           fontSize: 11,
           fontFamily: 'Menlo',

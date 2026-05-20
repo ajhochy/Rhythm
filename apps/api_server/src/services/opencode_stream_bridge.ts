@@ -405,6 +405,14 @@ export class OpencodeStreamBridge {
               text,
             });
             this.pendingText.delete(localSessionId);
+          } else {
+            // Zero tokens streamed this turn — surface as user-visible error (#636)
+            broadcast({
+              v: 1,
+              type: 'error',
+              id: localSessionId,
+              message: 'The model returned an empty response.',
+            });
           }
         }
         break;
