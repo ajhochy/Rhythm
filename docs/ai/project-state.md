@@ -14,6 +14,19 @@
 
 ## Recent coding-agent runs
 
+### 2026-05-26 — fix/issue-643-645-agents-ui (#643, #645) — merged (PR #647)
+- Combined branch off main for two PR #642 smoke follow-ups (both Agents UI, UI-local). Both smoked PASS (#643 popover scroll; #645 badge consistent across all four surfaces on re-smoke).
+- Files modified:
+  - `apps/desktop_flutter/lib/features/agents/views/_slash_command_popover.dart` (#643) — the popover command list was unreachable when taller than the viewport. Root cause: it rendered in `Stack(clipBehavior: Clip.none) + Positioned(bottom:0)`, so the list painted OUTSIDE the Stack's bounds where Flutter does not route pointer/scroll hit-tests; and `ListView.builder(shrinkWrap:true)` left no scroll viewport. Fix: replaced Stack+Positioned with `Column(mainAxisSize:min)` (list above the input, within hit-testable bounds) and removed `shrinkWrap:true` so the `Container(maxHeight:240)` is the scroll viewport. Layout-safe: the composer sits below an `Expanded` transcript body, which shrinks to absorb the ≤240px growth (no RenderFlex overflow). UX change: overlay → inline command-palette.
+  - `apps/desktop_flutter/lib/features/agents/views/agents_view.dart` (#645) — the agent pill (`_AgentKindBadge`) kept the stale icon/label after the session's agent changed. Two bugs: (1) `context.read` (no rebuild subscription) → changed to `context.watch`; (2) it looked up `byId(session.agentId)`, but `setSessionModel` only updates `providerId`/`modelId`, never `agentId`. Fix: added a `providerId` param + top-level `_kProviderToAgentKind` map (anthropic/github-copilot→claude-code, openai→codex, google→gemini-cli) mirroring the server `ws_gateway.ts` `PROVIDER_TO_AGENT`; the badge maps `providerId`→agent-kind and prefers that config when it differs from `agentId`. 3 call sites pass `session.providerId`. Added `@visibleForTesting AgentKindBadgeTestHarness`.
+  - New tests: `test/features/agents/issue_643_slash_command_scroll_test.dart` (scroll reachability), `test/features/agents/issue_645_agent_pill_stale_icon_test.dart` (pill label flips for real provider values). Contracts: `docs/ai/contracts/issue-643.json`, `issue-645.json`.
+- Checks run: `ai-workflow checks --level issue` ✓; `ai-workflow checks --level pr` ✓ (analyze, dart format, tsc, vitest); both contract test files 6/6 ✓.
+- Repair loop (TWO rounds on #645):
+  1. **False-green (pre-commit):** the first #645 fix did `byId(session.providerId)` and the contract test injected `providerId='codex'` (an agent-kind), but production stores `providerId='openai'`/`'google'` (the LLM provider, distinct from `CatalogModelEntry.agent`). Caught by orchestrator trust-but-verify; refixed with a provider→agent-kind map and real-value tests.
+  2. **Manual-smoke PARTIAL FAIL (post-commit, C2):** smoke showed the badge inconsistent across FOUR render sites — only `_SessionRow` had been threaded. `_ResumableSessionRow`, `_TranscriptHeader`, and the mini/expanded bubble (`agent_bubble_overlay.dart`) still showed a stale "Gemini CLI" after an errored model switch (session truly Claude). Postmortem `.agent-stack/postmortems/2026-05-26-issue-645.json`. Repair: threaded `providerId: session.providerId` into all `_AgentKindBadge` sites; added `providerId` to `AgentBubbleEntry` (populated in `_sync()` from the live session) + `_kBubbleProviderToAgentKind` + `_resolveAgentKind()` + `context.watch` in the bubble. Tests expanded 3→16 covering all four sites incl. c9 (errored switch → all sites show the persisted agent). Re-verified green; full agents suite 147/147.
+  - Filed follow-up **#648** (catalog offers invalid model id `openrouter/google/gemini-3-flash` → ProviderModelNotFoundError) — distinct from the badge bug.
+- Deviations: none. Manual-only edges (keyboard-nav scroll past fold, mouse-wheel, live picker interaction) listed in each contract's `not_tested`.
+
 ### 2026-05-26 — fix/issue-644-collaborator-server-url (#644)
 - Files modified:
   - `apps/desktop_flutter/lib/features/tasks/data/collaborators_data_source.dart` — removed the implicit `AppConstants.apiBaseUrl` fallback, made `baseUrl` required, and added injectable `http.Client` support so collaborator requests are testable and cannot silently target the wrong server.
@@ -256,9 +269,15 @@
 
 ---
 
-## Current Status (2026-05-26 — workflow run over 5 issues; PR #642 open, awaiting manual smoke)
+## Current Status (2026-05-26 — PR #642 smoke follow-ups #644/#643/#645)
 
-🟢 **Branch `workflow/run-2026-05-26` → [PR #642](https://github.com/ajhochy/Rhythm/pull/642)** (NOT merged). HEAD `6a17b91`. Server CI + Desktop CI green.
+🟢 **PR #642 merged to `main`** (commit `9e3cfe4`). Three follow-ups filed during its manual smoke are now in flight:
+- **#644** (task collaborator does not persist) → branch `fix/issue-644-collaborator-server-url` → **[PR #646](https://github.com/ajhochy/Rhythm/pull/646)** open (NOT merged), Desktop CI green. c1 automated + c2 live smoke PASS.
+- **#643** (slash popover scroll) + **#645** (agent pill stale icon) → combined branch `fix/issue-643-645-agents-ui` → verified by `verification-gate`, PR pending (about to open). Both UI-local; #645 required one repair loop (false-green provider mapping, see above + decisions.md).
+
+Prior run below (PR #642):
+
+🟢 **Branch `workflow/run-2026-05-26` → [PR #642](https://github.com/ajhochy/Rhythm/pull/642)** (merged). HEAD `6a17b91`. Server CI + Desktop CI green.
 
 Five issues, all verified by `verification-gate`. Two were already implemented on `main` and just never closed (locked with regression tests); three had real gaps that were implemented:
 

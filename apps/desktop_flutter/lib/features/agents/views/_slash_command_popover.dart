@@ -128,23 +128,28 @@ class _SlashCommandPopoverState extends State<SlashCommandPopover> {
 
     final filtered = _filtered(widget.inputController.text);
 
-    return Stack(
-      clipBehavior: Clip.none,
+    // Issue #643 fix: the old Stack(clipBehavior: Clip.none) + Positioned layout
+    // painted the command list outside the Stack's own bounds. Flutter does NOT
+    // deliver pointer/scroll hit-tests to regions outside the parent's bounds,
+    // so the ListView was visible but not scrollable.
+    //
+    // The fix wraps both the list and the child in a Column so the list lives
+    // within a properly-sized, hit-testable container. The list is placed above
+    // the child (column order: list first, child second) so it appears anchored
+    // to the top of the composer just as before from the user's perspective.
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        widget.child,
-        Positioned(
-          bottom: 0,
-          left: 0,
-          right: 0,
-          child: Focus(
-            onKeyEvent: _handleKeyEvent,
-            child: _CommandList(
-              commands: filtered,
-              highlightedIndex: _highlightedIndex,
-              onSelect: (cmd) => _select(cmd, widget.inputController.text),
-            ),
+        Focus(
+          onKeyEvent: _handleKeyEvent,
+          child: _CommandList(
+            commands: filtered,
+            highlightedIndex: _highlightedIndex,
+            onSelect: (cmd) => _select(cmd, widget.inputController.text),
           ),
         ),
+        widget.child,
       ],
     );
   }
@@ -197,7 +202,6 @@ class _CommandList extends StatelessWidget {
         borderRadius: BorderRadius.circular(RhythmRadius.lg),
         child: ListView.builder(
           padding: const EdgeInsets.symmetric(vertical: 4),
-          shrinkWrap: true,
           itemCount: commands.length,
           itemBuilder: (context, index) {
             final cmd = commands[index];

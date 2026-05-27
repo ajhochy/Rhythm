@@ -37,3 +37,10 @@
 - **Triage note**: 4 of 5 issues were already implemented on `main` and just never closed (#626, #476, and the linkage half of #629; #48 sub-changes 1/2/4). Pattern worth watching — "open issue already satisfied on main."
 - **Discovered unrelated bug (C6)**: task collaborator ("Visalia CRC") does not persist on save in the task inspector → no claude-trigger → no bubble. Not in PR #642 diff; needs its own investigation issue.
 - See `.agent-stack/postmortems/2026-05-26-run-642.json`.
+
+## 2026-05-26 — Issue #645 — agent badge updated in only 1 of 4 render sites
+- **Result**: smoke FAIL (verification claimed PASS) — #643 in the same PR passed
+- **Category**: C2 — wrong contract (widget tested in isolation, not composing views)
+- **Criteria affected**: issue-645-c2
+- **Root cause**: The fix + contract test exercised `_AgentKindBadge` via a test harness, but the badge renders in 4 sites (`_SessionRow`, `_ResumableSessionRow`, `_TranscriptHeader`, and `agent_bubble_overlay`); only `_SessionRow` was threaded with `providerId`, so header + bubble showed a stale/optimistic agent ("Gemini CLI") while the session was actually Claude.
+- **Suggested fix**: Cross-cutting UI contracts must enumerate every render site and assert each composing view; thread the resolved-agent logic into all 4 sites (and reconcile optimistic model selections that error/don't persist).

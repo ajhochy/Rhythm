@@ -1,0 +1,66 @@
+{
+  "run_id": "2026-05-26-issue-645",
+  "issue": 645,
+  "date": "2026-05-26",
+  "smoke_result": "fail",
+  "verification_claimed": "PASS",
+  "divergence": true,
+  "criteria_results": [
+    {
+      "criterion_id": "issue-645-c1",
+      "text": "The agent badge pill must show the correct label for the initial agentId.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Initial render correct in all sites."
+    },
+    {
+      "criterion_id": "issue-645-c2",
+      "text": "When the session's agent/model changes, the pill must update to the new agent's icon/label.",
+      "contract_status": "pass",
+      "smoke_status": "fail",
+      "category": "C2",
+      "notes": "Contract test asserted ONLY the _AgentKindBadge widget in isolation (via AgentKindBadgeTestHarness) with providerId passed in. But the badge renders in FOUR sites and only one call site (_SessionRow, line 777) was actually given providerId. _ResumableSessionRow (846), _TranscriptHeader (1339), and the mini-bubble/expanded-bubble in agent_bubble_overlay.dart were never threaded. Manual smoke: after switching the session model toward a Gemini route (which errored 'Model not found: openrouter/google/gemini-3-flash' and did NOT persist — server session remained anthropic/claude-opus-4-7), the session-list row correctly showed 'Claude Code' while the transcript header and mini-bubble incorrectly showed 'Gemini CLI'. The three sites diverged; the header/bubble reflected a stale/optimistic selection rather than the session's true (server) agent. The contract test gave a false sense of completeness because it tested the widget, not the call sites."
+    },
+    {
+      "criterion_id": "issue-645-c3",
+      "text": "After AgentConfigsController.notifyListeners() fires, the badge must rebuild.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "context.watch confirmed working for the patched site."
+    }
+  ],
+  "process_issues": [
+    {
+      "process_category": "P3",
+      "description": "The #645 contract test verified the _AgentKindBadge widget in isolation but did not assert that every render site (_SessionRow, _ResumableSessionRow, _TranscriptHeader, agent_bubble_overlay) passes the resolved provider. A widget-isolation test cannot catch un-threaded call sites.",
+      "detected_by": "Manual smoke divergence + grep of _AgentKindBadge call sites (4 sites, only 1 patched) and separate badge logic in agent_bubble_overlay.dart."
+    }
+  ],
+  "workflow_adherence": {
+    "overall_score": "partial",
+    "expected_chain": ["workflow-orchestrator", "acceptance-contract", "coding-agent", "verification-gate", "project-state-updater", "failure-postmortem"],
+    "observed_chain": ["workflow-orchestrator", "acceptance-contract", "coding-agent", "verification-gate", "project-state-updater", "failure-postmortem"],
+    "skipped_skills": [],
+    "issues": [
+      {
+        "workflow_category": "W5",
+        "affected_skill": "verification-gate",
+        "description": "verification-gate emitted PASS for #645 on the strength of green widget tests, but the behavioral-evidence rule was satisfied only at the widget level (AgentKindBadgeTestHarness), not at the user-visible level across all four render sites. The orchestrator caught and fixed an earlier #645 false-green (provider mapping) but did not extend the contract to cover every call site, so a second false-green survived to manual smoke.",
+        "detected_by": "Manual smoke FAIL after verification-gate PASS; transcript shows the contract test exercised the widget in isolation, not the composing views."
+      }
+    ]
+  },
+  "implementation_files": [
+    "apps/desktop_flutter/lib/features/agents/views/_slash_command_popover.dart",
+    "apps/desktop_flutter/lib/features/agents/views/agents_view.dart",
+    "apps/desktop_flutter/test/features/agents/issue_643_slash_command_scroll_test.dart",
+    "apps/desktop_flutter/test/features/agents/issue_645_agent_pill_stale_icon_test.dart",
+    "docs/ai/contracts/issue-643.json",
+    "docs/ai/contracts/issue-645.json"
+  ],
+  "failure_output": "Manual smoke: session-list badge='Claude Code' (correct, server=anthropic/claude-opus-4-7); transcript header badge + mini-bubble badge='Gemini CLI' (stale). Panel also showed 'Error: Model not found: openrouter/google/gemini-3-flash ... ProviderModelNotFoundError' — invalid catalog model (separate follow-up).",
+  "overall_category": "C2",
+  "suggested_follow_up": "acceptance-contract for cross-cutting UI fixes must enumerate ALL render sites of the changed widget and assert each composing view, not just the widget in isolation; verification-gate should treat a widget-isolation test as insufficient behavioral evidence when the widget appears in multiple parent views."
+}

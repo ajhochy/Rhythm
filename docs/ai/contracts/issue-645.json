@@ -1,0 +1,194 @@
+{
+  "issue": 645,
+  "generated": "2026-05-26",
+  "stack": "dart",
+  "smoke_failure": "2026-05-26 — badge rendered in FOUR places; first pass only fixed site #1. Sites #2, #3, #4 showed stale 'Gemini CLI' after an errored model switch.",
+  "root_cause": "Sites #2 (_ResumableSessionRow) and #3 (_TranscriptHeader) called _AgentKindBadge(agentId: session.agentId) without passing providerId — provider→agent-kind mapping was never applied. Site #4 (_BubbleHeader / _CollapsedBubble in agent_bubble_overlay.dart) used entry.agentId from a stale AgentBubbleEntry and looked up AgentConfig via context.read (no subscription), without using providerId at all. Additionally AgentBubbleEntry did not carry providerId, so even a watch would have missed it.",
+  "fix_sites": [
+    {
+      "site": 1,
+      "widget": "_SessionRow",
+      "file": "lib/features/agents/views/agents_view.dart",
+      "line": 777,
+      "status": "already fixed in first pass — _AgentKindBadge(agentId: session.agentId, providerId: session.providerId)"
+    },
+    {
+      "site": 2,
+      "widget": "_ResumableSessionRow",
+      "file": "lib/features/agents/views/agents_view.dart",
+      "line": 846,
+      "status": "fixed — added providerId: session.providerId to _AgentKindBadge call"
+    },
+    {
+      "site": 3,
+      "widget": "_TranscriptHeader",
+      "file": "lib/features/agents/views/agents_view.dart",
+      "line": 1339,
+      "status": "fixed — added providerId: session.providerId to _AgentKindBadge call"
+    },
+    {
+      "site": 4,
+      "widget": "_BubbleHeader / _CollapsedBubble",
+      "file": "lib/app/core/agents/agent_bubble_overlay.dart",
+      "status": "fixed — added providerId field to AgentBubbleEntry (overlay_controller.dart), populated in _sync() from session.providerId, added _kBubbleProviderToAgentKind map and _resolveAgentKind() helper in agent_bubble_overlay.dart, changed context.read → context.watch for AgentConfigsController in both _CollapsedBubble and _BubbleHeader"
+    }
+  ],
+  "provider_to_agent_kind_map": {
+    "anthropic": "claude-code",
+    "github-copilot": "claude-code",
+    "openai": "codex",
+    "google": "gemini-cli"
+  },
+  "criteria": [
+    {
+      "criterion_id": "issue-645-c1",
+      "text": "The agent badge pill must show the correct label for the initial agentId ('Claude Code' when agentId='claude-code').",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agents/issue_645_agent_pill_stale_icon_test.dart",
+      "test_id": "issue #645 — agent pill re-renders when session agent changes c1: badge shows Claude Code label for agentId=claude-code",
+      "status": "passing",
+      "sites_covered": [1]
+    },
+    {
+      "criterion_id": "issue-645-c2",
+      "text": "When session.providerId changes to 'openai' (real production value for Codex), the badge must map 'openai' → 'codex' and show 'Codex'. FAILS before fix (byId('openai')=null).",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agents/issue_645_agent_pill_stale_icon_test.dart",
+      "test_id": "issue #645 — agent pill re-renders when session agent changes c2 (STRICT): badge updates to Codex label when providerId switches to openai (real production value)",
+      "status": "passing",
+      "sites_covered": [1]
+    },
+    {
+      "criterion_id": "issue-645-c2b",
+      "text": "When session.providerId changes to 'google' (real production value for Gemini), the badge must map 'google' → 'gemini-cli' and show 'Gemini CLI'. FAILS before fix.",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agents/issue_645_agent_pill_stale_icon_test.dart",
+      "test_id": "issue #645 — agent pill re-renders when session agent changes c2b (STRICT): badge updates to Gemini CLI label when providerId switches to google (real production value)",
+      "status": "passing",
+      "sites_covered": [1]
+    },
+    {
+      "criterion_id": "issue-645-c3",
+      "text": "After AgentConfigsController.notifyListeners() fires, the badge must rebuild (context.watch contract).",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agents/issue_645_agent_pill_stale_icon_test.dart",
+      "test_id": "issue #645 — agent pill re-renders when session agent changes c3 (STRICT): badge rebuilds when AgentConfigsController notifies",
+      "status": "passing",
+      "sites_covered": [1]
+    },
+    {
+      "criterion_id": "issue-645-c4",
+      "text": "Site #2 (_ResumableSessionRow): badge shows Claude Code when providerId=anthropic (smoke baseline).",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agents/issue_645_agent_pill_stale_icon_test.dart",
+      "test_id": "issue #645 site #2 — _ResumableSessionRow badge uses providerId c4: resumable row shows Claude Code when providerId=anthropic (smoke baseline)",
+      "status": "passing",
+      "sites_covered": [2]
+    },
+    {
+      "criterion_id": "issue-645-c4b",
+      "text": "Site #2 (_ResumableSessionRow): badge maps providerId=google → Gemini CLI. STRICT fail-first test — FAILED before fix because providerId was not passed.",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agents/issue_645_agent_pill_stale_icon_test.dart",
+      "test_id": "issue #645 site #2 — _ResumableSessionRow badge uses providerId c4b (STRICT): resumable row shows Gemini CLI when providerId=google — was MISSING providerId before fix (site #2)",
+      "status": "passing",
+      "sites_covered": [2]
+    },
+    {
+      "criterion_id": "issue-645-c4c",
+      "text": "Site #2 (_ResumableSessionRow): badge maps providerId=openai → Codex.",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agents/issue_645_agent_pill_stale_icon_test.dart",
+      "test_id": "issue #645 site #2 — _ResumableSessionRow badge uses providerId c4c: resumable row shows Codex when providerId=openai (site #2)",
+      "status": "passing",
+      "sites_covered": [2]
+    },
+    {
+      "criterion_id": "issue-645-c5",
+      "text": "Site #3 (_TranscriptHeader): badge shows Claude Code when providerId=anthropic (smoke baseline). This was the exact smoke failure — header showed stale 'Gemini CLI'.",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agents/issue_645_agent_pill_stale_icon_test.dart",
+      "test_id": "issue #645 site #3 — _TranscriptHeader badge uses providerId c5: transcript header shows Claude Code when providerId=anthropic (smoke baseline)",
+      "status": "passing",
+      "sites_covered": [3]
+    },
+    {
+      "criterion_id": "issue-645-c5b",
+      "text": "Site #3 (_TranscriptHeader): badge maps providerId=google → Gemini CLI. STRICT fail-first test — FAILED before fix because providerId was not passed.",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agents/issue_645_agent_pill_stale_icon_test.dart",
+      "test_id": "issue #645 site #3 — _TranscriptHeader badge uses providerId c5b (STRICT): transcript header shows Gemini CLI when providerId=google — was MISSING providerId before fix (site #3)",
+      "status": "passing",
+      "sites_covered": [3]
+    },
+    {
+      "criterion_id": "issue-645-c5c",
+      "text": "Site #3 (_TranscriptHeader): badge maps providerId=openai → Codex.",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agents/issue_645_agent_pill_stale_icon_test.dart",
+      "test_id": "issue #645 site #3 — _TranscriptHeader badge uses providerId c5c: transcript header shows Codex when providerId=openai (site #3)",
+      "status": "passing",
+      "sites_covered": [3]
+    },
+    {
+      "criterion_id": "issue-645-c6",
+      "text": "Site #4 (_BubbleHeader): badge shows Claude Code when entry.providerId=anthropic (smoke baseline). This was the exact smoke failure — bubble header showed stale 'Gemini CLI'.",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agents/issue_645_agent_pill_stale_icon_test.dart",
+      "test_id": "issue #645 site #4 — bubble badges use providerId c6: BubbleHeader shows Claude Code when entry.providerId=anthropic (smoke baseline)",
+      "status": "passing",
+      "sites_covered": [4]
+    },
+    {
+      "criterion_id": "issue-645-c6b",
+      "text": "Site #4 (_BubbleHeader): badge maps entry.providerId=google → Gemini CLI. STRICT fail-first test — FAILED before fix because AgentBubbleEntry had no providerId field.",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agents/issue_645_agent_pill_stale_icon_test.dart",
+      "test_id": "issue #645 site #4 — bubble badges use providerId c6b (STRICT): BubbleHeader shows Gemini CLI when entry.providerId=google — was showing stale label before fix (site #4)",
+      "status": "passing",
+      "sites_covered": [4]
+    },
+    {
+      "criterion_id": "issue-645-c6c",
+      "text": "Site #4 (_BubbleHeader): badge maps entry.providerId=openai → Codex.",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agents/issue_645_agent_pill_stale_icon_test.dart",
+      "test_id": "issue #645 site #4 — bubble badges use providerId c6c: BubbleHeader shows Codex when entry.providerId=openai (site #4)",
+      "status": "passing",
+      "sites_covered": [4]
+    },
+    {
+      "criterion_id": "issue-645-c7",
+      "text": "Site #4 (_BubbleHeader): badge rebuilds when AgentConfigsController notifies (context.watch contract). FAILED before fix because context.read was used.",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agents/issue_645_agent_pill_stale_icon_test.dart",
+      "test_id": "issue #645 site #4 — bubble badges use providerId c7: bubble badge rebuilds when AgentConfigsController notifies (context.watch fix for site #4)",
+      "status": "passing",
+      "sites_covered": [4]
+    },
+    {
+      "criterion_id": "issue-645-c8",
+      "text": "Cross-site consistency: an anthropic/claude-code session shows 'Claude Code' in ALL FOUR sites.",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agents/issue_645_agent_pill_stale_icon_test.dart",
+      "test_id": "issue #645 — all four sites show the same agent label c8: anthropic/claude-code session → all four sites show Claude Code",
+      "status": "passing",
+      "sites_covered": [1, 2, 3, 4]
+    },
+    {
+      "criterion_id": "issue-645-c9",
+      "text": "Errored model switch scenario: after a transient/errored model selection, all four sites show the persisted agent label ('Claude Code'), NOT the stale errored agent label ('Gemini CLI'). This is the exact smoke failure scenario from 2026-05-26.",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agents/issue_645_agent_pill_stale_icon_test.dart",
+      "test_id": "issue #645 — all four sites show the same agent label c9 (STRICT): errored model switch — all four sites show Claude Code (the persisted agent), NOT the stale errored agent label",
+      "status": "passing",
+      "sites_covered": [1, 2, 3, 4]
+    }
+  ],
+  "not_tested": [
+    "Live model picker interaction (requires full AgentsView widget tree + AgentsController with real WS + repository stubs — covered by manual smoke).",
+    "The case where session.agentId IS updated via SessionUpdatedMessage with a different agentId — this path already worked correctly before the fix.",
+    "providerId values that do NOT map to a known agent config ID (e.g. 'openrouter' aggregator) — resolves to agentId fallback, which reflects the persisted session agent. Acceptable behavior.",
+    "_CollapsedBubble badge letter (the single-char initial in the ring) — indirectly covered by c6/c6b/c6c via _resolveAgentKind which feeds into _CollapsedBubble's config lookup."
+  ]
+}
