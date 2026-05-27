@@ -1,0 +1,32 @@
+{
+  "issue": 648,
+  "generated": "2026-05-27",
+  "stack": "typescript",
+  "criteria": [
+    {
+      "criterion_id": "issue-648-c1",
+      "text": "ROUTE_FALLBACKS_BY_AGENT['gemini-cli'] does NOT contain the invalid OpenRouter model id `google/gemini-3-flash` (which triggers ProviderModelNotFoundError).",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/issue_648_contract.test.ts",
+      "test_id": "issue-648-c1: gemini-cli fallbacks do not include openrouter/google/gemini-3-flash",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-648-c2",
+      "text": "ROUTE_FALLBACKS_BY_AGENT['gemini-cli'] still contains at least one valid OpenRouter Gemini flash entry (catalog must not go empty; only the invalid id is replaced, not the slot).",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/issue_648_contract.test.ts",
+      "test_id": "issue-648-c2: gemini-cli fallbacks still have at least one valid openrouter gemini flash entry",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-648-c3",
+      "text": "No entry in ANY agent's fallback list uses the bare `google/gemini-3-flash` model id via the openrouter provider (regression guard for other agents).",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/issue_648_contract.test.ts",
+      "test_id": "issue-648-c3: no agent uses openrouter + google/gemini-3-flash (regression guard)",
+      "status": "pending"
+    }
+  ],
+  "not_tested": []
+}

@@ -2,17 +2,23 @@
 
 ## Known bugs (parked, not blocking PR #617)
 
-### #638 — full-view error rendering for newly-created sessions
-**Status**: parked 2026-05-20 after 5 rounds of fixes. See `gh issue view 638` for the full retro.
-- **Symptom**: when a brand-new session is created with a bogus model, the SDK error frame appears in the mini-bubble overlay but NOT in the main Agents view transcript. Resumed/old sessions render the error correctly.
-- **Fixes that DID land** (still useful, retained in PR #617): view binding switch to `transcriptFor`; session.idle zero-token error broadcast; selectSession/reconnectSession merge instead of overwrite; refreshModelRoutes also calls refreshCatalog; agent_sessions_controller awaits streamSession instead of fire-and-forget.
-- **Remaining unknown**: bubble's `transcriptFor(id)` shows the error, full view's `transcriptFor(id)` doesn't — same code path. Suggests a second clobber site OR an id mismatch between session.id at bubble vs view call sites. Needs instrumentation (logging on every `_transcriptsBySession[id]` write site + stack) to isolate.
-- **Not blocking**: error IS visible (in the bubble) and PR delivers the other 4 rounds of fixes.
-
-### #635 — mini-bubble hides user messages
-**Status**: parked from earlier round. Diagnostic agent's optimistic-echo hypothesis was wrong; renderer correctly handles `role=='input'`. Real cause is upstream (server query or persistence) — needs ~15-min investigation in its own PR.
+_(Parked bugs from before 2026-05-27 run. #638 and #635 below are now RESOLVED — see 2026-05-27 run entry.)_
 
 ## Recent coding-agent runs
+
+### 2026-05-27 — workflow/run-2026-05-27 (#630, #635, #638, #648) — pending smoke (PR #649)
+- Combined branch for four open Agents issues; all previous non-mobile issues confirmed already-implemented (7 closed on GitHub).
+- Files modified:
+  - `apps/api_server/src/services/agent_model_resolver.ts` (#648) — replaced invalid OpenRouter model id `google/gemini-3-flash` → `google/gemini-3-flash-preview` in `ROUTE_FALLBACKS_BY_AGENT['gemini-cli']`.
+  - `apps/desktop_flutter/lib/features/agents/views/agents_view.dart` (#638, #630) — (1) in `_buildTranscriptBody` hasChat=true branch, collect `role==system` entries from legacyTranscript and append them after chatMessages so WS error frames are visible regardless of which rendering path is active; (2) broadened QuestionToolCard dispatch from `toolName == 'question'` to also match `'askuserquestion'` (the name the opencode SDK actually emits).
+  - `apps/desktop_flutter/lib/features/agents/controllers/agents_controller.dart` (#635) — `sendInput()` now prepends an optimistic `role='input'` AgentSessionMessage to `_transcriptsBySession[sessionId]` before the WS send so the mini-bubble renders the user's message immediately.
+  - `apps/desktop_flutter/lib/features/agents/views/_question_tool_card.dart` (#630) — `_parseQuestions` now extracts the `label` field from Map-typed option entries `{label, description}` in addition to bare String options.
+  - `apps/desktop_flutter/lib/features/agents/views/_message_actions_row.dart` (side fix) — changed `MessageTimeTicker` from a module-level `_globalTimeTick` singleton to a per-widget scoped `ChangeNotifierProvider(create: ...)` so the timer is properly disposed with the widget tree (was leaking in test FakeAsync zone).
+  - New contract tests: `issue_648_contract.test.ts` (3 vitest), `issue_635_contract_test.dart` (2 Flutter), `issue_630_contract_test.dart` (2 Flutter), extended `issue_638_contract_test.dart` (+c5 Flutter).
+  - New contract JSONs: `docs/ai/contracts/issue-648.json`, `issue-635.json`, `issue-630.json`; updated `issue-638.json` (+c5).
+- Checks run: flutter test 284/284 ✓; api_server vitest 545/545 ✓; flutter analyze --no-fatal-infos ✓ (0 errors/warnings, 209 infos only).
+- Acceptance contracts: all four issues had failing tests before fix, all green after.
+- Manual smoke task created in Rhythm: "Manual smoke: PR #649 — agent issues #630/#635/#638/#648".
 
 ### 2026-05-26 — fix/issue-643-645-agents-ui (#643, #645) — merged (PR #647)
 - Combined branch off main for two PR #642 smoke follow-ups (both Agents UI, UI-local). Both smoked PASS (#643 popover scroll; #645 badge consistent across all four surfaces on re-smoke).

@@ -58,7 +58,7 @@ export const ROUTE_FALLBACKS_BY_AGENT: Record<string, ModelRoute[]> = {
       providerID: 'openrouter',
       modelID: 'google/gemini-3.1-pro-preview-customtools',
     },
-    { providerID: 'openrouter', modelID: 'google/gemini-3-flash' },
+    { providerID: 'openrouter', modelID: 'google/gemini-3-flash-preview' },
   ],
   // The bare "opencode" agent kind: prefer the user's opencode config
   // (left unmapped so the SDK uses its own defaults), but fall back to

@@ -88,7 +88,12 @@ class _QuestionToolCardState extends State<QuestionToolCard> {
       final options = <String>[];
       if (optionsRaw is List) {
         for (final o in optionsRaw) {
-          if (o is String) options.add(o);
+          if (o is String) {
+            options.add(o);
+          } else if (o is Map) {
+            final label = o['label'] as String?;
+            if (label != null && label.isNotEmpty) options.add(label);
+          }
         }
       }
       if (question.isNotEmpty) {

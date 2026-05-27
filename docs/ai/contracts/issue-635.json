@@ -1,0 +1,24 @@
+{
+  "issue": 635,
+  "generated": "2026-05-27",
+  "stack": "dart",
+  "criteria": [
+    {
+      "criterion_id": "issue-635-c1",
+      "text": "After sendInput(sessionId, text) is called, controller.transcriptFor(sessionId) must contain an AgentSessionMessage with role == 'input' and strippedText == text. User messages must appear in the mini-bubble's transcript pipeline, which reads transcriptFor.",
+      "mode": "unit",
+      "test_file": "apps/desktop_flutter/test/features/agents/issue_635_contract_test.dart",
+      "test_id": "issue-635-c1: sendInput adds optimistic user message to transcriptFor",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-635-c2",
+      "text": "The expanded mini-bubble renders a user message widget for the role='input' entry produced by sendInput. The _MiniMessageBlock for isInput=true must be rendered in the bubble's Column, not filtered out.",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agents/issue_635_contract_test.dart",
+      "test_id": "issue-635-c2: mini-bubble renders user message after sendInput",
+      "status": "pending"
+    }
+  ],
+  "not_tested": []
+}

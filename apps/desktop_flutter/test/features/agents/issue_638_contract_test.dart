@@ -468,6 +468,121 @@ void main() {
   );
 
   // -------------------------------------------------------------------------
+  // c5 — UI (STRICT: FAILS today, PASSES after the hasChat-branch fix)
+  //
+  // When `hasChat = true` (chatMessages are non-empty) the view's hasChat branch
+  // returns early and renders ONLY chatMessages, skipping legacyTranscript
+  // entirely. A WsErrorMessage (role: 'system') appended to legacyTranscript
+  // is therefore hidden — even though transcriptFor() has it.
+  //
+  // Fix: when hasChat=true, also render legacyTranscript entries with
+  // role == 'system' so error frames are always visible.
+  // -------------------------------------------------------------------------
+  group(
+    'issue-638-c5: WS error frame visible even when hasChat = true',
+    () {
+      testWidgets(
+        'error injected after a chat message appears in transcript panel',
+        (tester) async {
+          await tester.binding.setSurfaceSize(const Size(1400, 900));
+          addTearDown(() => tester.binding.setSurfaceSize(null));
+
+          final repo = _HangingGetSessionRepository();
+          final controller = AgentsController(
+            repo,
+            _ReadyAgentServerController(),
+            _FakeLocalNotificationService(),
+            _FakeNotificationsController(),
+          );
+
+          await tester.runAsync(() async {
+            await controller.initialize();
+
+            // Register 'sid-chat' in the sessions list via WS.
+            repo.push(
+              SessionCreatedMessage(
+                session: AgentSession(
+                  id: 'sid-chat',
+                  agentId: 'claude-code',
+                  name: 'Chat session',
+                  cwd: '/tmp',
+                  status: AgentSessionStatus.working,
+                  createdAt: DateTime(2026),
+                  updatedAt: DateTime(2026),
+                ),
+              ),
+            );
+            await Future<void>.delayed(const Duration(milliseconds: 10));
+
+            // Populate chatMessages so hasChat = true.
+            repo.push(
+              MessageUpdatedMessage(
+                sessionId: 'sid-chat',
+                info: const {'id': 'msg-001', 'role': 'assistant'},
+              ),
+            );
+            await Future<void>.delayed(const Duration(milliseconds: 10));
+
+            // Precondition: chatMessages must be non-empty now.
+            assert(
+              controller.chatMessagesFor('sid-chat').isNotEmpty,
+              'chatMessagesFor must be non-empty to exercise the hasChat=true branch',
+            );
+
+            // Inject a WsErrorMessage AFTER chatMessages exist.
+            // This appends to legacyTranscript (role: system) but the hasChat
+            // branch ignores legacyTranscript — so error is hidden today.
+            repo.push(
+              const WsErrorMessage(
+                id: 'sid-chat',
+                message: 'Provider error in chat session',
+              ),
+            );
+            await Future<void>.delayed(const Duration(milliseconds: 10));
+
+            // Data-layer invariant: transcriptFor has the error.
+            assert(
+              controller.transcriptFor('sid-chat').any(
+                    (m) => m.strippedText.contains('Provider error'),
+                  ),
+              'transcriptFor(sid-chat) must have the error',
+            );
+
+            // Select the session.
+            unawaited(controller.selectSession('sid-chat'));
+            await Future<void>.delayed(const Duration(milliseconds: 10));
+          });
+
+          await tester
+              .pumpWidget(await _buildTestApp(agentsController: controller));
+          await tester.pump();
+
+          // THE FAILING ASSERTION (today): hasChat=true returns ONLY chatMessages,
+          // legacyTranscript (with the error) is ignored.
+          //
+          // AFTER FIX: the hasChat branch also renders role=system messages
+          // from legacyTranscript, so 'Provider error' is visible.
+          expect(
+            find.textContaining('Provider error'),
+            findsAtLeastNWidgets(1),
+            reason: 'The error must be visible even when hasChat=true. '
+                'Today the hasChat branch returns early without rendering '
+                'legacyTranscript (issue #638 hasChat sub-bug).',
+          );
+
+          // Replace the widget tree with an empty container first so that
+          // any timer-owning widgets (MessageActionsRow, MessageTimeTicker)
+          // are properly disposed before controller.dispose() cancels the
+          // stuckCheckTimer. Without this, those widget timers are still
+          // pending when the test framework's FakeAsync cleanup runs.
+          await tester.pumpWidget(const MaterialApp(home: SizedBox()));
+          controller.dispose();
+        },
+      );
+    },
+  );
+
+  // -------------------------------------------------------------------------
   // c3 — UNIT (STRICT: FAILS today, PASSES after the line-855 merge fix)
   //
   // Race window: WS error frame arrives AFTER selectSession dispatches REST
