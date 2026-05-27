@@ -124,6 +124,8 @@ export class AgentSessionsController {
       }
 
       let resolvedTaskId: string | null = null;
+      // #629: capture the full task so we can seed a system context message.
+      let resolvedTask: import('../models/task').Task | null = null;
       if (taskId !== undefined && taskId !== null) {
         if (typeof taskId !== 'string') {
           throw AppError.badRequest('taskId must be a string');
@@ -134,7 +136,7 @@ export class AgentSessionsController {
         // local table and silently null out the foreign key when not found.
         // task_title is preserved so the UI still shows context.
         try {
-          new TasksRepository().findByIdIncludingLegacy(taskId);
+          resolvedTask = new TasksRepository().findByIdIncludingLegacy(taskId);
           resolvedTaskId = taskId;
         } catch {
           logger.warn(
@@ -209,6 +211,24 @@ export class AgentSessionsController {
       };
 
       const session = repo.insert(dto);
+
+      // #629: Seed a non-triggering system context message so the user sees
+      // task context when they open the chat from the task-ready bubble.
+      //
+      // The 'system' role is display-only — only 'session.input' over the WS
+      // triggers an LLM turn. This message is NEVER sent to the SDK, so it
+      // cannot cause bug #624 (model-less first turn / extra promptAsync call).
+      {
+        const contextTitle = resolvedTask?.title ?? (typeof taskTitle === 'string' && taskTitle ? taskTitle : null);
+        if (contextTitle) {
+          const notes = resolvedTask?.notes ?? null;
+          let text = `Task context\nTitle: ${contextTitle}`;
+          if (notes && notes.trim()) {
+            text += `\n\n${notes.trim()}`;
+          }
+          messagesRepo.append(session.id, 'system', text, text);
+        }
+      }
 
       // #602: agent-less sessions skip SDK session creation.
       // The first session.input WS frame with a modelOverride will resolve

@@ -14,6 +14,53 @@
 
 ## Recent coding-agent runs
 
+### 2026-05-26 — feat/issue-48-pco-automation-ux (#48)
+- Files modified:
+  - `apps/desktop_flutter/lib/features/tasks/views/automation_rules_view.dart` — (1) extended "Schedule in service week" day picker from Mon–Fri (options [1..5]) to Mon–Sun (options [1..7], added Saturday=6 and Sunday=7 labels); (2) replaced `helperText` placeholder hint on Task title template and Task notes template fields with clickable `{{token}}` ActionChip rows (new `_placeholderChips` helper + `_insertAtCursor` method); (3) wired `focusNode` params on title/notes template TextFields so chips can request focus and insert at cursor.
+  - `apps/api_server/src/__tests__/issue_48_contract.test.ts` — new vitest contract test (3 tests: c1 multi-trigger fires both A and B; c2 targetDayOfWeek=4 with Sunday planDate yields Thursday of same week; c3 scalar trigger_key backward-compat still fires). All 3 green (engine already supported these semantics).
+  - `apps/desktop_flutter/test/issue_48_contract_test.dart` — new Flutter widget test (4 tests: c4 PCO action dropdown excludes tag_task/send_notification/auto_schedule; c5 team+position FilterChips render; c6 Saturday+Sunday in day picker; c7 {{title}} chip inserts at cursor). All 4 green after implementation.
+  - `docs/ai/contracts/issue-48.json` — new contract JSON (7 criteria, all automated, 0 manual).
+- Checks run:
+  - `ai-workflow checks --level issue` → flutter analyze ✓, dart format ✓, tsc --noEmit ✓
+  - `npx vitest run src/__tests__/issue_48_contract.test.ts` → 3/3 ✓
+  - `flutter test test/issue_48_contract_test.dart` → 4/4 ✓
+  - `ai-workflow checks --level pr` → all checks ✓
+- Decisions made:
+  - Sub-changes 1 (multi-select triggers), 2 (multi-select team+position), and 4 (PCO action cleanup) were already implemented in the view. The backend engine already supported triggerConfig.triggerKeys and targetDayOfWeek. Only c6 (day picker Mon–Sun) and c7 (clickable placeholder chips) needed new implementation.
+  - Used ISO weekday numbers 1–7 (1=Mon, 7=Sun) matching the existing `scheduleToWeekdayInSameWeek` function in the engine — same convention, no engine changes needed.
+  - `_insertAtCursor` uses `TextEditingValue` to insert at cursor position and handles collapsed and range selections. Focus is requested after insert so keyboard stays visible.
+  - `_placeholderChips` reuses `_availableTemplateTokens()` for source-appropriate token list — automatically correct for all sources (Gmail, PCO, Calendar).
+- Deviations from spec: none. The issue called `actionConfig.dueWeekday` but the existing engine field name is `actionConfig.targetDayOfWeek`; the spec was using a shorthand — kept the existing name.
+- Concerns: The day picker dropdown for c6 renders inside a scrollable dialog; the widget test needed `ensureVisible` + `warnIfMissed: false` to tap it (it's below the default 600px test viewport). This is expected test-environment behavior, not a production issue.
+
+### 2026-05-26 — fix/issue-631-slash-command-popover-empty (#631)
+- Files modified:
+  - `apps/api_server/src/services/opencode_client_service.ts` — added `listCommands()` method that guards on `!this.client` (returns []), casts the client to access `command.list()` (SDK type doesn't surface `command` via CommonJS import), unwraps the `{data, error}` envelope, maps to `{name, description}`, wraps in try/catch with logger.warn → returns [].
+  - `apps/api_server/src/app.ts` — replaced hard-coded `res.json([])` placeholder in `GET /opencode/commands` with `async (_req, res)` that calls `await opencodeClient.listCommands()` and returns the array; retains outer try/catch for resilience.
+  - `apps/api_server/src/__tests__/issue_631_contract.test.ts` — new vitest contract test (4 tests): c1 (returns [] when not ready), c2 (maps to {name, description}), c3 (returns [] on error), c4 (route calls listCommands not hard-coded []). Red proven: 4/4 fail before fix. Green: 4/4 pass after.
+  - `docs/ai/contracts/issue-631.json` — new contract JSON (5 criteria, 4 automated, 1 manual).
+- Checks run:
+  - `ai-workflow checks --level issue` → flutter analyze ✓, dart format ✓, tsc --noEmit ✓
+  - `npx vitest run src/__tests__/issue_631_contract.test.ts` → 4/4 ✓ (red: 4 fail before fix)
+  - `ai-workflow checks --level pr` → all checks ✓ (539/539 vitest, was 535)
+- Decisions made: cast `this.client` to `Record<string, { list: () => Promise<unknown> }>` to access `command.list()` — the SDK's exported `OpencodeClient` type doesn't surface `command` through CommonJS import resolution, but the runtime object has it (sdk.gen.d.ts:391 confirms `command: Command`). This matches the pattern used in existing dynamic-import cast sites throughout the file. The route try/catch is outer-only (not wrapping listCommands again) since listCommands is already resilient internally.
+- Deviations from spec: none. Exact envelope unwrap pattern (`raw.data ?? []`) matches existing methods. Guard condition is `!this.client` not `!this.isReady` — same as `listProviders`.
+- Concerns: The SDK's `command.list()` result envelope shape (`{data: Array<Command>}`) was inferred from the CommandListResponses type in types.gen.d.ts. If the SDK changes the envelope schema, `raw.data ?? []` will silently return []. A warning log fires in the catch path, so failures are visible in server logs.
+
+### 2026-05-26 — fix/issue-629-task-context-system-message (#629)
+- Files modified:
+  - `apps/api_server/src/controllers/agent_sessions_controller.ts` — captured returned `Task` from `findByIdIncludingLegacy` (was discarding it; c.137); after `repo.insert(dto)` and before the agent-less early return, appended a `'system'` message via `messagesRepo.append(session.id, 'system', text, text)` where text is `"Task context\nTitle: <title>\n\n<notes>"` (notes paragraph omitted if null). Fallback: when taskId is not in local DB but taskTitle is provided, the provided taskTitle is used instead. The `'system'` role is display-only — never sent to SDK — so this cannot cause #624.
+  - `apps/desktop_flutter/lib/app/core/agents/agent_bubble_overlay.dart` — added `isSystem` branch in `_MiniMessageBlock.build()` rendering a muted italic text block (matches the `agents_view.dart` `_MessageBlock` system render style). The full-view `_MessageBlock` already handled `role=='system'` (lines 1673-1685) — no change needed there.
+  - `apps/api_server/src/__tests__/issue_629_contract.test.ts` — new vitest contract test (4 tests): c1 (title in system msg), c2 (notes in system msg), c3 (taskTitle fallback when FK miss), c4 (no extra promptAsync for agent-less session). Red proven on current code before fix.
+  - `docs/ai/contracts/issue-629.json` — new contract JSON (5 criteria, 4 automated, 1 manual).
+- Checks run:
+  - `ai-workflow checks --level issue` → flutter analyze ✓, dart format ✓, tsc --noEmit ✓
+  - `npx vitest run src/__tests__/issue_629_contract.test.ts` → 4/4 ✓ (red: 3 fail before fix; green: 4/4 after)
+  - `npx vitest run` (full suite) → 535/535 ✓
+- Decisions made: placed the system message append BEFORE the agent-less early return so both agent-less (task bubble path) and agent-assigned sessions get the context. Used an inline block `{ }` around the append logic to keep scope clean. The `resolvedTask` variable uses an inline `import('../models/task').Task` type reference to avoid adding a top-level import for a type that's only used in one spot.
+- Deviations from spec: none. The spec called for `messagesRepo.append(session.id, 'system', text, text)` exactly as implemented.
+- Concerns: `resolvedTask?.notes` may be empty string (`""`); guarded with `notes.trim()` check before appending the notes paragraph. The fallback path (c3) uses `typeof taskTitle === 'string' && taskTitle` to avoid appending a system message when taskTitle is an empty string.
+
 ### 2026-05-20 — fix/pr-617-fifth-round-smoke (#638 c4)
 - Fifth-round smoke on commit 4f921ac surfaced: #638 still fails for newly-created sessions despite the c3 race-merge fix. Root cause is upstream of the controller: api_server's `streamBridge.streamSession()` was fire-and-forget, so the SSE listener loop wasn't subscribed when `promptAsync` fired immediately after. SDK-level errors (e.g. "Model not found") arrived before the bridge could resolve `localSessionId`, so the WS broadcast went out with the SDK UUID and the Flutter client couldn't route it.
 - Files modified:
@@ -191,7 +238,56 @@
 
 ---
 
-## Current Status (2026-05-19 — follow-up fixes for #606, #622, #623, #624, #625 committed; smoke pending)
+## Current Status (2026-05-26 — workflow run over 5 issues; PR #642 open, awaiting manual smoke)
+
+🟢 **Branch `workflow/run-2026-05-26` → [PR #642](https://github.com/ajhochy/Rhythm/pull/642)** (NOT merged). HEAD `6a17b91`. Server CI + Desktop CI green.
+
+Five issues, all verified by `verification-gate`. Two were already implemented on `main` and just never closed (locked with regression tests); three had real gaps that were implemented:
+
+- **#626** (session.updated on stream bridge): already implemented (commit 163c7a6). Added regression contract tests only — `issue_626_contract.test.ts` 2/2.
+- **#476** (gate AgentTriggerWatcher in dev): guard already implemented (`RHYTHM_LOCAL_SMOKE` no-op). Documented the flag in `docs/testing/manual-smoke.md` §12.
+- **#629** (Open Chat ↔ task): taskId already persisted; added server-seeded non-triggering `system` context message + mini-bubble render. `issue_629_contract.test.ts` 4/4.
+- **#631** (slash popover empty): `/opencode/commands` returned hard-coded `[]`; wired `OpencodeClientService.listCommands()` → SDK `command.list()`. `issue_631_contract.test.ts` 4/4.
+- **#48** (PCO rule editor UX): sub-changes 1/2/4 already implemented; added #48.3 (day picker Mon–Sun) + #48.5 (placeholder insert chips). Backend 3/3 + Flutter widget 4/4.
+
+Plus 23 deterministic widget/controller tests (`test/features/agents/issue_62[69]_*`, `issue_631_*`) converting most of the manual smoke surface to `flutter test`. better-sqlite3 was rebuilt locally for Node ABI 127 so vitest runs.
+
+**Residual manual smoke (live-SDK only, see manual-smoke.md §12):** #631 real command list in popover; #629 task-context note on Open Chat from a live trigger; #626 chip flips live during a real agent run.
+
+**Companion:** [PR #641](https://github.com/ajhochy/Rhythm/pull/641) — mcp_server build-config fix (separate, CI green).
+
+**Previous trunk:** PR #617 merged to `main` on 2026-05-20 (commit 313e3ff); this run branched off post-merge `main`.
+
+### #48 summary
+
+Five sub-changes from the issue spec:
+1. **Multi-select triggers** — already implemented (PCO checklist in view; engine `triggerKeys` already supported). c1+c3 contract tests green.
+2. **Multi-select team + position** — already implemented (FilterChip rows in view; engine `teamIds`/`positionNames` already supported). c5 contract test green.
+3. **Day-of-week picker extended Mon–Sun** — was Mon–Fri only (`options: [1..5]`); extended to `[1..7]` with `6: Saturday`, `7: Sunday` labels. c6 contract test red→green.
+4. **Action dropdown cleanup** — already implemented (PCO filtered to `create_task` + `create_project_from_template` only). c4 contract test green. Engine `templateId` lookup already supported.
+5. **Placeholder insert chips** — replaced `helperText` hint on task title/notes template fields with clickable `{{token}}` ActionChips using new `_placeholderChips` + `_insertAtCursor` helpers; inserts at cursor using `TextEditingValue`. c7 contract test red→green.
+
+Files changed:
+- `apps/desktop_flutter/lib/features/tasks/views/automation_rules_view.dart` — day picker options + placeholder chip methods
+- `apps/api_server/src/__tests__/issue_48_contract.test.ts` — new (3 backend contract tests)
+- `apps/desktop_flutter/test/issue_48_contract_test.dart` — new (4 Flutter widget contract tests)
+- `docs/ai/contracts/issue-48.json` — new contract (7 criteria, all `status: pass`)
+
+### #631 fix summary
+
+- `apps/api_server/src/services/opencode_client_service.ts` — new `listCommands()` method.
+- `apps/api_server/src/app.ts` — `GET /opencode/commands` wired to `listCommands()`.
+- Contract: `docs/ai/contracts/issue-631.json`. Test: `apps/api_server/src/__tests__/issue_631_contract.test.ts` (4/4 green).
+
+### #629 fix summary
+
+- `apps/api_server/src/controllers/agent_sessions_controller.ts` — appends `'system'` message with task title + notes.
+- `apps/desktop_flutter/lib/app/core/agents/agent_bubble_overlay.dart` — renders `role=='system'` as muted italic.
+- Contract: `docs/ai/contracts/issue-629.json`. Test: `apps/api_server/src/__tests__/issue_629_contract.test.ts` (4/4 green).
+
+---
+
+## Prior Status (2026-05-19 — follow-up fixes for #606, #622, #623, #624, #625 committed; smoke pending)
 
 🟡 **Branch `follow-up` stays open. PR #617 still not merged.** PR #621 stacked on top — FK tolerance for production task IDs in the local SQLite. Independent and shippable.
 

@@ -112,8 +112,14 @@ Expected: 400 with descriptive error message
 
 ## 9. Flutter UI
 
+> **Always export `RHYTHM_LOCAL_SMOKE=1` for local smoke runs** (see §12). It
+> disables `AgentTriggerWatcher`, so the run never issues
+> `DELETE /claude-triggers/*` against production.
+
 ```bash
-cd apps/desktop_flutter && flutter run -d macos
+cd apps/desktop_flutter && RHYTHM_LOCAL_SMOKE=1 flutter run -d macos
+# or, equivalently:
+# flutter run -d macos --dart-define=RHYTHM_LOCAL_SMOKE=1
 ```
 
 - [ ] App launches without errors
@@ -163,3 +169,102 @@ Expected: all pass.
 - [ ] Settings → AI Account → paste any string into the OpenRouter API key field → Save.
 - [ ] If the server returns HTML (route missing in `dist/`), the UI shows a readable "Failed: <status reason>" message instead of a FormatException crash.
 - [ ] With a rebuilt `apps/api_server/dist/`, saving a valid key shows success.
+
+---
+
+## 12. Agent feature issues #626 / #629 / #631 — automated vs manual split
+
+### #626 — Session chip status flip
+
+**Automated by widget/controller tests:**
+- `AgentsController` receives `SessionUpdatedMessage` and upserts the session
+  in all list variants (idle→working, working→idle, archived, unknown id).
+- `notifyListeners()` fires on every upsert — chip widget rebuilds.
+- Test file: `test/features/agents/issue_626_chip_status_flip_test.dart` (5 tests)
+
+**Still manual (live SDK):**
+- Confirm the chip visually animates (color + spinner) during a real agent run
+  over a live WebSocket without issuing a REST poll. Requires: running app,
+  opencode SDK connected, one active agent session.
+- Steps:
+  1. `RHYTHM_LOCAL_SMOKE=1 flutter run -d macos`
+  2. Open Agents tab, create a session, send a prompt.
+  3. Observe the session-list chip flipping to the "working" spinner color while
+     the agent is running, then back to the idle green dot when it finishes.
+  4. Confirm the network tab shows no polling of `/agent-sessions` during the flip.
+
+---
+
+### #629 — System context note renders
+
+**Automated by widget/controller tests:**
+- `_MiniMessageBlock` (agent_bubble_overlay.dart) correctly dispatches the
+  `system` role to a muted italic Text widget (not the opaque output box).
+- Text content matches `strippedText`.
+- Source-text guard asserts the production `isSystem` branch still exists.
+- Test file: `test/features/agents/issue_629_system_message_render_test.dart`
+  (5 widget tests + 1 source guard)
+
+**Still manual (live SDK):**
+- Tap "Open Chat" from a live task-ready trigger bubble linked to a real task
+  with title and notes. Confirm the chat transcript shows the task context as a
+  grey italic note before the first assistant reply.
+- Requires: running app, production server with a `claude-trigger` entry, task
+  record with `notes` populated.
+- Steps:
+  1. From the Rhythm app, trigger a task that fires a `claude-trigger`.
+  2. When the task-ready bubble appears, tap "Open Chat".
+  3. Verify the transcript opens with an italicised grey line containing the
+     task title (and notes if present).
+
+---
+
+### #631 — Slash-command popover lists commands
+
+**Automated by widget/controller tests:**
+- `CommandsDataSource.list()` parses JSON array → `SlashCommand` items.
+- Returns `[]` on non-200, on exception, and on malformed response body.
+- `SlashCommandPopover` opens on '/' input, renders command names + descriptions,
+  filters on partial match, fires `onCommandSelected` with trailing space.
+- Test file: `test/features/agents/issue_631_slash_commands_test.dart`
+  (5 data-source unit tests + 7 widget tests)
+
+**Still manual (live SDK):**
+- Confirm real commands defined in `opencode.json` appear in the popover.
+- Requires: running app, opencode SDK initialized, at least one custom command
+  defined in the project's `opencode.json`.
+- Steps:
+  1. Open Agents tab, select an active session.
+  2. Click the composer input and type `/`.
+  3. Verify the popover appears with the commands from `opencode.json`.
+  4. Type a partial name to confirm filtering.
+  5. Press Enter to confirm the selected command writes to the input.
+
+---
+
+## 13. Local smoke safety — `RHYTHM_LOCAL_SMOKE` (issue #476)
+
+`AgentTriggerWatcher` polls the **production** `GET /claude-triggers` endpoint
+and issues `DELETE /claude-triggers/:id` after handing each trigger to the
+local agent server. During a local `flutter run` this means a dev session can
+mutate production trigger state — violating the no-production-traffic
+invariant.
+
+**Always export the flag before launching a local/dev smoke run:**
+
+```bash
+# env var (desktop)
+RHYTHM_LOCAL_SMOKE=1 flutter run -d macos
+
+# or compile-time dart-define (works on all platforms incl. web)
+flutter run -d macos --dart-define=RHYTHM_LOCAL_SMOKE=1
+```
+
+When the flag is set to `1`, `AgentTriggerWatcher.start()` is a no-op and logs:
+
+```
+[AgentTriggerWatcher] RHYTHM_LOCAL_SMOKE=1 detected — watcher is disabled for this run. No production traffic will be issued.
+```
+
+**Verify:** the `flutter run` log contains the line above and **no**
+`DELETE /claude-triggers/*` lines for the duration of the smoke run.

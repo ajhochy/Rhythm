@@ -1,0 +1,76 @@
+{
+  "run_id": "2026-05-26-run-642",
+  "issues": [626, 629, 631, 476, 48],
+  "date": "2026-05-26",
+  "pr": 642,
+  "smoke_result": "pass",
+  "verification_claimed": "PASS",
+  "divergence": false,
+  "criteria_results": [
+    {
+      "criterion_id": "issue-631-live",
+      "text": "Typing '/' in the composer shows the SDK's configured commands.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "User confirmed popover lists real commands. Separately found the list is not scrollable when taller than the popover — filed as follow-up #643 (UI-local, not a regression; scrolling was never implemented)."
+    },
+    {
+      "criterion_id": "issue-626-live",
+      "text": "Session chip flips idle -> working -> idle live during a real agent run without a REST poll.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "User confirmed the chip flips live during a sent prompt."
+    },
+    {
+      "criterion_id": "issue-629-live",
+      "text": "Open Chat from a task-ready bubble shows the seeded task-context note.",
+      "contract_status": "pass",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "UNVERIFIED-by-smoke, expected: the smoke ran with RHYTHM_LOCAL_SMOKE=1, which by design (#476) disables AgentTriggerWatcher, so no task-ready bubble can appear. The server contract test (4/4) and the widget render test cover the seeding + rendering. The live path needs either a non-smoke run or a locally-injected synthetic trigger. NOTE: this is a structural workflow interaction — #629's live verification and #476's safe-smoke gate are mutually exclusive in the same run."
+    }
+  ],
+  "process_issues": [
+    {
+      "process_category": "P2",
+      "description": "better-sqlite3 was compiled for Node ABI 137 but the local runtime is ABI 127, so vitest could not run until `npm rebuild better-sqlite3 --build-from-source` was run. Pre-existing condition affecting the whole repo, not introduced by this run.",
+      "detected_by": "First vitest run on the #626 contract failed with NODE_MODULE_VERSION 137 vs 127; resolved by rebuild."
+    }
+  ],
+  "workflow_adherence": {
+    "overall_score": "strict",
+    "expected_chain": ["workflow-orchestrator", "acceptance-contract", "coding-agent", "verification-gate", "smoke-test-writer", "project-state-updater", "failure-postmortem"],
+    "observed_chain": ["workflow-orchestrator", "acceptance-contract", "coding-agent", "verification-gate", "coding-agent", "verification-gate", "coding-agent", "verification-gate", "smoke-test-writer", "verification-gate", "project-state-updater", "failure-postmortem"],
+    "skipped_skills": [],
+    "issues": [
+      {
+        "workflow_category": "none",
+        "affected_skill": "acceptance-contract",
+        "description": "#476 (doc-only) and #626 (already-implemented) did not get a fresh red-first acceptance-contract; #626 got regression-guard tests (pass-first, documented), #476 was runtime/doc-validated. Both gaps were explicitly noted, which the skill permits — recorded for transparency, not a violation.",
+        "detected_by": "Orchestrator transcript — gaps announced before proceeding."
+      }
+    ]
+  },
+  "implementation_files": [
+    "apps/api_server/src/__tests__/issue_626_contract.test.ts",
+    "docs/testing/manual-smoke.md",
+    "apps/api_server/src/controllers/agent_sessions_controller.ts",
+    "apps/desktop_flutter/lib/app/core/agents/agent_bubble_overlay.dart",
+    "apps/api_server/src/services/opencode_client_service.ts",
+    "apps/api_server/src/app.ts",
+    "apps/desktop_flutter/lib/features/tasks/views/automation_rules_view.dart"
+  ],
+  "discovered_unrelated_bugs": [
+    {
+      "category": "C6",
+      "description": "Assigning the 'Visalia CRC' collaborator to a task and saving in the task inspector does not persist the collaborator, so no claude-trigger fires and no task-ready bubble appears. NOT in this PR's diff (no task-save/collaborator code touched). Pre-existing or server-side; blocks the trigger workflow.",
+      "detected_by": "User during manual smoke of #629.",
+      "follow_up": "Recommend a dedicated investigation issue — separate from PR #642."
+    }
+  ],
+  "failure_output": "",
+  "overall_category": "none",
+  "suggested_follow_up": "Provide a local synthetic-trigger injection path so trigger-dependent flows (e.g. #629 Open Chat) can be manually smoked under RHYTHM_LOCAL_SMOKE=1 without enabling production claude-trigger polling. Today #476's safe-smoke gate makes those flows un-smokeable in the same run."
+}

@@ -1,0 +1,47 @@
+{
+  "issue": 629,
+  "generated": "2026-05-26",
+  "stack": "typescript",
+  "criteria": [
+    {
+      "criterion_id": "issue-629-c1",
+      "text": "After POST /agent-sessions with a taskId present in the local tasks table, messagesRepo.listBySession must return at least one message with role='system' whose strippedText contains the task's title.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_629_contract.test.ts",
+      "test_id": "issue-629-c1: system message contains task title when taskId found in local table",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-629-c2",
+      "text": "When the task found by taskId has non-null notes, the system message's strippedText must also contain the task notes (description).",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_629_contract.test.ts",
+      "test_id": "issue-629-c2: system message contains task notes when task has non-null notes",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-629-c3",
+      "text": "When taskId is not found in the local tasks table but taskTitle is provided in the request body, a system message is still appended containing the provided taskTitle (graceful fallback).",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_629_contract.test.ts",
+      "test_id": "issue-629-c3: system message appended with taskTitle fallback when taskId not in local table",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-629-c4",
+      "text": "The system message must NOT trigger a new LLM turn. Specifically, appending a 'system' message must not call opencodeClient.promptAsync a second time (beyond the initial prompt already fired at session creation for non-agent-less sessions, or not at all for agent-less sessions opened from the task bubble).",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_629_contract.test.ts",
+      "test_id": "issue-629-c4: appending system context message does not trigger an extra promptAsync call",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-629-c5",
+      "text": "User sees task context (title and notes) displayed in the chat transcript when they tap Open Chat from the task-ready bubble.",
+      "mode": "manual",
+      "status": "UNVERIFIED",
+      "reason": "Requires running flutter app with a real task-ready bubble trigger. Not automatable in vitest."
+    }
+  ],
+  "not_tested": ["issue-629-c5"]
+}

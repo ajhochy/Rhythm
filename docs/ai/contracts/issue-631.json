@@ -1,0 +1,47 @@
+{
+  "issue": 631,
+  "generated": "2026-05-26",
+  "stack": "typescript",
+  "criteria": [
+    {
+      "criterion_id": "issue-631-c1",
+      "text": "OpencodeClientService.listCommands() returns [] when isReady is false (client is null).",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/issue_631_contract.test.ts",
+      "test_id": "issue-631-c1: listCommands returns [] when not ready",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-631-c2",
+      "text": "OpencodeClientService.listCommands() calls this.client.command.list() and maps each Command to {name, description}, dropping all other fields.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/issue_631_contract.test.ts",
+      "test_id": "issue-631-c2: listCommands maps SDK commands to {name, description}",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-631-c3",
+      "text": "OpencodeClientService.listCommands() returns [] when this.client.command.list() throws an error (resilient — never propagates exceptions).",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/issue_631_contract.test.ts",
+      "test_id": "issue-631-c3: listCommands returns [] on SDK error",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-631-c4",
+      "text": "GET /opencode/commands route calls opencodeClient.listCommands() and returns the mapped array (not the hard-coded []).",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_631_contract.test.ts",
+      "test_id": "issue-631-c4: GET /opencode/commands returns commands from SDK",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-631-c5",
+      "text": "Typing '/' in the composer shows the real list of user-defined commands (requires the SDK running with commands configured).",
+      "mode": "manual",
+      "status": "UNVERIFIED",
+      "reason": "Requires a running flutter app with the opencode SDK initialized and at least one user command defined in opencode.json. Not automatable in vitest."
+    }
+  ],
+  "not_tested": ["issue-631-c5"]
+}

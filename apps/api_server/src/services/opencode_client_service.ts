@@ -176,6 +176,26 @@ export class OpencodeClientService {
     }
   }
 
+  /** List all user-defined commands from the SDK (for the slash-command popover). */
+  async listCommands(): Promise<Array<{ name: string; description?: string }>> {
+    if (!this.client) return [];
+    try {
+      // Cast to access the `command` property — the SDK's TS type exported from
+      // `@opencode-ai/sdk` may not surface `command` in CommonJS imports, but the
+      // runtime object has it (verified in @opencode-ai/sdk/dist/gen/sdk.gen.d.ts:391).
+      const commandApi = (this.client as unknown as Record<string, { list: () => Promise<unknown> }>)['command'];
+      const raw = (await commandApi.list()) as unknown as {
+        data?: Array<{ name: string; description?: string }>;
+        error?: unknown;
+      };
+      const commands = raw.data ?? [];
+      return commands.map((c) => ({ name: c.name, description: c.description }));
+    } catch (err) {
+      logger.warn('[OpencodeClientService] listCommands failed:', err);
+      return [];
+    }
+  }
+
   /** List all provider IDs available in the SDK catalog (not auth state). */
   async listProviders(): Promise<string[]> {
     if (!this.client) return [];

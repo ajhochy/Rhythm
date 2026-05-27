@@ -27,3 +27,13 @@
 ## 2026-05-19 — PR #621 — agent FK tolerance
 
 - See `.agent-stack/postmortems/2026-05-19-pr-621-agent-fk-tolerance.json`.
+
+## 2026-05-26 — Run PR #642 (issues #626/#629/#631/#476/#48) — smoke PASS
+
+- **Result**: smoke PASS (verification claimed PASS; no divergence). #631 PASS, #626 PASS, #629 unverified-by-smoke.
+- **Category**: none (correctness). Key structural finding below.
+- **Structural finding**: #629's *live* path (task-ready bubble → Open Chat → context note) is un-smokeable under `RHYTHM_LOCAL_SMOKE=1` because #476 disables `AgentTriggerWatcher` by design. Safe-smoke and trigger-dependent verification are mutually exclusive in one run.
+- **Suggested fix**: add a local synthetic-trigger injection path so trigger-dependent flows can be smoked without production polling.
+- **Triage note**: 4 of 5 issues were already implemented on `main` and just never closed (#626, #476, and the linkage half of #629; #48 sub-changes 1/2/4). Pattern worth watching — "open issue already satisfied on main."
+- **Discovered unrelated bug (C6)**: task collaborator ("Visalia CRC") does not persist on save in the task inspector → no claude-trigger → no bubble. Not in PR #642 diff; needs its own investigation issue.
+- See `.agent-stack/postmortems/2026-05-26-run-642.json`.

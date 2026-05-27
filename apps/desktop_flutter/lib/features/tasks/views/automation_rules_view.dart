@@ -1920,13 +1920,14 @@ class _AutomationBuilderDialogState extends State<_AutomationBuilderDialog> {
         return [
           TextField(
             controller: _titleTemplateController,
-            decoration: InputDecoration(
+            focusNode: _titleTemplateFocus,
+            decoration: const InputDecoration(
               labelText: 'Task title template',
-              border: const OutlineInputBorder(),
-              helperText:
-                  'Use placeholders like ${_availableTemplateTokens().map((token) => '{{${token.token}}}').join(', ')}',
+              border: OutlineInputBorder(),
             ),
           ),
+          const SizedBox(height: 6),
+          _placeholderChips(_titleTemplateController, _titleTemplateFocus),
           const SizedBox(height: 8),
           Wrap(
             spacing: 8,
@@ -1952,14 +1953,15 @@ class _AutomationBuilderDialogState extends State<_AutomationBuilderDialog> {
           const SizedBox(height: 12),
           TextField(
             controller: _notesTemplateController,
+            focusNode: _notesTemplateFocus,
             decoration: const InputDecoration(
               labelText: 'Task notes template',
               border: OutlineInputBorder(),
-              helperText:
-                  'Optional. Same placeholders work here too for richer context.',
             ),
             maxLines: 3,
           ),
+          const SizedBox(height: 6),
+          _placeholderChips(_notesTemplateController, _notesTemplateFocus),
           const SizedBox(height: 8),
           Wrap(
             spacing: 8,
@@ -2014,13 +2016,15 @@ class _AutomationBuilderDialogState extends State<_AutomationBuilderDialog> {
             _IntegerDropdown(
               label: 'Schedule in service week',
               value: _targetDayOfWeek,
-              options: const [1, 2, 3, 4, 5],
+              options: const [1, 2, 3, 4, 5, 6, 7],
               labels: const {
                 1: 'Monday',
                 2: 'Tuesday',
                 3: 'Wednesday',
                 4: 'Thursday',
                 5: 'Friday',
+                6: 'Saturday',
+                7: 'Sunday',
               },
               onChanged: (value) => setState(() => _targetDayOfWeek = value),
             ),
@@ -2215,6 +2219,51 @@ class _AutomationBuilderDialogState extends State<_AutomationBuilderDialog> {
         .toSet()
         .toList()
       ..sort();
+  }
+
+  /// Insert [insertion] at the current cursor position of [controller],
+  /// replacing any selection. Moves the cursor to after the inserted text.
+  void _insertAtCursor(
+    TextEditingController controller,
+    FocusNode focus,
+    String insertion,
+  ) {
+    final text = controller.text;
+    final selection = controller.selection;
+    final start = selection.isValid ? selection.start : text.length;
+    final end = selection.isValid ? selection.end : text.length;
+    final newText = text.replaceRange(start, end, insertion);
+    controller.value = TextEditingValue(
+      text: newText,
+      selection: TextSelection.collapsed(offset: start + insertion.length),
+    );
+    focus.requestFocus();
+  }
+
+  /// Builds a row of clickable [{{token}}] chips that insert the placeholder
+  /// at the cursor in [controller] when tapped.
+  Widget _placeholderChips(
+    TextEditingController controller,
+    FocusNode focus,
+  ) {
+    final tokens = _availableTemplateTokens();
+    return Wrap(
+      spacing: 6,
+      runSpacing: 6,
+      children: tokens
+          .map(
+            (t) => ActionChip(
+              label: Text('{{${t.token}}}'),
+              tooltip: t.description,
+              onPressed: () {
+                setState(() {
+                  _insertAtCursor(controller, focus, '{{${t.token}}}');
+                });
+              },
+            ),
+          )
+          .toList(),
+    );
   }
 }
 
