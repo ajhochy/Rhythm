@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
@@ -773,7 +774,8 @@ class _SessionRow extends StatelessWidget {
           children: [
             Row(
               children: [
-                _AgentKindBadge(agentId: session.agentId),
+                _AgentKindBadge(
+                    agentId: session.agentId, providerId: session.providerId),
                 const Spacer(),
                 _StatusDot(status: session.status, isWorking: isWorking),
                 const SizedBox(width: 4),
@@ -990,14 +992,65 @@ class _ArchivedSessionRow extends StatelessWidget {
   }
 }
 
+/// Maps a session-level provider ID (as stored in [AgentSession.providerId])
+/// to the canonical agent config ID (as used in [AgentConfig.id] and the
+/// agent_configs table seed).
+///
+/// This mirrors the PROVIDER_TO_AGENT map in the server's ws_gateway.ts:
+///   anthropic      → claude-code
+///   github-copilot → claude-code
+///   openai         → codex
+///   google         → gemini-cli
+///
+/// When a user picks a model via the unified picker, [_applyPick] stores
+/// [CatalogModelEntry.provider] (e.g. 'openai') as the session's providerId —
+/// NOT the agent config id ('codex'). The badge must map provider → config id
+/// before calling [AgentConfigsController.byId]. (Issue #645.)
+const Map<String, String> _kProviderToAgentKind = {
+  'anthropic': 'claude-code',
+  'github-copilot': 'claude-code',
+  'openai': 'codex',
+  'google': 'gemini-cli',
+};
+
 class _AgentKindBadge extends StatelessWidget {
-  const _AgentKindBadge({required this.agentId});
+  const _AgentKindBadge({
+    required this.agentId,
+    this.providerId,
+  });
 
   final String agentId;
 
+  /// Optional session-level provider ID (e.g. 'openai', 'google', 'anthropic').
+  /// Stored by [setSessionModel] via [_applyPick] which passes
+  /// [CatalogModelEntry.provider]. When set, the badge maps this to the
+  /// canonical agent config id via [_kProviderToAgentKind] so the pill
+  /// reflects the actual agent in use rather than the stale session-creation
+  /// agentId. (Issue #645.)
+  final String? providerId;
+
   @override
   Widget build(BuildContext context) {
-    final config = context.read<AgentConfigsController>().byId(agentId);
+    // Issue #645 fix: use context.watch so the badge subscribes to
+    // AgentConfigsController changes and rebuilds when configs are refreshed.
+    final configsCtrl = context.watch<AgentConfigsController>();
+
+    // Resolver precedence (mirroring server-side ws_gateway.ts logic):
+    //   1. providerId → mapped agent config — when the user picked a model via
+    //      setSessionModel, session.providerId stores the provider name (e.g.
+    //      'openai'). Map it to the agent config id ('codex') and look up the
+    //      config. If the mapped agent differs from agentId, prefer it so the
+    //      pill reflects the actual agent in use.
+    //   2. agentId — the session-creation agent; fallback when providerId is
+    //      absent, unmapped, or resolves to the same agent.
+    AgentConfig? config;
+    if (providerId != null && providerId!.isNotEmpty) {
+      final mappedKind = _kProviderToAgentKind[providerId!];
+      if (mappedKind != null && mappedKind != agentId) {
+        config = configsCtrl.byId(mappedKind);
+      }
+    }
+    config ??= configsCtrl.byId(agentId);
     return _AgentConfigBadge(agentId: agentId, config: config);
   }
 }
@@ -3136,5 +3189,31 @@ class _SessionRowMenu extends StatelessWidget {
         }
       },
     );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Test harness — exposes the private _AgentKindBadge for widget tests.
+// ---------------------------------------------------------------------------
+
+/// A thin public wrapper around [_AgentKindBadge] for use in widget tests.
+///
+/// Allows tests to pump and assert on the agent pill without needing the full
+/// [AgentsView] widget tree. Requires [AgentConfigsController] in the Provider
+/// tree above it.
+@visibleForTesting
+class AgentKindBadgeTestHarness extends StatelessWidget {
+  const AgentKindBadgeTestHarness({
+    super.key,
+    required this.agentId,
+    this.providerId,
+  });
+
+  final String agentId;
+  final String? providerId;
+
+  @override
+  Widget build(BuildContext context) {
+    return _AgentKindBadge(agentId: agentId, providerId: providerId);
   }
 }

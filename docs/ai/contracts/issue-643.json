@@ -1,0 +1,28 @@
+{
+  "issue": 643,
+  "generated": "2026-05-26",
+  "stack": "dart",
+  "criteria": [
+    {
+      "criterion_id": "issue-643-c1",
+      "text": "The slash-command popover ListView must be scrollable: after drag-scrolling the list upward, commands that were initially below the visible area (e.g. /cmd27 out of 30 commands) must become visible.",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agents/issue_643_slash_command_scroll_test.dart",
+      "test_id": "issue #643 — slash-command popover list is scrollable scrolling reveals commands that were below the visible area",
+      "status": "passing",
+      "notes": "Root causes: (1) Stack(clipBehavior:Clip.none)+Positioned(bottom:0) rendered the command list OUTSIDE the Stack's hit-test bounds — Flutter paints overflowing children (Clip.none) but does not route pointer/scroll events to them. (2) ListView.builder(shrinkWrap:true) disabled scroll physics by sizing the ListView to its full content height, making the Container(maxHeight:240) merely a visual clip with no scroll viewport. Fix: replaced Stack+Positioned with Column(mainAxisSize:min) so the list is within a properly hit-testable bounds, and removed shrinkWrap:true so the ListView uses the Container's 240px as its scroll viewport."
+    },
+    {
+      "criterion_id": "issue-643-c2",
+      "text": "The last command must be reachable via Scrollable.ensureVisible when more than ~8 commands are in the list.",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agents/issue_643_slash_command_scroll_test.dart",
+      "test_id": "issue #643 — slash-command popover list is scrollable last command is reachable via Scrollable.ensureVisible after opening popover",
+      "status": "passing"
+    }
+  ],
+  "not_tested": [
+    "Keyboard arrow-key navigation scrolling when the highlighted index is below the visible fold (requires integration with the real app's focus tree).",
+    "Mouse-wheel scroll (requires a platform gesture simulator not available in flutter_test headless)."
+  ]
+}

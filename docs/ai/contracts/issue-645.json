@@ -1,0 +1,37 @@
+{
+  "issue": 645,
+  "generated": "2026-05-26",
+  "stack": "dart",
+  "criteria": [
+    {
+      "criterion_id": "issue-645-c1",
+      "text": "The agent badge pill must show the correct label for the initial agentId ('Claude Code' when agentId='claude-code').",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agents/issue_645_agent_pill_stale_icon_test.dart",
+      "test_id": "issue #645 — agent pill re-renders when session agent changes c1: badge shows Claude Code label for agentId=claude-code",
+      "status": "passing"
+    },
+    {
+      "criterion_id": "issue-645-c2",
+      "text": "When session.providerId changes to a different agent (e.g. 'codex') while session.agentId stays the same (e.g. 'claude-code'), the badge must update to show the new agent's label/icon ('Codex'). This covers the setSessionModel flow where PATCH /agent-sessions/:id updates providerId/modelId but never agent_id.",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agents/issue_645_agent_pill_stale_icon_test.dart",
+      "test_id": "issue #645 — agent pill re-renders when session agent changes c2 (STRICT): badge updates to Codex label when providerId switches to codex",
+      "status": "passing",
+      "notes": "Root cause: two compounding bugs. (1) context.read in _AgentKindBadge.build() — widget did not subscribe to AgentConfigsController changes. Fixed by changing to context.watch. (2) _AgentKindBadge only looked up byId(session.agentId) which never changes after session creation. Fixed by adding optional providerId param with resolver precedence: when providerId != agentId and byId(providerId) resolves a known config, that config is shown (reflecting the currently active agent). Call sites updated to pass session.providerId."
+    },
+    {
+      "criterion_id": "issue-645-c3",
+      "text": "After AgentConfigsController.notifyListeners() fires, the badge must rebuild and still show the correct label — confirming the context.watch subscription is active.",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agents/issue_645_agent_pill_stale_icon_test.dart",
+      "test_id": "issue #645 — agent pill re-renders when session agent changes c3 (STRICT): badge rebuilds when AgentConfigsController notifies",
+      "status": "passing"
+    }
+  ],
+  "not_tested": [
+    "Live model picker interaction (requires full AgentsView widget tree + AgentsController with real WS + repository stubs — covered by manual smoke).",
+    "The case where session.agentId IS updated (e.g. via SessionUpdatedMessage with a different agentId) — this path already worked correctly before the fix.",
+    "providerId values that do NOT map to a known agent config ID (e.g. 'anthropic') — in this case the badge falls through to byId(agentId) and shows the original session agent, which is the expected fallback behavior."
+  ]
+}
