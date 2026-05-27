@@ -14,6 +14,25 @@
 
 ## Recent coding-agent runs
 
+### 2026-05-26 — feat/issue-48-pco-automation-ux (#48)
+- Files modified:
+  - `apps/desktop_flutter/lib/features/tasks/views/automation_rules_view.dart` — (1) extended "Schedule in service week" day picker from Mon–Fri (options [1..5]) to Mon–Sun (options [1..7], added Saturday=6 and Sunday=7 labels); (2) replaced `helperText` placeholder hint on Task title template and Task notes template fields with clickable `{{token}}` ActionChip rows (new `_placeholderChips` helper + `_insertAtCursor` method); (3) wired `focusNode` params on title/notes template TextFields so chips can request focus and insert at cursor.
+  - `apps/api_server/src/__tests__/issue_48_contract.test.ts` — new vitest contract test (3 tests: c1 multi-trigger fires both A and B; c2 targetDayOfWeek=4 with Sunday planDate yields Thursday of same week; c3 scalar trigger_key backward-compat still fires). All 3 green (engine already supported these semantics).
+  - `apps/desktop_flutter/test/issue_48_contract_test.dart` — new Flutter widget test (4 tests: c4 PCO action dropdown excludes tag_task/send_notification/auto_schedule; c5 team+position FilterChips render; c6 Saturday+Sunday in day picker; c7 {{title}} chip inserts at cursor). All 4 green after implementation.
+  - `docs/ai/contracts/issue-48.json` — new contract JSON (7 criteria, all automated, 0 manual).
+- Checks run:
+  - `ai-workflow checks --level issue` → flutter analyze ✓, dart format ✓, tsc --noEmit ✓
+  - `npx vitest run src/__tests__/issue_48_contract.test.ts` → 3/3 ✓
+  - `flutter test test/issue_48_contract_test.dart` → 4/4 ✓
+  - `ai-workflow checks --level pr` → all checks ✓
+- Decisions made:
+  - Sub-changes 1 (multi-select triggers), 2 (multi-select team+position), and 4 (PCO action cleanup) were already implemented in the view. The backend engine already supported triggerConfig.triggerKeys and targetDayOfWeek. Only c6 (day picker Mon–Sun) and c7 (clickable placeholder chips) needed new implementation.
+  - Used ISO weekday numbers 1–7 (1=Mon, 7=Sun) matching the existing `scheduleToWeekdayInSameWeek` function in the engine — same convention, no engine changes needed.
+  - `_insertAtCursor` uses `TextEditingValue` to insert at cursor position and handles collapsed and range selections. Focus is requested after insert so keyboard stays visible.
+  - `_placeholderChips` reuses `_availableTemplateTokens()` for source-appropriate token list — automatically correct for all sources (Gmail, PCO, Calendar).
+- Deviations from spec: none. The issue called `actionConfig.dueWeekday` but the existing engine field name is `actionConfig.targetDayOfWeek`; the spec was using a shorthand — kept the existing name.
+- Concerns: The day picker dropdown for c6 renders inside a scrollable dialog; the widget test needed `ensureVisible` + `warnIfMissed: false` to tap it (it's below the default 600px test viewport). This is expected test-environment behavior, not a production issue.
+
 ### 2026-05-26 — fix/issue-631-slash-command-popover-empty (#631)
 - Files modified:
   - `apps/api_server/src/services/opencode_client_service.ts` — added `listCommands()` method that guards on `!this.client` (returns []), casts the client to access `command.list()` (SDK type doesn't surface `command` via CommonJS import), unwraps the `{data, error}` envelope, maps to `{name, description}`, wraps in try/catch with logger.warn → returns [].
@@ -219,28 +238,44 @@
 
 ---
 
-## Current Status (2026-05-26 — #629 + #631 implemented on workflow/run-2026-05-26; verification-gate passed)
+## Current Status (2026-05-26 — #629 + #631 + #48 implemented on workflow/run-2026-05-26)
 
-🟢 **Branch `workflow/run-2026-05-26`** — two issues implemented and verified:
+🟢 **Branch `workflow/run-2026-05-26`** — three issues implemented and verified. Commit: `040c824`.
 
 - **#629** (task context seeded as system message): 535/535 vitest green; flutter analyze + dart format + tsc clean.
-- **#631** (slash-command popover wired to SDK): 539/539 vitest green (4 new contract tests added); all checks clean. Commit: `43b4de8`.
+- **#631** (slash-command popover wired to SDK): 539/539 vitest green (4 new contract tests added); all checks clean.
+- **#48** (PCO automation rule editor UX): all checks green; 7/7 contract criteria pass (3 backend + 4 Flutter widget tests). See summary below.
 
-Both verified by `verification-gate`. Manual smoke criteria remain pending human review (c5 for each).
+All three verified by `verification-gate`. Manual smoke criteria remain pending human review.
 
-**Previous trunk:** Branch `follow-up` / PR #617 still open as of 2026-05-20. The `workflow/run-2026-05-26` branch contains both fixes stacked on top of `main` — the orchestrator will handle PR creation.
+**Previous trunk:** Branch `follow-up` / PR #617 still open as of 2026-05-20. The `workflow/run-2026-05-26` branch contains all three fixes stacked on top of `main` — the orchestrator will handle PR creation.
+
+### #48 summary
+
+Five sub-changes from the issue spec:
+1. **Multi-select triggers** — already implemented (PCO checklist in view; engine `triggerKeys` already supported). c1+c3 contract tests green.
+2. **Multi-select team + position** — already implemented (FilterChip rows in view; engine `teamIds`/`positionNames` already supported). c5 contract test green.
+3. **Day-of-week picker extended Mon–Sun** — was Mon–Fri only (`options: [1..5]`); extended to `[1..7]` with `6: Saturday`, `7: Sunday` labels. c6 contract test red→green.
+4. **Action dropdown cleanup** — already implemented (PCO filtered to `create_task` + `create_project_from_template` only). c4 contract test green. Engine `templateId` lookup already supported.
+5. **Placeholder insert chips** — replaced `helperText` hint on task title/notes template fields with clickable `{{token}}` ActionChips using new `_placeholderChips` + `_insertAtCursor` helpers; inserts at cursor using `TextEditingValue`. c7 contract test red→green.
+
+Files changed:
+- `apps/desktop_flutter/lib/features/tasks/views/automation_rules_view.dart` — day picker options + placeholder chip methods
+- `apps/api_server/src/__tests__/issue_48_contract.test.ts` — new (3 backend contract tests)
+- `apps/desktop_flutter/test/issue_48_contract_test.dart` — new (4 Flutter widget contract tests)
+- `docs/ai/contracts/issue-48.json` — new contract (7 criteria, all `status: pass`)
 
 ### #631 fix summary
 
-- `apps/api_server/src/services/opencode_client_service.ts` — new `listCommands()` method; guards on `!this.client`; casts client to access `command.list()`; maps to `{name, description}`; returns `[]` on error.
-- `apps/api_server/src/app.ts` — `GET /opencode/commands` replaced hard-coded `[]` with `await opencodeClient.listCommands()`.
-- Contract: `docs/ai/contracts/issue-631.json` (5 criteria, 4 automated, 1 manual). Test: `apps/api_server/src/__tests__/issue_631_contract.test.ts` (4/4 green, red proven before fix).
+- `apps/api_server/src/services/opencode_client_service.ts` — new `listCommands()` method.
+- `apps/api_server/src/app.ts` — `GET /opencode/commands` wired to `listCommands()`.
+- Contract: `docs/ai/contracts/issue-631.json`. Test: `apps/api_server/src/__tests__/issue_631_contract.test.ts` (4/4 green).
 
 ### #629 fix summary
 
-- `apps/api_server/src/controllers/agent_sessions_controller.ts` — captures `Task` from FK probe; appends `'system'` message with title + notes after `repo.insert()`.
-- `apps/desktop_flutter/lib/app/core/agents/agent_bubble_overlay.dart` — `_MiniMessageBlock` now renders `role=='system'` as muted italic text (matches full-view `_MessageBlock` which already had this branch).
-- Contract: `docs/ai/contracts/issue-629.json` (5 criteria, 4 automated, 1 manual). Test: `apps/api_server/src/__tests__/issue_629_contract.test.ts` (4/4 green, red proven before fix).
+- `apps/api_server/src/controllers/agent_sessions_controller.ts` — appends `'system'` message with task title + notes.
+- `apps/desktop_flutter/lib/app/core/agents/agent_bubble_overlay.dart` — renders `role=='system'` as muted italic.
+- Contract: `docs/ai/contracts/issue-629.json`. Test: `apps/api_server/src/__tests__/issue_629_contract.test.ts` (4/4 green).
 
 ---
 

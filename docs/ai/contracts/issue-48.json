@@ -1,0 +1,64 @@
+{
+  "issue": 48,
+  "generated": "2026-05-26",
+  "criteria": [
+    {
+      "criterion_id": "issue-48-c1",
+      "text": "A rule with triggerConfig.triggerKeys=[A,B] fires for BOTH A and B signals",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_48_contract.test.ts",
+      "test_id": "issue-48-c1: triggerKeys multi-value fires for both trigger types",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-48-c2",
+      "text": "A rule with actionConfig.targetDayOfWeek=4 (Thursday) given a Sunday service date produces a due date on the Thursday of that service week",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_48_contract.test.ts",
+      "test_id": "issue-48-c2: targetDayOfWeek=4 with Sunday service date yields Thursday of same service week",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-48-c3",
+      "text": "Backward-compat: an old rule with only scalar trigger_key (no triggerKeys in triggerConfig) still fires correctly",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_48_contract.test.ts",
+      "test_id": "issue-48-c3: scalar trigger_key backward-compat still fires",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-48-c4",
+      "text": "PCO source action dropdown shows only 'Create task' and 'Create project from template'; Tag task, Send notification, and Auto-schedule are not shown",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/issue_48_contract_test.dart",
+      "test_id": "issue-48-c4: PCO action dropdown excludes tag_task, send_notification, auto_schedule",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-48-c5",
+      "text": "Multi-select team and position FilterChips are shown for PCO source; selecting a team shows its positions",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/issue_48_contract_test.dart",
+      "test_id": "issue-48-c5: PCO team and position multi-select chips render",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-48-c6",
+      "text": "Day-of-week picker for PCO create_task action includes all 7 days (Mon through Sun), not just Mon-Fri",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/issue_48_contract_test.dart",
+      "test_id": "issue-48-c6: service-week day picker includes Saturday and Sunday",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-48-c7",
+      "text": "Placeholder insert chip buttons appear below task title and notes template fields; tapping a chip inserts {{token}} at the cursor position",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/issue_48_contract_test.dart",
+      "test_id": "issue-48-c7: placeholder insert chips insert {{token}} at cursor",
+      "status": "pass"
+    }
+  ],
+  "stack": "typescript+dart",
+  "not_tested": []
+}
