@@ -102,10 +102,13 @@ export function createApp() {
   });
 
   // M5-1 (Providers tab) / M4-3 — list user-defined commands from the SDK.
-  // Returns [] until the SDK exposes client.command.list end-to-end so the
-  // Flutter popover renders an empty state instead of throwing.
-  app.get('/opencode/commands', (_req, res) => {
-    res.json([]);
+  app.get('/opencode/commands', async (_req, res) => {
+    try {
+      const commands = await opencodeClient.listCommands();
+      res.json(commands);
+    } catch {
+      res.json([]);
+    }
   });
   app.get('/opencode/health', (_req, res) => {
     res.json({

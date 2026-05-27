@@ -14,6 +14,20 @@
 
 ## Recent coding-agent runs
 
+### 2026-05-26 — fix/issue-631-slash-command-popover-empty (#631)
+- Files modified:
+  - `apps/api_server/src/services/opencode_client_service.ts` — added `listCommands()` method that guards on `!this.client` (returns []), casts the client to access `command.list()` (SDK type doesn't surface `command` via CommonJS import), unwraps the `{data, error}` envelope, maps to `{name, description}`, wraps in try/catch with logger.warn → returns [].
+  - `apps/api_server/src/app.ts` — replaced hard-coded `res.json([])` placeholder in `GET /opencode/commands` with `async (_req, res)` that calls `await opencodeClient.listCommands()` and returns the array; retains outer try/catch for resilience.
+  - `apps/api_server/src/__tests__/issue_631_contract.test.ts` — new vitest contract test (4 tests): c1 (returns [] when not ready), c2 (maps to {name, description}), c3 (returns [] on error), c4 (route calls listCommands not hard-coded []). Red proven: 4/4 fail before fix. Green: 4/4 pass after.
+  - `docs/ai/contracts/issue-631.json` — new contract JSON (5 criteria, 4 automated, 1 manual).
+- Checks run:
+  - `ai-workflow checks --level issue` → flutter analyze ✓, dart format ✓, tsc --noEmit ✓
+  - `npx vitest run src/__tests__/issue_631_contract.test.ts` → 4/4 ✓ (red: 4 fail before fix)
+  - `ai-workflow checks --level pr` → all checks ✓ (539/539 vitest, was 535)
+- Decisions made: cast `this.client` to `Record<string, { list: () => Promise<unknown> }>` to access `command.list()` — the SDK's exported `OpencodeClient` type doesn't surface `command` through CommonJS import resolution, but the runtime object has it (sdk.gen.d.ts:391 confirms `command: Command`). This matches the pattern used in existing dynamic-import cast sites throughout the file. The route try/catch is outer-only (not wrapping listCommands again) since listCommands is already resilient internally.
+- Deviations from spec: none. Exact envelope unwrap pattern (`raw.data ?? []`) matches existing methods. Guard condition is `!this.client` not `!this.isReady` — same as `listProviders`.
+- Concerns: The SDK's `command.list()` result envelope shape (`{data: Array<Command>}`) was inferred from the CommandListResponses type in types.gen.d.ts. If the SDK changes the envelope schema, `raw.data ?? []` will silently return []. A warning log fires in the catch path, so failures are visible in server logs.
+
 ### 2026-05-26 — fix/issue-629-task-context-system-message (#629)
 - Files modified:
   - `apps/api_server/src/controllers/agent_sessions_controller.ts` — captured returned `Task` from `findByIdIncludingLegacy` (was discarding it; c.137); after `repo.insert(dto)` and before the agent-less early return, appended a `'system'` message via `messagesRepo.append(session.id, 'system', text, text)` where text is `"Task context\nTitle: <title>\n\n<notes>"` (notes paragraph omitted if null). Fallback: when taskId is not in local DB but taskTitle is provided, the provided taskTitle is used instead. The `'system'` role is display-only — never sent to SDK — so this cannot cause #624.
@@ -205,11 +219,22 @@
 
 ---
 
-## Current Status (2026-05-26 — #629 implemented on workflow/run-2026-05-26; verification passed)
+## Current Status (2026-05-26 — #629 + #631 implemented on workflow/run-2026-05-26; verification-gate passed)
 
-🟡 **Branch `workflow/run-2026-05-26`**. Issue #629 (task context seeded as system message) implemented and verified: 535/535 vitest, flutter analyze + dart format + tsc clean. Manual smoke criterion (c5 — visual confirmation of context in bubble) remains pending human review.
+🟢 **Branch `workflow/run-2026-05-26`** — two issues implemented and verified:
 
-**Previous trunk:** Branch `follow-up` / PR #617 still open as of 2026-05-20. The `workflow/run-2026-05-26` branch contains the #629 fix stacked on top of whatever is on `main` at this point — the orchestrator will handle PR creation.
+- **#629** (task context seeded as system message): 535/535 vitest green; flutter analyze + dart format + tsc clean.
+- **#631** (slash-command popover wired to SDK): 539/539 vitest green (4 new contract tests added); all checks clean. Commit: `43b4de8`.
+
+Both verified by `verification-gate`. Manual smoke criteria remain pending human review (c5 for each).
+
+**Previous trunk:** Branch `follow-up` / PR #617 still open as of 2026-05-20. The `workflow/run-2026-05-26` branch contains both fixes stacked on top of `main` — the orchestrator will handle PR creation.
+
+### #631 fix summary
+
+- `apps/api_server/src/services/opencode_client_service.ts` — new `listCommands()` method; guards on `!this.client`; casts client to access `command.list()`; maps to `{name, description}`; returns `[]` on error.
+- `apps/api_server/src/app.ts` — `GET /opencode/commands` replaced hard-coded `[]` with `await opencodeClient.listCommands()`.
+- Contract: `docs/ai/contracts/issue-631.json` (5 criteria, 4 automated, 1 manual). Test: `apps/api_server/src/__tests__/issue_631_contract.test.ts` (4/4 green, red proven before fix).
 
 ### #629 fix summary
 
