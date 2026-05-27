@@ -1,0 +1,32 @@
+{
+  "issue": 626,
+  "generated": "2026-05-26",
+  "stack": "typescript",
+  "note": "Behavior already implemented on main in commit 163c7a6 (the #605 WS-events work). These contract tests are regression guards proving the broadcast fires; they pass against current code. No implementation change required for #626.",
+  "criteria": [
+    {
+      "criterion_id": "issue-626-c1",
+      "text": "After a busy status transition the bridge calls broadcastSessionUpdated with the refreshed session (status 'working').",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/issue_626_contract.test.ts",
+      "test_id": "issue-626-c1: session.status busy broadcasts session.updated with status working",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-626-c2",
+      "text": "After an idle transition the bridge calls broadcastSessionUpdated with the refreshed session (status 'idle').",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/issue_626_contract.test.ts",
+      "test_id": "issue-626-c2: session.idle broadcasts session.updated with status idle",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-626-c3",
+      "text": "Flutter session-list chip flips idle -> working -> idle without a REST poll on a live agent run.",
+      "mode": "manual",
+      "status": "UNVERIFIED",
+      "reason": "End-to-end WS chip update requires the opencode SDK + a live agent run; confirm during manual smoke."
+    }
+  ],
+  "not_tested": ["issue-626-c3"]
+}

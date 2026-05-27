@@ -112,8 +112,14 @@ Expected: 400 with descriptive error message
 
 ## 9. Flutter UI
 
+> **Always export `RHYTHM_LOCAL_SMOKE=1` for local smoke runs** (see §12). It
+> disables `AgentTriggerWatcher`, so the run never issues
+> `DELETE /claude-triggers/*` against production.
+
 ```bash
-cd apps/desktop_flutter && flutter run -d macos
+cd apps/desktop_flutter && RHYTHM_LOCAL_SMOKE=1 flutter run -d macos
+# or, equivalently:
+# flutter run -d macos --dart-define=RHYTHM_LOCAL_SMOKE=1
 ```
 
 - [ ] App launches without errors
@@ -163,3 +169,32 @@ Expected: all pass.
 - [ ] Settings → AI Account → paste any string into the OpenRouter API key field → Save.
 - [ ] If the server returns HTML (route missing in `dist/`), the UI shows a readable "Failed: <status reason>" message instead of a FormatException crash.
 - [ ] With a rebuilt `apps/api_server/dist/`, saving a valid key shows success.
+
+---
+
+## 12. Local smoke safety — `RHYTHM_LOCAL_SMOKE` (issue #476)
+
+`AgentTriggerWatcher` polls the **production** `GET /claude-triggers` endpoint
+and issues `DELETE /claude-triggers/:id` after handing each trigger to the
+local agent server. During a local `flutter run` this means a dev session can
+mutate production trigger state — violating the no-production-traffic
+invariant.
+
+**Always export the flag before launching a local/dev smoke run:**
+
+```bash
+# env var (desktop)
+RHYTHM_LOCAL_SMOKE=1 flutter run -d macos
+
+# or compile-time dart-define (works on all platforms incl. web)
+flutter run -d macos --dart-define=RHYTHM_LOCAL_SMOKE=1
+```
+
+When the flag is set to `1`, `AgentTriggerWatcher.start()` is a no-op and logs:
+
+```
+[AgentTriggerWatcher] RHYTHM_LOCAL_SMOKE=1 detected — watcher is disabled for this run. No production traffic will be issued.
+```
+
+**Verify:** the `flutter run` log contains the line above and **no**
+`DELETE /claude-triggers/*` lines for the duration of the smoke run.
