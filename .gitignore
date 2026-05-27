@@ -21,6 +21,10 @@ npm-debug.log*
 # api_server install-time runtime sentinel (issue #585)
 apps/api_server/.node-runtime.json
 
+# Local-only auth-strategy probes (read real OAuth tokens — never commit)
+apps/api_server/scripts/auth-strategy-probe.ts
+apps/api_server/scripts/probe-output.log
+
 # IDEs
 .vscode/
 .idea/
