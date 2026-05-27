@@ -14,8 +14,8 @@
 
 ## Recent coding-agent runs
 
-### 2026-05-26 — fix/issue-643-645-agents-ui (#643, #645) — verified, PR pending
-- Combined branch off main for two PR #642 smoke follow-ups (both Agents UI, UI-local).
+### 2026-05-26 — fix/issue-643-645-agents-ui (#643, #645) — merged (PR #647)
+- Combined branch off main for two PR #642 smoke follow-ups (both Agents UI, UI-local). Both smoked PASS (#643 popover scroll; #645 badge consistent across all four surfaces on re-smoke).
 - Files modified:
   - `apps/desktop_flutter/lib/features/agents/views/_slash_command_popover.dart` (#643) — the popover command list was unreachable when taller than the viewport. Root cause: it rendered in `Stack(clipBehavior: Clip.none) + Positioned(bottom:0)`, so the list painted OUTSIDE the Stack's bounds where Flutter does not route pointer/scroll hit-tests; and `ListView.builder(shrinkWrap:true)` left no scroll viewport. Fix: replaced Stack+Positioned with `Column(mainAxisSize:min)` (list above the input, within hit-testable bounds) and removed `shrinkWrap:true` so the `Container(maxHeight:240)` is the scroll viewport. Layout-safe: the composer sits below an `Expanded` transcript body, which shrinks to absorb the ≤240px growth (no RenderFlex overflow). UX change: overlay → inline command-palette.
   - `apps/desktop_flutter/lib/features/agents/views/agents_view.dart` (#645) — the agent pill (`_AgentKindBadge`) kept the stale icon/label after the session's agent changed. Two bugs: (1) `context.read` (no rebuild subscription) → changed to `context.watch`; (2) it looked up `byId(session.agentId)`, but `setSessionModel` only updates `providerId`/`modelId`, never `agentId`. Fix: added a `providerId` param + top-level `_kProviderToAgentKind` map (anthropic/github-copilot→claude-code, openai→codex, google→gemini-cli) mirroring the server `ws_gateway.ts` `PROVIDER_TO_AGENT`; the badge maps `providerId`→agent-kind and prefers that config when it differs from `agentId`. 3 call sites pass `session.providerId`. Added `@visibleForTesting AgentKindBadgeTestHarness`.
@@ -26,6 +26,24 @@
   2. **Manual-smoke PARTIAL FAIL (post-commit, C2):** smoke showed the badge inconsistent across FOUR render sites — only `_SessionRow` had been threaded. `_ResumableSessionRow`, `_TranscriptHeader`, and the mini/expanded bubble (`agent_bubble_overlay.dart`) still showed a stale "Gemini CLI" after an errored model switch (session truly Claude). Postmortem `.agent-stack/postmortems/2026-05-26-issue-645.json`. Repair: threaded `providerId: session.providerId` into all `_AgentKindBadge` sites; added `providerId` to `AgentBubbleEntry` (populated in `_sync()` from the live session) + `_kBubbleProviderToAgentKind` + `_resolveAgentKind()` + `context.watch` in the bubble. Tests expanded 3→16 covering all four sites incl. c9 (errored switch → all sites show the persisted agent). Re-verified green; full agents suite 147/147.
   - Filed follow-up **#648** (catalog offers invalid model id `openrouter/google/gemini-3-flash` → ProviderModelNotFoundError) — distinct from the badge bug.
 - Deviations: none. Manual-only edges (keyboard-nav scroll past fold, mouse-wheel, live picker interaction) listed in each contract's `not_tested`.
+
+### 2026-05-26 — fix/issue-644-collaborator-server-url (#644)
+- Files modified:
+  - `apps/desktop_flutter/lib/features/tasks/data/collaborators_data_source.dart` — removed the implicit `AppConstants.apiBaseUrl` fallback, made `baseUrl` required, and added injectable `http.Client` support so collaborator requests are testable and cannot silently target the wrong server.
+  - `apps/desktop_flutter/lib/features/tasks/views/tasks_view.dart`, `apps/desktop_flutter/lib/features/weekly_planner/views/weekly_planner_view.dart`, `apps/desktop_flutter/lib/features/dashboard/views/dashboard_view.dart` — task collaborator add/remove flows now construct `CollaboratorsDataSource` from `context.read<ServerConfigService>().url`.
+  - `apps/desktop_flutter/lib/features/projects/views/projects_view.dart` — project collaborator add/remove flow now uses the configured server URL too, keeping the required constructor compile-clean and preventing the same fallback bug for project collaborators.
+  - `apps/desktop_flutter/test/features/tasks/issue_644_contract_test.dart` — new contract test proving add/remove/fetch route to the injected configured base URL and not a hardcoded fallback.
+  - `docs/ai/contracts/issue-644.json` — contract for c1 automated routing coverage and c2 live production trigger manual verification.
+- Checks run:
+  - `flutter test test/features/tasks/issue_644_contract_test.dart` → 4/4 ✓
+  - `ai-workflow checks --level issue` → flutter analyze ✓, dart format ✓, api_server tsc --noEmit ✓
+  - `ai-workflow checks --level pr` → flutter analyze ✓, dart format ✓, api_server tsc --noEmit ✓, api_server vitest ✓
+  - Live c2 smoke via Computer Use → launched debug macOS app without `RHYTHM_LOCAL_SMOKE`; assigned Visalia CRC to task `Find subs for any remaining gaps`; inspector showed the `Visalia CRC` collaborator chip; terminal logged `AgentTriggerWatcher` handling new trigger id `17`; Agents view showed `Task 'Find subs for any remaining gaps' is waiting for an agent` and overlay count changed to `+1 more`.
+- Decisions made:
+  - Made `baseUrl` required instead of keeping a default because the default was the root cause: collaborator writes could hit a different server than the task list whenever Settings used a non-default URL.
+  - Updated every production `CollaboratorsDataSource` construction site rather than only the task inspector, because the required constructor is the guard against this class of regression.
+- Deviations from spec: none.
+- Concerns: c2 is covered by live manual smoke, not deterministic automation, because it depends on production `claude-trigger` generation and the task-ready bubble path outside `RHYTHM_LOCAL_SMOKE`.
 
 ### 2026-05-26 — feat/issue-48-pco-automation-ux (#48)
 - Files modified:

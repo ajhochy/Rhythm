@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../app/core/formatters/date_formatters.dart';
+import '../../../app/core/services/server_config_service.dart';
 import '../../../app/core/tasks/task_visual_style.dart';
 import '../../../app/core/ui/rhythm_ui.dart';
 import '../../../app/core/widgets/error_banner.dart';
@@ -618,7 +619,9 @@ class _TasksViewState extends State<TasksView> {
   }
 
   Future<void> _showEditDialog(Task task, TasksController controller) async {
-    final collaboratorsDataSource = CollaboratorsDataSource();
+    final collaboratorsDataSource = CollaboratorsDataSource(
+      baseUrl: context.read<ServerConfigService>().url,
+    );
     await showRhythmTaskInspector(
       context,
       task: task,

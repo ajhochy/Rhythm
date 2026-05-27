@@ -1218,12 +1218,16 @@ class _InstanceCard extends StatelessWidget {
                 ownerId: instance.ownerId!,
                 workspaceMembers: context.read<WorkspaceController>().members,
                 onAdd: (userId) async {
-                  final ds = CollaboratorsDataSource();
+                  final ds = CollaboratorsDataSource(
+                    baseUrl: context.read<ServerConfigService>().url,
+                  );
                   await ds.addToProject(instance.id, userId);
                   onRefresh();
                 },
                 onRemove: (userId) async {
-                  final ds = CollaboratorsDataSource();
+                  final ds = CollaboratorsDataSource(
+                    baseUrl: context.read<ServerConfigService>().url,
+                  );
                   await ds.removeFromProject(instance.id, userId);
                   onRefresh();
                 },

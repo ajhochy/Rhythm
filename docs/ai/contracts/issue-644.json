@@ -1,0 +1,24 @@
+{
+  "issue": 644,
+  "generated": "2026-05-26",
+  "stack": "dart",
+  "criteria": [
+    {
+      "criterion_id": "issue-644-c1",
+      "text": "Assigning a collaborator in the task inspector and saving persists it (visible after reload).",
+      "mode": "integration",
+      "test_file": "test/features/tasks/issue_644_contract_test.dart",
+      "test_id": "issue-644-c1: collaborator add/remove/fetch target the configured server URL, not a hardcoded fallback",
+      "status": "PASS",
+      "reason": "Root cause: CollaboratorsDataSource defaulted baseUrl to the static AppConstants.apiBaseUrl, so collaborator writes hit a different server than the task list (serverConfigService.url) whenever Settings differs. Test asserts requests route to the injected/configured baseUrl. The full UI-visible-after-reload path against production is covered by manual smoke."
+    },
+    {
+      "criterion_id": "issue-644-c2",
+      "text": "Assigning the agent user (Visalia CRC) regenerates the task-ready bubble flow (claude-trigger generated).",
+      "mode": "manual",
+      "status": "PASS",
+      "reason": "Live smoke on 2026-05-26 launched the debug macOS app without RHYTHM_LOCAL_SMOKE, assigned Visalia CRC to task \"Find subs for any remaining gaps\" from the task inspector, observed the collaborator chip persist in the inspector, saw AgentTriggerWatcher handle new live trigger id 17, and observed the Agents pending-trigger list render \"Task 'Find subs for any remaining gaps' is waiting for an agent\" plus the overlay count changing to +1 more."
+    }
+  ],
+  "not_tested": []
+}

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../app/core/formatters/date_formatters.dart';
 import '../../../app/core/auth/auth_session_service.dart';
+import '../../../app/core/services/server_config_service.dart';
 import '../../../app/core/ui/rhythm_ui.dart';
 import '../../../app/core/workspace/workspace_controller.dart';
 import '../../../app/core/workspace/workspace_models.dart';
@@ -512,7 +513,9 @@ class _DashboardBodyState extends State<_DashboardBody> {
   }
 
   Future<void> _showTaskEditDialog(Task task) async {
-    final collaboratorsDataSource = CollaboratorsDataSource();
+    final collaboratorsDataSource = CollaboratorsDataSource(
+      baseUrl: context.read<ServerConfigService>().url,
+    );
     await showRhythmTaskInspector(
       context,
       task: task,
