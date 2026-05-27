@@ -843,7 +843,8 @@ class _ResumableSessionRow extends StatelessWidget {
       ),
       child: Row(
         children: [
-          _AgentKindBadge(agentId: session.agentId),
+          _AgentKindBadge(
+              agentId: session.agentId, providerId: session.providerId),
           const SizedBox(width: 8),
           Expanded(
             child: Text(
@@ -1336,7 +1337,8 @@ class _TranscriptHeader extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
       child: Row(
         children: [
-          _AgentKindBadge(agentId: session.agentId),
+          _AgentKindBadge(
+              agentId: session.agentId, providerId: session.providerId),
           const SizedBox(width: 10),
           Expanded(
             child: Text(
@@ -3193,7 +3195,8 @@ class _SessionRowMenu extends StatelessWidget {
 }
 
 // ---------------------------------------------------------------------------
-// Test harness — exposes the private _AgentKindBadge for widget tests.
+// Test harnesses — expose private badge widgets for widget tests.
+// Issue #645: all four badge render sites must be exercised individually.
 // ---------------------------------------------------------------------------
 
 /// A thin public wrapper around [_AgentKindBadge] for use in widget tests.
@@ -3215,5 +3218,48 @@ class AgentKindBadgeTestHarness extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return _AgentKindBadge(agentId: agentId, providerId: providerId);
+  }
+}
+
+/// Public wrapper around [_ResumableSessionRow] for use in widget tests.
+///
+/// Requires [AgentConfigsController] in the Provider tree above it.
+/// Issue #645 site #2 — the resumable row must pass session.providerId to the
+/// badge so a model switch is reflected correctly.
+@visibleForTesting
+class ResumableSessionRowTestHarness extends StatelessWidget {
+  const ResumableSessionRowTestHarness({
+    super.key,
+    required this.session,
+    this.onResume,
+  });
+
+  final AgentSession session;
+  final VoidCallback? onResume;
+
+  @override
+  Widget build(BuildContext context) {
+    return _ResumableSessionRow(
+      session: session,
+      onResume: onResume ?? () {},
+    );
+  }
+}
+
+/// Public wrapper around [_TranscriptHeader] for use in widget tests.
+///
+/// Requires [AgentConfigsController] and [AgentsController] in the Provider
+/// tree above it.
+/// Issue #645 site #3 — the transcript header must pass session.providerId to
+/// the badge so a model switch is reflected correctly.
+@visibleForTesting
+class TranscriptHeaderTestHarness extends StatelessWidget {
+  const TranscriptHeaderTestHarness({super.key, required this.session});
+
+  final AgentSession session;
+
+  @override
+  Widget build(BuildContext context) {
+    return _TranscriptHeader(session: session);
   }
 }

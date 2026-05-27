@@ -16,6 +16,33 @@ import 'ansi_strip.dart';
 import 'overlay_controller.dart';
 
 // ---------------------------------------------------------------------------
+// Provider → agent-kind mapping (mirrors agents_view.dart _kProviderToAgentKind
+// and the server-side ws_gateway.ts PROVIDER_TO_AGENT map).
+// Issue #645: all four badge render sites must use the same resolver so the
+// bubble badge agrees with the session-list badge.
+// ---------------------------------------------------------------------------
+
+const Map<String, String> _kBubbleProviderToAgentKind = {
+  'anthropic': 'claude-code',
+  'github-copilot': 'claude-code',
+  'openai': 'codex',
+  'google': 'gemini-cli',
+};
+
+/// Resolve the canonical agent config id from [agentId] and [providerId].
+/// Mirrors the resolver inside agents_view.dart _AgentKindBadge.build().
+String _resolveAgentKind({
+  required String? agentId,
+  required String? providerId,
+}) {
+  if (providerId != null && providerId.isNotEmpty) {
+    final mapped = _kBubbleProviderToAgentKind[providerId];
+    if (mapped != null && mapped != agentId) return mapped;
+  }
+  return agentId ?? 'claude-code';
+}
+
+// ---------------------------------------------------------------------------
 // Top-level layer — inserted as last child of the AppShell Stack
 // ---------------------------------------------------------------------------
 
@@ -130,9 +157,13 @@ class _CollapsedBubble extends StatelessWidget {
   Widget build(BuildContext context) {
     final overlay = context.read<OverlayController>();
     final ringColor = _ringColor(context);
-    final config = entry.agentId != null
-        ? context.read<AgentConfigsController>().byId(entry.agentId!)
-        : null;
+    // Issue #645: resolve via provider→agent-kind mapping so the collapsed
+    // bubble badge agrees with the session-list badge (same resolver).
+    final resolvedKind = _resolveAgentKind(
+      agentId: entry.agentId,
+      providerId: entry.providerId,
+    );
+    final config = context.watch<AgentConfigsController>().byId(resolvedKind);
 
     return Tooltip(
       message: entry.label,
@@ -582,9 +613,13 @@ class _BubbleHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final config = entry.agentId != null
-        ? context.read<AgentConfigsController>().byId(entry.agentId!)
-        : null;
+    // Issue #645: resolve via provider→agent-kind mapping so the expanded
+    // bubble header badge agrees with the session-list badge (same resolver).
+    final resolvedKind = _resolveAgentKind(
+      agentId: entry.agentId,
+      providerId: entry.providerId,
+    );
+    final config = context.watch<AgentConfigsController>().byId(resolvedKind);
     final agentLabel = config?.label ?? entry.agentId ?? '?';
     final agentColor =
         config != null ? context.rhythm.accent : context.rhythm.textMuted;
@@ -939,6 +974,50 @@ class _MiniMessageBlock extends StatelessWidget {
     );
   }
 }
+
+// ---------------------------------------------------------------------------
+// Test harnesses — expose private bubble badge widgets for widget tests.
+// Issue #645 site #4: bubble badge must resolve via provider→agent-kind.
+// ---------------------------------------------------------------------------
+
+/// Public wrapper around [_BubbleHeader] for use in widget tests.
+///
+/// Requires [AgentConfigsController] in the Provider tree above it.
+/// Issue #645 site #4 (expanded bubble header).
+@visibleForTesting
+class BubbleHeaderTestHarness extends StatelessWidget {
+  const BubbleHeaderTestHarness({super.key, required this.entry});
+
+  final AgentBubbleEntry entry;
+
+  @override
+  Widget build(BuildContext context) {
+    return _BubbleHeader(
+      entry: entry,
+      onMinimize: () {},
+      onClose: () {},
+      onOpenFullView: () {},
+    );
+  }
+}
+
+/// Public wrapper around [_CollapsedBubble] for use in widget tests.
+///
+/// Requires [AgentConfigsController] in the Provider tree above it.
+/// Issue #645 site #4 (collapsed bubble badge letter).
+@visibleForTesting
+class CollapsedBubbleTestHarness extends StatelessWidget {
+  const CollapsedBubbleTestHarness({super.key, required this.entry});
+
+  final AgentBubbleEntry entry;
+
+  @override
+  Widget build(BuildContext context) {
+    return _CollapsedBubble(entry: entry);
+  }
+}
+
+// ---------------------------------------------------------------------------
 
 class _MiniLiveBlock extends StatelessWidget {
   const _MiniLiveBlock({required this.text});

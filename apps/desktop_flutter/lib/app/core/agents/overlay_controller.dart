@@ -17,6 +17,7 @@ class AgentBubbleEntry {
     required this.label,
     this.subtitle,
     this.agentId,
+    this.providerId,
     this.status,
     required this.working,
     this.sessionId,
@@ -29,6 +30,12 @@ class AgentBubbleEntry {
   final String label;
   final String? subtitle;
   final String? agentId;
+
+  /// Session-level provider ID (e.g. 'anthropic', 'openai', 'google').
+  /// Threaded through so the bubble badge can resolve the correct agent-kind
+  /// label/icon using the same provider→agent mapping as the main session list
+  /// (issue #645 — all four badge sites must be consistent).
+  final String? providerId;
   final AgentSessionStatus? status;
   final bool working;
   final String? sessionId;
@@ -41,6 +48,7 @@ class AgentBubbleEntry {
     String? label,
     Object? subtitle = _sentinel,
     Object? agentId = _sentinel,
+    Object? providerId = _sentinel,
     Object? status = _sentinel,
     bool? working,
     Object? sessionId = _sentinel,
@@ -53,6 +61,8 @@ class AgentBubbleEntry {
       label: label ?? this.label,
       subtitle: subtitle == _sentinel ? this.subtitle : subtitle as String?,
       agentId: agentId == _sentinel ? this.agentId : agentId as String?,
+      providerId:
+          providerId == _sentinel ? this.providerId : providerId as String?,
       status: status == _sentinel ? this.status : status as AgentSessionStatus?,
       working: working ?? this.working,
       sessionId: sessionId == _sentinel ? this.sessionId : sessionId as String?,
@@ -121,6 +131,7 @@ class OverlayController extends ChangeNotifier {
         label: s.name,
         subtitle: s.taskId != null ? 'Task linked' : null,
         agentId: s.agentId,
+        providerId: s.providerId,
         status: s.status,
         working: _agentsController.isWorking(s.id),
         sessionId: s.id,
