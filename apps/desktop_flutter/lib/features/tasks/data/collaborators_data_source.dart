@@ -3,18 +3,19 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 
 import '../../../app/core/auth/auth_session_store.dart';
-import '../../../app/core/constants/app_constants.dart';
 import '../../../app/core/utils/http_utils.dart';
 import '../models/task_collaborator.dart';
 
 class CollaboratorsDataSource {
-  CollaboratorsDataSource({String? baseUrl})
-      : _baseUrl = baseUrl ?? AppConstants.apiBaseUrl;
+  CollaboratorsDataSource({required String baseUrl, http.Client? client})
+      : _baseUrl = baseUrl,
+        _client = client ?? http.Client();
 
   final String _baseUrl;
+  final http.Client _client;
 
   Future<List<TaskCollaborator>> fetchForTask(String taskId) async {
-    final response = await http.get(
+    final response = await _client.get(
       Uri.parse('$_baseUrl/tasks/$taskId/collaborators'),
       headers: AuthSessionStore.headers(),
     );
@@ -26,7 +27,7 @@ class CollaboratorsDataSource {
   }
 
   Future<List<TaskCollaborator>> addToTask(String taskId, int userId) async {
-    final response = await http.post(
+    final response = await _client.post(
       Uri.parse('$_baseUrl/tasks/$taskId/collaborators'),
       headers: AuthSessionStore.headers(json: true),
       body: jsonEncode({'userId': userId}),
@@ -39,7 +40,7 @@ class CollaboratorsDataSource {
   }
 
   Future<void> removeFromTask(String taskId, int userId) async {
-    final response = await http.delete(
+    final response = await _client.delete(
       Uri.parse('$_baseUrl/tasks/$taskId/collaborators/$userId'),
       headers: AuthSessionStore.headers(),
     );
@@ -49,7 +50,7 @@ class CollaboratorsDataSource {
   Future<List<TaskCollaborator>> fetchForProject(
     String projectInstanceId,
   ) async {
-    final response = await http.get(
+    final response = await _client.get(
       Uri.parse('$_baseUrl/project-instances/$projectInstanceId/collaborators'),
       headers: AuthSessionStore.headers(),
     );
@@ -61,7 +62,7 @@ class CollaboratorsDataSource {
   }
 
   Future<void> addToProject(String projectInstanceId, int userId) async {
-    final response = await http.post(
+    final response = await _client.post(
       Uri.parse('$_baseUrl/project-instances/$projectInstanceId/collaborators'),
       headers: AuthSessionStore.headers(json: true),
       body: jsonEncode({'userId': userId}),
@@ -70,7 +71,7 @@ class CollaboratorsDataSource {
   }
 
   Future<void> removeFromProject(String projectInstanceId, int userId) async {
-    final response = await http.delete(
+    final response = await _client.delete(
       Uri.parse(
         '$_baseUrl/project-instances/$projectInstanceId/collaborators/$userId',
       ),
