@@ -238,17 +238,25 @@
 
 ---
 
-## Current Status (2026-05-26 — #629 + #631 + #48 implemented on workflow/run-2026-05-26)
+## Current Status (2026-05-26 — workflow run over 5 issues; PR #642 open, awaiting manual smoke)
 
-🟢 **Branch `workflow/run-2026-05-26`** — three issues implemented and verified. Commit: `040c824`.
+🟢 **Branch `workflow/run-2026-05-26` → [PR #642](https://github.com/ajhochy/Rhythm/pull/642)** (NOT merged). HEAD `6a17b91`. Server CI + Desktop CI green.
 
-- **#629** (task context seeded as system message): 535/535 vitest green; flutter analyze + dart format + tsc clean.
-- **#631** (slash-command popover wired to SDK): 539/539 vitest green (4 new contract tests added); all checks clean.
-- **#48** (PCO automation rule editor UX): all checks green; 7/7 contract criteria pass (3 backend + 4 Flutter widget tests). See summary below.
+Five issues, all verified by `verification-gate`. Two were already implemented on `main` and just never closed (locked with regression tests); three had real gaps that were implemented:
 
-All three verified by `verification-gate`. Manual smoke criteria remain pending human review.
+- **#626** (session.updated on stream bridge): already implemented (commit 163c7a6). Added regression contract tests only — `issue_626_contract.test.ts` 2/2.
+- **#476** (gate AgentTriggerWatcher in dev): guard already implemented (`RHYTHM_LOCAL_SMOKE` no-op). Documented the flag in `docs/testing/manual-smoke.md` §12.
+- **#629** (Open Chat ↔ task): taskId already persisted; added server-seeded non-triggering `system` context message + mini-bubble render. `issue_629_contract.test.ts` 4/4.
+- **#631** (slash popover empty): `/opencode/commands` returned hard-coded `[]`; wired `OpencodeClientService.listCommands()` → SDK `command.list()`. `issue_631_contract.test.ts` 4/4.
+- **#48** (PCO rule editor UX): sub-changes 1/2/4 already implemented; added #48.3 (day picker Mon–Sun) + #48.5 (placeholder insert chips). Backend 3/3 + Flutter widget 4/4.
 
-**Previous trunk:** Branch `follow-up` / PR #617 still open as of 2026-05-20. The `workflow/run-2026-05-26` branch contains all three fixes stacked on top of `main` — the orchestrator will handle PR creation.
+Plus 23 deterministic widget/controller tests (`test/features/agents/issue_62[69]_*`, `issue_631_*`) converting most of the manual smoke surface to `flutter test`. better-sqlite3 was rebuilt locally for Node ABI 127 so vitest runs.
+
+**Residual manual smoke (live-SDK only, see manual-smoke.md §12):** #631 real command list in popover; #629 task-context note on Open Chat from a live trigger; #626 chip flips live during a real agent run.
+
+**Companion:** [PR #641](https://github.com/ajhochy/Rhythm/pull/641) — mcp_server build-config fix (separate, CI green).
+
+**Previous trunk:** PR #617 merged to `main` on 2026-05-20 (commit 313e3ff); this run branched off post-merge `main`.
 
 ### #48 summary
 
