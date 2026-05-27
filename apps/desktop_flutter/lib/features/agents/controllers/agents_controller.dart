@@ -731,10 +731,22 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
           'modelId': override.modelId,
         },
     });
-    if (override != null) {
-      _pendingTurnOverride = null;
-      notifyListeners();
-    }
+    if (override != null) _pendingTurnOverride = null;
+    // Optimistic insert so the mini-bubble (which reads transcriptFor) shows
+    // the user's message immediately without waiting for a server round-trip.
+    final optimisticMsg = AgentSessionMessage(
+      id: 0,
+      sessionId: sessionId,
+      role: 'input',
+      rawText: data,
+      strippedText: data,
+      createdAt: DateTime.now(),
+    );
+    _transcriptsBySession[sessionId] = [
+      ...(_transcriptsBySession[sessionId] ?? []),
+      optimisticMsg,
+    ];
+    notifyListeners();
   }
 
   /// Convenience wrapper used by SessionModelPicker — stages a per-turn

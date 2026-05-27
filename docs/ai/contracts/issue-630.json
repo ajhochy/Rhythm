@@ -1,0 +1,24 @@
+{
+  "issue": 630,
+  "generated": "2026-05-27",
+  "stack": "dart",
+  "criteria": [
+    {
+      "criterion_id": "issue-630-c1",
+      "text": "QuestionToolCard renders when part.toolName is 'AskUserQuestion' (not just when it is 'question'). The agents_view.dart dispatch must match both 'question' and 'askuserquestion' (case-insensitive) so the card is shown for the tool name the opencode SDK actually emits.",
+      "mode": "unit",
+      "test_file": "apps/desktop_flutter/test/features/agents/issue_630_contract_test.dart",
+      "test_id": "issue-630-c1: QuestionToolCard dispatched for AskUserQuestion tool name",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-630-c2",
+      "text": "QuestionToolCard renders option buttons when options are passed as Map objects ({label, description}) not just bare strings. _parseQuestions must extract the 'label' field from Map-typed option entries and include them in the rendered Wrap of buttons.",
+      "mode": "unit",
+      "test_file": "apps/desktop_flutter/test/features/agents/issue_630_contract_test.dart",
+      "test_id": "issue-630-c2: QuestionToolCard renders object options (label/description maps)",
+      "status": "pending"
+    }
+  ],
+  "not_tested": []
+}

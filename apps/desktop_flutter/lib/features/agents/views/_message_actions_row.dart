@@ -52,11 +52,12 @@ class _TimeTick extends ChangeNotifier {
   }
 }
 
-final _globalTimeTick = _TimeTick();
-
 /// Wrap the chat list with this widget to keep all [MessageActionsRow]
 /// timestamps in sync without per-bubble timers. It only needs to be
 /// placed once per screen.
+///
+/// Each instance creates its own [_TimeTick] so the timer is scoped to the
+/// widget subtree and is cancelled when the widget is disposed.
 class MessageTimeTicker extends StatelessWidget {
   const MessageTimeTicker({super.key, required this.child});
 
@@ -64,8 +65,8 @@ class MessageTimeTicker extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ChangeNotifierProvider<_TimeTick>.value(
-      value: _globalTimeTick,
+    return ChangeNotifierProvider<_TimeTick>(
+      create: (_) => _TimeTick(),
       child: child,
     );
   }

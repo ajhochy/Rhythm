@@ -1264,34 +1264,47 @@ class _TranscriptPanelState extends State<_TranscriptPanel> {
 
     // Prefer the parts-based chat when the server emits the new events.
     if (hasChat) {
+      // System-role entries from legacyTranscript (WS error frames, context
+      // notes) are not represented in chatMessages. Include them so errors
+      // remain visible even when the SDK is emitting the new event format.
+      final systemMessages =
+          legacyTranscript.where((m) => m.role == 'system').toList();
+      final totalCount = chatMessages.length + systemMessages.length;
       return MessageTimeTicker(
         child: ListView.builder(
           controller: _scrollController,
           padding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
-          itemCount: chatMessages.length,
+          itemCount: totalCount,
           itemBuilder: (context, index) {
-            final m = chatMessages[index];
-            final parts = controller.chatPartsFor(m.id);
-            // Collect full text for copy action.
-            final copyText = parts.map((p) => p.text).join('').trim();
+            if (index < chatMessages.length) {
+              final m = chatMessages[index];
+              final parts = controller.chatPartsFor(m.id);
+              // Collect full text for copy action.
+              final copyText = parts.map((p) => p.text).join('').trim();
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    _ChatBubble(
+                      message: m,
+                      parts: parts,
+                      sessionId: session.id,
+                    ),
+                    MessageActionsRow(
+                      sessionId: session.id,
+                      messageId: m.id,
+                      createdAt: m.createdAt,
+                      text: copyText,
+                    ),
+                  ],
+                ),
+              );
+            }
+            final sysMsg = systemMessages[index - chatMessages.length];
             return Padding(
               padding: const EdgeInsets.only(bottom: 8),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  _ChatBubble(
-                    message: m,
-                    parts: parts,
-                    sessionId: session.id,
-                  ),
-                  MessageActionsRow(
-                    sessionId: session.id,
-                    messageId: m.id,
-                    createdAt: m.createdAt,
-                    text: copyText,
-                  ),
-                ],
-              ),
+              child: _MessageBlock(message: sysMsg),
             );
           },
         ),
@@ -1819,7 +1832,8 @@ class _ChatBubble extends StatelessWidget {
         flushText();
         // Route `question` / AskUserQuestion tool calls to the interactive
         // answer selector. All other tool calls use the generic card.
-        if (part.toolName?.toLowerCase() == 'question') {
+        if (const {'question', 'askuserquestion'}
+            .contains(part.toolName?.toLowerCase())) {
           children.add(
             QuestionToolCard(part: part, sessionId: sessionId),
           );
