@@ -2,6 +2,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import '../../../app/core/formatters/date_formatters.dart';
+import '../../../app/core/services/server_config_service.dart';
 import '../../../app/core/tasks/task_visual_style.dart';
 import '../../../app/core/ui/rhythm_ui.dart';
 import '../../../app/core/widgets/error_banner.dart';
@@ -106,7 +107,9 @@ class _WeeklyPlannerViewState extends State<WeeklyPlannerView> {
     WeeklyPlannerController controller,
     Task task,
   ) async {
-    final collaboratorsDataSource = CollaboratorsDataSource();
+    final collaboratorsDataSource = CollaboratorsDataSource(
+      baseUrl: context.read<ServerConfigService>().url,
+    );
     await showRhythmTaskInspector(
       context,
       task: task,
@@ -1632,12 +1635,16 @@ class _DetailPaneState extends State<_DetailPane> {
               ownerId: task.ownerId!,
               workspaceMembers: workspaceMembers,
               onAdd: (userId) async {
-                final dataSource = CollaboratorsDataSource();
+                final dataSource = CollaboratorsDataSource(
+                  baseUrl: context.read<ServerConfigService>().url,
+                );
                 await dataSource.addToTask(task.id, userId);
                 await widget.controller.load();
               },
               onRemove: (userId) async {
-                final dataSource = CollaboratorsDataSource();
+                final dataSource = CollaboratorsDataSource(
+                  baseUrl: context.read<ServerConfigService>().url,
+                );
                 await dataSource.removeFromTask(task.id, userId);
                 await widget.controller.load();
               },
