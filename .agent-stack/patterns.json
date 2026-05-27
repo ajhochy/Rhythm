@@ -1,0 +1,222 @@
+{
+  "patterns": [
+    {
+      "id": "c2-wrong-contract",
+      "category": "C2",
+      "description": "Wrong contract failures: 11 occurrence(s) across issues ['645', 'batch:627,628,632,633', 'batch:627,628,632,633,634,636,637,638,639']",
+      "occurrences": 11,
+      "affected_issues": [
+        "645",
+        "batch:627,628,632,633",
+        "batch:627,628,632,633,634,636,637,638,639"
+      ],
+      "affected_skills": [
+        "acceptance-contract"
+      ],
+      "reason": "A contract test passed but the criterion was broken in manual smoke \u2014 the test asserted the wrong thing.",
+      "suggested_prompt_addition": "When writing contract tests, verify the assertion directly matches the user-observable outcome, not an internal implementation detail.",
+      "evidence_files": [
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-20-pr-617-633-batch.json",
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-20-pr-617-633-batch.json",
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-20-pr-617-633-batch.json",
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-20-pr-617-fifth-round-batch.json",
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-20-pr-617-fifth-round-batch.json",
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-20-pr-617-fifth-round-batch.json",
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-20-pr-617-fifth-round-batch.json",
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-20-pr-617-fifth-round-batch.json",
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-26-issue-645.json",
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-26-issue-645.json",
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-26-retro-issues-644-643-645.json"
+      ]
+    },
+    {
+      "id": "c1-missing-contract",
+      "category": "C1",
+      "description": "Missing contract failures: 3 occurrence(s) across issues ['batch:599,600,601,605,606,610,611,614,615,620,622,623,624,625', 'batch:627,628,632,633']",
+      "occurrences": 3,
+      "affected_issues": [
+        "batch:599,600,601,605,606,610,611,614,615,620,622,623,624,625",
+        "batch:627,628,632,633"
+      ],
+      "affected_skills": [
+        "acceptance-contract"
+      ],
+      "reason": "A criterion was never made executable. The acceptance-contract skill should parse this criterion type more aggressively.",
+      "suggested_prompt_addition": "When parsing acceptance criteria, also look for implicit requirements expressed as negative conditions, edge cases, or 'should not' clauses.",
+      "evidence_files": [
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-19-pr-617-batch-smoke.json",
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-20-pr-617-633-batch.json",
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-20-pr-617-633-batch.json"
+      ]
+    },
+    {
+      "id": "c3-wrong-implementation",
+      "category": "C3",
+      "description": "Wrong implementation failures: 2 occurrence(s) across issues ['batch:599,600,601,605,606,610,611,614,615,620,622,623,624,625']",
+      "occurrences": 2,
+      "affected_issues": [
+        "batch:599,600,601,605,606,610,611,614,615,620,622,623,624,625"
+      ],
+      "affected_skills": [
+        "coding-agent"
+      ],
+      "reason": "A correct test failed due to a code error. The coding-agent should have caught this before handing off.",
+      "suggested_prompt_addition": "Before claiming done, re-run all contract tests and confirm each one passes with a real behavioral assertion, not just exit code 0.",
+      "evidence_files": [
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-19-pr-617-batch-smoke.json",
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-19-pr-617-batch-smoke.json"
+      ]
+    },
+    {
+      "id": "c6-dependency-failure",
+      "category": "C6",
+      "description": "Dependency failure failures: 2 occurrence(s) across issues ['batch:599,600,601,605,606,610,611,614,615,620,622,623,624,625']",
+      "occurrences": 2,
+      "affected_issues": [
+        "batch:599,600,601,605,606,610,611,614,615,620,622,623,624,625"
+      ],
+      "affected_skills": [
+        "coding-agent"
+      ],
+      "reason": "A dependency failure was attributed to this PR. The coding-agent should isolate scope more carefully.",
+      "suggested_prompt_addition": "Before implementing, check whether the failing behavior exists on main. If yes, file a separate issue for the pre-existing bug rather than treating it as in-scope.",
+      "evidence_files": [
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-19-pr-617-batch-smoke.json",
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-19-pr-617-batch-smoke.json"
+      ]
+    },
+    {
+      "id": "c7-regression",
+      "category": "C7",
+      "description": "Regression failures: 2 occurrence(s) across issues ['batch:599,600,601,605,606,610,611,614,615,620,622,623,624,625']",
+      "occurrences": 2,
+      "affected_issues": [
+        "batch:599,600,601,605,606,610,611,614,615,620,622,623,624,625"
+      ],
+      "affected_skills": [
+        "smoke-test-writer"
+      ],
+      "reason": "A regression occurred and no smoke test caught it before manual testing.",
+      "suggested_prompt_addition": "For any issue that modifies shared state, shared components, or widely-used utilities, add a regression smoke check for the previously-working behavior.",
+      "evidence_files": [
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-19-pr-617-batch-smoke.json",
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-19-pr-617-batch-smoke.json"
+      ]
+    }
+  ],
+  "process_patterns": [
+    {
+      "id": "p2-test-infrastructure-conflict",
+      "category": "P2",
+      "description": "Test infrastructure conflict failures: 3 occurrence(s) across issues ['645', 'batch:599,600,601,605,606,610,611,614,615,620,622,623,624,625']",
+      "occurrences": 3,
+      "affected_issues": [
+        "645",
+        "batch:599,600,601,605,606,610,611,614,615,620,622,623,624,625"
+      ],
+      "affected_skills": [
+        "workflow-orchestrator"
+      ],
+      "reason": "Test runner glob overlap caused one runner to pick up another runner's files, producing spurious failures.",
+      "suggested_prompt_addition": "During pre-flight check, inspect all test runner config files for overlapping include/testMatch globs. If vitest.config.ts and playwright.config.ts share a directory pattern, tighten the globs before dispatching any coding-agent.",
+      "evidence_files": [
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-19-pr-617-batch-smoke.json",
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-26-retro-issues-644-643-645.json",
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-26-run-642.json"
+      ]
+    },
+    {
+      "id": "p3-scope-expansion",
+      "category": "P3",
+      "description": "Scope expansion failures: 2 occurrence(s) across issues ['645', 'batch:627,628,632,633,634,636,637,638,639']",
+      "occurrences": 2,
+      "affected_issues": [
+        "645",
+        "batch:627,628,632,633,634,636,637,638,639"
+      ],
+      "affected_skills": [
+        "acceptance-contract"
+      ],
+      "reason": "Implementation went beyond the issue scope \u2014 added unrequested features or refactored outside the acceptance criteria.",
+      "suggested_prompt_addition": "Before accepting a coding-agent result, diff the changed files against the issue's acceptance criteria. Any file not referenced in the issue or the contract test is a scope violation unless the coding-agent explicitly justified it.",
+      "evidence_files": [
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-20-pr-617-fifth-round-batch.json",
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-26-issue-645.json"
+      ]
+    }
+  ],
+  "workflow_patterns": [
+    {
+      "id": "w1-required-skill-skipped",
+      "category": "W1",
+      "description": "Required skill skipped failures: 7 occurrence(s) across issues ['batch:599,600,601,605,606,610,611,614,615,620,622,623,624,625', 'batch:627,628,632,633', 'batch:627,628,632,633,634,636,637,638,639']",
+      "occurrences": 7,
+      "affected_issues": [
+        "batch:599,600,601,605,606,610,611,614,615,620,622,623,624,625",
+        "batch:627,628,632,633",
+        "batch:627,628,632,633,634,636,637,638,639"
+      ],
+      "affected_skills": [
+        "workflow-orchestrator"
+      ],
+      "reason": "A required skill in the canonical chain was skipped. The orchestrator must enforce the chain \u2014 every required step is gated.",
+      "suggested_prompt_addition": "Before dispatching the next step, verify that the immediately-previous required step in the chain announced itself, expanded its TodoWrite checklist, and emitted its expected output artifact. If the previous step is missing, halt and surface the gap rather than continuing.",
+      "evidence_files": [
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-19-pr-617-batch-smoke.json",
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-19-pr-617-batch-smoke.json",
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-20-pr-617-633-batch.json",
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-20-pr-617-633-batch.json",
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-20-pr-617-633-batch.json",
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-20-pr-617-fifth-round-batch.json",
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-20-pr-617-fifth-round-batch.json"
+      ]
+    },
+    {
+      "id": "w5-premature-completion-claim",
+      "category": "W5",
+      "description": "Premature completion claim failures: 6 occurrence(s) across issues ['645', 'batch:599,600,601,605,606,610,611,614,615,620,622,623,624,625', 'batch:627,628,632,633', 'batch:627,628,632,633,634,636,637,638,639']",
+      "occurrences": 6,
+      "affected_issues": [
+        "645",
+        "batch:599,600,601,605,606,610,611,614,615,620,622,623,624,625",
+        "batch:627,628,632,633",
+        "batch:627,628,632,633,634,636,637,638,639"
+      ],
+      "affected_skills": [
+        "verification-gate"
+      ],
+      "reason": "Agent claimed work done, fixed, passing, or opened a PR without verification-gate evidence captured in the transcript.",
+      "suggested_prompt_addition": "Strengthen the Required Evidence section: completion claims (the words 'done', 'fixed', 'ready', 'passing', 'shipped', or opening a PR) are FORBIDDEN unless preceded in the SAME response by a captured tool-call output block showing the check command and its exit-zero/green result. Add this as a hard rule in the Red Flags table.",
+      "evidence_files": [
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-19-pr-617-batch-smoke.json",
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-20-pr-617-633-batch.json",
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-20-pr-617-fifth-round-batch.json",
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-20-pr-617-fifth-round-batch.json",
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-26-issue-645.json",
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-26-retro-issues-644-643-645.json"
+      ]
+    },
+    {
+      "id": "w4-source-of-truth-violation",
+      "category": "W4",
+      "description": "Source-of-truth violation failures: 1 occurrence(s) across issues ['batch:627,628,632,633']",
+      "occurrences": 1,
+      "affected_issues": [
+        "batch:627,628,632,633"
+      ],
+      "affected_skills": [
+        "workflow-orchestrator"
+      ],
+      "reason": "Agent edited a sync target (~/.claude/skills/, ~/.codex/skills/) directly, or re-fetched content already inlined, or operated on the wrong repo.",
+      "suggested_prompt_addition": "Add a Source-of-Truth Guard to dispatch prompts for any skill that edits SKILL.md or workflow scripts: '$AGENT_STACK_PATH is the only writeable canonical path. Any Edit/Write whose path starts with ~/.claude/skills/, ~/.codex/skills/, or ~/.config/opencode/skills/ must STOP. Verify origin remote before commit/push.' For coding-agent dispatches, inline the issue body verbatim and add: 'Do NOT call gh issue view \u2014 the body is above.'",
+      "evidence_files": [
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-20-pr-617-633-batch.json"
+      ]
+    }
+  ],
+  "last_updated": "2026-05-26",
+  "total_runs_analyzed": 7,
+  "min_occurrences_threshold": 2,
+  "process_min_occurrences_threshold": 1,
+  "workflow_min_occurrences_threshold": 1
+}

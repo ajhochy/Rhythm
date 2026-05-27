@@ -1,0 +1,39 @@
+{
+  "run_id": "2026-05-26-retro-issues-644-643-645",
+  "issue": 645,
+  "date": "2026-05-26",
+  "smoke_result": "pass",
+  "verification_claimed": "PASS",
+  "divergence": false,
+  "criteria_results": [],
+  "process_issues": [
+    {
+      "process_category": "P2",
+      "description": "api_server vitest reported a one-off failure inside `ai-workflow checks --level pr` while a live smoke app (api_server :4001 + opencode :4096) was running; a standalone `npx vitest run` passed 542/542 and a clean harness re-run passed. Likely resource/port contention between the live smoke app and the test run, not a code regression.",
+      "detected_by": "ai-workflow checks --level pr vitest ✗ then standalone npx vitest run 542/542 ✓ and harness re-run ✓."
+    }
+  ],
+  "workflow_adherence": {
+    "overall_score": "partial",
+    "expected_chain": ["workflow-orchestrator", "acceptance-contract", "coding-agent", "verification-gate", "project-state-updater", "failure-postmortem", "failure-triage", "coding-agent", "verification-gate", "project-state-updater", "workflow-retrospective"],
+    "observed_chain": ["workflow-orchestrator", "acceptance-contract", "coding-agent", "verification-gate", "project-state-updater", "failure-postmortem", "failure-triage", "coding-agent", "verification-gate", "project-state-updater", "failure-postmortem", "workflow-retrospective"],
+    "skipped_skills": [],
+    "issues": [
+      {
+        "workflow_category": "W5",
+        "affected_skill": "verification-gate",
+        "description": "verification-gate emitted PASS for #645 on the strength of green widget tests TWICE, but the behavioral-evidence rule was satisfied only at the widget level (AgentKindBadgeTestHarness), not at the user-visible level. Round 1 was a false-green (the contract test fed providerId='codex', an agent-kind the app never stores; production stores the LLM provider 'openai'/'google'). Round 2 passed verification but manual smoke found the badge wrong in 3 of 4 render sites because the contract tested the widget in isolation, not the composing views (_TranscriptHeader, _ResumableSessionRow, agent_bubble_overlay). Both are upstream acceptance-contract gaps that verification-gate's behavioral-evidence rule did not flag as insufficient.",
+        "detected_by": "Orchestrator trust-but-verify caught round 1 (compared the test's injected value to the value _applyPick actually stores); manual smoke caught round 2."
+      }
+    ]
+  },
+  "implementation_files": [
+    "apps/desktop_flutter/lib/features/agents/views/agents_view.dart",
+    "apps/desktop_flutter/lib/app/core/agents/agent_bubble_overlay.dart",
+    "apps/desktop_flutter/lib/app/core/agents/overlay_controller.dart",
+    "apps/desktop_flutter/lib/features/tasks/data/collaborators_data_source.dart"
+  ],
+  "failure_output": "",
+  "overall_category": "C2",
+  "suggested_follow_up": "Sharpen acceptance-contract: for UI/widget changes, enumerate EVERY render site of the changed widget and assert each composing view; and require contract test inputs to be the value the production code path actually produces (not a convenient stand-in). Sharpen verification-gate behavioral-evidence rule: a widget-isolation test is insufficient evidence when the widget renders in multiple parent views."
+}
