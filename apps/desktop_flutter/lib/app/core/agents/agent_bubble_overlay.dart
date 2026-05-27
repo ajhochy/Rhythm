@@ -878,6 +878,8 @@ class _MiniMessageBlock extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final isInput = message.role == 'input';
+    final isSystem = message.role == 'system';
+
     if (isInput) {
       return Container(
         width: double.infinity,
@@ -899,6 +901,24 @@ class _MiniMessageBlock extends StatelessWidget {
         ),
       );
     }
+
+    // #629: system messages show task context as a muted note bubble.
+    if (isSystem) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 2),
+        child: Text(
+          message.strippedText,
+          maxLines: 5,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(
+            fontSize: 11,
+            color: context.rhythm.textMuted,
+            fontStyle: FontStyle.italic,
+          ),
+        ),
+      );
+    }
+
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(8),

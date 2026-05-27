@@ -14,6 +14,20 @@
 
 ## Recent coding-agent runs
 
+### 2026-05-26 — fix/issue-629-task-context-system-message (#629)
+- Files modified:
+  - `apps/api_server/src/controllers/agent_sessions_controller.ts` — captured returned `Task` from `findByIdIncludingLegacy` (was discarding it; c.137); after `repo.insert(dto)` and before the agent-less early return, appended a `'system'` message via `messagesRepo.append(session.id, 'system', text, text)` where text is `"Task context\nTitle: <title>\n\n<notes>"` (notes paragraph omitted if null). Fallback: when taskId is not in local DB but taskTitle is provided, the provided taskTitle is used instead. The `'system'` role is display-only — never sent to SDK — so this cannot cause #624.
+  - `apps/desktop_flutter/lib/app/core/agents/agent_bubble_overlay.dart` — added `isSystem` branch in `_MiniMessageBlock.build()` rendering a muted italic text block (matches the `agents_view.dart` `_MessageBlock` system render style). The full-view `_MessageBlock` already handled `role=='system'` (lines 1673-1685) — no change needed there.
+  - `apps/api_server/src/__tests__/issue_629_contract.test.ts` — new vitest contract test (4 tests): c1 (title in system msg), c2 (notes in system msg), c3 (taskTitle fallback when FK miss), c4 (no extra promptAsync for agent-less session). Red proven on current code before fix.
+  - `docs/ai/contracts/issue-629.json` — new contract JSON (5 criteria, 4 automated, 1 manual).
+- Checks run:
+  - `ai-workflow checks --level issue` → flutter analyze ✓, dart format ✓, tsc --noEmit ✓
+  - `npx vitest run src/__tests__/issue_629_contract.test.ts` → 4/4 ✓ (red: 3 fail before fix; green: 4/4 after)
+  - `npx vitest run` (full suite) → 535/535 ✓
+- Decisions made: placed the system message append BEFORE the agent-less early return so both agent-less (task bubble path) and agent-assigned sessions get the context. Used an inline block `{ }` around the append logic to keep scope clean. The `resolvedTask` variable uses an inline `import('../models/task').Task` type reference to avoid adding a top-level import for a type that's only used in one spot.
+- Deviations from spec: none. The spec called for `messagesRepo.append(session.id, 'system', text, text)` exactly as implemented.
+- Concerns: `resolvedTask?.notes` may be empty string (`""`); guarded with `notes.trim()` check before appending the notes paragraph. The fallback path (c3) uses `typeof taskTitle === 'string' && taskTitle` to avoid appending a system message when taskTitle is an empty string.
+
 ### 2026-05-20 — fix/pr-617-fifth-round-smoke (#638 c4)
 - Fifth-round smoke on commit 4f921ac surfaced: #638 still fails for newly-created sessions despite the c3 race-merge fix. Root cause is upstream of the controller: api_server's `streamBridge.streamSession()` was fire-and-forget, so the SSE listener loop wasn't subscribed when `promptAsync` fired immediately after. SDK-level errors (e.g. "Model not found") arrived before the bridge could resolve `localSessionId`, so the WS broadcast went out with the SDK UUID and the Flutter client couldn't route it.
 - Files modified:
@@ -191,7 +205,21 @@
 
 ---
 
-## Current Status (2026-05-19 — follow-up fixes for #606, #622, #623, #624, #625 committed; smoke pending)
+## Current Status (2026-05-26 — #629 implemented on workflow/run-2026-05-26; verification passed)
+
+🟡 **Branch `workflow/run-2026-05-26`**. Issue #629 (task context seeded as system message) implemented and verified: 535/535 vitest, flutter analyze + dart format + tsc clean. Manual smoke criterion (c5 — visual confirmation of context in bubble) remains pending human review.
+
+**Previous trunk:** Branch `follow-up` / PR #617 still open as of 2026-05-20. The `workflow/run-2026-05-26` branch contains the #629 fix stacked on top of whatever is on `main` at this point — the orchestrator will handle PR creation.
+
+### #629 fix summary
+
+- `apps/api_server/src/controllers/agent_sessions_controller.ts` — captures `Task` from FK probe; appends `'system'` message with title + notes after `repo.insert()`.
+- `apps/desktop_flutter/lib/app/core/agents/agent_bubble_overlay.dart` — `_MiniMessageBlock` now renders `role=='system'` as muted italic text (matches full-view `_MessageBlock` which already had this branch).
+- Contract: `docs/ai/contracts/issue-629.json` (5 criteria, 4 automated, 1 manual). Test: `apps/api_server/src/__tests__/issue_629_contract.test.ts` (4/4 green, red proven before fix).
+
+---
+
+## Prior Status (2026-05-19 — follow-up fixes for #606, #622, #623, #624, #625 committed; smoke pending)
 
 🟡 **Branch `follow-up` stays open. PR #617 still not merged.** PR #621 stacked on top — FK tolerance for production task IDs in the local SQLite. Independent and shippable.
 
