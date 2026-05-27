@@ -5,7 +5,7 @@
   "type": "commonjs",
   "main": "dist/index.js",
   "bin": {
-    "rhythm-mcp": "./dist/index.js"
+    "rhythm-mcp": "dist/index.js"
   },
   "files": [
     "dist",
