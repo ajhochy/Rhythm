@@ -217,7 +217,7 @@ describe('CredentialsBridgeService.startRefreshLoop', () => {
   beforeEach(() => vi.useFakeTimers());
   afterEach(() => vi.useRealTimers());
 
-  it('calls bridgeAnthropic every 30 minutes', async () => {
+  it('issue-658-c4: ticks every 15 min and forces a keychain re-read each tick', async () => {
     vi.mocked(cp.execSync).mockReturnValue(Buffer.from(keychainPayload(FUTURE)));
     const bridge = new CredentialsBridgeService();
     const spy = vi.spyOn(bridge, 'bridgeAnthropic').mockResolvedValue({
@@ -225,11 +225,20 @@ describe('CredentialsBridgeService.startRefreshLoop', () => {
       provider: 'anthropic',
       subscriptionType: 'pro',
     });
-    bridge.startRefreshLoop({ isReady: true } as unknown as OpencodeClientService);
-    vi.advanceTimersByTime(30 * 60 * 1000 + 100);
+    const client = { isReady: true } as unknown as OpencodeClientService;
+    bridge.startRefreshLoop(client);
+
+    vi.advanceTimersByTime(CredentialsBridgeService.REFRESH_INTERVAL_MS + 100);
     expect(spy).toHaveBeenCalledTimes(1);
-    vi.advanceTimersByTime(30 * 60 * 1000);
+    // #658: each tick must FORCE so it mirrors Claude Code's current token
+    // rather than riding a stale cached snapshot.
+    expect(spy).toHaveBeenLastCalledWith(client, { force: true });
+
+    vi.advanceTimersByTime(CredentialsBridgeService.REFRESH_INTERVAL_MS);
     expect(spy).toHaveBeenCalledTimes(2);
+
+    // 15-minute cadence (faster than the ~hourly token lifetime).
+    expect(CredentialsBridgeService.REFRESH_INTERVAL_MS).toBe(15 * 60 * 1000);
     bridge.stopRefreshLoop();
   });
 });

@@ -54,9 +54,35 @@ async function main() {
   }
 
   // Initialize Opencode SDK (non-blocking — logs on failure, never prevents startup)
-  opencodeClient.initialize().catch((err) => {
-    console.warn('[Opencode] SDK init failed (non-fatal):', err);
-  });
+  opencodeClient
+    .initialize()
+    .then(async () => {
+      // #658: auto-bridge Claude Code credentials on launch so the user never
+      // has to click "Reconnect" after a normal start. force:true re-reads the
+      // keychain fresh; a successful bridge starts the 15-min refresh loop that
+      // keeps opencode's token in sync as Claude Code rotates it. No-op when
+      // Claude Code isn't installed/signed-in.
+      try {
+        const { credentialsBridge } = await import('./routes/opencode_auth_routes');
+        if (!credentialsBridge.hasClaudeCode()) {
+          logger.info('[server] Claude auto-bridge: no Claude Code creds — skipping');
+          return;
+        }
+        const result = await credentialsBridge.bridgeAnthropic(opencodeClient, {
+          force: true,
+        });
+        logger.info(
+          `[server] Claude auto-bridge: ${
+            result.success ? 'ok' : `failed (${result.reason})`
+          }`,
+        );
+      } catch (e) {
+        logger.warn(`[server] Claude auto-bridge errored (non-fatal): ${String(e)}`);
+      }
+    })
+    .catch((err) => {
+      console.warn('[Opencode] SDK init failed (non-fatal):', err);
+    });
 
   httpServer.listen(port, () => {
     logger.info(`Rhythm API listening on port ${port}`);
