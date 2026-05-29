@@ -1,0 +1,73 @@
+{
+  "issue": 651,
+  "generated": "2026-05-28",
+  "stack": "dart",
+  "criteria": [
+    {
+      "criterion_id": "issue-651-c1",
+      "text": "When CollaboratorsRow.onAdd throws an AppError, a SnackBar is shown containing the AppError.message.",
+      "mode": "widget",
+      "test_file": "test/features/tasks/issue_651_contract_test.dart",
+      "test_id": "issue-651-c1: CollaboratorsRow surfaces onAdd AppError as a SnackBar",
+      "status": "PASS"
+    },
+    {
+      "criterion_id": "issue-651-c2",
+      "text": "When CollaboratorsRow.onRemove throws an AppError (long-press), a SnackBar is shown containing the AppError.message.",
+      "mode": "widget",
+      "test_file": "test/features/tasks/issue_651_contract_test.dart",
+      "test_id": "issue-651-c2: CollaboratorsRow surfaces onRemove AppError as a SnackBar",
+      "status": "PASS"
+    },
+    {
+      "criterion_id": "issue-651-c3",
+      "text": "When the task inspector's onAddCollaborator throws an AppError, the inspector shows a SnackBar with the message and clears its loading state.",
+      "mode": "widget",
+      "test_file": "test/features/tasks/issue_651_contract_test.dart",
+      "test_id": "issue-651-c3: RhythmTaskInspector surfaces onAddCollaborator AppError as a SnackBar",
+      "status": "PASS"
+    },
+    {
+      "criterion_id": "issue-651-c4",
+      "text": "When the task inspector's onRemoveCollaborator throws an AppError, the inspector shows a SnackBar with the message and clears its loading state.",
+      "mode": "widget",
+      "test_file": "test/features/tasks/issue_651_contract_test.dart",
+      "test_id": "issue-651-c4: RhythmTaskInspector surfaces onRemoveCollaborator AppError as a SnackBar",
+      "status": "PASS"
+    },
+    {
+      "criterion_id": "issue-651-c5",
+      "text": "Manual smoke on v18.39: adding Visalia CRC as collaborator on a task persists the chip AND opens the agent chat bubble within ~10s.",
+      "mode": "manual",
+      "status": "PENDING"
+    },
+    {
+      "criterion_id": "issue-651-c6",
+      "text": "isPendingAgent('__pending__') is true; isPendingAgent of other values is false. The sentinel constant is the exact string '__pending__'.",
+      "mode": "unit",
+      "test_file": "test/features/tasks/issue_651_contract_test.dart",
+      "test_id": "issue-651-c6: isPendingAgent + kPendingAgentSentinel detect __pending__ correctly",
+      "status": "PASS"
+    },
+    {
+      "criterion_id": "issue-651-c7",
+      "text": "filterStalePendingErrors drops 'system' role messages starting with 'Error:' when isPending=true, keeps the task-context system message and other roles; passes everything through unchanged when isPending=false.",
+      "mode": "unit",
+      "test_file": "test/features/tasks/issue_651_contract_test.dart",
+      "test_id": "issue-651-c7: filterStalePendingErrors drops persisted server error frames when session is __pending__ but keeps task-context system msg",
+      "status": "PASS"
+    },
+    {
+      "criterion_id": "issue-651-c8",
+      "text": "computeIsLocalSmokeRun honors RHYTHM_LOCAL_SMOKE=1 env var ONLY in debug builds (kDebugMode=true). In release builds the env var is ignored and an onIgnoredInRelease callback fires. --dart-define always wins regardless of build mode.",
+      "mode": "unit",
+      "test_file": "test/features/tasks/issue_651_contract_test.dart",
+      "test_id": "issue-651-c8a/c8b/c8c: RHYTHM_LOCAL_SMOKE release-build hardening",
+      "status": "PASS"
+    }
+  ],
+  "not_tested": [
+    "Live trigger consumption against production after watcher restart (covered by c5 manual smoke on v18.39).",
+    "The DELETE /claude-triggers/:id 404 on first poll cycle after a stale-trigger backlog (separate follow-up issue; orthogonal to user-facing behavior)."
+  ]
+}

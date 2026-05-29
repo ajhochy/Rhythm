@@ -1,0 +1,111 @@
+{
+  "run_id": "2026-05-28-issue-651-vbeta18.37-regression",
+  "issue": 651,
+  "date": "2026-05-28",
+  "smoke_result": "fail",
+  "verification_claimed": "PASS",
+  "divergence": true,
+  "divergence_context": {
+    "claimed_pass_artifact": ".agent-stack/postmortems/2026-05-27-pr-649-smoke.json",
+    "claimed_pass_pr": 649,
+    "claimed_pass_release_tag": "vbeta.18.37",
+    "user_report_verbatim": "regression - most recent release - when AI account is added as collaboration, the chat window does not open anymore, and collaborator does not 'save' on the task. We fixed this recently....",
+    "user_report_date": "2026-05-28",
+    "regression_introduced_by": "unknown (source-code-level investigation shows #644 fix intact)",
+    "previously_smoked_pass": {
+      "issue": 644,
+      "date": "2026-05-26",
+      "smoke_evidence": "Live Computer Use smoke: assigned Visalia CRC to task `Find subs for any remaining gaps`; collaborator chip persisted; AgentTriggerWatcher logged trigger id 17; Agents view showed waiting-for-agent bubble + overlay '+1 more'."
+    }
+  },
+  "criteria_results": [
+    {
+      "criterion_id": "issue-651-c1",
+      "text": "When CollaboratorsRow.onAdd throws an AppError, a SnackBar is shown containing the AppError.message.",
+      "contract_status": "pass",
+      "smoke_status": "pending",
+      "category": "none",
+      "notes": "Contract test verified red->green."
+    },
+    {
+      "criterion_id": "issue-651-c2",
+      "text": "When CollaboratorsRow.onRemove throws an AppError, a SnackBar is shown containing the AppError.message.",
+      "contract_status": "pass",
+      "smoke_status": "pending",
+      "category": "none",
+      "notes": "Contract test verified red->green. Test invokes onLongPress directly to sidestep Tooltip gesture arena."
+    },
+    {
+      "criterion_id": "issue-651-c3",
+      "text": "When the task inspector's onAddCollaborator throws an AppError, the inspector shows a SnackBar with the message and clears its loading state.",
+      "contract_status": "pass",
+      "smoke_status": "pending",
+      "category": "none",
+      "notes": "Contract test verified red->green. Drains layout-overflow noise to evaluate the SnackBar assertion cleanly."
+    },
+    {
+      "criterion_id": "issue-651-c4",
+      "text": "When the task inspector's onRemoveCollaborator throws an AppError, the inspector shows a SnackBar with the message and clears its loading state.",
+      "contract_status": "pass",
+      "smoke_status": "pending",
+      "category": "none",
+      "notes": "Contract test verified red->green."
+    },
+    {
+      "criterion_id": "issue-651-c5",
+      "text": "Manual smoke on vbeta.18.38: adding Visalia CRC as collaborator on a task either persists + opens the bubble, OR produces a visible error message that identifies the underlying failure.",
+      "contract_status": "n/a",
+      "smoke_status": "pending",
+      "category": "C7",
+      "notes": "Cannot complete c5 until the user retests against a build that contains this shim. The captured SnackBar text becomes the input to the follow-up root-cause issue."
+    }
+  ],
+  "process_issues": [
+    {
+      "id": "C1-related",
+      "description": "PR #649 smoke claimed PASS, vbeta.18.37 was cut from that merge, and a user-flow critical path (collaborator add) regressed on the same release without any pre-release smoke covering that surface.",
+      "lesson": "The smoke scope for a release should cover at least the previous release's known-fixed surfaces, not only the PR's specific acceptance criteria. The #644 collaborator-add path was last smoked on a debug build 24h before the vbeta.18.37 tag.",
+      "category": "C1"
+    },
+    {
+      "id": "C2-related",
+      "description": "Both UI entry points for collaborator add/remove silently swallow thrown AppErrors. This is a class of regression where the smoke ladder cannot distinguish 'works' from 'fails silently'.",
+      "lesson": "Any UI call that fronts an HTTP write should have a mandatory error-surface affordance (toast/banner/inline). Lint or review-checklist item: try/catch with user-visible failure path or an explicit comment why the error is intentionally swallowed.",
+      "category": "C2"
+    }
+  ],
+  "workflow_adherence": {
+    "overall_score": "complete",
+    "expected_chain": [
+      "workflow-orchestrator",
+      "acceptance-contract",
+      "coding-agent (in-process)",
+      "verification-gate",
+      "project-state-updater",
+      "failure-postmortem"
+    ],
+    "observed_chain": [
+      "workflow-orchestrator",
+      "acceptance-contract",
+      "coding-agent (in-process)",
+      "verification-gate",
+      "project-state-updater",
+      "failure-postmortem"
+    ],
+    "skipped_skills": [],
+    "issues": [
+      "Skipped a literal acceptance-contract Skill tool invocation but produced both expected artifacts (docs/ai/contracts/issue-651.json + failing widget test) per Guard 5 in-process rules. Both artifacts verified red before fix, green after."
+    ]
+  },
+  "implementation_files": [
+    "apps/desktop_flutter/lib/app/core/ui/rhythm_inspector.dart",
+    "apps/desktop_flutter/lib/shared/widgets/collaborators_row.dart",
+    "apps/desktop_flutter/test/features/tasks/issue_651_contract_test.dart",
+    "docs/ai/contracts/issue-651.json",
+    "docs/ai/generated-issues/fix-collab-add-silent-failure-error-ui.md",
+    "docs/ai/project-state.md"
+  ],
+  "failure_output": "",
+  "overall_category": "C2",
+  "suggested_follow_up": "After user re-tests against a build with this shim, file a follow-up issue whose acceptance criteria reference the surfaced SnackBar message verbatim. Likely categories: (a) wrong ServerConfigService.url stored in shared_preferences; (b) auth token expired; (c) production backend deployment missing #339 or env.claudeUserId; (d) workspace user permissions edge case."
+}

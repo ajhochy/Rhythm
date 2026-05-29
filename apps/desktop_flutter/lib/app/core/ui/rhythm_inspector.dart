@@ -4,6 +4,7 @@ import '../../../features/projects/models/project_instance.dart';
 import '../../../features/tasks/models/task.dart';
 import '../../../features/tasks/models/task_collaborator.dart';
 import '../../../shared/widgets/workspace_member_picker.dart';
+import '../errors/app_error.dart';
 import '../formatters/date_formatters.dart';
 import '../tasks/task_visual_style.dart';
 import '../workspace/workspace_models.dart';
@@ -15,6 +16,13 @@ import 'tokens/rhythm_theme.dart';
 typedef RhythmTaskCollaboratorUpdate = Future<List<TaskCollaborator>> Function(
   int userId,
 );
+
+/// Format an exception from a collaborator add/remove call for surfacing in a
+/// SnackBar. Keeps the server-supplied AppError.message visible — issue #651.
+String _formatInspectorError(Object error) {
+  if (error is AppError) return error.message;
+  return error.toString();
+}
 
 class RhythmTaskInspectorSaveRequest {
   const RhythmTaskInspectorSaveRequest({
@@ -747,6 +755,7 @@ class _RhythmTaskInspectorState extends State<_RhythmTaskInspector> {
   }
 
   Future<void> _showPeoplePicker() async {
+    final messenger = ScaffoldMessenger.of(context);
     final alreadyAdded = {
       if (widget.task.ownerId != null) widget.task.ownerId!,
       ..._collaborators.map((c) => c.userId),
@@ -755,7 +764,7 @@ class _RhythmTaskInspectorState extends State<_RhythmTaskInspector> {
         .where((member) => !alreadyAdded.contains(member.userId))
         .toList();
     if (candidates.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      messenger.showSnackBar(
         const SnackBar(content: Text('No other workspace members to add')),
       );
       return;
@@ -770,6 +779,11 @@ class _RhythmTaskInspectorState extends State<_RhythmTaskInspector> {
     try {
       final updated = await widget.onAddCollaborator!(selected.userId);
       if (mounted) setState(() => _collaborators = updated);
+    } catch (error) {
+      // Issue #651: never let a collaborator add fail silently.
+      messenger.showSnackBar(
+        SnackBar(content: Text(_formatInspectorError(error))),
+      );
     } finally {
       if (mounted) setState(() => _updatingCollaborators = false);
     }
@@ -777,10 +791,16 @@ class _RhythmTaskInspectorState extends State<_RhythmTaskInspector> {
 
   Future<void> _removeCollaborator(int userId) async {
     if (widget.onRemoveCollaborator == null) return;
+    final messenger = ScaffoldMessenger.of(context);
     setState(() => _updatingCollaborators = true);
     try {
       final updated = await widget.onRemoveCollaborator!(userId);
       if (mounted) setState(() => _collaborators = updated);
+    } catch (error) {
+      // Issue #651: never let a collaborator remove fail silently.
+      messenger.showSnackBar(
+        SnackBar(content: Text(_formatInspectorError(error))),
+      );
     } finally {
       if (mounted) setState(() => _updatingCollaborators = false);
     }

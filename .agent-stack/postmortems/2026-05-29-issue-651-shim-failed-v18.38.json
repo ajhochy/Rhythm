@@ -1,0 +1,95 @@
+{
+  "run_id": "2026-05-29-issue-651-shim-failed-v18.38",
+  "issue": 651,
+  "date": "2026-05-29",
+  "smoke_result": "fail",
+  "verification_claimed": "PASS",
+  "divergence": true,
+  "divergence_severity": "high",
+  "divergence_context": {
+    "claimed_pass_pr": 651,
+    "claimed_pass_release_tag": "v18.38",
+    "claimed_pass_evidence": "Desktop CI green on PR #651 (run 26609872066, exit 0). 4/4 contract widget tests passed (issue_651_contract_test.dart). 288/288 full Flutter suite. ai-workflow checks --level pr all green. Release v18.38 built + signed + notarized successfully (run 26610233273).",
+    "user_report_verbatim": "silent failure....",
+    "user_report_context": "Tested Rhythm v18.38 DMG against production api.vcrcapps.com. Added Visalia CRC as collaborator on a task. Same symptom as the original vbeta.18.37 regression: collab chip didn't persist, chat bubble didn't open, AND the diagnostic SnackBar shim also did not appear. The shim was specifically designed to guarantee any thrown AppError from assertOk would surface a SnackBar with the message. Its non-appearance means the failure is happening on a code path the shim does not cover.",
+    "user_report_date": "2026-05-29",
+    "previous_divergence_postmortem": ".agent-stack/postmortems/2026-05-28-issue-651-vbeta18.37-regression.json"
+  },
+  "criteria_results": [
+    {
+      "criterion_id": "issue-651-c1",
+      "text": "When CollaboratorsRow.onAdd throws an AppError, a SnackBar is shown containing the AppError.message.",
+      "contract_status": "pass",
+      "smoke_status": "fail",
+      "category": "C2",
+      "notes": "Contract green in widget test (4/4). Manual smoke shows NO SnackBar appears. Means the production path does not hit the try/catch we wired up — either (a) the picker dialog never closes back into the catch path, (b) the await never throws (e.g. POST returns 200 with empty list, fire-and-forget UI never sees an error), (c) the BuildContext used for ScaffoldMessenger lookup is invalid by the time the error fires, or (d) the actual failure happens in an entry point we did NOT cover (e.g. agent_bubble_overlay, an autosave path, a sync orchestrator)."
+    },
+    {
+      "criterion_id": "issue-651-c2",
+      "text": "Long-press onRemove AppError surfaces a SnackBar.",
+      "contract_status": "pass",
+      "smoke_status": "not_tested",
+      "category": "none"
+    },
+    {
+      "criterion_id": "issue-651-c3",
+      "text": "Inspector onAddCollaborator AppError surfaces a SnackBar.",
+      "contract_status": "pass",
+      "smoke_status": "fail",
+      "category": "C2",
+      "notes": "Same root cause as c1 — smoke shows the inspector did not surface anything either."
+    },
+    {
+      "criterion_id": "issue-651-c4",
+      "text": "Inspector onRemoveCollaborator AppError surfaces a SnackBar.",
+      "contract_status": "pass",
+      "smoke_status": "not_tested",
+      "category": "none"
+    },
+    {
+      "criterion_id": "issue-651-c5",
+      "text": "Manual smoke on vbeta.18.38: visible error OR working collab.",
+      "contract_status": "n/a",
+      "smoke_status": "fail",
+      "category": "C2",
+      "notes": "Neither alternative held. No SnackBar AND no working collab — the shim's premise (any failure goes through assertOk -> AppError -> our catch) is wrong for whatever is actually happening."
+    }
+  ],
+  "process_issues": [
+    {
+      "id": "C2-shim-blind-spot",
+      "description": "The diagnostic shim assumed the failure path was: HTTP error -> assertOk throws AppError -> our catch surfaces SnackBar. Manual smoke proves that assumption is false — the failure is on a path the shim does not cover. Likely candidates: (1) the picker dialog never returns a selected member (so onAdd is never invoked); (2) the POST succeeds with HTTP 200 but the returned collaborator list is empty or omits the AI user (no exception, silent state mismatch); (3) the failure happens in a parallel entry point (agent bubble overlay, sync orchestrator) the shim did not touch; (4) BuildContext used for ScaffoldMessenger is invalid (dialog Navigator pops first), so showSnackBar is a no-op against an unmounted messenger.",
+      "lesson": "When shipping a 'diagnostic shim' meant to surface unknown failures, the shim must be validated against the actual failure path before claiming PASS. Widget tests pass when fed an explicit AppError throw — that proves the shim works for the contract-test path, NOT for the unknown production failure. The verification-gate evidence for #651 should have included a manual smoke confirming the shim fires against a known-bad input (e.g. point ServerConfigService at a deliberately wrong URL and confirm the SnackBar appears), not just the green contract test.",
+      "category": "C2"
+    },
+    {
+      "id": "C1-no-pre-handoff-instrumented-smoke",
+      "description": "PR #651 shipped a release (v18.38) without an instrumented smoke that actually triggered a failure mode the shim claimed to cover. The pre-handoff verification step in the orchestrator (6b) was deferred to user manual smoke because the failure mode is production-side; but for a diagnostic shim that is itself the deliverable, a Computer-Use smoke pointing at a deliberately misconfigured server would have caught this before the release tag.",
+      "lesson": "For diagnostic shims, the shim's TRIGGER condition must be tested live, not just unit-tested. Computer-Use smoke with intentional misconfiguration is the cheapest way.",
+      "category": "C1"
+    }
+  ],
+  "workflow_adherence": {
+    "overall_score": "partial",
+    "expected_chain_for_divergence": [
+      "workflow-orchestrator",
+      "failure-postmortem (this file)",
+      "diagnostic-agent (pending - awaiting smoke data)",
+      "coding-agent (with diagnostic findings)",
+      "verification-gate",
+      "project-state-updater"
+    ],
+    "observed_chain_so_far": [
+      "workflow-orchestrator (re-entered for divergence)",
+      "failure-postmortem (this file)"
+    ],
+    "skipped_skills": [],
+    "issues": [
+      "Diagnostic agent dispatch blocked: user smoke note is two words ('silent failure....') — not enough structured data to seed the diagnostic agent productively. One focused user question required before dispatch."
+    ]
+  },
+  "implementation_files_changed_this_iteration": [],
+  "failure_output": "silent failure....",
+  "overall_category": "C2",
+  "suggested_follow_up": "1. Ask user the single tightest question that distinguishes between (a) picker never opens / Visalia CRC not in list, (b) picker opens + selection happens but dialog hangs or closes silently, (c) collab actually saves silently and chip just doesn't render, (d) some other layer. 2. Dispatch diagnostic agent with that answer + the git diff of fix/regression-ai-collab-chat...main. 3. Diagnostic agent identifies likely root cause + C1-C7 category. 4. Coding-agent dispatched with diagnostic findings (NOT same-prompt retry). 5. Consider whether ServerConfigService.url is the wrong layer — maybe the user's stored URL is actually pointing at api.vcrcapps.com correctly and the failure is something else (e.g. agent_trigger_watcher silently dropping triggers, or env.claudeUserId mis-configured on production)."
+}

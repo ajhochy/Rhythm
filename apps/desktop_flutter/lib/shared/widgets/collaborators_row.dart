@@ -1,11 +1,19 @@
 import 'package:flutter/material.dart';
 
 import '../../app/core/auth/auth_session_service.dart';
+import '../../app/core/errors/app_error.dart';
 import '../../app/core/workspace/workspace_models.dart';
 import '../../features/tasks/models/task_collaborator.dart';
 
 typedef OnCollaboratorAdded = Future<void> Function(int userId);
 typedef OnCollaboratorRemoved = Future<void> Function(int userId);
+
+/// Format an exception thrown by a collaborator add/remove call for surfacing
+/// in a SnackBar. Keeps the server-supplied message visible — issue #651.
+String _formatCollaboratorError(Object error) {
+  if (error is AppError) return error.message;
+  return error.toString();
+}
 
 class CollaboratorsRow extends StatelessWidget {
   const CollaboratorsRow({
@@ -35,45 +43,64 @@ class CollaboratorsRow extends StatelessWidget {
         ...collaborators.map(
           (c) => Padding(
             padding: const EdgeInsets.only(right: 4),
-            child: GestureDetector(
-              onLongPress: isOwner ? () => onRemove(c.userId) : null,
-              child: Tooltip(
-                message: '${c.name}${isOwner ? ' (long-press to remove)' : ''}',
-                child: CircleAvatar(
-                  radius: 14,
-                  backgroundImage:
-                      c.photoUrl != null ? NetworkImage(c.photoUrl!) : null,
-                  child: c.photoUrl == null
-                      ? Text(
-                          c.name[0].toUpperCase(),
-                          style: const TextStyle(fontSize: 11),
-                        )
-                      : null,
+            child: Builder(
+              builder: (innerContext) => GestureDetector(
+                onLongPress: isOwner
+                    ? () => _attemptRemove(innerContext, c.userId)
+                    : null,
+                child: Tooltip(
+                  message:
+                      '${c.name}${isOwner ? ' (long-press to remove)' : ''}',
+                  child: CircleAvatar(
+                    radius: 14,
+                    backgroundImage:
+                        c.photoUrl != null ? NetworkImage(c.photoUrl!) : null,
+                    child: c.photoUrl == null
+                        ? Text(
+                            c.name[0].toUpperCase(),
+                            style: const TextStyle(fontSize: 11),
+                          )
+                        : null,
+                  ),
                 ),
               ),
             ),
           ),
         ),
         if (isOwner)
-          IconButton(
-            icon: const Icon(Icons.person_add_outlined, size: 18),
-            tooltip: 'Add collaborator',
-            onPressed: () => _showPeoplePicker(context),
-            padding: EdgeInsets.zero,
-            constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+          Builder(
+            builder: (innerContext) => IconButton(
+              icon: const Icon(Icons.person_add_outlined, size: 18),
+              tooltip: 'Add collaborator',
+              onPressed: () => _showPeoplePicker(innerContext),
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+            ),
           ),
       ],
     );
   }
 
+  Future<void> _attemptRemove(BuildContext context, int userId) async {
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await onRemove(userId);
+    } catch (error) {
+      messenger.showSnackBar(
+        SnackBar(content: Text(_formatCollaboratorError(error))),
+      );
+    }
+  }
+
   Future<void> _showPeoplePicker(BuildContext context) async {
+    final messenger = ScaffoldMessenger.of(context);
     final alreadyAdded = {ownerId, ...collaborators.map((c) => c.userId)};
     final candidates = workspaceMembers
         .where((m) => !alreadyAdded.contains(m.userId))
         .toList();
 
     if (candidates.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      messenger.showSnackBar(
         const SnackBar(content: Text('No other workspace members to add')),
       );
       return;
@@ -105,8 +132,13 @@ class CollaboratorsRow extends StatelessWidget {
             .toList(),
       ),
     );
-    if (selected != null) {
+    if (selected == null) return;
+    try {
       await onAdd(selected.userId);
+    } catch (error) {
+      messenger.showSnackBar(
+        SnackBar(content: Text(_formatCollaboratorError(error))),
+      );
     }
   }
 }

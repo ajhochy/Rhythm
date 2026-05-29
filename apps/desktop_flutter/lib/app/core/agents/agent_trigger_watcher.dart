@@ -13,24 +13,81 @@ import '../../../features/agents/controllers/agents_controller.dart';
 /// Returns true when the app is running in a local/dev smoke-test context.
 ///
 /// Checked via:
-/// - `--dart-define=RHYTHM_LOCAL_SMOKE=1` (compile-time / `flutter run` flag)
-/// - `RHYTHM_LOCAL_SMOKE=1` environment variable at process start
+/// - `--dart-define=RHYTHM_LOCAL_SMOKE=1` (compile-time / `flutter run` flag) — always honored.
+/// - `RHYTHM_LOCAL_SMOKE=1` environment variable at process start — **only honored
+///   in debug builds**. Release builds (notarized DMG, profile mode) refuse to
+///   honor a stale launchd-set env var because doing so silently breaks the
+///   `AgentTriggerWatcher` for end users.
+///
+/// History: `launchctl setenv RHYTHM_LOCAL_SMOKE 1` set during a smoke session
+/// persists across reboots and was silently silencing the watcher in every
+/// release DMG installed afterward (see issue #651, vbeta.18.37 regression).
+/// Honoring the env var ONLY in debug mode means a stale launchd setting can
+/// no longer disable production telemetry in a shipped build — the worst case
+/// becomes a logged warning at startup, not a silent feature outage.
 ///
 /// When true, [AgentTriggerWatcher.start] is a no-op so that no
 /// `DELETE /claude-triggers/*` requests are issued against the production
 /// server during local smoke runs.
 bool get isLocalSmokeRun {
-  // dart-define value (available in web, desktop, and mobile).
+  // dart-define value (compile-time, always honored — scoped to the binary
+  // it was built into, can't leak across launchd sessions).
   const dartDefine = String.fromEnvironment('RHYTHM_LOCAL_SMOKE');
-  if (dartDefine == '1') return true;
-
-  // Process-level environment variable (desktop/server only).
+  String? envVar;
   try {
-    return Platform.environment['RHYTHM_LOCAL_SMOKE'] == '1';
+    envVar = Platform.environment['RHYTHM_LOCAL_SMOKE'];
   } catch (_) {
-    // Platform.environment throws on web; fall through.
-    return false;
+    // Platform.environment throws on web; envVar stays null.
   }
+  return computeIsLocalSmokeRun(
+    dartDefine: dartDefine,
+    envVar: envVar,
+    isDebugMode: kDebugMode,
+    onIgnoredInRelease: _warnIgnoredSmokeEnvOnce,
+  );
+}
+
+/// Pure-function helper for [isLocalSmokeRun], factored out so tests can
+/// exercise the release-build gating without relying on
+/// [kDebugMode] (which is always `true` under `flutter test`).
+///
+/// Returns `true` iff smoke-mode should silence the watcher. Rules:
+/// - `dartDefine == '1'` → always true (compile-time scoped).
+/// - `envVar == '1'` && [isDebugMode] → true (debug-build override).
+/// - `envVar == '1'` && ![isDebugMode] → false, and [onIgnoredInRelease] is
+///   invoked exactly once (warning hook). Issue #651: a stale
+///   `launchctl setenv RHYTHM_LOCAL_SMOKE 1` from a debug smoke session
+///   must NOT silence the watcher in notarized release DMGs.
+/// - else → false.
+@visibleForTesting
+bool computeIsLocalSmokeRun({
+  required String? dartDefine,
+  required String? envVar,
+  required bool isDebugMode,
+  required void Function() onIgnoredInRelease,
+}) {
+  if (dartDefine == '1') return true;
+  if (envVar != '1') return false;
+  if (isDebugMode) return true;
+  onIgnoredInRelease();
+  return false;
+}
+
+bool _warnedAboutIgnoredSmokeEnv = false;
+void _warnIgnoredSmokeEnvOnce() {
+  if (_warnedAboutIgnoredSmokeEnv) return;
+  _warnedAboutIgnoredSmokeEnv = true;
+  stderr.writeln(
+    '[AgentTriggerWatcher] RHYTHM_LOCAL_SMOKE=1 is set in the environment but '
+    'this is a release build — IGNORING. The env var is debug-only; release '
+    'builds always run the production trigger watcher. Run '
+    '`launchctl unsetenv RHYTHM_LOCAL_SMOKE` to clear the stale setting.',
+  );
+}
+
+@visibleForTesting
+void resetSmokeEnvWarnedForTesting() {
+  _warnedAboutIgnoredSmokeEnv = false;
 }
 
 /// Polls `GET /claude-triggers` on the production server every [interval]
