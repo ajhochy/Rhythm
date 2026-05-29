@@ -143,13 +143,16 @@ opencodeAuthRouter.post('/github-copilot/device-cancel', (_req: Request, res: Re
   res.status(204).end();
 });
 
-// POST /anthropic/bridge — Bridge Claude Code OAuth tokens into the SDK
-opencodeAuthRouter.post('/anthropic/bridge', async (_req: Request, res: Response) => {
+// POST /anthropic/bridge — Bridge Claude Code OAuth tokens into the SDK.
+// ?force=true (the Settings "Reconnect" button) invalidates the cache and
+// re-reads the keychain fresh instead of riding a cached token (#658).
+opencodeAuthRouter.post('/anthropic/bridge', async (req: Request, res: Response) => {
   if (!opencodeClient.isReady) {
     res.status(503).json({ success: false, reason: 'sdk_not_ready' });
     return;
   }
-  const result = await credentialsBridge.bridgeAnthropic(opencodeClient);
+  const force = req.query.force === 'true' || req.query.force === '1';
+  const result = await credentialsBridge.bridgeAnthropic(opencodeClient, { force });
   if (result.success) {
     res.json(result);
     return;

@@ -108,6 +108,24 @@ describe('POST /opencode/auth/anthropic/bridge', () => {
     expect(res.status).toBe(401);
     expect(await res.json()).toEqual({ success: false, reason: 'keychain_denied' });
   });
+
+  // #658-c2 — the Settings "Reconnect" button sends ?force=true so the bridge
+  // re-reads the keychain fresh instead of riding a cached token.
+  it('issue-658-c2: passes force=true through to bridgeAnthropic when ?force=true', async () => {
+    await fetch(`${baseUrl}/opencode/auth/anthropic/bridge?force=true`, { method: 'POST' });
+    expect(fakeBridge.bridgeAnthropic).toHaveBeenCalledWith(
+      expect.anything(),
+      { force: true },
+    );
+  });
+
+  it('issue-658-c2b: defaults force=false when query omitted', async () => {
+    await fetch(`${baseUrl}/opencode/auth/anthropic/bridge`, { method: 'POST' });
+    expect(fakeBridge.bridgeAnthropic).toHaveBeenCalledWith(
+      expect.anything(),
+      { force: false },
+    );
+  });
 });
 
 describe('GET /opencode/auth/sources', () => {

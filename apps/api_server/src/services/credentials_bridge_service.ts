@@ -72,9 +72,22 @@ export class CredentialsBridgeService {
     return this.lastReason;
   }
 
-  async bridgeAnthropic(client: OpencodeClientService): Promise<BridgeResult> {
+  /// Bridge Claude Code's OAuth tokens into the opencode SDK.
+  ///
+  /// When [options.force] is true (the Settings "Reconnect" button), the
+  /// in-memory cache is invalidated first so the keychain is re-read fresh
+  /// rather than riding a possibly-stale cached token. This makes "Reconnect"
+  /// actually re-sync from Claude Code's current state instead of no-opping on
+  /// a cached token that hasn't hit the 60s expiry buffer yet (#658).
+  async bridgeAnthropic(
+    client: OpencodeClientService,
+    options?: { force?: boolean },
+  ): Promise<BridgeResult> {
     if (!client.isReady) {
       return { success: false, reason: 'sdk_not_ready' };
+    }
+    if (options?.force) {
+      this.invalidateCache();
     }
     let creds = this.readClaudeCreds();
     if (!creds) {

@@ -550,23 +550,33 @@ class _AiAccountSectionState extends State<AiAccountSection> {
   }
 
   Future<void> _bridgeAnthropic() async {
+    // Capture the messenger before any async gap so we can show a SnackBar
+    // regardless of scroll position — the bridge is a ~16ms call whose only
+    // prior feedback was an easy-to-miss status line, making "Reconnect" look
+    // dead (#658).
+    final messenger = ScaffoldMessenger.of(context);
     setState(() {
       _isSaving = true;
       _statusMessage = null;
     });
     try {
+      // force=true: re-read the keychain fresh instead of riding a cached
+      // token, so "Reconnect" actually re-syncs Claude credentials (#658).
       final res = await http.post(
         Uri.parse(
-            '${AppConstants.agentLocalBaseUrl}/opencode/auth/anthropic/bridge'),
+            '${AppConstants.agentLocalBaseUrl}/opencode/auth/anthropic/bridge?force=true'),
       );
       if (!mounted) return;
       if (res.statusCode == 200) {
         final body = jsonDecode(res.body) as Map<String, dynamic>;
+        final sub = body['subscriptionType'] ?? 'subscription';
         setState(() {
           _authorizedProviders.add('anthropic');
-          _statusMessage =
-              '✓ Claude connected (${body['subscriptionType'] ?? 'subscription'})';
+          _statusMessage = '✓ Claude connected ($sub)';
         });
+        messenger.showSnackBar(
+          SnackBar(content: Text('✓ Claude reconnected ($sub)')),
+        );
         await _refreshConnectedProviders();
         _refreshAgentCapabilities();
       } else {
@@ -586,13 +596,17 @@ class _AiAccountSectionState extends State<AiAccountSection> {
             'Could not refresh your Claude tokens. Open Claude Code once to refresh, then retry.',
           'auth_set_rejected' =>
             'Opencode rejected the Claude tokens. Open Claude Code once, then retry.',
+          'sdk_not_ready' =>
+            'The agent engine is still starting. Wait a few seconds and try again.',
           _ => 'Bridge failed: $reason',
         };
         setState(() => _statusMessage = friendly);
+        messenger.showSnackBar(SnackBar(content: Text(friendly)));
       }
     } catch (e) {
       if (!mounted) return;
       setState(() => _statusMessage = 'Bridge failed: $e');
+      messenger.showSnackBar(SnackBar(content: Text('Bridge failed: $e')));
     } finally {
       if (mounted) setState(() => _isSaving = false);
     }
@@ -659,7 +673,7 @@ class _AiAccountSectionState extends State<AiAccountSection> {
             subtitle: 'Sign in with your existing account'),
         const SizedBox(height: 10),
         if (_hasClaudeCode)
-          _SubscriptionTile(
+          SubscriptionTile(
             label: 'Claude',
             description: 'Use your existing Claude Code subscription',
             connected: _authorizedProviders.contains('anthropic'),
@@ -982,8 +996,10 @@ class _ApiKeyProviderTile extends StatelessWidget {
 
 // ── Subscription tile (bridge-based, no code entry) ──
 
-class _SubscriptionTile extends StatelessWidget {
-  const _SubscriptionTile({
+@visibleForTesting
+class SubscriptionTile extends StatelessWidget {
+  const SubscriptionTile({
+    super.key,
     required this.label,
     required this.description,
     required this.connected,
@@ -1047,10 +1063,19 @@ class _SubscriptionTile extends StatelessWidget {
               minimumSize: Size.zero,
               tapTargetSize: MaterialTapTargetSize.shrinkWrap,
             ),
-            child: Text(
-              connected ? 'Reconnect' : 'Use Claude subscription',
-              style: const TextStyle(fontSize: 12),
-            ),
+            child: isSaving
+                ? const SizedBox(
+                    width: 14,
+                    height: 14,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: Colors.white,
+                    ),
+                  )
+                : Text(
+                    connected ? 'Reconnect' : 'Use Claude subscription',
+                    style: const TextStyle(fontSize: 12),
+                  ),
           ),
         ],
       ),
