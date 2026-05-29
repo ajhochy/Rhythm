@@ -20,7 +20,9 @@
 /// the consume path.
 library;
 
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:provider/provider.dart';
 import 'package:rhythm_desktop/app/core/agents/agent_server_controller.dart';
 import 'package:rhythm_desktop/app/core/notifications/local_notification_service.dart';
 import 'package:rhythm_desktop/app/core/server/api_server_service.dart';
@@ -130,5 +132,68 @@ void main() {
     expect(controller.hasComposerDraft('s2'), isTrue);
     controller.consumeComposerDraft('s2');
     expect(controller.hasComposerDraft('s2'), isFalse);
+  });
+
+  // c2 — Widget-level reproduction of the reported regression: when a widget
+  // consumes a composer draft DURING its build (as _TranscriptPanel does),
+  // the surrounding Provider subtree must remain reactive — i.e. a subsequent
+  // controller mutation + notifyListeners() must still rebuild the view.
+  //
+  // On the pre-fix code, `consumeComposerDraft` fired notifyListeners() during
+  // build, which (in debug) throws "notifyListeners during build" the first
+  // time the drafted widget builds — this testWidgets run captures that throw
+  // via tester.takeException(). On the fixed code there is no throw and the
+  // later notify drives a rebuild that shows the updated value.
+  testWidgets(
+      'issue-656-c2: consuming a draft during build keeps the Provider '
+      'subtree reactive (clicking/selecting still updates the view)',
+      (tester) async {
+    controller.setComposerDraft('drafted-session', 'task title\n\nnotes');
+
+    await tester.pumpWidget(
+      ChangeNotifierProvider<AgentsController>.value(
+        value: controller,
+        child: MaterialApp(
+          home: Scaffold(
+            body: Consumer<AgentsController>(
+              builder: (context, c, _) {
+                // Mimic _TranscriptPanel.build: consume the staged draft once
+                // during build. Must NOT corrupt reactivity.
+                if (c.hasComposerDraft('drafted-session')) {
+                  c.consumeComposerDraft('drafted-session');
+                }
+                // Observe a separate "probe" draft to prove later notifies
+                // still drive rebuilds.
+                return Text('probe:${c.hasComposerDraft('probe')}');
+              },
+            ),
+          ),
+        ),
+      ),
+    );
+
+    // No "notifyListeners during build" exception should have occurred.
+    expect(
+      tester.takeException(),
+      isNull,
+      reason: 'consuming a draft during build must not throw / mark dirty '
+          'mid-build (#656).',
+    );
+    expect(find.text('probe:false'), findsOneWidget);
+
+    // Now mutate the controller (setComposerDraft notifies, same as a
+    // session-row tap → selectSession or a delete → notifyListeners) and
+    // confirm the subtree rebuilds — proving reactivity survived the
+    // during-build consume.
+    controller.setComposerDraft('probe', 'x');
+    await tester.pump();
+
+    expect(
+      find.text('probe:true'),
+      findsOneWidget,
+      reason: 'after a during-build consume, a later notifyListeners() must '
+          'still rebuild the view — this is the "clicking a chat does not '
+          'change it / deletes do not reflect" regression (#656).',
+    );
   });
 }
