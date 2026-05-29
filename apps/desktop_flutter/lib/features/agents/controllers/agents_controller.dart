@@ -41,10 +41,16 @@ class PendingTrigger {
     required this.taskId,
     required this.taskTitle,
     required this.arrivedAt,
+    this.taskNotes,
   });
 
   final String taskId;
   final String taskTitle;
+
+  /// Task description / notes from the trigger payload. Used by #653 to
+  /// prefill the composer with task context as an editable draft when the
+  /// user opens the chat from the trigger bubble.
+  final String? taskNotes;
   final DateTime arrivedAt;
 }
 
@@ -358,8 +364,15 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     notifyListeners();
   }
 
+  /// Issue #653: the server now requires a non-null, non-'__pending__'
+  /// agentId. To keep client callers compilable during the rollout, this
+  /// method accepts a nullable `agentId` and falls back to the first
+  /// authorized agent in the loaded catalog when null. Callers that have
+  /// already picked an agent (the new trigger bubble) should always pass
+  /// the explicit value. Callers that still defer (the "+ New session"
+  /// form) get the catalog-default fallback so the server doesn't reject
+  /// them with 400 until that surface is also migrated.
   Future<AgentSession?> createSession({
-    /// #602: null → agent-less session (model picked in the composer).
     String? agentId,
     String? taskId,
     required String cwd,
@@ -370,9 +383,15 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   }) async {
     _error = null;
     _lastErrorStatus = null;
+    // Issue #653: if the caller passed null, try to default to the first
+    // authorized agent from the loaded catalog. If the catalog isn't loaded
+    // yet OR has no authorized entries, pass null through to the repository
+    // — the server will respond with 400 ('agent not configured') and we
+    // surface that to the user verbatim (consistent with existing 4xx UX).
+    final resolvedAgentId = agentId ?? _resolveDefaultAgentIdForCreate() ?? '';
     try {
       final session = await _repository.createSession(
-        agentId: agentId, // null → server creates a __pending__ session
+        agentId: resolvedAgentId.isEmpty ? agentId : resolvedAgentId,
         taskId: taskId,
         cwd: cwd,
         name: name,
@@ -395,6 +414,54 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
       return null;
     }
   }
+
+  /// Issue #653: pick the first authorized catalog entry's agent as a safe
+  /// default for `createSession` callers that haven't already chosen one.
+  /// Returns null when the catalog hasn't been loaded yet or contains no
+  /// authorized entries — caller must surface an error in that case.
+  String? _resolveDefaultAgentIdForCreate() {
+    if (!_catalogLoaded) return null;
+    for (final entry in _catalog) {
+      if (entry.authorized && entry.agent.isNotEmpty) {
+        return entry.agent;
+      }
+    }
+    return null;
+  }
+
+  // ==========================================================================
+  // Issue #653: client-owned composer drafts
+  //
+  // When the user opens a chat from the task-ready bubble, the bubble stages
+  // task title + notes into a per-session draft. The composer in agents_view
+  // consumes this draft on session selection (one-shot read), prefilling the
+  // text controller so the user can edit before hitting Enter. The draft is
+  // never persisted server-side — that's the whole point of #653 (no more
+  // server-seeded system messages).
+  // ==========================================================================
+
+  final Map<String, String> _composerDraftBySession = {};
+
+  /// Stage a draft message for [sessionId]. Called by the trigger bubble
+  /// immediately after createSession returns. Overwrites any existing draft
+  /// for the same session id.
+  void setComposerDraft(String sessionId, String text) {
+    _composerDraftBySession[sessionId] = text;
+    notifyListeners();
+  }
+
+  /// Read and clear the draft for [sessionId]. Returns null if no draft was
+  /// staged. One-shot — subsequent calls return null.
+  String? consumeComposerDraft(String sessionId) {
+    final draft = _composerDraftBySession.remove(sessionId);
+    if (draft != null) notifyListeners();
+    return draft;
+  }
+
+  /// True if a draft exists for [sessionId] without consuming it (used by
+  /// the composer to decide whether to focus on first build).
+  bool hasComposerDraft(String sessionId) =>
+      _composerDraftBySession.containsKey(sessionId);
 
   /// Bulk hard-delete sessions in parallel. Optimistically removes all
   /// rows from local state up-front; on per-row server failure the row
@@ -983,6 +1050,11 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
         trigger['task_title'] as String? ??
         trigger['title'] as String? ??
         '';
+    // Issue #653: capture taskNotes so the bubble can prefill the composer
+    // with task title + notes when the user clicks Open chat.
+    final taskNotes = trigger['taskNotes'] as String? ??
+        trigger['task_notes'] as String? ??
+        trigger['notes'] as String?;
 
     if (taskId == null || taskId.isEmpty) return;
 
@@ -993,6 +1065,7 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
       PendingTrigger(
         taskId: taskId,
         taskTitle: taskTitle,
+        taskNotes: taskNotes,
         arrivedAt: DateTime.now(),
       ),
     );

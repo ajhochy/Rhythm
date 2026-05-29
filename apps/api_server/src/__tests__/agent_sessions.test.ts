@@ -912,11 +912,9 @@ describe('Agent Sessions API', () => {
 
     expect(mock.createSession).toHaveBeenCalledWith(sessionName, cwd);
     expect(opencodeSessionMap.get(session.id)).toBe('sdk-launch-no-fk');
-    expect(mock.promptAsync).toHaveBeenCalled();
-    const [sdkId, promptText] = mock.promptAsync.mock.calls.at(-1)!;
-    expect(sdkId).toBe('sdk-launch-no-fk');
-    expect(promptText).toContain(sessionName);
-    expect(promptText).toContain(taskTitle);
+    // Issue #653: server no longer fabricates an "I need help with: <title>"
+    // initial prompt. The client owns first-turn content via composer prefill.
+    expect(mock.promptAsync).not.toHaveBeenCalled();
   });
 
   it('launches a session end-to-end when taskId IS present in the local tasks table (happy path)', async () => {
@@ -961,6 +959,7 @@ describe('Agent Sessions API', () => {
     expect(session.status).toBe('starting');
     expect(mock.createSession).toHaveBeenCalledWith(sessionName, cwd);
     expect(opencodeSessionMap.get(session.id)).toBe('sdk-launch-with-fk');
-    expect(mock.promptAsync).toHaveBeenCalled();
+    // Issue #653: no auto-initial-prompt; client owns first-turn content.
+    expect(mock.promptAsync).not.toHaveBeenCalled();
   });
 });

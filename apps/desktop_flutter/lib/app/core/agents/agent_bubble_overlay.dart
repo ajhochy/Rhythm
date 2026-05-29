@@ -467,6 +467,7 @@ class _ExpandedTriggerBubble extends StatefulWidget {
 
 class _ExpandedTriggerBubbleState extends State<_ExpandedTriggerBubble> {
   String? _errorMessage;
+  String? _selectedAgentId;
 
   @override
   void initState() {
@@ -480,27 +481,44 @@ class _ExpandedTriggerBubbleState extends State<_ExpandedTriggerBubble> {
     });
   }
 
-  /// Opens an agent-less chat session linked to the task.
-  /// The user picks the agent + model via the composer picker inside the
-  /// Agents view — the same flow as "+ New session" (issue #623).
-  ///
-  /// TODO(#623 follow-up): if the claude-trigger payload includes a
-  /// preferred agent ID, plumb it as a *default* into the composer picker
-  /// (requires adding `preferredAgentId` to `PendingTrigger` and propagating
-  /// it through `AgentBubbleEntry` → composer without touching agents_view.dart).
+  /// Issue #653: Open a chat with the agent the user picked *before* creating
+  /// the session. Server-side, agent-less ('__pending__') sessions are
+  /// rejected with 400. After creation, we stage the task title + notes into
+  /// the composer as an editable draft — the user hits Enter to send the
+  /// first turn instead of the server fabricating an "I need help with: …"
+  /// prompt or seeding a `role='system'` task-context message.
   Future<void> _openChat() async {
     setState(() => _errorMessage = null);
     final overlay = context.read<OverlayController>();
     final agents = context.read<AgentsController>();
-    // agentId: null → server creates a __pending__ session; the composer
-    // picker in the Agents view allows the user to choose agent + model.
+    final pickedAgentId = _selectedAgentId;
+    if (pickedAgentId == null || pickedAgentId.isEmpty) {
+      setState(() => _errorMessage =
+          'Pick a model before opening the chat — agent-less sessions are no '
+              "longer supported (see #653).");
+      return;
+    }
     final session = await agents.createSession(
-      agentId: null,
+      agentId: pickedAgentId,
       taskId: widget.entry.triggerTaskId,
       cwd: Platform.environment['HOME'] ?? '/',
       name: widget.entry.label,
     );
     if (session != null) {
+      // Stage the composer draft from the original trigger payload. The
+      // composer in agents_view consumes this on session select (one-shot).
+      final trigger = agents.pendingTriggers.firstWhere(
+        (t) => t.taskId == widget.entry.triggerTaskId,
+        orElse: () => PendingTrigger(
+          taskId: widget.entry.triggerTaskId ?? '',
+          taskTitle: widget.entry.label,
+          arrivedAt: DateTime.now(),
+        ),
+      );
+      final draft = _buildComposerDraft(trigger);
+      if (draft.isNotEmpty) {
+        agents.setComposerDraft(session.id, draft);
+      }
       overlay.dismissTriggerBubble(widget.entry.triggerTaskId!);
       agents.selectSession(session.id);
       overlay.requestNav(AppConstants.navAgents);
@@ -510,7 +528,18 @@ class _ExpandedTriggerBubbleState extends State<_ExpandedTriggerBubble> {
     }
   }
 
-  double get _bubbleHeight => _errorMessage == null ? 220.0 : 260.0;
+  /// Compose the editable first-turn draft from a [PendingTrigger]:
+  ///   "<task title>\n\n<task notes>"  (notes paragraph omitted if absent)
+  static String _buildComposerDraft(PendingTrigger trigger) {
+    final title = trigger.taskTitle.trim();
+    final notes = trigger.taskNotes?.trim() ?? '';
+    if (title.isEmpty && notes.isEmpty) return '';
+    if (notes.isEmpty) return title;
+    if (title.isEmpty) return notes;
+    return '$title\n\n$notes';
+  }
+
+  double get _bubbleHeight => _errorMessage == null ? 260.0 : 300.0;
 
   @override
   Widget build(BuildContext context) {
@@ -578,22 +607,31 @@ class _ExpandedTriggerBubbleState extends State<_ExpandedTriggerBubble> {
             ),
             const SizedBox(height: 6),
             Text(
-              'Open a chat to start this task. Choose your agent and model in the composer.',
+              'Pick a model, then open the chat. The task title and notes '
+              'will be staged in the composer so you can edit before sending.',
               style: TextStyle(
                 fontSize: 11.5,
                 color: context.rhythm.textSecondary,
                 height: 1.35,
               ),
             ),
+            const SizedBox(height: 10),
+
+            // Issue #653: inline model picker. Default selection is the
+            // first authorized agent kind in the catalog.
+            _TriggerAgentDropdown(
+              selectedAgentId: _selectedAgentId,
+              onChanged: (id) => setState(() => _selectedAgentId = id),
+            ),
             const Spacer(),
 
-            // Single "Open chat" action — opens an agent-less session (#623)
+            // "Open chat" — disabled until a model is picked.
             SizedBox(
               width: double.infinity,
               child: _TriggerButton(
                 label: 'Open chat',
                 icon: const Icon(Icons.chat_outlined, size: 14),
-                onPressed: _openChat,
+                onPressed: _selectedAgentId == null ? null : _openChat,
               ),
             ),
             if (_errorMessage != null) ...[
@@ -916,11 +954,12 @@ class _TriggerButton extends StatelessWidget {
 
   final String label;
   final Widget? icon;
-  final VoidCallback onPressed;
+  final VoidCallback? onPressed;
 
   @override
   Widget build(BuildContext context) {
-    final color = context.rhythm.accent;
+    final enabled = onPressed != null;
+    final color = enabled ? context.rhythm.accent : context.rhythm.textMuted;
     return GestureDetector(
       onTap: onPressed,
       child: Container(
@@ -951,6 +990,116 @@ class _TriggerButton extends StatelessWidget {
         ),
       ),
     );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Issue #653: inline agent picker for the trigger bubble. Lists one option
+// per authorized agent kind from the catalog (claude-code / codex /
+// gemini-cli / etc). The model itself defaults to the catalog's first
+// authorized entry for that agent; the user can change the specific model
+// later via the composer's UnifiedAgentModelPicker.
+// ---------------------------------------------------------------------------
+
+class _TriggerAgentDropdown extends StatelessWidget {
+  const _TriggerAgentDropdown({
+    required this.selectedAgentId,
+    required this.onChanged,
+  });
+
+  final String? selectedAgentId;
+  final ValueChanged<String?> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final agents = context.watch<AgentsController>();
+    final catalog = agents.catalog;
+    final loaded = agents.catalogLoaded;
+
+    // Distinct authorized agent kinds, preserving catalog order.
+    final seen = <String>{};
+    final options = <String>[];
+    for (final e in catalog) {
+      if (!e.authorized || e.agent.isEmpty) continue;
+      if (seen.add(e.agent)) options.add(e.agent);
+    }
+
+    if (!loaded) {
+      return _dropdownShell(
+        context,
+        child: Text(
+          'Loading available agents…',
+          style: TextStyle(fontSize: 11.5, color: context.rhythm.textMuted),
+        ),
+      );
+    }
+    if (options.isEmpty) {
+      return _dropdownShell(
+        context,
+        child: Text(
+          'No authorized agents — connect a Claude/Codex/Gemini account in Settings.',
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(fontSize: 11.5, color: context.rhythm.danger),
+        ),
+      );
+    }
+
+    // Default-pick the first authorized option once after first load.
+    if (selectedAgentId == null) {
+      WidgetsBinding.instance
+          .addPostFrameCallback((_) => onChanged(options.first));
+    }
+
+    return _dropdownShell(
+      context,
+      child: DropdownButtonHideUnderline(
+        child: DropdownButton<String>(
+          value: options.contains(selectedAgentId) ? selectedAgentId : null,
+          hint: Text(
+            'Pick a model',
+            style: TextStyle(fontSize: 12, color: context.rhythm.textSecondary),
+          ),
+          isDense: true,
+          isExpanded: true,
+          items: options
+              .map((id) => DropdownMenuItem(
+                    value: id,
+                    child: Text(
+                      _labelForAgentId(id),
+                      style: const TextStyle(fontSize: 12),
+                    ),
+                  ))
+              .toList(),
+          onChanged: onChanged,
+        ),
+      ),
+    );
+  }
+
+  Widget _dropdownShell(BuildContext context, {required Widget child}) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: context.rhythm.surfaceMuted,
+        borderRadius: BorderRadius.circular(RhythmRadius.md),
+        border: Border.all(color: context.rhythm.border),
+      ),
+      child: child,
+    );
+  }
+
+  String _labelForAgentId(String id) {
+    switch (id) {
+      case 'claude-code':
+        return 'Claude Code';
+      case 'codex':
+        return 'Codex';
+      case 'gemini-cli':
+        return 'Gemini CLI';
+      default:
+        return id;
+    }
   }
 }
 
