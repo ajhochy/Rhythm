@@ -23,12 +23,17 @@ library;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:rhythm_desktop/app/core/agents/agent_bubble_overlay.dart'
+    show filterStalePendingErrors, isPendingAgent, kPendingAgentSentinel;
+import 'package:rhythm_desktop/app/core/agents/agent_trigger_watcher.dart'
+    show computeIsLocalSmokeRun;
 import 'package:rhythm_desktop/app/core/auth/auth_data_source.dart';
 import 'package:rhythm_desktop/app/core/auth/auth_session_service.dart';
 import 'package:rhythm_desktop/app/core/auth/auth_user.dart';
 import 'package:rhythm_desktop/app/core/errors/app_error.dart';
 import 'package:rhythm_desktop/app/core/ui/rhythm_inspector.dart';
 import 'package:rhythm_desktop/app/core/workspace/workspace_models.dart';
+import 'package:rhythm_desktop/features/agents/models/agent_session_message.dart';
 import 'package:rhythm_desktop/features/tasks/models/task.dart';
 import 'package:rhythm_desktop/features/tasks/models/task_collaborator.dart';
 import 'package:rhythm_desktop/shared/widgets/collaborators_row.dart';
@@ -392,5 +397,160 @@ void main() {
             'remove fails, not silently swallow it.',
       );
     });
+  });
+
+  // ---------------------------------------------------------------------------
+  // c6/c7 — Bubble overlay handles the agent-less (`__pending__`) state
+  //         instead of rendering the raw sentinel + stale historical errors.
+  // ---------------------------------------------------------------------------
+
+  group('Bubble overlay agent-less state', () {
+    test(
+      'issue-651-c6: isPendingAgent + kPendingAgentSentinel detect '
+      '__pending__ correctly',
+      () {
+        expect(kPendingAgentSentinel, '__pending__');
+        expect(isPendingAgent('__pending__'), isTrue);
+        expect(isPendingAgent('claude-code'), isFalse);
+        expect(isPendingAgent(null), isFalse);
+        expect(isPendingAgent(''), isFalse);
+      },
+    );
+
+    test(
+      'issue-651-c7: filterStalePendingErrors drops persisted server error '
+      'frames when session is __pending__ but keeps task-context system msg',
+      () {
+        AgentSessionMessage msg(String role, String text, {int id = 1}) =>
+            AgentSessionMessage(
+              id: id,
+              sessionId: 'session-651',
+              role: role,
+              rawText: text,
+              strippedText: text,
+              createdAt: DateTime.fromMillisecondsSinceEpoch(0),
+            );
+
+        final messages = [
+          msg(
+              'system',
+              'Task context\nTitle: Add Annette Rip and Nate Rip\n\n'
+                  'Use PCO MPC server to accomplish this task.',
+              id: 1),
+          msg('system', 'Error: Pick a model before sending the first message.',
+              id: 2),
+          msg('input', 'Hello', id: 3),
+          msg('output', 'Hi back', id: 4),
+        ];
+
+        final pending = filterStalePendingErrors(messages, isPending: true);
+        expect(
+          pending.map((m) => m.id).toList(),
+          [1, 3, 4],
+          reason:
+              'When agent-less, stale "Error:" system frames must be filtered; '
+              'task-context system message + input/output must be kept.',
+        );
+
+        final ready = filterStalePendingErrors(messages, isPending: false);
+        expect(
+          ready.map((m) => m.id).toList(),
+          [1, 2, 3, 4],
+          reason: 'When a model is picked, no filtering — all persisted frames '
+              'render so the user can see prior history including errors.',
+        );
+      },
+    );
+  });
+
+  // ---------------------------------------------------------------------------
+  // c8 — Release builds refuse to honor RHYTHM_LOCAL_SMOKE=1 env var, since a
+  //      stale `launchctl setenv` from a smoke session would otherwise silently
+  //      silence the trigger watcher in every shipped DMG. The dart-define
+  //      route still works (compile-time, can't leak across launchd sessions).
+  // ---------------------------------------------------------------------------
+
+  group('RHYTHM_LOCAL_SMOKE release-build hardening', () {
+    test(
+      'issue-651-c8a: env var is honored only in debug builds',
+      () {
+        var warned = 0;
+        void onWarn() => warned += 1;
+
+        // Debug build + env var set → smoke mode active.
+        expect(
+          computeIsLocalSmokeRun(
+            dartDefine: null,
+            envVar: '1',
+            isDebugMode: true,
+            onIgnoredInRelease: onWarn,
+          ),
+          isTrue,
+        );
+        expect(warned, 0, reason: 'no warning in debug build');
+
+        // Release build + env var set → IGNORED + warning fires.
+        expect(
+          computeIsLocalSmokeRun(
+            dartDefine: null,
+            envVar: '1',
+            isDebugMode: false,
+            onIgnoredInRelease: onWarn,
+          ),
+          isFalse,
+          reason: 'Release builds must refuse to honor a stale launchd env var '
+              'so the trigger watcher cannot be silently disabled in shipped '
+              'DMGs (root cause of the v18.38 regression).',
+        );
+        expect(warned, 1,
+            reason: 'warning hook must fire when env var ignored in release');
+      },
+    );
+
+    test(
+      'issue-651-c8b: dart-define always wins regardless of build mode',
+      () {
+        var warned = 0;
+        // Release build but --dart-define=RHYTHM_LOCAL_SMOKE=1 → still active.
+        // dart-define is compile-time, scoped to the binary, so it cannot leak
+        // across launchd sessions like an env var can.
+        expect(
+          computeIsLocalSmokeRun(
+            dartDefine: '1',
+            envVar: null,
+            isDebugMode: false,
+            onIgnoredInRelease: () => warned += 1,
+          ),
+          isTrue,
+        );
+        expect(warned, 0, reason: 'no warning when dart-define is the source');
+      },
+    );
+
+    test(
+      'issue-651-c8c: env var unset → smoke mode off in all build modes',
+      () {
+        var warned = 0;
+        expect(
+          computeIsLocalSmokeRun(
+            dartDefine: null,
+            envVar: null,
+            isDebugMode: false,
+            onIgnoredInRelease: () => warned += 1,
+          ),
+          isFalse,
+        );
+        expect(
+          computeIsLocalSmokeRun(
+            dartDefine: null,
+            envVar: null,
+            isDebugMode: true,
+            onIgnoredInRelease: () => warned += 1,
+          ),
+          isFalse,
+        );
+        expect(warned, 0);
+      },
+    );
   });
 }

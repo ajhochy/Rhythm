@@ -29,6 +29,37 @@ const Map<String, String> _kBubbleProviderToAgentKind = {
   'google': 'gemini-cli',
 };
 
+/// Server-side sentinel for "no agent picked yet" (mirrors `ws_gateway.ts`
+/// agent-less session flow + the `_AgentLessSessionPrompt` widget in
+/// `agents_view.dart`). When [AgentBubbleEntry.agentId] equals this value,
+/// the bubble must NOT render the raw token in its header — it should show
+/// a pick-a-model affordance instead. Issue #651/#652.
+@visibleForTesting
+const String kPendingAgentSentinel = '__pending__';
+
+/// True when the bubble's agent identity is the agent-less sentinel.
+@visibleForTesting
+bool isPendingAgent(String? agentId) => agentId == kPendingAgentSentinel;
+
+/// Filter persisted transcript messages for an agent-less (`__pending__`)
+/// session. Server-emitted WS error frames (e.g. "Pick a model before sending
+/// the first message.") are persisted with `role='system'` per #638 — when
+/// the session is still pending we drop those stale errors from prior
+/// pre-model-pick send attempts so the bubble shows a clean state. Issue
+/// #651/#652. The legitimate `role='system'` task-context message from #629
+/// starts with "Task context" and is kept.
+@visibleForTesting
+List<AgentSessionMessage> filterStalePendingErrors(
+  List<AgentSessionMessage> messages, {
+  required bool isPending,
+}) {
+  if (!isPending) return messages;
+  return messages
+      .where((m) =>
+          m.role != 'system' || !m.strippedText.trimLeft().startsWith('Error:'))
+      .toList();
+}
+
 /// Resolve the canonical agent config id from [agentId] and [providerId].
 /// Mirrors the resolver inside agents_view.dart _AgentKindBadge.build().
 String _resolveAgentKind({
@@ -145,6 +176,11 @@ class _CollapsedBubble extends StatelessWidget {
 
   String _badgeLabel(AgentConfig? config) {
     if (entry.kind == BubbleKind.trigger) return '!';
+    // Issue #651/#652: agent-less (`__pending__`) sessions have no
+    // AgentConfig registered. Don't show "_" (the first char of the
+    // sentinel) — use "?" so the collapsed badge reads as "unknown/needs
+    // attention" instead of an ambiguous typographic glyph.
+    if (isPendingAgent(entry.agentId)) return '?';
     if (config != null && config.label.isNotEmpty) {
       return config.label[0].toUpperCase();
     }
@@ -319,7 +355,14 @@ class _ExpandedSessionBubbleState extends State<_ExpandedSessionBubble> {
     // Always read from the per-session store so the bubble shows its own
     // session's transcript regardless of which session is selected in the
     // main Agents tab (fix #625).
-    final messages = agents.transcriptFor(sessionId).take(50).toList();
+    final rawMessages = agents.transcriptFor(sessionId).take(50).toList();
+    // Issue #651/#652: for agent-less (`__pending__`) sessions, drop stale
+    // server-emitted "Error: Pick a model..." system messages from prior
+    // pre-model-pick attempts — they confuse the user about current state.
+    final messages = filterStalePendingErrors(
+      rawMessages,
+      isPending: isPendingAgent(widget.entry.agentId),
+    );
 
     _scrollToBottom();
 
@@ -620,9 +663,19 @@ class _BubbleHeader extends StatelessWidget {
       providerId: entry.providerId,
     );
     final config = context.watch<AgentConfigsController>().byId(resolvedKind);
-    final agentLabel = config?.label ?? entry.agentId ?? '?';
-    final agentColor =
-        config != null ? context.rhythm.accent : context.rhythm.textMuted;
+    // Issue #651/#652: the server creates `__pending__` sessions when the
+    // task-ready bubble opens without a pre-selected agent (per #623). The
+    // main agents-view renders a friendly `_AgentLessSessionPrompt` for this
+    // state — the bubble overlay must do the equivalent and never show the
+    // raw sentinel token. AgentConfigsController has no entry for
+    // `__pending__`, so the previous fallback rendered the literal string
+    // (styled as `_pending_` by Flutter's text-rendering quirks).
+    final isPending = isPendingAgent(entry.agentId);
+    final agentLabel =
+        isPending ? 'Pick a model' : (config?.label ?? entry.agentId ?? '?');
+    final agentColor = isPending
+        ? context.rhythm.textMuted
+        : (config != null ? context.rhythm.accent : context.rhythm.textMuted);
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(14, 12, 10, 10),
