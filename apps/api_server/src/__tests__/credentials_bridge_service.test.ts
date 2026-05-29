@@ -136,6 +136,26 @@ describe('CredentialsBridgeService.bridgeAnthropic', () => {
     });
   });
 
+  it('issue-658-c1: force=true re-reads the keychain even when the cached token is still fresh', async () => {
+    // First (non-forced) bridge caches a fresh token after one keychain read.
+    vi.mocked(cp.execSync).mockReturnValue(Buffer.from(keychainPayload(FUTURE)));
+    const bridge = new CredentialsBridgeService();
+    const client = stubClient(true);
+
+    await bridge.bridgeAnthropic(client);
+    const callsAfterFirst = vi.mocked(cp.execSync).mock.calls.length;
+    expect(callsAfterFirst).toBeGreaterThanOrEqual(1);
+
+    // A SECOND non-forced bridge should ride the cache — no new keychain read.
+    await bridge.bridgeAnthropic(client);
+    expect(vi.mocked(cp.execSync).mock.calls.length).toBe(callsAfterFirst);
+
+    // A FORCED bridge must invalidate the cache and re-read the keychain.
+    const out = await bridge.bridgeAnthropic(client, { force: true });
+    expect(out.success).toBe(true);
+    expect(vi.mocked(cp.execSync).mock.calls.length).toBeGreaterThan(callsAfterFirst);
+  });
+
   it('refreshes against Anthropic when both in-memory and Keychain are stale', async () => {
     vi.mocked(cp.execSync).mockReturnValue(Buffer.from(keychainPayload(PAST)));
     vi.mocked(global.fetch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
@@ -197,7 +217,7 @@ describe('CredentialsBridgeService.startRefreshLoop', () => {
   beforeEach(() => vi.useFakeTimers());
   afterEach(() => vi.useRealTimers());
 
-  it('calls bridgeAnthropic every 30 minutes', async () => {
+  it('issue-658-c4: ticks every 15 min and forces a keychain re-read each tick', async () => {
     vi.mocked(cp.execSync).mockReturnValue(Buffer.from(keychainPayload(FUTURE)));
     const bridge = new CredentialsBridgeService();
     const spy = vi.spyOn(bridge, 'bridgeAnthropic').mockResolvedValue({
@@ -205,11 +225,20 @@ describe('CredentialsBridgeService.startRefreshLoop', () => {
       provider: 'anthropic',
       subscriptionType: 'pro',
     });
-    bridge.startRefreshLoop({ isReady: true } as unknown as OpencodeClientService);
-    vi.advanceTimersByTime(30 * 60 * 1000 + 100);
+    const client = { isReady: true } as unknown as OpencodeClientService;
+    bridge.startRefreshLoop(client);
+
+    vi.advanceTimersByTime(CredentialsBridgeService.REFRESH_INTERVAL_MS + 100);
     expect(spy).toHaveBeenCalledTimes(1);
-    vi.advanceTimersByTime(30 * 60 * 1000);
+    // #658: each tick must FORCE so it mirrors Claude Code's current token
+    // rather than riding a stale cached snapshot.
+    expect(spy).toHaveBeenLastCalledWith(client, { force: true });
+
+    vi.advanceTimersByTime(CredentialsBridgeService.REFRESH_INTERVAL_MS);
     expect(spy).toHaveBeenCalledTimes(2);
+
+    // 15-minute cadence (faster than the ~hourly token lifetime).
+    expect(CredentialsBridgeService.REFRESH_INTERVAL_MS).toBe(15 * 60 * 1000);
     bridge.stopRefreshLoop();
   });
 });
