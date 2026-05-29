@@ -30,7 +30,6 @@ function normalizeAgentId(id: string): string {
 const repo = new AgentSessionsRepository();
 const messagesRepo = new AgentSessionMessagesRepository();
 
-import { resolveModelForAgent as resolveModel } from '../services/agent_model_resolver';
 import { gitCheckout, probeVcs } from '../services/vcs_probe';
 
 /**
@@ -83,38 +82,38 @@ export class AgentSessionsController {
       const { taskId, taskTitle, cwd, name } = body;
 
       // Accept agentId (preferred) with agentKind as a deprecated fallback.
-      // #602: agentId may be omitted / explicitly null to create an "agent-less"
-      // session that defers model selection to the first turn.
       let agentId = body.agentId;
       if (!agentId && body.agentKind) {
         console.warn('[deprecated] agentKind is deprecated in POST /agent-sessions — use agentId instead');
         agentId = body.agentKind;
       }
 
-      // #602: null/omitted agentId → agent-less session. We store a sentinel
-      // agent kind ('__pending__') and skip SDK session creation until the
-      // first session.input WS frame carries a modelOverride that resolves
-      // the agent kind.
-      const isAgentLess = agentId === null || agentId === undefined || agentId === '';
-      let normalizedAgentId: string;
-
-      if (isAgentLess) {
-        normalizedAgentId = '__pending__';
-      } else {
-        if (typeof agentId !== 'string') {
-          throw AppError.badRequest('agentId must be a string or null');
-        }
-        normalizedAgentId = normalizeAgentId(agentId);
-        // Validate that a matching, enabled agent config exists (only for known agents).
-        if (normalizedAgentId !== '__pending__') {
-          const agentConfig = new AgentConfigsRepository().getById(normalizedAgentId);
-          if (!agentConfig) {
-            throw AppError.badRequest(`agent not configured: '${normalizedAgentId}'`);
-          }
-          if (!agentConfig.enabled) {
-            throw AppError.badRequest(`agent disabled: '${normalizedAgentId}'`);
-          }
-        }
+      // Issue #653: agentId is REQUIRED and must NOT be the legacy
+      // '__pending__' sentinel. The client must pick an agent + model before
+      // creating the session (model-pick-first trigger bubble); task context
+      // is delivered via a client-side composer prefill, not a deferred
+      // server-side resolution.
+      if (
+        agentId === null ||
+        agentId === undefined ||
+        agentId === '' ||
+        agentId === '__pending__'
+      ) {
+        throw AppError.badRequest(
+          "agentId is required; agent-less ('__pending__') sessions are no longer supported (#653). " +
+            'The client must pick a model in the trigger bubble before opening the chat.',
+        );
+      }
+      if (typeof agentId !== 'string') {
+        throw AppError.badRequest('agentId must be a non-empty string');
+      }
+      const normalizedAgentId = normalizeAgentId(agentId);
+      const agentConfig = new AgentConfigsRepository().getById(normalizedAgentId);
+      if (!agentConfig) {
+        throw AppError.badRequest(`agent not configured: '${normalizedAgentId}'`);
+      }
+      if (!agentConfig.enabled) {
+        throw AppError.badRequest(`agent disabled: '${normalizedAgentId}'`);
       }
       if (!cwd || typeof cwd !== 'string' || cwd.trim() === '') {
         throw AppError.badRequest('cwd is required and must be a non-empty string');
@@ -124,8 +123,6 @@ export class AgentSessionsController {
       }
 
       let resolvedTaskId: string | null = null;
-      // #629: capture the full task so we can seed a system context message.
-      let resolvedTask: import('../models/task').Task | null = null;
       if (taskId !== undefined && taskId !== null) {
         if (typeof taskId !== 'string') {
           throw AppError.badRequest('taskId must be a string');
@@ -136,7 +133,7 @@ export class AgentSessionsController {
         // local table and silently null out the foreign key when not found.
         // task_title is preserved so the UI still shows context.
         try {
-          resolvedTask = new TasksRepository().findByIdIncludingLegacy(taskId);
+          new TasksRepository().findByIdIncludingLegacy(taskId);
           resolvedTaskId = taskId;
         } catch {
           logger.warn(
@@ -212,32 +209,13 @@ export class AgentSessionsController {
 
       const session = repo.insert(dto);
 
-      // #629: Seed a non-triggering system context message so the user sees
-      // task context when they open the chat from the task-ready bubble.
-      //
-      // The 'system' role is display-only — only 'session.input' over the WS
-      // triggers an LLM turn. This message is NEVER sent to the SDK, so it
-      // cannot cause bug #624 (model-less first turn / extra promptAsync call).
-      {
-        const contextTitle = resolvedTask?.title ?? (typeof taskTitle === 'string' && taskTitle ? taskTitle : null);
-        if (contextTitle) {
-          const notes = resolvedTask?.notes ?? null;
-          let text = `Task context\nTitle: ${contextTitle}`;
-          if (notes && notes.trim()) {
-            text += `\n\n${notes.trim()}`;
-          }
-          messagesRepo.append(session.id, 'system', text, text);
-        }
-      }
-
-      // #602: agent-less sessions skip SDK session creation.
-      // The first session.input WS frame with a modelOverride will resolve
-      // the agent kind, create the SDK session, and forward the prompt.
-      if (isAgentLess) {
-        console.log(`[AgentSessionsController] Created agent-less session ${session.id} — awaiting first model pick`);
-        res.status(201).json(session);
-        return;
-      }
+      // Issue #653: The previous #629 system-message seeding and the
+      // agent-less ('__pending__') early-return branch are intentionally
+      // removed. The new design (model-pick-first trigger bubble) requires
+      // the client to pick an agent + model BEFORE creating the session,
+      // and to deliver task context as an editable composer prefill — not
+      // as a server-seeded system message. Sessions arrive at the WS
+      // gateway fully resolved.
 
       // Create an Opencode SDK session instead of spawning a PTY subprocess.
       // Try to auto-recover if the engine was disposed accidentally (e.g.,
@@ -277,28 +255,10 @@ export class AgentSessionsController {
         );
       }
 
-      // Send the initial prompt with task context so the AI starts working immediately.
-      // This uses promptAsync (fire-and-forget) so we return HTTP 201 quickly.
-      // Results stream back via the event bridge → WebSocket.
-      const initialPrompt = taskTitle
-        ? `I need help with: ${taskTitle}\n\nSession name: ${name}`
-        : `Starting session: ${name}`;
-
-      const model = await resolveModel(normalizedAgentId);
-      console.log(
-        `[AgentSessionsController] Routing ${normalizedAgentId} session ${session.id} via ` +
-          (model ? `${model.providerID}/${model.modelID}` : '<unmapped>'),
-      );
-      opencodeClient.promptAsync(
-        opencodeSession.id,
-        initialPrompt,
-        model,
-        dto.cwd,
-      ).then((ok) => {
-        if (!ok) {
-          console.warn(`[AgentSessionsController] Initial prompt failed for session ${session.id}`);
-        }
-      });
+      // Issue #653: the previous "auto-send initial prompt with task context"
+      // path is removed. The client owns first-turn content (composer prefill
+      // with task title + notes that the user can edit before hitting Enter).
+      // The server no longer fabricates "I need help with: ..." prompts.
 
       res.status(201).json(session);
     } catch (err) {

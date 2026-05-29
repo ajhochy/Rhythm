@@ -1,0 +1,73 @@
+{
+  "issue": 653,
+  "generated": "2026-05-29",
+  "stack": "dart+typescript",
+  "summary": "Eliminate __pending__ agent sessions. Trigger bubble shows model picker inline; on pick, create a fully-initialized session and prefill composer with task context as an editable draft. User hits Enter to send.",
+  "criteria": [
+    {
+      "criterion_id": "issue-653-c1",
+      "text": "Server POST /agent-sessions rejects requests where agentId === '__pending__' OR where agentId is null/empty. No code path can produce a pending session anymore.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/issue_653_contract.test.ts",
+      "test_id": "issue-653-c1: createSession rejects __pending__ and null agentId",
+      "status": "PENDING"
+    },
+    {
+      "criterion_id": "issue-653-c2",
+      "text": "Server agent_sessions_controller no longer appends a role='system' task-context message on session create (the #629 backend seed is removed). New sessions have ZERO persisted messages at insert time.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/issue_653_contract.test.ts",
+      "test_id": "issue-653-c2: new session has no auto-seeded system message",
+      "status": "PENDING"
+    },
+    {
+      "criterion_id": "issue-653-c3",
+      "text": "Client trigger bubble (_ExpandedTriggerBubble) renders an inline UnifiedAgentModelPicker. The 'Open chat' CTA is disabled until a model is picked.",
+      "mode": "widget",
+      "test_file": "apps/desktop_flutter/test/app/core/agents/issue_653_trigger_bubble_test.dart",
+      "test_id": "issue-653-c3: trigger bubble shows inline model picker; CTA disabled without selection",
+      "status": "PENDING"
+    },
+    {
+      "criterion_id": "issue-653-c4",
+      "text": "Clicking 'Open chat' with a model selected calls AgentsController.createSession with a non-null agentId resolved from the picked provider, plus providerId and modelId. Never null, never '__pending__'.",
+      "mode": "widget",
+      "test_file": "apps/desktop_flutter/test/app/core/agents/issue_653_trigger_bubble_test.dart",
+      "test_id": "issue-653-c4: Open chat sends resolved agentId/providerId/modelId to createSession",
+      "status": "PENDING"
+    },
+    {
+      "criterion_id": "issue-653-c5",
+      "text": "After session creation from a trigger, the composer's text input is prefilled with '<task.title>\\n<task.notes>' (or just title if notes is empty/null) and the input is focused. The text is in the controller, NOT persisted as a message yet.",
+      "mode": "widget",
+      "test_file": "apps/desktop_flutter/test/features/agents/issue_653_composer_prefill_test.dart",
+      "test_id": "issue-653-c5: composer is prefilled with task context after trigger open",
+      "status": "PENDING"
+    },
+    {
+      "criterion_id": "issue-653-c6",
+      "text": "User types/edits the prefilled text, hits Enter, the message sends as a normal user turn. The text the agent receives matches what the user committed (not a server-generated 'I need help with:' template, not a system seed).",
+      "mode": "widget",
+      "test_file": "apps/desktop_flutter/test/features/agents/issue_653_composer_prefill_test.dart",
+      "test_id": "issue-653-c6: edited composer text sends as user turn",
+      "status": "PENDING"
+    },
+    {
+      "criterion_id": "issue-653-c7",
+      "text": "Manual smoke (post-merge): add Visalia CRC as collaborator on a task; bubble appears with model picker; pick Claude; click Open chat; Agents view opens with the composer prefilled with the task title + notes; hit Enter; agent responds normally.",
+      "mode": "manual",
+      "status": "PENDING"
+    },
+    {
+      "criterion_id": "issue-653-c8",
+      "text": "Code-level guard: ripgrep for '__pending__' in apps/ returns ONLY (a) the WS gateway's rejection branch that 400s legacy clients sending agentId='__pending__', (b) a single migration/tolerance comment explaining historical rows. No active business logic special-cases the sentinel.",
+      "mode": "shell",
+      "test_id": "issue-653-c8: rg '__pending__' returns only deprecation rejection + historical comment",
+      "status": "PENDING"
+    }
+  ],
+  "not_tested": [
+    "Behavior for existing __pending__ rows already in the production DB. These are sessions the user created in the broken state — they'll either be auto-closed via a one-shot migration, or left as historical noise with a 'session closed: agent never picked' label. Decision pending.",
+    "Multi-window race: opening two trigger bubbles at the same time and racing the model pick. Unlikely UX; deferred."
+  ]
+}

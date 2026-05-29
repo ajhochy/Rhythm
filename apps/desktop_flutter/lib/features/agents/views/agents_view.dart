@@ -1147,11 +1147,44 @@ class _TranscriptPanelState extends State<_TranscriptPanel> {
   final _inputController = TextEditingController();
   final _scrollController = ScrollController();
 
+  /// Issue #653: track which session ids have already had their composer
+  /// draft consumed in this widget instance. Drafts are stored in
+  /// AgentsController and consumed once on session selection.
+  final Set<String> _draftConsumedForSession = <String>{};
+
   @override
   void dispose() {
     _inputController.dispose();
     _scrollController.dispose();
     super.dispose();
+  }
+
+  /// Issue #653: on (re)build, if the selected session has a staged composer
+  /// draft (set by the trigger bubble after createSession), consume it once
+  /// into the input controller and surface it to the user as editable text.
+  /// The user hits Enter to send the (possibly edited) draft as the normal
+  /// first user turn — no server-seeded system message, no auto-prompt.
+  void _maybeConsumeComposerDraft(
+      BuildContext context, AgentSession? selected) {
+    if (selected == null) return;
+    if (_draftConsumedForSession.contains(selected.id)) return;
+    final controller = context.read<AgentsController>();
+    if (!controller.hasComposerDraft(selected.id)) return;
+    final draft = controller.consumeComposerDraft(selected.id);
+    if (draft == null || draft.isEmpty) {
+      _draftConsumedForSession.add(selected.id);
+      return;
+    }
+    _draftConsumedForSession.add(selected.id);
+    // Apply the prefill on the next frame so the input controller is wired up.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (_inputController.text.isNotEmpty) return; // user already typed
+      _inputController.value = TextEditingValue(
+        text: draft,
+        selection: TextSelection.collapsed(offset: draft.length),
+      );
+    });
   }
 
   void _sendInput(BuildContext context) {
@@ -1185,6 +1218,9 @@ class _TranscriptPanelState extends State<_TranscriptPanel> {
     if (selected != null) {
       _scrollToBottom();
     }
+
+    // Issue #653: prefill composer with any staged draft (from trigger bubble).
+    _maybeConsumeComposerDraft(context, selected);
 
     return Column(
       children: [

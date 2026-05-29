@@ -131,59 +131,15 @@ describe('agent_sessions_controller — issue #638-c4 streamSession must precede
   });
 
   // -------------------------------------------------------------------------
-  // c4-a: promptAsync must NOT be called before streamSession resolves.
-  //
-  // FAILS today: controller calls streamSession fire-and-forget (lines 251-258)
-  // then calls promptAsync (line 272) without awaiting. So promptAsync:called
-  // appears in callOrder BEFORE streamSession:resolved.
-  //
-  // PASSES after fix: controller awaits streamSession (or an equivalent
-  // subscription-ready signal) before calling promptAsync, so
-  // streamSession:resolved always precedes promptAsync:called.
+  // c4-a (SUPERSEDED by #653): used to assert "promptAsync is called AFTER
+  // streamSession resolves" — guarding the fire-and-forget race during the
+  // auto-initial-prompt path. That whole path is removed in #653: the server
+  // no longer fabricates a "I need help with: <title>" prompt at session
+  // creation; the client owns first-turn content via composer prefill.
+  // promptAsync is therefore not called from createSession at all, so the
+  // ordering invariant the test guarded no longer has a trigger condition.
+  // c4-b below still applies (response id is local UUID, not SDK id).
   // -------------------------------------------------------------------------
-
-  it('issue-638-c4-a: promptAsync is not called before streamSession resolves', async () => {
-    // POST to create a new agent session — triggers the race.
-    const postPromise = fetch(`${baseUrl}/agent-sessions`, {
-      method: 'POST',
-      headers: { ...authHeaders, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        agentId: 'claude-code',
-        cwd: '/tmp',
-        name: 'race-test',
-      }),
-    });
-
-    // Give the controller time to call streamSession and then call promptAsync
-    // (with current fire-and-forget code, promptAsync fires before streamSession resolves).
-    await new Promise((r) => setTimeout(r, 50));
-
-    // THE FAILING ASSERTION TODAY:
-    // With fire-and-forget, promptAsync:called appears at this point even though
-    // streamSession:resolved has NOT been called yet (because we never called
-    // streamSessionResolve above). The ordering is:
-    //   callOrder = ['streamSession:called', 'promptAsync:called']
-    // which means promptAsync fired BEFORE the listener was ready.
-    //
-    // After the fix, the controller awaits streamSession, so the HTTP handler
-    // is still suspended waiting for streamSession to resolve. promptAsync has
-    // NOT been called yet, so:
-    //   callOrder = ['streamSession:called']   ← no promptAsync yet
-    const promptCalledBeforeResolve = callOrder.includes('promptAsync:called');
-    expect(promptCalledBeforeResolve).toBe(false);
-
-    // Unblock streamSession so the request can complete.
-    streamSessionResolve?.();
-    await postPromise;
-
-    // After unblocking, promptAsync SHOULD have been called.
-    expect(callOrder).toContain('promptAsync:called');
-
-    // Key ordering invariant:
-    const streamResolvedIdx = callOrder.indexOf('streamSession:resolved');
-    const promptCalledIdx = callOrder.indexOf('promptAsync:called');
-    expect(streamResolvedIdx).toBeLessThan(promptCalledIdx);
-  });
 
   // -------------------------------------------------------------------------
   // c4-b: POST /agent-sessions response includes the local session id.
