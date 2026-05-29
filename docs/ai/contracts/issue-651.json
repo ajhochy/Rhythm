@@ -1,0 +1,48 @@
+{
+  "issue": 651,
+  "generated": "2026-05-28",
+  "stack": "dart",
+  "criteria": [
+    {
+      "criterion_id": "issue-651-c1",
+      "text": "When CollaboratorsRow.onAdd throws an AppError, a SnackBar is shown containing the AppError.message.",
+      "mode": "widget",
+      "test_file": "test/features/tasks/issue_651_contract_test.dart",
+      "test_id": "issue-651-c1: CollaboratorsRow surfaces onAdd AppError as a SnackBar",
+      "status": "PENDING"
+    },
+    {
+      "criterion_id": "issue-651-c2",
+      "text": "When CollaboratorsRow.onRemove throws an AppError (long-press), a SnackBar is shown containing the AppError.message.",
+      "mode": "widget",
+      "test_file": "test/features/tasks/issue_651_contract_test.dart",
+      "test_id": "issue-651-c2: CollaboratorsRow surfaces onRemove AppError as a SnackBar",
+      "status": "PENDING"
+    },
+    {
+      "criterion_id": "issue-651-c3",
+      "text": "When the task inspector's onAddCollaborator throws an AppError, the inspector shows a SnackBar with the message and clears its loading state.",
+      "mode": "widget",
+      "test_file": "test/features/tasks/issue_651_contract_test.dart",
+      "test_id": "issue-651-c3: RhythmTaskInspector surfaces onAddCollaborator AppError as a SnackBar",
+      "status": "PENDING"
+    },
+    {
+      "criterion_id": "issue-651-c4",
+      "text": "When the task inspector's onRemoveCollaborator throws an AppError, the inspector shows a SnackBar with the message and clears its loading state.",
+      "mode": "widget",
+      "test_file": "test/features/tasks/issue_651_contract_test.dart",
+      "test_id": "issue-651-c4: RhythmTaskInspector surfaces onRemoveCollaborator AppError as a SnackBar",
+      "status": "PENDING"
+    },
+    {
+      "criterion_id": "issue-651-c5",
+      "text": "Manual smoke on vbeta.18.38: adding Visalia CRC as collaborator on a task either persists + opens the bubble, OR produces a visible error message that identifies the underlying failure (status code / server URL / backend response).",
+      "mode": "manual",
+      "status": "PENDING"
+    }
+  ],
+  "not_tested": [
+    "The actual root cause of the vbeta.18.37 regression (c5 is the diagnostic input; the follow-up fix is out of scope for this issue)."
+  ]
+}

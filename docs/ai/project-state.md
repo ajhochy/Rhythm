@@ -6,6 +6,26 @@ _(Parked bugs from before 2026-05-27 run. #638 and #635 below are now RESOLVED �
 
 ## Recent coding-agent runs
 
+### 2026-05-28 — fix/regression-ai-collab-chat (#651) — diagnostic+UX shim for vbeta.18.37 regression
+- Branch off main at e368a72 (= vbeta.18.37). User reported a regression in vbeta.18.37: adding an AI account ("Visalia CRC") as a task collaborator did nothing — collaborator chip never appeared, agent chat bubble never opened, no error UI. The previously-shipped #644 fix is intact in source on this commit (every `CollaboratorsDataSource` site passes `ServerConfigService.url`; `baseUrl` is required). Production `/health` returns 200. The vbeta.18.36 → vbeta.18.37 diff does not change the collaborator path. Root cause of the regression cannot be pinpointed from source alone because every UI entry point silently swallows the thrown `AppError` from `assertOk`. This run ships a diagnostic+UX shim that surfaces the real failure so the next test reveals the root cause.
+- Files modified:
+  - `apps/desktop_flutter/lib/shared/widgets/collaborators_row.dart` — added `_formatCollaboratorError` helper; extracted long-press remove to `_attemptRemove(BuildContext, int)` with `try/catch` + `ScaffoldMessenger.showSnackBar`; refactored `_showPeoplePicker` to `await onAdd` inside `try/catch` and surface the message; wrapped the chip and the "+ collaborator" `IconButton` in `Builder`s so each has a live `BuildContext` for messenger lookup.
+  - `apps/desktop_flutter/lib/app/core/ui/rhythm_inspector.dart` — imported `app_error.dart`; added `_formatInspectorError(Object)`; added `catch` clauses in `_showPeoplePicker` and `_removeCollaborator` that show a SnackBar with the error message, keeping the existing `finally` clause's loading-state reset.
+  - `apps/desktop_flutter/test/features/tasks/issue_651_contract_test.dart` (new) — 4 widget tests, red→green proven: c1 (CollaboratorsRow add error → SnackBar), c2 (CollaboratorsRow remove error → SnackBar; bypasses Tooltip gesture arena by invoking the row's `onLongPress` callback directly), c3 (inspector add error → SnackBar), c4 (inspector remove error → SnackBar). c3/c4 drain non-assertion layout-overflow exceptions emitted by the inspector header at the test viewport so the SnackBar expectation can be evaluated cleanly.
+  - `docs/ai/contracts/issue-651.json` (new) — 5 criteria, 4 automated + 1 manual.
+  - `docs/ai/generated-issues/fix-collab-add-silent-failure-error-ui.md` (new) — describes the regression, the swallowed-error class, the diagnostic intent of this fix, and the four entry points covered.
+- Checks run:
+  - `flutter test test/features/tasks/issue_651_contract_test.dart` → 4/4 ✓ (red 0/4 before fix verified explicitly)
+  - `flutter test` → 288/288 ✓ (was 284; +4 from #651)
+  - `ai-workflow checks --level issue` → flutter analyze ✓, dart format ✓, api_server tsc ✓
+  - `ai-workflow checks --level pr` → all above plus api_server vitest ✓
+- Decisions:
+  - Shipped a **diagnostic+UX shim**, not a guess at the root cause. The user's report ("most recent release", "silently didn't save", "Visalia CRC" who is the env-mapped agent user) plus the intact source code points to something we cannot see — stored `ServerConfigService.url`, expired auth, deployed-backend drift, or a permissions edge case. Any of those produce an `AppError` from `assertOk` that the silent UI throws away. The shim guarantees the next live test on vbeta.18.38 shows the actual status code + message, which becomes the root-cause signal.
+  - Did NOT change the long-press-to-remove mechanism in `CollaboratorsRow` despite suspecting the Tooltip's internal `LongPressGestureRecognizer` may absorb the gesture in production (it does in widget tests). Out of scope for #651; the SnackBar surface is what the regression needs. If the long-press path itself is also broken, c5 manual smoke will reveal it.
+- Concerns:
+  - Root cause of the vbeta.18.37 regression is not fixed by this PR — only made visible. A follow-up issue will be filed once the user re-tests against vbeta.18.38 (or the debug build with this branch) and reports the surfaced error message.
+- Manual smoke task: c5 (re-test the Visalia CRC add against the configured production server on a build that contains this shim; capture the SnackBar text verbatim).
+
 ### 2026-05-27 — workflow/run-2026-05-27 (#630, #635, #638, #648) — pending smoke (PR #649)
 - Combined branch for four open Agents issues; all previous non-mobile issues confirmed already-implemented (7 closed on GitHub).
 - Files modified:
