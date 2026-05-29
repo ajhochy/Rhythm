@@ -1167,18 +1167,20 @@ class _TranscriptPanelState extends State<_TranscriptPanel> {
   void _maybeConsumeComposerDraft(
       BuildContext context, AgentSession? selected) {
     if (selected == null) return;
-    if (_draftConsumedForSession.contains(selected.id)) return;
+    final sessionId = selected.id;
+    if (_draftConsumedForSession.contains(sessionId)) return;
     final controller = context.read<AgentsController>();
-    if (!controller.hasComposerDraft(selected.id)) return;
-    final draft = controller.consumeComposerDraft(selected.id);
-    if (draft == null || draft.isEmpty) {
-      _draftConsumedForSession.add(selected.id);
-      return;
-    }
-    _draftConsumedForSession.add(selected.id);
-    // Apply the prefill on the next frame so the input controller is wired up.
+    if (!controller.hasComposerDraft(sessionId)) return;
+    // Issue #656: do NOT consume (mutate controller state) or touch the input
+    // controller synchronously during build. Mark this session handled now
+    // (local State set, no notify) and defer the actual consume + prefill to a
+    // post-frame callback. This guarantees no controller mutation happens in
+    // the build phase, keeping transcript reactivity intact.
+    _draftConsumedForSession.add(sessionId);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
+      final draft = controller.consumeComposerDraft(sessionId);
+      if (draft == null || draft.isEmpty) return;
       if (_inputController.text.isNotEmpty) return; // user already typed
       _inputController.value = TextEditingValue(
         text: draft,

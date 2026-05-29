@@ -452,10 +452,15 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
 
   /// Read and clear the draft for [sessionId]. Returns null if no draft was
   /// staged. One-shot — subsequent calls return null.
+  ///
+  /// Issue #656: this is invoked from `_TranscriptPanel.build()`, so it MUST
+  /// NOT call `notifyListeners()` — firing a notify during build marks the
+  /// building widget dirty mid-build, which in release silently corrupts the
+  /// transcript panel's rebuild scheduling (dead clicks, no streaming). The
+  /// caller applies the returned draft directly to its TextEditingController
+  /// via a post-frame callback; no rebuild is required here.
   String? consumeComposerDraft(String sessionId) {
-    final draft = _composerDraftBySession.remove(sessionId);
-    if (draft != null) notifyListeners();
-    return draft;
+    return _composerDraftBySession.remove(sessionId);
   }
 
   /// True if a draft exists for [sessionId] without consuming it (used by
