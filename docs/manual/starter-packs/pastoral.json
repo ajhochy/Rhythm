@@ -1,0 +1,89 @@
+{
+  "pack_id": "pastoral",
+  "role": "Pastoral Staff",
+  "summary": "Starter rhythms, projects, and tasks for a pastor or pastoral team member. Customize the cadences and step lists to match your actual sermon prep and visitation rhythm before saving.",
+  "rhythms": [
+    {
+      "title": "Weekly sermon preparation",
+      "cadence": "weekly",
+      "start_day": "Tuesday",
+      "steps": [
+        "Read the passage and sit with it",
+        "Pull commentaries and cross-references",
+        "Draft sermon outline",
+        "Write opening and closing",
+        "Practice / rehearse delivery",
+        "Send title and notes to AV by Friday"
+      ]
+    },
+    {
+      "title": "Pastoral visits and care touchpoints",
+      "cadence": "weekly",
+      "steps": [
+        "Review who's on the care list",
+        "Reach out to 3-5 people this week",
+        "Log conversations and follow-ups"
+      ]
+    },
+    {
+      "title": "Elder / leadership meeting prep",
+      "cadence": "monthly",
+      "steps": [
+        "Send agenda-items request to elders",
+        "Compile agenda",
+        "Distribute meeting notes ahead of time",
+        "Lead meeting",
+        "Send minutes within 48 hours"
+      ]
+    },
+    {
+      "title": "Vision and rhythm review",
+      "cadence": "quarterly",
+      "steps": [
+        "Review last quarter's preaching themes",
+        "Pray and plan the next quarter's preaching arc",
+        "Discuss with leadership"
+      ]
+    }
+  ],
+  "projects": [
+    {
+      "title": "Annual sermon series planning",
+      "annual": true,
+      "steps": [
+        { "offset_days": -90, "title": "Pray and brainstorm series direction" },
+        { "offset_days": -60, "title": "Draft series outline with titles" },
+        { "offset_days": -45, "title": "Review with leadership" },
+        { "offset_days": -30, "title": "Finalize and communicate to the congregation" }
+      ]
+    },
+    {
+      "title": "Easter sermon series",
+      "annual": true,
+      "target_anchor": "Easter Sunday",
+      "steps": [
+        { "offset_days": -49, "title": "Choose passages for Lent and Easter" },
+        { "offset_days": -35, "title": "Begin sermon outlines for each week" },
+        { "offset_days":  -7, "title": "Final Easter sermon draft" },
+        { "offset_days":   0, "title": "Easter Sunday" },
+        { "offset_days":   3, "title": "Debrief the series with the team" }
+      ]
+    },
+    {
+      "title": "New-member class cohort",
+      "steps": [
+        { "offset_days": -28, "title": "Announce upcoming class" },
+        { "offset_days": -21, "title": "Collect sign-ups" },
+        { "offset_days":  -7, "title": "Prep materials and venue" },
+        { "offset_days":   0, "title": "First class session" },
+        { "offset_days":  28, "title": "Final class and reception interviews" },
+        { "offset_days":  35, "title": "Bring new members before the congregation" }
+      ]
+    }
+  ],
+  "tasks": [
+    { "title": "Follow up with new visitors from last Sunday" },
+    { "title": "Review pastoral care list with the elders" },
+    { "title": "Schedule next baptism prep conversation" }
+  ]
+}
