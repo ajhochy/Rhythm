@@ -83,6 +83,9 @@
   nav.toc a .mk{flex:0 0 auto;width:22px;height:22px;display:grid;place-items:center;border-radius:6px;border:1px solid var(--rule-2);font-size:11px;font-weight:600;color:var(--fg-3);font-family:var(--mono)}
   nav.toc a.active .mk{border-color:var(--accent-line);color:var(--accent-bright);background:rgba(125,144,255,.10)}
   nav.toc a .mk svg{width:14px;height:14px}
+  nav.toc a.preview{opacity:.62}
+  nav.toc a.preview .mk{border-color:var(--rule);color:var(--fg-4)}
+  nav.toc a.preview.active{opacity:1}
 
   /* TL;DR overview */
   .tldr{border:1px solid var(--rule-2);border-radius:14px;background:linear-gradient(180deg,var(--ink-2),var(--ink-1));padding:28px 32px;margin-bottom:46px;position:relative;overflow:hidden}
@@ -119,6 +122,7 @@
   /* methods (the 3 capture/usage options) */
   .methods{display:grid;gap:14px;margin:0 0 6px}
   @media(min-width:680px){.methods{grid-template-columns:repeat(3,1fr)}}
+  @media(min-width:680px){.methods.two{grid-template-columns:repeat(2,1fr)}}
   .method{border:1px solid var(--rule-2);border-radius:12px;background:var(--ink-1);padding:18px 18px 20px}
   .method .mh{display:flex;align-items:center;gap:11px;margin-bottom:10px}
   .method .mh svg{color:var(--accent)}
@@ -142,6 +146,9 @@
   .ic-inline{display:inline-block;vertical-align:-3px;width:17px;height:17px;color:var(--accent);margin:0 1px}
 
   kbd,code{font-family:var(--mono);font-size:.84em;background:var(--ink-3);border:1px solid var(--rule-2);border-radius:5px;padding:2px 6px;color:var(--fg)}
+  pre.codeblock{margin:10px 0 16px;background:var(--ink-3);border:1px solid var(--rule-2);border-radius:10px;padding:16px 18px;font-family:var(--mono);font-size:12.5px;color:var(--fg);overflow-x:auto;line-height:1.55;white-space:pre-wrap;word-break:normal}
+  pre.codeblock.json{font-size:12px;line-height:1.5}
+  pre.codeblock .c{color:var(--fg-4)}
 
   /* callouts */
   .callout{display:flex;gap:14px;border:1px solid var(--rule-2);background:var(--ink-1);border-radius:11px;padding:15px 17px;margin:20px 0;font-size:15px;color:var(--fg-2);line-height:1.55}
@@ -230,6 +237,8 @@
     <symbol id="i-chev" viewBox="0 0 24 24"><path d="M9 5.5 L15.5 12 L9 18.5"/></symbol>
     <symbol id="i-arrow-up" viewBox="0 0 24 24"><path d="M12 19 V5.5"/><path d="M6.5 11 L12 5.5 L17.5 11"/></symbol>
     <symbol id="i-sparkle" viewBox="0 0 24 24"><path d="M12 3 L13.6 10 L20 11.6 L13.6 13.2 L12 20 L10.4 13.2 L4 11.6 L10.4 10 Z"/></symbol>
+    <symbol id="i-agent" viewBox="0 0 24 24"><rect x="5" y="7.4" width="14" height="11.4" rx="3"/><line x1="12" y1="3.4" x2="12" y2="7.4"/><circle cx="12" cy="3.2" r="0.7" fill="currentColor" stroke="none"/><circle cx="9.4" cy="12.4" r="0.9" fill="currentColor" stroke="none"/><circle cx="14.6" cy="12.4" r="0.9" fill="currentColor" stroke="none"/><path d="M9.4 16 h5.2"/></symbol>
+    <symbol id="i-pack" viewBox="0 0 24 24"><path d="M12 3.6 L20.4 7.6 L12 11.6 L3.6 7.6 Z"/><path d="M3.6 12.2 L12 16.2 L20.4 12.2"/><path d="M3.6 16.6 L12 20.6 L20.4 16.6"/></symbol>
   </defs>
 </svg>
 
@@ -271,6 +280,37 @@
       </ol>
     </div>
 
+    <!-- GLOSSARY (#665) -->
+    <section class="screen" id="glossary" data-title="Quick glossary" data-nav="Quick glossary" data-mark="glossary">
+      <div class="s-head">
+        <div class="s-tile"><svg class="ic"><use href="#i-info"/></svg></div>
+        <div>
+          <div class="eyebrow">Mental model</div>
+          <h2>Tasks, Rhythms, Projects, Automations <span class="who">2-min read</span></h2>
+        </div>
+      </div>
+      <p class="lead">Four words you'll see all over Rhythm. They're close cousins, but each plays a different role — knowing which is which up front saves a lot of <i>"wait, which one do I need?"</i> later.</p>
+      <div class="methods two">
+        <div class="method">
+          <div class="mh"><svg class="ic lg"><use href="#i-task"/></svg><b>Task</b></div>
+          <p>A single thing you do, once — <i>"Order new envelopes."</i> It has a title, a due date, maybe a project link. Tasks are the lowest-level unit of work; everything else eventually produces one.</p>
+        </div>
+        <div class="method">
+          <div class="mh"><svg class="ic lg"><use href="#i-repeat"/></svg><b>Rhythm</b></div>
+          <p>A recurring template that <i>generates tasks</i> on a cadence — weekly bulletin proofing, monthly counts, annual budget review. Define it once; the tasks appear on every cycle automatically.</p>
+        </div>
+        <div class="method">
+          <div class="mh"><svg class="ic lg"><use href="#i-folder"/></svg><b>Project</b></div>
+          <p>A date-anchored set of related tasks — a Christmas service, a retreat, an annual report. You set a <b>target date</b> and add steps with offsets ("4 weeks before," "1 week after"); Rhythm calendarizes the whole thing.</p>
+        </div>
+        <div class="method">
+          <div class="mh"><svg class="ic lg"><use href="#i-zap"/></svg><b>Automation</b></div>
+          <p>A rule that creates work in response to a signal — <i>"when PCO publishes a plan, create a 'confirm volunteers' task."</i> Same tasks as the others, just triggered by something outside Rhythm.</p>
+        </div>
+      </div>
+      <div class="callout"><svg class="ic"><use href="#i-info"/></svg><div><span class="h">All roads lead to tasks</span>Rhythms, Projects, and Automations are <b>different ways of generating tasks</b>. Tasks are what the Weekly Planner shows you. Remember that and you'll never get stuck on "which one do I need?"</div></div>
+    </section>
+
     <!-- DOWNLOAD THE DESKTOP APP -->
     <section class="screen" id="download" data-title="Get the desktop app" data-nav="Get the desktop app" data-mark="download">
       <div class="s-head">
@@ -287,6 +327,116 @@
       <div class="callout"><svg class="ic"><use href="#i-info"/></svg><div><span class="h">One build for every Mac</span>This single download works on both <b>Apple Silicon</b> (M1–M4) and <b>Intel</b> Macs.</div></div>
       <div class="callout"><svg class="ic"><use href="#i-check"/></svg><div><span class="h">Opening it the first time</span>The app is signed and notarized under the church's developer account, so it should open normally. If macOS asks because it was downloaded from the internet, click <b>Open</b> — you only confirm once.</div></div>
       <details class="more"><summary><svg class="ic chev"><use href="#i-chev"/></svg>Updating to a newer version</summary><div class="body">When you see a new release, come back to this page and download again — the new version replaces the old one in Applications. Your data and settings stay put.</div></details>
+    </section>
+
+    <!-- ONBOARDING WITH CLAUDE (#663) -->
+    <section class="screen" id="onboarding" data-title="Let Claude set it up" data-nav="Let Claude set it up" data-mark="onboarding">
+      <div class="s-head">
+        <div class="s-tile"><svg class="ic"><use href="#i-sparkle"/></svg></div>
+        <div>
+          <div class="eyebrow">Optional · biggest time-saver</div>
+          <h2>Let Claude set up Rhythm for you <span class="who">Recommended · ~20 min</span></h2>
+        </div>
+      </div>
+      <p class="lead">The single biggest win Rhythm offers over a normal task app: you don't have to set up your rhythms, projects, and recurring obligations by hand. Wire Rhythm to your Claude account (<b>Claude Desktop</b> or <b>Claude Code</b>), paste a single <b>interview prompt</b>, and Claude builds the whole skeleton with you — asking the right questions and creating real rhythms, projects, and tasks as you answer.</p>
+      <div class="callout"><svg class="ic"><use href="#i-info"/></svg><div><span class="h">What you get out of 20 minutes</span>A populated Rhythms list (your real weekly obligations), project templates for your annual events with realistic offsets, and a starter set of tasks. You'll still tweak — but you're tweaking a real foundation instead of staring at an empty screen.</div></div>
+      <ol class="steps">
+        <li><b>One paragraph on what MCP is.</b> <b>MCP</b> (Model Context Protocol) is the open standard that lets Claude talk to other apps. The <b>Rhythm MCP server</b> exposes Rhythm's tasks, rhythms, projects, and automations to Claude as tools (<code>rhythm_create_rhythm</code>, <code>rhythm_create_project_template</code>, and friends). Once wired up, Claude can create, read, update, and list the same data the desktop app does.</li>
+        <li><b>Get your Rhythm API token.</b> In the Rhythm desktop app, open <b>Settings → Claude Integration</b> and copy your session token. (If that pane isn't on your build yet, ask AJ or finance — there's also a CLI fallback documented in the <a href="https://github.com/ajhochy/Rhythm/blob/main/apps/mcp_server/README.md" target="_blank" rel="noopener">Rhythm MCP server README</a>.)</li>
+        <li><b>Add the Rhythm MCP server to Claude.</b> In Claude Desktop, edit <code>~/Library/Application Support/Claude/claude_desktop_config.json</code> and paste:
+<pre class="codeblock json">{
+  "mcpServers": {
+    "rhythm": {
+      "command": "npx",
+      "args": ["-y", "@ajhochy/rhythm-mcp-server"],
+      "env": {
+        "RHYTHM_API_URL": "https://api.vcrcapps.com",
+        "RHYTHM_API_TOKEN": "&lt;paste-your-token-here&gt;"
+      }
+    }
+  }
+}</pre>
+        Save and <b>quit + reopen Claude Desktop</b>. (The same JSON drops into Claude Code at <code>~/.claude/settings.json</code> if that's how you use Claude.)</li>
+        <li><b>Confirm it's connected.</b> Open a fresh Claude conversation and type <i>"Call rhythm_ping to check the connection."</i> Claude should respond with the Rhythm API status and the email address your token authenticates as. A 401 means the token's wrong — re-copy it from Settings.</li>
+        <li><b>Paste the interview prompt</b> (below) into Claude. Answer its questions — they take 10–20 minutes total. Claude will create your rhythms, projects, and starter tasks directly in Rhythm as you go. Switch to the desktop app to watch them appear.</li>
+        <li><b>Spot-check and tweak.</b> When the interview wraps, ask Claude to <i>"show me what you created"</i> — it'll list every rhythm, project, and task with the cadences, target dates, and step offsets. Adjust anything that doesn't fit. Then open the desktop app and start using your week.</li>
+      </ol>
+
+      <div class="callout"><svg class="ic"><use href="#i-sparkle"/></svg><div><span class="h">The interview prompt — copy this verbatim into Claude</span>This is the load-bearing piece. The same prompt lives in <a href="mcp-setup-prompt.md" target="_blank" rel="noopener">mcp-setup-prompt.md</a> with design notes and variations.</div></div>
+
+<pre class="codeblock">I'd like you to interview me about my role so you can set up Rhythm — a desktop
+productivity app for church staff — to match my actual work.
+
+You have access to Rhythm via the rhythm_* MCP tools (rhythm_ping, rhythm_create_rhythm,
+rhythm_create_project_template, rhythm_add_project_step, rhythm_create_task,
+rhythm_list_rhythms, rhythm_get_dashboard, etc.). Use them as you go.
+
+Please conduct the interview in this order. Ask ONE focused question at a time,
+wait for my answer, and only move on when you have what you need:
+
+1. ROLE AND CONTEXT
+   - What's my role at the church? (worship leader, pastoral staff, finance/admin,
+     facilities, AV/tech, children's ministry, etc.)
+   - Roughly how big is the staff and the congregation?
+   - What tools do I already use heavily (Planning Center, Google Calendar, a CCM,
+     accounting software, etc.)?
+
+2. WEEKLY OBLIGATIONS — the recurring stuff
+   - Walk me through a typical week. What do I do every week, without exception?
+   - For each recurring thing: what's the cadence (weekly, bi-weekly, monthly)?
+     What are the steps inside it?
+   - Create one rhythm per recurring obligation with rhythm_create_rhythm; then
+     add each step with rhythm_add_rhythm_step.
+
+3. ANNUAL / PROJECT-LIKE WORK — the date-anchored stuff
+   - What annual or one-time events do I run? (Christmas Eve, Easter, summer
+     retreat, annual budget, year-end report, etc.)
+   - For each, what's the target date and what are the milestones, with offsets
+     from that date? ("Pick a theme — 8 weeks before," "Send invitations — 4
+     weeks before," "Debrief — 1 week after.")
+   - Create one project template per recurring event with
+     rhythm_create_project_template, then add offset steps with
+     rhythm_add_project_step. If it's annual, say so in the description.
+
+4. ONE-OFF TASKS ON MY MIND RIGHT NOW
+   - Anything coming up in the next 2-4 weeks that doesn't fit a rhythm or
+     project but I shouldn't forget?
+   - Create each with rhythm_create_task; set a sensible due date.
+
+5. PEOPLE AND COORDINATION
+   - Who do I coordinate with regularly? (Worship leader, pastor, treasurer,
+     custodian, etc.)
+   - Are any of my rhythms or projects shared with them? Note this in the
+     rhythm/project description so I can add them as collaborators later.
+
+GUIDELINES:
+- Keep questions short. Don't lecture me about productivity.
+- Ask follow-ups when I'm vague ("when you say 'sermon prep,' what are the steps?").
+- After each completed item, briefly summarize what you created and move on.
+- Don't try to create every possible task — focus on the load-bearing recurring
+  work and the major annual events. We can add more later.
+- At the end, call rhythm_get_dashboard and show me the summary so I can spot-check.
+
+Start with question 1. Just one question at a time.</pre>
+
+      <div class="callout warn"><svg class="ic"><use href="#i-alert"/></svg><div><span class="h">Heads up: Claude is editing real data</span>Claude creates real rhythms, projects, and tasks in your Rhythm account as the interview progresses. If something looks wrong, say so — Claude can update or delete what it just created. The desktop app refreshes in near-real-time so you can watch the structure populate.</div></div>
+
+      <details class="more"><summary><svg class="ic chev"><use href="#i-chev"/></svg>Shortcut: seed from a role starter pack</summary><div class="body"><ul>
+        <li>If your role matches one of the <a href="#starter-packs">starter packs</a> (worship, pastoral, finance/admin), open the pack, copy its JSON, and prefix the interview prompt with: <i>"Before you interview me, here's a starter pack for my role — create the rhythms, projects, and tasks it describes, then only ask me about gaps."</i> Then paste the JSON below it. This usually cuts the interview to ~10 minutes.</li>
+        <li>You can also tell Claude to <b>skip phase 4</b> if you don't have anything pressing on your mind — that drops the interview to phases 1–3 + 5 only.</li>
+      </ul></div></details>
+
+      <details class="more"><summary><svg class="ic chev"><use href="#i-chev"/></svg>What this looks like in practice</summary><div class="body"><ul>
+        <li><b>You:</b> <i>[paste the interview prompt]</i></li>
+        <li><b>Claude:</b> "Got it — I'll interview you and set up Rhythm as we go. First question: what's your role at the church?"</li>
+        <li><b>You:</b> "I lead worship — Sunday services, weekly rehearsals, a couple of annual special services."</li>
+        <li><b>Claude:</b> "Great. Let's start with the weekly stuff. Walk me through a typical week — what do you do every week, without exception?"</li>
+        <li><b>You:</b> "Monday I pick the songs and confirm the theme with pastoral. Tuesday I build the set in Planning Center. Wednesday I send the band the set list. Thursday is rehearsal."</li>
+        <li><b>Claude:</b> "Got it — that's a weekly rhythm with four steps starting Monday. Creating it now." <i>[calls <code>rhythm_create_rhythm</code> then <code>rhythm_add_rhythm_step</code> four times]</i> "Done: 'Weekly Sunday service plan,' weekly cadence, four steps. Next: any other recurring obligations besides Sunday prep?"</li>
+        <li><b>You:</b> "Monthly worship team huddle, end of each month."</li>
+        <li><b>Claude:</b> "On it." <i>[creates the second rhythm]</i> "What about quarterly or annual? You mentioned a couple of special services — Christmas and Easter?"</li>
+        <li><i>…and so on. The interview typically wraps in 10–20 minutes with a populated Rhythms list and 2–4 project templates.</i></li>
+      </ul></div></details>
     </section>
 
     <!-- DASHBOARD -->
@@ -414,6 +564,36 @@
         <li>Test it with <b>Preview</b> to make sure the right rows match.</li>
         <li>Turn it on. Rhythm runs the rule whenever the trigger fires — quietly and idempotently (no duplicates).</li>
       </ol>
+
+      <h3 style="font-size:15px;font-weight:600;letter-spacing:var(--ls-caps);text-transform:uppercase;color:var(--fg-3);margin:32px 0 12px">Recipes — six rules worth setting up on day one</h3>
+      <p style="font-size:15px;color:var(--fg-2);margin:0 0 14px;max-width:64ch">These are the automations most staff end up wanting eventually. Copy the shape, swap the specifics for your context. Each card lists the <b>trigger</b>, the <b>action</b>, and <b>why it's worth automating</b>.</p>
+      <div class="methods two">
+        <div class="method">
+          <div class="mh"><svg class="ic lg"><use href="#i-link"/></svg><b>PCO plan publishes</b></div>
+          <p><b>Action:</b> create a task <i>"Confirm volunteer assignments — &lt;service name&gt;"</i> due 5 days before the service, assigned to the worship leader.<br/><b>Fires when:</b> Planning Center marks a plan as Published.<br/><b>Why:</b> publishing is the right moment to start volunteer coordination — and easy to forget if you're staring at email.</p>
+        </div>
+        <div class="method">
+          <div class="mh"><svg class="ic lg"><use href="#i-building"/></svg><b>Facility-use event lands on Google Calendar</b></div>
+          <p><b>Action:</b> create a <i>"Confirm setup for &lt;event name&gt;"</i> task due the day before, assigned to facilities.<br/><b>Fires when:</b> a new event is added to the church <i>Facilities Use</i> Google Calendar.<br/><b>Why:</b> outside groups book rooms via Google; this loops their event into Rhythm so setup isn't forgotten.</p>
+        </div>
+        <div class="method">
+          <div class="mh"><svg class="ic lg"><use href="#i-alert"/></svg><b>Volunteer declines a PCO plan</b></div>
+          <p><b>Action:</b> create a <i>"Find replacement for &lt;position&gt; — &lt;date&gt;"</i> task assigned to the worship leader, due same-day.<br/><b>Fires when:</b> a Planning Center volunteer marks themselves Declined.<br/><b>Why:</b> turns the decline notification into an actionable next step instead of an email you scroll past.</p>
+        </div>
+        <div class="method">
+          <div class="mh"><svg class="ic lg"><use href="#i-mail"/></svg><b>Rhythm step missed</b></div>
+          <p><b>Action:</b> send a message to the responsible team's thread with the missed step name.<br/><b>Fires when:</b> a rhythm step's due date passes with the step still open.<br/><b>Why:</b> turns "did anyone do this?" into a one-line nudge in the right channel without finger-pointing.</p>
+        </div>
+        <div class="method">
+          <div class="mh"><svg class="ic lg"><use href="#i-task"/></svg><b>Project step overdue</b></div>
+          <p><b>Action:</b> create a <i>"Check in on &lt;step name&gt;"</i> task assigned to the project owner, due tomorrow.<br/><b>Fires when:</b> a project step's offset date passes with the step still open.<br/><b>Why:</b> annual-project slippage compounds; a 1-day check-in is the cheapest way to catch it early.</p>
+        </div>
+        <div class="method">
+          <div class="mh"><svg class="ic lg"><use href="#i-zap"/></svg><b>Urgent-tagged task created</b></div>
+          <p><b>Action:</b> send a message in the relevant team thread linking the task.<br/><b>Fires when:</b> a task is created and tagged <code>urgent</code>.<br/><b>Why:</b> "I'll just throw it in Rhythm" only works if someone sees it. The auto-ping closes that loop.</p>
+        </div>
+      </div>
+
       <div class="callout warn"><svg class="ic"><use href="#i-alert"/></svg><div><span class="h">Test before going live</span>Use <b>Preview</b> to confirm a rule matches what you expect. Rules are deterministic and idempotent, but a too-broad trigger can flood the planner with low-priority tasks.</div></div>
     </section>
 
@@ -472,6 +652,19 @@
       </ol>
     </section>
 
+    <!-- AGENTS (placeholder, #664) -->
+    <section class="screen" id="agents" data-title="Agents (preview)" data-nav="Agents" data-mark="agents" data-preview="true">
+      <div class="s-head">
+        <div class="s-tile"><svg class="ic"><use href="#i-agent"/></svg></div>
+        <div>
+          <div class="eyebrow">Preview · not ready yet</div>
+          <h2>Agents <span class="who" style="background:var(--ink-3);color:var(--fg-3);border-color:var(--rule-2)">Coming soon</span></h2>
+        </div>
+      </div>
+      <p class="lead">You'll notice an <b>Agents</b> tab in the Rhythm sidebar. It's in active development — early tooling for letting an AI collaborate on a task or project right alongside you — and it isn't ready for everyday use yet. There's nothing here you need to set up; watch for a future update.</p>
+      <div class="callout"><svg class="ic"><use href="#i-info"/></svg><div><span class="h">In the meantime</span>If you want Claude in your workflow today, the wired-up path is <a href="#onboarding">Let Claude set up Rhythm for you</a> via MCP, above. The in-app Agents tab is a separate thing — a future, deeper integration — and it's safe to ignore for now.</div></div>
+    </section>
+
     <!-- INTEGRATIONS -->
     <section class="screen" id="integrations" data-title="Integrations" data-nav="Integrations" data-mark="link">
       <div class="s-head">
@@ -501,8 +694,47 @@
           <h2>Settings <span class="who">Everyone</span></h2>
         </div>
       </div>
-      <p class="lead">Settings is short and to the point — it's mostly your <b>account</b> and the <b>server URL</b> Rhythm talks to. For nearly everyone, the defaults are right and you'll never need to touch this.</p>
-      <div class="callout warn"><svg class="ic"><use href="#i-alert"/></svg><div><span class="h">Don't change the Server URL</span>Unless IT or finance specifically asks you to point at a different server, leave the <b>API Server</b> field on the default (<code>https://api.vcrcapps.com</code>). Changing it makes your tasks disappear because you're talking to a different database.</div></div>
+      <div class="callout warn"><svg class="ic"><use href="#i-alert"/></svg><div><span class="h">Don't change the Server URL unless asked</span>Pointing Rhythm at a different server is the #1 way to make your tasks <i>look</i> like they've disappeared — they haven't, you're just looking at a different database. Leave the <b>API Server</b> field on the default unless IT or finance specifically asks you to change it.</div></div>
+      <p class="lead">Settings holds your <b>account</b> and the <b>API Server</b> URL Rhythm talks to. For nearly everyone, both are correct out of the box and you'll never reopen this screen.</p>
+
+      <details class="more" open><summary><svg class="ic chev"><use href="#i-chev"/></svg>About the Server URL field</summary><div class="body"><ul>
+        <li><b>The default is right for 99% of staff.</b> Rhythm ships pointed at <code>https://api.vcrcapps.com</code> — the church's hosted server, the only place your real tasks, rhythms, projects, and reservations live.</li>
+        <li><b>Changing it points Rhythm at a different database.</b> If IT spins up a beta backend, or finance asks you to verify something against an isolated copy, they'll give you a different URL. Tasks you create on that other server live there only — they don't sync back to production.</li>
+        <li><b>"My tasks are gone" almost always means a changed Server URL.</b> Open Settings; if the API Server field shows anything other than <code>https://api.vcrcapps.com</code>, that's why. Put it back to the default and your work reappears — it was never lost, just hidden behind the wrong address.</li>
+        <li><b>This setting is local to your Mac.</b> Changing it here doesn't change it on your laptop, your home Mac, or anyone else's machine — every device tracks its own server preference. See <a href="#more">Using Rhythm on more than one Mac</a> in "More tools &amp; tips" if you have more than one.</li>
+        <li><b>How to put it back if you changed it by accident.</b> Open Settings, clear the API Server field, type <code>https://api.vcrcapps.com</code> exactly, and save. Quit and re-open Rhythm; your tasks return because you're looking at the right database again.</li>
+      </ul></div></details>
+    </section>
+
+    <!-- STARTER PACKS (#668) -->
+    <section class="screen" id="starter-packs" data-title="Starter packs" data-nav="Starter packs" data-mark="packs">
+      <div class="s-head">
+        <div class="s-tile"><svg class="ic"><use href="#i-pack"/></svg></div>
+        <div>
+          <div class="eyebrow">Curated by role</div>
+          <h2>Starter packs <span class="who">Optional · saves time</span></h2>
+        </div>
+      </div>
+      <p class="lead">Each pack is a small JSON file with sensible defaults for a specific role — rhythms, project templates, and a few starter tasks you can import (or hand to Claude during <a href="#onboarding">onboarding</a>) instead of building from a blank screen. Pick the one closest to your role, then tweak.</p>
+      <div class="methods">
+        <div class="method">
+          <div class="mh"><svg class="ic lg"><use href="#i-sparkle"/></svg><b>Worship Leader</b></div>
+          <p>4 rhythms (Sunday plan, rehearsal, monthly team huddle, quarterly song review), 3 annual projects (Christmas Eve, Easter, retreat), and a few starter tasks. <br/><a href="starter-packs/worship-leader.json" target="_blank" rel="noopener" style="margin-top:10px;display:inline-block;font-weight:550">Open worship-leader.json →</a></p>
+        </div>
+        <div class="method">
+          <div class="mh"><svg class="ic lg"><use href="#i-help"/></svg><b>Pastoral Staff</b></div>
+          <p>4 rhythms (sermon prep, pastoral visits, monthly leadership, quarterly vision review), 3 projects (annual series planning, Easter series, new-member class), and a few starter tasks.<br/><a href="starter-packs/pastoral.json" target="_blank" rel="noopener" style="margin-top:10px;display:inline-block;font-weight:550">Open pastoral.json →</a></p>
+        </div>
+        <div class="method">
+          <div class="mh"><svg class="ic lg"><use href="#i-building"/></svg><b>Finance / Admin</b></div>
+          <p>4 rhythms (weekly offering reconcile, monthly bills + payroll + treasurer's report, quarterly tax filing), 3 annual projects (budget cycle, year-end close, annual report), and a few starter tasks.<br/><a href="starter-packs/finance.json" target="_blank" rel="noopener" style="margin-top:10px;display:inline-block;font-weight:550">Open finance.json →</a></p>
+        </div>
+      </div>
+      <div class="callout"><svg class="ic"><use href="#i-info"/></svg><div><span class="h">How to use a pack today</span>There's no "Import" button in the app yet — that's on the roadmap. The cleanest path right now: open your pack's JSON, paste it into Claude after the <a href="#onboarding">interview prompt</a>, and tell Claude <i>"use this as my starter — create everything in it, then ask me about the gaps."</i> Claude will fill the structures in via MCP and you'll skip the bulk of the manual entry.</div></div>
+      <details class="more"><summary><svg class="ic chev"><use href="#i-chev"/></svg>Manual import (no Claude)</summary><div class="body"><ul>
+        <li>If you'd rather build it by hand, open the pack JSON in your browser and use it as a reference: for each <code>rhythms</code> entry, create a rhythm in the desktop app with the same name, cadence, and steps. For each <code>projects</code> entry, create a project template with the same target anchor and offset steps. For each <code>tasks</code> entry, add a task.</li>
+        <li>None of the packs contain personal data; everything is church-generic. Tweak names, cadences, and step lists to match your context before saving.</li>
+      </ul></div></details>
     </section>
 
     <!-- MORE TOOLS -->
@@ -531,6 +763,34 @@
       <details class="more"><summary><svg class="ic chev"><use href="#i-chev"/></svg>Updates &amp; the app server</summary><div class="body">
         <ul><li>Rhythm checks the app server on launch. If you see a "server offline" banner, it usually means you're not on the church network or VPN. Give it a moment, or contact IT.</li>
         <li>When a new release lands, come back to this page and re-download — your data and preferences are kept on the server, so the new build picks them up automatically.</li></ul>
+      </div></details>
+
+      <details class="more"><summary><svg class="ic chev"><use href="#i-chev"/></svg>Notifications &amp; reminders</summary><div class="body">
+        <ul>
+          <li><b>What pings you today.</b> Rhythm uses macOS notifications for a small set of events — most visibly, when an agent session you started finishes. Routine task due-dates are <i>not</i> notified; they show up in the Weekly Planner so it stays the single source of truth for "what's due."</li>
+          <li><b>Allowing macOS notifications.</b> Open <b>System Settings → Notifications → Rhythm</b> and turn alerts on. If Rhythm doesn't appear in that list yet, launch the app and trigger anything that would notify (e.g. open a Claude session) — macOS registers the app the first time it tries to deliver a notification.</li>
+          <li><b>The bell on a message row.</b> Inside an agent session, each message has a small bell toggle in its action row. Turning it on means <i>"notify me when this session finishes,"</i> off means it stays quiet. The setting is local to your Mac and remembered between launches.</li>
+          <li><b>What Rhythm doesn't do.</b> No email, no SMS, no push notifications to your phone. The Weekly Planner + macOS notifications + the app itself are the surfaces Rhythm uses.</li>
+          <li><b>Muting temporarily.</b> Close the Rhythm window, sign out, or turn on macOS <b>Do Not Disturb</b> — any of those silences notifications without changing your data.</li>
+        </ul>
+      </div></details>
+
+      <details class="more"><summary><svg class="ic chev"><use href="#i-chev"/></svg>Using Rhythm on more than one Mac</summary><div class="body">
+        <ul>
+          <li>Yes — install Rhythm on as many Macs as you use. Download the same <code>.dmg</code> from this guide on each machine.</li>
+          <li>Sign in with the same church account on each one. Tasks, rhythms, projects, and reservations all live on the server, so the same data shows up everywhere.</li>
+          <li>What's <i>per-device</i>, not synced: window position and size, recently-selected agent session, the Server URL setting (see <a href="#settings">Settings</a>), and macOS notification permissions. Everything that <i>matters</i> for planning is server-side.</li>
+          <li>If you change the Server URL on one Mac, the other Macs are unaffected. That's a feature, not a bug — it means a beta-backend test on one machine doesn't pull your laptop into the wrong database.</li>
+        </ul>
+      </div></details>
+
+      <details class="more"><summary><svg class="ic chev"><use href="#i-chev"/></svg>Where your data lives</summary><div class="body">
+        <ul>
+          <li>Every task, rhythm, project, reservation, and message is stored on the <b>church-hosted server</b> at <code>https://api.vcrcapps.com</code> — not on your Mac. Uninstalling and reinstalling Rhythm doesn't lose anything; signing in on a new Mac shows you the same data.</li>
+          <li>The server runs on church-managed infrastructure (see the <a href="https://github.com/ajhochy/Rhythm/blob/main/docs/release/hosted_deployment_synology_cloudflare.md" target="_blank" rel="noopener">deployment runbook</a>) and is backed up on a regular cadence. For the current schedule (or to ask about restoring something from an older snapshot), reach out to IT.</li>
+          <li>If something <i>looks</i> missing, before assuming the worst: open Settings and check the <b>API Server</b> URL. A changed Server URL is the most common cause of "my data vanished" by a wide margin — putting it back to <code>https://api.vcrcapps.com</code> restores everything because the data was never gone, just hidden behind the wrong address.</li>
+          <li>If a Server URL change isn't the cause and data is genuinely missing, talk to IT before recreating anything. They can check server logs and recent backups.</li>
+        </ul>
       </div></details>
     </section>
 
@@ -571,7 +831,8 @@
   const ICON = {
     download:'i-download', dashboard:'i-dashboard', 'weekly-planner':'i-calendar', task:'i-task',
     repeat:'i-repeat', folder:'i-folder', zap:'i-zap', building:'i-building', mail:'i-mail',
-    link:'i-link', gear:'i-gear', grid:'i-grid', help:'i-help'
+    link:'i-link', gear:'i-gear', grid:'i-grid', help:'i-help',
+    glossary:'i-info', onboarding:'i-sparkle', agents:'i-agent', packs:'i-pack'
   };
   const tocEl = document.getElementById('toclinks');
   const sections = [...document.querySelectorAll('section.screen')];
@@ -583,7 +844,8 @@
     const marker = /^\d+$/.test(mk)
       ? `<span class="mk">${mk}</span>`
       : `<span class="mk"><svg class="ic"><use href="#${ICON[mk]||'i-chev'}"/></svg></span>`;
-    html += `<a href="#${s.id}" data-id="${s.id}">${marker}<span class="lbl">${s.dataset.nav}</span></a>`;
+    const cls = s.dataset.preview === 'true' ? ' class="preview"' : '';
+    html += `<a href="#${s.id}" data-id="${s.id}"${cls}>${marker}<span class="lbl">${s.dataset.nav}</span></a>`;
   });
   tocEl.innerHTML = '<div class="grouplabel first">Contents</div>' + html;
   const tocMap = new Map([...tocEl.querySelectorAll('a')].map(a => [a.dataset.id, a]));

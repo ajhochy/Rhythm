@@ -1,0 +1,162 @@
+{
+  "url": "file:///Users/ajhochhalter/Documents/Rhythm/docs/manual/index.html",
+  "branch": "feat/staff-guide-v2",
+  "timestamp_iso": "2026-05-30T22:34:26.662Z",
+  "passed": true,
+  "total": 17,
+  "passed_count": 17,
+  "failed": [],
+  "results": [
+    {
+      "name": "page-loaded",
+      "ok": true,
+      "detail": "status=200"
+    },
+    {
+      "name": "section-count",
+      "ok": true,
+      "detail": "found 17/17"
+    },
+    {
+      "name": "section-order",
+      "ok": true,
+      "detail": "got=[\"glossary\",\"download\",\"onboarding\",\"dashboard\",\"weekly-planner\",\"tasks\",\"rhythms\",\"projects\",\"automations\",\"facilities\",\"messages\",\"agents\",\"integrations\",\"settings\",\"starter-packs\",\"more\",\"faq\"] expected=[\"glossary\",\"download\",\"onboarding\",\"dashboard\",\"weekly-planner\",\"tasks\",\"rhythms\",\"projects\",\"automations\",\"facilities\",\"messages\",\"agents\",\"integrations\",\"settings\",\"starter-packs\",\"more\",\"faq\"]"
+    },
+    {
+      "name": "toc-all-ids",
+      "ok": true,
+      "detail": "missing=[] tocIds=[\"glossary\",\"download\",\"onboarding\",\"dashboard\",\"weekly-planner\",\"tasks\",\"rhythms\",\"projects\",\"automations\",\"facilities\",\"messages\",\"agents\",\"integrations\",\"settings\",\"starter-packs\",\"more\",\"faq\"]"
+    },
+    {
+      "name": "toc-reference-grouplabel",
+      "ok": true,
+      "detail": "labels=[\"Contents\",\"Reference\"]"
+    },
+    {
+      "name": "toc-contents-grouplabel-first",
+      "ok": true,
+      "detail": "first=Contents"
+    },
+    {
+      "name": "figures-loaded",
+      "ok": true,
+      "detail": "broken=[] count=9"
+    },
+    {
+      "name": "zero-console-errors",
+      "ok": true,
+      "detail": "errors=[]"
+    },
+    {
+      "name": "font-inter",
+      "ok": true,
+      "detail": "families=[\"Inter\",\"JetBrains Mono\"]"
+    },
+    {
+      "name": "font-jetbrains-mono",
+      "ok": true,
+      "detail": "families=[\"Inter\",\"JetBrains Mono\"]"
+    },
+    {
+      "name": "single-download-button",
+      "ok": true,
+      "detail": "dlButtons=[\"/download/mac\"]"
+    },
+    {
+      "name": "onboarding-codeblocks-present",
+      "ok": true,
+      "detail": "count=2 sizes=[254,2813]"
+    },
+    {
+      "name": "agents-toc-preview-class",
+      "ok": true,
+      "detail": "class=\"preview\""
+    },
+    {
+      "name": "sprite-i-agent",
+      "ok": true,
+      "detail": "sprites=[\"i-dashboard\",\"i-calendar\",\"i-task\",\"i-repeat\",\"i-folder\",\"i-mail\",\"i-building\",\"i-zap\",\"i-link\",\"i-gear\",\"i-download\",\"i-search\",\"i-check\",\"i-info\",\"i-alert\",\"i-grid\",\"i-help\",\"i-chev\",\"i-arrow-up\",\"i-sparkle\",\"i-agent\",\"i-pack\"]"
+    },
+    {
+      "name": "sprite-i-pack",
+      "ok": true,
+      "detail": "sprites=[\"i-dashboard\",\"i-calendar\",\"i-task\",\"i-repeat\",\"i-folder\",\"i-mail\",\"i-building\",\"i-zap\",\"i-link\",\"i-gear\",\"i-download\",\"i-search\",\"i-check\",\"i-info\",\"i-alert\",\"i-grid\",\"i-help\",\"i-chev\",\"i-arrow-up\",\"i-sparkle\",\"i-agent\",\"i-pack\"]"
+    },
+    {
+      "name": "glossary-four-method-cards",
+      "ok": true,
+      "detail": "count=4"
+    },
+    {
+      "name": "automations-six-recipe-cards",
+      "ok": true,
+      "detail": "count=6"
+    }
+  ],
+  "sectionIds": [
+    "glossary",
+    "download",
+    "onboarding",
+    "dashboard",
+    "weekly-planner",
+    "tasks",
+    "rhythms",
+    "projects",
+    "automations",
+    "facilities",
+    "messages",
+    "agents",
+    "integrations",
+    "settings",
+    "starter-packs",
+    "more",
+    "faq"
+  ],
+  "tocIds": [
+    "glossary",
+    "download",
+    "onboarding",
+    "dashboard",
+    "weekly-planner",
+    "tasks",
+    "rhythms",
+    "projects",
+    "automations",
+    "facilities",
+    "messages",
+    "agents",
+    "integrations",
+    "settings",
+    "starter-packs",
+    "more",
+    "faq"
+  ],
+  "fontFams": [
+    "Inter",
+    "JetBrains Mono"
+  ],
+  "sprites": [
+    "i-dashboard",
+    "i-calendar",
+    "i-task",
+    "i-repeat",
+    "i-folder",
+    "i-mail",
+    "i-building",
+    "i-zap",
+    "i-link",
+    "i-gear",
+    "i-download",
+    "i-search",
+    "i-check",
+    "i-info",
+    "i-alert",
+    "i-grid",
+    "i-help",
+    "i-chev",
+    "i-arrow-up",
+    "i-sparkle",
+    "i-agent",
+    "i-pack"
+  ]
+}

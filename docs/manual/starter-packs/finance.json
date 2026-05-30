@@ -1,0 +1,94 @@
+{
+  "pack_id": "finance",
+  "role": "Finance / Administration",
+  "summary": "Starter rhythms, projects, and tasks for a treasurer or church administrator. Customize cadences and step lists to match your church's actual financial calendar before saving.",
+  "rhythms": [
+    {
+      "title": "Reconcile weekly offerings",
+      "cadence": "weekly",
+      "start_day": "Monday",
+      "steps": [
+        "Pull the offering count sheet from Sunday",
+        "Reconcile against the bank deposit",
+        "Enter contributions into giving software",
+        "File the deposit slip"
+      ]
+    },
+    {
+      "title": "Pay vendors and run payroll",
+      "cadence": "monthly",
+      "start_day": "First Monday",
+      "steps": [
+        "Pull pending invoices and approve",
+        "Issue payments / cut checks",
+        "Run payroll",
+        "Send pay stubs to staff",
+        "Update the ledger"
+      ]
+    },
+    {
+      "title": "Treasurer's report for the board",
+      "cadence": "monthly",
+      "steps": [
+        "Pull month-end financials",
+        "Compare against budget",
+        "Write the narrative summary",
+        "Distribute to the board"
+      ]
+    },
+    {
+      "title": "Quarterly tax filing",
+      "cadence": "quarterly",
+      "steps": [
+        "Pull payroll totals for the quarter",
+        "File 941",
+        "Pay any state liability",
+        "Record the filing"
+      ]
+    }
+  ],
+  "projects": [
+    {
+      "title": "Annual budget cycle",
+      "annual": true,
+      "steps": [
+        { "offset_days": -120, "title": "Send budget-request templates to ministry leaders" },
+        { "offset_days":  -90, "title": "Collect ministry budget proposals" },
+        { "offset_days":  -60, "title": "Draft consolidated budget" },
+        { "offset_days":  -45, "title": "Review draft with senior pastor and elders" },
+        { "offset_days":  -30, "title": "Present to the board" },
+        { "offset_days":  -14, "title": "Board approval and final revisions" },
+        { "offset_days":    0, "title": "Communicate approved budget to staff" }
+      ]
+    },
+    {
+      "title": "Year-end financial close",
+      "annual": true,
+      "target_anchor": "December 31",
+      "steps": [
+        { "offset_days": -30, "title": "Issue final donation reminder to the congregation" },
+        { "offset_days":  -7, "title": "Process final-week contributions" },
+        { "offset_days":   7, "title": "Reconcile December bank statement" },
+        { "offset_days":  14, "title": "Send giving statements to contributors" },
+        { "offset_days":  21, "title": "Prepare year-end financial summary" },
+        { "offset_days":  30, "title": "Close out the fiscal year" }
+      ]
+    },
+    {
+      "title": "Annual ministry report",
+      "annual": true,
+      "steps": [
+        { "offset_days": -45, "title": "Request narrative input from each ministry head" },
+        { "offset_days": -21, "title": "Compile financial sections" },
+        { "offset_days": -14, "title": "Draft full report" },
+        { "offset_days":  -7, "title": "Layout and print" },
+        { "offset_days":   0, "title": "Distribute at annual meeting" }
+      ]
+    }
+  ],
+  "tasks": [
+    { "title": "Renew property + liability insurance policies" },
+    { "title": "Review staff handbook for policy updates" },
+    { "title": "Confirm 1099 vendors for year-end reporting" }
+  ]
+}

@@ -1,0 +1,94 @@
+{
+  "pack_id": "worship-leader",
+  "role": "Worship Leader",
+  "summary": "Starter rhythms, projects, and tasks for a worship / music leader at a mid-sized church. Customize the cadences and step lists to match your actual flow before saving.",
+  "rhythms": [
+    {
+      "title": "Plan Sunday service music",
+      "cadence": "weekly",
+      "start_day": "Monday",
+      "steps": [
+        "Confirm Sunday theme with pastoral",
+        "Pick songs and double-check key compatibility",
+        "Build the set list in Planning Center",
+        "Send the set list to the band by Wednesday"
+      ]
+    },
+    {
+      "title": "Sunday rehearsal coordination",
+      "cadence": "weekly",
+      "start_day": "Thursday",
+      "steps": [
+        "Confirm musicians and AV team are coming",
+        "Print or share chord charts",
+        "Set up stage and run line check",
+        "Lead rehearsal"
+      ]
+    },
+    {
+      "title": "Worship team monthly huddle",
+      "cadence": "monthly",
+      "steps": [
+        "Send meeting invite to the team",
+        "Prep agenda (vision, song rotation feedback, upcoming services)",
+        "Lead the huddle",
+        "Send a recap with next steps"
+      ]
+    },
+    {
+      "title": "New-song rotation review",
+      "cadence": "quarterly",
+      "steps": [
+        "Review songs introduced last quarter — are they sticking?",
+        "Pick 2-3 new songs to introduce next quarter",
+        "Schedule introductions across upcoming Sundays"
+      ]
+    }
+  ],
+  "projects": [
+    {
+      "title": "Christmas Eve service",
+      "annual": true,
+      "target_anchor": "December 24",
+      "steps": [
+        { "offset_days": -56, "title": "Decide service vision with pastoral" },
+        { "offset_days": -42, "title": "Pick repertoire and book any guest musicians" },
+        { "offset_days": -28, "title": "Send invitations to volunteers" },
+        { "offset_days": -21, "title": "Build the Planning Center plan" },
+        { "offset_days": -14, "title": "Confirm volunteers and finalize key changes" },
+        { "offset_days": -7,  "title": "Dress rehearsal" },
+        { "offset_days":  1,  "title": "Debrief and send thank-yous" }
+      ]
+    },
+    {
+      "title": "Easter Sunday service",
+      "annual": true,
+      "target_anchor": "Easter Sunday",
+      "steps": [
+        { "offset_days": -56, "title": "Decide service vision with pastoral" },
+        { "offset_days": -42, "title": "Pick repertoire" },
+        { "offset_days": -28, "title": "Recruit additional musicians or choir" },
+        { "offset_days": -14, "title": "Build the Planning Center plan" },
+        { "offset_days":  -7, "title": "Final rehearsal" },
+        { "offset_days":   1, "title": "Debrief and thank the team" }
+      ]
+    },
+    {
+      "title": "Annual worship retreat",
+      "annual": true,
+      "steps": [
+        { "offset_days": -90, "title": "Pick dates and book venue" },
+        { "offset_days": -60, "title": "Set theme and rough schedule" },
+        { "offset_days": -30, "title": "Open registration to the team" },
+        { "offset_days": -14, "title": "Confirm food and lodging counts" },
+        { "offset_days":  -3, "title": "Pack and prep materials" },
+        { "offset_days":   3, "title": "Send post-retreat recap" }
+      ]
+    }
+  ],
+  "tasks": [
+    { "title": "Review and update the song database" },
+    { "title": "Schedule 1-on-1s with each band member this quarter" },
+    { "title": "Check in with AV team about IEM / monitor upgrade" }
+  ]
+}
