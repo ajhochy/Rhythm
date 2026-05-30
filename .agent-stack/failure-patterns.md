@@ -38,6 +38,14 @@
 - **Discovered unrelated bug (C6)**: task collaborator ("Visalia CRC") does not persist on save in the task inspector → no claude-trigger → no bubble. Not in PR #642 diff; needs its own investigation issue.
 - See `.agent-stack/postmortems/2026-05-26-run-642.json`.
 
+## 2026-05-30 — Staff guide + download proxy (PR #660) — smoke PASS
+
+- **Result**: smoke PASS (user: "works great"); verification claimed PASS; no divergence. Live `rhythmguide.vcrcapps.com` gated by Cloudflare Access, `/download/mac` delivers `Rhythm-macOS.dmg` from the private GitHub release.
+- **Category**: none (correctness). W-issues recorded below.
+- **Workflow finding (W1 ×1, W3 ×1)**: Three chain steps (`coding-agent`, `verification-gate`, `project-state-updater`) executed in-process but were never invoked via the `Skill` tool. Their substance ran (artifacts exist on disk, evidence captured) but the Guard 5 contract — "When executing a chain step in-process, invoke the skill via the Skill tool" — leaked. `failure-postmortem` itself WAS Skill-invoked, proving the discipline is enforceable; it just isn't consistently applied for "feels small" steps. TodoWrite contained 6 phase-level orchestrator items rather than skill-checklist expansions (W3).
+- **Suggested fix**: Tighten Guard 5 in `workflow-orchestrator/SKILL.md` so the in-process bypass requires emitting the Skill-tool call before the in-process work, not after-the-fact. Pre-summary self-audit (Guard 6) is the existing backstop but didn't fire because no completion-language summary referenced the skipped skills by name — they were referenced as "Phase N" task labels instead. Consider expanding Guard 6 to match generic chain-step language ("verification PASS", "project memory updated"), not just literal skill names.
+- See `.agent-stack/postmortems/2026-05-30-staff-guide.json`.
+
 ## 2026-05-26 — Issue #645 — agent badge updated in only 1 of 4 render sites
 - **Result**: smoke FAIL (verification claimed PASS) — #643 in the same PR passed
 - **Category**: C2 — wrong contract (widget tested in isolation, not composing views)

@@ -1,0 +1,28 @@
+=== Deploy + Access verification — 2026-05-30T21:01:15Z ===
+
+Worker:               rhythm-staff-guide
+Custom domain:        rhythmguide.vcrcapps.com (custom_domain: true)
+workers_dev URL:      disabled (workers_dev: false in wrangler.jsonc)
+Account ID:           b504b8fb1bb0f91bf6ee5b92f93113b5
+Secret bound:         GITHUB_WORKER_TOKEN (verified via wrangler secret list)
+
+Cloudflare Access app:
+  id:                 44c01565-5adb-4de3-a548-8e02ee570560
+  name:               Rhythm Staff Guide
+  type:               self_hosted
+  session_duration:   24h
+  allowed_idps:       2c2e9eae-f430-4322-b322-cf9322633764 (Google Workspace — same IdP as statementsguide)
+  policy:             Allow visaliacrc.com staff (decision: allow, include: email_domain visaliacrc.com)
+
+--- Gate fires on / ---
+GET https://rhythmguide.vcrcapps.com/  → 302 Found
+Location: https://visaliacrc.cloudflareaccess.com/cdn-cgi/access/login/rhythmguide.vcrcapps.com?...&redirect_url=/
+
+--- Gate fires on /download/mac ---
+GET https://rhythmguide.vcrcapps.com/download/mac  → 302 Found
+Location: https://visaliacrc.cloudflareaccess.com/cdn-cgi/access/login/rhythmguide.vcrcapps.com?...&redirect_url=/download/mac
+
+--- workers.dev URL ---
+Not exposed (workers_dev: false). wrangler deploy output lists ONLY 'rhythmguide.vcrcapps.com (custom domain)' as deploy target.
+
+Worker version: cc0edd32-f188-47ce-a51b-019f7d479b52 (with custom domain)

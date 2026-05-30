@@ -1,0 +1,27 @@
+{
+  // Cloudflare Workers deploy for the Rhythm staff guide.
+  // `npx wrangler deploy` publishes the contents of docs/manual as a static
+  // site, fronted by worker/staff-guide.js.
+  // - Static assets (index.html at /, screenshots at /screenshots/, etc.) are
+  //   served directly from the ASSETS binding.
+  // - /download/mac is handled by the Worker, which proxies the desktop app's
+  //   latest Rhythm-macOS.dmg from the PRIVATE GitHub release using the
+  //   GITHUB_WORKER_TOKEN secret (set via `wrangler secret put`, never committed).
+  "name": "rhythm-staff-guide",
+  "main": "worker/staff-guide.js",
+  "compatibility_date": "2026-05-30",
+  // Disable the public *.workers.dev URL so the site is ONLY reachable via the
+  // custom domain (rhythmguide.vcrcapps.com), which is behind Cloudflare
+  // Access. Otherwise the workers.dev hostname serves the guide + downloads
+  // with no login, bypassing the church-Google gate.
+  "workers_dev": false,
+  // Custom domain — Cloudflare auto-provisions DNS + edge cert for this zone.
+  // Cloudflare Access protects the hostname so only @visaliacrc.com can reach it.
+  "routes": [
+    { "pattern": "rhythmguide.vcrcapps.com", "custom_domain": true }
+  ],
+  "assets": {
+    "directory": "./docs/manual",
+    "binding": "ASSETS"
+  }
+}
