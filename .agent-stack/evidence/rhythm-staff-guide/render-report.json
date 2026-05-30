@@ -1,0 +1,243 @@
+{
+  "passed": true,
+  "checks": [
+    {
+      "name": "13 sections rendered",
+      "pass": true,
+      "detail": "got 13: download,dashboard,weekly-planner,tasks,rhythms,projects,automations,facilities,messages,integrations,settings,more,faq"
+    },
+    {
+      "name": "expected section ids present",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "TOC built and grouped",
+      "pass": true,
+      "detail": "13 links, groups: Contents | Reference"
+    },
+    {
+      "name": "download button has 1 link",
+      "pass": true,
+      "detail": "got: /download/mac"
+    },
+    {
+      "name": "all screenshots load (naturalWidth>0)",
+      "pass": true,
+      "detail": "[]"
+    },
+    {
+      "name": "no console errors",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "no local file fetch failures",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "Inter font available",
+      "pass": true,
+      "detail": ""
+    },
+    {
+      "name": "JetBrains Mono font available",
+      "pass": true,
+      "detail": ""
+    }
+  ],
+  "meta": {
+    "sections": [
+      {
+        "id": "download",
+        "nav": "Get the desktop app",
+        "mark": "download"
+      },
+      {
+        "id": "dashboard",
+        "nav": "Dashboard",
+        "mark": "dashboard"
+      },
+      {
+        "id": "weekly-planner",
+        "nav": "Weekly Planner",
+        "mark": "weekly-planner"
+      },
+      {
+        "id": "tasks",
+        "nav": "Tasks",
+        "mark": "task"
+      },
+      {
+        "id": "rhythms",
+        "nav": "Rhythms",
+        "mark": "repeat"
+      },
+      {
+        "id": "projects",
+        "nav": "Projects",
+        "mark": "folder"
+      },
+      {
+        "id": "automations",
+        "nav": "Automations",
+        "mark": "zap"
+      },
+      {
+        "id": "facilities",
+        "nav": "Facilities",
+        "mark": "building"
+      },
+      {
+        "id": "messages",
+        "nav": "Messages",
+        "mark": "mail"
+      },
+      {
+        "id": "integrations",
+        "nav": "Integrations",
+        "mark": "link"
+      },
+      {
+        "id": "settings",
+        "nav": "Settings",
+        "mark": "gear"
+      },
+      {
+        "id": "more",
+        "nav": "More tools & tips",
+        "mark": "grid"
+      },
+      {
+        "id": "faq",
+        "nav": "Questions & fixes",
+        "mark": "help"
+      }
+    ],
+    "downloadLinks": [
+      "/download/mac"
+    ],
+    "imgs": [
+      {
+        "src": "app-icon.png",
+        "naturalWidth": 512,
+        "naturalHeight": 512
+      },
+      {
+        "src": "screenshots/dashboard.png",
+        "naturalWidth": 1920,
+        "naturalHeight": 1196
+      },
+      {
+        "src": "screenshots/weekly-planner.png",
+        "naturalWidth": 1920,
+        "naturalHeight": 1196
+      },
+      {
+        "src": "screenshots/tasks.png",
+        "naturalWidth": 1920,
+        "naturalHeight": 1196
+      },
+      {
+        "src": "screenshots/rhythms.png",
+        "naturalWidth": 1920,
+        "naturalHeight": 1196
+      },
+      {
+        "src": "screenshots/projects.png",
+        "naturalWidth": 1920,
+        "naturalHeight": 1196
+      },
+      {
+        "src": "screenshots/automations.png",
+        "naturalWidth": 1920,
+        "naturalHeight": 1196
+      },
+      {
+        "src": "screenshots/facilities.png",
+        "naturalWidth": 1920,
+        "naturalHeight": 1196
+      },
+      {
+        "src": "screenshots/messages.png",
+        "naturalWidth": 1920,
+        "naturalHeight": 1196
+      },
+      {
+        "src": "screenshots/integrations.png",
+        "naturalWidth": 1920,
+        "naturalHeight": 1196
+      }
+    ],
+    "fonts": [
+      "Inter 400 italic",
+      "Inter 400 italic",
+      "Inter 400 italic",
+      "Inter 400 italic",
+      "Inter 400 italic",
+      "Inter 400 italic",
+      "Inter 400 italic",
+      "Inter 500 italic",
+      "Inter 500 italic",
+      "Inter 500 italic",
+      "Inter 500 italic",
+      "Inter 500 italic",
+      "Inter 500 italic",
+      "Inter 500 italic",
+      "Inter 300 normal",
+      "Inter 300 normal",
+      "Inter 300 normal",
+      "Inter 300 normal",
+      "Inter 300 normal",
+      "Inter 300 normal",
+      "Inter 300 normal",
+      "Inter 400 normal",
+      "Inter 400 normal",
+      "Inter 400 normal",
+      "Inter 400 normal",
+      "Inter 400 normal",
+      "Inter 400 normal",
+      "Inter 400 normal",
+      "Inter 500 normal",
+      "Inter 500 normal",
+      "Inter 500 normal",
+      "Inter 500 normal",
+      "Inter 500 normal",
+      "Inter 500 normal",
+      "Inter 500 normal",
+      "Inter 600 normal",
+      "Inter 600 normal",
+      "Inter 600 normal",
+      "Inter 600 normal",
+      "Inter 600 normal",
+      "Inter 600 normal",
+      "Inter 600 normal",
+      "Inter 700 normal",
+      "Inter 700 normal",
+      "Inter 700 normal",
+      "Inter 700 normal",
+      "Inter 700 normal",
+      "Inter 700 normal",
+      "Inter 700 normal",
+      "JetBrains Mono 400 normal",
+      "JetBrains Mono 400 normal",
+      "JetBrains Mono 400 normal",
+      "JetBrains Mono 400 normal",
+      "JetBrains Mono 400 normal",
+      "JetBrains Mono 400 normal",
+      "JetBrains Mono 500 normal",
+      "JetBrains Mono 500 normal",
+      "JetBrains Mono 500 normal",
+      "JetBrains Mono 500 normal",
+      "JetBrains Mono 500 normal",
+      "JetBrains Mono 500 normal",
+      "JetBrains Mono 600 normal",
+      "JetBrains Mono 600 normal",
+      "JetBrains Mono 600 normal",
+      "JetBrains Mono 600 normal",
+      "JetBrains Mono 600 normal",
+      "JetBrains Mono 600 normal"
+    ]
+  }
+}

@@ -34,6 +34,11 @@ apps/api_server/scripts/probe-output.log
 .env
 .env.*
 
+# Cloudflare Workers (wrangler local state + local secret file)
+.wrangler/
+.dev.vars
+.dev.vars.*
+
 # Logs
 *.log
 coverage/
