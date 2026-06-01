@@ -236,12 +236,24 @@ export class GoogleOAuthService {
   }
 
   private async refreshTokens(refreshToken: string): Promise<GoogleTokenResponse> {
+    // Refresh tokens MUST be presented with the same OAuth client that minted
+    // them. Every Google integration account in the shipping app is minted via
+    // the desktop PKCE flow (exchangeDesktopCode), which uses the *desktop*
+    // client (googleAuthClientId/Secret). Refreshing with the *web* client
+    // (googleClientId/Secret) makes Google reject the refresh with
+    // `unauthorized_client`. Mirror the mint client here.
+    if (!env.googleAuthClientId || !env.googleAuthClientSecret) {
+      throw AppError.badRequest(
+        'Google desktop OAuth is not configured. Set GOOGLE_AUTH_CLIENT_ID and GOOGLE_AUTH_CLIENT_SECRET.',
+      );
+    }
+
     const response = await fetch(GOOGLE_TOKEN_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({
-        client_id: env.googleClientId,
-        client_secret: env.googleClientSecret,
+        client_id: env.googleAuthClientId,
+        client_secret: env.googleAuthClientSecret,
         refresh_token: refreshToken,
         grant_type: 'refresh_token',
       }),
