@@ -580,14 +580,17 @@ class _BacklogPane extends StatelessWidget {
   }
 
   Future<void> _showAddBacklogTaskDialog(BuildContext context) async {
-    final result = await showRhythmTaskCreateDialog(
+    await showRhythmTaskCreateInspector(
       context,
-      title: 'Add unscheduled task',
       workspaceMembers: context.read<WorkspaceController>().members,
+      onCreate: (request) => controller.createTask(
+        request.title,
+        notes: request.notes,
+        dueDate: request.dueDate,
+        scheduledDate: request.scheduledDate,
+        preferredAgent: request.preferredAgent,
+      ),
     );
-    if (result != null && result.title.isNotEmpty) {
-      await controller.createTask(result.title, ownerId: result.ownerId);
-    }
   }
 }
 
@@ -981,18 +984,18 @@ class _DayColumnState extends State<_DayColumn> {
   }
 
   Future<void> _showAddTaskDialog(BuildContext context) async {
-    final result = await showRhythmTaskCreateDialog(
+    await showRhythmTaskCreateInspector(
       context,
-      title: 'Add task for ${widget.dayName}',
+      scheduledDate: widget.date,
       workspaceMembers: context.read<WorkspaceController>().members,
+      onCreate: (request) => widget.controller.createTask(
+        request.title,
+        notes: request.notes,
+        dueDate: request.dueDate,
+        scheduledDate: request.scheduledDate ?? widget.date,
+        preferredAgent: request.preferredAgent,
+      ),
     );
-    if (result != null && result.title.isNotEmpty) {
-      await widget.controller.createTask(
-        result.title,
-        scheduledDate: widget.date,
-        ownerId: result.ownerId,
-      );
-    }
   }
 }
 

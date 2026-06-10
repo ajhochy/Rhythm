@@ -1,0 +1,73 @@
+{
+  "issue": 675,
+  "generated": "2026-06-10",
+  "criteria": [
+    {
+      "criterion_id": "issue-675-c1",
+      "text": "Clicking an existing task anywhere (Weekly Planner, Tasks, Dashboard) opens the inspector already in edit mode — title/notes/dates are immediately editable with Save/Cancel visible, no \"Edit details\" click required.",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/app/core/ui/issue_675_contract_test.dart",
+      "test_id": "issue-675-c1: inspector opens in edit mode by default (Save/Cancel visible, no Edit details click required)",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-675-c2",
+      "text": "Calendar shadow-event tasks (sourceType == 'calendar_shadow_event') remain non-editable (read-only gate preserved).",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/app/core/ui/issue_675_contract_test.dart",
+      "test_id": "issue-675-c2: calendar shadow-event tasks remain read-only despite the edit-mode default",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-675-c3",
+      "text": "In the Weekly Planner, the day-column \"Add task\" opens the full inspector in edit mode, pre-seeded with that day as the scheduled date; saving creates the task on that day (with the companion backend fix landed).",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/app/core/ui/issue_675_create_contract_test.dart",
+      "test_id": "issue-675-c3: day-column create inspector seeds the selected day and saving creates with that scheduledDate",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-675-c4",
+      "text": "The backlog \"Add unscheduled task\" opens the same inspector with no scheduled date; saving creates a backlog task.",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/app/core/ui/issue_675_create_contract_test.dart",
+      "test_id": "issue-675-c4: backlog create inspector has no scheduled date and saving creates a backlog task",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-675-c5",
+      "text": "Notes, due date, preferred agent, and (where applicable) collaborators can be set during creation, not just title/owner.",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/app/core/ui/issue_675_create_contract_test.dart",
+      "test_id": "issue-675-c5: notes, due date, and preferred agent are settable during creation; collaborator controls hidden for unsaved task",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-675-c6",
+      "text": "Cancel discards a new task without creating it.",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/app/core/ui/issue_675_create_contract_test.dart",
+      "test_id": "issue-675-c6: Cancel discards the new task without creating it",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-675-c7",
+      "text": "flutter analyze --no-fatal-infos passes; dart format . clean.",
+      "mode": "manual",
+      "status": "UNVERIFIED",
+      "reason": "Process check, not a widget test — enforced by verification-gate running ai-workflow checks --level issue/pr."
+    },
+    {
+      "criterion_id": "issue-675-c8",
+      "text": "Weekly Planner view wiring: the day-column add button passes that day's date and the backlog add button passes no date into the create inspector, and saving routes to controller.createTask (not updateTask).",
+      "mode": "manual",
+      "status": "UNVERIFIED",
+      "reason": "The planner view's private widgets require live HTTP repositories/providers to pump; the wrapper-level behavior is automated (c3/c4) and the 3-line view wiring is verified by manual smoke in the running app against api.vcrcapps.com."
+    }
+  ],
+  "stack": "dart",
+  "not_tested": [
+    "issue-675-c7",
+    "issue-675-c8"
+  ]
+}
