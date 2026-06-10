@@ -3,10 +3,11 @@
     {
       "id": "c2-wrong-contract",
       "category": "C2",
-      "description": "Wrong contract failures: 11 occurrence(s) across issues ['645', 'batch:627,628,632,633', 'batch:627,628,632,633,634,636,637,638,639']",
-      "occurrences": 11,
+      "description": "Wrong contract failures: 16 occurrence(s) across issues ['645', '651', 'batch:627,628,632,633', 'batch:627,628,632,633,634,636,637,638,639']",
+      "occurrences": 16,
       "affected_issues": [
         "645",
+        "651",
         "batch:627,628,632,633",
         "batch:627,628,632,633,634,636,637,638,639"
       ],
@@ -26,7 +27,12 @@
         "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-20-pr-617-fifth-round-batch.json",
         "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-26-issue-645.json",
         "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-26-issue-645.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-26-retro-issues-644-643-645.json"
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-26-retro-issues-644-643-645.json",
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-28-issue-651-vbeta18.37-regression.json",
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-29-issue-651-shim-failed-v18.38.json",
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-29-issue-651-shim-failed-v18.38.json",
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-29-issue-651-shim-failed-v18.38.json",
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-29-issue-651-shim-failed-v18.38.json"
       ]
     },
     {
@@ -47,6 +53,26 @@
         "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-19-pr-617-batch-smoke.json",
         "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-20-pr-617-633-batch.json",
         "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-20-pr-617-633-batch.json"
+      ]
+    },
+    {
+      "id": "c7-regression",
+      "category": "C7",
+      "description": "Regression failures: 3 occurrence(s) across issues ['651', 'batch:599,600,601,605,606,610,611,614,615,620,622,623,624,625']",
+      "occurrences": 3,
+      "affected_issues": [
+        "651",
+        "batch:599,600,601,605,606,610,611,614,615,620,622,623,624,625"
+      ],
+      "affected_skills": [
+        "smoke-test-writer"
+      ],
+      "reason": "A regression occurred and no smoke test caught it before manual testing.",
+      "suggested_prompt_addition": "For any issue that modifies shared state, shared components, or widely-used utilities, add a regression smoke check for the previously-working behavior.",
+      "evidence_files": [
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-19-pr-617-batch-smoke.json",
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-19-pr-617-batch-smoke.json",
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-28-issue-651-vbeta18.37-regression.json"
       ]
     },
     {
@@ -80,24 +106,6 @@
       ],
       "reason": "A dependency failure was attributed to this PR. The coding-agent should isolate scope more carefully.",
       "suggested_prompt_addition": "Before implementing, check whether the failing behavior exists on main. If yes, file a separate issue for the pre-existing bug rather than treating it as in-scope.",
-      "evidence_files": [
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-19-pr-617-batch-smoke.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-19-pr-617-batch-smoke.json"
-      ]
-    },
-    {
-      "id": "c7-regression",
-      "category": "C7",
-      "description": "Regression failures: 2 occurrence(s) across issues ['batch:599,600,601,605,606,610,611,614,615,620,622,623,624,625']",
-      "occurrences": 2,
-      "affected_issues": [
-        "batch:599,600,601,605,606,610,611,614,615,620,622,623,624,625"
-      ],
-      "affected_skills": [
-        "smoke-test-writer"
-      ],
-      "reason": "A regression occurred and no smoke test caught it before manual testing.",
-      "suggested_prompt_addition": "For any issue that modifies shared state, shared components, or widely-used utilities, add a regression smoke check for the previously-working behavior.",
       "evidence_files": [
         "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-19-pr-617-batch-smoke.json",
         "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-19-pr-617-batch-smoke.json"
@@ -149,8 +157,8 @@
     {
       "id": "w1-required-skill-skipped",
       "category": "W1",
-      "description": "Required skill skipped failures: 7 occurrence(s) across issues ['batch:599,600,601,605,606,610,611,614,615,620,622,623,624,625', 'batch:627,628,632,633', 'batch:627,628,632,633,634,636,637,638,639']",
-      "occurrences": 7,
+      "description": "Required skill skipped failures: 9 occurrence(s) across issues ['batch:599,600,601,605,606,610,611,614,615,620,622,623,624,625', 'batch:627,628,632,633', 'batch:627,628,632,633,634,636,637,638,639']",
+      "occurrences": 9,
       "affected_issues": [
         "batch:599,600,601,605,606,610,611,614,615,620,622,623,624,625",
         "batch:627,628,632,633",
@@ -168,14 +176,16 @@
         "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-20-pr-617-633-batch.json",
         "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-20-pr-617-633-batch.json",
         "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-20-pr-617-fifth-round-batch.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-20-pr-617-fifth-round-batch.json"
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-20-pr-617-fifth-round-batch.json",
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-30-staff-guide.json",
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-06-10-retro-issues-674-675-pr-676.json"
       ]
     },
     {
       "id": "w5-premature-completion-claim",
       "category": "W5",
-      "description": "Premature completion claim failures: 6 occurrence(s) across issues ['645', 'batch:599,600,601,605,606,610,611,614,615,620,622,623,624,625', 'batch:627,628,632,633', 'batch:627,628,632,633,634,636,637,638,639']",
-      "occurrences": 6,
+      "description": "Premature completion claim failures: 7 occurrence(s) across issues ['645', 'batch:599,600,601,605,606,610,611,614,615,620,622,623,624,625', 'batch:627,628,632,633', 'batch:627,628,632,633,634,636,637,638,639']",
+      "occurrences": 7,
       "affected_issues": [
         "645",
         "batch:599,600,601,605,606,610,611,614,615,620,622,623,624,625",
@@ -193,7 +203,8 @@
         "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-20-pr-617-fifth-round-batch.json",
         "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-20-pr-617-fifth-round-batch.json",
         "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-26-issue-645.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-26-retro-issues-644-643-645.json"
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-26-retro-issues-644-643-645.json",
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-06-10-retro-issues-674-675-pr-676.json"
       ]
     },
     {
@@ -212,10 +223,40 @@
       "evidence_files": [
         "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-20-pr-617-633-batch.json"
       ]
+    },
+    {
+      "id": "w3-todowrite-checklist-not-expanded",
+      "category": "W3",
+      "description": "TodoWrite checklist not expanded failures: 1 occurrence(s) across issues []",
+      "occurrences": 1,
+      "affected_issues": [],
+      "affected_skills": [
+        "workflow-orchestrator"
+      ],
+      "reason": "A skill said 'expand Completion Checklist into TodoWrite items at start' and the agent did not. The skills themselves should make this harder to skip, but the orchestrator can also verify.",
+      "suggested_prompt_addition": "When dispatching any skill whose SKILL.md contains the phrase 'expand the Completion Checklist into TodoWrite items at start', include in the dispatch prompt: 'Your FIRST tool call must be TodoWrite, expanding the Completion Checklist verbatim. No other tool calls are permitted before this.'",
+      "evidence_files": [
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-30-staff-guide.json"
+      ]
+    },
+    {
+      "id": "w2-bypassed-orchestrator-routing",
+      "category": "W2",
+      "description": "Bypassed orchestrator routing failures: 1 occurrence(s) across issues []",
+      "occurrences": 1,
+      "affected_issues": [],
+      "affected_skills": [
+        "workflow-orchestrator"
+      ],
+      "reason": "Agent bypassed the orchestrator and went straight to implementation despite the repo having AGENTS.md and docs/ai/*.",
+      "suggested_prompt_addition": "Add a Pre-Flight Check that runs FIRST on every entry: if AGENTS.md and docs/ai/project-state.md both exist, the orchestrator must be the entry point \u2014 no Edit/Write/Bash on source code is permitted until orchestrator dispatch has emitted a routing decision. Reject any direct-implementation attempt with a one-line redirect to orchestrator.",
+      "evidence_files": [
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-06-10-retro-issues-674-675-pr-676.json"
+      ]
     }
   ],
-  "last_updated": "2026-05-26",
-  "total_runs_analyzed": 7,
+  "last_updated": "2026-06-10",
+  "total_runs_analyzed": 12,
   "min_occurrences_threshold": 2,
   "process_min_occurrences_threshold": 1,
   "workflow_min_occurrences_threshold": 1
