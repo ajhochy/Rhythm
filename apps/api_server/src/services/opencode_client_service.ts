@@ -1,11 +1,181 @@
 import { homedir } from 'os';
 import { join } from 'path';
 import { readFileSync, existsSync } from 'fs';
+import { promisify } from 'util';
 import type { OpencodeClient, Event } from '@opencode-ai/sdk';
 import { logger } from '../utils/logger';
 import { OpencodeAuthStore } from './opencode_auth_store';
 
+/**
+ * Run a command and capture stdout. `execFile` is required lazily (not bound at
+ * module load) so importers that partially-mock `child_process` in tests —
+ * e.g. one that only exports `execSync` — do not crash at import time on a
+ * missing `execFile` export (#655).
+ */
+async function runCommand(file: string, args: string[]): Promise<string> {
+  // eslint-disable-next-line @typescript-eslint/no-var-requires
+  const { execFile } = require('child_process') as typeof import('child_process');
+  const { stdout } = await promisify(execFile)(file, args);
+  return stdout;
+}
+
 type EngineStatus = 'uninitialized' | 'ready' | 'error';
+
+/**
+ * The fixed TCP port the bundled opencode engine listens on. The SDK's
+ * `createOpencode()` spawns `opencode serve` on this port by default, and the
+ * Flutter client + ws_gateway assume it is fixed (see #655 — making it dynamic
+ * would ripple through more surfaces than the kill-stale approach).
+ */
+export const OPENCODE_ENGINE_PORT = 4096;
+
+/**
+ * Injectable boundary for the OS calls that {@link reclaimStalePortForOpencode}
+ * makes. Real implementations shell out to `lsof` / `ps` / `kill`; tests pass
+ * doubles so the stale-detection logic can be exercised without real processes.
+ */
+export interface StalePortDeps {
+  /** `lsof -iTCP:<port> -sTCP:LISTEN -t` — the PID listening on `port`, or null. */
+  lookupPidOnPort(port: number): Promise<number | null>;
+  /** `ps -o command= -p <pid>` — the full command line of `pid`, or '' if gone. */
+  getCommandForPid(pid: number): Promise<string>;
+  /** Send `signal` to `pid` (process.kill). */
+  killPid(pid: number, signal: string): Promise<void>;
+  /** True when nothing is listening on `port`. */
+  isPortFree(port: number): Promise<boolean>;
+  /** Sleep `ms` milliseconds (injected so tests don't actually wait). */
+  waitMs(ms: number): Promise<void>;
+}
+
+export interface ReclaimResult {
+  /** True when a stale opencode process was found and killed. */
+  reclaimed: boolean;
+  /** The PID that was reclaimed, when `reclaimed` is true. */
+  killedPid?: number;
+  /** Set on a non-fatal note (e.g. port freed but kill races); usually unset. */
+  error?: string;
+}
+
+/**
+ * Heuristic: is `command` a stale `opencode serve` process for our engine?
+ * Matches the opencode binary plus a `serve` subcommand. The port match is
+ * intentionally loose (the orphan may print `--port 4096`, `--port=4096`, or
+ * carry the port elsewhere) — we only act when the command is unmistakably
+ * an opencode server, never a foreign process.
+ */
+function isStaleOpencodeCommand(command: string, port: number): boolean {
+  const cmd = command.toLowerCase();
+  if (!cmd.includes('opencode')) return false;
+  // `opencode serve` is how the SDK spawns the engine. Guard against matching
+  // e.g. an editor that merely has "opencode" in its path by requiring `serve`.
+  if (!cmd.includes('serve')) return false;
+  // If the command mentions a port at all, it must be ours; if it mentions no
+  // port, still treat an `opencode serve` as ours (it defaults to our port).
+  const portMatch = cmd.match(/--port[ =](\d+)/);
+  if (portMatch) return Number(portMatch[1]) === port;
+  return true;
+}
+
+const defaultStalePortDeps: StalePortDeps = {
+  async lookupPidOnPort(port) {
+    try {
+      const stdout = await runCommand('lsof', [
+        `-iTCP:${port}`,
+        '-sTCP:LISTEN',
+        '-t',
+      ]);
+      const pid = parseInt(stdout.trim().split(/\s+/)[0] ?? '', 10);
+      return Number.isInteger(pid) ? pid : null;
+    } catch {
+      // lsof exits non-zero when nothing is listening — treat as free port.
+      return null;
+    }
+  },
+  async getCommandForPid(pid) {
+    try {
+      const stdout = await runCommand('ps', ['-o', 'command=', '-p', String(pid)]);
+      return stdout.trim();
+    } catch {
+      return '';
+    }
+  },
+  async killPid(pid, signal) {
+    try {
+      process.kill(pid, signal as NodeJS.Signals);
+    } catch {
+      // ESRCH (already gone) is fine — the goal is a free port.
+    }
+  },
+  async isPortFree(port) {
+    const pid = await this.lookupPidOnPort(port);
+    return pid === null;
+  },
+  async waitMs(ms) {
+    await new Promise((resolve) => setTimeout(resolve, ms));
+  },
+};
+
+/**
+ * #655 — Defense-in-depth before spawning the opencode engine on a fixed port.
+ *
+ * If a stale `opencode serve` orphan (e.g. reparented to launchd after the
+ * api_server was SIGKILLed / Force-Quit) is squatting on `port`, the SDK's
+ * fresh spawn fails to bind and exits code 1 ("engine not ready"). This probes
+ * the port and, when the holder is unmistakably a stale opencode server,
+ * SIGTERMs it (then SIGKILLs after a short grace) and waits for the port to
+ * free. If the holder is a NON-opencode process it is left untouched and a
+ * clear error is thrown naming the occupying PID + command.
+ *
+ * @throws Error when a non-opencode process holds the port, or when a stale
+ *   opencode process could not be reclaimed within the grace window.
+ */
+export async function reclaimStalePortForOpencode(
+  port: number = OPENCODE_ENGINE_PORT,
+  deps: StalePortDeps = defaultStalePortDeps,
+): Promise<ReclaimResult> {
+  const pid = await deps.lookupPidOnPort(port);
+  if (pid === null) {
+    return { reclaimed: false };
+  }
+
+  const command = await deps.getCommandForPid(pid);
+
+  if (!isStaleOpencodeCommand(command, port)) {
+    throw new Error(
+      `Port ${port} is held by a non-opencode process (PID ${pid}: ${command || '<unknown command>'}). ` +
+        `Refusing to kill it. Free the port and relaunch, or stop the occupying process.`,
+    );
+  }
+
+  logger.info(
+    `[OpencodeClientService] reclaiming stale opencode orphan on :${port} (PID ${pid})`,
+  );
+
+  // SIGTERM, then SIGKILL after a grace period, polling for the port to free.
+  const signals: Array<NodeJS.Signals> = ['SIGTERM', 'SIGKILL'];
+  for (const signal of signals) {
+    await deps.killPid(pid, signal);
+    // Poll up to ~1s for the port to free after each signal.
+    for (let i = 0; i < 10; i++) {
+      if (await deps.isPortFree(port)) {
+        logger.info(
+          `[OpencodeClientService] reclaimed :${port} from stale opencode PID ${pid} via ${signal}`,
+        );
+        return { reclaimed: true, killedPid: pid };
+      }
+      await deps.waitMs(100);
+    }
+  }
+
+  // Final check after both signals + grace.
+  if (await deps.isPortFree(port)) {
+    return { reclaimed: true, killedPid: pid };
+  }
+
+  throw new Error(
+    `Failed to reclaim port ${port} from stale opencode process (PID ${pid}) after SIGTERM and SIGKILL.`,
+  );
+}
 
 /**
  * Directories the SDK's `cross-spawn("opencode")` may need on PATH. GUI-spawned
@@ -114,6 +284,13 @@ export class OpencodeClientService {
           directory?: string;
         }) => OpencodeClient;
       };
+      // #655 — Before spawning, reclaim :4096 from a stale opencode orphan
+      // (e.g. one reparented to launchd after a Force-Quit / SIGKILL). A bound
+      // port makes the SDK's fresh spawn exit code 1 ("engine not ready"). A
+      // non-opencode holder throws a clear error (caught below → status=error
+      // with the occupying PID/command) instead of the opaque exit-code-1.
+      await reclaimStalePortForOpencode();
+
       // Use createOpencode which starts an in-process Opencode server.
       // `server.close()` is the only documented way to stop the spawned
       // opencode subprocess on :4096 — we MUST hold this handle for clean
