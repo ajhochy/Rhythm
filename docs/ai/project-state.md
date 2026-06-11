@@ -6,6 +6,16 @@ _(Parked bugs from before 2026-05-27 run. #638 and #635 below are now RESOLVED �
 
 ## Recent coding-agent runs
 
+### 2026-06-11 — chore/watchtower-label-rhythm-api (no issue; user-approved)
+- Files modified:
+  - `apps/api_server/docker-compose.synology.yml` — `rhythm-api` gained `com.centurylinklabs.watchtower.enable: "true"` (+ explanatory comment). Joins the host-wide label-enable Watchtower already run by the statements project (30-min poll, GHCR creds from root's docker login). `cloudflared` deliberately NOT labeled.
+  - `docs/release/hosted_deployment_synology_cloudflare.md` — "Deploying an update" now leads with the automatic Watchtower path; manual SSH pull/up demoted to immediate-deploy fallback; routine summary updated; verify-curl unchanged.
+  - `apps/api_server/src/__tests__/watchtower_compose_contract.test.ts` (new) + `docs/ai/contracts/watchtower-rhythm-api.json` (new) — c1 label present (red-proven → green), c2 cloudflared unlabeled (guard); c3 docs + c4 live auto-update are manual.
+- Checks run: contract 2/2 ✓ (c1 red before); compose YAML parses, label value is string 'true'.
+- Decisions made: reuse the statements Watchtower instead of running a Rhythm-scoped instance — one updater per host, label-enable filtering, creds already mounted. The bulletin-generator pattern (own scoped watchtower) rejected as redundant.
+- Deviations from spec: none.
+- Concerns: labels only apply on container recreate — the NAS needs ONE more manual `up -d` with the updated compose before auto-updates kick in. c4 verifies on the first post-deploy merge via /health commit drift. Watchtower availability now couples rhythm-api deploys to the statements stack staying up.
+
 ### 2026-06-11 — issue-677-health-build-commit (#677)
 - Files modified:
   - `apps/api_server/src/controllers/health_controller.ts` — `/health` now returns `commit` (`RHYTHM_BUILD_COMMIT` env, `'dev'` fallback) and `builtAt` (`RHYTHM_BUILD_TIME`, omitted when unset). Read at request time so tests can vary them.

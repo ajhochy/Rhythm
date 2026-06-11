@@ -1,0 +1,41 @@
+{
+  "issue": "watchtower-rhythm-api",
+  "generated": "2026-06-11",
+  "criteria": [
+    {
+      "criterion_id": "watchtower-rhythm-api-c1",
+      "text": "The rhythm-api service in apps/api_server/docker-compose.synology.yml carries the label com.centurylinklabs.watchtower.enable: \"true\" so the host-wide label-enable Watchtower (run by the statements project) auto-updates it.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/watchtower_compose_contract.test.ts",
+      "test_id": "watchtower-rhythm-api-c1: rhythm-api opts into Watchtower label-enable updates",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "watchtower-rhythm-api-c2",
+      "text": "The cloudflared service does NOT carry the enable label — the tunnel container stays pinned and is never auto-recreated.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/watchtower_compose_contract.test.ts",
+      "test_id": "watchtower-rhythm-api-c2: cloudflared stays out of Watchtower auto-updates",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "watchtower-rhythm-api-c3",
+      "text": "The deployment runbook documents the auto-update path: deploys to rhythm-api are automatic within ~30 min of an image publish; the manual pull/up steps remain as the immediate-deploy fallback; verification stays the /health commit curl.",
+      "mode": "manual",
+      "status": "UNVERIFIED",
+      "reason": "Documentation change — verified by review of the runbook diff."
+    },
+    {
+      "criterion_id": "watchtower-rhythm-api-c4",
+      "text": "Live behavior: after the updated compose is deployed on the NAS (one last manual up -d), the next merge that publishes a new :main image results in Watchtower recreating rhythm-api within the 30-minute poll interval, observable as the /health commit field changing without any SSH step.",
+      "mode": "manual",
+      "status": "UNVERIFIED",
+      "reason": "Requires the live NAS Docker host and the statements Watchtower instance; verified on the first post-deploy auto-update via curl /health commit comparison."
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": [
+    "watchtower-rhythm-api-c3",
+    "watchtower-rhythm-api-c4"
+  ]
+}
