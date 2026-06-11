@@ -52,3 +52,11 @@
 - **Criteria affected**: issue-645-c2
 - **Root cause**: The fix + contract test exercised `_AgentKindBadge` via a test harness, but the badge renders in 4 sites (`_SessionRow`, `_ResumableSessionRow`, `_TranscriptHeader`, and `agent_bubble_overlay`); only `_SessionRow` was threaded with `providerId`, so header + bubble showed a stale/optimistic agent ("Gemini CLI") while the session was actually Claude.
 - **Suggested fix**: Cross-cutting UI contracts must enumerate every render site and assert each composing view; thread the resolved-agent logic into all 4 sites (and reconcile optimistic model selections that error/don't persist).
+
+## 2026-06-11 — PR #676 (#674/#675) — planner scheduledDate smoke FAIL: stale Synology container
+
+- **Result**: smoke FAIL (verification claimed PASS)
+- **Category**: C5 — environment issue (deploy gap, not code)
+- **Criteria affected**: issue-675-c3, issue-674-c5
+- **Root cause**: "API Deploy (Synology)" workflow only publishes the image to GHCR; the manual `docker compose pull && up -d` on the NAS was never run, so production served pre-#674 code. Orchestrator claimed "deploy is live" off a /health 200 that cannot identify code version (W5).
+- **Suggested fix**: expose build commit in /health for one-curl deploy verification; rename or extend the publish workflow.
