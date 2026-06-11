@@ -25,7 +25,11 @@ COPY scripts ./scripts
 RUN npm ci --omit=dev && npm cache clean --force
 
 FROM base AS runtime
-ENV NODE_ENV=production
+ARG GIT_SHA=dev
+ARG BUILD_TIME=
+ENV NODE_ENV=production \
+    RHYTHM_BUILD_COMMIT=$GIT_SHA \
+    RHYTHM_BUILD_TIME=$BUILD_TIME
 WORKDIR /app
 
 COPY package.json package-lock.json ./

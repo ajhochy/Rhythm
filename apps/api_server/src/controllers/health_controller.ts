@@ -18,9 +18,17 @@ export class HealthController {
       }
     }
 
+    // Build info is baked into the Docker image by the publish workflow
+    // (issue #677) so a deployed server's code version is one curl away.
+    // Read at request time, not module load, so tests can vary it.
+    const commit = process.env.RHYTHM_BUILD_COMMIT || 'dev';
+    const builtAt = process.env.RHYTHM_BUILD_TIME;
+
     res.json({
       status: 'ok',
       service: 'rhythm-api-server',
+      commit,
+      ...(builtAt ? { builtAt } : {}),
       ...(authenticatedAs !== null ? { authenticatedAs } : {}),
     });
   }

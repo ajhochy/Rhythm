@@ -68,14 +68,26 @@ sudo docker compose -f docker-compose.synology.yml --env-file .env.production up
 The `up -d` command recreates any container whose image changed and leaves
 the rest running. The SQLite data volume is preserved across restarts.
 
+Finally, **verify the new code is actually live** (issue #677 — the running
+container is otherwise indistinguishable from a stale one):
+
+```bash
+curl -s https://api.vcrcapps.com/health
+```
+
+The `commit` field must equal the SHA of the commit you just merged to `main`
+(compare with `git rev-parse --short origin/main`). If it still shows the old
+SHA, the container did not restart on the new image.
+
 ### Routine update summary
 
 1. Push to `main` (or merge a PR).
-2. Wait for the GitHub Actions workflow to finish publishing `ghcr.io/ajhochy/rhythm-api:main`.
+2. Wait for the "API Image Publish (GHCR)" GitHub Actions workflow to finish publishing `ghcr.io/ajhochy/rhythm-api:main`. **A green run means the image is published — NOT deployed.**
 3. SSH into the Synology.
 4. `cd /volume1/docker/Rhythm/api_server`
 5. `sudo docker compose -f docker-compose.synology.yml --env-file .env.production pull`
 6. `sudo docker compose -f docker-compose.synology.yml --env-file .env.production up -d`
+7. `curl -s https://api.vcrcapps.com/health` — confirm `commit` matches the merged SHA.
 
 > **Note:** `sudo` is required on Synology — Docker commands will fail with permission errors without it.
 >

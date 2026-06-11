@@ -6,6 +6,18 @@ _(Parked bugs from before 2026-05-27 run. #638 and #635 below are now RESOLVED �
 
 ## Recent coding-agent runs
 
+### 2026-06-11 — issue-677-health-build-commit (#677)
+- Files modified:
+  - `apps/api_server/src/controllers/health_controller.ts` — `/health` now returns `commit` (`RHYTHM_BUILD_COMMIT` env, `'dev'` fallback) and `builtAt` (`RHYTHM_BUILD_TIME`, omitted when unset). Read at request time so tests can vary them.
+  - `apps/api_server/Dockerfile` — runtime stage gained `ARG GIT_SHA=dev` / `ARG BUILD_TIME=` baked into `ENV RHYTHM_BUILD_COMMIT` / `RHYTHM_BUILD_TIME`.
+  - `.github/workflows/api_deploy_synology.yml` — workflow renamed **"API Image Publish (GHCR)"** (was "API Deploy (Synology)" — the misleading name behind the 2026-06-11 smoke failure); passes `GIT_SHA`/`BUILD_TIME` build-args; final echo step now includes the verify-curl with the expected SHA.
+  - `docs/release/hosted_deployment_synology_cloudflare.md` — routine update gains step 7: curl /health and compare `commit` to the merged SHA; publish-vs-deploy warning added.
+  - `apps/api_server/src/__tests__/issue_677_contract.test.ts` (new) + `docs/ai/contracts/issue-677.json` (new) — 5 criteria: 2 automated (red-proven 2/2 → green 2/2), 3 manual (image build-arg wiring verified on next publish; docs + rename by PR review).
+- Checks run: contract 2/2 ✓ (red 2/2 before); `ai-workflow checks --level issue` → analyze ✓, format ✓, tsc ✓.
+- Decisions made: env vars read at request time (not via cached `env.ts`) so contract tests can set/unset per test; `builtAt` omitted rather than null when unset.
+- Deviations from spec: none; the optional rename criterion was applied (not declined).
+- Concerns: c3 (build-arg → running image) is only fully provable on the first post-merge image publish + NAS pull — the runbook verify-curl is the closing check. Workflow rename keeps the same filename (`api_deploy_synology.yml`) so the `paths:` self-trigger still works.
+
 ### 2026-06-01 — fix/google-token-refresh-client-mismatch — Google OAuth `unauthorized_client` on token refresh
 - Recurring Integrations-page bug: `Google token refresh failed: { "error": "unauthorized_client", "error_description": "Unauthorized" }`. Root cause = OAuth **client mismatch**: tokens are minted by the *desktop* PKCE client (`exchangeDesktopCode` → `googleAuthClientId/Secret`, the only live connect path via Flutter `desktop-exchange`) but `refreshTokens` refreshed with the *web* client (`googleClientId/Secret`). The two clients are distinct in the shipped build (`desktop_release.yml:34-37`). Re-auth "fixed" it only until the next ~1h access-token expiry.
 - Files modified:
