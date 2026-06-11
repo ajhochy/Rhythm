@@ -1,0 +1,88 @@
+{
+  "run_id": "2026-06-11-pr-676-smoke",
+  "issue": 674,
+  "date": "2026-06-11",
+  "smoke_result": "fail",
+  "verification_claimed": "PASS",
+  "divergence": true,
+  "criteria_results": [
+    {
+      "criterion_id": "issue-675-c1",
+      "text": "Clicking an existing task anywhere opens the inspector already in edit mode.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "User: 'inspector opened perfectly on existing task and new task create w/ save/cancel/close options'."
+    },
+    {
+      "criterion_id": "issue-675-c3",
+      "text": "Day-column Add task opens the full inspector pre-seeded with that day; saving creates the task on that day (with the companion backend fix landed).",
+      "contract_status": "pass",
+      "smoke_status": "fail",
+      "category": "C5",
+      "notes": "User: 'Test task created on Weds showed weds scheduled date in the inspector but when I saved it, it got put into backlog and re-opening inspector revealed the scheduled date was not applied.' Client sent the field correctly (UI showed seeded date); production server dropped it because the Synology container is still running the pre-#674 image. The 'API Deploy (Synology)' GH workflow only PUBLISHES the image to GHCR — deployment (docker compose pull + up -d on the NAS) is manual per docs/release/hosted_deployment_synology_cloudflare.md and was never executed. Code on main is verified correct for both DB paths (postgres createAsync inserts scheduled_date at $5)."
+    },
+    {
+      "criterion_id": "issue-674-c5",
+      "text": "Verify on both DB paths if feasible (production Postgres + local SQLite).",
+      "contract_status": "untested",
+      "smoke_status": "fail",
+      "category": "C5",
+      "notes": "Postgres-path verification was correctly flagged UNVERIFIED in the contract; the smoke that was supposed to close it ran against a stale container, so it remains open until the NAS restarts on the new image."
+    }
+  ],
+  "process_issues": [
+    {
+      "process_category": "release-deploy",
+      "description": "The GitHub workflow named 'API Deploy (Synology)' builds and publishes the image to GHCR but does NOT restart the Synology container — deployment is a documented manual step (ssh + docker compose pull + up -d). The workflow name invites the misreading that green run == deployed. There is also no way to verify the running server's code version remotely: /health returns only {status, service}, so a stale container is indistinguishable from a fresh one.",
+      "detected_by": "Reading .github/workflows/api_deploy_synology.yml (publish-only, final step echoes the manual pull command) and docs/release/hosted_deployment_synology_cloudflare.md ('Deployment is manual')."
+    }
+  ],
+  "workflow_adherence": {
+    "overall_score": "partial",
+    "expected_chain": [
+      "workflow-orchestrator",
+      "merge (user-approved)",
+      "deploy verification",
+      "release",
+      "manual smoke",
+      "failure-postmortem"
+    ],
+    "observed_chain": [
+      "workflow-orchestrator",
+      "merge",
+      "API publish workflow watched (green)",
+      "/health probe of production",
+      "release v18.43",
+      "manual smoke (user)",
+      "failure-postmortem"
+    ],
+    "skipped_skills": [],
+    "issues": [
+      {
+        "workflow_category": "W5",
+        "affected_skill": "workflow-orchestrator",
+        "description": "After the publish workflow went green, the orchestrator told the user 'API deploy is live — the #674 scheduledDate fix is now on production' with only a /health 200 as evidence. /health does not identify the running code version; the claim was premature and sent the user into a smoke that was guaranteed to fail on the headline criterion. The runbook stating 'Deployment is manual' was in-repo and unread at claim time.",
+        "detected_by": "Transcript inspection: completion claim vs. runbook docs/release/hosted_deployment_synology_cloudflare.md."
+      }
+    ]
+  },
+  "implementation_files": [
+    "apps/api_server/src/controllers/tasks_controller.ts",
+    "apps/api_server/src/__tests__/issue_674_contract.test.ts",
+    "apps/desktop_flutter/lib/app/core/ui/rhythm_inspector.dart",
+    "apps/desktop_flutter/lib/app/core/ui/rhythm_ui.dart",
+    "apps/desktop_flutter/lib/features/weekly_planner/views/weekly_planner_view.dart",
+    "apps/desktop_flutter/lib/features/weekly_planner/controllers/weekly_planner_controller.dart",
+    "apps/desktop_flutter/lib/features/tasks/repositories/tasks_repository.dart",
+    "apps/desktop_flutter/lib/features/tasks/data/tasks_local_data_source.dart"
+  ],
+  "failure_output": "Task created from Wednesday day column with seeded scheduled date visible in inspector; after save, task appeared in backlog and re-opened inspector showed no scheduled date applied.",
+  "overall_category": "C5",
+  "suggested_follow_up": "Make deployments verifiable: expose the build commit/version in GET /health (and bake it into the image at build time) so 'new image is running' is a one-curl check, and either rename the publish workflow or add an automated/verified restart step.",
+  "resolution": {
+    "date": "2026-06-11",
+    "re_smoke_result": "pass",
+    "action": "User ran the runbook's routine update on the Synology (docker compose pull + up -d); container restarted on the new ghcr image. Re-smoke: planner task created on Wednesday landed in the Wednesday column with scheduled date persisted. Confirms C5 diagnosis (stale container) — no code change needed."
+  }
+}

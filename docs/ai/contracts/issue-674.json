@@ -38,8 +38,8 @@
       "criterion_id": "issue-674-c5",
       "text": "Verify on both DB paths if feasible (production Postgres + local SQLite), since create delegates for SQLite.",
       "mode": "manual",
-      "status": "UNVERIFIED",
-      "reason": "Vitest harness exercises the SQLite path (createAsync delegates to create). The Postgres path requires the deployed api.vcrcapps.com server; verify post-deploy by adding a planner task in the desktop app pointed at production."
+      "status": "pass",
+      "reason": "Verified live 2026-06-11 against api.vcrcapps.com (Postgres) after Synology container restart: planner task with scheduledDate persisted and rendered in its day column. SQLite path covered by vitest harness."
     }
   ],
   "stack": "typescript",

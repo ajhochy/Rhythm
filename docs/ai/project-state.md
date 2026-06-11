@@ -405,15 +405,15 @@ _(Parked bugs from before 2026-05-27 run. #638 and #635 below are now RESOLVED �
 
 ---
 
-## Current Status (2026-06-10 — #674 backend scheduledDate fix + #675 inspector edit-mode/create, PR pending)
+## Current Status (2026-06-11 — #674 + #675 SHIPPED: merged, deployed, released v18.43, smoke PASS)
 
-🟢 **Branch `feat/674-675-planner-scheduled-date-and-inspector-edit-mode`** (off main `c24b985`) — both issues implemented, contract-tested, and verified by `verification-gate` (PASS report 2026-06-10). PR opening next; **manual merge only — PR stays open while the user tests locally**.
+🟢 **[PR #676](https://github.com/ajhochy/Rhythm/pull/676) merged to `main`** (commit `64c6b06`), API image published + **manually deployed on the Synology**, desktop **v18.43** released (signed/notarized DMG). Manual smoke **PASS** on 2026-06-11 after one environment hiccup (below). Issues #674/#675 closed.
 
-- **#674** (POST /tasks drops `scheduledDate` → planner tasks land in backlog): one-line controller fix in `apps/api_server/src/controllers/tasks_controller.ts` `create()`. Contract `docs/ai/contracts/issue-674.json` 4/4 automated pass; c5 (Postgres path) verifies post-deploy to api.vcrcapps.com.
-- **#675** (inspector opens in edit mode by default + planner "Add task" opens full inspector in create mode): `initialEditMode` default-true + new `showRhythmTaskCreateInspector` in `rhythm_inspector.dart`; planner call sites rewired; `rhythm_task_create_dialog.dart` deleted. Contract `docs/ai/contracts/issue-675.json` 6/6 automated pass; c8 (planner view wiring) is the manual-smoke item.
-- Checks: `ai-workflow checks --level pr` all green; `flutter test` 305/305; `flutter build macos --debug` ✓; branch api_server `/health` probe ✓.
-- **Deploy dependency:** the desktop UX for planner-create only fully works after the api_server change deploys to `https://api.vcrcapps.com` (API Deploy workflow runs on merge to main). Until then planner-created tasks still land in the backlog against production.
-- Manual smoke list: (1) click an existing task in Planner/Tasks/Dashboard → opens already editable; (2) calendar shadow event still read-only; (3) day-column "Add task" → full inspector seeded with that day, Create lands it on that day (post-deploy); (4) backlog "+" → no date, lands in backlog; (5) Cancel creates nothing.
+- **#674** (POST /tasks drops `scheduledDate`): controller fix live on api.vcrcapps.com; Postgres path (contract c5) verified live — planner task persisted its day.
+- **#675** (inspector edit-mode default + full create inspector in planner): all smoke items confirmed by user — inspector opens editable on existing + new tasks, save/cancel/close correct, created task lands in its day column.
+- **Smoke FAIL → PASS lesson (C5/W5, postmortem `.agent-stack/postmortems/2026-06-11-pr-676-smoke.json`):** the GitHub workflow "API Deploy (Synology)" only **publishes the image to GHCR** — deployment is a manual `docker compose pull && up -d` on the NAS (runbook: `docs/release/hosted_deployment_synology_cloudflare.md`). First smoke ran against the stale container and failed the headline criterion; after the user updated the NAS, re-smoke passed with zero code changes. **Never claim "deploy is live" off the publish workflow + /health** — /health carries no version info.
+- **Follow-up [#677](https://github.com/ajhochy/Rhythm/issues/677)**: expose build commit in `GET /health` so deploys are one-curl verifiable; consider renaming the publish workflow.
+- **[PR #678](https://github.com/ajhochy/Rhythm/pull/678)** (open, observability-only): postmortem + resolution, contract closeouts (674-c5, 675-c7/c8 → pass), this status update.
 
 ## Prior Status (2026-05-26 — PR #642 smoke follow-ups #644/#643/#645)
 
