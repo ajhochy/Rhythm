@@ -40,8 +40,23 @@
   ],
   "workflow_adherence": {
     "overall_score": "partial",
-    "expected_chain": ["workflow-orchestrator", "merge (user-approved)", "deploy verification", "release", "manual smoke", "failure-postmortem"],
-    "observed_chain": ["workflow-orchestrator", "merge", "API publish workflow watched (green)", "/health probe of production", "release v18.43", "manual smoke (user)", "failure-postmortem"],
+    "expected_chain": [
+      "workflow-orchestrator",
+      "merge (user-approved)",
+      "deploy verification",
+      "release",
+      "manual smoke",
+      "failure-postmortem"
+    ],
+    "observed_chain": [
+      "workflow-orchestrator",
+      "merge",
+      "API publish workflow watched (green)",
+      "/health probe of production",
+      "release v18.43",
+      "manual smoke (user)",
+      "failure-postmortem"
+    ],
     "skipped_skills": [],
     "issues": [
       {
@@ -64,5 +79,10 @@
   ],
   "failure_output": "Task created from Wednesday day column with seeded scheduled date visible in inspector; after save, task appeared in backlog and re-opened inspector showed no scheduled date applied.",
   "overall_category": "C5",
-  "suggested_follow_up": "Make deployments verifiable: expose the build commit/version in GET /health (and bake it into the image at build time) so 'new image is running' is a one-curl check, and either rename the publish workflow or add an automated/verified restart step."
+  "suggested_follow_up": "Make deployments verifiable: expose the build commit/version in GET /health (and bake it into the image at build time) so 'new image is running' is a one-curl check, and either rename the publish workflow or add an automated/verified restart step.",
+  "resolution": {
+    "date": "2026-06-11",
+    "re_smoke_result": "pass",
+    "action": "User ran the runbook's routine update on the Synology (docker compose pull + up -d); container restarted on the new ghcr image. Re-smoke: planner task created on Wednesday landed in the Wednesday column with scheduled date persisted. Confirms C5 diagnosis (stale container) — no code change needed."
+  }
 }

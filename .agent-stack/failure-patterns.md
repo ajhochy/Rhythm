@@ -60,3 +60,4 @@
 - **Criteria affected**: issue-675-c3, issue-674-c5
 - **Root cause**: "API Deploy (Synology)" workflow only publishes the image to GHCR; the manual `docker compose pull && up -d` on the NAS was never run, so production served pre-#674 code. Orchestrator claimed "deploy is live" off a /health 200 that cannot identify code version (W5).
 - **Suggested fix**: expose build commit in /health for one-curl deploy verification; rename or extend the publish workflow.
+  - **Resolved 2026-06-11**: user ran `docker compose pull && up -d` on the NAS; re-smoke PASS (Wednesday task landed in Wednesday column). C5 diagnosis confirmed — no code change. Deploy-verifiability follow-up: #677.

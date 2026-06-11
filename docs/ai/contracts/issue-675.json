@@ -54,15 +54,15 @@
       "criterion_id": "issue-675-c7",
       "text": "flutter analyze --no-fatal-infos passes; dart format . clean.",
       "mode": "manual",
-      "status": "UNVERIFIED",
-      "reason": "Process check, not a widget test — enforced by verification-gate running ai-workflow checks --level issue/pr."
+      "status": "pass",
+      "reason": "Enforced by verification-gate 2026-06-10: ai-workflow checks --level pr ran flutter analyze + dart format clean."
     },
     {
       "criterion_id": "issue-675-c8",
       "text": "Weekly Planner view wiring: the day-column add button passes that day's date and the backlog add button passes no date into the create inspector, and saving routes to controller.createTask (not updateTask).",
       "mode": "manual",
-      "status": "UNVERIFIED",
-      "reason": "The planner view's private widgets require live HTTP repositories/providers to pump; the wrapper-level behavior is automated (c3/c4) and the 3-line view wiring is verified by manual smoke in the running app against api.vcrcapps.com."
+      "status": "pass",
+      "reason": "Verified by manual smoke 2026-06-11 on v18.43 against updated production: day-column add seeded the day and the saved task landed in that column; inspector open/create/save/cancel all confirmed by user."
     }
   ],
   "stack": "dart",
