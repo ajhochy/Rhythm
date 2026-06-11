@@ -45,6 +45,25 @@ echo '<ghcr-read-token>' | docker login ghcr.io -u '<github-username>' --passwor
 
 ### Deploying an update
 
+**Updates are automatic (Watchtower).** The `rhythm-api` service carries
+`com.centurylinklabs.watchtower.enable: "true"`, so the host-wide Watchtower
+instance (run by the statements project in label-enable mode, 30-minute poll,
+GHCR credentials mounted from root's docker login) pulls each new
+`ghcr.io/ajhochy/rhythm-api:main` image and recreates the container
+automatically — typically within 30 minutes of the "API Image Publish (GHCR)"
+workflow finishing. The data volume is preserved. `cloudflared` is
+intentionally not labeled and never auto-updates.
+
+Verify an auto-deploy landed:
+
+```bash
+curl -s https://api.vcrcapps.com/health
+```
+
+The `commit` field must equal the SHA merged to `main`.
+
+**Manual fallback (deploy immediately, or if Watchtower is down):**
+
 After CI publishes a new image to GHCR (happens automatically on every push to
 `main`), SSH into the Synology and run:
 
@@ -82,12 +101,9 @@ SHA, the container did not restart on the new image.
 ### Routine update summary
 
 1. Push to `main` (or merge a PR).
-2. Wait for the "API Image Publish (GHCR)" GitHub Actions workflow to finish publishing `ghcr.io/ajhochy/rhythm-api:main`. **A green run means the image is published — NOT deployed.**
-3. SSH into the Synology.
-4. `cd /volume1/docker/Rhythm/api_server`
-5. `sudo docker compose -f docker-compose.synology.yml --env-file .env.production pull`
-6. `sudo docker compose -f docker-compose.synology.yml --env-file .env.production up -d`
-7. `curl -s https://api.vcrcapps.com/health` — confirm `commit` matches the merged SHA.
+2. Wait for the "API Image Publish (GHCR)" GitHub Actions workflow to finish publishing `ghcr.io/ajhochy/rhythm-api:main`. **A green run means the image is published — NOT yet deployed.**
+3. Wait up to ~30 minutes for Watchtower to pull the image and recreate `rhythm-api` (no SSH needed). To deploy immediately instead, run the manual fallback above (SSH → `pull` → `up -d`).
+4. `curl -s https://api.vcrcapps.com/health` — confirm `commit` matches the merged SHA.
 
 > **Note:** `sudo` is required on Synology — Docker commands will fail with permission errors without it.
 >
