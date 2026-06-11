@@ -1,4 +1,6 @@
-name: API Deploy (Synology)
+# Renamed from "API Deploy (Synology)" (issue #677): a green run publishes the
+# image to GHCR only — deploying to the NAS is a manual pull + up -d.
+name: API Image Publish (GHCR)
 
 on:
   push:
@@ -54,6 +56,10 @@ jobs:
             type=raw,value=main
             type=sha,format=short
 
+      - name: Set build time
+        id: buildinfo
+        run: echo "time=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+
       - name: Build and push API image
         uses: docker/build-push-action@v6
         with:
@@ -62,6 +68,9 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          build-args: |
+            GIT_SHA=${{ github.sha }}
+            BUILD_TIME=${{ steps.buildinfo.outputs.time }}
 
       - name: Manual server update required
         run: |
@@ -72,4 +81,8 @@ jobs:
           echo ""
           echo "    docker pull ghcr.io/${{ github.repository_owner }}/rhythm-api:main"
           echo "    docker compose -f /volume1/docker/Rhythm/api_server/docker-compose.synology.yml up -d"
+          echo ""
+          echo "  Then verify the new code is live (commit must be ${{ github.sha }}):"
+          echo ""
+          echo "    curl -s https://api.vcrcapps.com/health"
           echo "============================================================"

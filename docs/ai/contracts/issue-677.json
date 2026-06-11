@@ -1,0 +1,49 @@
+{
+  "issue": 677,
+  "generated": "2026-06-11",
+  "criteria": [
+    {
+      "criterion_id": "issue-677-c1",
+      "text": "GET /health additionally returns the build commit SHA (and optionally build timestamp), e.g. {\"status\":\"ok\",\"service\":\"rhythm-api-server\",\"commit\":\"64c6b06\",\"builtAt\":\"...\"}.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_677_contract.test.ts",
+      "test_id": "issue-677-c1: /health returns commit and builtAt from build-info env vars",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-677-c2",
+      "text": "Local dev runs return commit: \"dev\" or the local SHA when available.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_677_contract.test.ts",
+      "test_id": "issue-677-c2: /health returns commit 'dev' when build-info env vars are unset",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-677-c3",
+      "text": "The SHA is baked into the image at build time by the publish workflow (e.g. --build-arg GIT_SHA=${{ github.sha }} → env var read by the server).",
+      "mode": "manual",
+      "status": "UNVERIFIED",
+      "reason": "Docker image build with build-args cannot run inside vitest; verified by static review of Dockerfile + workflow and live-confirmed on the first post-merge image publish (curl /health on the NAS after pull shows the merge SHA)."
+    },
+    {
+      "criterion_id": "issue-677-c4",
+      "text": "docs/release/hosted_deployment_synology_cloudflare.md routine-update section gains a final verify step: curl /health and compare commit to the just-merged SHA.",
+      "mode": "manual",
+      "status": "UNVERIFIED",
+      "reason": "Documentation change — verified by review of the runbook diff."
+    },
+    {
+      "criterion_id": "issue-677-c5",
+      "text": "Consider renaming the workflow from 'API Deploy (Synology)' to 'API Image Publish (GHCR)' so a green run is not mistaken for a completed deployment.",
+      "mode": "manual",
+      "status": "UNVERIFIED",
+      "reason": "Resolved: workflow renamed to 'API Image Publish (GHCR)' in this PR with an explanatory comment. Listed manual because the rename is verified by PR review, not a test."
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": [
+    "issue-677-c3",
+    "issue-677-c4",
+    "issue-677-c5"
+  ]
+}
