@@ -296,8 +296,8 @@ void main() {
       await tester.pumpAndSettle();
       _drainLayoutOverflowErrors();
 
-      // Inspector starts in read-only mode; enter edit mode first.
-      await tester.tap(find.text('Edit details'));
+      // Issue #675: the inspector now opens in edit mode by default —
+      // settle and drain the known aside-panel overflow errors.
       await tester.pumpAndSettle();
       _drainLayoutOverflowErrors();
 
@@ -373,10 +373,8 @@ void main() {
       await tester.pumpAndSettle();
       _drainLayoutOverflowErrors();
 
-      // Enter edit mode so the chip's delete affordance becomes available.
-      await tester.tap(find.text('Edit details'));
-      await tester.pumpAndSettle();
-      _drainLayoutOverflowErrors();
+      // Issue #675: edit mode is the default, so the chip's delete
+      // affordance is available immediately.
 
       // InputChip's delete icon defaults to a tooltip of "Delete".
       final deleteButton = find.byTooltip('Delete');

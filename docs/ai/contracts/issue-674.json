@@ -1,0 +1,49 @@
+{
+  "issue": 674,
+  "generated": "2026-06-10",
+  "criteria": [
+    {
+      "criterion_id": "issue-674-c1",
+      "text": "POST /tasks with body { \"title\": \"X\", \"scheduledDate\": \"2026-06-16\" } persists scheduled_date = '2026-06-16' and returns it in the response JSON.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_674_contract.test.ts",
+      "test_id": "issue-674-c1: POST /tasks with scheduledDate persists and returns it",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-674-c2",
+      "text": "A task added via the Weekly Planner on a given day appears in that day's column, not the backlog.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_674_contract.test.ts",
+      "test_id": "issue-674-c2: scheduled task appears in that day's weekly-plan column, not backlog",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-674-c3",
+      "text": "Adding an unscheduled task from the backlog \"+\" still works (no scheduledDate sent → task correctly lands in backlog).",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_674_contract.test.ts",
+      "test_id": "issue-674-c3: POST /tasks without scheduledDate still lands in backlog",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-674-c4",
+      "text": "dueDate-only creation behavior is unchanged.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_674_contract.test.ts",
+      "test_id": "issue-674-c4: dueDate-only creation behavior is unchanged",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-674-c5",
+      "text": "Verify on both DB paths if feasible (production Postgres + local SQLite), since create delegates for SQLite.",
+      "mode": "manual",
+      "status": "UNVERIFIED",
+      "reason": "Vitest harness exercises the SQLite path (createAsync delegates to create). The Postgres path requires the deployed api.vcrcapps.com server; verify post-deploy by adding a planner task in the desktop app pointed at production."
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": [
+    "issue-674-c5"
+  ]
+}

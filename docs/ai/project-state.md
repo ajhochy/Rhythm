@@ -6,6 +6,29 @@ _(Parked bugs from before 2026-05-27 run. #638 and #635 below are now RESOLVED �
 
 ## Recent coding-agent runs
 
+### 2026-06-10 — feat/674-675-planner-scheduled-date-and-inspector-edit-mode (#674)
+- Files modified:
+  - `apps/api_server/src/controllers/tasks_controller.ts` — `create()` now destructures `scheduledDate` from req.body and passes `scheduledDate: (scheduledDate as string) ?? null` to `repo.createAsync(...)`. Root cause of #674: the due-date/scheduled-date refactor updated the repository + schema but never the create controller, so planner-created tasks persisted with `scheduled_date = NULL` and matched the backlog predicate.
+  - `apps/api_server/src/__tests__/issue_674_contract.test.ts` (new) — 4 integration tests over a real HTTP server + in-memory SQLite: c1 scheduledDate round-trips POST→response→GET; c2 task appears in the right `GET /weekly-plan` day column and not backlog; c3 no-date create still lands in backlog; c4 dueDate-only unchanged. Red proven (c1, c2 fail pre-fix), green after.
+  - `docs/ai/contracts/issue-674.json` (new) — 5 criteria, 4 automated (pass), 1 manual (c5 Postgres path post-deploy).
+- Checks run: contract tests 4/4 ✓ (red 2/4 before fix); `ai-workflow checks --level issue` → flutter analyze ✓, dart format ✓, tsc --noEmit ✓.
+- Decisions made: c2/c3 assert through `GET /weekly-plan` (the production assembly path that drives the planner columns) rather than only the POST response, so the backlog-vs-day-column behavior is contract-tested end-to-end on the server.
+- Deviations from spec: none — exactly the fix the issue prescribed.
+- Concerns: c5 (Postgres path) only verifiable after deploy to api.vcrcapps.com; SQLite path covered by the harness. #675's planner-create UX depends on that deploy.
+
+### 2026-06-10 — feat/674-675-planner-scheduled-date-and-inspector-edit-mode (#675)
+- Files modified:
+  - `apps/desktop_flutter/lib/app/core/ui/rhythm_inspector.dart` — (A) `showRhythmTaskInspector` gained `initialEditMode` (default **true**) → all call sites (Weekly Planner, Tasks, Dashboard) now open in edit mode; `_editing = widget.initialEditMode && !_readOnly` in initState preserves the `calendar_shadow_event` read-only gate. (B) New `showRhythmTaskCreateInspector(context, {workspaceMembers, onCreate, scheduledDate})` — builds a blank seed Task (no id), opens the inspector with `isCreate: true`; save button reads "Create task" and routes to `onCreate` (create, never update); Cancel pops without creating; collaborator controls hidden (null callbacks — task has no id until saved).
+  - `apps/desktop_flutter/lib/features/weekly_planner/views/weekly_planner_view.dart` — both add-task call sites replaced: day column seeds `scheduledDate: widget.date`, backlog "+" seeds no date; `onCreate` routes title/notes/dueDate/scheduledDate/preferredAgent into `controller.createTask`.
+  - `apps/desktop_flutter/lib/features/weekly_planner/controllers/weekly_planner_controller.dart`, `lib/features/tasks/repositories/tasks_repository.dart`, `lib/features/tasks/data/tasks_local_data_source.dart` — `create`/`createTask` extended with `notes`/`dueDate`/`preferredAgent` (dueDate was missing from the POST body entirely) so inspector-created tasks persist all fields.
+  - `apps/desktop_flutter/lib/app/core/ui/rhythm_task_create_dialog.dart` — DELETED (planner was its only consumer; repo-wide grep clean); export removed from `rhythm_ui.dart`.
+  - Tests: new `test/app/core/ui/issue_675_contract_test.dart` (c1 edit-default, c2 shadow-event read-only) + `issue_675_create_contract_test.dart` (c3 day seed, c4 backlog no-date, c5 notes/dueDate/agent during create + collaborators hidden, c6 cancel discards). Updated to the new default: `rhythm_inspector_date_warning_test.dart` (no Edit-details tap; view-mode test passes `initialEditMode: false`), `issue_651_contract_test.dart` (c3/c4 no Edit-details tap, drains preserved).
+  - `docs/ai/contracts/issue-675.json` (new) — 8 criteria, 6 automated (pass), 2 manual (c7 process checks via gate, c8 planner view wiring via manual smoke).
+- Checks run: #675 contract tests 6/6 ✓ (red proven: c1 assertion-fail, create file compile-fail pre-implementation); full `flutter test` 305/305 ✓ (was 299; +6); `ai-workflow checks --level issue` → analyze ✓, format ✓, tsc ✓.
+- Decisions made: chose the issue's option (a) — a thin create wrapper building a seed Task — over adding an `isNew`/`onCreate` dual path inside the inspector widget; only an `isCreate` flag for the button label + cancel-pops behavior was added. Owner picker from the old minimal dialog was NOT carried over: the inspector has no owner field, server defaults owner to the authed user (matches inspector's "Created by" semantics).
+- Deviations from spec: none beyond the blessed simplest-option choices above.
+- Concerns: planner view wiring (c8) is manual-smoke-only — the view's private widgets need live HTTP providers to pump. Creating a planner task in the running app only lands on the day once the #674 backend fix is deployed to api.vcrcapps.com.
+
 ### 2026-05-30 — feat/staff-guide-v2 — content milestone (#661-#671, batches A+B; C deferred)
 - Followup to the 2026-05-30 staff-guide PR #660. Eleven issues filed for v2 content adds; 9 shipped this run, 2 deferred (Batch C — #666, #661 — both need new larger-monitor screenshots that haven't landed yet).
 - Files modified (all on `feat/staff-guide-v2`, branched off main `3ed43aa`):
@@ -370,7 +393,17 @@ _(Parked bugs from before 2026-05-27 run. #638 and #635 below are now RESOLVED �
 
 ---
 
-## Current Status (2026-05-26 — PR #642 smoke follow-ups #644/#643/#645)
+## Current Status (2026-06-10 — #674 backend scheduledDate fix + #675 inspector edit-mode/create, PR pending)
+
+🟢 **Branch `feat/674-675-planner-scheduled-date-and-inspector-edit-mode`** (off main `c24b985`) — both issues implemented, contract-tested, and verified by `verification-gate` (PASS report 2026-06-10). PR opening next; **manual merge only — PR stays open while the user tests locally**.
+
+- **#674** (POST /tasks drops `scheduledDate` → planner tasks land in backlog): one-line controller fix in `apps/api_server/src/controllers/tasks_controller.ts` `create()`. Contract `docs/ai/contracts/issue-674.json` 4/4 automated pass; c5 (Postgres path) verifies post-deploy to api.vcrcapps.com.
+- **#675** (inspector opens in edit mode by default + planner "Add task" opens full inspector in create mode): `initialEditMode` default-true + new `showRhythmTaskCreateInspector` in `rhythm_inspector.dart`; planner call sites rewired; `rhythm_task_create_dialog.dart` deleted. Contract `docs/ai/contracts/issue-675.json` 6/6 automated pass; c8 (planner view wiring) is the manual-smoke item.
+- Checks: `ai-workflow checks --level pr` all green; `flutter test` 305/305; `flutter build macos --debug` ✓; branch api_server `/health` probe ✓.
+- **Deploy dependency:** the desktop UX for planner-create only fully works after the api_server change deploys to `https://api.vcrcapps.com` (API Deploy workflow runs on merge to main). Until then planner-created tasks still land in the backlog against production.
+- Manual smoke list: (1) click an existing task in Planner/Tasks/Dashboard → opens already editable; (2) calendar shadow event still read-only; (3) day-column "Add task" → full inspector seeded with that day, Create lands it on that day (post-deploy); (4) backlog "+" → no date, lands in backlog; (5) Cancel creates nothing.
+
+## Prior Status (2026-05-26 — PR #642 smoke follow-ups #644/#643/#645)
 
 🟢 **PR #642 merged to `main`** (commit `9e3cfe4`). Three follow-ups filed during its manual smoke are now in flight:
 - **#644** (task collaborator does not persist) → branch `fix/issue-644-collaborator-server-url` → **[PR #646](https://github.com/ajhochy/Rhythm/pull/646)** open (NOT merged), Desktop CI green. c1 automated + c2 live smoke PASS.

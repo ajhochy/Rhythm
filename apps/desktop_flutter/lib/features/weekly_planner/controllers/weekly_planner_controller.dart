@@ -184,14 +184,20 @@ class WeeklyPlannerController extends ChangeNotifier {
 
   Future<void> createTask(
     String title, {
+    String? notes,
+    String? dueDate,
     String? scheduledDate,
     int? ownerId,
+    String? preferredAgent,
   }) async {
     try {
       await _tasksRepository.create(
         title,
+        notes: notes,
+        dueDate: dueDate,
         scheduledDate: scheduledDate,
         ownerId: ownerId,
+        preferredAgent: preferredAgent,
       );
       await load();
     } catch (e) {

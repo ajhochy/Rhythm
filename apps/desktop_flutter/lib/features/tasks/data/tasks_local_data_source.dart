@@ -26,6 +26,7 @@ class TasksLocalDataSource {
   Future<Task> create(
     String title, {
     String? notes,
+    String? dueDate,
     String? scheduledDate,
     int? ownerId,
     String? preferredAgent,
@@ -36,6 +37,7 @@ class TasksLocalDataSource {
       body: jsonEncode({
         'title': title,
         if (notes != null && notes.isNotEmpty) 'notes': notes,
+        if (dueDate != null) 'dueDate': dueDate,
         if (scheduledDate != null) 'scheduledDate': scheduledDate,
         if (ownerId != null) 'ownerId': ownerId,
         'preferredAgent': preferredAgent,

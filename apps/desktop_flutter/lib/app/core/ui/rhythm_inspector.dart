@@ -71,6 +71,7 @@ Future<void> showRhythmTaskInspector(
   RhythmTaskCollaboratorUpdate? onAddCollaborator,
   RhythmTaskCollaboratorUpdate? onRemoveCollaborator,
   Future<void> Function()? onToggleStatus,
+  bool initialEditMode = true,
 }) {
   return showDialog<void>(
     context: context,
@@ -81,6 +82,42 @@ Future<void> showRhythmTaskInspector(
       onAddCollaborator: onAddCollaborator,
       onRemoveCollaborator: onRemoveCollaborator,
       onToggleStatus: onToggleStatus,
+      initialEditMode: initialEditMode,
+    ),
+  );
+}
+
+/// Opens the full task inspector in create mode for a brand-new task.
+///
+/// Used by the Weekly Planner "Add task" buttons (issue #675): the day
+/// column seeds [scheduledDate] with that day, the backlog "+" seeds no
+/// date. Saving invokes [onCreate] exactly once with the collected fields;
+/// it must CREATE the task, never update. Collaborator controls are hidden
+/// because the task has no id until the first save.
+Future<void> showRhythmTaskCreateInspector(
+  BuildContext context, {
+  required List<WorkspaceMember> workspaceMembers,
+  required RhythmTaskInspectorSave onCreate,
+  String? scheduledDate,
+}) {
+  return showDialog<void>(
+    context: context,
+    builder: (_) => _RhythmTaskInspector(
+      task: Task(
+        id: '',
+        title: '',
+        status: TaskStatus.open,
+        createdAt: '',
+        updatedAt: '',
+        scheduledDate: scheduledDate,
+      ),
+      workspaceMembers: workspaceMembers,
+      onSaveDetails: onCreate,
+      onAddCollaborator: null,
+      onRemoveCollaborator: null,
+      onToggleStatus: null,
+      initialEditMode: true,
+      isCreate: true,
     ),
   );
 }
@@ -380,6 +417,8 @@ class _RhythmTaskInspector extends StatefulWidget {
     required this.onAddCollaborator,
     required this.onRemoveCollaborator,
     this.onToggleStatus,
+    this.initialEditMode = true,
+    this.isCreate = false,
   });
 
   final Task task;
@@ -388,6 +427,8 @@ class _RhythmTaskInspector extends StatefulWidget {
   final RhythmTaskCollaboratorUpdate? onAddCollaborator;
   final RhythmTaskCollaboratorUpdate? onRemoveCollaborator;
   final Future<void> Function()? onToggleStatus;
+  final bool initialEditMode;
+  final bool isCreate;
 
   @override
   State<_RhythmTaskInspector> createState() => _RhythmTaskInspectorState();
@@ -415,6 +456,8 @@ class _RhythmTaskInspectorState extends State<_RhythmTaskInspector> {
     _scheduledDate = widget.task.scheduledDate;
     _dueDate = widget.task.dueDate;
     _preferredAgent = widget.task.preferredAgent;
+    // Calendar shadow events stay read-only regardless of the default.
+    _editing = widget.initialEditMode && !_readOnly;
   }
 
   @override
@@ -491,6 +534,11 @@ class _RhythmTaskInspectorState extends State<_RhythmTaskInspector> {
             onPressed: _saving
                 ? null
                 : () {
+                    if (widget.isCreate) {
+                      // A new task has nothing to revert to — discard it.
+                      Navigator.of(context).pop();
+                      return;
+                    }
                     setState(() {
                       _editing = false;
                       _titleController.text = widget.task.title;
@@ -506,7 +554,11 @@ class _RhythmTaskInspectorState extends State<_RhythmTaskInspector> {
           ),
           RhythmButton.filled(
             onPressed: _saving ? null : _save,
-            label: _saving ? 'Saving...' : 'Save changes',
+            label: _saving
+                ? 'Saving...'
+                : widget.isCreate
+                    ? 'Create task'
+                    : 'Save changes',
             compact: true,
           ),
         ],

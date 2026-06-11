@@ -109,8 +109,8 @@ void main() {
 
       await tester.tap(find.text('Open'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Edit details'));
-      await tester.pumpAndSettle();
+      // Issue #675: the inspector now opens in edit mode by default —
+      // no 'Edit details' tap required.
     }
 
     testWidgets(
@@ -185,6 +185,9 @@ void main() {
                   ),
                   workspaceMembers: const [],
                   onSaveDetails: (_) async {},
+                  // Issue #675: edit mode is the default; force view mode
+                  // to assert the warning stays edit-only.
+                  initialEditMode: false,
                 ),
                 child: const Text('Open'),
               ),
@@ -194,7 +197,7 @@ void main() {
 
         await tester.tap(find.text('Open'));
         await tester.pumpAndSettle();
-        // Do NOT tap 'Edit details' — inspector stays in view mode.
+        // Inspector opened with initialEditMode: false — stays in view mode.
 
         expect(find.text(warningText), findsNothing,
             reason: 'Warning must not appear in view mode');

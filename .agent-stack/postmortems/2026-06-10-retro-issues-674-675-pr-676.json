@@ -1,0 +1,55 @@
+{
+  "date": "2026-06-10",
+  "run": "feat/674-675-planner-scheduled-date-and-inspector-edit-mode — issues #674 + #675, PR #676",
+  "smoke_result": "unknown",
+  "criteria_results": [],
+  "process_issues": [],
+  "workflow_adherence": {
+    "expected_chain": [
+      "workflow-orchestrator",
+      "acceptance-contract (#674)",
+      "coding-agent (#674)",
+      "acceptance-contract (#675)",
+      "coding-agent (#675)",
+      "verification-gate",
+      "project-state-updater",
+      "PR open + CI gate",
+      "workflow-retrospective",
+      "failure-postmortem (after user manual smoke — pending)"
+    ],
+    "observed_chain": [
+      "workflow-orchestrator (announced, intake A routing, branch off fresh main)",
+      "acceptance-contract (#674) — red proven 2/4 fail pre-fix, contract JSON written",
+      "coding-agent (#674) — 2-line controller fix, contract 4/4 green, project-state entry",
+      "acceptance-contract (#675) — red proven (c1 assertion-fail, create file compile-fail), contract JSON written",
+      "coding-agent (#675) — inspector + planner + create-path changes, 6/6 green, 3 stale tests updated, project-state entry",
+      "verification-gate — PR-level checks, full flutter 305/305, build, /health probe on branch server, PASS block with documented visual gap",
+      "project-state-updater — Current Status rewritten, prior demoted",
+      "PR #676 opened (left open per manual-merge rule), CI watched in background",
+      "workflow-retrospective (this artifact)"
+    ],
+    "skipped_skills": [],
+    "issues": [
+      {
+        "workflow_category": "W1",
+        "affected_skill": "all chain skills",
+        "description": "Per-skill Completion Checklists were consolidated into one run-level task list (6 items) rather than expanding each skill's own checklist into separate TodoWrite items on entry. All artifacts and announce strings were still produced; this is a checklist-granularity deviation, not a skipped step.",
+        "detected_by": "self-audit during retrospective"
+      },
+      {
+        "workflow_category": "W2",
+        "affected_skill": "workflow-orchestrator",
+        "description": "SessionStart hook asserted agentflow MCP workflow tools were configured and took precedence, but ToolSearch found no mcp__agentflow__* tools at runtime. Fallback to the SKILL.md chain was taken correctly per the dispatcher's fallback rule. The hook's 'active — agentflow MCP server configured' claim was stale/wrong for this session; consider making the hook verify tool availability before asserting precedence.",
+        "detected_by": "ToolSearch '+agentflow workflow implement' returned no matches"
+      },
+      {
+        "workflow_category": "W5",
+        "affected_skill": "verification-gate",
+        "description": "Visual screenshot evidence (Required Evidence #8) was waived with an explicit documented gap: the user's production Rhythm.app instance owned port 4001 (single-instance conflict), the only configured backend is production (data-mutation risk), and the headline planner flow cannot visually pass until #674 deploys. Affected widgets are rendered/asserted by 6 widget tests; click-through deferred to the CLAUDE.md-mandated user manual smoke on the open PR. Recorded here so the miner can see whether this waiver pattern recurs.",
+        "detected_by": "verification-gate PASS block (gap documented, not silent)"
+      }
+    ],
+    "overall_score": "strict"
+  },
+  "notes": "Upfront-alignment AskUserQuestion and the 6b smoke A/B choice were legitimately short-circuited: the user's dispatch message specified branch strategy, order, PR handling, and autonomous operation, and CLAUDE.md mandates 'PR stays open while the user tests locally' as the manual smoke path. failure-postmortem is owed after the user reports manual smoke on PR #676."
+}
