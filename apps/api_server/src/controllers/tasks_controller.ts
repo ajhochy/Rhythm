@@ -157,7 +157,8 @@ export class TasksController {
 
   async create(req: Request, res: Response, next: NextFunction) {
     try {
-      const { title, notes, dueDate, status, preferredAgent } = req.body as Record<string, unknown>;
+      const { title, notes, dueDate, scheduledDate, status, preferredAgent } =
+        req.body as Record<string, unknown>;
       if (!title || typeof title !== 'string') {
         throw AppError.badRequest('title is required');
       }
@@ -169,6 +170,7 @@ export class TasksController {
         title,
         notes: (notes as string) ?? null,
         dueDate: (dueDate as string) ?? null,
+        scheduledDate: (scheduledDate as string) ?? null,
         status: status as ValidStatus,
         ownerId: req.auth!.user.id,
         preferredAgent: validatedPreferredAgent,

@@ -20,6 +20,5 @@ export 'rhythm_section_header.dart';
 export 'rhythm_segmented_control.dart';
 export 'rhythm_surface.dart';
 export 'rhythm_task_create_bar.dart';
-export 'rhythm_task_create_dialog.dart';
 export 'rhythm_toolbar.dart';
 export 'tokens/rhythm_theme.dart';
