@@ -61,3 +61,11 @@
 - **Root cause**: "API Deploy (Synology)" workflow only publishes the image to GHCR; the manual `docker compose pull && up -d` on the NAS was never run, so production served pre-#674 code. Orchestrator claimed "deploy is live" off a /health 200 that cannot identify code version (W5).
 - **Suggested fix**: expose build commit in /health for one-curl deploy verification; rename or extend the publish workflow.
   - **Resolved 2026-06-11**: user ran `docker compose pull && up -d` on the NAS; re-smoke PASS (Wednesday task landed in Wednesday column). C5 diagnosis confirmed — no code change. Deploy-verifiability follow-up: #677.
+
+## 2026-06-11 — Issue 677 + watchtower label — deploy-verifiability smoke PASS
+
+- **Result**: smoke PASS (verification claimed PASS — no divergence)
+- **Category**: none
+- **Criteria affected**: issue-677-c1/c3 closed live (production /health returned commit 3313c97 + builtAt after NAS pull); watchtower-rhythm-api-c4 (auto-update without SSH) is the one open criterion, observable on the next api_server merge.
+- **Root cause**: n/a — clean run.
+- **Suggested fix**: n/a.
