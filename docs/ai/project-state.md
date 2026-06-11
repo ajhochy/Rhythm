@@ -6,6 +6,18 @@ _(Parked bugs from before 2026-05-27 run. #638 and #635 below are now RESOLVED �
 
 ## Recent coding-agent runs
 
+### 2026-06-01 — fix/google-token-refresh-client-mismatch — Google OAuth `unauthorized_client` on token refresh
+- Recurring Integrations-page bug: `Google token refresh failed: { "error": "unauthorized_client", "error_description": "Unauthorized" }`. Root cause = OAuth **client mismatch**: tokens are minted by the *desktop* PKCE client (`exchangeDesktopCode` → `googleAuthClientId/Secret`, the only live connect path via Flutter `desktop-exchange`) but `refreshTokens` refreshed with the *web* client (`googleClientId/Secret`). The two clients are distinct in the shipped build (`desktop_release.yml:34-37`). Re-auth "fixed" it only until the next ~1h access-token expiry.
+- Files modified:
+  - `apps/api_server/src/services/google_oauth_service.ts` — `refreshTokens` now uses `env.googleAuthClientId`/`env.googleAuthClientSecret` (mirrors `exchangeDesktopCode`), plus a not-configured guard. ~3-line logic change in one private method.
+  - `apps/api_server/src/__tests__/google_token_refresh.test.ts` (NEW) — contract test: asserts refresh presents the desktop client (not web), preserves the refresh token when Google omits a new one, and surfaces Google errors as AppError.
+  - `docs/ai/contracts/fix-google-token-refresh-client-mismatch.json` (NEW) — 6 criteria (4 automated, 2 manual).
+  - `docs/ai/generated-issues/fix-google-token-refresh-client-mismatch.md` (NEW) — full goal/spec.
+- Checks run: contract test RED before fix (AssertionError: `client_id=web-client…` ≠ desktop), GREEN after (3/3). **verification-gate PASS: vitest 551/551 (60 files), tsc build clean.** No repair loop (first-try pass). Manual smoke (gtr-c5) pending user.
+- Decisions made: refresh mirrors the mint client rather than storing an issuing-client column per account — every shipping account is desktop-minted, so the symmetric fix needs no migration/new secret/Google Cloud change. See `docs/ai/decisions.md`.
+- Deviations from spec: none.
+- Concerns: legacy accounts minted via the unused web `/auth/google/callback` flow (if any) would need one reconnect; hosted API must have `GOOGLE_AUTH_CLIENT_SECRET` set (it does, or desktop-exchange would already fail there). Both noted in goal §6/§8.
+
 ### 2026-06-10 — feat/674-675-planner-scheduled-date-and-inspector-edit-mode (#674)
 - Files modified:
   - `apps/api_server/src/controllers/tasks_controller.ts` — `create()` now destructures `scheduledDate` from req.body and passes `scheduledDate: (scheduledDate as string) ?? null` to `repo.createAsync(...)`. Root cause of #674: the due-date/scheduled-date refactor updated the repository + schema but never the create controller, so planner-created tasks persisted with `scheduled_date = NULL` and matched the backlog predicate.

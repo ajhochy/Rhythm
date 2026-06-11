@@ -1,0 +1,55 @@
+{
+  "issue": "fix-google-token-refresh-client-mismatch",
+  "source": "docs/ai/generated-issues/fix-google-token-refresh-client-mismatch.md",
+  "generated": "2026-06-01",
+  "stack": "typescript",
+  "criteria": [
+    {
+      "criterion_id": "gtr-c1",
+      "text": "New test google_token_refresh.test.ts exists, fails on current code, passes after the fix.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/google_token_refresh.test.ts",
+      "test_id": "Google token refresh uses the desktop (issuing) client",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "gtr-c2",
+      "text": "refreshTokens sends client_id / client_secret equal to env.googleAuthClientId / env.googleAuthClientSecret (desktop client), not the web client.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/google_token_refresh.test.ts",
+      "test_id": "refreshes with the desktop client_id/secret, not the web client",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "gtr-c3",
+      "text": "Existing google_desktop_exchange.test.ts and the full api_server vitest suite stay green; refresh preserves the old refresh token and surfaces Google errors as AppError.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/google_token_refresh.test.ts",
+      "test_id": "preserves the existing refresh token when Google omits a new one / surfaces a Google unauthorized_client error as an AppError",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "gtr-c4",
+      "text": "tsc build is clean (npm run build).",
+      "mode": "integration",
+      "test_file": "apps/api_server (tsc)",
+      "test_id": "npm run build",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "gtr-c5",
+      "text": "After a token expires, a Google Calendar/Gmail sync succeeds and the Integrations page shows Connected with no unauthorized_client error.",
+      "mode": "manual",
+      "status": "UNVERIFIED",
+      "reason": "Requires a real Google account + live token expiry; verified via manual smoke per goal §7 (force expires_at into the past, then sync)."
+    },
+    {
+      "criterion_id": "gtr-c6",
+      "text": "No new env var, migration, or Google Cloud config is required by the code change.",
+      "mode": "manual",
+      "status": "UNVERIFIED",
+      "reason": "Static review of the diff; confirmed no migration/secret/console change. Deploy-config check (hosted GOOGLE_AUTH_CLIENT_SECRET) is documentation verification per goal §6."
+    }
+  ],
+  "not_tested": ["gtr-c5", "gtr-c6"]
+}
