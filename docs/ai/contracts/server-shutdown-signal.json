@@ -30,7 +30,17 @@
     {
       "id": "shutdown-c5",
       "kind": "manual",
-      "description": "Live smoke: quit the Flutter app normally (Dart cleanup SIGTERMs the api_server) and confirm no `opencode serve` process remains on :4096 (lsof -iTCP:4096 -sTCP:LISTEN). SIGKILL/force-quit cases are covered by the #655 reclaim path on next launch."
+      "description": "Live smoke: quit the Flutter app normally (Cmd+Q in the production .app or flutter run) and confirm no `opencode serve` process remains on :4096 (lsof -iTCP:4096 -sTCP:LISTEN). In production the api_server is a direct child of Flutter so ppid=1 fires; in dev (flutter run with tsx) the --parent-pid flag now drives the ESRCH probe instead. SIGKILL/force-quit cases are covered by the #655 reclaim path on next launch."
+    },
+    {
+      "id": "shutdown-c6",
+      "kind": "automated",
+      "description": "The watchdog reads --parent-pid=N from process.argv and assigns it to trackedRootPid; this variable is declared before the setInterval watchdog body."
+    },
+    {
+      "id": "shutdown-c7",
+      "kind": "automated",
+      "description": "When --parent-pid is present the watchdog calls process.kill(trackedRootPid, 0) and invokes shutdown() on ESRCH — not the legacy ppid===1 heuristic."
     }
   ]
 }

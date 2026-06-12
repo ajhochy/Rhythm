@@ -52,6 +52,7 @@ db-backups/
 # Local scratch/output artifacts
 tmp/
 output/
+*.state.json
 .superpowers/
 pipeline-evidence/
 

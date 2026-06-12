@@ -140,7 +140,12 @@ class ApiServerService {
     try {
       _process = await Process.start(
         serverInfo.executable,
-        serverInfo.args,
+        // Pass Flutter's own PID so the server-side watchdog can probe it
+        // with signal-0 instead of relying on ppid===1.  In dev mode the
+        // process chain is Flutter→npx→tsx→Node, so process.ppid in Node is
+        // the tsx runner (never 1), meaning the legacy heuristic silently
+        // misses Cmd+Q.  --parent-pid fixes that for both dev and production.
+        [...serverInfo.args, '--parent-pid=$pid'],
         workingDirectory: serverInfo.workingDir,
         environment: {
           ...Platform.environment,

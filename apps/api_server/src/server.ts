@@ -134,18 +134,42 @@ async function main() {
   // child is then reparented to launchd (ppid=1) and orphans, holding :4001
   // and the opencode subprocess on :4096 indefinitely.
   //
-  // Defense-in-depth: poll our own ppid; if it becomes 1 after starting with
-  // a non-1 parent, run the clean shutdown sequence. This works no matter
-  // how the parent dies (Cmd+Q, force-quit, crash) and is independent of any
-  // platform-specific window-manager hook.
-  const originalParentPid = process.ppid;
-  logger.info(`[server] watchdog: started with ppid=${originalParentPid} (AGENT_LOCAL=${process.env.AGENT_LOCAL ?? '(unset)'}, spawn-via=${process.env.SPAWN_VIA ?? '(unset)'})`);
+  // Defense-in-depth: ApiServerService passes --parent-pid=<flutter-pid> at
+  // spawn time. We probe that PID with signal 0 every 2 s; ESRCH means the
+  // root Flutter ancestor is gone regardless of process-chain depth. This
+  // fixes the dev-mode gap where Flutter → npx → tsx → Node means process.ppid
+  // never becomes 1 from the Node process's perspective. Falls back to the
+  // legacy ppid===1 heuristic when the flag is absent (older launcher).
+  const parentPidArg = process.argv.find((a) => a.startsWith('--parent-pid='));
+  const trackedRootPid = parentPidArg
+    ? parseInt(parentPidArg.split('=')[1], 10)
+    : process.ppid;
+  logger.info(
+    `[server] watchdog: ppid=${process.ppid} trackedRootPid=${trackedRootPid} (AGENT_LOCAL=${process.env.AGENT_LOCAL ?? '(unset)'})`,
+  );
   const watchdog = setInterval(() => {
-    if (originalParentPid !== 1 && process.ppid === 1) {
-      logger.info(
-        `[server] parent ${originalParentPid} died (now orphaned to launchd) — self-shutdown (watchdog)`,
-      );
-      shutdown('PARENT_GONE');
+    if (trackedRootPid === 1) return; // started as orphan — never self-shutdown
+    if (parentPidArg) {
+      // --parent-pid path: signal-0 liveness probe
+      try {
+        process.kill(trackedRootPid, 0);
+      } catch (e: unknown) {
+        if ((e as NodeJS.ErrnoException).code === 'ESRCH') {
+          logger.info(
+            `[server] tracked parent ${trackedRootPid} is gone (ESRCH) — self-shutdown (watchdog)`,
+          );
+          shutdown('PARENT_GONE');
+        }
+        // EPERM: process exists, no permission to signal — treat as alive
+      }
+    } else {
+      // Legacy ppid===1 path (no --parent-pid flag, e.g. older launcher)
+      if (process.ppid === 1) {
+        logger.info(
+          `[server] ppid became 1 (orphaned to launchd) — self-shutdown (watchdog)`,
+        );
+        shutdown('PARENT_GONE');
+      }
     }
   }, 2000);
   if (typeof watchdog.unref === 'function') watchdog.unref();
