@@ -1,0 +1,36 @@
+{
+  "id": "server-shutdown-signal",
+  "issue": null,
+  "title": "Regression guard: SIGTERM/SIGINT/PARENT_GONE all dispose the opencode child (#614 wiring, complements #655/PR #682 reclaim)",
+  "branch": "chore/server-shutdown-signal-contract",
+  "test_file": "apps/api_server/src/__tests__/server_shutdown_signal_contract.test.ts",
+  "test_command": "cd apps/api_server && npx vitest run src/__tests__/server_shutdown_signal_contract.test.ts",
+  "note": "Regression contract for EXISTING behavior (commit 726a5c4 + #614b watchdog) — passes on the unmodified codebase by design; fail-first does not apply. Investigation 2026-06-11: the SIGTERM/SIGINT preventative path the follow-up task assumed was missing already exists on main; the actual gap was test coverage of the wiring.",
+  "criteria": [
+    {
+      "id": "shutdown-c1",
+      "kind": "automated",
+      "description": "process.on('SIGTERM') and process.on('SIGINT') are both registered in server.ts and route to shutdown()."
+    },
+    {
+      "id": "shutdown-c2",
+      "kind": "automated",
+      "description": "shutdown() calls opencodeClient.dispose() before any process.exit, so the opencode child on :4096 is reaped on trappable terminations."
+    },
+    {
+      "id": "shutdown-c3",
+      "kind": "automated",
+      "description": "The #614b parent-PID watchdog routes through the same shutdown ('PARENT_GONE') — one shared dispose sequence for all three termination paths."
+    },
+    {
+      "id": "shutdown-c4",
+      "kind": "automated",
+      "description": "shutdown() is idempotent (shuttingDown guard); double signals cannot race two teardowns."
+    },
+    {
+      "id": "shutdown-c5",
+      "kind": "manual",
+      "description": "Live smoke: quit the Flutter app normally (Dart cleanup SIGTERMs the api_server) and confirm no `opencode serve` process remains on :4096 (lsof -iTCP:4096 -sTCP:LISTEN). SIGKILL/force-quit cases are covered by the #655 reclaim path on next launch."
+    }
+  ]
+}
