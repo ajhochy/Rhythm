@@ -6,6 +6,14 @@ _(Parked bugs from before 2026-05-27 run. #638 and #635 below are now RESOLVED �
 
 ## Recent coding-agent runs
 
+### 2026-06-12 — workflow/run-2026-06-12-opencode-parity-plan (planning only; PR #704, issues #685–#703)
+- Task: audit-driven plan for full OpenCode v1.14.49 feature/UI parity in the Agents tab. No implementation. Two parallel audits (OpenCode clone pinned at the embedded SDK version v1.14.49; Rhythm's existing integration) → gap analysis → `docs/ai/current-plan.md` (replaces the completed #617 sprint plan) → 19 issue specs in `docs/ai/generated-issues/opencode-m*.md` → GitHub issues #685–#703 (label `opencode-parity`) → PR #704.
+- Key findings recorded in the plan: the embedded SDK already exposes every endpoint the gaps need (`/session/{id}/diff`, `/revert`, `/unrevert`, `/summarize`, `/todo`, `/fork`, `/command`, `/message`, `/children`, `/mcp`) — the "Changes tab always empty" bug is a duck-typed call to a nonexistent `diffSession` method. Root causes of prior rot, each mapped to an M1 issue: dual transcript stores (in-memory parts vs SQLite plain text), duck-typed SDK access, provider-id/agent-id conflation, in-memory sentinels.
+- Sequencing: M1 foundation (#685–#689) must fully merge before M2 rendering (#690–#693) → M3 session features (#694–#699) → M4 input/config (#700–#703). Out of scope (justified in plan): share server, themes/keybinds, LSP status, TUI remote control, workspaces/worktrees.
+- Checks run: planning artifacts only — no app code touched; no CI runs triggered (docs-only branch; Actions are workflow_dispatch / paths-filtered). Verification-gate not applicable to a planning run; per-issue contracts come via acceptance-contract at implementation time.
+- Open questions flagged for the user before M1 starts (current-plan.md §Open questions): parts storage shape (JSON column vs normalized table), markdown package pick, mini-bubble keep-or-delete, cost display units, custom-agent scope.
+- Process note: the AgentFlow `plan_and_issues` run stalled mid-flight when the MCP server restarted (in-memory registry lost); recovered via CLI `agentflow resume` — which initially failed by falling back to a local ollama model because `AGENTFLOW_WORKFLOWS_DIR` was unset. See decisions.md entry for the config gotcha.
+
 ### 2026-06-12 — chore/server-shutdown-signal-contract (no issue; follow-up to PR #683 smoke)
 - Task: fix watchdog ppid===1 heuristic failing in dev mode (Flutter→npx→tsx→Node chain; api_server's direct parent is tsx runner not Flutter, so ppid never becomes 1 on Cmd+Q). Production path confirmed correct via code analysis (direct Flutter→Node spawn, ppid=1 fires). Implemented `--parent-pid` flag approach so the watchdog works in both modes.
 - Files modified:
