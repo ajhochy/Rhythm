@@ -46,7 +46,7 @@ dependencies are merged. M1 is strictly serial after the first two (which can pa
 |---|---|---|---|---|---|---|
 | 1 | `opencode-m1-1-typed-sdk-wrappers.md` | Typed SDK wrappers replace all duck-typing | Every SDK call goes through a typed `OpencodeClientService` method that throws loudly on missing SDK surface; fixes the `diffSession` bug class and the silent permission no-op | `apps/api_server/src/services/opencode_client_service.ts`, `@types/opencode-ai-sdk.d.ts`, `controllers/agent_sessions_controller.ts` | vitest | — |
 | 2 | `opencode-m1-2-structured-parts-persistence.md` | Persist structured messages/parts server-side | Single durable source of truth: stream bridge writes full part-typed message rows; REST returns them | `apps/api_server/src/database/migrations.ts`, `repositories/agent_session_messages_repository.ts`, `services/opencode_stream_bridge.ts`, `controllers/agent_sessions_controller.ts` | vitest | — |
-| 3 | `opencode-m1-3-flutter-rehydration-single-path.md` | Flutter rehydrates parts from REST; legacy plain-text path deleted | One render path everywhere (main view + mini-bubble); reconnect/restart no longer downgrades; stuck-detection uses parts state | `apps/desktop_flutter/lib/features/agents/controllers/agents_controller.dart`, `views/agents_view.dart`, `app/core/agents/agent_bubble_overlay.dart`, `features/agents/data/*` | flutter test | M1-2 |
+| 3 | `opencode-m1-3-flutter-rehydration-single-path.md` | Flutter rehydrates parts from REST; legacy plain-text path deleted; **mini-bubble overlay deleted** | One render path (main view only — bubble removed per user decision 2026-06-12); reconnect/restart no longer downgrades; stuck-detection uses parts state; trigger flow surfaces via Agents tab + notification | `apps/desktop_flutter/lib/features/agents/controllers/agents_controller.dart`, `views/agents_view.dart`, `app/core/agents/agent_bubble_overlay.dart` (delete), `overlay_controller.dart`, `agent_trigger_watcher.dart`, `features/agents/data/*` | flutter test | M1-2 |
 | 4 | `opencode-m1-4-stream-sentinel-cleanup.md` | Stream lifecycle + sentinel cleanup, dead code removal | Real `stopStream`, no time-based sentinels, `pty_runner.ts` deleted | `apps/api_server/src/services/opencode_stream_bridge.ts`, `controllers/agent_sessions_controller.ts`, `services/pty_runner.ts` (delete), `agents_controller.dart` | vitest + flutter test | M1-3 |
 | 5 | `opencode-m1-5-resume-continuity.md` | Resume with real conversation continuity | `resume()` re-attaches to the persisted SDK session id and rehydrates; no more fresh-session amnesia | `apps/api_server/src/controllers/agent_sessions_controller.ts`, `services/opencode_engine.ts`, `migrations.ts` (persist sdk session id), `agents_controller.dart` | vitest + flutter test | M1-2, M1-3 |
 
@@ -121,23 +121,18 @@ dependencies are merged. M1 is strictly serial after the first two (which can pa
 - M4: 4 issues — **3-4 sessions**.
 - Total: **~14-19 focused sessions**, re-smoke baked in at milestone boundaries.
 
-## Open questions (flagged for orchestrator/user before M1 starts)
+## Open questions — resolutions (user, 2026-06-12)
 
-1. **Parts storage shape (M1-2):** proposal is a `parts_json TEXT` column on
-   `agent_session_messages` (one row per message, parts as a JSON array) over a normalized
-   `agent_session_parts` table — simpler migration, the client always consumes whole messages.
-   Confirm, or require normalized rows for future querying.
-2. **Markdown package (M2-1):** `flutter_markdown` is deprecated by the Flutter team (handed to
-   community as `flutter_markdown_plus`); `gpt_markdown` handles streaming/LaTeX better.
-   Needs a pick before M2-1; acceptance criteria are written package-agnostic.
-3. **Mini-bubble scope (M1-3):** plan assumes the mini-bubble is **kept** and moved to the
-   parts path. If the user would rather delete the mini-bubble overlay entirely, M1-3 shrinks.
-4. **Cost display (M2-4):** OpenCode reports cost in USD per assistant message. Show dollars to
-   church staff, or tokens only? Plan defaults to both (cost primary, tokens in tooltip).
-5. **Custom agents (M4-4):** v1.14.49 custom agents come from opencode config files in the cwd.
-   Rhythm doesn't manage per-cwd opencode config; the issue scopes to "render what the SDK
-   reports" with no config-authoring UI. Confirm that's the realistic version wanted.
+1. **Parts storage shape (M1-2): RESOLVED** — `parts_json TEXT` column on
+   `agent_session_messages` (one row per message, parts as a JSON array). No normalized table.
+2. **Markdown package (M2-1): RESOLVED** — `gpt_markdown` (streaming-delta-friendly).
+3. **Mini-bubble scope (M1-3): RESOLVED** — **delete the mini-bubble overlay entirely**
+   ("good idea, but doesn't really seem that helpful"). M1-3 deletes `agent_bubble_overlay.dart`
+   + wiring; the trigger flow surfaces via the Agents tab list + existing desktop notification.
+   No replacement surface designed in M1-3 — follow-up issue if it feels under-surfaced.
+4. **Cost display (M2-4): RESOLVED** — keep dollars on (cost primary, token breakdown in
+   tooltip), as planned.
+5. **Custom agents (M4-4): OPEN** — awaiting user decision after explanation of what OpenCode
+   custom agents are and what the no-authoring-UI scope means.
 6. **Vague-criteria flags:** "terminal-style output" (M2-3) and "renders as markdown" (M2-1)
-   were vague in the request; issue files pin them to concrete testable assertions (monospace
-   font + preserved whitespace + ANSI stripped; specific markdown elements present as widgets).
-   Review those pins.
+   were pinned to concrete testable assertions in the issue files; review during PR/issue read.

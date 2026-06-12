@@ -16,17 +16,18 @@ Streaming deltas continue to append without re-rendering sibling bubbles.
 Audit B BROKEN list: "markdown not rendered (SelectableText raw chars)". Every OpenCode client
 renders assistant markdown; raw `**bold**` and ``` fences read as garbage to church staff.
 
-## Decision needed (plan open question 2)
+## Decision (resolved 2026-06-12, plan open question 2)
 
-Package: `flutter_markdown_plus` (community continuation of deprecated `flutter_markdown`) vs
-`gpt_markdown` (streaming-friendly). Criteria below are package-agnostic.
+Package: **`gpt_markdown`** — chosen for streaming-delta-friendly rendering (assistant text
+arrives as `message.part.delta` appends). Criteria below remain package-agnostic; if
+`gpt_markdown` cannot satisfy a criterion (e.g. selectability), surface that before swapping
+packages rather than weakening the criterion.
 
 ## Likely files
 
 - `apps/desktop_flutter/lib/features/agents/views/agents_view.dart` (`_ChatBubble` text branch)
 - `apps/desktop_flutter/lib/features/agents/views/_markdown_message_body.dart` (new)
-- `apps/desktop_flutter/pubspec.yaml`
-- `apps/desktop_flutter/lib/app/core/agents/agent_bubble_overlay.dart` (same widget reused)
+- `apps/desktop_flutter/pubspec.yaml` (add `gpt_markdown`)
 
 ## Acceptance criteria
 
@@ -35,8 +36,8 @@ Package: `flutter_markdown_plus` (community continuation of deprecated `flutter_
 3. User-role messages render as plain text (no markdown interpretation of user input).
 4. Streaming: appending a delta to the last text part updates the rendered output without throwing and preserves earlier bubbles' widgets (no full-list rebuild assertion via keys).
 5. All colors/typography come from `RhythmColorRoles` tokens (review check; widget test asserts code-block background == `context.rhythm.surfaceMuted`).
-6. Mini-bubble uses the same markdown body widget.
-7. `flutter analyze`, `dart format`, full `flutter test` green; `ai-workflow checks --level pr` exits 0.
+6. `flutter analyze`, `dart format`, full `flutter test` green; `ai-workflow checks --level pr` exits 0.
+   _(Former criterion 6 — mini-bubble reuse — removed: the bubble overlay is deleted in OPC-M1-3.)_
 
 ## Required tests (flutter test)
 

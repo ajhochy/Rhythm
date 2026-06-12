@@ -29,7 +29,7 @@ ALTER TABLE agent_session_messages ADD COLUMN cost REAL;               -- USD | 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_asm_sdk_msg ON agent_session_messages(session_id, sdk_message_id);
 ```
 
-Decision (flagged in plan open question 1): JSON column over a normalized parts table —
+Decision (resolved 2026-06-12, plan open question 1 — user confirmed): JSON column over a normalized parts table —
 clients always consume whole messages; simpler upsert from `message.updated`. Legacy rows keep
 `parts_json = NULL` and are served as a single synthetic text part (back-compat read shim).
 
