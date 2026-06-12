@@ -43,4 +43,7 @@ identically to OpenCode proper.
 
 ## Out of scope
 
-- Authoring/editing custom agents inside Rhythm. Reconciling Rhythm's legacy `agentId` (claude-code/codex/gemini-cli) naming — that stays the session-creation concept; this selector is opencode's intra-session agent.
+- Authoring/editing custom agents inside Rhythm — confirmed by user 2026-06-12; the persona
+  builder UI is filed separately as the unscheduled future issue #705
+  (`opencode-future-agent-builder-ui.md`). This issue must not grow authoring scope.
+- Reconciling Rhythm's legacy `agentId` (claude-code/codex/gemini-cli) naming — that stays the session-creation concept; this selector is opencode's intra-session agent.

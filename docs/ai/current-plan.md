@@ -132,7 +132,9 @@ dependencies are merged. M1 is strictly serial after the first two (which can pa
    No replacement surface designed in M1-3 — follow-up issue if it feels under-surfaced.
 4. **Cost display (M2-4): RESOLVED** — keep dollars on (cost primary, token breakdown in
    tooltip), as planned.
-5. **Custom agents (M4-4): OPEN** — awaiting user decision after explanation of what OpenCode
-   custom agents are and what the no-authoring-UI scope means.
+5. **Custom agents (M4-4): RESOLVED** — keep #703 as-is (render what the SDK reports, no
+   authoring UI). The persona-builder UI ("Bulletin Writer"-style custom assistants defined
+   inside Rhythm) is filed as unscheduled future issue **#705**
+   (`opencode-future-agent-builder-ui.md`) — depends on #703, explicitly outside M1-M4.
 6. **Vague-criteria flags:** "terminal-style output" (M2-3) and "renders as markdown" (M2-1)
    were pinned to concrete testable assertions in the issue files; review during PR/issue read.
