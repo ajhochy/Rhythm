@@ -1,0 +1,49 @@
+{
+  "date": "2026-06-11",
+  "run": "chore/server-shutdown-signal-contract (PR #683)",
+  "issue": null,
+  "smoke_result": "unknown",
+  "verification_claimed": "PASS",
+  "criteria_results": [],
+  "process_issues": [],
+  "workflow_adherence": {
+    "expected_chain": [
+      "workflow-orchestrator",
+      "acceptance-contract",
+      "coding-agent",
+      "verification-gate",
+      "project-state-updater",
+      "workflow-retrospective"
+    ],
+    "observed_chain": [
+      "workflow-orchestrator",
+      "coding-agent",
+      "verification-gate",
+      "project-state-updater",
+      "workflow-retrospective"
+    ],
+    "skipped_skills": ["acceptance-contract"],
+    "issues": [
+      {
+        "workflow_category": "W1",
+        "affected_skill": "acceptance-contract",
+        "description": "Skipped with documented rationale: the dispatching task's premise was stale (SIGTERM/SIGINT->dispose handlers already exist on main, commit 726a5c4), so scope collapsed to a regression guard for EXISTING behavior — a fail-first contract is structurally inapplicable (the test passes on the unmodified codebase by design). Substitute rigor: mutation-proof (removing the SIGINT registration fails c1) captured in transcript and project-state entry. Contract JSON still produced (docs/ai/contracts/server-shutdown-signal.json).",
+        "detected_by": "self-report at dispatch time"
+      },
+      {
+        "workflow_category": "W1",
+        "affected_skill": "workflow-orchestrator",
+        "description": "AgentFlow dispatcher tools (mcp__agentflow__*) were available but implement_issue was not used; run executed via the SKILL.md chain in-process (Guard 5). Rationale: no GitHub issue existed for this follow-up (implement_issue requires issue_number/issue_body), and post-investigation scope was a single test file. Judged acceptable; flagging so the miner can see whether 'no issue number -> bypass agentflow' recurs and deserves an explicit routing rule.",
+        "detected_by": "retrospective"
+      },
+      {
+        "workflow_category": "W1",
+        "affected_skill": "coding-agent",
+        "description": "TodoWrite/Task checklist was condensed to 3 run-level tasks rather than per-skill checklist expansion as each SKILL.md prescribes. All steps were still executed and evidenced; granularity was the only deviation.",
+        "detected_by": "retrospective"
+      }
+    ],
+    "overall_score": "partial"
+  },
+  "notes": "Investigation-first run: premise check against origin/main caught that the requested feature already existed before any code was written — zero wasted implementation. Verification-gate PASS with same-response evidence (checks --level pr green, vitest 563/563, flutter 305, build exit 0); CI gate gh run watch exit 0 on run 27385489228. Live-server smoke deliberately skipped with documented reason (test-only diff; spawning would touch real local DB and :4096). Manual smoke c5 pending user."
+}
