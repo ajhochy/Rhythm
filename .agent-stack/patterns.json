@@ -281,8 +281,8 @@
       ]
     }
   ],
-  "last_updated": "2026-06-11",
-  "total_runs_analyzed": 14,
+  "last_updated": "2026-06-12",
+  "total_runs_analyzed": 17,
   "min_occurrences_threshold": 2,
   "process_min_occurrences_threshold": 1,
   "workflow_min_occurrences_threshold": 1
