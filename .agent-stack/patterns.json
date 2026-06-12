@@ -36,6 +36,27 @@
       ]
     },
     {
+      "id": "c5-environment-issue",
+      "category": "C5",
+      "description": "Environment issue failures: 4 occurrence(s) across issues ['674', 'batch:599,600,601,605,606,610,611,614,615,620,622,623,624,625']",
+      "occurrences": 4,
+      "affected_issues": [
+        "674",
+        "batch:599,600,601,605,606,610,611,614,615,620,622,623,624,625"
+      ],
+      "affected_skills": [
+        "verification-gate"
+      ],
+      "reason": "The pipeline didn't catch an environment gap. Verification-gate should require explicit infra checks.",
+      "suggested_prompt_addition": "When a contract test is marked UNVERIFIED due to missing infra, treat it as a pipeline failure, not a skip. Require the infra to be available or the test to be quarantined explicitly.",
+      "evidence_files": [
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-19-pr-617-batch-smoke.json",
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-06-11-pr-676-smoke.json",
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-06-11-pr-676-smoke.json",
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-06-11-pr-676-smoke.json"
+      ]
+    },
+    {
       "id": "c1-missing-contract",
       "category": "C1",
       "description": "Missing contract failures: 3 occurrence(s) across issues ['batch:599,600,601,605,606,610,611,614,615,620,622,623,624,625', 'batch:627,628,632,633']",
@@ -157,8 +178,8 @@
     {
       "id": "w1-required-skill-skipped",
       "category": "W1",
-      "description": "Required skill skipped failures: 9 occurrence(s) across issues ['batch:599,600,601,605,606,610,611,614,615,620,622,623,624,625', 'batch:627,628,632,633', 'batch:627,628,632,633,634,636,637,638,639']",
-      "occurrences": 9,
+      "description": "Required skill skipped failures: 12 occurrence(s) across issues ['batch:599,600,601,605,606,610,611,614,615,620,622,623,624,625', 'batch:627,628,632,633', 'batch:627,628,632,633,634,636,637,638,639']",
+      "occurrences": 12,
       "affected_issues": [
         "batch:599,600,601,605,606,610,611,614,615,620,622,623,624,625",
         "batch:627,628,632,633",
@@ -178,16 +199,20 @@
         "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-20-pr-617-fifth-round-batch.json",
         "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-20-pr-617-fifth-round-batch.json",
         "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-30-staff-guide.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-06-10-retro-issues-674-675-pr-676.json"
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-06-10-retro-issues-674-675-pr-676.json",
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-06-11-retro-server-shutdown-signal-contract.json",
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-06-11-retro-server-shutdown-signal-contract.json",
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-06-11-retro-server-shutdown-signal-contract.json"
       ]
     },
     {
       "id": "w5-premature-completion-claim",
       "category": "W5",
-      "description": "Premature completion claim failures: 7 occurrence(s) across issues ['645', 'batch:599,600,601,605,606,610,611,614,615,620,622,623,624,625', 'batch:627,628,632,633', 'batch:627,628,632,633,634,636,637,638,639']",
-      "occurrences": 7,
+      "description": "Premature completion claim failures: 8 occurrence(s) across issues ['645', '674', 'batch:599,600,601,605,606,610,611,614,615,620,622,623,624,625', 'batch:627,628,632,633', 'batch:627,628,632,633,634,636,637,638,639']",
+      "occurrences": 8,
       "affected_issues": [
         "645",
+        "674",
         "batch:599,600,601,605,606,610,611,614,615,620,622,623,624,625",
         "batch:627,628,632,633",
         "batch:627,628,632,633,634,636,637,638,639"
@@ -204,7 +229,8 @@
         "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-20-pr-617-fifth-round-batch.json",
         "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-26-issue-645.json",
         "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-26-retro-issues-644-643-645.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-06-10-retro-issues-674-675-pr-676.json"
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-06-10-retro-issues-674-675-pr-676.json",
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-06-11-pr-676-smoke.json"
       ]
     },
     {
@@ -255,8 +281,8 @@
       ]
     }
   ],
-  "last_updated": "2026-06-10",
-  "total_runs_analyzed": 12,
+  "last_updated": "2026-06-11",
+  "total_runs_analyzed": 14,
   "min_occurrences_threshold": 2,
   "process_min_occurrences_threshold": 1,
   "workflow_min_occurrences_threshold": 1

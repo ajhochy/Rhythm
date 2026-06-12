@@ -6,6 +6,18 @@ _(Parked bugs from before 2026-05-27 run. #638 and #635 below are now RESOLVED �
 
 ## Recent coding-agent runs
 
+### 2026-06-12 — chore/server-shutdown-signal-contract (no issue; follow-up to PR #683 smoke)
+- Task: fix watchdog ppid===1 heuristic failing in dev mode (Flutter→npx→tsx→Node chain; api_server's direct parent is tsx runner not Flutter, so ppid never becomes 1 on Cmd+Q). Production path confirmed correct via code analysis (direct Flutter→Node spawn, ppid=1 fires). Implemented `--parent-pid` flag approach so the watchdog works in both modes.
+- Files modified:
+  - `apps/api_server/src/server.ts` — watchdog now reads `--parent-pid=N` from `process.argv` → `trackedRootPid`; uses `process.kill(trackedRootPid, 0)` / ESRCH liveness probe when flag is present; falls back to legacy `ppid===1` when absent (older launcher compatibility).
+  - `apps/desktop_flutter/lib/app/core/server/api_server_service.dart` — spawn args extended with `'--parent-pid=$pid'` (dart:io `pid` getter = Flutter's own PID); both dev-mode (`npx tsx`) and production (`node dist/server.js`) paths receive the flag.
+  - `apps/api_server/src/__tests__/server_shutdown_signal_contract.test.ts` — added c6 (argv parsing into trackedRootPid, declared before setInterval) and c7 (process.kill / ESRCH branch present).
+  - `docs/ai/contracts/server-shutdown-signal.json` — added criteria c6, c7 (automated); updated c5 description to reflect both production and dev-mode fix.
+- Checks run: contract 6/6 ✓ (4 existing + 2 new); `ai-workflow checks --level pr` green (flutter analyze ✓, dart format ✓, tsc ✓, vitest 571/571 across 65 files); `flutter test` 305/305 ✓; `npm run build` exit 0. No repair loop — first-try pass.
+- Decisions made: signal-0 probe (`process.kill(pid, 0)`) over a PID-file or polling approach — it's a synchronous kernel query (no filesystem dep), works cross-depth, and ESRCH/EPERM semantics are well-defined on macOS. See `docs/ai/decisions.md` for trade-off note.
+- Deviations from spec: none.
+- Concerns: legacy fallback path (`ppid===1`) is now dead code for any client using ApiServerService ≥ this commit; kept for launchers that predate the flag. Signal-0 requires the watchdog to have permission to probe Flutter's PID — always true for a direct or indirect child on the same macOS user account (same UID = permission granted; EPERM would mean a different-user process, treated conservatively as alive).
+
 ### 2026-06-11 — chore/server-shutdown-signal-contract (no issue; follow-up to #655/PR #682)
 - Investigation outcome (the task's premise was stale): the proposed SIGTERM/SIGINT→`opencodeClient.dispose()` handlers ALREADY exist on main — `server.ts:129-130`, added in commit `726a5c4` (#614 clean-shutdown block), with the #614b watchdog routing `PARENT_GONE` through the same `shutdown()`. No production change needed; the real gap was zero test coverage of that wiring (existing tests cover `dispose()` itself and the #655 reclaim path only).
 - Files modified:
@@ -448,7 +460,16 @@ _(Parked bugs from before 2026-05-27 run. #638 and #635 below are now RESOLVED �
 
 ---
 
-## Current Status (2026-06-11 — #674 + #675 SHIPPED: merged, deployed, released v18.43, smoke PASS)
+## Current Status (2026-06-12 — watchdog --parent-pid fix: verified, awaiting commit + PR)
+
+🟡 **Branch `chore/server-shutdown-signal-contract`** — `--parent-pid` watchdog fix verified (vitest 571/571, flutter test 305/305, flutter analyze ✓, tsc ✓, npm run build ✓). Changes uncommitted. PR #683 (prior run on this branch) already merged.
+
+- **Root cause fixed:** In dev mode (`flutter run`), the Flutter→npx→tsx→Node chain meant `process.ppid` was never 1 from the Node process's perspective; the `ppid===1` watchdog never fired on Cmd+Q. Production path (direct Flutter→Node) was already correct per code analysis.
+- **Fix:** `ApiServerService.start()` now passes `--parent-pid=${pid}` (Flutter's PID via dart:io `pid`); `server.ts` watchdog probes that PID with `process.kill(trackedRootPid, 0)` / ESRCH. Legacy `ppid===1` path retained for older launchers.
+- **Contract guard:** c6 (argv parsing) + c7 (signal-0/ESRCH) added; all 6 criteria green.
+- **Next:** commit + push → new PR → manual smoke c5 (live Cmd+Q: confirm no `opencode serve` on :4096 after quit in `flutter run` or production .app).
+
+## Prior Status (2026-06-11 — #674 + #675 SHIPPED: merged, deployed, released v18.43, smoke PASS)
 
 🟢 **[PR #676](https://github.com/ajhochy/Rhythm/pull/676) merged to `main`** (commit `64c6b06`), API image published + **manually deployed on the Synology**, desktop **v18.43** released (signed/notarized DMG). Manual smoke **PASS** on 2026-06-11 after one environment hiccup (below). Issues #674/#675 closed.
 

@@ -1,0 +1,78 @@
+{
+  "run_id": "2026-05-27-pr-649-smoke",
+  "issue": 630,
+  "date": "2026-05-27",
+  "smoke_result": "pass",
+  "verification_claimed": "PASS",
+  "divergence": false,
+  "criteria_results": [
+    {
+      "criterion_id": "issue-648-c1-c3",
+      "text": "Gemini CLI session must not use invalid OpenRouter model id google/gemini-3-flash and must start without ProviderModelNotFoundError.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Live Gemini CLI session used providerId=openrouter and modelId=google/gemini-3-flash-preview, reached idle, and did not show ProviderModelNotFoundError."
+    },
+    {
+      "criterion_id": "issue-638-c5",
+      "text": "WS error frames must appear in the full Agents view transcript even when hasChat=true.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Full transcript pane showed Error: Rhythm API error 401: [object Object] alongside SDK chat output."
+    },
+    {
+      "criterion_id": "issue-635-c1-c2",
+      "text": "Expanded mini-bubble must show the user's sent message immediately and assistant output when it arrives.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Expanded mini-bubble showed bubble smoke check immediately after Send and later displayed assistant output below it."
+    },
+    {
+      "criterion_id": "issue-630-c1-c2",
+      "text": "AskUserQuestion tool cards must render interactive option buttons, including Map options with {label, description}, and option taps must submit the answer.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Live Claude Code smoke rendered the AskUserQuestion card with Quick and Thorough option buttons. Clicking Quick submitted a Quick user message back into the transcript."
+    }
+  ],
+  "process_issues": [],
+  "workflow_adherence": {
+    "overall_score": "partial",
+    "expected_chain": [
+      "smoke-test",
+      "computer-use",
+      "failure-postmortem"
+    ],
+    "observed_chain": [
+      "smoke-test",
+      "computer-use",
+      "github",
+      "failure-postmortem"
+    ],
+    "skipped_skills": [],
+    "issues": []
+  },
+  "implementation_files": [
+    "apps/api_server/src/__tests__/issue_648_contract.test.ts",
+    "apps/api_server/src/services/agent_model_resolver.ts",
+    "apps/desktop_flutter/lib/features/agents/controllers/agents_controller.dart",
+    "apps/desktop_flutter/lib/features/agents/views/_message_actions_row.dart",
+    "apps/desktop_flutter/lib/features/agents/views/_question_tool_card.dart",
+    "apps/desktop_flutter/lib/features/agents/views/agents_view.dart",
+    "apps/desktop_flutter/test/features/agents/issue_630_contract_test.dart",
+    "apps/desktop_flutter/test/features/agents/issue_635_contract_test.dart",
+    "apps/desktop_flutter/test/features/agents/issue_638_contract_test.dart",
+    "docs/ai/contracts/issue-630.json",
+    "docs/ai/contracts/issue-635.json",
+    "docs/ai/contracts/issue-638.json",
+    "docs/ai/contracts/issue-648.json",
+    "docs/ai/project-state.md"
+  ],
+  "failure_output": "",
+  "overall_category": "none",
+  "suggested_follow_up": "The initial #630 observation stopped before the live tool args finished hydrating; keep a short wait/recheck step for streamed tool-card smoke checks."
+}

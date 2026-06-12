@@ -21,6 +21,11 @@
  *     so all three termination paths share one dispose sequence.
  * c4: shutdown() is idempotent (shuttingDown guard), so a double signal
  *     cannot race two teardown sequences.
+ * c6: the watchdog parses --parent-pid=N from process.argv and uses it as
+ *     trackedRootPid (fixes dev-mode flutter→npx→tsx→node depth gap where
+ *     process.ppid never becomes 1 from the api_server's perspective).
+ * c7: when --parent-pid is present the watchdog uses process.kill(trackedRootPid, 0)
+ *     and calls shutdown on ESRCH — not the legacy ppid===1 check.
  *
  * These are source-inspection contracts (same style as
  * watchtower_compose_contract.test.ts): server.ts runs main() at import —
@@ -80,5 +85,21 @@ describe('server.ts — #614 shutdown signal contract (opencode orphan preventio
     const block = shutdownBlock();
     expect(block).toMatch(/if\s*\(\s*shuttingDown\s*\)\s*return/);
     expect(block).toContain('shuttingDown = true');
+  });
+
+  it('shutdown-c6: watchdog parses --parent-pid=N from process.argv into trackedRootPid', () => {
+    // The flag must be read before the watchdog interval is set up.
+    const argvIdx = source.indexOf("process.argv.find((a) => a.startsWith('--parent-pid='))");
+    expect(argvIdx, "process.argv.find for '--parent-pid=' must exist in server.ts").toBeGreaterThan(-1);
+    const trackedIdx = source.indexOf('trackedRootPid');
+    expect(trackedIdx, 'trackedRootPid variable must be declared').toBeGreaterThan(-1);
+    // trackedRootPid must be declared before the watchdog setInterval
+    const watchdogIdx = source.indexOf('setInterval');
+    expect(trackedIdx, 'trackedRootPid must be declared before the watchdog setInterval').toBeLessThan(watchdogIdx);
+  });
+
+  it('shutdown-c7: when --parent-pid is present the watchdog uses process.kill(trackedRootPid, 0) / ESRCH', () => {
+    expect(source).toMatch(/process\.kill\(\s*trackedRootPid\s*,\s*0\s*\)/);
+    expect(source).toMatch(/\.code\s*===\s*['"]ESRCH['"]/);
   });
 });

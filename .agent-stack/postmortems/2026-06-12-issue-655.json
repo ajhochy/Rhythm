@@ -1,0 +1,76 @@
+{
+  "run_id": "2026-06-12-issue-655",
+  "issue": 655,
+  "date": "2026-06-12",
+  "smoke_result": "pass",
+  "verification_claimed": "PASS",
+  "divergence": false,
+  "criteria_results": [
+    {
+      "criterion_id": "issue-655-c1",
+      "text": "When a stale `opencode serve --port=4096` orphan is holding the port, starting the api_server reclaims the port (kills the stale process) and the opencode engine reaches ready state without manual intervention.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Unit test passed in contract verification."
+    },
+    {
+      "criterion_id": "issue-655-c2",
+      "text": "When a NON-opencode process holds :4096, the api_server does not kill it; it surfaces a clear error naming the occupying PID/command.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Unit test passed in contract verification."
+    },
+    {
+      "criterion_id": "issue-655-c3",
+      "text": "Unit/integration coverage for the port-probe + stale-detection logic (mock `lsof`/`ps` boundary).",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Unit test passed in contract verification."
+    },
+    {
+      "criterion_id": "issue-655-c4",
+      "text": "Manual smoke: force-quit the app (Activity Monitor) while a session is active, relaunch, confirm Open chat works without a manual `kill`.",
+      "contract_status": "untested",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Manual smoke successfully reproduced the orphan scenario: killed api_server (PID 54975) and Flutter while leaving opencode PID 54999 on :4096. Upon relaunch, new api_server (PID 56989) correctly detected stale process, logged 'reclaiming stale opencode orphan on :4096 (PID 54999)' and 'reclaimed :4096 from stale opencode PID 54999 via SIGTERM'. Fresh engine came up without manual intervention. Health endpoint returned {status: ready}. c4 requirement fully satisfied."
+    }
+  ],
+  "process_issues": [],
+  "workflow_adherence": {
+    "overall_score": "pass",
+    "expected_chain": [
+      "verification-gate (accept contract)",
+      "coding-agent implementation",
+      "unit tests passing",
+      "manual smoke testing",
+      "failure-postmortem"
+    ],
+    "observed_chain": [
+      "acceptance-contract generated unit tests",
+      "coding-agent implemented port-reclaim logic + SIGTERM graceful shutdown",
+      "unit tests (c1, c2, c3) passed",
+      "manual smoke reproduced orphan scenario",
+      "orphan correctly detected and terminated",
+      "api_server came up ready",
+      "failure-postmortem captured"
+    ],
+    "skipped_skills": [],
+    "issues": []
+  },
+  "implementation_files": [
+    "apps/api_server/src/server.ts",
+    "apps/api_server/src/__tests__/issue_655_contract.test.ts"
+  ],
+  "failure_output": "none",
+  "overall_category": "none",
+  "suggested_follow_up": "none",
+  "resolution": {
+    "date": "2026-06-12",
+    "smoke_result": "pass",
+    "action": "Manual smoke validated orphan-reclaim logic under real shutdown conditions. Issue 655 ready for close; all acceptance criteria (c1–c4) satisfied. No regressions detected."
+  }
+}
