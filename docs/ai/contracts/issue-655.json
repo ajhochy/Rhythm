@@ -1,0 +1,41 @@
+{
+  "issue": 655,
+  "generated": "2026-06-11",
+  "criteria": [
+    {
+      "criterion_id": "issue-655-c1",
+      "text": "When a stale `opencode serve --port=4096` orphan is holding the port, starting the api_server reclaims the port (kills the stale process) and the opencode engine reaches ready state without manual intervention.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/issue_655_contract.test.ts",
+      "test_id": "issue-655-c1: reclaim a stale opencode orphan holding :4096",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-655-c2",
+      "text": "When a NON-opencode process holds :4096, the api_server does not kill it; it surfaces a clear error naming the occupying PID/command.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/issue_655_contract.test.ts",
+      "test_id": "issue-655-c2: a NON-opencode process holding :4096 is not killed",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-655-c3",
+      "text": "Unit/integration coverage for the port-probe + stale-detection logic (mock `lsof`/`ps` boundary).",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/issue_655_contract.test.ts",
+      "test_id": "issue-655-c3: port-probe + stale-detection logic uses the lsof/ps boundary",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-655-c4",
+      "text": "Manual smoke: force-quit the app (Activity Monitor) while a session is active, relaunch, confirm Open chat works without a manual `kill`.",
+      "mode": "manual",
+      "status": "UNVERIFIED",
+      "reason": "Requires force-quitting the shipped desktop app (untrappable SIGKILL leaving an opencode orphan), then relaunching and opening a task-ready chat. Cannot be exercised inside vitest because it depends on a real orphaned opencode process holding :4096 and the full Flutter->api_server->opencode spawn path. Verified by manual smoke on the next desktop build."
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": [
+    "issue-655-c4"
+  ]
+}
