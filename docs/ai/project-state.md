@@ -460,14 +460,13 @@ _(Parked bugs from before 2026-05-27 run. #638 and #635 below are now RESOLVED �
 
 ---
 
-## Current Status (2026-06-12 — watchdog --parent-pid fix: verified, awaiting commit + PR)
+## Current Status (2026-06-12 — watchdog --parent-pid fix: MERGED PR #684)
 
-🟡 **Branch `chore/server-shutdown-signal-contract`** — `--parent-pid` watchdog fix verified (vitest 571/571, flutter test 305/305, flutter analyze ✓, tsc ✓, npm run build ✓). Changes uncommitted. PR #683 (prior run on this branch) already merged.
+🟢 **[PR #684](https://github.com/ajhochy/Rhythm/pull/684) merged to `main`** — `--parent-pid` watchdog fix. Server CI + Desktop CI green.
 
-- **Root cause fixed:** In dev mode (`flutter run`), the Flutter→npx→tsx→Node chain meant `process.ppid` was never 1 from the Node process's perspective; the `ppid===1` watchdog never fired on Cmd+Q. Production path (direct Flutter→Node) was already correct per code analysis.
-- **Fix:** `ApiServerService.start()` now passes `--parent-pid=${pid}` (Flutter's PID via dart:io `pid`); `server.ts` watchdog probes that PID with `process.kill(trackedRootPid, 0)` / ESRCH. Legacy `ppid===1` path retained for older launchers.
-- **Contract guard:** c6 (argv parsing) + c7 (signal-0/ESRCH) added; all 6 criteria green.
-- **Next:** commit + push → new PR → manual smoke c5 (live Cmd+Q: confirm no `opencode serve` on :4096 after quit in `flutter run` or production .app).
+- **Root cause fixed:** In dev mode (`flutter run`), Flutter→npx→tsx→Node chain meant `process.ppid` was never 1 from the Node process's perspective; the `ppid===1` watchdog never fired on Cmd+Q. Production (direct Flutter→Node) was already correct per code analysis.
+- **Fix:** `ApiServerService.start()` passes `--parent-pid=${pid}`; `server.ts` watchdog probes it with `process.kill(trackedRootPid, 0)` / ESRCH. Legacy fallback retained for older launchers.
+- **Manual smoke pending (c5):** `flutter run -d macos` → Cmd+Q → `lsof -iTCP:4096 -sTCP:LISTEN` should return no results.
 
 ## Prior Status (2026-06-11 — #674 + #675 SHIPPED: merged, deployed, released v18.43, smoke PASS)
 

@@ -1,0 +1,56 @@
+{
+  "run_id": "2026-06-12-retro-watchdog-parent-pid",
+  "issue": null,
+  "pr": 684,
+  "date": "2026-06-12",
+  "smoke_result": "unknown",
+  "verification_claimed": "PASS",
+  "divergence": false,
+  "criteria_results": [],
+  "process_issues": [],
+  "workflow_adherence": {
+    "overall_score": "strict",
+    "expected_chain": [
+      "workflow-orchestrator",
+      "upfront alignment (AskUserQuestion)",
+      "coding-agent",
+      "verification-gate",
+      "project-state-updater",
+      "PR open + CI gate",
+      "workflow-retrospective"
+    ],
+    "observed_chain": [
+      "workflow-orchestrator Skill invoked — Guard 1 check passed, context pack read (project-state.md + contracts), Intake C routing (bug with known cause from PR #683 smoke)",
+      "upfront alignment — single AskUserQuestion (implement fix vs document-only)",
+      "coding-agent in-process — 4 files changed (server.ts watchdog, api_server_service.dart spawn args, contract test c6+c7, contract JSON); project-state run entry written before verification-gate",
+      "verification-gate Skill invoked — PASS: vitest 571/571, flutter test 305/305, flutter analyze ✓, tsc ✓, npm run build ✓, SPAWN_VIA stale-ref check zero-hits, no UI change",
+      "project-state-updater Skill invoked — current-status and post-merge sections updated",
+      "Guard 4 pre-push check confirmed remote ajhochy/Rhythm branch chore/server-shutdown-signal-contract",
+      "git commit 4ff94a3 + push",
+      "PR #684 opened",
+      "CI watched: Server CI + Desktop CI both green",
+      "gh pr merge 684 on explicit user request",
+      "workflow-retrospective Skill invoked"
+    ],
+    "skipped_skills": [
+      "acceptance-contract (correct skip: no GitHub issue, no formal acceptance-criteria section; organic follow-up from smoke finding)",
+      "failure-triage (correct skip: no failures; first-try pass)",
+      "failure-postmortem (deferred: manual smoke c5 not yet run; postmortem will be written after c5)"
+    ],
+    "issues": [],
+    "notes": "Textbook clean run. Intake C routing was appropriate (bug with code-confirmed root cause, no production build needed). In-process coding-agent correct per Guard 5 (4-file tightly-scoped change, context already in window). All guards honored. No repair loops. Merge triggered by explicit user instruction, which overrides the 'manual merge only' default per instruction hierarchy. One anomaly: docs/contract-schema.md and docs/failure-taxonomy.md appeared as untracked files (likely from the AgentFlow context-doc presence check in a prior session); neither was created or modified by this run."
+  },
+  "implementation_files": [
+    "apps/api_server/src/server.ts",
+    "apps/desktop_flutter/lib/app/core/server/api_server_service.dart",
+    "apps/api_server/src/__tests__/server_shutdown_signal_contract.test.ts",
+    "docs/ai/contracts/server-shutdown-signal.json"
+  ],
+  "failure_output": "none",
+  "overall_category": "none",
+  "resolution": {
+    "date": "2026-06-12",
+    "pr": 684,
+    "action": "Implemented --parent-pid flag approach: ApiServerService passes Flutter's own PID at spawn time; server.ts watchdog probes it with process.kill/ESRCH. Dev-mode (tsx-layer) orphan prevention now works. Production path (direct Flutter->Node) was already correct. Contract c6+c7 guard the new wiring. PR #684 merged, CI green. Manual smoke c5 still pending."
+  }
+}
