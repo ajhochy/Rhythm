@@ -1,0 +1,59 @@
+{
+  "run_id": "2026-06-12-retro-opencode-parity-plan",
+  "issue": null,
+  "pr": 704,
+  "date": "2026-06-12",
+  "smoke_result": "unknown",
+  "verification_claimed": "N/A",
+  "divergence": false,
+  "criteria_results": [],
+  "process_issues": [
+    {
+      "category": "infra",
+      "description": "AgentFlow plan_and_issues run orphaned mid-flight: the agentflow MCP server restarted between phases, losing its in-memory instance registry. Disk state (<uuid>.state.json + output/plan_and_issues/) survived; user noticed the stall ('nothing happening?') before the orchestrator's fallback wakeup fired. Phase outputs written by the dying server (issue files 16:13-16:18) predated the recorded plan-phase completion (16:23) in the resumed run's log.",
+      "detected_by": "user + state-file mtime inspection"
+    },
+    {
+      "category": "infra",
+      "description": "First CLI resume attempt failed with 'fetch failed': agentflow's model-resolver silently fell back to ollama qwen2.5:14b because agentflow.config.json is only discovered via CWD or $AGENTFLOW_WORKFLOWS_DIR, and neither was set. The fallback is silent until an agent executes. Fix: AGENTFLOW_WORKFLOWS_DIR=$HOME/.config/agentflow/workflows on every CLI resume. Recorded in Rhythm docs/ai/decisions.md.",
+      "detected_by": "resume output line '📦 [planner] model: qwen2.5:14b (ollama)'"
+    },
+    {
+      "category": "process",
+      "description": "Obsidian project-log append (Rhythm CLAUDE.md required step) failed twice with 'fetch failed' — Obsidian REST endpoint unreachable during the run. Entry content preserved in the session summary; needs manual append or retry when Obsidian is running.",
+      "detected_by": "obsidian_post_file tool error"
+    }
+  ],
+  "workflow_adherence": {
+    "overall_score": "strict",
+    "expected_chain": [
+      "workflow-orchestrator (Guard 1 entry + Intake E routing)",
+      "upfront alignment (skippable: user message front-loaded decisions)",
+      "planning-agent + issue-writer via mcp__agentflow__plan_and_issues (AgentFlow dispatcher path)",
+      "align human-gate resumed with user_inputs",
+      "remote issue creation (explicitly requested by user)",
+      "branch + PR for planning artifacts (Guard 4 before push/PR)",
+      "project-state-updater",
+      "workflow-retrospective"
+    ],
+    "observed_chain": [
+      "workflow-orchestrator Skill invoked first; announced; Intake E routing decision emitted",
+      "upfront alignment legitimately skipped — user request specified audits, architecture-decision mandate, issue deliverable, and constraints; autonomous-mode session",
+      "pre-dispatch checks: AgentFlow context docs copied into repo (docs/failure-taxonomy.md, docs/contract-schema.md); .gitignore already covered output/ and *.state.json; OpenCode cloned pinned at v1.14.49 to match embedded SDK",
+      "two parallel read-only audit agents (sonnet/Tier 2) — sanctioned investigation parallelism; disjoint questions",
+      "gap synthesis in-orchestrator incl. SDK surface verification (sdk.gen.ts URL extraction) before planning dispatch",
+      "mcp__agentflow__plan_and_issues dispatched (valid Guard 1 dispatch); align gate resumed via user_inputs derived from the user's message",
+      "MCP-server restart orphaned the run; recovered via CLI agentflow resume with AGENTFLOW_WORKFLOWS_DIR set; plan + write_issues completed on tier1",
+      "artifact verification before trusting 'completed' (19 issue files vs manifest, plan read, 2 issue specs spot-checked)",
+      "Guard 4 emitted (remote ajhochy/Rhythm + branch) before push/PR/issue creation",
+      "branch workflow/run-2026-06-12-opencode-parity-plan; commit; push; 19 GitHub issues #685-#703; PR #704 (no Closes lines — planning PR completes no issues, stated explicitly)",
+      "CI gate: gh run list returned no runs for the branch — stated as fact (docs-only; Actions are workflow_dispatch/paths-filtered)",
+      "project-state-updater Skill invoked — run entry + 2 decisions.md entries committed and pushed to the PR branch",
+      "Obsidian log append attempted twice, failed (endpoint unreachable); surfaced, not silently skipped",
+      "workflow-retrospective Skill invoked — this postmortem"
+    ],
+    "skipped_skills": [],
+    "issues": []
+  },
+  "notes": "Planning-only run: acceptance-contract / coding-agent / verification-gate / failure-triage are N/A by design (no code changed). The 19 issues each carry contract-ready acceptance criteria with a real-fixture rule targeting the C2 pattern that dominated prior agent-tab failures."
+}
