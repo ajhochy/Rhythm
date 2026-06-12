@@ -1,129 +1,143 @@
-# Current Plan — PR #617 bug-fix sprint (2026-05-18)
+# Current Plan — OpenCode parity in the Agents tab (2026-06-12)
 
 ## Status
-Active. **Replaces** the now-superseded M1-M5 parity plan (preserved in git history under `2dde632`-era commits; that plan's six milestones all shipped behind PR #617 / branch `follow-up`, but a full manual smoke against vbeta.18.36 revealed they shipped **broken** — see scoreboard below).
 
-## What happened
-
-PR #617 ("Follow Up") consolidates 13 issues (#601-#611, #614, #615) across install hardening, sessions, archive, WS events, permissions, composer redesign, model picker, OpenRouter curation, slash popover, action row, and VCS chip / branch dropdown. Local verification was reported as green:
-
-- api_server: 499/499 → 503/503 vitest, tsc clean, build clean.
-- desktop_flutter: 218/218 test, dart format clean, flutter analyze clean.
-
-A real manual smoke against the packaged DMG (vbeta.18.36, installed at `/Applications/Rhythm.app/`) on 2026-05-18 returned **6 PASS / 1 PARTIAL / 10 FAIL** out of 20 testable items — a 30% pass rate. Auto-tests were green because:
-
-- **Mocks hid the binding bug.** The vitest mock for `opencodeClient.promptAsync` wrapped the spy in an arrow function. Arrow functions have lexical `this`, so the cast-to-alias regression (`const promptFn = opencodeClient.promptAsync as unknown as (...)`) didn't surface in tests — but production code throws `TypeError: Cannot read properties of undefined (reading 'client')` on every send.
-- **No e2e coverage for the permission pipeline.** #608 claims `permission.asked → WS → PermissionCard → respond` end-to-end, but no test asserts the pipeline actually fires for a real provider. In production it doesn't fire at all for Claude direct.
-- **UI controls weren't verified to reach the SDK.** The thinking-budget / fast-mode toggles render and persist to the DB, but a silent 5th-arg drop in `OpencodeClientService.promptAsync` means they never affect the SDK call. No integration test caught this.
-- **No widget tests for the broken features.** File-attach, slash popover, VCS chip — all have zero coverage.
-
-**Decision: keep iterating on the `follow-up` branch; do NOT merge #617 to `main` until ≥80% of the original smoke checklist passes cleanly. The AI workflow's verification gate failed this round — `vitest run` clean is necessary but nowhere near sufficient.**
-
-## Smoke scoreboard (vbeta.18.36)
-
-✅ PASS (6) | ⚠️ PARTIAL (1) | ❌ FAIL (10)
-
-| Section | Result |
-|---|---|
-| Cmd+Q lifecycle (both ports clear) | ✅ |
-| New session + send message (TypeError gone) | ✅ |
-| Sessions 1 (soft-close live) | ✅ |
-| Sessions 2 (hard-delete live) | ✅ |
-| Composer 1 (no agent dropdown, model prompt) | ✅ |
-| Composer 2 (picker sectioned + Connect) | ✅ |
-| Sessions 3 (archive — active-list live, **archived list not live**) | ⚠️ |
-| Permissions 1-4 (#608 pipeline NEVER fires for Claude direct) | ❌ |
-| Composer 3 (#604 thinking + fast-mode never reach SDK) | ❌ |
-| Composer 4 (#602 file-attach paperclip no-op) | ❌ |
-| Composer 5 (#610 slash popover doesn't appear) | ❌ |
-| Composer 6 notify (#606 never fires macOS notification) | ❌ |
-| Composer 6 timestamp ticker (relative times don't update) | ❌ |
-| Composer 7 (#609 curation saves but picker over-filters; duplicate rows) | ❌ |
-| VCS 1 (#603 branch dropdown — Dart type cast error + switch fails) | ❌ |
-| VCS 2/3 (#607 chip never renders) | ❌ |
+Active. **Replaces** the PR #617 bug-fix sprint plan (completed; preserved in git history).
+Planning-only run: this document + `docs/ai/generated-issues/opencode-m*-*.md`.
+No implementation in this run. GitHub issues will be created by the orchestrator after review.
 
 ## Goal (one sentence)
 
-Drive #617's pass rate from 30% → ≥80% by working the bugs in severity order, re-smoking each cluster on a new DMG, before merging.
+Bring Rhythm's Agents tab to functional + UI parity with OpenCode v1.14.49's client feature
+set, on the existing embedded-SDK architecture, by first eliminating the root causes that
+made the previous attempt rot (dual transcript stores, duck-typed SDK access, in-memory
+sentinels), then layering rendering parity, session features, and input/config features —
+each issue building on the last.
 
-## Constraints
+## Architecture decision (locked — do not relitigate)
 
-- Stay on `follow-up` branch. No new feature work until bugs cleared.
-- Every fix must include the test that would have caught the bug in `vitest run` or `flutter test` — no more "mocks pass but production fails."
-- For Flutter UI features (file-attach, slash popover, VCS chip, PermissionCard), at least one widget test exercising the user-visible path.
-- For server↔SDK plumbing (binding, params, body fields), at least one test that asserts the SDK call is invoked with the expected shape (use spy.mock.calls inspection).
-- Re-smoke against a packaged DMG, not `flutter run -d macos`, before claiming each fix is shipped — the bugs in this batch (PATH stripping, NSApp.terminate, body-limit, server.close miss) all manifested only in the packaged build.
-- ABI: keep using `vbeta.18.NN` versioning, increment per smoke build.
+- `@opencode-ai/sdk` v1.14.49 embedded in-process in `apps/api_server` (opencode server on :4096).
+- SSE → WS bridge (`opencode_stream_bridge.ts` → `ws_gateway.ts`) to Flutter.
+- Native Flutter UI (consume opencode's server API + reimplement client UI natively).
+- PTY is dead (removed in PR #574/#571); `pty_runner.ts` removal is part of M1.
+- VERIFIED: the embedded SDK exposes every endpoint needed for the gaps:
+  `/session/{id}/diff`, `/revert`, `/unrevert`, `/summarize`, `/todo`, `/fork`, `/share`,
+  `/command`, `/message` (list), `/children`, `/permissions/{permissionID}`, `/mcp`,
+  `/provider`, `/config`, `/file/status`.
 
-## Fix clusters (work in this order)
+## Root causes of the prior failure (each is explicitly fixed by an M1 issue)
 
-### Cluster A — Safety + visible regressions (highest)
-
-| Issue file | What | Why first |
+| # | Root cause (postmortem-mined) | Fixed by |
 |---|---|---|
-| `fix-permission-pipeline-not-firing-claude-direct.md` | #608 `permission.asked → PermissionCard` chain |  **Safety feature broken.** Claude can run `bash` unprompted in default mode. The whole permission UX is non-functional. |
-| `fix-vcs-branch-dropdown-type-cast-and-switch.md` | #603 branch dropdown Dart type cast + HEAD switch | High visibility, blocks VCS 2/3 spot-test. Likely a one-spot parser fix. |
-| `fix-vcs-chip-not-rendering-in-session-header.md` | #607 chip never renders | Entire #607 surface invisible. Probably same root cause as VCS 1. |
+| 1 | Dual transcript stores (`_chatMessagesBySession` in-memory parts vs `_transcriptsBySession` SQLite plain text) with two render branches — every reconnect silently downgrades; every feature wired twice | OPC-M1-2, OPC-M1-3 |
+| 2 | Duck-typed SDK access (`diffSession` doesn't exist; permission-respond probe; command cast) → silent no-ops | OPC-M1-1 |
+| 3 | C2 contract failures — tests asserting injected values production never produces | Validation plan rule 2 (every contract test uses real SDK event/response shapes captured from v1.14.49) |
+| 4 | Provider-id vs agent-id conflation papered with duplicated maps | OPC-M1-1 (single server-side mapping, exported constant consumed by capabilities route) |
+| 5 | In-memory sentinels (`erroredSessions` 5s setTimeout, `__pending__` rows) leaking across turns | OPC-M1-4 |
 
-### Cluster B — Composer behavioral features (medium)
+## Milestones
 
-| Issue file | What |
+Sequencing rule: within a milestone, issues are ordered; an issue may start only when its
+dependencies are merged. M1 is strictly serial after the first two (which can parallel).
+
+### M1 — Foundation (fixes root causes; nothing else lands first)
+
+| Order | Issue file | Title | Goal | Likely files | Tests | Depends on |
+|---|---|---|---|---|---|---|
+| 1 | `opencode-m1-1-typed-sdk-wrappers.md` | Typed SDK wrappers replace all duck-typing | Every SDK call goes through a typed `OpencodeClientService` method that throws loudly on missing SDK surface; fixes the `diffSession` bug class and the silent permission no-op | `apps/api_server/src/services/opencode_client_service.ts`, `@types/opencode-ai-sdk.d.ts`, `controllers/agent_sessions_controller.ts` | vitest | — |
+| 2 | `opencode-m1-2-structured-parts-persistence.md` | Persist structured messages/parts server-side | Single durable source of truth: stream bridge writes full part-typed message rows; REST returns them | `apps/api_server/src/database/migrations.ts`, `repositories/agent_session_messages_repository.ts`, `services/opencode_stream_bridge.ts`, `controllers/agent_sessions_controller.ts` | vitest | — |
+| 3 | `opencode-m1-3-flutter-rehydration-single-path.md` | Flutter rehydrates parts from REST; legacy plain-text path deleted | One render path everywhere (main view + mini-bubble); reconnect/restart no longer downgrades; stuck-detection uses parts state | `apps/desktop_flutter/lib/features/agents/controllers/agents_controller.dart`, `views/agents_view.dart`, `app/core/agents/agent_bubble_overlay.dart`, `features/agents/data/*` | flutter test | M1-2 |
+| 4 | `opencode-m1-4-stream-sentinel-cleanup.md` | Stream lifecycle + sentinel cleanup, dead code removal | Real `stopStream`, no time-based sentinels, `pty_runner.ts` deleted | `apps/api_server/src/services/opencode_stream_bridge.ts`, `controllers/agent_sessions_controller.ts`, `services/pty_runner.ts` (delete), `agents_controller.dart` | vitest + flutter test | M1-3 |
+| 5 | `opencode-m1-5-resume-continuity.md` | Resume with real conversation continuity | `resume()` re-attaches to the persisted SDK session id and rehydrates; no more fresh-session amnesia | `apps/api_server/src/controllers/agent_sessions_controller.ts`, `services/opencode_engine.ts`, `migrations.ts` (persist sdk session id), `agents_controller.dart` | vitest + flutter test | M1-2, M1-3 |
+
+### M2 — Rendering parity
+
+| Order | Issue file | Title | Goal | Likely files | Tests | Depends on |
+|---|---|---|---|---|---|---|
+| 6 | `opencode-m2-1-markdown-rendering.md` | Markdown rendering in chat bubbles | Assistant text parts render as markdown (code blocks, lists, links), selectable | `agents_view.dart`, new `views/_markdown_message_body.dart`, `pubspec.yaml` | flutter test | M1-3 |
+| 7 | `opencode-m2-2-reasoning-block-and-delta-fix.md` | Reasoning collapsible block + non-text delta fix | `_appendChatDelta` routes deltas by part field; reasoning renders as a collapsed "Thinking…" block | `agents_controller.dart` (≈line 1322), `agents_view.dart` (≈line 1881) | flutter test | M1-3 |
+| 8 | `opencode-m2-3-tool-specific-renderers.md` | Tool-specific renderers | edit/write→unified diff widget, bash→terminal-style output, todowrite→checklist, task→child-session chip; generic card stays the fallback | `agents_view.dart`, new `views/_tool_renderers/*.dart`, new `views/_unified_diff_view.dart` | flutter test | M2-1 |
+| 9 | `opencode-m2-4-retry-status-tokens-cost.md` | Retry surfacing + token/cost display | Retry parts shown inline; per-message token/cost; session totals in sidebar/header | `opencode_stream_bridge.ts`, `agents_controller.dart`, `agents_view.dart`, message model | vitest + flutter test | M1-2, M1-3 |
+
+### M3 — Session features
+
+| Order | Issue file | Title | Goal | Likely files | Tests | Depends on |
+|---|---|---|---|---|---|---|
+| 10 | `opencode-m3-1-changes-tab-real-diff.md` | Changes tab via real GET /session/{id}/diff | Fix the always-empty Changes tab using the typed diff wrapper | `agent_sessions_controller.ts` (362-383), `opencode_client_service.ts`, `agents_view.dart`, `agents_controller.dart` | vitest + flutter test | M1-1, M2-3 |
+| 11 | `opencode-m3-2-revert-unrevert.md` | Undo: revert/unrevert UI | Per-message revert affordance + session-level unrevert, with confirmation | `opencode_client_service.ts`, `agent_sessions_controller.ts`, `agents_view.dart`, `agents_controller.dart` | vitest + flutter test | M3-1 |
+| 12 | `opencode-m3-3-compaction-summarize.md` | Compaction (summarize) with UI affordance | Manual "Compact session" action + compaction part rendering + context-usage hint | `opencode_client_service.ts`, `agent_sessions_controller.ts`, `agents_view.dart` | vitest + flutter test | M1-1, M1-3 |
+| 13 | `opencode-m3-4-structured-command-dispatch.md` | Slash commands via POST /session/{id}/command | Popover selection dispatches the structured command endpoint instead of text-prefix injection | `opencode_client_service.ts`, `ws_gateway.ts` or REST route, `views/_slash_command_popover.dart`, `agents_controller.dart` | vitest + flutter test | M1-1 |
+| 14 | `opencode-m3-5-todo-panel.md` | Session todo panel | Live todo list (todo.updated events + GET /session/{id}/todo) in a collapsible side panel | `opencode_stream_bridge.ts`, `agent_sessions_controller.ts`, `agents_view.dart`, `agents_controller.dart` | vitest + flutter test | M1-2, M2-3 |
+| 15 | `opencode-m3-6-subagent-child-sessions.md` | Subagent child-session navigation | task tool chip opens the child session's transcript (GET /session/{id}/children); breadcrumb back to parent | `agent_sessions_controller.ts`, `opencode_client_service.ts`, `agents_controller.dart`, `agents_view.dart` | vitest + flutter test | M2-3 |
+
+### M4 — Input & config
+
+| Order | Issue file | Title | Goal | Likely files | Tests | Depends on |
+|---|---|---|---|---|---|---|
+| 16 | `opencode-m4-1-real-file-attachments.md` | Real image/file attachments (FilePart) | Paperclip sends FilePart with data URI (bytes), not "[image] /path" text; thumbnails in transcript | `agents_controller.dart`, `agents_view.dart`, `ws_gateway.ts`, `opencode_client_service.ts` | vitest + flutter test | M1-3 |
+| 17 | `opencode-m4-2-session-fork.md` | Session fork | Fork from a message → new session appears in list with copied transcript | `opencode_client_service.ts`, `agent_sessions_controller.ts`, `agents_controller.dart`, `agents_view.dart` | vitest + flutter test | M1-5 |
+| 18 | `opencode-m4-3-mcp-config-ui.md` | MCP server management UI | Settings section: list/connect/disconnect MCP servers via SDK /mcp | `opencode_client_service.ts`, new `routes/opencode_mcp_routes.ts`, `features/settings/widgets/mcp_section.dart` (new) | vitest + flutter test | M1-1 |
+| 19 | `opencode-m4-4-custom-agent-selection.md` | Custom agent/mode selection | If SDK config exposes custom agents, surface an agent picker per session; otherwise ship the documented built-in set only | `opencode_client_service.ts`, `agents_capabilities_routes.ts`, `agents_view.dart`, `agents_controller.dart` | vitest + flutter test | M1-1 |
+
+## Explicitly out of scope (with justification)
+
+| Feature | Why excluded |
 |---|---|
-| `fix-thinking-budget-fast-mode-never-applied.md` | #604 — fix `promptAsync` signature to actually accept + forward `thinking` / `fastMode` to the SDK body |
-| `fix-composer-file-attach-paperclip-no-op.md` | #602 — wire the paperclip click to the new osascript-based file picker (the `file_picker` plugin was removed earlier) |
-| `fix-slash-command-popover-not-firing.md` | #610 — typing `/` opens the popover; arrow / Enter / Escape work |
-| `fix-notify-on-completion-not-firing.md` | #606 — covers BOTH the notify-on-completion authorization + the relative-timestamp ticker |
+| Share server (`/session/{id}/share`) | Publishes session content to opencode's public share infrastructure — church staff sessions can contain congregant PII and internal data. Recommend shipping with share **disabled**; revisit only if a self-hosted share target exists. |
+| Themes / keybinds | Rhythm has its own design system (`RhythmColorRoles` tokens) and macOS conventions (`KeybindsService`). Porting OpenCode's TUI theming would fork the design system for one tab. |
+| LSP / formatter status | TUI affordance for a code-editing terminal context; Rhythm sessions run against task cwds, not an open editor. No UI surface where this earns its complexity. |
+| PTY terminal pane | PTY architecture removed in PR #574; reintroducing a terminal contradicts the locked decision. Bash tool output gets terminal-style *rendering* (M2-3) instead. |
+| TUI remote-control routes | Drive opencode's own TUI — meaningless when the client is native Flutter. |
+| Workspaces / worktrees | Rhythm sessions are keyed to a single cwd per session; worktree management is a power-developer feature with no church-staff use case. Fork (M4-2) covers the "try a variant" need. |
 
-### Cluster C — OpenRouter catalog overhaul (medium, scoped sprint)
+## Validation plan
 
-| Issue file | What |
-|---|---|
-| `fix-openrouter-curation-overhaul.md` | #609 — dedup aggregator routes against authed-direct routes; surface ALL curated models in the picker (currently filters to ~6); add bulk-action UI + price/free filter + sane default visibility; fix duplicate `anthropic/claude-sonnet-4.6` row |
-
-### Cluster D — UX / cosmetic (low, batch with Cluster B/C)
-
-| Issue file | What |
-|---|---|
-| `fix-archived-section-not-updating-live.md` | Insert into archived list cache on `session.updated` WS event when `archivedAt` flips |
-| `fix-agent-chat-auto-scroll-steals-focus.md` | Scroll-to-bottom should only fire when user is already pinned near the bottom |
-| `fix-agent-kind-mislabels-non-anthropic-openrouter-models.md` | Pill label for DeepSeek / Mistral / Llama OpenRouter routes |
-| `fix-google-oauth-paste-back-ui.md` | Render paste input in the Google sign-in dialog instead of "auto-close" placeholder |
-| `tweak-default-model-sonnet-over-opus.md` | Reorder `ROUTE_FALLBACKS_BY_AGENT['claude-code']` to put Sonnet first |
-
-### Skipped (environment-dependent)
-
-- Lifecycle 4 (ABI-matched Node fallback). Requires a v24-only test machine. Park for now.
-
-## Validation plan (revised — stricter than the round that failed)
-
-1. `ai-workflow checks --level pr` exit 0 after each issue.
-2. **Each fix MUST add a test that would have caught the bug.** No skipping this step. If the bug is "function does X in production but mock doesn't reveal it," fix the mock too — use real implementations in tests where feasible.
-3. **Packaged-build smoke is the source of truth.** `vbeta.18.NN+1` rebuild + install over `/Applications/` + manually exercise the specific item before marking a fix complete. `flutter run -d macos` does NOT count for this batch — its PATH and lifecycle differ from the `.app` bundle.
-4. After each cluster (A, B, C, D), re-run the entire 20-item smoke checklist. We're targeting ≥80% pass to merge.
-5. `dart format --set-exit-if-changed` + `flutter analyze --no-fatal-infos` stay clean.
-
-## Process retrospective notes (for `workflow-retrospective` next time)
-
-Items the workflow should have flagged before any "Closes #608" claim was committed:
-
-- **Mock parity check.** Arrow-function mocks of class methods are a banned pattern when the production method uses `this`. Tests should bind their mocks the same way the production code does.
-- **End-to-end coverage matrix.** Every "Closes #XXX" claim needs at minimum one test that exercises the user-visible path (UI → WS → server → SDK and back), not just unit tests of the parts in isolation.
-- **Packaged-build smoke before commit, not just before merge.** The PATH-stripping bug + the `server.close()` miss + the binding bug all only manifested in the `.app` bundle. A bot-or-script DMG-build-and-curl loop in the CI would have caught all three.
-- **No "all green" claim without a smoke checklist run.** Even a five-item smoke is worth doing before pushing a 13-issue PR.
+1. Every issue gets a contract (`docs/ai/contracts/issue-N.json` per `docs/contract-schema.md`)
+   via `acceptance-contract` before coding; red-proven before implementation, green after.
+2. **Real-shape rule (root cause 3):** contract tests must use SDK event/response shapes
+   captured from v1.14.49 (real provider ids like `anthropic`/`openai`, real part-type unions),
+   never invented values. Mocks of class methods must preserve `this`-binding semantics.
+3. `ai-workflow checks --level pr` exits 0 per issue (flutter analyze, dart format, tsc, vitest);
+   full `flutter test` green.
+4. Server↔SDK plumbing: at least one vitest asserting the SDK spy is invoked with the expected
+   shape (`spy.mock.calls` inspection). Flutter UI: at least one widget test exercising the
+   user-visible path.
+5. Milestone-end manual smoke against `flutter run -d macos` (packaged-DMG smoke at M2 and M4
+   boundaries, since reconnect/restart behavior — the M1 deliverable — only fully manifests
+   across real app restarts).
+6. Manual merge only; PR per milestone-cluster or per issue at orchestrator's discretion.
 
 ## Branch / PR strategy
 
-- Stay on `follow-up`. Push fix commits there. Each cluster ships as its own DMG (vbeta.18.37, 38, 39, …) for incremental smoke.
-- When the entire 20-item checklist passes ≥16/20 (excluding skipped Lifecycle 4): commit a final "Ready for merge" doc update + push, then merge PR #617 to `main` manually.
-- Branch `follow-up` is intentionally not auto-rebased onto `main` during this fix sprint — keep the commit history readable for the retrospective.
+- One branch per issue (`opc-m1-1-typed-sdk-wrappers`, …) off `main`; PR per issue, sequenced.
+- M1 must fully merge before M2 starts — every M2+ issue assumes the single transcript path.
+- M3 issues 10/12/13 and M4 issues 16/18/19 are parallelizable once their deps merge.
 
 ## Estimated effort
 
-Per cluster, assuming each fix is the small targeted patch the issue docs suggest:
+- M1: 5 issues, the heart of the work — **4-6 sessions** (M1-2/M1-3 are the big ones).
+- M2: 4 issues — **3-4 sessions** (tool renderers are the most UI work).
+- M3: 6 issues — **4-5 sessions**.
+- M4: 4 issues — **3-4 sessions**.
+- Total: **~14-19 focused sessions**, re-smoke baked in at milestone boundaries.
 
-- Cluster A (3 issues, high severity): **2-3 sessions** — permission pipeline is the unknown; VCS likely a one-day fix.
-- Cluster B (4 issues, medium): **2-3 sessions** — file-attach + slash popover are the most UI work.
-- Cluster C (1 large issue, OpenRouter overhaul): **2-3 sessions** — bulk-action UI is meaningful work.
-- Cluster D (5 issues, low): **1 session, batched** with Cluster B/C.
+## Open questions (flagged for orchestrator/user before M1 starts)
 
-Total: **roughly 7-10 focused sessions** to get #617 to mergeable state. With re-smoking baked in.
+1. **Parts storage shape (M1-2):** proposal is a `parts_json TEXT` column on
+   `agent_session_messages` (one row per message, parts as a JSON array) over a normalized
+   `agent_session_parts` table — simpler migration, the client always consumes whole messages.
+   Confirm, or require normalized rows for future querying.
+2. **Markdown package (M2-1):** `flutter_markdown` is deprecated by the Flutter team (handed to
+   community as `flutter_markdown_plus`); `gpt_markdown` handles streaming/LaTeX better.
+   Needs a pick before M2-1; acceptance criteria are written package-agnostic.
+3. **Mini-bubble scope (M1-3):** plan assumes the mini-bubble is **kept** and moved to the
+   parts path. If the user would rather delete the mini-bubble overlay entirely, M1-3 shrinks.
+4. **Cost display (M2-4):** OpenCode reports cost in USD per assistant message. Show dollars to
+   church staff, or tokens only? Plan defaults to both (cost primary, tokens in tooltip).
+5. **Custom agents (M4-4):** v1.14.49 custom agents come from opencode config files in the cwd.
+   Rhythm doesn't manage per-cwd opencode config; the issue scopes to "render what the SDK
+   reports" with no config-authoring UI. Confirm that's the realistic version wanted.
+6. **Vague-criteria flags:** "terminal-style output" (M2-3) and "renders as markdown" (M2-1)
+   were vague in the request; issue files pin them to concrete testable assertions (monospace
+   font + preserved whitespace + ANSI stripped; specific markdown elements present as widgets).
+   Review those pins.
