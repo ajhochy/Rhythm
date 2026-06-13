@@ -143,4 +143,43 @@ void main() {
           reason: 'the reconciled message adopts the server id');
     },
   );
+
+  test(
+    'server-echoed parts do not duplicate the user text inside the bubble',
+    () async {
+      final (:ctrl, :repo) = _build();
+      addTearDown(ctrl.dispose);
+
+      await ctrl.initialize();
+      await ctrl.selectSession('s1');
+
+      ctrl.sendInput('s1', 'testing reply ok\n');
+
+      // Server echo: message.updated (reconcile) then message.part.updated with
+      // the server's own text part for the same content.
+      repo.emit(MessageUpdatedMessage(
+        sessionId: 's1',
+        info: const {'id': 'msg_real_1', 'role': 'user'},
+      ));
+      await Future<void>.delayed(Duration.zero);
+      repo.emit(MessagePartUpdatedMessage(
+        sessionId: 's1',
+        part: const {
+          'id': 'server_part_1',
+          'messageID': 'msg_real_1',
+          'type': 'text',
+          'text': 'testing reply ok',
+        },
+      ));
+      await Future<void>.delayed(Duration.zero);
+
+      final textParts = ctrl
+          .chatPartsFor('msg_real_1')
+          .where((p) => p.type == 'text')
+          .toList();
+      expect(textParts, hasLength(1),
+          reason: 'the client optimistic text part is authoritative; the '
+              'server echo must be skipped, not added as a 2nd text part');
+    },
+  );
 }

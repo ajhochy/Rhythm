@@ -104,6 +104,12 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   final Map<String, List<ChatMessage>> _chatMessagesBySession = {};
   final Map<String, List<ChatPart>> _chatPartsByMessage = {};
 
+  /// Message ids whose parts the CLIENT authored optimistically (user input /
+  /// slash commands). The client already knows this content exactly, so the
+  /// server's echo of the same parts must NOT be re-added — otherwise the
+  /// user's text renders twice inside the one (reconciled) bubble.
+  final Set<String> _clientAuthoredMessageIds = {};
+
   /// OPC-M1-3: tracks when the most-recent part activity arrived for each
   /// session. Used by [_recomputeStuck] instead of the old PTY output buffer.
   final Map<String, DateTime> _lastPartActivityAt = {};
@@ -2094,6 +2100,9 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
       if (optParts != null && !_chatPartsByMessage.containsKey(messageId)) {
         _chatPartsByMessage[messageId] = optParts;
       }
+      // The client's optimistic parts are authoritative for this turn; ignore
+      // the server's echoed parts so the text isn't duplicated in the bubble.
+      _clientAuthoredMessageIds.add(messageId);
       list[optIdx] = ChatMessage(
         id: messageId,
         sessionId: sessionId,
@@ -2122,6 +2131,10 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     Map<String, dynamic>? raw,
   }) {
     if (messageId.isEmpty || partId.isEmpty) return;
+    // Skip server-echoed parts for client-authored turns (user input / slash
+    // commands) — the optimistic parts already hold the exact content, so
+    // adding the echo would duplicate the user's text inside the bubble.
+    if (_clientAuthoredMessageIds.contains(messageId)) return;
     final list = _chatPartsByMessage.putIfAbsent(messageId, () => []);
     final idx = list.indexWhere((p) => p.id == partId);
     if (idx >= 0) {
