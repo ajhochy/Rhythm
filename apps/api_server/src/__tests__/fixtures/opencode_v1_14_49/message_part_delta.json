@@ -1,0 +1,11 @@
+{
+  "_comment": "Real v1.14.49 message.part.delta event. PartDelta schema: { sessionID, messageID, partID, field, delta }. Used for streaming text increments during an assistant turn.",
+  "type": "message.part.delta",
+  "properties": {
+    "sessionID": "ses_abc123",
+    "messageID": "msg_abc001",
+    "partID": "part_text_001",
+    "field": "text",
+    "delta": " Hello"
+  }
+}

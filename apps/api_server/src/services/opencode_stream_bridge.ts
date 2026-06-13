@@ -106,6 +106,17 @@ export class OpencodeStreamBridge {
   // failure and let session.idle skip the status update.
   private erroredSessions = new Set<string>();
 
+  // In-memory accumulator for message.part.delta events, keyed by
+  // `${sdkMessageId}:${partId}`. Deltas are written-through to the DB via
+  // applyPartDelta immediately (so a bridge restart loses at most in-flight
+  // deltas). This accumulator is only used to assemble the full text for
+  // the legacy transcript.append broadcast on session.idle.
+  //
+  // Flush points: next message.part.updated for the same part (bridge
+  // receives the authoritative full-text version — accumulator discarded),
+  // message.updated for the same message, or session.idle (turn boundary).
+  private pendingPartDeltas = new Map<string, { sdkMessageId: string; partId: string; text: string }>();
+
   // In-memory map of pending permissions. Key = `${localSessionId}:${permissionId}`.
   // Cleared when the user (or auto-logic) resolves the permission.
   private pendingPermissions = new Map<string, PendingPermission>();
@@ -231,11 +242,12 @@ export class OpencodeStreamBridge {
       case 'message.part.updated': {
         // Forward the full part object to the client so it can mirror
         // Opencode Desktop's `setStore("part", messageID, ...)` pattern —
-        // upsert by part.id keyed under part.messageID. Also keep emitting
-        // the legacy `output` delta for any client still on the old buffer
-        // model (used only for the live preview animation).
+        // upsert by part.id keyed under part.messageID.
+        //
+        // OPC-M1-2 — message.part.updated is the ONLY carrier of part data.
+        // UpdatedEventSchema carries only { sessionID, info } — no parts.
+        // Persist the part into the DB row's parts_json here.
         const part = props?.part as Record<string, unknown> | undefined;
-        const delta = props?.delta as string | undefined;
         if (part) {
           broadcast({
             v: 1,
@@ -243,14 +255,25 @@ export class OpencodeStreamBridge {
             id: eventId,
             part,
           });
-        }
-        if (delta) {
-          broadcast({
-            v: 1,
-            type: 'output',
-            id: eventId,
-            data: delta,
-          });
+
+          // Persist part to DB.
+          if (localSessionId) {
+            const sdkMessageId = part.messageID as string | undefined;
+            if (sdkMessageId) {
+              try {
+                // When part.updated arrives, the authoritative text is in the
+                // part object — discard any in-memory delta accumulator for
+                // this part since the full value supersedes it.
+                const partId = part.id as string | undefined;
+                if (partId) {
+                  this.pendingPartDeltas.delete(`${sdkMessageId}:${partId}`);
+                }
+                this.messagesRepo.upsertPart(localSessionId, sdkMessageId, part);
+              } catch (err) {
+                logger.error('[OpencodeStreamBridge] Failed to persist part:', err);
+              }
+            }
+          }
         }
         break;
       }
@@ -258,16 +281,38 @@ export class OpencodeStreamBridge {
       case 'message.part.delta': {
         // Streaming text delta during an assistant turn. Forward verbatim
         // so the client can append delta into the right part by partID.
+        //
+        // OPC-M1-2 — Write-through delta to DB immediately via applyPartDelta
+        // so a bridge restart loses at most in-flight (unwritten) deltas. The
+        // authoritative full-text arrives later in message.part.updated, which
+        // overwrites the accumulated value, making delta accumulation lossless
+        // across a normal turn.
+        //
+        // Flush points for pendingPartDeltas in-memory accumulator (used only
+        // for the legacy transcript.append broadcast on session.idle):
+        //   1. Next message.part.updated for the same part — full value replaces.
+        //   2. message.updated for the same message — delta discarded.
+        //   3. session.idle — full turn boundary flush.
         const messageID = props?.messageID as string | undefined;
         const partID = props?.partID as string | undefined;
         const field = props?.field as string | undefined;
         const delta = props?.delta as string | undefined;
         if (delta && field === 'text' && localSessionId) {
-          // Keep the accumulator so we can persist assistant turns on idle.
+          // Keep the per-session accumulator so we can persist assistant turns on idle.
           this.pendingText.set(
             localSessionId,
             (this.pendingText.get(localSessionId) ?? '') + delta,
           );
+          // Keep per-part accumulator for structured transcript.
+          if (messageID && partID) {
+            const key = `${messageID}:${partID}`;
+            const existing = this.pendingPartDeltas.get(key);
+            if (existing) {
+              existing.text += delta;
+            } else {
+              this.pendingPartDeltas.set(key, { sdkMessageId: messageID, partId: partID, text: delta });
+            }
+          }
         }
         if (messageID && partID && typeof delta === 'string') {
           broadcast({
@@ -279,6 +324,14 @@ export class OpencodeStreamBridge {
             field: field ?? 'text',
             delta,
           });
+          // Write-through to DB — bounded loss on restart (only unsaved deltas lost).
+          if (localSessionId && field) {
+            try {
+              this.messagesRepo.applyPartDelta(localSessionId, messageID, partID, field, delta);
+            } catch (err) {
+              logger.error('[OpencodeStreamBridge] Failed to apply part delta to DB:', err);
+            }
+          }
         }
         // Keep legacy `output` event for older client builds.
         if (delta && field === 'text') {
@@ -295,6 +348,11 @@ export class OpencodeStreamBridge {
       case 'message.updated': {
         // Forward the full message info so the client can upsert it under
         // its sessionID — same as Opencode Desktop's reducer pattern.
+        //
+        // OPC-M1-2 — IMPORTANT: the real UpdatedEventSchema = { sessionID, info }
+        // carries NO parts field. Parts arrive exclusively via message.part.updated.
+        // We only persist info-level metadata (role, tokens, cost) here and
+        // deliberately preserve any parts_json already accumulated in the DB row.
         const info = props?.info as Record<string, unknown> | undefined;
         if (info) {
           broadcast({
@@ -312,31 +370,28 @@ export class OpencodeStreamBridge {
           properties: event.properties ?? {},
         });
 
-        // OPC-M1-2 — Persist structured message to DB so the transcript
-        // survives bridge restarts and reconnects. The fixture's parts array
-        // lives at properties.parts (separate from the info envelope).
         if (localSessionId && info) {
           try {
             const sdkMessageId = info.id as string | undefined;
             const role = info.role as string | undefined;
-            const parts = (props?.parts ?? []) as unknown[];
             const tokens = (info.tokens ?? null) as Record<string, unknown> | null;
             const cost = typeof info.cost === 'number' ? info.cost : null;
 
             if (sdkMessageId && role) {
               const dbRole: 'output' | 'input' | 'system' =
                 role === 'assistant' ? 'output' : role === 'user' ? 'input' : 'system';
-              this.messagesRepo.upsertStructured(
+              // upsertMessageInfo preserves existing parts_json — does NOT clobber
+              // parts accumulated from earlier message.part.updated events.
+              this.messagesRepo.upsertMessageInfo(
                 localSessionId,
                 sdkMessageId,
                 dbRole,
-                JSON.stringify(parts),
                 tokens != null ? JSON.stringify(tokens) : null,
                 cost,
               );
             }
           } catch (err) {
-            logger.error('[OpencodeStreamBridge] Failed to persist structured message:', err);
+            logger.error('[OpencodeStreamBridge] Failed to persist message info:', err);
           }
         }
         break;
@@ -436,25 +491,50 @@ export class OpencodeStreamBridge {
               err,
             );
           }
-          // Persist the assembled assistant turn (if any), finalize it into
-          // the Flutter transcript via `transcript.append`, and clear the
-          // pending buffer. Without this broadcast, the streaming delta text
-          // lives only in the Flutter `_liveOutputBuffer` preview and never
-          // appears as a finalized assistant message in the chat history.
+          // Finalize the assistant turn into the Flutter transcript via
+          // `transcript.append` and clear the pending buffer. Without this
+          // broadcast, the streaming delta text lives only in the Flutter
+          // `_liveOutputBuffer` preview and never appears as a finalized
+          // assistant message in the chat history.
+          //
+          // OPC-M1-2: When structured messages are already persisted (from
+          // message.part.updated events), skip the legacy DB append — it would
+          // create a duplicate row. We still broadcast transcript.append so the
+          // Flutter client finalizes the live preview. Legacy sessions (no SDK
+          // message IDs) still use the append path for DB persistence.
           const text = this.pendingText.get(localSessionId);
           if (text && text.length > 0) {
-            try {
-              this.messagesRepo.append(localSessionId, 'output', text, text);
-              this.sessionsRepo.updatePreview(
-                localSessionId,
-                text.slice(0, 200),
-                new Date().toISOString(),
-              );
-            } catch (err) {
-              logger.error(
-                '[OpencodeStreamBridge] Failed to persist assistant turn:',
-                err,
-              );
+            const hasStructured = this.messagesRepo.hasStructuredMessages(localSessionId);
+            if (!hasStructured) {
+              // Legacy path: no structured messages — persist the plain-text row.
+              try {
+                this.messagesRepo.append(localSessionId, 'output', text, text);
+                this.sessionsRepo.updatePreview(
+                  localSessionId,
+                  text.slice(0, 200),
+                  new Date().toISOString(),
+                );
+              } catch (err) {
+                logger.error(
+                  '[OpencodeStreamBridge] Failed to persist assistant turn:',
+                  err,
+                );
+              }
+            } else {
+              // Structured path: raw_text already updated by upsertPart/applyPartDelta.
+              // Just update the session preview from the accumulated text.
+              try {
+                this.sessionsRepo.updatePreview(
+                  localSessionId,
+                  text.slice(0, 200),
+                  new Date().toISOString(),
+                );
+              } catch (err) {
+                logger.error(
+                  '[OpencodeStreamBridge] Failed to update session preview:',
+                  err,
+                );
+              }
             }
             broadcast({
               v: 1,
@@ -464,6 +544,8 @@ export class OpencodeStreamBridge {
               text,
             });
             this.pendingText.delete(localSessionId);
+            // Clear per-part delta accumulators — turn boundary reached.
+            this.pendingPartDeltas.clear();
           } else {
             // Zero tokens streamed this turn — surface as user-visible error (#636)
             broadcast({

@@ -12,10 +12,10 @@
     },
     {
       "criterion_id": "issue-686-c2",
-      "text": "Feeding the bridge a recorded v1.14.49 message.updated event (assistant message with text + tool + reasoning parts, tokens, cost) results in one row whose parts_json round-trips the part array and whose tokens_json/cost match the event.",
+      "text": "Driving a realistic v1.14.49 event sequence (message.updated → part.updated[text] → part.delta×N → part.updated[tool completed] → part.updated[reasoning] → session.idle) results in one row whose parts_json has all three part types with delta-merged text, and whose tokens_json/cost come from message.updated info. REPAIR NOTE (2026-06-12): original false-green implementation read props.parts on message.updated — that field does not exist in UpdatedEventSchema. Parts are persisted exclusively from message.part.updated events (upsertPart); message.updated only calls upsertMessageInfo which preserves existing parts_json.",
       "mode": "integration",
       "test_file": "apps/api_server/src/__tests__/opencode_parts_persistence.test.ts",
-      "test_id": "issue-686-c2: message.updated upserts parts_json/tokens_json/cost from v1.14.49 fixture",
+      "test_id": "issue-686-c2: realistic event sequence — parts persisted from part events, not message.updated",
       "status": "pass"
     },
     {

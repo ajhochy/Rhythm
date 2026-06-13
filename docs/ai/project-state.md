@@ -6,7 +6,17 @@ _(Parked bugs from before 2026-05-27 run. #638 and #635 below are now RESOLVED �
 
 ## Recent coding-agent runs
 
-### 2026-06-12 — opc-m1-foundation / issue-686 — Structured parts persistence server-side (OPC-M1-2)
+### 2026-06-12 — opc-m1-foundation / issue-686 — Structured parts persistence server-side (OPC-M1-2) [REPAIR]
+- **False-green root cause:** The previous implementation read `event.properties.parts` on `message.updated` events. That field does NOT exist in real OpenCode v1.14.49: `UpdatedEventSchema = { sessionID, info }` — `info` carries only metadata (role, time, tokens, cost), no parts. The test fixture `message_updated_assistant.json` invented the `parts` field, making 13 contract tests false-green while production `parts_json` would never populate. The `message.part.updated` write-through was also skipped ("deviation 1"), but part events are the ONLY carriers of part data in v1.14.49.
+- **Fix applied:**
+  - `message.updated` handler now calls `upsertMessageInfo()` (new repo method) — persists role/tokens/cost WITHOUT clobbering existing `parts_json` accumulated from part events. Removed all reading of `props.parts`.
+  - `message.part.updated` handler now calls `upsertPart()` (new repo method) — upserts the full Part object into `parts_json` keyed by `part.id`, preserves arrival order, creates placeholder row if `message.updated` hasn't arrived yet.
+  - `message.part.delta` handler now calls `applyPartDelta()` (new repo method) — write-through delta to DB immediately for bounded-loss restart behavior. Also accumulates in memory for legacy `transcript.append` broadcast.
+  - `session.idle` handler: skips legacy `messagesRepo.append()` when structured messages already exist (would create duplicate row). Uses new `hasStructuredMessages()` repo method. Still broadcasts `transcript.append` for Flutter client.
+  - Fixture `message_updated_assistant.json`: removed invented `parts` field.
+  - New part fixtures: `message_part_updated_text.json`, `message_part_updated_tool_completed.json`, `message_part_updated_reasoning.json`, `message_part_delta.json` — all matching real PartUpdatedEventSchema.
+  - `opencode-ai-sdk.d.ts`: removed `parts?: Part[]` from `EventMessageUpdated.properties`.
+  - Tests rewritten: fixture honesty guard (asserts no `parts` key in fixture), realistic sequence test (`message.updated` + 3 part events + 2 deltas + `session.idle`), c3/c5/c6 updated to use `driveFullSequence()`. 17 tests (was 13), all green.
 - Task: extend `agent_session_messages` with `sdk_message_id TEXT`, `parts_json TEXT`, `tokens_json TEXT`, `cost REAL` columns; add partial unique index `idx_asm_sdk_msg ON agent_session_messages(session_id, sdk_message_id) WHERE sdk_message_id IS NOT NULL`; stream bridge upserts full rows on `message.updated`; deletes on `message.removed`; patches `parts_json` on `message.part.removed`; `GET /agent-sessions/:id/messages` returns `listBySessionStructured()` (parts/tokens parsed, back-compat shim for legacy NULL rows).
 - **Red→green proof:** 13/13 tests failing before implementation → 13/13 passing after (vitest 611→624). Contract: all c1–c6 automated green, c7 manual (ai-workflow checks --level pr exit 0).
 - Files modified:

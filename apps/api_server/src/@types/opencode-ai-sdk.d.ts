@@ -116,9 +116,11 @@ declare module '@opencode-ai/sdk' {
     type: 'message.updated';
     properties: {
       sessionID: string;
+      /**
+       * Message metadata only. UpdatedEventSchema = { sessionID, info } —
+       * there is NO parts field here. Parts arrive via message.part.updated.
+       */
       info: Message;
-      /** Ordered part array accompanying the message info (SDK v1.14.49+). */
-      parts?: Part[];
     };
   };
 

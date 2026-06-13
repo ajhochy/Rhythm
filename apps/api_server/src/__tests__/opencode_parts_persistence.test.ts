@@ -1,5 +1,13 @@
 /**
- * OPC-M1-2 — Structured parts persistence (issue #686)
+ * OPC-M1-2 — Structured parts persistence (issue #686) [REPAIR]
+ *
+ * Root-cause of the false-green run: the previous implementation read
+ * `event.properties.parts` on `message.updated`, but the real
+ * UpdatedEventSchema = { sessionID, info } carries NO parts field.
+ * Parts arrive exclusively via `message.part.updated` events.
+ *
+ * This suite drives a realistic v1.14.49 event SEQUENCE and verifies that
+ * parts accumulate correctly from part events, not from message.updated.
  *
  * Tests cover criteria c1–c6. All tests run against an in-memory SQLite DB
  * with the bridge replaying recorded v1.14.49 SDK event fixtures.
@@ -20,8 +28,12 @@ import { AgentSessionsRepository } from '../repositories/agent_sessions_reposito
 import { AgentSessionMessagesRepository } from '../repositories/agent_session_messages_repository';
 import type { StructuredAgentSessionMessage } from '../models/agent_session';
 
-// Import fixture with real v1.14.49 shapes.
-import fixture from './fixtures/opencode_v1_14_49/message_updated_assistant.json';
+// Import fixtures with real v1.14.49 shapes.
+import msgUpdatedFixture from './fixtures/opencode_v1_14_49/message_updated_assistant.json';
+import partUpdatedTextFixture from './fixtures/opencode_v1_14_49/message_part_updated_text.json';
+import partUpdatedToolFixture from './fixtures/opencode_v1_14_49/message_part_updated_tool_completed.json';
+import partUpdatedReasoningFixture from './fixtures/opencode_v1_14_49/message_part_updated_reasoning.json';
+import partDeltaFixture from './fixtures/opencode_v1_14_49/message_part_delta.json';
 
 // ── mocks ─────────────────────────────────────────────────────────────────────
 
@@ -56,8 +68,8 @@ function makeDb() {
   return db;
 }
 
-const SDK_ID = (fixture.properties as { sessionID: string }).sessionID; // 'ses_abc123'
-const SDK_MSG_ID = (fixture.properties as { info: { id: string } }).info.id; // 'msg_abc001'
+const SDK_ID = (msgUpdatedFixture.properties as { sessionID: string }).sessionID; // 'ses_abc123'
+const SDK_MSG_ID = (msgUpdatedFixture.properties as { info: { id: string } }).info.id; // 'msg_abc001'
 
 let localSessionId: string;
 
@@ -70,6 +82,82 @@ function setupSession(repo: AgentSessionsRepository): string {
 function relay(bridge: OpencodeStreamBridge, event: Record<string, unknown>): void {
   (bridge as unknown as { _relayEvent: (e: unknown) => void })._relayEvent(event);
 }
+
+/**
+ * Drive the realistic v1.14.49 event sequence for one assistant turn:
+ *   1. message.updated (info only, no parts)
+ *   2. message.part.updated (text part — initial, empty text)
+ *   3. message.part.delta × N (text streaming)
+ *   4. message.part.updated (text part — final with full text)
+ *   5. message.part.updated (tool part — completed state)
+ *   6. message.part.updated (reasoning part)
+ *   7. session.idle (turn boundary)
+ *
+ * This is the only path in which parts_json gets populated in production.
+ */
+function driveFullSequence(bridge: OpencodeStreamBridge): void {
+  // 1. message.updated — info only (no parts)
+  relay(bridge, msgUpdatedFixture as unknown as Record<string, unknown>);
+
+  // 2. text part arrives (initial, may be empty or partial)
+  relay(bridge, partUpdatedTextFixture as unknown as Record<string, unknown>);
+
+  // 3. Several text deltas stream in
+  relay(bridge, {
+    type: 'message.part.delta',
+    properties: {
+      sessionID: SDK_ID,
+      messageID: SDK_MSG_ID,
+      partID: 'part_text_001',
+      field: 'text',
+      delta: ' More',
+    },
+  });
+  relay(bridge, {
+    type: 'message.part.delta',
+    properties: {
+      sessionID: SDK_ID,
+      messageID: SDK_MSG_ID,
+      partID: 'part_text_001',
+      field: 'text',
+      delta: ' text.',
+    },
+  });
+
+  // 4. text part.updated with final merged text (supersedes deltas)
+  const finalTextPart = JSON.parse(JSON.stringify(partUpdatedTextFixture));
+  (finalTextPart.properties.part as { text: string }).text =
+    "I've read the file. The function returns 42. More text.";
+  relay(bridge, finalTextPart as unknown as Record<string, unknown>);
+
+  // 5. tool part completed
+  relay(bridge, partUpdatedToolFixture as unknown as Record<string, unknown>);
+
+  // 6. reasoning part
+  relay(bridge, partUpdatedReasoningFixture as unknown as Record<string, unknown>);
+
+  // 7. session.idle — turn boundary
+  relay(bridge, {
+    type: 'session.idle',
+    properties: { sessionID: SDK_ID },
+  });
+}
+
+// ── fixture honesty guard ─────────────────────────────────────────────────────
+
+describe('fixture honesty guard: message_updated_assistant.json has no parts key', () => {
+  it('message_updated_assistant.json properties must NOT have a parts key', () => {
+    // This locks the fixture to the real UpdatedEventSchema shape.
+    // If this test fails, someone re-introduced the invented field.
+    const props = msgUpdatedFixture.properties as Record<string, unknown>;
+    expect('parts' in props).toBe(false);
+  });
+
+  it('message_updated_assistant.json info has no parts key', () => {
+    const info = (msgUpdatedFixture.properties as { info: Record<string, unknown> }).info;
+    expect('parts' in info).toBe(false);
+  });
+});
 
 // ── c1: migration idempotency ─────────────────────────────────────────────────
 
@@ -111,9 +199,9 @@ describe('issue-686-c1: migration is idempotent and preserves existing rows', ()
   });
 });
 
-// ── c2: message.updated upserts parts_json/tokens_json/cost ──────────────────
+// ── c2: realistic event SEQUENCE persists parts from part events ──────────────
 
-describe('issue-686-c2: message.updated upserts parts_json/tokens_json/cost from v1.14.49 fixture', () => {
+describe('issue-686-c2: realistic event sequence — parts persisted from part events, not message.updated', () => {
   let bridge: OpencodeStreamBridge;
   let messagesRepo: AgentSessionMessagesRepository;
 
@@ -132,39 +220,76 @@ describe('issue-686-c2: message.updated upserts parts_json/tokens_json/cost from
     sessionMap.clear();
   });
 
-  it('feeding message.updated creates one row with correct parts_json, tokens_json, cost', () => {
-    relay(bridge, fixture as unknown as Record<string, unknown>);
+  it('message.updated alone (no part events) leaves parts_json NULL or empty — parts do NOT come from message.updated', () => {
+    // Drive ONLY the message.updated event — no part events.
+    relay(bridge, msgUpdatedFixture as unknown as Record<string, unknown>);
+
+    const rows = messagesRepo.listBySessionStructured(localSessionId);
+    expect(rows).toHaveLength(1);
+    const row = rows[0];
+    // Without part events, parts must be empty (the back-compat shim gives [] or [{type:text,...}])
+    // but the raw parts_json from the DB should be NULL (not populated from message.updated).
+    // The key invariant: parts is NOT populated from message.updated info.
+    expect(row.sdkMessageId).toBe(SDK_MSG_ID);
+    // parts is the back-compat shim result — either [] or [{type:text, text:''}]
+    // The critical check is that it is NOT the 5-element fixture parts array.
+    expect(Array.isArray(row.parts)).toBe(true);
+    expect((row.parts as unknown[]).length).toBeLessThan(3); // Cannot be 5 parts from fixture
+  });
+
+  it('full sequence: message.updated + part events → final parts_json has all parts with delta-merged text', () => {
+    driveFullSequence(bridge);
 
     const rows = messagesRepo.listBySessionStructured(localSessionId);
     expect(rows).toHaveLength(1);
 
     const row = rows[0];
-    // sdk_message_id set
     expect(row.sdkMessageId).toBe(SDK_MSG_ID);
-    // assistant maps to 'output' role in the DB (existing convention)
     expect(row.role).toBe('output');
-    // parts array round-trips
     expect(Array.isArray(row.parts)).toBe(true);
-    const fixtureInfo = fixture.properties as { info: unknown; parts: unknown[] };
-    expect(row.parts).toHaveLength(fixtureInfo.parts.length);
-    // tokens round-trips
-    const fixtureAssistant = fixtureInfo.info as { tokens: unknown; cost: number };
-    expect(row.tokens).toEqual(fixtureAssistant.tokens);
-    // cost round-trips
-    expect(row.cost).toBeCloseTo(fixtureAssistant.cost, 6);
+
+    const parts = row.parts as Array<{ type: string; id: string; text?: string }>;
+
+    // All three part types must be present.
+    const types = parts.map((p) => p.type);
+    expect(types).toContain('text');
+    expect(types).toContain('tool');
+    expect(types).toContain('reasoning');
+
+    // Text part has the final merged text (from the final message.part.updated).
+    const textPart = parts.find((p) => p.type === 'text');
+    expect(textPart).toBeTruthy();
+    expect(textPart!.text).toBe("I've read the file. The function returns 42. More text.");
+
+    // tokens and cost from message.updated info are persisted.
+    expect(typeof row.cost).toBe('number');
+    expect(row.cost).toBeCloseTo(0.0042, 6);
+    expect(row.tokens).toBeTruthy();
+    expect(typeof row.tokens).toBe('object');
   });
 
-  it('parts array contains entries with correct type discriminators', () => {
-    relay(bridge, fixture as unknown as Record<string, unknown>);
+  it('tokens/cost from message.updated info are persisted even after part events', () => {
+    driveFullSequence(bridge);
+
+    const rows = messagesRepo.listBySessionStructured(localSessionId);
+    const row = rows[0];
+    const expectedTokens = (msgUpdatedFixture.properties as { info: { tokens: unknown } }).info.tokens;
+    expect(row.tokens).toEqual(expectedTokens);
+  });
+
+  it('message.updated does NOT overwrite parts_json already accumulated from part events', () => {
+    // Drive part events first, then message.updated (order can vary in practice).
+    relay(bridge, partUpdatedTextFixture as unknown as Record<string, unknown>);
+    relay(bridge, partUpdatedToolFixture as unknown as Record<string, unknown>);
+
+    // Now message.updated arrives — must NOT wipe the accumulated parts.
+    relay(bridge, msgUpdatedFixture as unknown as Record<string, unknown>);
 
     const rows = messagesRepo.listBySessionStructured(localSessionId);
     const parts = rows[0].parts as Array<{ type: string }>;
     const types = parts.map((p) => p.type);
-    expect(types).toContain('step-start');
-    expect(types).toContain('reasoning');
-    expect(types).toContain('tool');
     expect(types).toContain('text');
-    expect(types).toContain('step-finish');
+    expect(types).toContain('tool');
   });
 });
 
@@ -190,11 +315,11 @@ describe('issue-686-c3: second message.updated for same sdk_message_id updates r
   });
 
   it('second message.updated with same sdk_message_id results in exactly one row', () => {
-    // First upsert
-    relay(bridge, fixture as unknown as Record<string, unknown>);
+    // Drive full sequence (creates and populates the row).
+    driveFullSequence(bridge);
 
-    // Second upsert: same sdk_message_id, updated cost
-    const updatedFixture = JSON.parse(JSON.stringify(fixture));
+    // Second message.updated: same sdk_message_id, updated cost.
+    const updatedFixture = JSON.parse(JSON.stringify(msgUpdatedFixture));
     (updatedFixture.properties.info as { cost: number }).cost = 0.0099;
     relay(bridge, updatedFixture);
 
@@ -203,16 +328,23 @@ describe('issue-686-c3: second message.updated for same sdk_message_id updates r
     expect(rows.filter((r) => r.sdkMessageId === SDK_MSG_ID)).toHaveLength(1);
   });
 
-  it('second message.updated updates cost on the same row', () => {
-    relay(bridge, fixture as unknown as Record<string, unknown>);
+  it('second message.updated updates cost without clobbering parts_json', () => {
+    driveFullSequence(bridge);
 
-    const updatedFixture = JSON.parse(JSON.stringify(fixture));
+    const updatedFixture = JSON.parse(JSON.stringify(msgUpdatedFixture));
     const newCost = 0.0099;
     (updatedFixture.properties.info as { cost: number }).cost = newCost;
     relay(bridge, updatedFixture);
 
     const rows = messagesRepo.listBySessionStructured(localSessionId);
     expect(rows[0].cost).toBeCloseTo(newCost, 6);
+
+    // Parts are still there after the second message.updated.
+    const parts = rows[0].parts as Array<{ type: string }>;
+    const types = parts.map((p) => p.type);
+    expect(types).toContain('text');
+    expect(types).toContain('tool');
+    expect(types).toContain('reasoning');
   });
 });
 
@@ -238,7 +370,7 @@ describe('issue-686-c4: GET messages returns structured parts and back-compat sh
   });
 
   it('structured message has parts as array, tokens as object, cost as number', () => {
-    relay(bridge, fixture as unknown as Record<string, unknown>);
+    driveFullSequence(bridge);
     const rows = messagesRepo.listBySessionStructured(localSessionId);
     const row = rows[0] as StructuredAgentSessionMessage;
     expect(Array.isArray(row.parts)).toBe(true);
@@ -262,7 +394,7 @@ describe('issue-686-c4: GET messages returns structured parts and back-compat sh
   it('messages are ordered by creation time (oldest first)', () => {
     // Insert legacy row first, then structured via bridge
     messagesRepo.append(localSessionId, 'input', 'user prompt', 'user prompt');
-    relay(bridge, fixture as unknown as Record<string, unknown>);
+    driveFullSequence(bridge);
 
     const rows = messagesRepo.listBySessionStructured(localSessionId);
     expect(rows.length).toBeGreaterThanOrEqual(2);
@@ -293,7 +425,7 @@ describe('issue-686-c5: message.removed deletes row; message.part.removed remove
   });
 
   it('message.removed deletes the row for the given sdk_message_id', () => {
-    relay(bridge, fixture as unknown as Record<string, unknown>);
+    driveFullSequence(bridge);
 
     // Verify row exists
     let rows = messagesRepo.listBySessionStructured(localSessionId);
@@ -313,12 +445,13 @@ describe('issue-686-c5: message.removed deletes row; message.part.removed remove
   });
 
   it('message.part.removed removes only the specified part, leaving others intact', () => {
-    relay(bridge, fixture as unknown as Record<string, unknown>);
+    driveFullSequence(bridge);
 
-    const fixtureInfo = fixture.properties as { parts: Array<{ id: string; type: string }> };
-    const partToRemove = fixtureInfo.parts.find((p) => p.type === 'reasoning')!;
     const initialRows = messagesRepo.listBySessionStructured(localSessionId);
-    const initialPartCount = (initialRows[0].parts as unknown[]).length;
+    const initialParts = initialRows[0].parts as Array<{ id: string; type: string }>;
+    const initialPartCount = initialParts.length;
+    const partToRemove = initialParts.find((p) => p.type === 'reasoning')!;
+    expect(partToRemove).toBeTruthy();
 
     // Emit message.part.removed
     relay(bridge, {
@@ -331,16 +464,15 @@ describe('issue-686-c5: message.removed deletes row; message.part.removed remove
     });
 
     const afterRows = messagesRepo.listBySessionStructured(localSessionId);
-    const afterParts = afterRows[0].parts as Array<{ id: string }>;
+    const afterParts = afterRows[0].parts as Array<{ id: string; type: string }>;
     // One part removed
     expect(afterParts).toHaveLength(initialPartCount - 1);
     // The removed part ID is gone
     expect(afterParts.find((p) => p.id === partToRemove.id)).toBeUndefined();
-    // Other parts still there
-    const remainingIds = afterParts.map((p) => p.id);
-    fixtureInfo.parts
-      .filter((p) => p.id !== partToRemove.id)
-      .forEach((p) => expect(remainingIds).toContain(p.id));
+    // Tool and text parts still there
+    const remainingTypes = afterParts.map((p) => p.type);
+    expect(remainingTypes).toContain('text');
+    expect(remainingTypes).toContain('tool');
   });
 });
 
@@ -364,9 +496,9 @@ describe('issue-686-c6: bridge restart — GET still returns full structured tra
   });
 
   it('after bridge restart (new instance), structured transcript is fully readable from DB', () => {
-    // First bridge instance processes the event.
+    // First bridge instance processes the full event sequence.
     const bridge1 = new OpencodeStreamBridge();
-    relay(bridge1, fixture as unknown as Record<string, unknown>);
+    driveFullSequence(bridge1);
     bridge1.dispose();
 
     // Simulate restart: create a completely new bridge instance.
@@ -379,7 +511,12 @@ describe('issue-686-c6: bridge restart — GET still returns full structured tra
     expect(rows.filter((r) => r.sdkMessageId === SDK_MSG_ID)).toHaveLength(1);
     const row = rows[0];
     expect(Array.isArray(row.parts)).toBe(true);
-    const fixtureInfo = fixture.properties as { parts: unknown[] };
-    expect(row.parts).toHaveLength(fixtureInfo.parts.length);
+
+    // All three part types must survive bridge restart (persisted in DB).
+    const parts = row.parts as Array<{ type: string }>;
+    const types = parts.map((p) => p.type);
+    expect(types).toContain('text');
+    expect(types).toContain('tool');
+    expect(types).toContain('reasoning');
   });
 });
