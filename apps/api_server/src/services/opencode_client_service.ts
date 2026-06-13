@@ -555,14 +555,20 @@ export class OpencodeClientService {
   ): Promise<{ stream: AsyncIterable<Event> } | null> {
     if (!this.client) return null;
     try {
+      // event.subscribe does NOT return the { data, error } envelope — it
+      // returns a ServerSentEventsResult = { stream } directly. Consume it as
+      // such; treating it as an envelope (raw.data) always saw `undefined` and
+      // dropped the stream ("No event stream available").
       const raw = await this.client.event.subscribe(
         directory ? { query: { directory } } : undefined,
       );
-      if (raw.error || !raw.data) {
-        logger.error('[OpencodeClientService] subscribeToEvents error:', raw.error);
+      if (!raw || !raw.stream) {
+        logger.error(
+          '[OpencodeClientService] subscribeToEvents: no stream in result',
+        );
         return null;
       }
-      return raw.data;
+      return raw;
     } catch (err) {
       logger.error('[OpencodeClientService] subscribeToEvents failed:', err);
       return null;
@@ -1134,7 +1140,7 @@ export class OpencodeClientService {
     directory?: string,
   ): Promise<import('@opencode-ai/sdk').SdkAgent[]> {
     const client = this.requireClient();
-    const raw = await client.agents(
+    const raw = await client.app.agents(
       directory ? { query: { directory } } : undefined,
     );
     if (raw.error) {

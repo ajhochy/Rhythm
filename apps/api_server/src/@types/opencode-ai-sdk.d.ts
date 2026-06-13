@@ -505,9 +505,15 @@ declare module '@opencode-ai/sdk' {
       }): Promise<SdkEnvelope<boolean>>;
     };
     event: {
-      subscribe(options?: { query?: { directory?: string } }): Promise<
-        SdkEnvelope<{ stream: AsyncIterable<Event> }>
-      >;
+      // NOTE: event.subscribe is the ONE endpoint that does NOT use the
+      // hey-api { data, error } envelope. The real SDK returns a
+      // ServerSentEventsResult = `{ stream: AsyncGenerator<Event> }` directly
+      // (dist/gen/core/serverSentEvents.gen.d.ts, v1.14.49). Wrapping it in
+      // SdkEnvelope was wrong and made subscribeToEvents always see a missing
+      // `.data` → "No event stream available".
+      subscribe(options?: { query?: { directory?: string } }): Promise<{
+        stream: AsyncIterable<Event>;
+      }>;
     };
     command: {
       list(options?: { query?: { directory?: string } }): Promise<
@@ -515,14 +521,17 @@ declare module '@opencode-ai/sdk' {
       >;
     };
     /**
-     * OPC-M4-4 — GET /agent — list all agents (built-in + custom) visible
-     * for a given cwd. Verified in @opencode-ai/sdk v1.14.49 sdk.gen.d.ts:
-     *   `agents(options?: Options<AppAgentsData>)` → `Array<Agent>`.
+     * OPC-M4-4 — "List all agents" lives under the `app` namespace in the real
+     * SDK: `client.app.agents(...)` (v1.14.49 sdk.gen.d.ts class App). It was
+     * previously (and wrongly) declared as a top-level `client.agents(...)`,
+     * which threw `client.agents is not a function` at runtime.
      * The optional `directory` query param scopes results to that cwd.
      */
-    agents(options?: { query?: { directory?: string } }): Promise<
-      SdkEnvelope<Array<SdkAgent>>
-    >;
+    app: {
+      agents(options?: { query?: { directory?: string } }): Promise<
+        SdkEnvelope<Array<SdkAgent>>
+      >;
+    };
   }
 
   /**
