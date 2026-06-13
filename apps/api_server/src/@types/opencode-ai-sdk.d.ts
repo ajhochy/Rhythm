@@ -430,7 +430,10 @@ declare module '@opencode-ai/sdk' {
       messages(options: {
         path: { id: string };
       }): Promise<SdkEnvelope<Array<Message>>>;
-      abort(options: { path: { id: string } }): Promise<SdkEnvelope<void>>;
+      abort(options: {
+        path: { id: string };
+        query?: { directory?: string };
+      }): Promise<SdkEnvelope<void>>;
       /**
        * GET /session/{id}/diff — returns a list of file diffs for the session.
        * Real SDK method name verified in sdk.gen.ts v1.14.49.

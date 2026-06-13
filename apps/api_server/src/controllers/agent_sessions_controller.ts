@@ -485,7 +485,7 @@ export class AgentSessionsController {
       if (!opencodeId) {
         throw AppError.badRequest('Session has no active SDK mapping; cannot cancel.');
       }
-      const ok = await opencodeClient.abortSession(opencodeId);
+      const ok = await opencodeClient.abortSession(opencodeId, session.cwd);
       if (!ok) {
         throw AppError.badRequest('Cancel failed at the SDK level.');
       }

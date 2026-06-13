@@ -1184,10 +1184,14 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     }
   }
 
-  /// M2-4: cancel an in-flight turn.
+  /// M2-4: cancel an in-flight turn. On success, optimistically clear the
+  /// working flag so the Stop button visibly takes effect immediately (the
+  /// bridge also relays session.idle when opencode aborts).
   Future<void> cancelSession(String id) async {
     try {
       await _repository.cancelSession(id);
+      _working[id] = false;
+      notifyListeners();
     } catch (e) {
       _error = e is AppError ? e.message : e.toString();
       notifyListeners();

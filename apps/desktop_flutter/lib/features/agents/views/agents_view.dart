@@ -1550,31 +1550,20 @@ class _TranscriptHeader extends StatelessWidget {
           _StatusChip(status: session.status, isWorking: isWorking),
           const SizedBox(width: 8),
           // Stop an in-flight turn (escape hatch for a hung/stuck session).
-          // cancelSession() existed but had no UI affordance before.
-          if (isWorking) ...[
-            OutlinedButton.icon(
+          // Icon-only to match the other header actions and fit the narrow
+          // (≤350px) header without overflowing.
+          if (isWorking)
+            IconButton(
               key: const Key('stop-turn-button'),
               onPressed: () =>
                   context.read<AgentsController>().cancelSession(session.id),
-              icon: const Icon(Icons.stop_rounded, size: 14),
-              label: const Text(
-                'Stop',
-                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
-              ),
-              style: OutlinedButton.styleFrom(
-                foregroundColor: context.rhythm.danger,
-                side: BorderSide(color: context.rhythm.border),
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                minimumSize: Size.zero,
-                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(RhythmRadius.md),
-                ),
-              ),
+              icon: const Icon(Icons.stop_circle_outlined, size: 18),
+              color: context.rhythm.danger,
+              tooltip: 'Stop',
+              visualDensity: VisualDensity.compact,
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints.tightFor(width: 32, height: 32),
             ),
-            const SizedBox(width: 8),
-          ],
           // OPC-M2-4: session total cost displayed as a subtle label.
           if (sessionTotal != null) ...[
             Text(

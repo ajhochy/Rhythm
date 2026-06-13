@@ -673,11 +673,15 @@ export class OpencodeClientService {
   }
 
   /** Abort a running session */
-  async abortSession(sessionId: string): Promise<boolean> {
+  async abortSession(sessionId: string, directory?: string): Promise<boolean> {
     if (!this.client) return false;
     try {
+      // opencode scopes sessions per directory — pass it so abort targets the
+      // right session (other session.* calls pass directory too; omitting it
+      // made Stop a silent no-op).
       const raw = await this.client.session.abort({
         path: { id: sessionId },
+        ...(directory ? { query: { directory } } : {}),
       });
       if (raw.error) {
         logger.error(`[OpencodeClientService] abortSession error for ${sessionId}:`, raw.error);
