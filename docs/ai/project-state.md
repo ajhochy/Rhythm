@@ -2,20 +2,67 @@
 
 ## Current focus
 
-**Branch:** `opc-m1-foundation` (pushed) — **PR #706** open, covers ALL of M1–M4 (#685–#703, 19 issues).
-**Status:** OpenCode v1.14.49 parity plan COMPLETE + issue #710 (instant new session) VERIFIED. Changes for #710 are in the working tree (not yet committed — user controls git per workflow agreement).
-**Last verified issue:** #710 — Instant new session (one-click create + auto-title) — VERIFIED (vitest all pass ✓, flutter test 457/457 with 2 pre-existing order-dependent flakes in `agent_server_failed_test.dart` that pass in isolation ✓, `ai-workflow checks --level pr` exit 0 ✓). Changes uncommitted per user workflow constraint.
-**Test status:** vitest all pass ✓ | flutter test 455/457 pass (2 pre-existing order-dependent flakes, unrelated to #710) ✓ | `ai-workflow checks --level pr` exit 0 ✓.
+**Branch:** `opc-m1-foundation` (pushed) — **PR #706** open, covers ALL of M1–M4 (#685–#703, 19 issues) plus issues #710–#719.
+**Status:** Issues #711–#719 all implemented and committed (commit `5d21d29`). CI green: Server CI run 27481545554 ✓ | Desktop CI run 27481545583 ✓. `ai-workflow checks --level pr` exit 0 ✓ (vitest 784/784, flutter analyze ✓, dart format ✓, tsc --noEmit ✓).
+**Last batch:** #711–#719 (9 issues) — see 2026-06-13 batch run entry below.
+**Test status:** vitest 784/784 ✓ | flutter analyze ✓ | dart format ✓ | tsc --noEmit ✓ | `ai-workflow checks --level pr` exit 0 ✓.
 **Key integration note:** #694 mounted the previously-orphaned `SessionSidePanel` inspector into `agents_view.dart` (right rail, shown when a session is selected) — the prior M3 attempt left it + other panels built but unmounted. All M3/M4 UI is verified wired into the real rendered surface with real-surface tests, not isolated widgets. #709 completes the Terminal tab inside that panel (was a placeholder until now). See [[project-agents-inspector-orphaned]].
 **Resolved flake (2026-06-13):** `apps/api_server/src/__tests__/agent_configs_routes.test.ts` no longer intermittently fails with `SocketError: other side closed` (UND_ERR_SOCKET). Root cause: Node's global `fetch` (undici) pooled a keep-alive socket to a closed test server's ephemeral port; a later `listen(0)` recycling that port reused the dead socket. Fix: `server.maxRequestsPerSocket = 1` + `server.closeAllConnections()` in teardown.
 **#710 agentId validation change:** `issue_653_contract.test.ts` c1a/c1c updated — null/empty `agentId` now returns 201 (instant-create); only `'__pending__'` sentinel still rejected with 400. This is intentional (#710 supersedes #653's "must pick agent before create" requirement).
-**Next step:** human `flutter run -d macos` smoke + commit/push/PR for #710 changes — then manual merge of PR #706 (plus #710 additions). CI green per milestone push.
+**Next step:** human `flutter run -d macos` smoke test, then merge PR #706.
 
 ## Known bugs (parked, not blocking PR #617)
 
 _(Parked bugs from before 2026-05-27 run. #638 and #635 below are now RESOLVED — see 2026-05-27 run entry.)_
 
 ## Recent coding-agent runs
+
+### 2026-06-13 — opc-m1-foundation / issues #711–#719 — OPC batch (9 issues)
+
+Commit: `5d21d29`. All checks: flutter analyze ✓, dart format ✓, tsc --noEmit ✓, vitest 784/784 ✓, `ai-workflow checks --level pr` exit 0 ✓. CI: Server run 27481545554 ✓ | Desktop run 27481545583 ✓.
+
+**#711 — Claude/anthropic tool calls now execute**
+- Root cause: `permissionMode` never forwarded to SDK; 204 response misread as failure.
+- Files: `ws_gateway.ts` (read permissionMode from DB, include in sdkOpts), `opencode_client_service.ts` (204 → true), `opencode-ai-sdk.d.ts` (SdkEnvelope.response?.status typed).
+- Test: `opc_711_anthropic_permission_mode.test.ts` (6 new vitest tests).
+
+**#712 — Auto-title client-side fallback**
+- Derive session name from first 40 chars of first user message when opencode doesn't auto-title. Server title still overrides if it arrives.
+- Files: `agents_controller.dart` (sendInput fallback logic).
+- Test: `opc_712_auto_title_fallback_test.dart` (5 new flutter tests).
+
+**#713 — Instant-create loading indicator + cwd directory picker**
+- `_CreatingSessionRow` widget shown during `createSession`; cwd field has Browse button via `file_picker.getDirectoryPath()`.
+- Files: `agents_controller.dart` (isCreating bool), `agents_view.dart` (_CreatingSessionRow, _browseCwd).
+- Test: `opc_713_create_loading_test.dart` (3 new flutter tests).
+
+**#714 — Reasoning effort on Claude path**
+- Fix: `thinking: { budget_tokens: N }` → `reasoningConfig: { type: 'enabled', budgetTokens: N }` (correct opencode server field name).
+- Files: `ws_gateway.ts`, `opencode-ai-sdk.d.ts` (reasoningConfig typed in PromptOptions).
+
+**#715 — Curated model in new-session picker**
+- Fix: call `refreshCatalog()` in `selectSession()` so new sessions always see current curation.
+- Files: `agents_controller.dart` (one `unawaited(refreshCatalog())` in `selectSession`).
+
+**#716 — MCP add persistence**
+- Fix: `addMcp` now writes server to `opencode.json` before calling `client.mcp.add()`, symmetric with `removeMcp`.
+- Files: `opencode_client_service.ts` (addMcp method extended).
+- Tests: `opencode_client_typed_wrappers.test.ts` (3 new tests).
+
+**#717 — Text-file attachments readable**
+- MIME detection: text-like files → sent as text content; images → FilePart data URI; unsupported binaries → SnackBar block at attach time.
+- Files: `_attachment_mime.dart` (isTextLikeMime, tryDecodeUtf8), `agents_view.dart` (_pickFiles 3-branch classification).
+- Tests: `issue_717_text_attachments_test.dart` (4 new), `opc_attachment_mime_test.dart` (6 new).
+
+**#718 — Context usage gauge in Context tab**
+- `sessionTotalInputTokens()` method; `_ContextUsageGauge` widget in Context tab shows tokens / 200k + LinearProgressIndicator.
+- Files: `agents_controller.dart` (new method), `_session_side_panel.dart` (gauge widget).
+- Tests: `issue_718_context_usage_gauge_test.dart` (6 new flutter tests).
+
+**#719 — Compact spinner clears on completion**
+- Clear `_sessionCompacting` on POST 204 (not solely on WS compaction part). Added 30s safety timeout.
+- Files: `agents_controller.dart` (summarizeSession rewrote clearing logic).
+- Tests: `opc_m3_3_compaction_test.dart` (3 new tests).
 
 ### 2026-06-13 — opc-m1-foundation / issue-710 — Instant new session (one-click create + auto-title)
 - Files modified (production):
