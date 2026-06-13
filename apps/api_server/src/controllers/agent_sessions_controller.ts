@@ -355,10 +355,9 @@ export class AgentSessionsController {
     }
   }
 
-  // M3-4: return a session's working-tree diff. Wraps client.session.diff when
-  // available; falls back to an empty list when the SDK build doesn't expose
-  // diff (older SDKs). The empty-list path is shippable — the Flutter side
-  // panel renders an empty Changes tab and the user gets correct UX.
+  // M3-4: return a session's working-tree diff via the typed getSessionDiff
+  // wrapper (OPC-M1-1). The duck-typed probe that always returned [] has been
+  // replaced — getSessionDiff calls the real SDK method.
   async getDiff(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const session = repo.findById(req.params.id);
@@ -368,15 +367,8 @@ export class AgentSessionsController {
         res.json([]);
         return;
       }
-      const sdk = (opencodeClient as unknown as {
-        diffSession?: (id: string) => Promise<Array<{ path: string; before: string; after: string }>>;
-      });
-      if (typeof sdk.diffSession !== 'function') {
-        res.json([]);
-        return;
-      }
-      const diff = await sdk.diffSession(opencodeId);
-      res.json(Array.isArray(diff) ? diff : []);
+      const diff = await opencodeClient.getSessionDiff(opencodeId);
+      res.json(diff);
     } catch (err) {
       next(err);
     }

@@ -204,6 +204,31 @@ declare module '@opencode-ai/sdk' {
 
   // ── OpencodeClient ──
 
+  // ── File diff type (v1.14.49) ──
+
+  export type FileDiff = {
+    file: string;
+    before: string;
+    after: string;
+    additions: number;
+    deletions: number;
+  };
+
+  // ── Todo type (v1.14.49) ──
+
+  export type Todo = {
+    id: string;
+    content: string;
+    status: string;
+    priority: string;
+  };
+
+  // ── MCP status type (v1.14.49) ──
+
+  export type McpStatusEntry = {
+    [key: string]: unknown;
+  };
+
   export interface OpencodeClient {
     config: {
       providers(): Promise<{
@@ -249,16 +274,103 @@ declare module '@opencode-ai/sdk' {
       }): Promise<Array<Message>>;
       abort(options: { path: { id: string } }): Promise<void>;
       /**
-       * Respond to a pending permission request.
-       * `permissionID` is the ID from the `permission.asked` event.
+       * GET /session/{id}/diff — returns a list of file diffs for the session.
+       * Real SDK method name verified in sdk.gen.ts v1.14.49.
        */
-      permission?: {
-        respond(options: {
-          path: { id: string; permissionId: string };
-          body: { decision: 'accept' | 'deny' };
-        }): Promise<void>;
-      };
+      diff(options: {
+        path: { id: string };
+        query?: { directory?: string; messageID?: string };
+      }): Promise<Array<FileDiff>>;
+      /**
+       * POST /session/{id}/command — dispatch a slash command in the session.
+       * Real SDK method name verified in sdk.gen.ts v1.14.49.
+       */
+      command(options: {
+        path: { id: string };
+        body: {
+          command: string;
+          arguments: string;
+          messageID?: string;
+          agent?: string;
+          model?: string;
+        };
+        query?: { directory?: string };
+      }): Promise<{ info: Message; parts: Array<Part> }>;
+      /**
+       * POST /session/{id}/revert — revert to a prior message.
+       */
+      revert(options: {
+        path: { id: string };
+        body: { messageID: string; partID?: string };
+        query?: { directory?: string };
+      }): Promise<Session>;
+      /**
+       * POST /session/{id}/unrevert — restore all reverted messages.
+       */
+      unrevert(options: {
+        path: { id: string };
+        query?: { directory?: string };
+      }): Promise<Session>;
+      /**
+       * POST /session/{id}/summarize — summarize the session.
+       */
+      summarize(options: {
+        path: { id: string };
+        body?: { providerID: string; modelID: string };
+        query?: { directory?: string };
+      }): Promise<boolean>;
+      /**
+       * GET /session/{id}/todo — get the todo list for the session.
+       */
+      todo(options: {
+        path: { id: string };
+        query?: { directory?: string };
+      }): Promise<Array<Todo>>;
+      /**
+       * POST /session/{id}/fork — fork the session at a message.
+       */
+      fork(options: {
+        path: { id: string };
+        body?: { messageID?: string };
+        query?: { directory?: string };
+      }): Promise<Session>;
+      /**
+       * GET /session/{id}/children — list child sessions.
+       */
+      children(options: {
+        path: { id: string };
+        query?: { directory?: string };
+      }): Promise<Array<Session>>;
     };
+    /**
+     * MCP server management — client.mcp in sdk.gen.ts v1.14.49.
+     */
+    mcp: {
+      /** GET /mcp — status map keyed by server name. */
+      status(options?: {
+        query?: { directory?: string };
+      }): Promise<Record<string, McpStatusEntry>>;
+      /** POST /mcp/{name}/connect */
+      connect(options: {
+        path: { name: string };
+        query?: { directory?: string };
+      }): Promise<boolean>;
+      /** POST /mcp/{name}/disconnect */
+      disconnect(options: {
+        path: { name: string };
+        query?: { directory?: string };
+      }): Promise<boolean>;
+    };
+    /**
+     * POST /session/{id}/permissions/{permissionID}
+     * Top-level method on OpencodeClient in sdk.gen.ts v1.14.49.
+     * Method name: postSessionIdPermissionsPermissionId
+     */
+    postSessionIdPermissionsPermissionId(options: {
+      path: { id: string; permissionID: string };
+      body?: { response: 'once' | 'always' | 'reject' };
+      query?: { directory?: string };
+    }): Promise<boolean>;
     provider: {
       list(): Promise<Array<{ id: string }>>;
       auth(): Promise<Array<{ id: string; methods: Array<unknown> }>>;
@@ -286,6 +398,9 @@ declare module '@opencode-ai/sdk' {
       subscribe(options?: { query?: { directory?: string } }): Promise<{
         stream: AsyncIterable<Event>;
       }>;
+    };
+    command: {
+      list(options?: { query?: { directory?: string } }): Promise<Array<{ name: string; description?: string }>>;
     };
   }
 }

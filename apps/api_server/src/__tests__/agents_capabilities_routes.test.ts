@@ -52,6 +52,58 @@ async function setup() {
   return { baseUrl, closeServer, authHeaders };
 }
 
+// ── issue-685-c6: GET /agents/capabilities includes provider-to-agent-kind mapping ──
+
+describe('issue-685-c6: GET /agents/capabilities includes provider-to-agent-kind mapping', () => {
+  let baseUrl: string;
+  let closeServer: () => Promise<void>;
+  let authHeaders: Record<string, string>;
+
+  beforeEach(async () => {
+    ({ baseUrl, closeServer, authHeaders } = await setup());
+  });
+
+  afterEach(async () => {
+    await closeServer();
+    vi.clearAllMocks();
+  });
+
+  it('response includes providerToAgentKind object', async () => {
+    const res = await fetch(`${baseUrl}/agents/capabilities`, { headers: authHeaders });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(typeof body['providerToAgentKind']).toBe('object');
+    expect(body['providerToAgentKind']).not.toBeNull();
+  });
+
+  it('providerToAgentKind maps anthropic → claude-code, openai → codex, google → gemini-cli', async () => {
+    const res = await fetch(`${baseUrl}/agents/capabilities`, { headers: authHeaders });
+    const body = (await res.json()) as Record<string, unknown>;
+    const mapping = body['providerToAgentKind'] as Record<string, string>;
+    expect(mapping['anthropic']).toBe('claude-code');
+    expect(mapping['openai']).toBe('codex');
+    expect(mapping['google']).toBe('gemini-cli');
+  });
+
+  it('providerToAgentKind maps github-copilot → claude-code', async () => {
+    const res = await fetch(`${baseUrl}/agents/capabilities`, { headers: authHeaders });
+    const body = (await res.json()) as Record<string, unknown>;
+    const mapping = body['providerToAgentKind'] as Record<string, string>;
+    expect(mapping['github-copilot']).toBe('claude-code');
+  });
+
+  it('POST /refresh also includes providerToAgentKind', async () => {
+    const res = await fetch(`${baseUrl}/agents/capabilities/refresh`, {
+      method: 'POST',
+      headers: authHeaders,
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as Record<string, unknown>;
+    expect(typeof body['providerToAgentKind']).toBe('object');
+    expect((body['providerToAgentKind'] as Record<string, string>)['anthropic']).toBe('claude-code');
+  });
+});
+
 describe('GET /agents/capabilities', () => {
   let baseUrl: string;
   let closeServer: () => Promise<void>;
@@ -176,10 +228,10 @@ describe('GET /agents/capabilities', () => {
     repo.insert({ label: 'My Custom Agent', icon: '', command: 'mycustomagent --run', enabled: true });
 
     const res = await fetch(`${baseUrl}/agents/capabilities`, { headers: authHeaders });
-    const caps = (await res.json()) as Record<string, boolean>;
+    const caps = (await res.json()) as Record<string, unknown>;
 
-    // Should have 5 keys (4 presets + 1 custom)
-    const ids = Object.keys(caps);
+    // Should have 4 presets + 1 custom = 5 capability keys, plus providerToAgentKind
+    const ids = Object.keys(caps).filter((k) => k !== 'providerToAgentKind');
     expect(ids.length).toBe(5);
   });
 });

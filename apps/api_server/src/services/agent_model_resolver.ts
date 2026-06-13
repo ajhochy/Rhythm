@@ -1,6 +1,23 @@
 import { opencodeClient } from './opencode_engine';
 
 /**
+ * OPC-M1-1: Server-side provider-to-agent-kind mapping.
+ *
+ * Maps SDK provider IDs to the Rhythm agent kind they back. This is derived
+ * from ROUTE_FALLBACKS_BY_AGENT: each direct (non-aggregator) provider ID
+ * maps to the agent kind it primarily supports. Aggregators (openrouter, etc.)
+ * are intentionally omitted — they don't have a 1:1 agent mapping.
+ *
+ * Exposed via GET /agents/capabilities as `providerToAgentKind`.
+ */
+export const PROVIDER_TO_AGENT_KIND: Record<string, string> = {
+  anthropic: 'claude-code',
+  'github-copilot': 'claude-code',
+  openai: 'codex',
+  google: 'gemini-cli',
+};
+
+/**
  * Optional variant label rendered as a sub-label in the model picker.
  * Examples: "1M context", "Legacy", "Thinking".
  */

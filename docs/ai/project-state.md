@@ -6,6 +6,23 @@ _(Parked bugs from before 2026-05-27 run. #638 and #635 below are now RESOLVED �
 
 ## Recent coding-agent runs
 
+### 2026-06-12 — opc-m1-foundation / issue-685 — Typed SDK wrappers replace duck-typing (OPC-M1-1)
+- Task: replace all duck-typed SDK probes (`diffSession`, `session['permission']` casts) with typed wrapper methods on `OpencodeClientService`.
+- Files modified:
+  - `apps/api_server/src/@types/opencode-ai-sdk.d.ts` — extended `OpencodeClient` interface: added `session.diff`, `session.command`, `session.revert`, `session.unrevert`, `session.summarize`, `session.todo`, `session.fork`, `session.children`, top-level `postSessionIdPermissionsPermissionId`, `mcp.status/connect/disconnect`, `command.list`; new `FileDiff`, `Todo`, `McpStatusEntry` types.
+  - `apps/api_server/src/services/opencode_client_service.ts` — added `AppError` import; added `requireClient()` guard (throws `AppError 503 ENGINE_NOT_READY` when client null); added typed wrapper methods: `getSessionDiff`, `respondToPermission`, `dispatchCommand`, `listMessages`, `getTodo`, `revertSession`, `unrevertSession`, `summarizeSession`, `forkSession`, `listChildren`, `listMcp`, `connectMcp`, `disconnectMcp`; replaced duck-typed `session['permission']` probe in `respondPermission` with a delegate to `respondToPermission`; replaced `as unknown as Record<string,…>['command']` cast in `listCommands` with typed `client.command.list()`.
+  - `apps/api_server/src/controllers/agent_sessions_controller.ts` — `getDiff()` replaced broken duck-typed `diffSession` probe with `opencodeClient.getSessionDiff(opencodeId)`.
+  - `apps/api_server/src/services/agent_model_resolver.ts` — exported `PROVIDER_TO_AGENT_KIND` constant (anthropic/github-copilot→claude-code, openai→codex, google→gemini-cli).
+  - `apps/api_server/src/routes/agents_capabilities_routes.ts` — `GET /` and `POST /refresh` now include `providerToAgentKind: PROVIDER_TO_AGENT_KIND` in the response.
+  - `apps/api_server/src/__tests__/opencode_client_typed_wrappers.test.ts` (new) — 34 contract tests for c1–c5 + wrapper shapes.
+  - `apps/api_server/src/__tests__/agents_capabilities_routes.test.ts` — added c6 suite (4 tests for `providerToAgentKind`); fixed pre-existing key-count assertion to exclude `providerToAgentKind`.
+  - `apps/api_server/src/__tests__/agent_sessions.test.ts` — updated mock to include `getSessionDiff`; updated diff test to use typed wrapper.
+  - `docs/ai/contracts/issue-685.json` — updated `test_file` paths to repo convention (`src/__tests__/`); c7 mode set to "manual" with reason "gate-level check"; all criteria status→pass.
+- Red→green proof: 34/34 failing before implementation → 34/34 passing after. Full vitest: 571→609/609 (38 new tests from this issue + pre-existing suite unchanged).
+- Checks: `ai-workflow checks --level pr` green (flutter analyze ✓, dart format ✓, tsc ✓, vitest 609/609 across 66 files).
+- Deviations: `respondPermission` (old method) kept as a thin delegate to `respondToPermission` for backward compat with call sites (decision mapping: accept→once, deny→reject). The `listCommands` duck-cast replaced inline (not a new wrapper — same method, just typed).
+- Concerns: `ws_gateway.ts` `as unknown as` cast for `promptAsync.bind` retained — it is NOT targeting SDK objects (it's casting the bound method's signature to accept an extra `opts` arg for best-effort forwarding); the contract c1 test specifically excludes ws_gateway from the `as unknown as` check.
+
 ### 2026-06-12 — workflow/run-2026-06-12-opencode-parity-plan (planning only; PR #704, issues #685–#703)
 - Task: audit-driven plan for full OpenCode v1.14.49 feature/UI parity in the Agents tab. No implementation. Two parallel audits (OpenCode clone pinned at the embedded SDK version v1.14.49; Rhythm's existing integration) → gap analysis → `docs/ai/current-plan.md` (replaces the completed #617 sprint plan) → 19 issue specs in `docs/ai/generated-issues/opencode-m*.md` → GitHub issues #685–#703 (label `opencode-parity`) → PR #704.
 - Key findings recorded in the plan: the embedded SDK already exposes every endpoint the gaps need (`/session/{id}/diff`, `/revert`, `/unrevert`, `/summarize`, `/todo`, `/fork`, `/command`, `/message`, `/children`, `/mcp`) — the "Changes tab always empty" bug is a duck-typed call to a nonexistent `diffSession` method. Root causes of prior rot, each mapped to an M1 issue: dual transcript stores (in-memory parts vs SQLite plain text), duck-typed SDK access, provider-id/agent-id conflation, in-memory sentinels.
