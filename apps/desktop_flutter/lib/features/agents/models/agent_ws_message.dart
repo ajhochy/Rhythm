@@ -111,17 +111,34 @@ class SessionStatusMessage extends AgentWsMessage {
     required this.id,
     required this.working,
     required this.source,
+    this.status,
+    this.attempt,
+    this.reason,
   });
 
   final String id;
   final bool working;
   final String source;
 
+  /// OPC-M2-4: the raw status string from the bridge ('busy', 'idle', 'retrying').
+  final String? status;
+
+  /// OPC-M2-4: retry attempt count (only present when status == 'retrying').
+  final int? attempt;
+
+  /// OPC-M2-4: retry reason string (only present when status == 'retrying').
+  final String? reason;
+
+  bool get isRetrying => status == 'retrying';
+
   factory SessionStatusMessage.fromJson(Map<String, dynamic> json) {
     return SessionStatusMessage(
       id: asString(json['id']) ?? '',
       working: (json['working'] as bool?) ?? false,
       source: asString(json['source']) ?? '',
+      status: asString(json['status']),
+      attempt: asInt(json['attempt']),
+      reason: asString(json['reason']),
     );
   }
 }
@@ -221,7 +238,7 @@ class WsErrorMessage extends AgentWsMessage {
 }
 
 /// Opencode SDK `message.updated` event forwarded by the api_server bridge.
-/// `info` is the SDK Message object: { id, sessionID, role, time, ... }.
+/// `info` is the SDK Message object: { id, sessionID, role, time, cost, tokens, ... }.
 class MessageUpdatedMessage extends AgentWsMessage {
   const MessageUpdatedMessage({
     required this.sessionId,
@@ -233,6 +250,16 @@ class MessageUpdatedMessage extends AgentWsMessage {
 
   String get messageId => asString(info['id']) ?? '';
   String get role => asString(info['role']) ?? 'assistant';
+
+  /// OPC-M2-4: cost in USD (null for user messages / legacy rows without cost).
+  double? get cost => (info['cost'] as num?)?.toDouble();
+
+  /// OPC-M2-4: token usage map (input/output/reasoning/cache). May be null.
+  Map<String, dynamic>? get tokens {
+    final t = info['tokens'];
+    if (t is Map<String, dynamic>) return t;
+    return null;
+  }
 
   factory MessageUpdatedMessage.fromJson(Map<String, dynamic> json) {
     return MessageUpdatedMessage(

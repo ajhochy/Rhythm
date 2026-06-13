@@ -110,6 +110,11 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   /// Keyed by session id; true when the agent is actively running a command.
   final Map<String, bool> _working = {};
 
+  // OPC-M2-4: Per-session retry state. Non-null when the bridge has relayed
+  // a 'retrying' status for the session. Cleared when the next part/message
+  // event arrives (retry resolved).
+  final Map<String, ({int attempt, String reason})> _retryingBySession = {};
+
   final List<PendingTrigger> _pendingTriggers = [];
 
   // -- Permission state (#608) -----------------------------------------------
@@ -226,6 +231,27 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
       List.unmodifiable(_chatPartsByMessage[messageId] ?? const []);
 
   bool isWorking(String sessionId) => _working[sessionId] ?? false;
+
+  /// OPC-M2-4: Current retry state for [sessionId], or null if not retrying.
+  ({int attempt, String reason})? retryingFor(String sessionId) =>
+      _retryingBySession[sessionId];
+
+  /// OPC-M2-4: Running total cost (USD) for [sessionId] = sum of per-message
+  /// costs received via message.updated or rehydration. Returns null when no
+  /// cost-bearing messages have arrived for the session.
+  double? sessionTotalCost(String sessionId) {
+    final messages = _chatMessagesBySession[sessionId];
+    if (messages == null || messages.isEmpty) return null;
+    double total = 0.0;
+    bool hasCost = false;
+    for (final m in messages) {
+      if (m.cost != null) {
+        total += m.cost!;
+        hasCost = true;
+      }
+    }
+    return hasCost ? total : null;
+  }
 
   List<PendingTrigger> get pendingTriggers =>
       List.unmodifiable(_pendingTriggers);
@@ -1137,9 +1163,26 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
           sessionId: sessionId,
           role: row.role,
           createdAt: row.createdAt,
+          // OPC-M2-4: propagate cost/tokens from REST rows.
+          cost: row.cost,
+          tokens: row.tokens,
         );
         (_chatMessagesBySession[sessionId] ??= []).add(chatMsg);
         existingMsgIds.add(msgId);
+      } else {
+        // OPC-M2-4: if the message already exists (from WS streaming) but has
+        // no cost yet, fill it in from the REST row.
+        final existingIdx = (_chatMessagesBySession[sessionId] ?? [])
+            .indexWhere((m) => m.id == msgId);
+        if (existingIdx >= 0) {
+          final existing = _chatMessagesBySession[sessionId]![existingIdx];
+          if (existing.cost == null && row.cost != null) {
+            existing.cost = row.cost;
+          }
+          if (existing.tokens == null && row.tokens != null) {
+            existing.tokens = row.tokens;
+          }
+        }
       }
 
       // Populate parts only when the REST row carries them AND the message has
@@ -1204,6 +1247,16 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     } else if (msg is SessionStatusMessage) {
       final wasWorking = _working[msg.id] ?? false;
       _working[msg.id] = msg.working;
+      // OPC-M2-4: handle retrying status.
+      if (msg.isRetrying) {
+        _retryingBySession[msg.id] = (
+          attempt: msg.attempt ?? 1,
+          reason: msg.reason ?? '',
+        );
+      } else {
+        // Non-retry status (idle/busy) clears any prior retry state.
+        _retryingBySession.remove(msg.id);
+      }
       // Issue #606 — when a session transitions from working to not-working,
       // fire notifications for any messages with notify-on-completion armed.
       if (wasWorking && !msg.working) {
@@ -1222,6 +1275,8 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
         sessionId: msg.sessionId,
         messageId: msg.messageId,
         role: msg.role,
+        cost: msg.cost,
+        tokens: msg.tokens,
       );
     } else if (msg is MessagePartUpdatedMessage) {
       _upsertChatPart(
@@ -1231,6 +1286,8 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
         text: msg.text,
         raw: msg.part,
       );
+      // OPC-M2-4: a real part arriving means the retry resolved — clear state.
+      _retryingBySession.remove(msg.sessionId);
       // OPC-M1-3: record part activity for stuck detection.
       _lastPartActivityAt[msg.sessionId] = DateTime.now();
       // A part arriving means the session is no longer stuck.
@@ -1351,12 +1408,16 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     required String sessionId,
     required String messageId,
     required String role,
+    double? cost,
+    Map<String, dynamic>? tokens,
   }) {
     if (sessionId.isEmpty || messageId.isEmpty) return;
     final list = _chatMessagesBySession.putIfAbsent(sessionId, () => []);
     final idx = list.indexWhere((m) => m.id == messageId);
     if (idx >= 0) {
-      // Existing message — no-op for now (role doesn't change).
+      // OPC-M2-4: update cost/tokens on existing message when they arrive.
+      if (cost != null) list[idx].cost = cost;
+      if (tokens != null) list[idx].tokens = tokens;
       return;
     }
     list.add(ChatMessage(
@@ -1364,6 +1425,8 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
       sessionId: sessionId,
       role: role,
       createdAt: DateTime.now(),
+      cost: cost,
+      tokens: tokens,
     ));
   }
 

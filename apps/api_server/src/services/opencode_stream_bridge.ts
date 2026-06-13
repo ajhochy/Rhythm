@@ -455,38 +455,57 @@ export class OpencodeStreamBridge {
       }
 
       case 'session.status': {
-        // status.type tells us busy/idle
+        // status.type tells us busy | idle | retry
         const statusProps = event.properties as Record<string, unknown>;
-        const status = statusProps?.status as { type: string } | undefined;
+        const status = statusProps?.status as { type: string; attempt?: number; message?: string; next?: number } | undefined;
         if (status) {
-          broadcast({
-            v: 1,
-            type: 'session.status',
-            id: eventId,
-            working: status.type === 'busy',
-            status: status.type,
-          });
-          // Persist to DB so the agents list badge moves off "Starting".
-          // OPC-M1-4: Skip the update if the session DB row is already in
-          // status='error' — otherwise the SDK's idle event would clobber
-          // the persisted error state. We read from DB (not an in-memory set)
-          // so the check survives bridge restarts.
-          const currentStatus = (() => {
-            try {
-              return this.sessionsRepo.findById(localSessionId!)?.status;
-            } catch { return undefined; }
-          })();
-          if (localSessionId && currentStatus !== 'error') {
-            try {
-              const dbStatus = status.type === 'busy' ? 'working' : 'idle';
-              this.sessionsRepo.updateStatus(localSessionId, dbStatus);
-              const updated = this.sessionsRepo.findById(localSessionId);
-              if (updated) broadcastSessionUpdated(updated);
-            } catch (err) {
-              logger.error(
-                '[OpencodeStreamBridge] Failed to update session status:',
-                err,
-              );
+          if (status.type === 'retry') {
+            // OPC-M2-4: relay retry as a distinct WS status 'retrying' carrying
+            // attempt count and reason. Do NOT persist to DB (retry is transient;
+            // the session is still in its prior persistent status). Do NOT update
+            // the DB row — idle/busy transitions do that; retry is in-flight.
+            broadcast({
+              v: 1,
+              type: 'session.status',
+              id: eventId,
+              working: true,
+              status: 'retrying',
+              attempt: status.attempt ?? 1,
+              reason: status.message ?? '',
+            });
+            // No DB update for retry — the session status stays at its previous value
+            // (busy/working). The retrying state is surfaced purely in the WS frame.
+          } else {
+            // idle or busy — existing behaviour unchanged.
+            broadcast({
+              v: 1,
+              type: 'session.status',
+              id: eventId,
+              working: status.type === 'busy',
+              status: status.type,
+            });
+            // Persist to DB so the agents list badge moves off "Starting".
+            // OPC-M1-4: Skip the update if the session DB row is already in
+            // status='error' — otherwise the SDK's idle event would clobber
+            // the persisted error state. We read from DB (not an in-memory set)
+            // so the check survives bridge restarts.
+            const currentStatus = (() => {
+              try {
+                return this.sessionsRepo.findById(localSessionId!)?.status;
+              } catch { return undefined; }
+            })();
+            if (localSessionId && currentStatus !== 'error') {
+              try {
+                const dbStatus = status.type === 'busy' ? 'working' : 'idle';
+                this.sessionsRepo.updateStatus(localSessionId, dbStatus);
+                const updated = this.sessionsRepo.findById(localSessionId);
+                if (updated) broadcastSessionUpdated(updated);
+              } catch (err) {
+                logger.error(
+                  '[OpencodeStreamBridge] Failed to update session status:',
+                  err,
+                );
+              }
             }
           }
         }

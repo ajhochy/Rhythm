@@ -17,7 +17,7 @@ All commands delegate to `scripts/run_ai_workflow.py` in this repo.
 ### api_server (Node.js/TypeScript)
 ```bash
 cd apps/api_server
-npm test                  # vitest run — 362 tests across 34 files
+npm test                  # vitest run — 652 tests across 70 files
 node_modules/.bin/tsc --noEmit   # TypeScript type check (no tsc in global PATH)
 ```
 

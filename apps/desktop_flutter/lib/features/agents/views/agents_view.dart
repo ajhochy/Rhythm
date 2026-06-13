@@ -21,9 +21,11 @@ import '../models/agent_session.dart';
 import '../models/chat_models.dart';
 import '../../settings/services/destructive_modal_service.dart';
 import '_agent_settings_sheet.dart';
+import '_chat_cost_footer.dart';
 import '_markdown_message_body.dart';
 import '_message_actions_row.dart';
 import '_reasoning_block.dart';
+import '_retrying_indicator.dart';
 import '_permission_card.dart';
 import '_permission_mode_picker.dart';
 import '_project_vcs_chip.dart';
@@ -1317,6 +1319,8 @@ class _TranscriptPanelState extends State<_TranscriptPanel> {
           final parts = controller.chatPartsFor(m.id);
           // Collect full text for copy action.
           final copyText = parts.map((p) => p.text).join('').trim();
+          // OPC-M2-4: show cost footer for assistant messages with a cost.
+          final showCostFooter = m.role != 'user' && m.cost != null;
           return Padding(
             padding: const EdgeInsets.only(bottom: 8),
             child: Column(
@@ -1327,6 +1331,11 @@ class _TranscriptPanelState extends State<_TranscriptPanel> {
                   parts: parts,
                   sessionId: session.id,
                 ),
+                if (showCostFooter)
+                  Padding(
+                    padding: const EdgeInsets.only(left: 4, top: 2),
+                    child: ChatCostFooter(cost: m.cost, tokens: m.tokens),
+                  ),
                 MessageActionsRow(
                   sessionId: session.id,
                   messageId: m.id,
@@ -1352,6 +1361,8 @@ class _TranscriptHeader extends StatelessWidget {
     final controller = context.watch<AgentsController>();
     final agentServerController = context.watch<AgentServerController>();
     final isWorking = controller.isWorking(session.id);
+    final retrying = controller.retryingFor(session.id);
+    final sessionTotal = controller.sessionTotalCost(session.id);
     final showReconnect =
         agentServerController.status != AgentServerStatus.ready ||
             controller.connectivity.isWsDisconnected;
@@ -1375,8 +1386,28 @@ class _TranscriptHeader extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 8),
+          // OPC-M2-4: show retrying indicator when the bridge relayed a retry.
+          if (retrying != null) ...[
+            RetryingIndicator(
+              attempt: retrying.attempt,
+              reason: retrying.reason,
+            ),
+            const SizedBox(width: 8),
+          ],
           _StatusChip(status: session.status, isWorking: isWorking),
           const SizedBox(width: 8),
+          // OPC-M2-4: session total cost displayed as a subtle label.
+          if (sessionTotal != null) ...[
+            Text(
+              'Total: \$${sessionTotal.toStringAsFixed(4)}',
+              style: TextStyle(
+                fontSize: 11,
+                color: context.rhythm.textMuted,
+                fontFeatures: const [FontFeature.tabularFigures()],
+              ),
+            ),
+            const SizedBox(width: 8),
+          ],
           if (showReconnect) ...[
             OutlinedButton(
               onPressed: () =>

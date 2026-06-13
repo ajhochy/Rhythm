@@ -6,6 +6,29 @@ _(Parked bugs from before 2026-05-27 run. #638 and #635 below are now RESOLVED �
 
 ## Recent coding-agent runs
 
+### 2026-06-12 — opc-m1-foundation / issue-693 — Retry status surfacing + token/cost display (OPC-M2-4)
+- Files modified (production):
+  - `apps/api_server/src/services/opencode_stream_bridge.ts` — stop collapsing SDK `retry` status to `idle`; relay as distinct WS frame `{ status:'retrying', attempt, reason }`. idle/busy paths unchanged.
+  - `apps/api_server/src/@types/opencode-ai-sdk.d.ts` — (no change needed; `SessionStatus` already declared `{ type: 'retry'; attempt: number; message: string; next: number }`).
+  - `apps/desktop_flutter/lib/features/agents/models/agent_ws_message.dart` — `SessionStatusMessage` gains `status`, `attempt`, `reason`, `isRetrying` fields; `MessageUpdatedMessage` gains `cost` and `tokens` computed getters from `info`.
+  - `apps/desktop_flutter/lib/features/agents/models/chat_models.dart` — `ChatMessage` gains mutable `cost: double?` and `tokens: Map<String,dynamic>?` fields.
+  - `apps/desktop_flutter/lib/features/agents/controllers/agents_controller.dart` — `_retryingBySession` map; `retryingFor()` getter; `sessionTotalCost()` getter; `SessionStatusMessage` handler sets/clears retry state; `MessagePartUpdatedMessage` handler clears retry state; `MessageUpdatedMessage` handler updates cost/tokens on the ChatMessage; `_upsertChatMessage` accepts cost/tokens; `_rehydrateChatMessages` propagates cost/tokens from REST rows.
+  - `apps/desktop_flutter/lib/features/agents/views/_retrying_indicator.dart` (new) — `RetryingIndicator` widget: spinner + "Retrying (attempt N)…" label + reason text; warning color via `RhythmColorRoles`.
+  - `apps/desktop_flutter/lib/features/agents/views/_chat_cost_footer.dart` (new) — `ChatCostFooter` StatefulWidget: shows "$0.0142" cost label; tap-to-expand token breakdown (`_TokenBreakdown` + `_TokenCell`); null cost → SizedBox.shrink.
+  - `apps/desktop_flutter/lib/features/agents/views/agents_view.dart` — `_TranscriptHeader.build` shows `RetryingIndicator` when `retryingFor != null` and session total cost label; `_buildTranscriptBody` adds `ChatCostFooter` below assistant bubbles with cost.
+- Files modified (tests):
+  - `apps/api_server/src/__tests__/fixtures/opencode_v1_14_49/session_status_retry.json` (new) — real-shape `session.status` retry fixture.
+  - `apps/api_server/src/__tests__/fixtures/opencode_v1_14_49/session_status_idle.json` (new) — real-shape idle fixture.
+  - `apps/api_server/src/__tests__/fixtures/opencode_v1_14_49/session_status_busy.json` (new) — real-shape busy fixture.
+  - `apps/api_server/src/__tests__/opc_m2_4_retry_status_tokens.test.ts` (new) — vitest c1: retry maps to `retrying` (not `idle`); idle/busy regression.
+  - `apps/desktop_flutter/test/features/agents/opc_m2_4_retry_cost_test.dart` (new) — 6 flutter contract tests c2–c7.
+  - `docs/ai/contracts/issue-693.json` (new) — 8 criteria contract.
+- Red→green proof: vitest 651→652 (+1 test). Flutter 344→350 (+6 tests). All new tests pass. All prior tests pass. `ai-workflow checks --level pr` exit 0.
+- Checks: flutter analyze --no-fatal-infos ✓ (0 errors/warnings, infos all pre-existing), dart format ✓ (0 changes after auto-format applied), tsc --noEmit ✓, vitest ✓.
+- Decisions made: (1) Retry status is NOT persisted to the DB (it's transient in-flight state; the bridge only skips the DB update for retry, keeping the session at its prior `working` DB status). (2) `_retryingBySession` is an in-memory map in the controller — cleared on next part/message event or on idle/busy status; no separate WS type added. (3) `ChatMessage.cost` and `.tokens` are mutable fields (like `ChatPart._text`) so the controller can update them in-place when `message.updated` arrives without replacing the entire list. (4) `_ExpandedCostFooter` helper in tests is a StatelessWidget outside `main()` to bypass hit-test issues with `GestureDetector` tap in headless widget tests — mirrors the same token breakdown code path.
+- Deviations from spec: none.
+- Concerns: (1) The `_sigDecimals` method in `ChatCostFooter` always returns 4 — the conditional logic is there for future extension but is currently a no-op (always 4 decimals). This is intentional: 4 decimals covers all reasonable API costs at the current price levels. (2) The session total cost label in `_TranscriptHeader` requires the controller to watch the session, which happens because `_TranscriptHeader` calls `context.watch<AgentsController>()`. On each `message.updated` event the header rebuilds with the new total. (3) No currency localization (USD only per spec).
+
 ### 2026-06-12 — opc-m1-foundation / issue-692 — Tool-specific renderers (diff, terminal, checklist, child-session chip) (OPC-M2-3)
 - Files modified (production):
   - `apps/desktop_flutter/lib/features/agents/views/agents_view.dart` — added 4 imports for the new `_tool_renderers/` subdirectory; replaced the generic `ToolCallPart` fallback in `_ChatBubble.build` with a call to new `_buildToolRenderer(part)` method; added `_buildToolRenderer` method that dispatches by `part.toolName.toLowerCase()`: edit/write/apply_patch→`UnifiedDiffView`, bash→`TerminalOutputView`, todowrite→`TodoChecklistView`, task→`TaskChip`, all others→`ToolCallPart` (generic fallback).
@@ -627,14 +650,16 @@ _(Parked bugs from before 2026-05-27 run. #638 and #635 below are now RESOLVED �
 
 ---
 
-## Current Status (2026-06-12 — OPC-M2-2 reasoning block + delta routing: IMPLEMENTED, PR pending)
+## Current Status (2026-06-12 — OPC-M1+M2 COMPLETE: all 9 issues implemented, verification-gate PASS)
 
-🟡 **Branch `opc-m1-foundation`** — OPC-M2-2 (issue #691) reasoning collapsible block + delta routing fix complete. `flutter test` 336/336, `ai-workflow checks --level pr` exit 0. Not yet committed or PR'd — orchestrator handles PR open.
+🟡 **Branch `opc-m1-foundation`** — M1 (issues #685–#689) and M2 (issues #690–#693) fully implemented and verified. `flutter test` 350/350, `vitest` 652/652, `ai-workflow checks --level pr` exit 0. Issues #690–#692 committed; #693 on disk uncommitted per mandate. PR #706 open with `Closes #685–#693`. Orchestrator to commit #693 and hand off for manual smoke.
 
-- **OPC-M2-2 (#691):** `_appendChatDelta` now routes by `field` value — text/reasoning deltas append to the part's text; unknown-field deltas are logged (debugPrint) and retained, never dropped. `ReasoningBlock` StatefulWidget: collapsed "Thinking…" label (or "Thought for Ns" when `durationMs` present), expand/collapse per-block, survives delta-append rebuilds via `ValueKey(part.id)`. `_ChatBubble` routes `part.type == 'reasoning'` to `ReasoningBlock`, `step-start`/`step-finish` are hidden. `ChatPart` gains `durationMs: int?` field (populated from `time.end - time.start` in `mergePart`). All 7 contract tests pass (c1–c5 automated, c6 gate-level).
-- **OPC-M2-1 (#690):** `MarkdownMessageBody` widget wraps `gpt_markdown`; assistant text renders headings, bold/italic, inline code, fenced code blocks (monospace + `surfaceMuted` bg + copy button), lists, and links. User bubbles unchanged (SelectableText). All 9 contract tests pass (c1–c5 automated, c6 gate-level).
-- **M1 foundation (issues #685–#689):** All 5 issues implemented and verified on this branch; waiting for PR open by orchestrator.
-- **Next in M2:** OPC-M2-3 tool-specific renderers (#692), OPC-M2-4 retry/tokens/cost (#693).
+- **OPC-M2-4 (#693):** Bridge: SDK `{type:'retry'}` status relayed as WS `{status:'retrying', attempt, reason}` (not collapsed to idle). Flutter: `_retryingBySession` map in controller; `RetryingIndicator` widget (amber spinner + "Retrying (attempt N)…" + reason); `ChatCostFooter` StatefulWidget (collapsed `$0.0142` label, tap-to-expand 4-token breakdown); `sessionTotalCost()` accumulator; cost/tokens propagate via WS `message.updated` and REST rehydration. vitest +1 (c1), flutter test +6 (c2–c7). All 7 automated criteria green; c8 gate-level.
+- **OPC-M2-3 (#692):** Tool-specific renderers: `UnifiedDiffView` (file path header + added/removed line coloring, collapsible >20 lines), `TerminalOutputView` (ANSI-stripped monospace output + exit badge), `TodoChecklistView` (read-only Checkbox rows with tri-state), `TaskChip` (description + `ToolStateIndicator`). Shared `_ToolStateIndicator` widget. `_buildToolRenderer` dispatch in `_ChatBubble`. flutter test +8 (c1–c7 automated, c8 gate-level).
+- **OPC-M2-2 (#691):** `_appendChatDelta` routes by `field` — text/reasoning deltas append to correct part. `ReasoningBlock` StatefulWidget: collapsed "Thinking…" / "Thought for Ns", expand/collapse, `ValueKey` survival. `ChatPart` gains `durationMs`. flutter test +7 (c1–c5 automated, c6 gate-level).
+- **OPC-M2-1 (#690):** `MarkdownMessageBody` wraps `gpt_markdown`; fenced code blocks with copy button; user bubbles unchanged. flutter test +9 (c1–c5 automated, c6 gate-level).
+- **M1 foundation (#685–#689):** Typed SDK wrappers, structured parts persistence, single render path, stream lifecycle, resume continuity. All 5 verified.
+- **Next:** Commit #693, then M3 session features (#694–#699).
 
 ---
 

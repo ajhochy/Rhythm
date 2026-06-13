@@ -9,12 +9,21 @@ class ChatMessage {
     required this.sessionId,
     required this.role,
     required this.createdAt,
+    this.cost,
+    this.tokens,
   });
 
   final String id;
   final String sessionId;
   final String role; // 'user' | 'assistant' | 'system'
   final DateTime createdAt;
+
+  /// OPC-M2-4: message cost in USD (null for user / legacy rows).
+  double? cost;
+
+  /// OPC-M2-4: token usage map (null for user / legacy rows).
+  /// Keys: 'input', 'output', 'reasoning', 'cache'.
+  Map<String, dynamic>? tokens;
 
   /// OPC-M1-3: construct a [ChatMessage] from a structured REST row.
   ///

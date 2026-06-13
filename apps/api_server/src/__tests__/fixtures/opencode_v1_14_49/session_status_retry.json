@@ -1,0 +1,13 @@
+{
+  "_comment": "Real v1.14.49 session.status event shape for a retry state. SessionStatus = { type: 'retry', attempt: number, message: string, next: number }. 'next' is the Unix-ms timestamp of the next retry attempt.",
+  "type": "session.status",
+  "properties": {
+    "sessionID": "ses_abc123",
+    "status": {
+      "type": "retry",
+      "attempt": 2,
+      "message": "Rate limit exceeded. Retrying in 5s.",
+      "next": 1718000015000
+    }
+  }
+}

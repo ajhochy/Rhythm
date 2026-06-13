@@ -1,0 +1,71 @@
+{
+  "issue": 693,
+  "generated": "2026-06-12",
+  "criteria": [
+    {
+      "criterion_id": "issue-693-c1",
+      "text": "Bridge maps a real-shape retry status/part event to a WS frame with status `retrying` (vitest: not `idle`); idle and busy mappings unchanged (regression asserts).",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/opc_m2_4_retry_status_tokens.test.ts",
+      "test_id": "issue-693-c1: retry status event maps to WS frame with status retrying (not idle); idle/busy regression",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-693-c2",
+      "text": "A retry part renders inline with attempt count and reason text (widget test).",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agents/opc_m2_4_retry_cost_test.dart",
+      "test_id": "issue-693-c2: retry part renders inline Retrying (attempt N) with reason",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-693-c3",
+      "text": "When the retry resolves (next message/part event), the retrying indicator clears.",
+      "mode": "unit",
+      "test_file": "apps/desktop_flutter/test/features/agents/opc_m2_4_retry_cost_test.dart",
+      "test_id": "issue-693-c3: retrying status clears when next message.part.updated arrives",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-693-c4",
+      "text": "An assistant message with `cost: 0.0142` and tokens `{input: 1200, output: 350, reasoning: 0, cache: 800}` renders a footer \"$0.0142\"; tooltip/expanded detail contains all four token counts (widget test).",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agents/opc_m2_4_retry_cost_test.dart",
+      "test_id": "issue-693-c4: assistant message with cost renders footer $0.0142 and token breakdown",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-693-c5",
+      "text": "Messages without cost (user, legacy rows) render no cost footer.",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agents/opc_m2_4_retry_cost_test.dart",
+      "test_id": "issue-693-c5: user and legacy messages render no cost footer",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-693-c6",
+      "text": "Transcript header shows the session total = sum of persisted message costs, updating when a new message lands (controller test).",
+      "mode": "unit",
+      "test_file": "apps/desktop_flutter/test/features/agents/opc_m2_4_retry_cost_test.dart",
+      "test_id": "issue-693-c6: session total cost = sum of message costs updates as messages land",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-693-c7",
+      "text": "Rehydrated messages (REST) show identical cost/token UI to streamed ones.",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agents/opc_m2_4_retry_cost_test.dart",
+      "test_id": "issue-693-c7: rehydrated messages show identical cost/token UI to streamed",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-693-c8",
+      "text": "`ai-workflow checks --level pr` exits 0; vitest + flutter test green.",
+      "mode": "manual",
+      "status": "pending",
+      "reason": "Gate-level check; run by verification-gate as part of ai-workflow checks --level pr."
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": ["issue-693-c8"]
+}
