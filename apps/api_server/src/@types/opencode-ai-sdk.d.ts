@@ -187,6 +187,14 @@ declare module '@opencode-ai/sdk' {
     };
   };
 
+  // OPC-M3-1: emitted by opencode when working-tree diffs change for a session.
+  export type EventSessionDiff = {
+    type: 'session.diff';
+    properties: {
+      sessionID: string;
+    };
+  };
+
   export type EventFileEdited = {
     type: 'file.edited';
     properties: {
@@ -217,6 +225,7 @@ declare module '@opencode-ai/sdk' {
     | EventSessionIdle
     | EventSessionCreated
     | EventSessionError
+    | EventSessionDiff
     | EventFileEdited
     | EventPermissionAsked;
 

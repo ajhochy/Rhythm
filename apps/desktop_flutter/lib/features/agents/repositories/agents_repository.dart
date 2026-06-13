@@ -100,4 +100,8 @@ class AgentsRepository {
 
   Future<List<AgentSessionMessage>> getMessages(String id, {int? limit}) =>
       _dataSource.getMessages(id, limit: limit);
+
+  /// OPC-M3-1 — GET /agent-sessions/:id/diff — fetch working-tree diff.
+  Future<List<Map<String, dynamic>>> fetchSessionDiff(String id) =>
+      _dataSource.fetchSessionDiff(id);
 }

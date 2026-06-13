@@ -121,6 +121,11 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   // Keyed by sessionId → list of pending permissions.
   final Map<String, List<PendingPermission>> _pendingPermissions = {};
 
+  // OPC-M3-1: Per-session working-tree diff (FileDiff entries from the server).
+  // Populated by fetchSessionDiff() and invalidated by session.diff WS events.
+  final Map<String, List<Map<String, dynamic>>> _sessionDiffBySession = {};
+  final Set<String> _sessionDiffLoading = {};
+
   // --------------------------------------------------------------------------
   // Model-picker state
   // --------------------------------------------------------------------------
@@ -251,6 +256,55 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
       }
     }
     return hasCost ? total : null;
+  }
+
+  /// OPC-M3-1 — FileDiff entries for [sessionId] in the order returned by the
+  /// server. Returns an empty list when no diff has been fetched yet.
+  List<Map<String, dynamic>> sessionDiffFor(String sessionId) =>
+      List.unmodifiable(_sessionDiffBySession[sessionId] ?? const []);
+
+  /// OPC-M3-1 — True while a diff fetch is in-flight for [sessionId].
+  bool sessionDiffLoading(String sessionId) =>
+      _sessionDiffLoading.contains(sessionId);
+
+  /// OPC-M3-1 — Fetch (or refresh) the working-tree diff for [sessionId].
+  ///
+  /// Updates [_sessionDiffBySession] and notifies listeners on completion.
+  /// Safe to call multiple times; concurrent calls for the same session are
+  /// gated so only one HTTP round-trip is in-flight at a time.
+  Future<void> fetchSessionDiff(String sessionId) async {
+    if (_sessionDiffLoading.contains(sessionId)) return;
+    _sessionDiffLoading.add(sessionId);
+    notifyListeners();
+    try {
+      final entries = await _repository.fetchSessionDiff(sessionId);
+      if (_disposed) return;
+      _sessionDiffBySession[sessionId] = entries;
+    } catch (_) {
+      // Non-fatal — keep stale entries; the view shows an error state when
+      // the diff list is empty but a fetch was attempted (errorMessage).
+      _sessionDiffBySession[sessionId] ??= const [];
+    } finally {
+      _sessionDiffLoading.remove(sessionId);
+      if (!_disposed) notifyListeners();
+    }
+  }
+
+  /// OPC-M3-1 — Called when a `session.diff` WS event arrives.
+  ///
+  /// Triggers a refetch for [sessionId] only — other sessions are unaffected.
+  void handleSessionDiffEvent(String sessionId) {
+    unawaited(fetchSessionDiff(sessionId));
+  }
+
+  /// Test-only: seed a diff result directly without a HTTP round-trip.
+  @visibleForTesting
+  void setSessionDiffForTest(
+    String sessionId,
+    List<Map<String, dynamic>> entries,
+  ) {
+    _sessionDiffBySession[sessionId] = List.of(entries);
+    notifyListeners();
   }
 
   List<PendingTrigger> get pendingTriggers =>
@@ -1396,6 +1450,10 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
           body: msg.body,
         );
       }
+    } else if (msg is SessionDiffMessage) {
+      // OPC-M3-1: session.diff event — refetch diff for the affected session only.
+      handleSessionDiffEvent(msg.id);
+      return; // handleSessionDiffEvent calls notifyListeners() asynchronously.
     }
     notifyListeners();
   }

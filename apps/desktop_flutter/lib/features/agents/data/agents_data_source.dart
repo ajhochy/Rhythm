@@ -349,4 +349,20 @@ class AgentsDataSource {
         .map((j) => AgentSessionMessage.fromJson(j as Map<String, dynamic>))
         .toList();
   }
+
+  /// OPC-M3-1 — GET /agent-sessions/:id/diff
+  ///
+  /// Returns the list of FileDiff entries for the session's working tree.
+  /// Each entry is a raw JSON map with keys: file, before, after, additions,
+  /// deletions. Returns an empty list when the session has no SDK mapping or
+  /// no working-tree changes. Throws [AppException] on HTTP error.
+  Future<List<Map<String, dynamic>>> fetchSessionDiff(String id) async {
+    final response = await http.get(
+      Uri.parse('$_baseUrl/agent-sessions/$id/diff'),
+      headers: AuthSessionStore.headers(),
+    );
+    assertOk(response);
+    final list = jsonDecode(response.body) as List<dynamic>;
+    return list.cast<Map<String, dynamic>>();
+  }
 }

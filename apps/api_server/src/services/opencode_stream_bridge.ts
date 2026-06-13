@@ -604,6 +604,19 @@ export class OpencodeStreamBridge {
         break;
       }
 
+      case 'session.diff': {
+        // OPC-M3-1: relay session.diff events so the Flutter Changes tab knows
+        // to refetch GET /agent-sessions/:id/diff for the affected session.
+        // The event carries no diff payload itself — the client must call the
+        // REST endpoint to get the full FileDiff array.
+        broadcast({
+          v: 1,
+          type: 'session.diff',
+          id: eventId,
+        });
+        break;
+      }
+
       case 'session.created': {
         broadcast({
           v: 1,

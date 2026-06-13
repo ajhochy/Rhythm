@@ -41,6 +41,8 @@ abstract class AgentWsMessage {
         return PermissionAskedMessage.fromJson(json);
       case 'permission.resolved':
         return PermissionResolvedMessage.fromJson(json);
+      case 'session.diff':
+        return SessionDiffMessage.fromJson(json);
       case 'error':
         return WsErrorMessage.fromJson(json);
       default:
@@ -415,6 +417,22 @@ class PermissionResolvedMessage extends AgentWsMessage {
       sessionId: asString(json['sessionId']) ?? '',
       permissionId: asString(json['permissionId']) ?? '',
       decision: asString(json['decision']) ?? 'deny',
+    );
+  }
+}
+
+/// OPC-M3-1 — `session.diff` event relayed by the bridge when the SDK fires a
+/// diff event. The event carries only the local session id — the Flutter client
+/// must call `GET /agent-sessions/:id/diff` to get the full FileDiff payload.
+class SessionDiffMessage extends AgentWsMessage {
+  const SessionDiffMessage({required this.id});
+
+  /// Local (Rhythm) session id.
+  final String id;
+
+  factory SessionDiffMessage.fromJson(Map<String, dynamic> json) {
+    return SessionDiffMessage(
+      id: asString(json['id']) ?? '',
     );
   }
 }

@@ -28,7 +28,8 @@ apps/
 │       │   ├── views/agents_view.dart          ← Main chat view; _ChatBubble routes parts to widgets
 │       │   ├── views/_markdown_message_body.dart ← OPC-M2-1: gpt_markdown wrapper for assistant text
 │       │   ├── views/_reasoning_block.dart     ← OPC-M2-2: collapsible ReasoningBlock StatefulWidget
-│       │   ├── views/_tool_renderers/          ← (planned M2-3) tool-specific renderer widgets
+│       │   ├── views/_tool_renderers/          ← OPC-M2-3: UnifiedDiffView, TerminalOutputView, TodoChecklistView, TaskChip
+│       │   ├── views/_changes_tab.dart         ← OPC-M3-1: ChangesTab, _FileDiffRow, ChangesTabBadge (not yet wired into agents_view.dart)
 │       │   ├── controllers/agents_controller.dart ← _appendChatDelta routes by field; chatPartsFor/chatMessagesFor
 │       │   └── models/chat_models.dart         ← ChatMessage + ChatPart (durationMs: int? for reasoning)
 │       ├── features/agent_configs/

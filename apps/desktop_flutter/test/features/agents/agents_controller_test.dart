@@ -198,6 +198,11 @@ class _FakeAgentsRepository implements AgentsRepository {
   Future<List<AgentSessionMessage>> getMessages(String id, {int? limit}) async {
     return [];
   }
+
+  @override
+  Future<List<Map<String, dynamic>>> fetchSessionDiff(String id) async {
+    return [];
+  }
 }
 
 // ---------------------------------------------------------------------------

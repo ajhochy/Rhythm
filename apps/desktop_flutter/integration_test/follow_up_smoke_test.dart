@@ -231,6 +231,9 @@ class _FakeAgentsRepository implements AgentsRepository {
     _store[idx] = updated;
     return updated;
   }
+
+  @override
+  Future<List<Map<String, dynamic>>> fetchSessionDiff(String id) async => [];
 }
 
 class _FakeLocalNotificationService extends LocalNotificationService {

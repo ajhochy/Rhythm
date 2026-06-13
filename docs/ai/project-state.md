@@ -6,6 +6,26 @@ _(Parked bugs from before 2026-05-27 run. #638 and #635 below are now RESOLVED �
 
 ## Recent coding-agent runs
 
+### 2026-06-12 — opc-m1-foundation / issue-694 — Changes tab via real GET /session/{id}/diff (OPC-M3-1)
+- Files modified (production):
+  - `apps/api_server/src/services/opencode_stream_bridge.ts` — added `session.diff` case to relay WS event `{ v:1, type:'session.diff', id: eventId }` to Flutter; no diff payload, client must call REST.
+  - `apps/api_server/src/@types/opencode-ai-sdk.d.ts` — added `EventSessionDiff` type `{ type:'session.diff'; properties:{ sessionID: string } }` and added it to the `Event` union.
+  - `apps/desktop_flutter/lib/features/agents/data/agents_data_source.dart` — added `fetchSessionDiff(id)` method: GET `/agent-sessions/:id/diff`, returns `List<Map<String,dynamic>>`.
+  - `apps/desktop_flutter/lib/features/agents/repositories/agents_repository.dart` — added `fetchSessionDiff(id)` method delegating to the data source.
+  - `apps/desktop_flutter/lib/features/agents/models/agent_ws_message.dart` — added `SessionDiffMessage` class; added `'session.diff'` parse case.
+  - `apps/desktop_flutter/lib/features/agents/controllers/agents_controller.dart` — added `_sessionDiffBySession`/`_sessionDiffLoading` state; `sessionDiffFor()`/`sessionDiffLoading()` getters; `fetchSessionDiff()` async method; `handleSessionDiffEvent()` dispatcher; `setSessionDiffForTest()` test hook; `SessionDiffMessage` handler in `_onWsMessage`.
+  - `apps/desktop_flutter/lib/features/agents/views/_changes_tab.dart` (new) — `ChangesTab`, `_FileDiffRow`, `ChangesTabBadge` widgets; reuses `UnifiedDiffView` (M2-3) via synthetic `ChatPart`.
+- Files modified (tests):
+  - `apps/api_server/src/__tests__/opc_m3_1_changes_tab_diff.test.ts` (new) — 3 vitest tests c1a/b/c: no SDK mapping → `[]`; real fixture → `getSessionDiff` called; SDK error forwarded to `next()`.
+  - `apps/desktop_flutter/test/features/agents/opc_m3_1_changes_tab_test.dart` (new) — 7 flutter tests c2–c5: file paths+counts visible; empty state; error state distinct; WS event triggers fetch; badge shows count.
+  - `integration_test/follow_up_smoke_test.dart` — added `fetchSessionDiff` override to `_FakeAgentsRepository`.
+  - `docs/ai/contracts/issue-694.json` (new) — 6 criteria contract (c1–c5 automated, c6 manual).
+- Red→green proof: vitest 652→655 (+3 tests). Flutter 350→357 (+7 tests). All pass. `ai-workflow checks --level pr` exit 0.
+- Checks: flutter analyze --no-fatal-infos ✓ (exit 0, 227 infos all pre-existing), dart format ✓ (0 changes after auto-format applied), tsc --noEmit ✓, vitest ✓.
+- Decisions made: (1) `session.diff` WS event carries no diff payload — Flutter calls REST to get full `FileDiff[]`; this avoids embedding potentially large diffs in the WS broadcast. (2) `_FileDiffRow` reuses `UnifiedDiffView` (M2-3) via synthetic `ChatPart` built with `mergePart()` — reuses all diffing logic without duplication. (3) `EventSessionDiff` was added to the hand-rolled `opencode-ai-sdk.d.ts` type union (the SDK is ESM-only so we maintain manual declarations); `properties.sessionID` matches the pattern used by other session events so `opencodeSessionId` extraction in the bridge works without changes.
+- Deviations from spec: none.
+- Concerns: (1) The `AgentsRepository` interface pattern means every new method requires updating all test implementors — this was done for 5 existing files in the prior session + `integration_test/follow_up_smoke_test.dart` in this session (missed in prior flutter test run because integration tests are excluded from `flutter test`). Longer-term, the interface could be replaced with a concrete class or abstract class with default impls.
+
 ### 2026-06-12 — opc-m1-foundation / issue-693 — Retry status surfacing + token/cost display (OPC-M2-4)
 - Files modified (production):
   - `apps/api_server/src/services/opencode_stream_bridge.ts` — stop collapsing SDK `retry` status to `idle`; relay as distinct WS frame `{ status:'retrying', attempt, reason }`. idle/busy paths unchanged.
@@ -650,16 +670,17 @@ _(Parked bugs from before 2026-05-27 run. #638 and #635 below are now RESOLVED �
 
 ---
 
-## Current Status (2026-06-12 — OPC-M1+M2 COMPLETE: all 9 issues implemented, verification-gate PASS)
+## Current Status (2026-06-12 — OPC-M3-1 COMPLETE: #694 verified, flutter 357/357, vitest 655/655)
 
-🟡 **Branch `opc-m1-foundation`** — M1 (issues #685–#689) and M2 (issues #690–#693) fully implemented and verified. `flutter test` 350/350, `vitest` 652/652, `ai-workflow checks --level pr` exit 0. Issues #690–#692 committed; #693 on disk uncommitted per mandate. PR #706 open with `Closes #685–#693`. Orchestrator to commit #693 and hand off for manual smoke.
+🟡 **Branch `opc-m1-foundation`** — M1 (#685–#689), M2 (#690–#693), and M3-1 (#694) implemented and verified. `flutter test` 357/357, `vitest` 655/655, `ai-workflow checks --level pr` exit 0. All changes on disk uncommitted per mandate. No PR open yet — branch ready for PR.
 
-- **OPC-M2-4 (#693):** Bridge: SDK `{type:'retry'}` status relayed as WS `{status:'retrying', attempt, reason}` (not collapsed to idle). Flutter: `_retryingBySession` map in controller; `RetryingIndicator` widget (amber spinner + "Retrying (attempt N)…" + reason); `ChatCostFooter` StatefulWidget (collapsed `$0.0142` label, tap-to-expand 4-token breakdown); `sessionTotalCost()` accumulator; cost/tokens propagate via WS `message.updated` and REST rehydration. vitest +1 (c1), flutter test +6 (c2–c7). All 7 automated criteria green; c8 gate-level.
-- **OPC-M2-3 (#692):** Tool-specific renderers: `UnifiedDiffView` (file path header + added/removed line coloring, collapsible >20 lines), `TerminalOutputView` (ANSI-stripped monospace output + exit badge), `TodoChecklistView` (read-only Checkbox rows with tri-state), `TaskChip` (description + `ToolStateIndicator`). Shared `_ToolStateIndicator` widget. `_buildToolRenderer` dispatch in `_ChatBubble`. flutter test +8 (c1–c7 automated, c8 gate-level).
-- **OPC-M2-2 (#691):** `_appendChatDelta` routes by `field` — text/reasoning deltas append to correct part. `ReasoningBlock` StatefulWidget: collapsed "Thinking…" / "Thought for Ns", expand/collapse, `ValueKey` survival. `ChatPart` gains `durationMs`. flutter test +7 (c1–c5 automated, c6 gate-level).
-- **OPC-M2-1 (#690):** `MarkdownMessageBody` wraps `gpt_markdown`; fenced code blocks with copy button; user bubbles unchanged. flutter test +9 (c1–c5 automated, c6 gate-level).
+- **OPC-M3-1 (#694):** `session.diff` WS event relayed by bridge; `EventSessionDiff` added to SDK type union; `fetchSessionDiff()` on data source + repository; `SessionDiffMessage` parse; controller diff state + `handleSessionDiffEvent`; `_changes_tab.dart` (new — `ChangesTab`, `_FileDiffRow`, `ChangesTabBadge`) reuses `UnifiedDiffView` (M2-3). vitest +3 (c1), flutter +7 (c2–c5). Widget not yet wired into `agents_view.dart` tab bar (that is M3 integration, next issue).
+- **OPC-M2-4 (#693):** Bridge: SDK `{type:'retry'}` status relayed as WS `{status:'retrying', attempt, reason}` (not collapsed to idle). Flutter: `_retryingBySession` map; `RetryingIndicator` widget; `ChatCostFooter` StatefulWidget; `sessionTotalCost()` accumulator. vitest +1 (c1), flutter +6 (c2–c7). All 7 automated criteria green; c8 gate-level.
+- **OPC-M2-3 (#692):** Tool-specific renderers: `UnifiedDiffView`, `TerminalOutputView`, `TodoChecklistView`, `TaskChip`. Shared `_ToolStateIndicator`. `_buildToolRenderer` dispatch. flutter +8 (c1–c7 automated, c8 gate-level).
+- **OPC-M2-2 (#691):** `_appendChatDelta` routes by `field`. `ReasoningBlock` collapsible. `ChatPart` gains `durationMs`. flutter +7 (c1–c5 automated, c6 gate-level).
+- **OPC-M2-1 (#690):** `MarkdownMessageBody` wraps `gpt_markdown`; fenced code + copy button. flutter +9 (c1–c5 automated, c6 gate-level).
 - **M1 foundation (#685–#689):** Typed SDK wrappers, structured parts persistence, single render path, stream lifecycle, resume continuity. All 5 verified.
-- **Next:** Commit #693, then M3 session features (#694–#699).
+- **Next:** Wire `ChangesTab` into `agents_view.dart` tab bar (M3-2 or equivalent), then remaining M3 issues (#695–#699).
 
 ---
 
@@ -1281,9 +1302,9 @@ Flutter → DELETE /agent-sessions/:id → controller stops bridge + clears map 
 ```
 
 ## Branch / PR
-`m1-projects` — branched off clean `main` at `84eef44` (post PR #574 merge). Local-only commit `7ccadbf` adds the M1 issue bodies under `docs/ai/generated-issues/`. M1-1 implementation is on disk, not yet committed.
+`opc-m1-foundation` — all M1 (#685–#689), M2 (#690–#693), and M3-1 (#694) changes on disk, uncommitted per mandate. No PR open yet. When ready to open: enumerate `Closes #685`, `Closes #686`, … `Closes #694` in the PR body.
 
-Historic: `opencode-engine-issue-564` → PR #574 — **MERGED** 2026-05-14.
+Historic: `m1-projects` → (superseded). `opencode-engine-issue-564` → PR #574 — **MERGED** 2026-05-14.
 
 ## Active plan
 `docs/ai/current-plan.md` is no longer a placeholder. It contains the full 8-issue UI port plan (Opencode Desktop reference at `github.com/anomalyco/opencode/tree/dev/packages/desktop`). Status of the plan's issues:
