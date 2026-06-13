@@ -617,6 +617,21 @@ export class OpencodeStreamBridge {
         break;
       }
 
+      case 'todo.updated': {
+        // OPC-M3-5: relay todo.updated events so the Flutter todo panel can
+        // update in real-time without polling. The full todo list is embedded
+        // in the event properties — no REST refetch needed.
+        const todoProps = event.properties as Record<string, unknown>;
+        const todos = todoProps?.todos as Array<unknown> | undefined;
+        broadcast({
+          v: 1,
+          type: 'todo.updated',
+          id: eventId,
+          todos: todos ?? [],
+        });
+        break;
+      }
+
       case 'session.created': {
         broadcast({
           v: 1,

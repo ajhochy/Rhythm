@@ -648,6 +648,24 @@ export class AgentSessionsController {
     }
   }
 
+  // OPC-M3-5: get the session todo list (GET /:id/todo).
+  async getTodo(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const session = repo.findById(req.params.id);
+      if (!session) throw AppError.notFound('AgentSession');
+      const opencodeId = opencodeSessionMap.get(session.id);
+      if (!opencodeId) {
+        // No active SDK mapping — return empty array (same contract as getDiff).
+        res.json([]);
+        return;
+      }
+      const todos = await opencodeClient.getTodo(opencodeId);
+      res.json(todos);
+    } catch (err) {
+      next(err);
+    }
+  }
+
   listMessages(req: Request, res: Response, next: NextFunction): void {
     try {
       const session = repo.findById(req.params.id);

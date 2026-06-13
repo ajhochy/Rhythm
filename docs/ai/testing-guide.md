@@ -17,7 +17,7 @@ All commands delegate to `scripts/run_ai_workflow.py` in this repo.
 ### api_server (Node.js/TypeScript)
 ```bash
 cd apps/api_server
-npm test                  # vitest run — 667 tests (as of OPC-M3-4 / issue #697)
+npm test                  # vitest run — 672 tests (as of OPC-M3-5 / issue #698)
 node_modules/.bin/tsc --noEmit   # TypeScript type check (no tsc in global PATH)
 ```
 
@@ -49,6 +49,8 @@ dart format . --set-exit-if-changed # CI fails on format violations
 | `test/features/agents/opc_m3_2_revert_test.dart` | OPC-M3-2: MessageActionsRow revert button, RevertRestoreBanner, controller revert state (c2–c5); includes REAL-SURFACE test (c2a) |
 | `test/features/agents/opc_m3_3_compaction_test.dart` | OPC-M3-3: TranscriptHeader overflow menu "Compact session" + spinner, CompactionDivider, ContextUsageHint (c2–c5); includes REAL-SURFACE test (c2a/b) |
 | `test/features/agents/opc_m3_4_command_dispatch_test.dart` | OPC-M3-4: sendCommand WS frame dispatch, _sendInput routing (known vs unknown command), role='command' optimistic message (c2a/b REAL-SURFACE, c3–c5) |
+| `src/__tests__/opc_m3_5_todo_panel.test.ts` | OPC-M3-5: GET /:id/todo route (no mapping → [], real shape, SDK error → 502); bridge relay todo.updated → WS broadcast (c1–c2) |
+| `test/features/agents/opc_m3_5_todo_panel_test.dart` | OPC-M3-5: TodoPanel in SessionSidePanel (c3a REAL-SURFACE, c3b empty→hidden, c4a/b WS session-keyed isolation, c5a header count, c5b checkbox states, c6a/b collapse persistence) |
 
 ## Mocking the Opencode engine in tests
 

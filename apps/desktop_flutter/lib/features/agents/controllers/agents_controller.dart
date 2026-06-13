@@ -140,6 +140,14 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   // Cleared when the compaction part arrives via WS, or on error.
   final Map<String, bool> _sessionCompacting = {};
 
+  // OPC-M3-5: Per-session todo list. Populated by fetchSessionTodos() on
+  // selectSession and replaced in-place on todo.updated WS events. Keyed
+  // by local session id. An absent entry means no fetch has occurred yet;
+  // an empty list means the session has no todos.
+  final Map<String, List<Map<String, dynamic>>> _sessionTodosBySession = {};
+  // True while a todo fetch is in-flight for the given session id.
+  final Set<String> _sessionTodosLoading = {};
+
   // --------------------------------------------------------------------------
   // Model-picker state
   // --------------------------------------------------------------------------
@@ -418,6 +426,50 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     } else {
       _sessionCompacting.remove(sessionId);
     }
+    notifyListeners();
+  }
+
+  // ── OPC-M3-5: todo list ────────────────────────────────────────────────────
+
+  /// Current todo list for [sessionId]. Empty list when no todos or not yet
+  /// fetched. Returns an unmodifiable view.
+  List<Map<String, dynamic>> sessionTodosFor(String sessionId) =>
+      List.unmodifiable(_sessionTodosBySession[sessionId] ?? const []);
+
+  /// True while a todo fetch is in-flight for [sessionId].
+  bool sessionTodosLoading(String sessionId) =>
+      _sessionTodosLoading.contains(sessionId);
+
+  /// OPC-M3-5 — Fetch (or refresh) the todo list for [sessionId].
+  ///
+  /// Concurrent calls for the same session are gated — only one HTTP round-trip
+  /// in-flight at a time. Updates [_sessionTodosBySession] and notifies on
+  /// completion.
+  Future<void> fetchSessionTodos(String sessionId) async {
+    if (_sessionTodosLoading.contains(sessionId)) return;
+    _sessionTodosLoading.add(sessionId);
+    notifyListeners();
+    try {
+      final todos = await _repository.fetchSessionTodos(sessionId);
+      if (_disposed) return;
+      _sessionTodosBySession[sessionId] = todos;
+    } catch (e) {
+      if (_disposed) return;
+      // Non-fatal: keep stale entries on error (empty list on first fetch).
+      _sessionTodosBySession[sessionId] ??= const [];
+    } finally {
+      _sessionTodosLoading.remove(sessionId);
+      if (!_disposed) notifyListeners();
+    }
+  }
+
+  /// Test-only: seed the todo state for [sessionId] without a HTTP round-trip.
+  @visibleForTesting
+  void setSessionTodosForTest(
+    String sessionId,
+    List<Map<String, dynamic>> todos,
+  ) {
+    _sessionTodosBySession[sessionId] = List.of(todos);
     notifyListeners();
   }
 
@@ -1278,6 +1330,8 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     _loadModelRoutes(id);
     // Load slash commands for this session (Issue #610).
     _loadSlashCommands(id);
+    // OPC-M3-5: fetch the todo list for this session on first select.
+    unawaited(fetchSessionTodos(id));
   }
 
   Future<void> _loadSlashCommands(String sessionId) async {
@@ -1667,6 +1721,10 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
       // OPC-M3-1: session.diff event — refetch diff for the affected session only.
       handleSessionDiffEvent(msg.id);
       return; // handleSessionDiffEvent calls notifyListeners() asynchronously.
+    } else if (msg is SessionTodoUpdatedMessage) {
+      // OPC-M3-5: todo.updated event — replace the session's todo state in-place.
+      // State is keyed per session; an update for session B must not affect A.
+      _sessionTodosBySession[msg.sessionId] = List.of(msg.todos);
     }
     notifyListeners();
   }

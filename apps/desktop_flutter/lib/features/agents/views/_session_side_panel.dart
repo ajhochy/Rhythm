@@ -5,6 +5,7 @@ import '../../../app/core/ui/tokens/rhythm_theme.dart';
 import '../controllers/agents_controller.dart';
 import '../models/agent_session.dart';
 import '_changes_tab.dart';
+import '_todo_panel.dart';
 
 /// M3-5: right-rail inspector panel for the active session.
 ///
@@ -67,8 +68,23 @@ class _SessionSidePanelState extends State<SessionSidePanel> {
           ),
           Divider(height: 1, color: context.rhythm.borderSubtle),
           Expanded(child: _buildBody(context)),
+          // OPC-M3-5: collapsible todo panel shown below tab content.
+          // Collapse state is keyed per session so switching sessions
+          // preserves the collapsed/expanded choice for each one.
+          _buildTodoPanel(context),
         ],
       ),
+    );
+  }
+
+  Widget _buildTodoPanel(BuildContext context) {
+    final controller = context.watch<AgentsController>();
+    final todos = controller.sessionTodosFor(widget.session.id);
+    // TodoPanel returns SizedBox.shrink() when todos is empty — no extra
+    // space allocated.
+    return TodoPanel(
+      todos: todos,
+      collapseKey: widget.session.id,
     );
   }
 

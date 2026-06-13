@@ -4,15 +4,38 @@
 
 **Branch:** `opc-m1-foundation`
 **Active milestone:** M3 — Session features
-**Last verified issue:** #697 — OPC-M3-4 Slash commands via session.command WS frame (PASS, branch `opc-m1-foundation`, commit `50ecf8c`, not yet merged)
-**Test status:** vitest 667/667 ✓ | flutter test 385/385 ✓ | `ai-workflow checks --level pr` exit 0 ✓
-**Next issue:** M3 complete — ready for PR open on `opc-m1-foundation` covering #694–#697
+**Last verified issue:** #698 — OPC-M3-5 Session todo panel (PASS, branch `opc-m1-foundation`, commit `ca084b9`, not yet merged)
+**Test status:** vitest 672/672 ✓ | flutter test 393/393 ✓ | `ai-workflow checks --level pr` exit 0 ✓
+**Next issue:** M3 complete — ready for PR open on `opc-m1-foundation` covering #694–#698
 
 ## Known bugs (parked, not blocking PR #617)
 
 _(Parked bugs from before 2026-05-27 run. #638 and #635 below are now RESOLVED — see 2026-05-27 run entry.)_
 
 ## Recent coding-agent runs
+
+### 2026-06-13 — opc-m1-foundation / issue-698 — Session todo panel (OPC-M3-5)
+- Files modified (production):
+  - `apps/api_server/src/@types/opencode-ai-sdk.d.ts` — added `EventTodoUpdated` type and added to `Event` union.
+  - `apps/api_server/src/controllers/agent_sessions_controller.ts` — added `getTodo()` method (mirrors `getDiff` pattern: no SDK mapping → `[]`; SDK call → JSON array).
+  - `apps/api_server/src/routes/agent_sessions_routes.ts` — added `GET /:id/todo` route.
+  - `apps/api_server/src/services/opencode_stream_bridge.ts` — added `todo.updated` case in `_relayEvent` switch (broadcasts `{v:1, type:'todo.updated', id, todos}` WS frame).
+  - `apps/desktop_flutter/lib/features/agents/models/agent_ws_message.dart` — added `SessionTodoUpdatedMessage` class + `'todo.updated'` parse case.
+  - `apps/desktop_flutter/lib/features/agents/data/agents_data_source.dart` — added `fetchSessionTodos(id)`.
+  - `apps/desktop_flutter/lib/features/agents/repositories/agents_repository.dart` — added `fetchSessionTodos` delegate.
+  - `apps/desktop_flutter/lib/features/agents/controllers/agents_controller.dart` — added `_sessionTodosBySession`/`_sessionTodosLoading` state; `sessionTodosFor()`, `sessionTodosLoading()` getters; `fetchSessionTodos()` method; `setSessionTodosForTest()` hook; `SessionTodoUpdatedMessage` handler; `unawaited(fetchSessionTodos)` call in `selectSession()`.
+  - `apps/desktop_flutter/lib/features/agents/views/_todo_panel.dart` (new) — `TodoPanel` StatefulWidget with progress badge, collapse toggle; `_TodoRow` read-only checklist row; `_collapseRegistry` global Map for per-session collapse persistence.
+  - `apps/desktop_flutter/lib/features/agents/views/_session_side_panel.dart` — added `_buildTodoPanel()` wired into Column after expanded body; imports `_todo_panel.dart`.
+  - `docs/ai/contracts/issue-698.json` (new) — 7 criteria contract (c1–c6 automated, c7 manual).
+- Files modified (tests):
+  - `apps/api_server/src/__tests__/opc_m3_5_todo_panel.test.ts` (new) — 5 vitest tests (c1: GET route shape; c2: bridge relay).
+  - `apps/desktop_flutter/test/features/agents/opc_m3_5_todo_panel_test.dart` (new) — 8 Flutter tests (c3a REAL-SURFACE via SessionSidePanel, c3b empty→hidden, c4a/b WS per-session isolation, c5a header count, c5b checkbox states, c6a/b collapse persistence).
+  - 5 test stub files updated with `fetchSessionTodos` stub: `agents_controller_test.dart`, `agent_trigger_watcher_test.dart`, `issue_626_chip_status_flip_test.dart`, `new_session_dialog_error_test.dart`, `integration_test/follow_up_smoke_test.dart`.
+- Red→green proof: vitest 667→672 (+5 tests). Flutter 385→393 (+8 tests). All pass.
+- Checks: dart format ✓ (2 files reformatted), flutter analyze --no-fatal-infos ✓ (231 infos all pre-existing, no new errors), vitest 672/672 ✓, flutter test 393/393 ✓. `ai-workflow checks --level pr` not yet run (pending verification-gate).
+- Decisions made: (1) Panel placed below `Expanded(child: _buildBody)` in `_SessionSidePanelState` — always-visible bottom section regardless of tab, consistent with spec "wire into real rendered tree". (2) `_collapseRegistry` module-level `Map` (not static field) — persists per-session collapse across widget rebuilds and session switches within app run as required by c6. (3) WS handler uses `List.of(msg.todos)` to create a new list (prevents session A/B state bleed). (4) `controller.initialize()` required before WS inject in c4 tests — `_wsSub` only set up after `_connect()` runs inside `initialize()`.
+- Deviations from spec: none.
+- Concerns: (1) `AgentsRepository` interface exhaustiveness: 5 more stub files needed updating — pattern continues growing per M3 iteration. (2) `TodoPanel` is read-only mirror (per spec); user-editable todos are explicitly out of scope.
 
 ### 2026-06-13 — opc-m1-foundation / issue-697 — Slash commands via session.command WS frame (OPC-M3-4)
 - Files modified (production):

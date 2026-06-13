@@ -43,6 +43,8 @@ abstract class AgentWsMessage {
         return PermissionResolvedMessage.fromJson(json);
       case 'session.diff':
         return SessionDiffMessage.fromJson(json);
+      case 'todo.updated':
+        return SessionTodoUpdatedMessage.fromJson(json);
       case 'error':
         return WsErrorMessage.fromJson(json);
       default:
@@ -433,6 +435,33 @@ class SessionDiffMessage extends AgentWsMessage {
   factory SessionDiffMessage.fromJson(Map<String, dynamic> json) {
     return SessionDiffMessage(
       id: asString(json['id']) ?? '',
+    );
+  }
+}
+
+/// OPC-M3-5 — `todo.updated` event relayed by the bridge when the SDK fires a
+/// todo update. Carries the full todo list for the session so the Flutter todo
+/// panel can update without a REST round-trip.
+class SessionTodoUpdatedMessage extends AgentWsMessage {
+  const SessionTodoUpdatedMessage({
+    required this.sessionId,
+    required this.todos,
+  });
+
+  /// Local (Rhythm) session id.
+  final String sessionId;
+
+  /// Full list of todos for the session, each with id, content, status, priority.
+  final List<Map<String, dynamic>> todos;
+
+  factory SessionTodoUpdatedMessage.fromJson(Map<String, dynamic> json) {
+    final rawTodos = json['todos'];
+    final todos = rawTodos is List
+        ? rawTodos.whereType<Map<String, dynamic>>().toList()
+        : const <Map<String, dynamic>>[];
+    return SessionTodoUpdatedMessage(
+      sessionId: asString(json['id']) ?? '',
+      todos: todos,
     );
   }
 }

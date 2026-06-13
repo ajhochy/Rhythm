@@ -229,6 +229,15 @@ declare module '@opencode-ai/sdk' {
     };
   };
 
+  // OPC-M3-5: emitted by opencode when the todo list for a session changes.
+  export type EventTodoUpdated = {
+    type: 'todo.updated';
+    properties: {
+      sessionID: string;
+      todos: Todo[];
+    };
+  };
+
   export type Event =
     | EventMessagePartUpdated
     | EventMessagePartDelta
@@ -241,7 +250,8 @@ declare module '@opencode-ai/sdk' {
     | EventSessionError
     | EventSessionDiff
     | EventFileEdited
-    | EventPermissionAsked;
+    | EventPermissionAsked
+    | EventTodoUpdated;
 
   // ── Provider types ──
 

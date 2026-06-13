@@ -181,6 +181,9 @@ class _FakeAgentsRepository implements AgentsRepository {
   @override
   Future<void> dispatchCommand(
       String sessionId, String command, String args) async {}
+
+  @override
+  Future<List<Map<String, dynamic>>> fetchSessionTodos(String id) async => [];
 }
 
 class _FakeLocalNotificationService extends LocalNotificationService {

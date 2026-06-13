@@ -403,6 +403,21 @@ class AgentsDataSource {
     assertOk(response);
   }
 
+  /// OPC-M3-5 — GET /agent-sessions/:id/todo
+  ///
+  /// Returns the current todo list for the session. Each entry has:
+  /// { id, content, status, priority }. Returns an empty list when the session
+  /// has no todos or no active SDK mapping.
+  Future<List<Map<String, dynamic>>> fetchSessionTodos(String id) async {
+    final response = await http.get(
+      Uri.parse('$_baseUrl/agent-sessions/$id/todo'),
+      headers: AuthSessionStore.headers(),
+    );
+    assertOk(response);
+    final list = jsonDecode(response.body) as List<dynamic>;
+    return list.cast<Map<String, dynamic>>();
+  }
+
   /// OPC-M3-4 — WS send helper for structured slash-command dispatch.
   ///
   /// Sends a `session.command` WS frame instead of `session.input`, so the
