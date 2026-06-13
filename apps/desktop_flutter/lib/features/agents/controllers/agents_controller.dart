@@ -60,8 +60,9 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     this._repository,
     this._agentServerController,
     this._notificationService,
-    this._notificationsController,
-  )   : _modelsDataSource = AgentModelsDataSource(),
+    this._notificationsController, {
+    AgentModelsDataSource? modelsDataSource,
+  })  : _modelsDataSource = modelsDataSource ?? AgentModelsDataSource(),
         _commandsDataSource = CommandsDataSource();
 
   final AgentsRepository _repository;

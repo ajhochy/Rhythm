@@ -19,7 +19,10 @@ import '../data/agent_model_visibility_data_source.dart';
 import '../models/agent_model_route.dart';
 
 class OpenRouterModelsSection extends StatefulWidget {
-  const OpenRouterModelsSection({super.key});
+  const OpenRouterModelsSection({super.key, this.dataSource});
+
+  /// Injectable for tests; defaults to a real data source in production.
+  final AgentModelVisibilityDataSource? dataSource;
 
   @override
   State<OpenRouterModelsSection> createState() =>
@@ -30,7 +33,8 @@ class _OpenRouterModelsSectionState extends State<OpenRouterModelsSection> {
   bool _expanded = false;
   bool _loading = false;
 
-  final _ds = AgentModelVisibilityDataSource();
+  late final AgentModelVisibilityDataSource _ds =
+      widget.dataSource ?? AgentModelVisibilityDataSource();
   final _searchController = TextEditingController();
 
   List<OpenRouterModelEntry> _catalog = [];

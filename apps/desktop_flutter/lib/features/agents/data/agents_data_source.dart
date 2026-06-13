@@ -25,12 +25,18 @@ class _DsSentinel {
 const Object _dssentinelValue = _dssentinel;
 
 class AgentsDataSource {
-  AgentsDataSource()
+  AgentsDataSource({http.Client? client})
       : _baseUrl = AppConstants.agentLocalBaseUrl,
-        _wsUrl = AppConstants.agentLocalWsUrl;
+        _wsUrl = AppConstants.agentLocalWsUrl,
+        _client = client ?? http.Client();
 
   final String _baseUrl;
   final String _wsUrl;
+
+  // Injectable so tests can capture the real outgoing HTTP request at the
+  // network boundary (see opc_terminal_button_http_test.dart). Defaults to a
+  // real client in production. Mirrors collaborators/commands/agent_projects.
+  final http.Client _client;
 
   WebSocketChannel? _channel;
   StreamSubscription<dynamic>? _channelSub;
@@ -133,7 +139,7 @@ class AgentsDataSource {
         if (archivedOnly) 'archivedOnly': 'true',
       },
     );
-    final response = await http.get(
+    final response = await _client.get(
       uri,
       headers: AuthSessionStore.headers(),
     );
@@ -151,7 +157,7 @@ class AgentsDataSource {
 
   Future<({AgentSession session, List<AgentSessionMessage> messages})>
       getSession(String id) async {
-    final response = await http.get(
+    final response = await _client.get(
       Uri.parse('$_baseUrl/agent-sessions/$id'),
       headers: AuthSessionStore.headers(),
     );
@@ -180,7 +186,7 @@ class AgentsDataSource {
     String? stash,
     bool createBranch = false,
   }) async {
-    final response = await http.post(
+    final response = await _client.post(
       Uri.parse('$_baseUrl/agent-sessions'),
       headers: AuthSessionStore.headers(json: true),
       body: jsonEncode({
@@ -236,7 +242,7 @@ class AgentsDataSource {
     if (fastMode != null) {
       payload['fastMode'] = fastMode;
     }
-    final response = await http.patch(
+    final response = await _client.patch(
       Uri.parse('$_baseUrl/agent-sessions/$id'),
       headers: AuthSessionStore.headers(json: true),
       body: jsonEncode(payload),
@@ -253,7 +259,7 @@ class AgentsDataSource {
     String permissionId,
     String decision,
   ) async {
-    final response = await http.post(
+    final response = await _client.post(
       Uri.parse(
           '$_baseUrl/agent-sessions/$sessionId/permission/$permissionId/$decision'),
       headers: AuthSessionStore.headers(),
@@ -265,7 +271,7 @@ class AgentsDataSource {
 
   // M2-4: cancel an in-flight turn for a session.
   Future<void> cancelSession(String id) async {
-    final response = await http.post(
+    final response = await _client.post(
       Uri.parse('$_baseUrl/agent-sessions/$id/cancel'),
       headers: AuthSessionStore.headers(),
     );
@@ -275,7 +281,7 @@ class AgentsDataSource {
   }
 
   Future<void> closeSession(String id) async {
-    final response = await http.delete(
+    final response = await _client.delete(
       Uri.parse('$_baseUrl/agent-sessions/$id'),
       headers: AuthSessionStore.headers(),
     );
@@ -287,7 +293,7 @@ class AgentsDataSource {
   /// Hard-delete a session row and its messages. Distinct from
   /// [closeSession], which only flips status to closed.
   Future<void> deleteSession(String id) async {
-    final response = await http.delete(
+    final response = await _client.delete(
       Uri.parse('$_baseUrl/agent-sessions/$id/hard'),
       headers: AuthSessionStore.headers(),
     );
@@ -298,7 +304,7 @@ class AgentsDataSource {
 
   /// Archive a session (soft-delete, keeps history). Distinct from [deleteSession].
   Future<AgentSession> archiveSession(String id) async {
-    final response = await http.patch(
+    final response = await _client.patch(
       Uri.parse('$_baseUrl/agent-sessions/$id'),
       headers: AuthSessionStore.headers(json: true),
       body: jsonEncode({'archived': true}),
@@ -311,7 +317,7 @@ class AgentsDataSource {
 
   /// Unarchive a session, returning it to the active list.
   Future<AgentSession> unarchiveSession(String id) async {
-    final response = await http.patch(
+    final response = await _client.patch(
       Uri.parse('$_baseUrl/agent-sessions/$id'),
       headers: AuthSessionStore.headers(json: true),
       body: jsonEncode({'archived': false}),
@@ -323,7 +329,7 @@ class AgentsDataSource {
   }
 
   Future<AgentSession> resumeSession(String id) async {
-    final response = await http.post(
+    final response = await _client.post(
       Uri.parse('$_baseUrl/agent-sessions/$id/resume'),
       headers: AuthSessionStore.headers(),
     );
@@ -340,7 +346,7 @@ class AgentsDataSource {
     final uri = Uri.parse('$_baseUrl/agent-sessions/$id/messages').replace(
       queryParameters: limit != null ? {'limit': '$limit'} : null,
     );
-    final response = await http.get(
+    final response = await _client.get(
       uri,
       headers: AuthSessionStore.headers(),
     );
@@ -358,7 +364,7 @@ class AgentsDataSource {
   /// deletions. Returns an empty list when the session has no SDK mapping or
   /// no working-tree changes. Throws [AppException] on HTTP error.
   Future<List<Map<String, dynamic>>> fetchSessionDiff(String id) async {
-    final response = await http.get(
+    final response = await _client.get(
       Uri.parse('$_baseUrl/agent-sessions/$id/diff'),
       headers: AuthSessionStore.headers(),
     );
@@ -372,7 +378,7 @@ class AgentsDataSource {
   /// Reverts the session to the message identified by [messageId], undoing
   /// all file changes that occurred after that point. Throws on HTTP error.
   Future<void> revertSession(String id, String messageId) async {
-    final response = await http.post(
+    final response = await _client.post(
       Uri.parse('$_baseUrl/agent-sessions/$id/revert'),
       headers: AuthSessionStore.headers(json: true),
       body: jsonEncode({'messageId': messageId}),
@@ -384,7 +390,7 @@ class AgentsDataSource {
   ///
   /// Restores all messages that were reverted. Throws on HTTP error.
   Future<void> unrevertSession(String id) async {
-    final response = await http.post(
+    final response = await _client.post(
       Uri.parse('$_baseUrl/agent-sessions/$id/unrevert'),
       headers: AuthSessionStore.headers(),
     );
@@ -397,7 +403,7 @@ class AgentsDataSource {
   /// default model for the session; no model override is sent. Throws on HTTP
   /// error — the error is surfaced to the view via the controller.
   Future<void> summarizeSession(String id) async {
-    final response = await http.post(
+    final response = await _client.post(
       Uri.parse('$_baseUrl/agent-sessions/$id/summarize'),
       headers: AuthSessionStore.headers(),
     );
@@ -410,7 +416,7 @@ class AgentsDataSource {
   /// { id, content, status, priority }. Returns an empty list when the session
   /// has no todos or no active SDK mapping.
   Future<List<Map<String, dynamic>>> fetchSessionTodos(String id) async {
-    final response = await http.get(
+    final response = await _client.get(
       Uri.parse('$_baseUrl/agent-sessions/$id/todo'),
       headers: AuthSessionStore.headers(),
     );
@@ -427,7 +433,7 @@ class AgentsDataSource {
   /// Session map: { id, projectID, directory, title, version, time }.
   Future<List<Map<String, dynamic>>> fetchChildSessions(
       String parentSessionId) async {
-    final response = await http.get(
+    final response = await _client.get(
       Uri.parse('$_baseUrl/agent-sessions/$parentSessionId/children'),
       headers: AuthSessionStore.headers(),
     );
@@ -444,7 +450,7 @@ class AgentsDataSource {
   Future<List<AgentSessionMessage>> fetchChildMessages(
       String parentSessionId, String childSdkId) async {
     final encodedChildId = Uri.encodeComponent(childSdkId);
-    final response = await http.get(
+    final response = await _client.get(
       Uri.parse(
           '$_baseUrl/agent-sessions/$parentSessionId/children/$encodedChildId/messages'),
       headers: AuthSessionStore.headers(),
@@ -465,7 +471,7 @@ class AgentsDataSource {
   /// Throws on HTTP error — the error is surfaced to the view via the
   /// controller.
   Future<AgentSession> forkSession(String id, String messageId) async {
-    final response = await http.post(
+    final response = await _client.post(
       Uri.parse('$_baseUrl/agent-sessions/$id/fork'),
       headers: AuthSessionStore.headers(json: true),
       body: jsonEncode({'messageId': messageId}),
@@ -486,7 +492,7 @@ class AgentsDataSource {
     final uri = Uri.parse('$_baseUrl/agent-sessions/agents').replace(
       queryParameters: cwd != null ? {'cwd': cwd} : null,
     );
-    final response = await http.get(
+    final response = await _client.get(
       uri,
       headers: AuthSessionStore.headers(),
     );
@@ -528,7 +534,7 @@ class AgentsDataSource {
   /// Throws on HTTP error — the controller surfaces the error as an inline
   /// error line in the Terminal tab (criterion c5, never silent).
   Future<String> runShellCommand(String id, String command) async {
-    final response = await http.post(
+    final response = await _client.post(
       Uri.parse('$_baseUrl/agent-sessions/$id/shell'),
       headers: AuthSessionStore.headers(json: true),
       body: jsonEncode({'command': command}),
