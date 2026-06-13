@@ -3,16 +3,37 @@
 ## Current focus
 
 **Branch:** `opc-m1-foundation`
-**Active milestone:** M4 — Session fork — #701 COMPLETE (VERIFIED, not yet committed — orchestrator commits)
-**Last verified issue:** #701 — OPC-M4-2 Session fork (VERIFIED at bc10769)
-**Test status:** vitest 686/686 ✓ | flutter test 408/408 ✓ | `ai-workflow checks --level pr` exit 0 ✓
-**Next step:** commit working tree → push branch → open PR on `opc-m1-foundation` covering #694–#701 (8 issues)
+**Active milestone:** M4 — MCP server management UI — #702 COMPLETE (VERIFIED at 41a2976, not yet committed — orchestrator commits)
+**Last verified issue:** #702 — OPC-M4-3 MCP server management UI (VERIFIED at 41a2976)
+**Test status:** vitest 698/698 ✓ | flutter test 421/421 ✓ | `ai-workflow checks --level pr` exit 0 ✓ | `flutter build macos` 65.2 MB ✓
+**Next step:** commit working tree → push branch → open PR on `opc-m1-foundation` covering #694–#702 (9 issues)
 
 ## Known bugs (parked, not blocking PR #617)
 
 _(Parked bugs from before 2026-05-27 run. #638 and #635 below are now RESOLVED — see 2026-05-27 run entry.)_
 
 ## Recent coding-agent runs
+
+### 2026-06-13 — opc-m1-foundation / issue-702 — MCP server management UI (OPC-M4-3)
+- Files modified (production):
+  - `apps/api_server/src/@types/opencode-ai-sdk.d.ts` — added `McpStatusEntry` typed shape, `McpLocalConfigInput`, `McpRemoteConfigInput`, `add()` method to `mcp` interface.
+  - `apps/api_server/src/services/opencode_client_service.ts` — added `addMcp(name, config)` wrapper; updated `connectMcp`/`disconnectMcp` to throw `AppError(502)` instead of returning false; added `removeMcp(name)` (disconnect best-effort + fs removal from opencode.json).
+  - `apps/api_server/src/routes/opencode_mcp_routes.ts` (new) — GET/POST/DELETE routes for `/opencode/mcp` + `/:name/connect` + `/:name/disconnect`.
+  - `apps/api_server/src/app.ts` — registered `opencodeMcpRouter` at `/opencode/mcp`.
+  - `apps/desktop_flutter/lib/features/settings/data/mcp_data_source.dart` (new) — abstract `McpDataSource` interface + `_McpDataSourceImpl` + `McpDataSourceTestExtension` (extension for `baseUrlForTest` that doesn't pollute the interface contract).
+  - `apps/desktop_flutter/lib/features/settings/controllers/mcp_controller.dart` (new) — ChangeNotifier; `refresh`, `addServer`, `connectServer`, `disconnectServer`, `removeServer`; per-server error state via `errorFor(name)`.
+  - `apps/desktop_flutter/lib/features/settings/widgets/mcp_section.dart` (new) — `McpSection` StatefulWidget with status badge, add dialog, connect/disconnect/remove actions; keys `mcp-add-button`, `mcp-badge-{name}`, `mcp-dialog-name-field`, `mcp-dialog-add-confirm`.
+  - `apps/desktop_flutter/lib/features/settings/views/settings_view.dart` — imported and mounted `const McpSection()` after `_ClaudeIntegrationSection`.
+  - `apps/desktop_flutter/lib/main.dart` — added `McpController(McpDataSource())` ChangeNotifierProvider to MultiProvider.
+- Files modified (tests):
+  - `docs/ai/contracts/issue-702.json` (new) — 6 criteria contract.
+  - `apps/api_server/src/__tests__/opc_m4_3_mcp_routes.test.ts` (new) — 12 vitest tests (c1a–c1l).
+  - `apps/desktop_flutter/test/features/settings/opc_m4_3_mcp_section_test.dart` (new) — 13 flutter tests (c2–c5 + real-surface guard).
+- Red→green proof: vitest 686→698 (+12). Flutter test 408→421 (+13). `ai-workflow checks --level pr` exit 0.
+- Checks: flutter analyze --no-fatal-infos ✓, dart format ✓, tsc --noEmit ✓, vitest 12/12 ✓, flutter test 421/421 ✓, `ai-workflow checks --level pr` exit 0 ✓.
+- Decisions made: (1) `McpDataSource` restructured as abstract class with factory constructor + private `_McpDataSourceImpl` so `implements McpDataSource` in test fakes doesn't require `baseUrlForTest` (extension method, not interface member). (2) `removeMcp` implemented without SDK support by fs-editing `~/.config/opencode/opencode.json` — SDK v1.14.49 has no remove method. (3) `connectMcp`/`disconnectMcp` updated to `throw AppError(502)` (not return false) so route error handler maps to correct HTTP status.
+- Deviations from spec: none.
+- Concerns: `removeMcp` reads/writes `~/.config/opencode/opencode.json` directly — fragile if opencode changes its config location. Tracked in decisions.md.
 
 ### 2026-06-13 — opc-m1-foundation / issue-701 — Session fork (OPC-M4-2)
 - Files modified (production):

@@ -69,6 +69,8 @@ import 'features/agent_configs/data/agent_configs_data_source.dart';
 import 'features/agent_configs/repositories/agent_configs_repository.dart';
 import 'app/core/agents/agent_server_controller.dart';
 import 'app/core/agents/agent_trigger_watcher.dart';
+import 'features/settings/controllers/mcp_controller.dart';
+import 'features/settings/data/mcp_data_source.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -365,6 +367,10 @@ class _RhythmAppContent extends StatelessWidget {
             }
             return controller;
           },
+        ),
+        // OPC-M4-3: MCP server management (#702)
+        ChangeNotifierProvider(
+          create: (_) => McpController(McpDataSource()),
         ),
       ],
       child: Consumer<ThemeModeService>(

@@ -990,9 +990,35 @@ export class OpencodeClientService {
   }
 
   /**
+   * POST /mcp — add a new MCP server to the opencode engine.
+   *
+   * `config` is either a local config (type:'local', command:[...]) or a
+   * remote config (type:'remote', url:'...'). Throws AppError on SDK error.
+   *
+   * OPC-M4-3: typed wrapper for client.mcp.add().
+   */
+  async addMcp(
+    name: string,
+    config: import('@opencode-ai/sdk').McpLocalConfigInput | import('@opencode-ai/sdk').McpRemoteConfigInput,
+  ): Promise<Record<string, import('@opencode-ai/sdk').McpStatusEntry>> {
+    const client = this.requireClient();
+    const raw = await client.mcp.add({
+      body: { name, config },
+    });
+    if (raw.error) {
+      throw new AppError(
+        502,
+        'SDK_ERROR',
+        `addMcp failed for ${name}: ${JSON.stringify(raw.error)}`,
+      );
+    }
+    return raw.data ?? {};
+  }
+
+  /**
    * POST /mcp/{name}/connect — connect a named MCP server.
    *
-   * Returns false when the SDK returns an error envelope; throws on exception.
+   * OPC-M4-3: throws AppError on SDK error envelope (never swallows to false).
    */
   async connectMcp(name: string): Promise<boolean> {
     const client = this.requireClient();
@@ -1000,8 +1026,11 @@ export class OpencodeClientService {
       path: { name },
     });
     if (raw.error) {
-      logger.error(`[OpencodeClientService] connectMcp failed for ${name}:`, raw.error);
-      return false;
+      throw new AppError(
+        502,
+        'SDK_ERROR',
+        `connectMcp failed for ${name}: ${JSON.stringify(raw.error)}`,
+      );
     }
     return raw.data === true;
   }
@@ -1009,7 +1038,7 @@ export class OpencodeClientService {
   /**
    * POST /mcp/{name}/disconnect — disconnect a named MCP server.
    *
-   * Returns false when the SDK returns an error envelope; throws on exception.
+   * OPC-M4-3: throws AppError on SDK error envelope (never swallows to false).
    */
   async disconnectMcp(name: string): Promise<boolean> {
     const client = this.requireClient();
@@ -1017,10 +1046,82 @@ export class OpencodeClientService {
       path: { name },
     });
     if (raw.error) {
-      logger.error(`[OpencodeClientService] disconnectMcp failed for ${name}:`, raw.error);
-      return false;
+      throw new AppError(
+        502,
+        'SDK_ERROR',
+        `disconnectMcp failed for ${name}: ${JSON.stringify(raw.error)}`,
+      );
     }
     return raw.data === true;
+  }
+
+  /**
+   * Remove a named MCP server.
+   *
+   * The SDK v1.14.49 does not expose a direct DELETE /mcp/{name} endpoint on
+   * `client.mcp`. We implement removal by disconnecting then removing the
+   * server from the opencode.json config file (the same file that
+   * opencode_plugin_config.ts manages for plugins). After the next engine
+   * restart the server will no longer appear. Throws AppError on failure.
+   *
+   * OPC-M4-3 typed wrapper.
+   */
+  async removeMcp(name: string): Promise<void> {
+    // 1. Disconnect first (best-effort — ignore "not connected" errors).
+    try {
+      await this.disconnectMcp(name);
+    } catch {
+      // Server may already be disconnected / not found — proceed to config removal.
+    }
+
+    // 2. Remove from opencode.json mcp section so it is not re-added on restart.
+    const { existsSync, readFileSync, writeFileSync, mkdirSync } =
+      require('fs') as typeof import('fs');
+    const { join, dirname } = require('path') as typeof import('path');
+    const { homedir } = require('os') as typeof import('os');
+
+    const configPath = join(homedir(), '.config', 'opencode', 'opencode.json');
+
+    if (!existsSync(configPath)) {
+      // Nothing to remove — server was dynamically added only (not in config).
+      return;
+    }
+
+    let parsed: Record<string, unknown>;
+    try {
+      parsed = JSON.parse(readFileSync(configPath, 'utf8'));
+    } catch (err) {
+      throw new AppError(
+        502,
+        'SDK_ERROR',
+        `removeMcp: could not parse opencode.json for ${name}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+
+    const mcpSection = parsed.mcp as Record<string, unknown> | undefined;
+    if (!mcpSection || !(name in mcpSection)) {
+      // Not present in config — nothing to do.
+      return;
+    }
+
+    delete mcpSection[name];
+    if (Object.keys(mcpSection).length === 0) {
+      delete parsed.mcp;
+    } else {
+      parsed.mcp = mcpSection;
+    }
+
+    try {
+      mkdirSync(dirname(configPath), { recursive: true });
+      writeFileSync(configPath, JSON.stringify(parsed, null, 2) + '\n', 'utf8');
+      logger.info(`[OpencodeClientService] removeMcp: removed ${name} from opencode.json`);
+    } catch (err) {
+      throw new AppError(
+        502,
+        'SDK_ERROR',
+        `removeMcp: could not write opencode.json for ${name}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
   }
 
   /**

@@ -300,10 +300,29 @@ declare module '@opencode-ai/sdk' {
     priority: string;
   };
 
-  // ── MCP status type (v1.14.49) ──
+  // ── MCP status types (v1.14.49) ──
 
   export type McpStatusEntry = {
+    /** 'connected' | 'disconnected' | 'failed' | 'disabled' | 'needs_auth' | … */
+    status: string;
+    /** Present when status === 'failed' */
+    error?: string;
     [key: string]: unknown;
+  };
+
+  /** Body shape for POST /mcp (add server). */
+  export type McpLocalConfigInput = {
+    type: 'local';
+    command: string[];
+    environment?: Record<string, string>;
+    enabled?: boolean;
+  };
+
+  export type McpRemoteConfigInput = {
+    type: 'remote';
+    url: string;
+    enabled?: boolean;
+    headers?: Record<string, string>;
   };
 
   // ── hey-api envelope alias ──
@@ -431,6 +450,14 @@ declare module '@opencode-ai/sdk' {
     mcp: {
       /** GET /mcp — status map keyed by server name. */
       status(options?: {
+        query?: { directory?: string };
+      }): Promise<SdkEnvelope<Record<string, McpStatusEntry>>>;
+      /** POST /mcp — add a new MCP server dynamically (OPC-M4-3). */
+      add(options?: {
+        body?: {
+          name: string;
+          config: McpLocalConfigInput | McpRemoteConfigInput;
+        };
         query?: { directory?: string };
       }): Promise<SdkEnvelope<Record<string, McpStatusEntry>>>;
       /** POST /mcp/{name}/connect */

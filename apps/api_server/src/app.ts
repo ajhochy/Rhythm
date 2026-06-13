@@ -29,6 +29,7 @@ import { notificationsAgentRouter } from './routes/notifications_agent_routes';
 import { opencodeAuthRouter } from './routes/opencode_auth_routes';
 import { agentModelVisibilityRouter } from './routes/agent_model_visibility_routes';
 import { opencodeModelsRouter } from './routes/opencode_models_routes';
+import { opencodeMcpRouter } from './routes/opencode_mcp_routes';
 import { syncRouter } from './routes/sync_routes';
 import { opencodeClient } from './services/opencode_engine';
 
@@ -88,6 +89,8 @@ export function createApp() {
   app.use('/opencode/auth', opencodeAuthRouter);
   // Issue #609 — OpenRouter / opencode model catalog browse (server-side proxy)
   app.use('/opencode/models', opencodeModelsRouter);
+  // OPC-M4-3 — MCP server management (list, add, connect, disconnect, remove)
+  app.use('/opencode/mcp', opencodeMcpRouter);
   // Issue #609 — agent model visibility CRUD
   app.use('/agent-models/visibility', agentModelVisibilityRouter);
 

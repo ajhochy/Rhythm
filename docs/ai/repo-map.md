@@ -9,9 +9,9 @@ apps/
 │   │   ├── server.ts      ← Entry point; DB init, WS gateway attach, Opencode SDK init (non-blocking)
 │   │   ├── app.ts         ← Express app; route registrations incl. /opencode/auth + /opencode/health
 │   │   ├── controllers/   ← Request handlers (agent_sessions_controller.ts creates SDK sessions)
-│   │   ├── routes/        ← Express routers (opencode_auth_routes.ts for AI provider auth)
+│   │   ├── routes/        ← Express routers (opencode_auth_routes.ts for AI provider auth; opencode_mcp_routes.ts OPC-M4-3)
 │   │   ├── services/
-│   │   │   ├── opencode_client_service.ts  ← SDK wrapper (sessions, providers, auth, events)
+│   │   │   ├── opencode_client_service.ts  ← SDK wrapper (sessions, providers, auth, events, MCP: listMcp/addMcp/connectMcp/disconnectMcp/removeMcp OPC-M4-3)
 │   │   │   ├── opencode_engine.ts          ← Singleton client + opencodeSessionMap
 │   │   │   ├── opencode_stream_bridge.ts   ← SSE events → WebSocket gateway relay; relays todo.updated → WS broadcast (OPC-M3-5)
 │   │   │   ├── ws_gateway.ts               ← WebSocket server; handleInputFrame (exported, OPC-M4-1) routes session.input with FilePart forwarding + 20MB size guard; handleCommandFrame (OPC-M3-4)
@@ -19,7 +19,7 @@ apps/
 │   │   ├── repositories/  ← SQLite/Postgres data access
 │   │   ├── models/        ← TypeScript interfaces
 │   │   └── @types/
-│   │       └── opencode-ai-sdk.d.ts        ← Hand-written type declarations (ESM/CJS bridge); OPC-M4-1: FilePartInput + PartInput union added; promptAsync/prompt accept Array<PartInput>
+│   │       └── opencode-ai-sdk.d.ts        ← Hand-written type declarations (ESM/CJS bridge); OPC-M4-1: FilePartInput + PartInput union added; OPC-M4-3: McpStatusEntry, McpLocalConfigInput, McpRemoteConfigInput, mcp.add()
 │   └── package.json       ← @opencode-ai/sdk@1.14.49 in dependencies
 ├── desktop_flutter/       ← macOS desktop app (Flutter) — THE SHIPPING CLIENT
 │   └── lib/
@@ -39,8 +39,12 @@ apps/
 │       ├── features/agent_configs/
 │       │   └── views/manage_agents_view.dart  ← "Connect an AI Account" card
 │       └── features/settings/
-│           ├── views/settings_view.dart
-│           └── widgets/ai_account_section.dart  ← OAuth + API key auth UI; refreshes from GET /opencode/auth/
+│           ├── views/settings_view.dart         ← OPC-M4-3: mounts McpSection after _ClaudeIntegrationSection
+│           ├── controllers/mcp_controller.dart  ← OPC-M4-3: McpController (ChangeNotifier); refresh/add/connect/disconnect/remove; per-server errorFor(name)
+│           ├── data/mcp_data_source.dart        ← OPC-M4-3: abstract McpDataSource + _McpDataSourceImpl (targets agentLocalBaseUrl); McpDataSourceTestExtension for baseUrlForTest
+│           └── widgets/
+│               ├── ai_account_section.dart  ← OAuth + API key auth UI; refreshes from GET /opencode/auth/
+│               └── mcp_section.dart         ← OPC-M4-3: McpSection — server list, status badges, add dialog, connect/disconnect/remove actions
 ├── web/                   ← React/Vite UI (prototype, NOT shipping)
 └── electron/              ← Electron wrapper (prototype, NOT shipping)
 
