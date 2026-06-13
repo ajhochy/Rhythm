@@ -8,6 +8,8 @@
 /// Models with no visibility row are treated as visible by default.
 library;
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
@@ -93,10 +95,17 @@ class _OpenRouterModelsSectionState extends State<OpenRouterModelsSection> {
           visible: visible,
         ),
       ]);
-      // #639 — refresh the in-session model picker so the visibility change
-      // is reflected immediately without requiring a session switch.
+      // #639 — refresh the model picker so the visibility change is reflected
+      // immediately without requiring a session switch / app restart.
+      // The unified composer picker reads AgentsController.catalog
+      // (GET /agents/models/catalog), so refreshCatalog() is the one that
+      // actually surfaces the curated model — refreshModelRoutes() alone
+      // updates a different list and left curated models invisible until
+      // restart. Refresh both so every picker surface stays consistent.
       if (mounted) {
-        context.read<AgentsController>().refreshModelRoutes();
+        final controller = context.read<AgentsController>();
+        unawaited(controller.refreshCatalog());
+        unawaited(controller.refreshModelRoutes());
       }
     } catch (_) {
       // Revert on failure.
