@@ -2,11 +2,13 @@
 
 ## Current focus
 
-**Branch:** `opc-m1-foundation`
-**Active milestone:** M4 — MCP server management UI — #702 COMPLETE (VERIFIED at 41a2976, not yet committed — orchestrator commits)
-**Last verified issue:** #702 — OPC-M4-3 MCP server management UI (VERIFIED at 41a2976)
-**Test status:** vitest 698/698 ✓ | flutter test 421/421 ✓ | `ai-workflow checks --level pr` exit 0 ✓ | `flutter build macos` 65.2 MB ✓
-**Next step:** commit working tree → push branch → open PR on `opc-m1-foundation` covering #694–#702 (9 issues)
+**Branch:** `opc-m1-foundation` (pushed) — **PR #706** open, covers ALL of M1–M4 (#685–#703, 19 issues).
+**Status:** OpenCode v1.14.49 parity plan COMPLETE — every milestone (M1 foundation, M2 rendering, M3 session features, M4 input/config) implemented and committed on this single branch per user decision ("apply them all to this PR, smoke once").
+**Last verified issue:** #703 — OPC-M4-4 Custom agent/mode selection (VERIFIED at f830a88).
+**Test status:** vitest 702/702 ✓ | flutter test 426/426 ✓ | `ai-workflow checks --level pr` exit 0 ✓ | `npm run build` exit 0 ✓.
+**Key integration note:** #694 mounted the previously-orphaned `SessionSidePanel` inspector into `agents_view.dart` (right rail, shown when a session is selected) — the prior M3 attempt left it + other panels built but unmounted. All M3/M4 UI is verified wired into the real rendered surface with real-surface tests, not isolated widgets. See [[project-agents-inspector-orphaned]].
+**Known flake:** `apps/api_server/src/__tests__/agent_configs_routes.test.ts` DELETE-404 intermittently fails with `SocketError: other side closed`; passes on re-run; follow-up filed.
+**Next step:** human manual smoke of PR #706 (checklist in the PR body), then manual merge. CI green per milestone push.
 
 ## Known bugs (parked, not blocking PR #617)
 
