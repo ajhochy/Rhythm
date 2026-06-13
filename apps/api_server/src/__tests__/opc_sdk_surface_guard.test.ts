@@ -28,8 +28,8 @@
  */
 
 import { describe, it, expect, beforeAll } from 'vitest';
-import { readFileSync } from 'fs';
-import { join } from 'path';
+import { readFileSync, existsSync } from 'fs';
+import { join, dirname } from 'path';
 
 // ---------------------------------------------------------------------------
 // CALL-SITE MANIFEST
@@ -179,18 +179,34 @@ describe('SDK surface guard: event.subscribe is an SSE { stream } result, NOT a 
   //   1. The real SSE result type carries `stream`, not an envelope.
   //   2. The real sdk.gen.d.ts types subscribe() as a ServerSentEventsResult.
   //   3. Our hand-written d.ts declares subscribe() -> { stream }, NOT SdkEnvelope.
-  const sdkDir = join(
-    __dirname,
-    '..',
-    '..',
-    '..',
-    '..',
-    'node_modules',
-    '@opencode-ai',
-    'sdk',
-    'dist',
-    'gen',
-  );
+  // Resolve the SDK's generated-types dir by walking up from this file looking
+  // for node_modules/@opencode-ai/sdk/dist/gen. This is layout-agnostic: locally
+  // the SDK is hoisted to the repo-root node_modules; in CI it may live under
+  // apps/api_server/node_modules. A fixed '../../../../' path only worked for the
+  // hoisted layout and broke CI.
+  function findSdkGenDir(): string {
+    let dir = __dirname;
+    for (let i = 0; i < 10; i++) {
+      const candidate = join(
+        dir,
+        'node_modules',
+        '@opencode-ai',
+        'sdk',
+        'dist',
+        'gen',
+      );
+      if (existsSync(candidate)) return candidate;
+      const parent = dirname(dir);
+      if (parent === dir) break;
+      dir = parent;
+    }
+    throw new Error(
+      'Could not locate @opencode-ai/sdk/dist/gen in any ancestor node_modules. ' +
+        'The SDK must be installed for this guard to compare against the real types.',
+    );
+  }
+
+  const sdkDir = findSdkGenDir();
 
   it('real ServerSentEventsResult has `stream` and no { data, error } envelope', () => {
     const sse = readFileSync(join(sdkDir, 'core', 'serverSentEvents.gen.d.ts'), 'utf8');
