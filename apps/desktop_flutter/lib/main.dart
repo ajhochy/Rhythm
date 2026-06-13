@@ -69,7 +69,6 @@ import 'features/agent_configs/data/agent_configs_data_source.dart';
 import 'features/agent_configs/repositories/agent_configs_repository.dart';
 import 'app/core/agents/agent_server_controller.dart';
 import 'app/core/agents/agent_trigger_watcher.dart';
-import 'app/core/agents/overlay_controller.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -337,9 +336,7 @@ class _RhythmAppContent extends StatelessWidget {
             return controller;
           },
         ),
-        ChangeNotifierProvider(
-          create: (ctx) => OverlayController(ctx.read<AgentsController>()),
-        ),
+        // OPC-M1-3: OverlayController removed (mini-bubble deleted).
         ChangeNotifierProvider(
           create: (ctx) => AgentTriggerWatcher(
             serverConfigService: serverConfigService,

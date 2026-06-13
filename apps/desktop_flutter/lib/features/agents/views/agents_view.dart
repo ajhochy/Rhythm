@@ -18,7 +18,6 @@ import '../../agent_projects/controllers/agent_projects_controller.dart';
 import '../../agent_projects/views/edit_project_dialog.dart';
 import '../controllers/agents_controller.dart';
 import '../models/agent_session.dart';
-import '../models/agent_session_message.dart';
 import '../models/chat_models.dart';
 import '../../settings/services/destructive_modal_service.dart';
 import '_agent_settings_sheet.dart';
@@ -1007,12 +1006,10 @@ class _ArchivedSessionRow extends StatelessWidget {
 /// [CatalogModelEntry.provider] (e.g. 'openai') as the session's providerId —
 /// NOT the agent config id ('codex'). The badge must map provider → config id
 /// before calling [AgentConfigsController.byId]. (Issue #645.)
-const Map<String, String> _kProviderToAgentKind = {
-  'anthropic': 'claude-code',
-  'github-copilot': 'claude-code',
-  'openai': 'codex',
-  'google': 'gemini-cli',
-};
+///
+/// OPC-M1-3: The mapping is now fetched from [AgentServerController.providerToAgentKind]
+/// (which reads it from the GET /agents/capabilities response) instead of a
+/// hard-coded local constant. The controller provides an offline fallback.
 
 class _AgentKindBadge extends StatelessWidget {
   const _AgentKindBadge({
@@ -1025,9 +1022,9 @@ class _AgentKindBadge extends StatelessWidget {
   /// Optional session-level provider ID (e.g. 'openai', 'google', 'anthropic').
   /// Stored by [setSessionModel] via [_applyPick] which passes
   /// [CatalogModelEntry.provider]. When set, the badge maps this to the
-  /// canonical agent config id via [_kProviderToAgentKind] so the pill
-  /// reflects the actual agent in use rather than the stale session-creation
-  /// agentId. (Issue #645.)
+  /// canonical agent config id via [AgentServerController.providerToAgentKind]
+  /// so the pill reflects the actual agent in use rather than the stale
+  /// session-creation agentId. (Issue #645 / OPC-M1-3.)
   final String? providerId;
 
   @override
@@ -1035,6 +1032,11 @@ class _AgentKindBadge extends StatelessWidget {
     // Issue #645 fix: use context.watch so the badge subscribes to
     // AgentConfigsController changes and rebuilds when configs are refreshed.
     final configsCtrl = context.watch<AgentConfigsController>();
+
+    // OPC-M1-3: get providerToAgentKind from AgentServerController (populated
+    // from capabilities endpoint; has offline fallback defaults).
+    final providerToAgentKind =
+        context.watch<AgentServerController>().providerToAgentKind;
 
     // Resolver precedence (mirroring server-side ws_gateway.ts logic):
     //   1. providerId → mapped agent config — when the user picked a model via
@@ -1046,7 +1048,7 @@ class _AgentKindBadge extends StatelessWidget {
     //      absent, unmapped, or resolves to the same agent.
     AgentConfig? config;
     if (providerId != null && providerId!.isNotEmpty) {
-      final mappedKind = _kProviderToAgentKind[providerId!];
+      final mappedKind = providerToAgentKind[providerId!];
       if (mappedKind != null && mappedKind != agentId) {
         config = configsCtrl.byId(mappedKind);
       }
@@ -1282,16 +1284,14 @@ class _TranscriptPanelState extends State<_TranscriptPanel> {
     AgentsController controller,
     AgentSession session,
   ) {
-    // Parts-based chat (Opencode Desktop port). Each ChatMessage holds an
-    // ordered list of ChatParts; streaming deltas append to part.text in
-    // place so the same bubble grows.
+    // OPC-M1-3: Single render path — parts-based chat only.
+    // _liveOutputBuffer and the legacy _transcriptsBySession render branch
+    // have been deleted. All messages arrive via chatMessagesFor() /
+    // chatPartsFor() (rehydrated from REST on selectSession, then updated
+    // by WS events).
     final chatMessages = controller.chatMessagesFor(session.id);
-    final legacyTranscript = controller.transcriptFor(session.id);
-    final liveOutput = controller.liveOutputFor(session.id);
-    final hasChat = chatMessages.isNotEmpty;
-    final hasLegacy = legacyTranscript.isNotEmpty || liveOutput.isNotEmpty;
 
-    if (!hasChat && !hasLegacy) {
+    if (chatMessages.isEmpty) {
       return Center(
         child: Text(
           'Session started. Waiting for output…',
@@ -1300,72 +1300,37 @@ class _TranscriptPanelState extends State<_TranscriptPanel> {
       );
     }
 
-    // Prefer the parts-based chat when the server emits the new events.
-    if (hasChat) {
-      // System-role entries from legacyTranscript (WS error frames, context
-      // notes) are not represented in chatMessages. Include them so errors
-      // remain visible even when the SDK is emitting the new event format.
-      final systemMessages =
-          legacyTranscript.where((m) => m.role == 'system').toList();
-      final totalCount = chatMessages.length + systemMessages.length;
-      return MessageTimeTicker(
-        child: ListView.builder(
-          controller: _scrollController,
-          padding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
-          itemCount: totalCount,
-          itemBuilder: (context, index) {
-            if (index < chatMessages.length) {
-              final m = chatMessages[index];
-              final parts = controller.chatPartsFor(m.id);
-              // Collect full text for copy action.
-              final copyText = parts.map((p) => p.text).join('').trim();
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    _ChatBubble(
-                      message: m,
-                      parts: parts,
-                      sessionId: session.id,
-                    ),
-                    MessageActionsRow(
-                      sessionId: session.id,
-                      messageId: m.id,
-                      createdAt: m.createdAt,
-                      text: copyText,
-                    ),
-                  ],
-                ),
-              );
-            }
-            final sysMsg = systemMessages[index - chatMessages.length];
-            return Padding(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: _MessageBlock(message: sysMsg),
-            );
-          },
-        ),
-      );
-    }
-
-    // Legacy fallback (older servers / replay path).
-    return ListView.builder(
-      controller: _scrollController,
-      padding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
-      itemCount: legacyTranscript.length + (liveOutput.isNotEmpty ? 1 : 0),
-      itemBuilder: (context, index) {
-        if (index < legacyTranscript.length) {
+    return MessageTimeTicker(
+      child: ListView.builder(
+        controller: _scrollController,
+        padding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
+        itemCount: chatMessages.length,
+        itemBuilder: (context, index) {
+          final m = chatMessages[index];
+          final parts = controller.chatPartsFor(m.id);
+          // Collect full text for copy action.
+          final copyText = parts.map((p) => p.text).join('').trim();
           return Padding(
             padding: const EdgeInsets.only(bottom: 8),
-            child: _MessageBlock(message: legacyTranscript[index]),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _ChatBubble(
+                  message: m,
+                  parts: parts,
+                  sessionId: session.id,
+                ),
+                MessageActionsRow(
+                  sessionId: session.id,
+                  messageId: m.id,
+                  createdAt: m.createdAt,
+                  text: copyText,
+                ),
+              ],
+            ),
           );
-        }
-        return Padding(
-          padding: const EdgeInsets.only(bottom: 8),
-          child: _LiveOutputBlock(text: liveOutput),
-        );
-      },
+        },
+      ),
     );
   }
 }
@@ -1743,74 +1708,8 @@ class _EmptyTranscriptState extends StatelessWidget {
   }
 }
 
-class _MessageBlock extends StatelessWidget {
-  const _MessageBlock({required this.message});
-
-  final AgentSessionMessage message;
-
-  @override
-  Widget build(BuildContext context) {
-    final isInput = message.role == 'input';
-    final isSystem = message.role == 'system';
-
-    if (isInput) {
-      return Container(
-        width: double.infinity,
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        decoration: BoxDecoration(
-          color: context.rhythm.accentMuted,
-          borderRadius: BorderRadius.circular(RhythmRadius.md),
-          border: Border.all(
-            color: context.rhythm.accent.withValues(alpha: 0.2),
-          ),
-        ),
-        child: SelectableText(
-          message.strippedText,
-          style: TextStyle(
-            fontSize: 12,
-            fontStyle: FontStyle.italic,
-            color: context.rhythm.accent.withValues(alpha: 0.85),
-            height: 1.4,
-          ),
-        ),
-      );
-    }
-
-    if (isSystem) {
-      return Padding(
-        padding: const EdgeInsets.symmetric(vertical: 2),
-        child: SelectableText(
-          message.strippedText,
-          style: TextStyle(
-            fontSize: 11,
-            color: context.rhythm.textMuted,
-            fontStyle: FontStyle.italic,
-          ),
-        ),
-      );
-    }
-
-    // output
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: context.rhythm.surfaceMuted,
-        borderRadius: BorderRadius.circular(RhythmRadius.md),
-        border: Border.all(color: context.rhythm.borderSubtle),
-      ),
-      child: SelectableText(
-        message.strippedText,
-        style: TextStyle(
-          fontSize: 12,
-          fontFamily: 'Menlo',
-          color: context.rhythm.textPrimary,
-          height: 1.5,
-        ),
-      ),
-    );
-  }
-}
+// OPC-M1-3: _MessageBlock removed (legacy AgentSessionMessage render widget
+// deleted with the legacy render path).
 
 /// Renders one ChatMessage and its ordered Parts.
 /// User parts are right-aligned with an accent bubble; assistant parts are
@@ -1950,33 +1849,7 @@ class _UserBubble extends StatelessWidget {
   }
 }
 
-class _LiveOutputBlock extends StatelessWidget {
-  const _LiveOutputBlock({required this.text});
-
-  final String text;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: context.rhythm.surfaceMuted,
-        borderRadius: BorderRadius.circular(RhythmRadius.md),
-        border: Border.all(color: context.rhythm.accent.withValues(alpha: 0.2)),
-      ),
-      child: SelectableText(
-        text,
-        style: TextStyle(
-          fontSize: 12,
-          fontFamily: 'Menlo',
-          color: context.rhythm.textPrimary,
-          height: 1.5,
-        ),
-      ),
-    );
-  }
-}
+// OPC-M1-3: _LiveOutputBlock removed (legacy PTY output render path deleted).
 
 // ---------------------------------------------------------------------------
 // Pending permissions area (#608)

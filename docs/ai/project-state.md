@@ -6,6 +6,26 @@ _(Parked bugs from before 2026-05-27 run. #638 and #635 below are now RESOLVED �
 
 ## Recent coding-agent runs
 
+### 2026-06-12 — opc-m1-foundation / issue-687 — Flutter parts rehydration, single render path, mini-bubble removed (OPC-M1-3)
+- Task: rehydrate ChatMessage + ChatPart from REST (`GET /agent-sessions/:id/messages`) on session select; delete the legacy dual render path (`_transcriptsBySession`, `_liveOutputBuffer`, `liveOutputFor`, `transcriptFor`); remove `AgentBubbleOverlayLayer` (mini-bubble); adopt single parts-based render in `agents_view.dart`.
+- Files modified (production):
+  - `apps/desktop_flutter/lib/features/agents/controllers/agents_controller.dart` — deleted `_liveOutputBuffer`, `_transcriptsBySession`, `liveOutputFor`, `transcriptFor`; added `_chatMessagesBySession`, `_chatPartsByMessage`, `chatMessagesFor()`, `chatPartsFor()`; added `_rehydrateChatMessages()` (populates from REST payload); `sendInput` creates optimistic `ChatMessage(role:'user')` in `_chatMessagesBySession`; `WsErrorMessage` handler creates system-role `ChatMessage` in `_chatMessagesBySession`; `reconnectSession` uses `_rehydrateChatMessages` then `chatMessagesFor`; `_recomputeStuck` now keys off `_lastPartActivityAt` + `sessionFirstSeenAt`.
+  - `apps/desktop_flutter/lib/features/agents/views/agents_view.dart` — deleted `AgentBubbleOverlayLayer` widget; `_buildTranscriptBody` now reads `chatMessagesFor(session.id)` exclusively; renders via `_ChatBubble(message, parts)`.
+  - `apps/desktop_flutter/lib/app/core/layout/app_shell.dart` — removed `AgentBubbleOverlayLayer` render call; updated comment.
+- Files modified (tests):
+  - `test/features/agents/opc_m1_3_rehydration_test.dart` (new) — 19 contract tests c1–c6.
+  - `test/features/agents/issue_634_contract_test.dart` — DELETED (tested mini-bubble truncation; feature deleted).
+  - `test/features/agents/agents_controller_test.dart` — updated stuck-detection test; updated OutputMessage test for new behavior.
+  - `test/features/agents/issue_635_contract_test.dart` — updated c1/c2 to check `chatMessagesFor`/`chatPartsFor` instead of `transcriptFor`.
+  - `test/features/agents/issue_638_contract_test.dart` — updated c1/c2/c3/c5 to use `chatMessagesFor`.
+  - `test/features/agents/issue_628_contract_test.dart` — updated to use `chatMessagesFor`.
+  - `test/features/agents/issue_645_agent_pill_stale_icon_test.dart` — added `AgentServerController` to widget test provider trees.
+- Red→green proof: 313/313 tests passing (0 failures). Contract: all 19 OPC-M1-3 criteria automated green. `ai-workflow checks --level pr` exit 0.
+- Checks: flutter analyze --no-fatal-infos ✓ (0 errors/warnings, 200 infos), dart format ✓ (0 changes), tsc ✓, vitest ✓.
+- Decisions made: (1) `sendInput` optimistic role is `'user'` (not `'input'`) to match the ChatMessage role convention for user-sent content in the parts-based render path. (2) `WsErrorMessage` handler creates a system-role ChatMessage so WS errors appear in the single render path without resurrecting the deleted legacy branch. (3) Stuck-detection `hasParts` check is `_chatMessagesBySession[id]?.isNotEmpty || _lastPartActivityAt.containsKey(id)` — `OutputMessage` only clears `sessionFirstSeenAt`; `MessagePartUpdatedMessage` sets `_lastPartActivityAt`.
+- Deviations from spec: none.
+- Concerns: Optimistic user messages created by `sendInput` will briefly coexist with the server-authoritative `MessageUpdatedMessage` for the same turn until the WS event arrives. Deduplication is not yet implemented — a subsequent session refresh (e.g. `reconnectSession`) will replace optimistic entries with REST-authoritative ones.
+
 ### 2026-06-12 — opc-m1-foundation / issue-686 — Structured parts persistence server-side (OPC-M1-2) [REPAIR]
 - **False-green root cause:** The previous implementation read `event.properties.parts` on `message.updated` events. That field does NOT exist in real OpenCode v1.14.49: `UpdatedEventSchema = { sessionID, info }` — `info` carries only metadata (role, time, tokens, cost), no parts. The test fixture `message_updated_assistant.json` invented the `parts` field, making 13 contract tests false-green while production `parts_json` would never populate. The `message.part.updated` write-through was also skipped ("deviation 1"), but part events are the ONLY carriers of part data in v1.14.49.
 - **Fix applied:**

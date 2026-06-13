@@ -13,8 +13,29 @@ class ChatMessage {
 
   final String id;
   final String sessionId;
-  final String role; // 'user' | 'assistant'
+  final String role; // 'user' | 'assistant' | 'system'
   final DateTime createdAt;
+
+  /// OPC-M1-3: construct a [ChatMessage] from a structured REST row.
+  ///
+  /// The [id] field accepts either a string (sdkMessageId) or an integer
+  /// (legacy db id), so we coerce it to string safely.
+  factory ChatMessage.fromJson(Map<String, dynamic> json) {
+    final rawId = json['sdkMessageId'] ?? json['id'];
+    return ChatMessage(
+      id: rawId?.toString() ?? '',
+      sessionId: (json['sessionId'] as String?) ?? '',
+      role: (json['role'] as String?) ?? 'output',
+      createdAt: _parseDateTime(json['createdAt']) ?? DateTime.now(),
+    );
+  }
+}
+
+DateTime? _parseDateTime(dynamic value) {
+  if (value == null) return null;
+  final s = value as String?;
+  if (s == null || s.isEmpty) return null;
+  return DateTime.tryParse(s);
 }
 
 /// M3-2: discriminator string values mirroring the SDK's part `type` field.
@@ -64,6 +85,31 @@ class ChatPart {
 
   String? get toolStatus => _toolStatus;
   set toolStatus(String? v) => _toolStatus = v;
+
+  /// OPC-M1-3: construct a [ChatPart] from a structured REST part object.
+  ///
+  /// A structured part looks like:
+  ///   { type: 'text', text: '...' }
+  ///   { type: 'tool', tool: 'bash', state: { input: {...}, output: '...', status: 'completed' } }
+  ///   { type: 'reasoning', text: '...' }
+  ///
+  /// The [messageId] must be passed from the parent message's id, since parts
+  /// from the REST response don't re-embed their own message id.
+  factory ChatPart.fromJson(String messageId, Map<String, dynamic> raw) {
+    final type = (raw['type'] as String?) ?? 'text';
+    // Generate a stable part id: prefer 'id' field; fall back to hash.
+    final partId = (raw['id'] as String?) ??
+        '${messageId}_${type}_${raw.hashCode.toRadixString(16)}';
+    final part = ChatPart(
+      id: partId,
+      messageId: messageId,
+      type: type,
+      text: (raw['text'] as String?) ?? '',
+    );
+    // Apply tool/reasoning-specific fields using the existing mergePart logic.
+    part.mergePart(raw);
+    return part;
+  }
 
   /// Hydrate tool-specific fields from a raw `message.part.updated.part`
   /// payload forwarded by the api_server bridge. Safe to call repeatedly —

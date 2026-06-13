@@ -1,0 +1,71 @@
+{
+  "issue": 687,
+  "generated": "2026-06-12",
+  "stack": "dart",
+  "criteria": [
+    {
+      "criterion_id": "issue-687-c1",
+      "text": "Selecting a session with an existing server transcript (controller test with fake data source returning a structured payload incl. text+tool+reasoning parts) populates `_chatMessagesBySession` with the same message/part structure — no plain-text fallback.",
+      "mode": "unit",
+      "test_file": "apps/desktop_flutter/test/features/agents/opc_m1_3_rehydration_test.dart",
+      "test_id": "OPC-M1-3 c1: selectSession populates chatMessagesBySession from structured REST payload",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-687-c2",
+      "text": "After simulated WS reconnect, the transcript renders from rehydrated parts: widget test asserts a tool part renders the tool card (not raw text) post-reconnect.",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agents/opc_m1_3_rehydration_test.dart",
+      "test_id": "OPC-M1-3 c2: reconnectSession rehydrates parts and tool parts are rendered as tool cards",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-687-c3",
+      "text": "Repo-wide grep: `_liveOutputBuffer` zero references; `_buildTranscriptBody` single render branch (no hasChat conditional on transcript store).",
+      "mode": "unit",
+      "test_file": "apps/desktop_flutter/test/features/agents/opc_m1_3_rehydration_test.dart",
+      "test_id": "OPC-M1-3 c3: _liveOutputBuffer has zero references and _buildTranscriptBody has no hasChat legacy branch",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-687-c4",
+      "text": "Mini-bubble fully removed: agent_bubble_overlay.dart deleted, repo-wide grep zero references to it and to `AgentBubbleEntry`; a fired trigger still produces a visible session row in the Agents tab and the existing desktop notification (controller test).",
+      "mode": "unit",
+      "test_file": "apps/desktop_flutter/test/features/agents/opc_m1_3_rehydration_test.dart",
+      "test_id": "OPC-M1-3 c4: agent_bubble_overlay.dart deleted and trigger-fired still adds session to list",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-687-c5",
+      "text": "A streaming parts-based session is not flagged stuck while parts are arriving; a session with no part activity past the stuck threshold in `starting` status is flagged (unit tests on the extracted pure predicate).",
+      "mode": "unit",
+      "test_file": "apps/desktop_flutter/test/features/agents/opc_m1_3_rehydration_test.dart",
+      "test_id": "OPC-M1-3 c5: _recomputeStuck uses parts state — not flagged when parts arriving, flagged after threshold",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-687-c6",
+      "text": "WS error frames appear as system-role chat messages in the single transcript path.",
+      "mode": "unit",
+      "test_file": "apps/desktop_flutter/test/features/agents/opc_m1_3_rehydration_test.dart",
+      "test_id": "OPC-M1-3 c6: WS error frame becomes system-role chat message",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-687-c7",
+      "text": "Provider→agent-kind map fetched from capabilities; the #645 badge tests still pass (they exist — find and run them; port assertions to the new source, do NOT weaken).",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agents/opc_m1_3_rehydration_test.dart",
+      "test_id": "OPC-M1-3 c7: providerToAgentKind consumed from capabilities endpoint with static offline fallback",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-687-c8",
+      "text": "Full `flutter test` green; `ai-workflow checks --level pr` exit 0.",
+      "mode": "manual",
+      "status": "pending",
+      "reason": "Full test suite run and gate-level checks — verified at end of implementation"
+    }
+  ],
+  "not_tested": ["issue-687-c8"]
+}

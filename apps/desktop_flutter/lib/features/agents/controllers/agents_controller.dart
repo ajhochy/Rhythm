@@ -89,15 +89,12 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   List<AgentSessionMessage> _transcript = [];
 
   /// Per-session transcript store — keyed by sessionId.
-  /// The mini-bubble overlay reads from here so it always shows its own
-  /// session's transcript regardless of which session is selected in the
-  /// main Agents tab.
+  /// Kept for WS error/system messages that need a home; NOT used for rendering
+  /// after OPC-M1-3 (the view uses chatMessagesBySession exclusively).
   final Map<String, List<AgentSessionMessage>> _transcriptsBySession = {};
 
-  /// Live PTY output buffer keyed by session id.
-  /// Plain string concatenation; capped at ~200 KB to prevent unbounded growth.
-  /// Retained for legacy `_LiveOutputBlock` rendering during the transition.
-  final Map<String, String> _liveOutputBuffer = {};
+  // OPC-M1-3: PTY output buffer removed. Stuck detection now keys off
+  // _lastPartActivityAt instead.
 
   // -- Parts-based chat store (Opencode Desktop port) ------------------------
   // Mirrors `sync.data.message[sessionID]` + `sync.data.part[messageID]`.
@@ -105,6 +102,10 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   // notifyListeners() and the same message bubble grows in size.
   final Map<String, List<ChatMessage>> _chatMessagesBySession = {};
   final Map<String, List<ChatPart>> _chatPartsByMessage = {};
+
+  /// OPC-M1-3: tracks when the most-recent part activity arrived for each
+  /// session. Used by [_recomputeStuck] instead of the old PTY output buffer.
+  final Map<String, DateTime> _lastPartActivityAt = {};
 
   /// Keyed by session id; true when the agent is actively running a command.
   final Map<String, bool> _working = {};
@@ -189,13 +190,12 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
 
   List<AgentSessionMessage> get transcript => List.unmodifiable(_transcript);
 
-  /// Per-session transcript for [sessionId], independent of which session is
-  /// currently selected.  Used by the mini-bubble overlay so it always shows
-  /// its own session's transcript.
+  /// Per-session transcript for [sessionId] — kept for internal WS error
+  /// message routing. NOT exposed to the UI (view uses chatMessagesFor).
   List<AgentSessionMessage> transcriptFor(String sessionId) =>
       List.unmodifiable(_transcriptsBySession[sessionId] ?? const []);
 
-  String liveOutputFor(String sessionId) => _liveOutputBuffer[sessionId] ?? '';
+  // OPC-M1-3: live output getter removed. Use chatMessagesFor() instead.
 
   /// Chat messages for [sessionId] in insertion order.
   List<ChatMessage> chatMessagesFor(String sessionId) =>
@@ -480,7 +480,8 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
       _selectedSessionId = null;
     }
     for (final id in idSet) {
-      _liveOutputBuffer.remove(id);
+      _chatMessagesBySession.remove(id);
+      _lastPartActivityAt.remove(id);
       sessionFirstSeenAt.remove(id);
     }
     notifyListeners();
@@ -510,7 +511,8 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     final previous = _sessions;
     _sessions = _sessions.where((s) => s.id != id).toList();
     if (_selectedSessionId == id) _selectedSessionId = null;
-    _liveOutputBuffer.remove(id);
+    _chatMessagesBySession.remove(id);
+    _lastPartActivityAt.remove(id);
     sessionFirstSeenAt.remove(id);
     notifyListeners();
 
@@ -645,8 +647,8 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     if (!_agentServerController.isReady) {
       _sessions = _sessions.where((s) => s.id != id).toList();
       if (_selectedSessionId == id) _selectedSessionId = null;
-      _liveOutputBuffer.remove(id);
       sessionFirstSeenAt.remove(id);
+      _lastPartActivityAt.remove(id);
       notifyListeners();
       return;
     }
@@ -669,7 +671,6 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
       final session = await _repository.resumeSession(id);
       _resumable = _resumable.where((s) => s.id != id).toList();
       _sessions = [..._sessions, session];
-      _liveOutputBuffer.remove(id);
       notifyListeners();
     } catch (e) {
       if (e is AppError) {
@@ -752,19 +753,9 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
       }
       _repository.send({'type': 'session.subscribe', 'id': id});
       final result = await _repository.getSession(id);
-      final existing =
-          _transcriptsBySession[id] ?? const <AgentSessionMessage>[];
-      final restIds = result.messages.map((m) => m.id).toSet();
-      // Preserve any WS-appended entries (synthetic id==0) and any local
-      // rows not yet persisted server-side. REST messages always carry
-      // positive server-assigned ids; WS error frames carry id==0.
-      final localOnly = existing.where((m) => !restIds.contains(m.id)).toList();
-      _transcriptsBySession[id] = [...result.messages, ...localOnly];
+      // OPC-M1-3: rehydrate from structured REST payload into chat stores.
+      _rehydrateChatMessages(id, result.messages);
       notifyListeners();
-      if (_selectedSessionId == id) {
-        _transcript = _transcriptsBySession[id]!;
-        notifyListeners();
-      }
     } catch (e) {
       _error = e.toString();
       notifyListeners();
@@ -804,19 +795,24 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
         },
     });
     if (override != null) _pendingTurnOverride = null;
-    // Optimistic insert so the mini-bubble (which reads transcriptFor) shows
-    // the user's message immediately without waiting for a server round-trip.
-    final optimisticMsg = AgentSessionMessage(
-      id: 0,
+    // OPC-M1-3: optimistic insert into the parts-based chat store so the user's
+    // message appears immediately in the single render path.
+    final optimisticMsgId =
+        'optimistic-input-${DateTime.now().millisecondsSinceEpoch}';
+    final optimisticMsg = ChatMessage(
+      id: optimisticMsgId,
       sessionId: sessionId,
-      role: 'input',
-      rawText: data,
-      strippedText: data,
+      role: 'user',
       createdAt: DateTime.now(),
     );
-    _transcriptsBySession[sessionId] = [
-      ...(_transcriptsBySession[sessionId] ?? []),
-      optimisticMsg,
+    (_chatMessagesBySession[sessionId] ??= []).add(optimisticMsg);
+    _chatPartsByMessage[optimisticMsgId] = [
+      ChatPart(
+        id: '${optimisticMsgId}_text',
+        messageId: optimisticMsgId,
+        type: 'text',
+        text: data,
+      ),
     ];
     notifyListeners();
   }
@@ -943,16 +939,8 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     notifyListeners();
     try {
       final result = await _repository.getSession(id);
-      final existing =
-          _transcriptsBySession[id] ?? const <AgentSessionMessage>[];
-      final restIds = result.messages.map((m) => m.id).toSet();
-      // Preserve any WS-appended entries (synthetic id==0) and any local
-      // rows not yet persisted server-side. REST messages always carry
-      // positive server-assigned ids; WS error frames carry id==0.
-      final localOnly = existing.where((m) => !restIds.contains(m.id)).toList();
-      _transcriptsBySession[id] = [...result.messages, ...localOnly];
+      _rehydrateChatMessages(id, result.messages);
       if (_selectedSessionId == id) {
-        _transcript = _transcriptsBySession[id]!;
         notifyListeners();
       }
       _repository.send({'type': 'session.subscribe', 'id': id});
@@ -1078,6 +1066,69 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   // --------------------------------------------------------------------------
+  // OPC-M1-3: REST rehydration into chat stores
+  // --------------------------------------------------------------------------
+
+  /// Populate [_chatMessagesBySession] and [_chatPartsByMessage] from the
+  /// structured REST payload returned by `GET /agent-sessions/:id`.
+  ///
+  /// Merges with any WS-streamed messages already in the chat store so that
+  /// in-flight parts from the live session are preserved. REST rows that have
+  /// a matching [ChatMessage.id] (either sdkMessageId or db-id-as-string) are
+  /// skipped — the WS-streamed version is already authoritative.
+  void _rehydrateChatMessages(
+    String sessionId,
+    List<AgentSessionMessage> restMessages,
+  ) {
+    final existingMsgIds =
+        (_chatMessagesBySession[sessionId] ?? const <ChatMessage>[])
+            .map((m) => m.id)
+            .toSet();
+
+    for (final row in restMessages) {
+      // Prefer sdkMessageId as the stable identity; fall back to db-id string.
+      final msgId = (row.sdkMessageId?.isNotEmpty == true)
+          ? row.sdkMessageId!
+          : row.id.toString();
+
+      if (msgId.isEmpty) continue;
+
+      // Insert ChatMessage if not already present from WS streaming.
+      if (!existingMsgIds.contains(msgId)) {
+        final chatMsg = ChatMessage(
+          id: msgId,
+          sessionId: sessionId,
+          role: row.role,
+          createdAt: row.createdAt,
+        );
+        (_chatMessagesBySession[sessionId] ??= []).add(chatMsg);
+        existingMsgIds.add(msgId);
+      }
+
+      // Populate parts only when the REST row carries them AND the message has
+      // no WS-streamed parts yet (avoid overwriting live streaming state).
+      final existingParts = _chatPartsByMessage[msgId];
+      if (existingParts == null || existingParts.isEmpty) {
+        final rawParts = row.parts;
+        if (rawParts != null && rawParts.isNotEmpty) {
+          _chatPartsByMessage[msgId] =
+              rawParts.map((p) => ChatPart.fromJson(msgId, p)).toList();
+        } else if (row.rawText.isNotEmpty) {
+          // Legacy shim: synthesise a single text part from rawText.
+          _chatPartsByMessage[msgId] = [
+            ChatPart(
+              id: '${msgId}_text',
+              messageId: msgId,
+              type: 'text',
+              text: row.rawText,
+            ),
+          ];
+        }
+      }
+    }
+  }
+
+  // --------------------------------------------------------------------------
   // WebSocket message handler
   // --------------------------------------------------------------------------
 
@@ -1122,13 +1173,9 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
         _fireArmedNotifications(msg.id);
       }
     } else if (msg is OutputMessage) {
-      final prev = _liveOutputBuffer[msg.id] ?? '';
-      final next = prev + msg.data;
-      _liveOutputBuffer[msg.id] = next.length > 200 * 1024
-          ? next.substring(next.length - 150 * 1024)
-          : next;
-      // Output arriving means the session is no longer stuck — remove it from
-      // the tracking map immediately so the next _recomputeStuck tick clears it.
+      // OPC-M1-3: PTY output buffer removed. Legacy `output` frames still
+      // arrive during a transition period; we only use them to clear stuck
+      // tracking (same semantics as before).
       final session = _sessions.firstWhereOrNull((s) => s.id == msg.id);
       if (session != null && session.status == AgentSessionStatus.starting) {
         sessionFirstSeenAt.remove(msg.id);
@@ -1147,6 +1194,13 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
         text: msg.text,
         raw: msg.part,
       );
+      // OPC-M1-3: record part activity for stuck detection.
+      _lastPartActivityAt[msg.sessionId] = DateTime.now();
+      // A part arriving means the session is no longer stuck.
+      final session = _sessions.firstWhereOrNull((s) => s.id == msg.sessionId);
+      if (session != null && session.status == AgentSessionStatus.starting) {
+        sessionFirstSeenAt.remove(msg.sessionId);
+      }
     } else if (msg is MessagePartDeltaMessage) {
       _appendChatDelta(
         messageId: msg.messageId,
@@ -1160,44 +1214,32 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
         messageId: msg.messageId,
       );
     } else if (msg is TranscriptAppendMessage) {
-      // Finalize the streamed assistant turn into the visible transcript and
-      // drop the live preview buffer for this session. The bridge emits this
-      // on session.idle (and on session.error with partial text).
-      final appendedMsg = AgentSessionMessage(
-        id: 0,
-        sessionId: msg.id,
-        role: msg.role.isEmpty ? 'output' : msg.role,
-        rawText: msg.text,
-        strippedText: msg.text,
-        createdAt: DateTime.now(),
-      );
-      // Always update the per-session store (used by mini-bubble overlay).
-      _transcriptsBySession[msg.id] = [
-        ...(_transcriptsBySession[msg.id] ?? []),
-        appendedMsg,
-      ];
-      if (msg.id == _selectedSessionId) {
-        _transcript = [..._transcript, appendedMsg];
-      }
-      _liveOutputBuffer.remove(msg.id);
+      // OPC-M1-3: transcript.append is a legacy bridge event. We keep it
+      // for backward compat but it no longer drives the UI render path —
+      // the parts-based store (chatMessagesBySession) is the single source.
+      // No-op for now; a future cleanup pass can remove the bridge emission.
+      // (The PTY output buffer that was cleared here is gone.)
     } else if (msg is WsErrorMessage) {
-      final errorMsg = AgentSessionMessage(
-        id: 0,
+      // OPC-M1-3: WS error frames become system-role ChatMessages so they
+      // appear in the single parts-based render path instead of the deleted
+      // _transcriptsBySession render branch.
+      final errorMsgId =
+          'ws-error-${msg.id}-${DateTime.now().millisecondsSinceEpoch}';
+      final chatMsg = ChatMessage(
+        id: errorMsgId,
         sessionId: msg.id,
         role: 'system',
-        rawText: 'Error: ${msg.message}',
-        strippedText: 'Error: ${msg.message}',
         createdAt: DateTime.now(),
       );
-      // Always update the per-session store (used by mini-bubble overlay).
-      _transcriptsBySession[msg.id] = [
-        ...(_transcriptsBySession[msg.id] ?? []),
-        errorMsg,
+      (_chatMessagesBySession[msg.id] ??= []).add(chatMsg);
+      _chatPartsByMessage[errorMsgId] = [
+        ChatPart(
+          id: '${errorMsgId}_text',
+          messageId: errorMsgId,
+          type: 'text',
+          text: 'Error: ${msg.message}',
+        ),
       ];
-      if (msg.id == _selectedSessionId) {
-        _transcript = [..._transcript, errorMsg];
-      }
-      _liveOutputBuffer.remove(msg.id);
     } else if (msg is SessionUpdatedMessage) {
       // #605 — server pushed a full updated session row. Upsert into the
       // appropriate list based on archivedAt / status.
@@ -1221,7 +1263,8 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
       _sessions = _sessions.where((x) => x.id != msg.id).toList();
       _resumable = _resumable.where((x) => x.id != msg.id).toList();
       _archived = _archived.where((x) => x.id != msg.id).toList();
-      _liveOutputBuffer.remove(msg.id);
+      _chatMessagesBySession.remove(msg.id);
+      _lastPartActivityAt.remove(msg.id);
       sessionFirstSeenAt.remove(msg.id);
       if (_selectedSessionId == msg.id) _selectedSessionId = null;
     } else if (msg is PermissionAskedMessage) {
@@ -1372,9 +1415,10 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   /// Recomputes the set of sessions considered "stuck" and notifies listeners
   /// only when the set changes.
   ///
-  /// A session is stuck when:
+  /// OPC-M1-3: A session is stuck when:
   ///   - Its status is [AgentSessionStatus.starting].
-  ///   - Its live output buffer is empty (no PTY output has arrived yet).
+  ///   - No parts have arrived yet (chatMessagesFor is empty AND
+  ///     _lastPartActivityAt has no entry for the session).
   ///   - It has been in the starting state for >30 seconds.
   void _recomputeStuck() {
     const stuckThreshold = Duration(seconds: 30);
@@ -1385,7 +1429,10 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
       if (s.status != AgentSessionStatus.starting) continue;
       final firstSeen = sessionFirstSeenAt[s.id];
       if (firstSeen == null) continue;
-      if ((_liveOutputBuffer[s.id] ?? '').isNotEmpty) continue;
+      // Has parts arrived?
+      final hasParts = (_chatMessagesBySession[s.id]?.isNotEmpty == true) ||
+          (_lastPartActivityAt.containsKey(s.id));
+      if (hasParts) continue;
       if (now.difference(firstSeen) > stuckThreshold) {
         newStuck.add(s.id);
       }

@@ -339,12 +339,13 @@ void main() {
             );
             await Future<void>.delayed(const Duration(milliseconds: 10));
 
-            // Data-layer invariant: transcriptFor has the error; transcript empty.
+            // OPC-M1-3: WsErrorMessage now creates a system-role ChatMessage in
+            // chatMessagesBySession instead of transcriptFor.
             assert(
-              controller.transcriptFor('sid-1').any(
-                    (m) => m.strippedText.contains('Model not found'),
-                  ),
-              'transcriptFor(sid-1) must have the error before selection',
+              controller
+                  .chatMessagesFor('sid-1')
+                  .any((m) => m.role == 'system'),
+              'chatMessagesFor(sid-1) must have a system-role entry before selection',
             );
             assert(
               controller.transcript.isEmpty,
@@ -358,14 +359,13 @@ void main() {
             unawaited(controller.selectSession('sid-1'));
             await Future<void>.delayed(const Duration(milliseconds: 10));
 
-            // Verify intermediate state: session selected, transcript empty,
-            // transcriptFor still has the error.
+            // Verify intermediate state: session selected, error still in chatMessages.
             assert(controller.selectedSessionId == 'sid-1');
             assert(controller.transcript.isEmpty);
             assert(
-              controller.transcriptFor('sid-1').any(
-                    (m) => m.strippedText.contains('Model not found'),
-                  ),
+              controller
+                  .chatMessagesFor('sid-1')
+                  .any((m) => m.role == 'system'),
             );
           });
 
@@ -406,12 +406,11 @@ void main() {
   // PASSES both before and after the fix; protects the controller invariant.
   // -------------------------------------------------------------------------
   group(
-    'issue-638-c2: transcriptFor(X) contains error even when '
-    '_selectedSessionId != X',
+    'issue-638-c2: WsErrorMessage creates system-role ChatMessage for non-selected session',
     () {
       test(
-        'error frame for non-selected session lands in transcriptFor — '
-        'regression guard for the view fix',
+        'error frame for non-selected session lands in chatMessagesFor — '
+        'regression guard for OPC-M1-3 single render path',
         () async {
           final repo = _HangingGetSessionRepository();
           final controller = AgentsController(
@@ -424,7 +423,9 @@ void main() {
 
           await controller.initialize();
 
-          expect(controller.transcriptFor('sid-1'), isEmpty);
+          // OPC-M1-3: WsErrorMessage writes to chatMessagesBySession (system role),
+          // not transcriptFor. Both must be empty initially.
+          expect(controller.chatMessagesFor('sid-1'), isEmpty);
           expect(controller.transcript, isEmpty);
 
           var notifyCount = 0;
@@ -438,19 +439,18 @@ void main() {
           );
           await Future<void>.delayed(Duration.zero);
 
-          final perSessionTranscript = controller.transcriptFor('sid-1');
+          final chatMsgs = controller.chatMessagesFor('sid-1');
           expect(
-            perSessionTranscript,
+            chatMsgs,
             isNotEmpty,
             reason:
-                'transcriptFor(sid-1) must contain the error message even when '
-                'sid-1 is not the selected session.',
+                'chatMessagesFor(sid-1) must contain the system-role error entry '
+                'even when sid-1 is not the selected session.',
           );
           expect(
-            perSessionTranscript.any(
-              (m) => m.strippedText.contains('Model not found'),
-            ),
+            chatMsgs.any((m) => m.role == 'system'),
             isTrue,
+            reason: 'WsErrorMessage must create a system-role ChatMessage.',
           );
 
           expect(
@@ -540,12 +540,13 @@ void main() {
             );
             await Future<void>.delayed(const Duration(milliseconds: 10));
 
-            // Data-layer invariant: transcriptFor has the error.
+            // OPC-M1-3: WsErrorMessage creates a system-role ChatMessage in
+            // chatMessagesBySession, not transcriptFor.
             assert(
-              controller.transcriptFor('sid-chat').any(
-                    (m) => m.strippedText.contains('Provider error'),
-                  ),
-              'transcriptFor(sid-chat) must have the error',
+              controller
+                  .chatMessagesFor('sid-chat')
+                  .any((m) => m.role == 'system'),
+              'chatMessagesFor(sid-chat) must have a system-role error entry',
             );
 
             // Select the session.
@@ -658,20 +659,16 @@ void main() {
           );
           await Future<void>.delayed(Duration.zero);
 
-          // Step 2 assertion: error must be in transcriptFor NOW (before REST
-          // resolves). This already passes today — WsErrorMessage is handled
-          // unconditionally.
+          // Step 2 assertion: OPC-M1-3 — WsErrorMessage creates a system-role
+          // ChatMessage in chatMessagesBySession (not transcriptFor).
           expect(
-            controller.transcriptFor('sid-1'),
+            controller.chatMessagesFor('sid-1'),
             isNotEmpty,
-            reason: 'transcriptFor(sid-1) must contain the WS error after it '
-                'arrives during the REST race window (before REST resolves).',
+            reason: 'chatMessagesFor(sid-1) must contain the system-role WS '
+                'error after it arrives during the REST race window.',
           );
           expect(
-            controller.transcriptFor('sid-1').any(
-                  (m) =>
-                      m.strippedText.contains('SDK error during race window'),
-                ),
+            controller.chatMessagesFor('sid-1').any((m) => m.role == 'system'),
             isTrue,
           );
 
@@ -698,27 +695,21 @@ void main() {
           // Await selectSession to fully resolve.
           await selectFuture;
 
-          // Step 4 — THE FAILING ASSERTION TODAY:
-          // Line 855 overwrites _transcriptsBySession['sid-1'] = [] (the empty
-          // REST result), clobbering the WS-appended error frame.
-          // After the fix (merge instead of overwrite) the error must survive.
+          // Step 4: OPC-M1-3 — chatMessagesBySession holds WS error in place.
+          // rehydrateChatMessages skips messages already in WS-streamed state,
+          // so the system-role error entry survives REST resolution.
           expect(
-            controller.transcriptFor('sid-1'),
+            controller.chatMessagesFor('sid-1'),
             isNotEmpty,
-            reason:
-                'transcriptFor(sid-1) must STILL contain the WS error after '
-                'selectSession resolves with an empty REST result. Today it is '
-                'empty because line 855 overwrites _transcriptsBySession[id] '
-                'with the empty list, clobbering the WS-appended error frame.',
+            reason: 'chatMessagesFor(sid-1) must still contain the system-role '
+                'error after selectSession resolves with an empty REST result. '
+                'OPC-M1-3: the parts-based store is not overwritten by REST.',
           );
           expect(
-            controller.transcriptFor('sid-1').any(
-                  (m) =>
-                      m.strippedText.contains('SDK error during race window'),
-                ),
+            controller.chatMessagesFor('sid-1').any((m) => m.role == 'system'),
             isTrue,
-            reason:
-                'The specific WS error text must survive the REST overwrite.',
+            reason: 'The system-role WS error ChatMessage must survive REST '
+                'rehydration.',
           );
         },
       );

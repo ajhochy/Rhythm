@@ -142,10 +142,10 @@ void main() {
   // c1 — UNIT (STRICT: FAILS today, PASSES after sendInput optimistic insert)
   // -------------------------------------------------------------------------
   group(
-    'issue-635-c1: sendInput adds optimistic user message to transcriptFor',
+    'issue-635-c1: sendInput adds optimistic user message to chatMessagesFor',
     () {
       test(
-        'transcriptFor(sessionId) contains role=input message after sendInput',
+        'chatMessagesFor(sessionId) contains role=user ChatMessage after sendInput',
         () async {
           final repo = _RecordingRepository();
           final controller = AgentsController(
@@ -174,41 +174,38 @@ void main() {
           );
           await Future<void>.delayed(Duration.zero);
 
-          // Precondition: empty transcript.
-          expect(controller.transcriptFor('sid-1'), isEmpty);
+          // Precondition: empty chat messages.
+          expect(controller.chatMessagesFor('sid-1'), isEmpty);
 
           // Act — send user input.
           const inputText = 'hello, what is the weather?';
           controller.sendInput('sid-1', inputText);
 
-          // THE FAILING ASSERTION (today):
-          // sendInput sends the WS frame but does NOT add an optimistic
-          // AgentSessionMessage to _transcriptsBySession, so transcriptFor
-          // returns []. The mini-bubble therefore shows no user message.
-          //
-          // AFTER FIX: an optimistic role='input' message is prepended so the
-          // bubble can render it immediately.
-          final transcript = controller.transcriptFor('sid-1');
+          // OPC-M1-3: sendInput creates an optimistic ChatMessage with role='user'
+          // in chatMessagesBySession. The parts-based render path picks it up.
+          final chatMsgs = controller.chatMessagesFor('sid-1');
           expect(
-            transcript,
+            chatMsgs,
             isNotEmpty,
-            reason: 'transcriptFor(sid-1) must contain at least one message '
+            reason: 'chatMessagesFor(sid-1) must contain at least one message '
                 'immediately after sendInput — no await needed.',
           );
 
-          final userMsg = transcript.firstWhere(
-            (m) => m.role == 'input',
+          final userMsg = chatMsgs.firstWhere(
+            (m) => m.role == 'user',
             orElse: () => throw StateError(
-              'No role=input message found in transcriptFor after sendInput. '
-              'Fix: add optimistic AgentSessionMessage(role: "input") to '
-              '_transcriptsBySession[sessionId] inside sendInput().',
+              'No role=user ChatMessage found in chatMessagesFor after sendInput. '
+              'Fix: add optimistic ChatMessage(role: "user") to '
+              '_chatMessagesBySession[sessionId] inside sendInput().',
             ),
           );
 
+          // The text is stored in the associated ChatPart.
+          final parts = controller.chatPartsFor(userMsg.id);
           expect(
-            userMsg.strippedText,
-            inputText,
-            reason: 'The optimistic user message must carry the sent text.',
+            parts.any((p) => p.text == inputText),
+            isTrue,
+            reason: 'The optimistic user ChatPart must carry the sent text.',
           );
         },
       );
@@ -222,7 +219,7 @@ void main() {
     'issue-635-c2: optimistic user message is added synchronously',
     () {
       test(
-        'transcriptFor contains user message immediately after sendInput, no await',
+        'chatMessagesFor contains user ChatMessage immediately after sendInput, no await',
         () async {
           final repo = _RecordingRepository();
           final controller = AgentsController(
@@ -253,13 +250,10 @@ void main() {
           // Send input and check WITHOUT any await — must be synchronous.
           controller.sendInput('sid-sync', 'sync test message');
 
-          // No await here — the insert must be visible immediately.
+          // No await here — OPC-M1-3: chatMessagesBySession must be updated
+          // synchronously so the single render path re-renders immediately.
           expect(
-            controller.transcriptFor('sid-sync').any(
-                  (m) =>
-                      m.role == 'input' &&
-                      m.strippedText == 'sync test message',
-                ),
+            controller.chatMessagesFor('sid-sync').any((m) => m.role == 'user'),
             isTrue,
             reason:
                 'Optimistic insert must be synchronous so the UI re-renders '

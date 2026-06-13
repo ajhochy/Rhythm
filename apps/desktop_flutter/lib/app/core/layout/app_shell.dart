@@ -19,10 +19,8 @@ import '../../../features/rhythms/views/rhythms_view.dart';
 import '../../../features/settings/controllers/settings_controller.dart';
 import '../../../features/settings/views/settings_view.dart';
 import '../../../features/agents/views/agents_view.dart';
-import '../agents/agent_bubble_overlay.dart';
 import '../agents/agent_server_controller.dart';
 import '../agents/agent_trigger_watcher.dart';
-import '../agents/overlay_controller.dart';
 import '../../../features/tasks/views/automation_rules_view.dart';
 import '../../../features/messages/views/messages_view.dart';
 import '../../../features/tasks/views/tasks_view.dart';
@@ -76,8 +74,7 @@ class _AppShellState extends State<AppShell> with WindowListener {
     final messagesController = context.read<MessagesController>();
     final notifController = context.watch<NotificationsController>();
     final triggerWatcher = context.read<AgentTriggerWatcher>();
-    // Watch OverlayController so we react to pendingNavIndex changes.
-    context.watch<OverlayController>();
+    // OPC-M1-3: OverlayController removed (mini-bubble deleted).
     final enablePolling = serverStatus == ServerStatus.ready &&
         authStatus == AuthStatus.authenticated;
     final enableAgentWatcher = enablePolling && agentServerController.isReady;
@@ -113,12 +110,7 @@ class _AppShellState extends State<AppShell> with WindowListener {
         }
       }
 
-      // Handle pending navigation from the agent bubble overlay
-      final overlayNav = context.read<OverlayController>().pendingNavIndex;
-      if (overlayNav != null) {
-        context.read<OverlayController>().clearPendingNavIndex();
-        setState(() => _selectedIndex = overlayNav);
-      }
+      // OPC-M1-3: overlay nav routing removed (mini-bubble deleted).
     });
 
     return switch (serverStatus) {
@@ -331,7 +323,7 @@ class _AppContent extends StatelessWidget {
               ),
             ],
           ),
-          const AgentBubbleOverlayLayer(),
+          // OPC-M1-3: mini-bubble overlay removed.
         ],
       ),
     );

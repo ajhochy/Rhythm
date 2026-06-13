@@ -38,9 +38,9 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
-import 'package:rhythm_desktop/app/core/agents/agent_bubble_overlay.dart';
+// OPC-M1-3: agent_bubble_overlay.dart and overlay_controller.dart deleted.
+// Site #4 (bubble) tests removed below.
 import 'package:rhythm_desktop/app/core/agents/agent_server_controller.dart';
-import 'package:rhythm_desktop/app/core/agents/overlay_controller.dart';
 import 'package:rhythm_desktop/app/core/notifications/local_notification_service.dart';
 import 'package:rhythm_desktop/app/core/server/api_server_service.dart';
 import 'package:rhythm_desktop/app/theme/app_theme.dart';
@@ -315,9 +315,12 @@ void main() {
       (tester) async {
         final controller = await _makeConfigsController(_allConfigs);
         addTearDown(controller.dispose);
+        final agentServerCtrl = _ReadyAgentServerController();
+        addTearDown(agentServerCtrl.dispose);
 
         await tester.pumpWidget(_wrapWithProviders(
           configsCtrl: controller,
+          agentServerCtrl: agentServerCtrl,
           child: AgentKindBadgeTestHarness(
             agentId: 'claude-code',
             providerId: null,
@@ -347,10 +350,13 @@ void main() {
       (tester) async {
         final controller = await _makeConfigsController(_allConfigs);
         addTearDown(controller.dispose);
+        final agentServerCtrl = _ReadyAgentServerController();
+        addTearDown(agentServerCtrl.dispose);
 
         // Initial state: agentId=claude-code, no providerId override.
         await tester.pumpWidget(_wrapWithProviders(
           configsCtrl: controller,
+          agentServerCtrl: agentServerCtrl,
           child: AgentKindBadgeTestHarness(
             agentId: 'claude-code',
             providerId: null,
@@ -368,6 +374,7 @@ void main() {
         //   mapping: 'openai' → 'codex' → byId('codex') → Codex config.
         await tester.pumpWidget(_wrapWithProviders(
           configsCtrl: controller,
+          agentServerCtrl: agentServerCtrl,
           child: AgentKindBadgeTestHarness(
             agentId: 'claude-code',
             providerId: 'openai', // REAL production value (not 'codex')
@@ -404,10 +411,13 @@ void main() {
       (tester) async {
         final controller = await _makeConfigsController(_allConfigs);
         addTearDown(controller.dispose);
+        final agentServerCtrl = _ReadyAgentServerController();
+        addTearDown(agentServerCtrl.dispose);
 
         // Initial state: agentId=claude-code, no providerId override.
         await tester.pumpWidget(_wrapWithProviders(
           configsCtrl: controller,
+          agentServerCtrl: agentServerCtrl,
           child: AgentKindBadgeTestHarness(
             agentId: 'claude-code',
             providerId: null,
@@ -423,6 +433,7 @@ void main() {
         //   Mapping: 'google' → 'gemini-cli' → byId('gemini-cli') → Gemini CLI.
         await tester.pumpWidget(_wrapWithProviders(
           configsCtrl: controller,
+          agentServerCtrl: agentServerCtrl,
           child: AgentKindBadgeTestHarness(
             agentId: 'claude-code',
             providerId: 'google', // REAL production value (not 'gemini-cli')
@@ -460,9 +471,12 @@ void main() {
             AgentConfigsController(AgentConfigsRepository(dataSource));
         await controller.refresh();
         addTearDown(controller.dispose);
+        final agentServerCtrl = _ReadyAgentServerController();
+        addTearDown(agentServerCtrl.dispose);
 
         await tester.pumpWidget(_wrapWithProviders(
           configsCtrl: controller,
+          agentServerCtrl: agentServerCtrl,
           child: AgentKindBadgeTestHarness(
             agentId: 'codex',
             providerId: null,
@@ -502,6 +516,8 @@ void main() {
       (tester) async {
         final configsCtrl = await _makeConfigsController(_allConfigs);
         addTearDown(configsCtrl.dispose);
+        final agentServerCtrl = _ReadyAgentServerController();
+        addTearDown(agentServerCtrl.dispose);
 
         // Session with agentId=claude-code + providerId=anthropic — the TEst
         // session ground truth from the smoke. Should show "Claude Code".
@@ -512,6 +528,7 @@ void main() {
 
         await tester.pumpWidget(_wrapWithProviders(
           configsCtrl: configsCtrl,
+          agentServerCtrl: agentServerCtrl,
           child: ResumableSessionRowTestHarness(session: session),
         ));
         await tester.pump();
@@ -535,6 +552,8 @@ void main() {
       (tester) async {
         final configsCtrl = await _makeConfigsController(_allConfigs);
         addTearDown(configsCtrl.dispose);
+        final agentServerCtrl = _ReadyAgentServerController();
+        addTearDown(agentServerCtrl.dispose);
 
         // A session where setSessionModel persisted provider='google' (gemini).
         // agentId stays 'claude-code' (PATCH does not update agent_id).
@@ -547,6 +566,7 @@ void main() {
 
         await tester.pumpWidget(_wrapWithProviders(
           configsCtrl: configsCtrl,
+          agentServerCtrl: agentServerCtrl,
           child: ResumableSessionRowTestHarness(session: session),
         ));
         await tester.pump();
@@ -573,6 +593,8 @@ void main() {
       (tester) async {
         final configsCtrl = await _makeConfigsController(_allConfigs);
         addTearDown(configsCtrl.dispose);
+        final agentServerCtrl = _ReadyAgentServerController();
+        addTearDown(agentServerCtrl.dispose);
 
         final session = _makeSession(
           agentId: 'claude-code',
@@ -581,6 +603,7 @@ void main() {
 
         await tester.pumpWidget(_wrapWithProviders(
           configsCtrl: configsCtrl,
+          agentServerCtrl: agentServerCtrl,
           child: ResumableSessionRowTestHarness(session: session),
         ));
         await tester.pump();
@@ -719,368 +742,7 @@ void main() {
     );
   });
 
-  // =========================================================================
-  // GROUP 4: Site #4 — _BubbleHeader and _CollapsedBubble badges
-  // Bubble widgets now resolve via _kBubbleProviderToAgentKind using
-  // entry.providerId (threaded from session.providerId in _sync()).
-  // =========================================================================
-  group('issue #645 site #4 — bubble badges use providerId', () {
-    // Build an AgentBubbleEntry mirroring what _sync() produces from a session.
-    AgentBubbleEntry _makeEntry({
-      String agentId = 'claude-code',
-      String? providerId = 'anthropic',
-      String name = 'TEst',
-    }) {
-      return AgentBubbleEntry(
-        key: 'session-645',
-        kind: BubbleKind.session,
-        label: name,
-        agentId: agentId,
-        providerId: providerId,
-        status: AgentSessionStatus.idle,
-        working: false,
-        sessionId: 'session-645',
-        isExpanded: false,
-      );
-    }
-
-    // Wrap bubble harnesses — they only need AgentConfigsController +
-    // OverlayController (for GestureDetector taps). We pass a minimal overlay
-    // to avoid null pointer inside _CollapsedBubble.
-    Widget _wrapBubble({
-      required AgentConfigsController configsCtrl,
-      required Widget child,
-    }) {
-      return MaterialApp(
-        theme: AppTheme.light(),
-        home: Scaffold(
-          body: ChangeNotifierProvider<AgentConfigsController>.value(
-            value: configsCtrl,
-            child: Center(child: child),
-          ),
-        ),
-      );
-    }
-
-    testWidgets(
-      'c6: BubbleHeader shows Claude Code when entry.providerId=anthropic '
-      '(smoke baseline)',
-      (tester) async {
-        final configsCtrl = await _makeConfigsController(_allConfigs);
-        addTearDown(configsCtrl.dispose);
-
-        final entry = _makeEntry(
-          agentId: 'claude-code',
-          providerId: 'anthropic',
-        );
-
-        await tester.pumpWidget(_wrapBubble(
-          configsCtrl: configsCtrl,
-          child: BubbleHeaderTestHarness(entry: entry),
-        ));
-        await tester.pump();
-
-        expect(
-          find.text('Claude Code'),
-          findsOneWidget,
-          reason: 'Bubble header must show Claude Code for provider=anthropic '
-              '(smoke ground truth: TEst session is truly claude-code).',
-        );
-        expect(find.text('Gemini CLI'), findsNothing);
-        expect(find.text('Codex'), findsNothing);
-      },
-    );
-
-    testWidgets(
-      'c6b (STRICT): BubbleHeader shows Gemini CLI when entry.providerId=google '
-      '— was showing stale label before fix (site #4)',
-      (tester) async {
-        final configsCtrl = await _makeConfigsController(_allConfigs);
-        addTearDown(configsCtrl.dispose);
-
-        // Smoke scenario: after PATCH succeeded, WS session.updated pushed
-        // agentId='gemini-cli', providerId='google'. AgentBubbleEntry was
-        // not threaded with providerId (entry.providerId=null), so the header
-        // looked up entry.agentId='gemini-cli' via context.read (no watch),
-        // which happened to show Gemini CLI ONLY via agentId — but after an
-        // error revert the agentId may not update, leaving the bubble stale.
-        // After fix: entry.providerId='google' → maps to 'gemini-cli' correctly.
-        final entry = _makeEntry(
-          agentId: 'claude-code',
-          providerId: 'google',
-        );
-
-        await tester.pumpWidget(_wrapBubble(
-          configsCtrl: configsCtrl,
-          child: BubbleHeaderTestHarness(entry: entry),
-        ));
-        await tester.pump();
-
-        expect(
-          find.text('Gemini CLI'),
-          findsOneWidget,
-          reason:
-              'Bubble header must map entry.providerId=google → gemini-cli and '
-              'show "Gemini CLI". FAILED before fix because providerId was not '
-              'threaded through AgentBubbleEntry and the bubble used '
-              'context.read (no subscription).',
-        );
-        expect(find.text('Claude Code'), findsNothing);
-      },
-    );
-
-    testWidgets(
-      'c6c: BubbleHeader shows Codex when entry.providerId=openai (site #4)',
-      (tester) async {
-        final configsCtrl = await _makeConfigsController(_allConfigs);
-        addTearDown(configsCtrl.dispose);
-
-        final entry = _makeEntry(
-          agentId: 'claude-code',
-          providerId: 'openai',
-        );
-
-        await tester.pumpWidget(_wrapBubble(
-          configsCtrl: configsCtrl,
-          child: BubbleHeaderTestHarness(entry: entry),
-        ));
-        await tester.pump();
-
-        expect(
-          find.text('Codex'),
-          findsOneWidget,
-          reason: 'Bubble header must show Codex for entry.providerId=openai.',
-        );
-        expect(find.text('Claude Code'), findsNothing);
-      },
-    );
-
-    testWidgets(
-      'c7: bubble badge rebuilds when AgentConfigsController notifies '
-      '(context.watch fix for site #4)',
-      (tester) async {
-        final configsCtrl = await _makeConfigsController(_allConfigs);
-        addTearDown(configsCtrl.dispose);
-
-        final entry = _makeEntry(
-          agentId: 'claude-code',
-          providerId: 'anthropic',
-        );
-
-        await tester.pumpWidget(_wrapBubble(
-          configsCtrl: configsCtrl,
-          child: BubbleHeaderTestHarness(entry: entry),
-        ));
-        await tester.pump();
-
-        expect(find.text('Claude Code'), findsOneWidget);
-
-        // Trigger a controller notification — with context.watch the bubble
-        // must rebuild and still show the correct label.
-        configsCtrl.notifyListeners();
-        await tester.pump();
-
-        expect(
-          find.text('Claude Code'),
-          findsOneWidget,
-          reason:
-              'Bubble header must rebuild after AgentConfigsController.notifyListeners() '
-              '(context.watch contract). Before fix: context.read was used — '
-              'badge did not subscribe to controller changes.',
-        );
-      },
-    );
-  });
-
-  // =========================================================================
-  // GROUP 5: Cross-site consistency — ALL FOUR sites must agree
-  // =========================================================================
-  group('issue #645 — all four sites show the same agent label', () {
-    testWidgets(
-      'c8: anthropic/claude-code session → all four sites show Claude Code',
-      (tester) async {
-        final configsCtrl = await _makeConfigsController(_allConfigs);
-        addTearDown(configsCtrl.dispose);
-
-        final agentsCtrl = await _makeAgentsController([]);
-        addTearDown(agentsCtrl.dispose);
-
-        final agentServerCtrl = _ReadyAgentServerController();
-        addTearDown(agentServerCtrl.dispose);
-
-        const agentId = 'claude-code';
-        const providerId = 'anthropic';
-
-        final session = _makeSession(
-            agentId: agentId, providerId: providerId, name: 'TEst');
-
-        final entry = AgentBubbleEntry(
-          key: 'session-645',
-          kind: BubbleKind.session,
-          label: 'TEst',
-          agentId: agentId,
-          providerId: providerId,
-          status: AgentSessionStatus.idle,
-          working: false,
-          sessionId: 'session-645',
-          isExpanded: false,
-        );
-
-        // Test site #1 (AgentKindBadge).
-        await tester.pumpWidget(_wrapWithProviders(
-          configsCtrl: configsCtrl,
-          child: AgentKindBadgeTestHarness(
-            agentId: agentId,
-            providerId: providerId,
-          ),
-        ));
-        await tester.pump();
-        expect(find.text('Claude Code'), findsOneWidget,
-            reason: 'Site #1 (SessionRow badge) must show Claude Code.');
-
-        // Test site #2 (ResumableSessionRow).
-        await tester.pumpWidget(_wrapWithProviders(
-          configsCtrl: configsCtrl,
-          child: ResumableSessionRowTestHarness(session: session),
-        ));
-        await tester.pump();
-        expect(find.text('Claude Code'), findsOneWidget,
-            reason: 'Site #2 (ResumableSessionRow) must show Claude Code.');
-
-        // Test site #3 (TranscriptHeader).
-        await tester.pumpWidget(_wrapWithProviders(
-          configsCtrl: configsCtrl,
-          agentsCtrl: agentsCtrl,
-          agentServerCtrl: agentServerCtrl,
-          child: TranscriptHeaderTestHarness(session: session),
-        ));
-        await tester.pump();
-        expect(find.text('Claude Code'), findsOneWidget,
-            reason: 'Site #3 (TranscriptHeader) must show Claude Code.');
-
-        // Test site #4 (BubbleHeader).
-        await tester.pumpWidget(MaterialApp(
-          theme: AppTheme.light(),
-          home: Scaffold(
-            body: ChangeNotifierProvider<AgentConfigsController>.value(
-              value: configsCtrl,
-              child: Center(child: BubbleHeaderTestHarness(entry: entry)),
-            ),
-          ),
-        ));
-        await tester.pump();
-        expect(find.text('Claude Code'), findsOneWidget,
-            reason: 'Site #4 (BubbleHeader) must show Claude Code.');
-      },
-    );
-
-    testWidgets(
-      'c9 (STRICT): errored model switch — all four sites show Claude Code '
-      '(the persisted agent), NOT the stale errored agent label',
-      (tester) async {
-        // This is the SMOKE FAILURE SCENARIO:
-        //
-        // The user switched the TEst session toward Gemini CLI. The model
-        // change ERRORED. Server still has agentId=null→claude-code,
-        // providerId='anthropic'. Local state after error: agentId='claude-code',
-        // providerId='anthropic' (updateSession error path did not mutate
-        // _sessions). All four sites must show "Claude Code", not "Gemini CLI".
-        //
-        // Previously sites #2, #3, and #4 showed stale/wrong labels because
-        // they didn't thread providerId. Now that they all use provider→agent-kind
-        // mapping, they consistently reflect the persisted session state.
-        final configsCtrl = await _makeConfigsController(_allConfigs);
-        addTearDown(configsCtrl.dispose);
-
-        final agentsCtrl = await _makeAgentsController([]);
-        addTearDown(agentsCtrl.dispose);
-
-        final agentServerCtrl = _ReadyAgentServerController();
-        addTearDown(agentServerCtrl.dispose);
-
-        // After error revert: session stays at agentId=claude-code, providerId=anthropic.
-        const agentId = 'claude-code';
-        const persistedProviderId = 'anthropic';
-
-        final session = _makeSession(
-          agentId: agentId,
-          providerId: persistedProviderId,
-          name: 'TEst',
-        );
-        final entry = AgentBubbleEntry(
-          key: 'session-645',
-          kind: BubbleKind.session,
-          label: 'TEst',
-          agentId: agentId,
-          providerId: persistedProviderId,
-          status: AgentSessionStatus.idle,
-          working: false,
-          sessionId: 'session-645',
-          isExpanded: false,
-        );
-
-        // Site #1.
-        await tester.pumpWidget(_wrapWithProviders(
-          configsCtrl: configsCtrl,
-          child: AgentKindBadgeTestHarness(
-            agentId: agentId,
-            providerId: persistedProviderId,
-          ),
-        ));
-        await tester.pump();
-        expect(find.text('Claude Code'), findsOneWidget,
-            reason:
-                'Site #1 must show Claude Code after errored model switch (persisted state).');
-        expect(find.text('Gemini CLI'), findsNothing,
-            reason: 'Site #1 must NOT show errored agent label.');
-
-        // Site #2.
-        await tester.pumpWidget(_wrapWithProviders(
-          configsCtrl: configsCtrl,
-          child: ResumableSessionRowTestHarness(session: session),
-        ));
-        await tester.pump();
-        expect(find.text('Claude Code'), findsOneWidget,
-            reason:
-                'Site #2 must show Claude Code after errored model switch.');
-        expect(find.text('Gemini CLI'), findsNothing,
-            reason: 'Site #2 must NOT show errored agent label.');
-
-        // Site #3.
-        await tester.pumpWidget(_wrapWithProviders(
-          configsCtrl: configsCtrl,
-          agentsCtrl: agentsCtrl,
-          agentServerCtrl: agentServerCtrl,
-          child: TranscriptHeaderTestHarness(session: session),
-        ));
-        await tester.pump();
-        expect(find.text('Claude Code'), findsOneWidget,
-            reason: 'Site #3 must show Claude Code after errored model switch. '
-                'SMOKE FAILURE: this site showed "Gemini CLI" (stale) before fix.');
-        expect(find.text('Gemini CLI'), findsNothing,
-            reason:
-                'Site #3 must NOT show stale "Gemini CLI" after errored model switch. '
-                'This was the exact smoke failure on 2026-05-26.');
-
-        // Site #4.
-        await tester.pumpWidget(MaterialApp(
-          theme: AppTheme.light(),
-          home: Scaffold(
-            body: ChangeNotifierProvider<AgentConfigsController>.value(
-              value: configsCtrl,
-              child: Center(child: BubbleHeaderTestHarness(entry: entry)),
-            ),
-          ),
-        ));
-        await tester.pump();
-        expect(find.text('Claude Code'), findsOneWidget,
-            reason: 'Site #4 must show Claude Code after errored model switch. '
-                'SMOKE FAILURE: this site showed "Gemini CLI" (stale) before fix.');
-        expect(find.text('Gemini CLI'), findsNothing,
-            reason:
-                'Site #4 must NOT show stale "Gemini CLI" after errored model switch. '
-                'This was the exact smoke failure on 2026-05-26.');
-      },
-    );
-  });
+  // OPC-M1-3: Groups 4-5 (site #4 bubble tests and cross-site consistency)
+  // removed — agent_bubble_overlay.dart and overlay_controller.dart deleted.
+  // Sites #1-#3 (session row, resumable row, transcript header) still pass.
 }

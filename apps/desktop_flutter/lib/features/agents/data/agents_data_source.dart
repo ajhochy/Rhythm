@@ -159,9 +159,12 @@ class AgentsDataSource {
     final session = AgentSession.fromJson(
       body['session'] as Map<String, dynamic>? ?? body,
     );
+    // OPC-M1-3: use fromStructuredJson so parts/sdkMessageId/tokens/cost are
+    // parsed from the listBySessionStructured() REST payload.
     final rawMessages = body['messages'] as List<dynamic>? ?? const [];
     final msgs = rawMessages
-        .map((j) => AgentSessionMessage.fromJson(j as Map<String, dynamic>))
+        .map((j) =>
+            AgentSessionMessage.fromStructuredJson(j as Map<String, dynamic>))
         .toList();
     return (session: session, messages: msgs);
   }

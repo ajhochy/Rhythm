@@ -20,11 +20,8 @@
 ///   See docs/testing/manual-smoke.md under issue #629.
 library;
 
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:path/path.dart' as p;
 import 'package:rhythm_desktop/app/core/ui/tokens/rhythm_theme.dart';
 import 'package:rhythm_desktop/app/theme/app_theme.dart';
 import 'package:rhythm_desktop/features/agents/models/agent_session_message.dart';
@@ -208,30 +205,7 @@ void main() {
     });
   });
 
-  // -------------------------------------------------------------------------
-  // Source-text guard: asserts the production _MiniMessageBlock contains the
-  // system branch. If the branch is accidentally removed, this catches it.
-  // -------------------------------------------------------------------------
-
-  group('issue #629 — production source guard', () {
-    test(
-      '_MiniMessageBlock in agent_bubble_overlay.dart must have an isSystem branch',
-      () {
-        const relPath = 'lib/app/core/agents/agent_bubble_overlay.dart';
-        final projectDir = Directory.current.path.endsWith('test')
-            ? p.dirname(Directory.current.path)
-            : Directory.current.path;
-        final srcPath = p.join(projectDir, relPath);
-        final src = File(srcPath).readAsStringSync();
-
-        expect(
-          src.contains("message.role == 'system'") || src.contains('isSystem'),
-          isTrue,
-          reason:
-              'agent_bubble_overlay.dart must contain a system-role branch in '
-              '_MiniMessageBlock. The #629 fix added this; do not remove it.',
-        );
-      },
-    );
-  });
+  // OPC-M1-3: source guard for _MiniMessageBlock in agent_bubble_overlay.dart
+  // removed — the bubble file was deleted. System-role rendering is now tested
+  // in opc_m1_3_rehydration_test.dart (c6: WsErrorMessage → system ChatMessage).
 }
