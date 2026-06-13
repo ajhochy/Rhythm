@@ -4,11 +4,15 @@
 // declarations provide what OpencodeClientService needs without requiring
 // TypeScript to resolve the SDK's module graph.
 //
-// Based on @opencode-ai/sdk v0.x — types.gen.d.ts SDK-generated types.
+// hey-api envelope model: every generated SDK method returns
+//   Promise<{ data?: T; error?: unknown }>
+// (ThrowOnError=false default — verified in sdk.gen.ts v1.14.49).
+// All method signatures below follow that contract exactly.
 
 declare module '@opencode-ai/sdk' {
   export function createOpencode(options?: Record<string, unknown>): Promise<{
     client: OpencodeClient;
+    server: { url: string; close(): void };
   }>;
 
   export function createOpencodeClient(config?: {
@@ -22,6 +26,13 @@ declare module '@opencode-ai/sdk' {
     type: 'api';
     key: string;
     metadata?: Record<string, string>;
+  };
+
+  export type OAuthAuth = {
+    type: 'oauth';
+    access: string;
+    refresh: string;
+    expires: number;
   };
 
   export type OAuth = {
@@ -202,8 +213,6 @@ declare module '@opencode-ai/sdk' {
     instructions: string;
   };
 
-  // ── OpencodeClient ──
-
   // ── File diff type (v1.14.49) ──
 
   export type FileDiff = {
@@ -229,21 +238,27 @@ declare module '@opencode-ai/sdk' {
     [key: string]: unknown;
   };
 
+  // ── hey-api envelope alias ──
+  // Every generated SDK method returns Promise<SdkEnvelope<T>>.
+  export type SdkEnvelope<T> = { data?: T; error?: unknown };
+
   export interface OpencodeClient {
     config: {
-      providers(): Promise<{
+      providers(): Promise<SdkEnvelope<{
         providers?: Array<{
           id: string;
-          models?: Array<{ id: string; name?: string }>;
+          models?:
+            | Array<{ id: string; name?: string }>
+            | Record<string, { id?: string; name?: string }>;
         }>;
-      }>;
+      }>>;
     };
     session: {
-      list(): Promise<Array<Session>>;
+      list(): Promise<SdkEnvelope<Array<Session>>>;
       create(options: {
         body: { parentID?: string; title?: string };
         query?: { directory?: string };
-      }): Promise<Session>;
+      }): Promise<SdkEnvelope<Session>>;
       prompt(options: {
         path: { id: string };
         body: {
@@ -253,7 +268,7 @@ declare module '@opencode-ai/sdk' {
           system?: string;
         };
         query?: { directory?: string };
-      }): Promise<{ info: Message; parts: Array<Part> }>;
+      }): Promise<SdkEnvelope<{ info: Message; parts: Array<Part> }>>;
       promptAsync(options: {
         path: { id: string };
         body: {
@@ -263,16 +278,16 @@ declare module '@opencode-ai/sdk' {
           system?: string;
         };
         query?: { directory?: string };
-      }): Promise<void>;
+      }): Promise<SdkEnvelope<void>>;
       status(options?: {
         query?: { directory?: string };
-      }): Promise<Record<string, SessionStatus>>;
-      get(options: { path: { id: string } }): Promise<Session>;
-      delete(options: { path: { id: string } }): Promise<void>;
+      }): Promise<SdkEnvelope<Record<string, SessionStatus>>>;
+      get(options: { path: { id: string } }): Promise<SdkEnvelope<Session>>;
+      delete(options: { path: { id: string } }): Promise<SdkEnvelope<void>>;
       messages(options: {
         path: { id: string };
-      }): Promise<Array<Message>>;
-      abort(options: { path: { id: string } }): Promise<void>;
+      }): Promise<SdkEnvelope<Array<Message>>>;
+      abort(options: { path: { id: string } }): Promise<SdkEnvelope<void>>;
       /**
        * GET /session/{id}/diff — returns a list of file diffs for the session.
        * Real SDK method name verified in sdk.gen.ts v1.14.49.
@@ -280,7 +295,7 @@ declare module '@opencode-ai/sdk' {
       diff(options: {
         path: { id: string };
         query?: { directory?: string; messageID?: string };
-      }): Promise<Array<FileDiff>>;
+      }): Promise<SdkEnvelope<Array<FileDiff>>>;
       /**
        * POST /session/{id}/command — dispatch a slash command in the session.
        * Real SDK method name verified in sdk.gen.ts v1.14.49.
@@ -295,7 +310,7 @@ declare module '@opencode-ai/sdk' {
           model?: string;
         };
         query?: { directory?: string };
-      }): Promise<{ info: Message; parts: Array<Part> }>;
+      }): Promise<SdkEnvelope<{ info: Message; parts: Array<Part> }>>;
       /**
        * POST /session/{id}/revert — revert to a prior message.
        */
@@ -303,14 +318,14 @@ declare module '@opencode-ai/sdk' {
         path: { id: string };
         body: { messageID: string; partID?: string };
         query?: { directory?: string };
-      }): Promise<Session>;
+      }): Promise<SdkEnvelope<Session>>;
       /**
        * POST /session/{id}/unrevert — restore all reverted messages.
        */
       unrevert(options: {
         path: { id: string };
         query?: { directory?: string };
-      }): Promise<Session>;
+      }): Promise<SdkEnvelope<Session>>;
       /**
        * POST /session/{id}/summarize — summarize the session.
        */
@@ -318,14 +333,14 @@ declare module '@opencode-ai/sdk' {
         path: { id: string };
         body?: { providerID: string; modelID: string };
         query?: { directory?: string };
-      }): Promise<boolean>;
+      }): Promise<SdkEnvelope<boolean>>;
       /**
        * GET /session/{id}/todo — get the todo list for the session.
        */
       todo(options: {
         path: { id: string };
         query?: { directory?: string };
-      }): Promise<Array<Todo>>;
+      }): Promise<SdkEnvelope<Array<Todo>>>;
       /**
        * POST /session/{id}/fork — fork the session at a message.
        */
@@ -333,14 +348,14 @@ declare module '@opencode-ai/sdk' {
         path: { id: string };
         body?: { messageID?: string };
         query?: { directory?: string };
-      }): Promise<Session>;
+      }): Promise<SdkEnvelope<Session>>;
       /**
        * GET /session/{id}/children — list child sessions.
        */
       children(options: {
         path: { id: string };
         query?: { directory?: string };
-      }): Promise<Array<Session>>;
+      }): Promise<SdkEnvelope<Array<Session>>>;
     };
     /**
      * MCP server management — client.mcp in sdk.gen.ts v1.14.49.
@@ -349,17 +364,17 @@ declare module '@opencode-ai/sdk' {
       /** GET /mcp — status map keyed by server name. */
       status(options?: {
         query?: { directory?: string };
-      }): Promise<Record<string, McpStatusEntry>>;
+      }): Promise<SdkEnvelope<Record<string, McpStatusEntry>>>;
       /** POST /mcp/{name}/connect */
       connect(options: {
         path: { name: string };
         query?: { directory?: string };
-      }): Promise<boolean>;
+      }): Promise<SdkEnvelope<boolean>>;
       /** POST /mcp/{name}/disconnect */
       disconnect(options: {
         path: { name: string };
         query?: { directory?: string };
-      }): Promise<boolean>;
+      }): Promise<SdkEnvelope<boolean>>;
     };
     /**
      * POST /session/{id}/permissions/{permissionID}
@@ -370,37 +385,39 @@ declare module '@opencode-ai/sdk' {
       path: { id: string; permissionID: string };
       body?: { response: 'once' | 'always' | 'reject' };
       query?: { directory?: string };
-    }): Promise<boolean>;
+    }): Promise<SdkEnvelope<boolean>>;
     provider: {
-      list(): Promise<Array<{ id: string }>>;
-      auth(): Promise<Array<{ id: string; methods: Array<unknown> }>>;
+      list(): Promise<SdkEnvelope<Array<{ id: string }>>>;
+      auth(): Promise<SdkEnvelope<Array<{ id: string; methods: Array<unknown> }>>>;
       oauth: {
         authorize(options: {
           path: { id: string };
           body: { method: number };
           query?: { directory?: string };
-        }): Promise<ProviderAuthAuthorization>;
+        }): Promise<SdkEnvelope<ProviderAuthAuthorization>>;
         callback(options: {
           path: { id: string };
           body: { method: number; code?: string };
           query?: { directory?: string };
-        }): Promise<boolean>;
+        }): Promise<SdkEnvelope<boolean>>;
       };
     };
     auth: {
       set(options: {
         path: { id: string };
-        body: ApiAuth;
+        body: ApiAuth | OAuthAuth;
         query?: { directory?: string };
-      }): Promise<boolean>;
+      }): Promise<SdkEnvelope<boolean>>;
     };
     event: {
-      subscribe(options?: { query?: { directory?: string } }): Promise<{
-        stream: AsyncIterable<Event>;
-      }>;
+      subscribe(options?: { query?: { directory?: string } }): Promise<
+        SdkEnvelope<{ stream: AsyncIterable<Event> }>
+      >;
     };
     command: {
-      list(options?: { query?: { directory?: string } }): Promise<Array<{ name: string; description?: string }>>;
+      list(options?: { query?: { directory?: string } }): Promise<
+        SdkEnvelope<Array<{ name: string; description?: string }>>
+      >;
     };
   }
 }

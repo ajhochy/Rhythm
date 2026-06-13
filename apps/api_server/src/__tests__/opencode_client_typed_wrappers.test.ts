@@ -88,6 +88,18 @@ describe('issue-685-c1: no duck-typing patterns remain in SDK integration code',
     expect(source).not.toMatch(/diffSession/);
   });
 
+  it('ZERO `as unknown as` occurrences anywhere in opencode_client_service.ts (whole-file, no allowlist)', async () => {
+    const { readFileSync } = await import('fs');
+    const { join } = await import('path');
+    const svcPath = join(__dirname, '../services/opencode_client_service.ts');
+    const source = readFileSync(svcPath, 'utf8');
+    // Count every occurrence — allowlist is intentionally empty.
+    // The d.ts envelope types make these casts unnecessary; any re-introduction
+    // is a regression of the bug class issue #685 was filed to kill.
+    const matches = source.match(/as unknown as/g);
+    expect(matches).toBeNull();
+  });
+
   it('zero `as unknown as` casts on SDK objects in opencode_client_service.ts that target session sub-objects', async () => {
     const { readFileSync } = await import('fs');
     const { join } = await import('path');
@@ -138,16 +150,21 @@ describe('issue-685-c2: getSessionDiff invokes SDK method with correct arguments
     expect(result).toEqual(expectedDiffs);
   });
 
-  it('returns empty array when SDK returns no data', async () => {
+  it('returns empty array when SDK returns data: null (no diffs — success with empty payload)', async () => {
     sdkClient.session.diff.mockResolvedValue({ data: null });
     const result = await svc.getSessionDiff('sdk-session-xyz');
     expect(result).toEqual([]);
   });
 
-  it('returns empty array when SDK throws', async () => {
+  it('THROWS (does not return []) when SDK returns an error envelope', async () => {
+    // This is the key regression guard: a silent return of [] was the bug.
+    sdkClient.session.diff.mockResolvedValue({ error: { message: 'session not found' } });
+    await expect(svc.getSessionDiff('sdk-session-err-envelope')).rejects.toThrow();
+  });
+
+  it('THROWS (does not return []) when SDK rejects with an exception', async () => {
     sdkClient.session.diff.mockRejectedValue(new Error('Network error'));
-    const result = await svc.getSessionDiff('sdk-session-err');
-    expect(result).toEqual([]);
+    await expect(svc.getSessionDiff('sdk-session-err-throw')).rejects.toThrow('Network error');
   });
 });
 

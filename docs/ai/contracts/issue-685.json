@@ -5,11 +5,12 @@
   "criteria": [
     {
       "criterion_id": "issue-685-c1",
-      "text": "Repo-wide grep: zero occurrences of `diffSession`, zero `as unknown as` casts targeting SDK objects in `opencode_client_service.ts`, `agent_sessions_controller.ts`, `ws_gateway.ts`.",
+      "text": "Repo-wide grep: zero occurrences of `diffSession`, zero `as unknown as` casts targeting SDK objects in `opencode_client_service.ts`, `agent_sessions_controller.ts`, `ws_gateway.ts`. Strengthened (repair 2026-06-12): whole-file assertion that `opencode_client_service.ts` contains ZERO `as unknown as` occurrences (no allowlist); `getSessionDiff` must THROW on error envelope (not return []).",
       "mode": "unit",
       "test_file": "apps/api_server/src/__tests__/opencode_client_typed_wrappers.test.ts",
       "test_id": "issue-685-c1: no duck-typing patterns remain in SDK integration code",
-      "status": "pass"
+      "status": "pass",
+      "repair_note": "2026-06-12: original d.ts declared unwrapped returns; all 27 `as unknown as` casts in opencode_client_service.ts were papering over that mismatch. Fixed by declaring SdkEnvelope<T> returns in d.ts (hey-api reality). Silent wrapper defaults (return []) also fixed to throw AppError 502 on error envelope."
     },
     {
       "criterion_id": "issue-685-c2",
