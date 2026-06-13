@@ -427,3 +427,29 @@ describe('wrapper method shapes (M3/M4 readiness)', () => {
     );
   });
 });
+
+// ── issue-689 repair: getSession discriminates gone vs transport failure ─────
+
+describe('issue-689 repair: getSession gone-vs-transport discrimination', () => {
+  let svc: OpencodeClientService;
+  let sdkClient: ReturnType<typeof makeRealSdkClient>;
+
+  beforeEach(() => {
+    svc = new OpencodeClientService();
+    sdkClient = makeRealSdkClient();
+    injectClient(svc, sdkClient);
+  });
+
+  it('error envelope (engine answered, id unknown) returns null — genuinely gone', async () => {
+    sdkClient.session.get.mockResolvedValue({ error: { message: 'not found' } });
+    await expect(svc.getSession('ses_gone')).resolves.toBeNull();
+  });
+
+  it('thrown transport error rethrows AppError 502 — never null (would 410 a live session)', async () => {
+    sdkClient.session.get.mockRejectedValue(new Error('socket hang up'));
+    await expect(svc.getSession('ses_live')).rejects.toMatchObject({
+      statusCode: 502,
+      message: expect.stringContaining('transport failure'),
+    });
+  });
+});

@@ -1014,22 +1014,27 @@ export class OpencodeClientService {
     sdkId: string,
   ): Promise<import('@opencode-ai/sdk').Session | null> {
     const client = this.requireClient();
+    let raw: { data?: import('@opencode-ai/sdk').Session; error?: unknown };
     try {
-      const raw = await client.session.get({ path: { id: sdkId } });
-      if (raw.error || !raw.data) {
-        logger.warn(
-          `[OpencodeClientService] getSession: session "${sdkId}" not found: ${JSON.stringify(raw.error ?? 'no data')}`,
-        );
-        return null;
-      }
-      return raw.data;
+      raw = await client.session.get({ path: { id: sdkId } });
     } catch (err) {
+      // A thrown error is transport/engine trouble, NOT proof the session is
+      // gone. Conflating the two would let a transient hiccup 410 a live
+      // conversation (resume → "start fresh" against intact history).
+      throw new AppError(
+        502,
+        'SDK_ERROR',
+        `getSession transport failure for session ${sdkId}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+    if (raw.error || !raw.data) {
+      // The engine responded but doesn't know this id — genuinely gone.
       logger.warn(
-        `[OpencodeClientService] getSession threw for "${sdkId}":`,
-        err,
+        `[OpencodeClientService] getSession: session "${sdkId}" not found: ${JSON.stringify(raw.error ?? 'no data')}`,
       );
       return null;
     }
+    return raw.data;
   }
 
   /**
