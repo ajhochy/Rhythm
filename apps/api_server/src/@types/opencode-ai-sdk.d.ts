@@ -383,7 +383,12 @@ declare module '@opencode-ai/sdk' {
 
   // ── hey-api envelope alias ──
   // Every generated SDK method returns Promise<SdkEnvelope<T>>.
-  export type SdkEnvelope<T> = { data?: T; error?: unknown };
+  // When the SDK is compiled with the `fields` option (hey-api >=0.73),
+  // the underlying HTTP Response object is attached as `response` on the
+  // envelope. This is present for all successful calls, including 204 void
+  // responses where `data` is undefined. Used in #711 to distinguish a
+  // genuine 204 No Content success from an OpenRouter silent no-op ({}).
+  export type SdkEnvelope<T> = { data?: T; error?: unknown; response?: { status?: number } };
 
   export interface OpencodeClient {
     config: {
@@ -419,6 +424,22 @@ declare module '@opencode-ai/sdk' {
           model?: { providerID: string; modelID: string };
           parts: Array<PartInput>;
           system?: string;
+          /**
+           * #714 — reasoning/thinking configuration for the opencode server.
+           *
+           * Confirmed against the opencode v1.14.40 binary (Ih zod schema):
+           *   reasoningConfig: { type, budgetTokens, maxReasoningEffort, display }
+           *
+           * For the anthropic provider: set type:'enabled' + budgetTokens to
+           * enable extended thinking. The older `thinking: { budget_tokens }` field
+           * (snake_case) is NOT recognized by the server and is silently dropped.
+           */
+          reasoningConfig?: {
+            type?: 'enabled' | 'disabled' | 'adaptive';
+            budgetTokens?: number;
+            maxReasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+            display?: 'omitted' | 'summarized';
+          };
         };
         query?: { directory?: string };
       }): Promise<SdkEnvelope<void>>;

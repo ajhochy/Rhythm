@@ -465,11 +465,19 @@ class _SessionListPanelState extends State<_SessionListPanel> {
                       color: context.rhythm.accent,
                     ),
                   )
-                : filteredSessions.isEmpty && controller.resumable.isEmpty
+                : filteredSessions.isEmpty &&
+                        controller.resumable.isEmpty &&
+                        !controller.isCreating
                     ? const _EmptySessionsState()
                     : ListView(
                         padding: const EdgeInsets.fromLTRB(12, 12, 12, 14),
                         children: [
+                          // OPC-#713: optimistic loading row shown while a new
+                          // session is being created (instant-create path).
+                          if (controller.isCreating) ...[
+                            _CreatingSessionRow(),
+                            const SizedBox(height: 8),
+                          ],
                           // Active sessions (filtered by selected project).
                           for (final session in filteredSessions) ...[
                             _SessionRow(
@@ -781,6 +789,54 @@ class _EmptySessionsState extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// OPC-#713: Optimistic loading row shown while a session create is in-flight.
+// ---------------------------------------------------------------------------
+
+/// A ghosted, non-interactive row shown in the session list while the
+/// instant-create SDK call is in-flight. Gives the user immediate visual
+/// feedback that their click registered.
+class _CreatingSessionRow extends StatelessWidget {
+  const _CreatingSessionRow();
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 160),
+      curve: Curves.easeOut,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: context.rhythm.accentMuted,
+        borderRadius: BorderRadius.circular(RhythmRadius.lg),
+        border: Border.all(
+          color: context.rhythm.accent.withValues(alpha: 0.28),
+        ),
+      ),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 14,
+            height: 14,
+            child: CircularProgressIndicator(
+              strokeWidth: 2,
+              color: context.rhythm.accent,
+            ),
+          ),
+          const SizedBox(width: 10),
+          Text(
+            'Starting session…',
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: context.rhythm.accent,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -2398,8 +2454,16 @@ class _InputArea extends StatefulWidget {
 }
 
 class _InputAreaState extends State<_InputArea> {
-  /// OPC-M4-1: Pick files, read bytes, build data URIs, and add to the
+  /// OPC-M4-1 / Issue #717: Pick files, classify by MIME, and add to the
   /// controller's pending-attachment list for the active session.
+  ///
+  /// Classification rules:
+  ///   - image/*              → FilePart with data URI (thumbnail rendered in bubble).
+  ///   - application/pdf      → FilePart with data URI (sent with correct MIME).
+  ///   - text/* / json / xml  → TextPart: content decoded as UTF-8, capped at 100 KB.
+  ///   - application/octet-stream → blocked: SnackBar error shown, not added.
+  static const int _kTextSizeCap = 100 * 1024; // 100 KB
+
   Future<void> _pickFiles() async {
     final result = await FilePicker.pickFiles(allowMultiple: true);
     if (result == null) return;
@@ -2412,13 +2476,71 @@ class _InputAreaState extends State<_InputArea> {
       try {
         final bytes = await File(path).readAsBytes();
         final mime = resolveAttachmentMime(bytes, f.name, f.extension);
-        final dataUri = 'data:$mime;base64,${base64Encode(bytes)}';
-        controller.addPendingAttachment(id, {
-          'type': 'file',
-          'mime': mime,
-          'filename': f.name,
-          'url': dataUri,
-        });
+
+        if (mime == 'application/octet-stream') {
+          // Genuinely unsupported binary — block at attach time.
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                  '${f.name}: unsupported file type. '
+                  'Only text files, images, and PDFs can be attached.',
+                ),
+                duration: const Duration(seconds: 4),
+              ),
+            );
+          }
+          continue;
+        }
+
+        if (isTextLikeMime(mime)) {
+          // Issue #717: inline text/code/log files as a text part so the
+          // model can read their contents directly.
+          final decoded = tryDecodeUtf8(bytes);
+          if (decoded == null) {
+            // Somehow resolved to a text MIME but bytes aren't valid UTF-8
+            // (should be rare — resolveAttachmentMime uses the same probe).
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(
+                    '${f.name}: file could not be decoded as text.',
+                  ),
+                  duration: const Duration(seconds: 4),
+                ),
+              );
+            }
+            continue;
+          }
+          final String content;
+          final bool truncated = bytes.length > _kTextSizeCap;
+          if (truncated) {
+            // Truncate at the byte boundary and re-decode to keep valid UTF-8.
+            final truncBytes = bytes.sublist(0, _kTextSizeCap);
+            final partial = tryDecodeUtf8(truncBytes) ??
+                const Utf8Decoder(allowMalformed: true)
+                    .convert(truncBytes.toList());
+            content =
+                '$partial\n\n… [truncated — showing first 100 KB of ${f.name}]';
+          } else {
+            content = decoded;
+          }
+          controller.addPendingAttachment(id, {
+            'type': 'text',
+            'filename': f.name,
+            'mime': mime,
+            'text': content,
+          });
+        } else {
+          // image/* and application/pdf → FilePart with data URI.
+          final dataUri = 'data:$mime;base64,${base64Encode(bytes)}';
+          controller.addPendingAttachment(id, {
+            'type': 'file',
+            'mime': mime,
+            'filename': f.name,
+            'url': dataUri,
+          });
+        }
       } catch (_) {
         // File read error — skip this attachment silently.
       }
@@ -2988,6 +3110,20 @@ class _NewSessionDialogState extends State<_NewSessionDialog> {
     }
   }
 
+  /// OPC-#713: Open a native directory picker and populate [_cwdController]
+  /// with the chosen path. Text entry remains editable for manual overrides.
+  Future<void> _browseCwd() async {
+    final path = await FilePicker.getDirectoryPath(
+      dialogTitle: 'Choose working directory',
+      initialDirectory: _cwdController.text.trim().isNotEmpty
+          ? _cwdController.text.trim()
+          : null,
+    );
+    if (path != null && mounted) {
+      setState(() => _cwdController.text = path);
+    }
+  }
+
   @override
   void dispose() {
     _nameController.dispose();
@@ -3184,14 +3320,44 @@ class _NewSessionDialogState extends State<_NewSessionDialog> {
               ),
             ),
             const SizedBox(height: 6),
-            TextField(
-              controller: _cwdController,
-              style: TextStyle(
-                fontSize: 13,
-                fontFamily: 'Menlo',
-                color: context.rhythm.textPrimary,
-              ),
-              decoration: _inputDecoration(context, hint: '~/'),
+            // OPC-#713: cwd row = editable text field + Browse… button.
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _cwdController,
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontFamily: 'Menlo',
+                      color: context.rhythm.textPrimary,
+                    ),
+                    decoration: _inputDecoration(context, hint: '~/'),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                SizedBox(
+                  height: 38,
+                  child: OutlinedButton(
+                    onPressed: _browseCwd,
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: context.rhythm.accent,
+                      side: BorderSide(color: context.rhythm.border),
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(RhythmRadius.md),
+                      ),
+                    ),
+                    child: const Text(
+                      'Browse…',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ),
 
             // Branch selector — only shown when the selected project has a

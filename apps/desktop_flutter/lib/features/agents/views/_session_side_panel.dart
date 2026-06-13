@@ -193,12 +193,16 @@ class _ContextTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final controller = context.watch<AgentsController>();
+    final totalTokens = controller.sessionTotalInputTokens(session.id);
     return ListView(
       padding: const EdgeInsets.all(12),
       children: [
         _row(context, 'Agent', session.agentId),
         _row(context, 'Cwd', session.cwd),
         _row(context, 'Status', session.status.wireValue),
+        const SizedBox(height: 8),
+        _ContextUsageGauge(tokensUsed: totalTokens),
       ],
     );
   }
@@ -228,6 +232,130 @@ class _ContextTab extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// Issue #718 — Context-usage gauge for the Context tab.
+///
+/// Displays the cumulative input tokens used vs the model's context-window
+/// capacity (200k default), formatted as "X tokens / 200k" with a coloured
+/// [LinearProgressIndicator].
+///
+/// Colour thresholds:
+///   - green  below 60 %
+///   - yellow 60–80 %
+///   - red    above 80 %
+///
+/// Shows "No messages yet" when [tokensUsed] is 0.
+class _ContextUsageGauge extends StatelessWidget {
+  const _ContextUsageGauge({required this.tokensUsed});
+
+  final int tokensUsed;
+
+  /// Default context window (tokens). Claude 3.x / claude-sonnet is 200 000.
+  /// NOTE: The provider-list API does not currently expose per-model context
+  /// limits. A fixed 200k default is used here (200k is the largest safe
+  /// default for claude-sonnet-class models).
+  static const int _kDefaultContextWindow = 200000;
+
+  /// Format a token count as a human-readable string.
+  ///
+  /// Values ≥ 1000 are shown with a "k" suffix (e.g. "128k"); smaller values
+  /// are shown as raw numbers.
+  static String _fmtTokens(int n) {
+    if (n >= 1000) {
+      final k = n / 1000;
+      // Drop the decimal when it's a whole number (e.g. 200k not 200.0k).
+      return k == k.truncateToDouble()
+          ? '${k.truncate()}k'
+          : '${k.toStringAsFixed(1)}k';
+    }
+    return n.toString();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // Section label.
+    final label = Text(
+      'CONTEXT USAGE',
+      style: TextStyle(
+        fontSize: 10,
+        fontWeight: FontWeight.w600,
+        letterSpacing: 0.6,
+        color: context.rhythm.textMuted,
+      ),
+    );
+
+    if (tokensUsed == 0) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          label,
+          const SizedBox(height: 4),
+          Text(
+            'No messages yet',
+            style: TextStyle(
+              fontSize: 12,
+              color: context.rhythm.textMuted,
+            ),
+          ),
+        ],
+      );
+    }
+
+    final fraction = (tokensUsed / _kDefaultContextWindow).clamp(0.0, 1.0);
+    final pct = fraction * 100;
+
+    // Colour thresholds.
+    final Color barColor;
+    if (pct < 60) {
+      barColor = Colors.green;
+    } else if (pct < 80) {
+      barColor = Colors.orange;
+    } else {
+      barColor = Colors.red;
+    }
+
+    final usedLabel = _fmtTokens(tokensUsed);
+    final capacityLabel = _fmtTokens(_kDefaultContextWindow);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        label,
+        const SizedBox(height: 4),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              '$usedLabel / $capacityLabel tokens',
+              style: TextStyle(
+                fontSize: 12,
+                color: context.rhythm.textPrimary,
+              ),
+            ),
+            Text(
+              '${pct.round()}%',
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                color: barColor,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 4),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(2),
+          child: LinearProgressIndicator(
+            value: fraction,
+            minHeight: 5,
+            backgroundColor: context.rhythm.border,
+            valueColor: AlwaysStoppedAnimation<Color>(barColor),
+          ),
+        ),
+      ],
     );
   }
 }

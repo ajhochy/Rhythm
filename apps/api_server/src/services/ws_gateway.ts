@@ -281,6 +281,14 @@ export async function handleInputFrame(
   let sessionModelId: string | null = null;
   let sessionThinkingBudget: number | null = null;
   let sessionFastMode = false;
+  // #711: read permissionMode so it can be forwarded in the prompt opts.
+  // The opencode server inspects this field in the body to bypass its
+  // own per-tool permission gate — when 'bypassPermissions', it executes
+  // tools without emitting permission.updated events. Without forwarding
+  // it here, Claude/anthropic sessions silently hang waiting for user
+  // approval while openrouter free sessions (chat-only, no tool calls)
+  // appear to "work" because they never trigger tool-use at all.
+  let sessionPermissionMode: string = 'default';
   try {
     const session = new AgentSessionsRepository().findById(id);
     if (session) {
@@ -291,6 +299,7 @@ export async function handleInputFrame(
       sessionModelId = session.modelId;
       sessionThinkingBudget = session.thinkingBudget ?? null;
       sessionFastMode = session.fastMode ?? false;
+      sessionPermissionMode = session.permissionMode ?? 'default';
     }
   } catch {
     /* DB unavailable — proceed without context */
@@ -500,11 +509,37 @@ export async function handleInputFrame(
     const effectiveThinkingBudget = perTurnThinking?.budget_tokens ?? sessionThinkingBudget;
     const effectiveFastMode = perTurnFastMode ?? sessionFastMode;
     // OPC-M4-4: include the per-turn agent name when provided.
-    const sdkOpts = (effectiveThinkingBudget !== null || effectiveFastMode || perTurnAgent !== null)
+    // #711: include permissionMode so the opencode server can honour
+    // it in-turn (bypassing its per-tool permission gate) rather than
+    // relying solely on the stream bridge's post-hoc auto-respond path.
+    // The opencode server reads this field from the prompt body and
+    // skips emitting permission.updated events for tool calls when it
+    // is 'bypassPermissions' — without this, Claude/anthropic sessions
+    // silently stall while waiting for user permission approval, even
+    // though Rhythm already has the permissionMode stored on the session.
+    //
+    // #714: The opencode server's prompt body accepts `reasoningConfig` to
+    // enable extended thinking / reasoning. The field shape (confirmed by
+    // inspecting the opencode v1.14.40 binary) is:
+    //   reasoningConfig: { type: "enabled", budgetTokens: <N> }
+    // This is the canonical field for BOTH the anthropic and bedrock paths.
+    // The older `thinking: { budget_tokens: N }` (snake_case) was wrong and
+    // silently ignored by the server — it is NOT in the opencode prompt body
+    // schema (Ih in the binary). openrouter "free" models (e.g. DeepSeek-R1)
+    // emit reasoning blocks unconditionally, masking the bug on that path.
+    if (effectiveThinkingBudget !== null) {
+      console.log(
+        `[ws_gateway] session ${id}: enabling reasoning via reasoningConfig.budgetTokens=${effectiveThinkingBudget}`,
+      );
+    }
+    const sdkOpts = (effectiveThinkingBudget !== null || effectiveFastMode || perTurnAgent !== null || sessionPermissionMode !== 'default')
       ? {
-          ...(effectiveThinkingBudget !== null ? { thinking: { budget_tokens: effectiveThinkingBudget } } : {}),
+          ...(effectiveThinkingBudget !== null
+            ? { reasoningConfig: { type: 'enabled', budgetTokens: effectiveThinkingBudget } }
+            : {}),
           ...(effectiveFastMode ? { fastMode: true } : {}),
           ...(perTurnAgent !== null ? { agent: perTurnAgent } : {}),
+          ...(sessionPermissionMode !== 'default' ? { permissionMode: sessionPermissionMode } : {}),
         }
       : undefined;
 

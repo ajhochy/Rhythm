@@ -437,6 +437,132 @@ describe('wrapper method shapes (M3/M4 readiness)', () => {
   });
 });
 
+// ── issue-716: addMcp persists to opencode.json before calling the SDK ───────
+
+describe('issue-716: addMcp persists new server to opencode.json before calling SDK', () => {
+  let svc: OpencodeClientService;
+  let sdkClient: ReturnType<typeof makeRealSdkClient> & { mcp: { add: ReturnType<typeof vi.fn> } };
+
+  beforeEach(() => {
+    svc = new OpencodeClientService();
+    // Extend the fake client with the mcp.add method that addMcp needs.
+    const base = makeRealSdkClient();
+    sdkClient = {
+      ...base,
+      mcp: { ...base.mcp, add: vi.fn() },
+    } as ReturnType<typeof makeRealSdkClient> & { mcp: { add: ReturnType<typeof vi.fn> } };
+    injectClient(svc, sdkClient as unknown as ReturnType<typeof makeRealSdkClient>);
+  });
+
+  it('writes the new server to opencode.json and calls mcp.add with name+config', async () => {
+    const updatedMap = { 'test-server': { status: 'connected' }, 'rhythm': { status: 'connected' } };
+    sdkClient.mcp.add.mockResolvedValue({ data: updatedMap });
+
+    // Use a temp dir so we don't touch the real config.
+    const os = await import('os');
+    const path = await import('path');
+    const fs = await import('fs');
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'opc-test-'));
+    const configPath = path.join(tmpDir, 'opencode.json');
+
+    // Stub homedir so the service writes to our tmpDir.
+    const originalHomedir = os.homedir;
+    // The service uses require('os').homedir(), so we patch the module cache.
+    const osMod = require('os') as typeof import('os');
+    const origHomedirFn = osMod.homedir;
+    osMod.homedir = () => tmpDir;
+
+    try {
+      const config = { type: 'local' as const, command: ['npx', '-y', 'test-mcp'] };
+      const result = await svc.addMcp('test-server', config);
+
+      // The SDK was called with the right arguments.
+      expect(sdkClient.mcp.add).toHaveBeenCalledOnce();
+      const addCall = sdkClient.mcp.add.mock.calls[0]![0] as {
+        body: { name: string; config: unknown };
+      };
+      expect(addCall.body.name).toBe('test-server');
+      expect(addCall.body.config).toEqual(config);
+
+      // opencode.json was written with the new server.
+      const writtenPath = path.join(tmpDir, '.config', 'opencode', 'opencode.json');
+      expect(fs.existsSync(writtenPath)).toBe(true);
+      const written = JSON.parse(fs.readFileSync(writtenPath, 'utf8')) as Record<string, unknown>;
+      const mcp = written.mcp as Record<string, unknown>;
+      expect(mcp).toHaveProperty('test-server');
+      expect((mcp['test-server'] as Record<string, unknown>).type).toBe('local');
+
+      // The return value from the SDK is forwarded.
+      expect(result).toEqual(updatedMap);
+    } finally {
+      osMod.homedir = origHomedirFn;
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it('preserves existing servers in opencode.json when adding a new one', async () => {
+    sdkClient.mcp.add.mockResolvedValue({ data: { 'existing': { status: 'connected' }, 'new-server': { status: 'connected' } } });
+
+    const os = await import('os');
+    const path = await import('path');
+    const fs = await import('fs');
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'opc-test2-'));
+    const configDir = path.join(tmpDir, '.config', 'opencode');
+    fs.mkdirSync(configDir, { recursive: true });
+    // Pre-write an existing config with one server already in it.
+    const existingConfig = {
+      mcp: {
+        existing: { type: 'local', command: ['npx', 'existing-server'] },
+      },
+    };
+    fs.writeFileSync(
+      path.join(configDir, 'opencode.json'),
+      JSON.stringify(existingConfig, null, 2),
+    );
+
+    const osMod = require('os') as typeof import('os');
+    const origHomedirFn = osMod.homedir;
+    osMod.homedir = () => tmpDir;
+
+    try {
+      await svc.addMcp('new-server', { type: 'local', command: ['npx', 'new-server'] });
+
+      const written = JSON.parse(
+        fs.readFileSync(path.join(configDir, 'opencode.json'), 'utf8'),
+      ) as Record<string, unknown>;
+      const mcp = written.mcp as Record<string, unknown>;
+      // Both old and new entries must be present.
+      expect(mcp).toHaveProperty('existing');
+      expect(mcp).toHaveProperty('new-server');
+    } finally {
+      osMod.homedir = origHomedirFn;
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it('throws AppError when SDK mcp.add returns an error envelope (after persisting)', async () => {
+    sdkClient.mcp.add.mockResolvedValue({ error: { message: 'bad request' } });
+
+    const os = await import('os');
+    const path = await import('path');
+    const fs = await import('fs');
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'opc-test3-'));
+
+    const osMod = require('os') as typeof import('os');
+    const origHomedirFn = osMod.homedir;
+    osMod.homedir = () => tmpDir;
+
+    try {
+      await expect(
+        svc.addMcp('bad-server', { type: 'local', command: ['npx', 'bad'] }),
+      ).rejects.toMatchObject({ statusCode: 502 });
+    } finally {
+      osMod.homedir = origHomedirFn;
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+});
+
 // ── issue-689 repair: getSession discriminates gone vs transport failure ─────
 
 describe('issue-689 repair: getSession gone-vs-transport discrimination', () => {

@@ -84,6 +84,10 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   int? _lastErrorStatus;
   bool _reconnecting = false;
 
+  /// True while an instant-create session call is in-flight (OPC-#713).
+  /// The session-list view shows an optimistic loading row while this is set.
+  bool _creating = false;
+
   List<AgentSession> _sessions = [];
   List<AgentSession> _resumable = [];
   List<AgentSession> _archived = [];
@@ -261,6 +265,9 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
 
   AgentsLoadStatus get status => _status;
 
+  /// True while an instant-create session call is in-flight (OPC-#713).
+  bool get isCreating => _creating;
+
   AgentSessionConnectivity get connectivity => _connectivity;
   String? get error => _error;
   int? get lastErrorStatus => _lastErrorStatus;
@@ -322,6 +329,34 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
       }
     }
     return null;
+  }
+
+  /// Issue #718 — Cumulative input-token count for [sessionId].
+  ///
+  /// Sums the `input` field from every [ChatMessage.tokens] map in the session,
+  /// across all roles (user messages typically have null tokens; assistant
+  /// messages carry the bulk of the count). Returns 0 when no messages with
+  /// token data exist yet.
+  ///
+  /// This is the "tokens used" value shown in the Context tab's usage gauge.
+  /// Unlike [lastAssistantInputTokens] — which returns the last assistant
+  /// message's token count and is used for the near-composer threshold hint —
+  /// this method accumulates the entire conversation history.
+  int sessionTotalInputTokens(String sessionId) {
+    final messages = _chatMessagesBySession[sessionId];
+    if (messages == null) return 0;
+    var total = 0;
+    for (final m in messages) {
+      final tokens = m.tokens;
+      if (tokens == null) continue;
+      final raw = tokens['input'];
+      if (raw is int) {
+        total += raw;
+      } else if (raw is num) {
+        total += raw.toInt();
+      }
+    }
+    return total;
   }
 
   /// OPC-M2-4: Current retry state for [sessionId], or null if not retrying.
@@ -445,25 +480,49 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   /// OPC-M3-3 — Trigger session compaction (summarize) for [sessionId].
   ///
   /// Shows a spinner in the session header while the call is in-flight.
-  /// The spinner clears when a `compaction` part arrives via WS, or on error.
+  /// The spinner clears immediately when the POST returns successfully (204),
+  /// ensuring the UI never hangs even if opencode doesn't emit a `compaction`
+  /// WS part (e.g. in the embedded SDK). A WS `compaction` part may also
+  /// clear it later — that's idempotent and fine.
+  ///
+  /// A 30-second safety timeout also clears the spinner as a backstop for
+  /// any future hang scenario.
+  ///
   /// Throws on server error — the view catches and surfaces it.
   Future<void> summarizeSession(String sessionId) async {
     _sessionCompacting[sessionId] = true;
     notifyListeners();
+
+    // Safety timeout — clear compacting state after 30 seconds regardless of
+    // WS events, so the spinner can never spin indefinitely.
+    final timeoutTimer = Timer(const Duration(seconds: 30), () {
+      if (!_disposed && (_sessionCompacting[sessionId] ?? false)) {
+        _sessionCompacting.remove(sessionId);
+        notifyListeners();
+      }
+    });
+
     try {
       await _repository.summarizeSession(sessionId);
+      // Primary fix (OPC-#719): clear the spinner immediately on POST success.
+      // The WS compaction part may arrive later and clear it again — idempotent.
+      if (!_disposed) {
+        timeoutTimer.cancel();
+        _sessionCompacting.remove(sessionId);
+        notifyListeners();
+      }
     } catch (_) {
       // Clear compacting state on error so the UI doesn't stay stuck.
+      timeoutTimer.cancel();
       if (!_disposed) {
         _sessionCompacting.remove(sessionId);
         notifyListeners();
       }
       rethrow;
     }
-    // Compacting state cleared when the compaction part arrives via WS
-    // (handled in _appendChatPart for type='compaction'). If for some reason
-    // the part never arrives, the state is kept until the session is re-selected.
-    // This is acceptable: the spinner is a progress hint, not a gate.
+    // The WS compaction part handler (_onWsMessage, partType=='compaction')
+    // also clears _sessionCompacting — that's fine; clearing twice is idempotent
+    // and ensures the compaction divider renders once the part arrives.
   }
 
   /// Test-only: seed the compacting state for [sessionId] without a server round-trip.
@@ -1012,6 +1071,10 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     // — the server will respond with 400 ('agent not configured') and we
     // surface that to the user verbatim (consistent with existing 4xx UX).
     final resolvedAgentId = agentId ?? _resolveDefaultAgentIdForCreate() ?? '';
+    // OPC-#713: signal that a create is in-flight so the view can show an
+    // optimistic loading indicator while the SDK session spins up.
+    _creating = true;
+    notifyListeners();
     try {
       final session = await _repository.createSession(
         agentId: resolvedAgentId.isEmpty ? agentId : resolvedAgentId,
@@ -1024,9 +1087,11 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
       );
       _sessions = [..._sessions, session];
       sessionFirstSeenAt[session.id] = DateTime.now();
+      _creating = false;
       notifyListeners();
       return session;
     } catch (e) {
+      _creating = false;
       if (e is AppError) {
         _error = e.message;
         _lastErrorStatus = e.statusCode;
@@ -1469,6 +1534,11 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     (_chatMessagesBySession[sessionId] ??= []).add(optimisticMsg);
     // Build the parts list for the optimistic insert: text first, then any
     // file parts so the user bubble renders thumbnails/chips immediately.
+    //
+    // Issue #717: text-type attachments (inlined file content) are rendered
+    // as a filename chip (type='file' with no url) rather than as prose so
+    // the user can see which file was attached. The actual text content is
+    // forwarded to the server in the parts array and the model sees it.
     final optimisticParts = <ChatPart>[
       ChatPart(
         id: '${optimisticMsgId}_text',
@@ -1476,7 +1546,9 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
         type: 'text',
         text: data,
       ),
-      // OPC-M4-1: add file parts for each attachment.
+      // OPC-M4-1 / #717: add one chip per attachment.
+      // For text-type attachments (file content inlined), render a filename
+      // chip with no url (the model reads the text; the bubble shows the name).
       for (var i = 0; i < allAttachments.length; i++)
         ChatPart(
           id: '${optimisticMsgId}_file_$i',
@@ -1484,10 +1556,52 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
           type: 'file',
           fileMime: allAttachments[i]['mime'] as String?,
           fileFilename: allAttachments[i]['filename'] as String?,
-          fileUrl: allAttachments[i]['url'] as String?,
+          fileUrl: allAttachments[i]['type'] == 'text'
+              ? null // text attachment — no data URI; filename chip only
+              : allAttachments[i]['url'] as String?,
         ),
     ];
     _chatPartsByMessage[optimisticMsgId] = optimisticParts;
+
+    // OPC-#712 — client-side auto-title fallback.
+    //
+    // When the session has no meaningful name (empty or the 'New session'
+    // placeholder shown in the sidebar), derive one from the first user
+    // message text immediately so the list updates without waiting for
+    // opencode's server-side session.updated event (which may never arrive
+    // for sessions created through Rhythm's prompt path).
+    //
+    // The fallback is set only on the FIRST user turn (i.e. the optimistic
+    // insert is the only message in the chat store for this session) so we
+    // don't re-title sessions mid-conversation.
+    //
+    // When session.updated later carries a non-empty title from the server,
+    // the SessionUpdatedMessage handler (_onWsMessage) replaces the whole
+    // session row via _upsertById — the server title wins automatically
+    // without any extra logic here.
+    final sessionMessages = _chatMessagesBySession[sessionId];
+    final isFirstUserTurn =
+        sessionMessages != null && sessionMessages.length == 1;
+    if (isFirstUserTurn) {
+      final session = _sessions.firstWhereOrNull((s) => s.id == sessionId);
+      if (session != null) {
+        final currentName = session.name.trim();
+        final needsFallback =
+            currentName.isEmpty || currentName == 'New session';
+        if (needsFallback) {
+          final rawText = data.trim();
+          final fallbackTitle =
+              rawText.length > 40 ? '${rawText.substring(0, 40)}…' : rawText;
+          if (fallbackTitle.isNotEmpty) {
+            _sessions = [
+              for (final s in _sessions)
+                if (s.id == sessionId) s.copyWith(name: fallbackTitle) else s,
+            ];
+          }
+        }
+      }
+    }
+
     notifyListeners();
   }
 
@@ -1675,6 +1789,11 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     unawaited(fetchSessionTodos(id));
     // OPC-M4-4: fetch available agents for the session cwd.
     unawaited(fetchAvailableAgents(id));
+    // OPC-#715: refresh the catalog on every session select so that curation
+    // changes made since the last WS-connect fetch (e.g. a newly-curated
+    // OpenRouter model) are reflected in the new session's model picker without
+    // requiring the user to re-toggle the model in the curator.
+    unawaited(refreshCatalog());
   }
 
   Future<void> _loadSlashCommands(String sessionId) async {

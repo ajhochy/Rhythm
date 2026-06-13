@@ -1,12 +1,20 @@
-/// MIME resolution for composer attachments (OPC-M4-1).
+/// MIME resolution for composer attachments (OPC-M4-1 / issue #717).
 ///
 /// file_picker on macOS frequently returns an empty/null `extension`, which
 /// made every attachment fall through to `application/octet-stream` — opencode
 /// then rejects the FilePart ("media type application/octet-stream functionality
 /// not supported"), so even images failed. We therefore resolve the MIME from
 /// (1) the picker extension, (2) the filename, then (3) magic-byte sniffing for
-/// common images, before giving up.
+/// common images, and (4) UTF-8 decodability for unknown-extension files, before
+/// giving up.
+///
+/// Issue #717: text-like files (log, txt, md, source code, etc.) resolve to
+/// text/plain (or a more specific text MIME) so the _pickFiles handler can
+/// inline their content as a text part rather than a FilePart data URI that
+/// the model rejects.
 library;
+
+import 'dart:convert';
 
 const Map<String, String> _kMimeByExtension = {
   // images
@@ -104,8 +112,38 @@ String? sniffImageMime(List<int> b) {
   return null;
 }
 
+/// Returns true when [mime] is a text-renderable type that should be inlined
+/// as a text part rather than a FilePart data URI.
+///
+/// Includes text/*, application/json, application/xml — types the model can
+/// read as prose when embedded in the conversation text. Excludes application/pdf
+/// because PDF is sent as a native FilePart (some providers support it).
+bool isTextLikeMime(String mime) {
+  if (mime.startsWith('text/')) return true;
+  if (mime == 'application/json') return true;
+  if (mime == 'application/xml') return true;
+  return false;
+}
+
+/// Try to decode [bytes] as UTF-8. Returns the decoded string on success,
+/// or null if the bytes are not valid UTF-8 (i.e. a binary file).
+///
+/// Uses a strict-mode codec so replacement characters are never silently
+/// inserted; the FormatException path indicates a genuine binary.
+String? tryDecodeUtf8(List<int> bytes) {
+  try {
+    // ignore: avoid_catching_errors
+    return utf8.decode(bytes, allowMalformed: false);
+  } catch (_) {
+    return null;
+  }
+}
+
 /// Resolve the best MIME for an attachment: picker extension → filename
-/// extension → image magic-byte sniff → octet-stream.
+/// extension → image magic-byte sniff → UTF-8 probe → octet-stream.
+///
+/// Issue #717: unknown-extension files that decode as valid UTF-8 resolve to
+/// text/plain rather than application/octet-stream.
 String resolveAttachmentMime(List<int> bytes, String filename, String? ext) {
   var e = (ext != null && ext.isNotEmpty) ? ext : '';
   if (e.isEmpty && filename.contains('.')) {
@@ -113,5 +151,10 @@ String resolveAttachmentMime(List<int> bytes, String filename, String? ext) {
   }
   final byExt = mimeFromExtension(e);
   if (byExt != 'application/octet-stream') return byExt;
-  return sniffImageMime(bytes) ?? byExt;
+  // Magic-byte image sniff.
+  final imageMime = sniffImageMime(bytes);
+  if (imageMime != null) return imageMime;
+  // UTF-8 probe: if the bytes decode cleanly, treat as text/plain.
+  if (tryDecodeUtf8(bytes) != null) return 'text/plain';
+  return 'application/octet-stream';
 }

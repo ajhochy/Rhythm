@@ -529,9 +529,23 @@ export class OpencodeClientService {
       // Guard: SDK silent no-op — the model may be unrecognized (e.g. OpenRouter
       // unknown-model) and the SDK returns {} with neither data nor error. Treat
       // as failure so callers don't think the prompt was enqueued (issue #632).
+      //
+      // #711 — for the anthropic/claude provider path, promptAsync returns HTTP
+      // 204 No Content on success (void response). hey-api maps 204 to
+      // { data: undefined, error: undefined } — identical to the OpenRouter
+      // silent-no-op shape. Distinguish them via the HTTP status: 204 is a
+      // genuine success; anything else with no data is a silent no-op.
       if (!raw.data) {
+        // Access the underlying HTTP response when available (hey-api 'fields'
+        // mode attaches it as `raw.response`). A 204 means the prompt was
+        // accepted by the opencode server — not a silent no-op.
+        const httpStatus = raw.response?.status;
+        if (httpStatus === 204) {
+          // Successful async enqueue — opencode will stream results via SSE.
+          return true;
+        }
         logger.warn(
-          `[OpencodeClientService] promptAsync silent no-op for ${sessionId}: SDK returned neither data nor error (model may not be supported)`,
+          `[OpencodeClientService] promptAsync silent no-op for ${sessionId}: SDK returned neither data nor error (model may not be supported; HTTP status=${httpStatus ?? 'unknown'})`,
         );
         return false;
       }
@@ -1011,11 +1025,57 @@ export class OpencodeClientService {
    * remote config (type:'remote', url:'...'). Throws AppError on SDK error.
    *
    * OPC-M4-3: typed wrapper for client.mcp.add().
+   *
+   * Issue #716 fix: `client.mcp.add()` only registers the server in-memory for
+   * the running opencode instance. `client.mcp.status()` (used by listMcp /
+   * GET /opencode/mcp) re-derives from the persisted opencode.json config, so a
+   * server added only in-memory disappears from the list immediately after add.
+   * We persist the new entry to opencode.json BEFORE calling the SDK so that
+   * the subsequent status call (and any app restart) includes it.
    */
   async addMcp(
     name: string,
     config: import('@opencode-ai/sdk').McpLocalConfigInput | import('@opencode-ai/sdk').McpRemoteConfigInput,
   ): Promise<Record<string, import('@opencode-ai/sdk').McpStatusEntry>> {
+    // ── Step 1: persist to opencode.json so the server survives re-list / restart ──
+    const { existsSync, readFileSync, writeFileSync, mkdirSync } =
+      require('fs') as typeof import('fs');
+    const { join, dirname } = require('path') as typeof import('path');
+    const { homedir } = require('os') as typeof import('os');
+
+    const configPath = join(homedir(), '.config', 'opencode', 'opencode.json');
+
+    let parsed: Record<string, unknown> = {};
+    if (existsSync(configPath)) {
+      try {
+        parsed = JSON.parse(readFileSync(configPath, 'utf8'));
+      } catch (err) {
+        throw new AppError(
+          502,
+          'SDK_ERROR',
+          `addMcp: could not parse opencode.json for ${name}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+
+    // Merge the new server into the mcp section.
+    const mcpSection = (parsed.mcp as Record<string, unknown> | undefined) ?? {};
+    mcpSection[name] = config;
+    parsed.mcp = mcpSection;
+
+    try {
+      mkdirSync(dirname(configPath), { recursive: true });
+      writeFileSync(configPath, JSON.stringify(parsed, null, 2) + '\n', 'utf8');
+      logger.info(`[OpencodeClientService] addMcp: persisted ${name} to opencode.json`);
+    } catch (err) {
+      throw new AppError(
+        502,
+        'SDK_ERROR',
+        `addMcp: could not write opencode.json for ${name}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+
+    // ── Step 2: register with the running engine (in-memory, live session) ──
     const client = this.requireClient();
     const raw = await client.mcp.add({
       body: { name, config },
