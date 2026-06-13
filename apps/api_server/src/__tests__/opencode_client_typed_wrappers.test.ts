@@ -290,7 +290,12 @@ describe('issue-685-c5: wrappers reject before SDK initialization with engine-no
   });
 
   it('summarizeSession rejects with engine-not-ready AppError when uninitialized', async () => {
-    await expect(svc.summarizeSession('sdk-id')).rejects.toThrow();
+    await expect(
+      svc.summarizeSession('sdk-id', {
+        providerID: 'anthropic',
+        modelID: 'claude-x',
+      }),
+    ).rejects.toThrow();
   });
 
   it('forkSession rejects with engine-not-ready AppError when uninitialized', async () => {
@@ -371,14 +376,21 @@ describe('wrapper method shapes (M3/M4 readiness)', () => {
     );
   });
 
-  it('summarizeSession calls session.summarize with path.id only (no body — OPC-M3-3)', async () => {
+  it('summarizeSession calls session.summarize with path.id AND the model body (OPC-M3-3)', async () => {
     sdkClient.session.summarize.mockResolvedValue({ data: true });
-    await svc.summarizeSession('sdk-sum-id');
+    await svc.summarizeSession('sdk-sum-id', {
+      providerID: 'anthropic',
+      modelID: 'claude-x',
+    });
     expect(sdkClient.session.summarize).toHaveBeenCalledTimes(1);
     const call = sdkClient.session.summarize.mock.calls[0]![0] as {
       path: { id: string };
+      body: { providerID: string; modelID: string };
     };
     expect(call.path.id).toBe('sdk-sum-id');
+    // session.summarize REQUIRES the model body — omitting it errored with
+    // "expected string, received undefined" at runtime.
+    expect(call.body).toEqual({ providerID: 'anthropic', modelID: 'claude-x' });
   });
 
   it('forkSession calls session.fork with path.id and optional messageID', async () => {

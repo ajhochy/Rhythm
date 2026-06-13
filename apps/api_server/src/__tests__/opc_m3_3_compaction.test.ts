@@ -130,6 +130,12 @@ describe('issue-696-c1: summarize route contracts', () => {
       cwd: os.homedir(),
       name: 'SummarizeTest',
     });
+    // session.summarize needs a model; the controller resolves it from the
+    // session's last model first (updateFields persists provider/model).
+    sessionsRepo.updateFields(session.id, {
+      providerId: 'anthropic',
+      modelId: 'claude-x',
+    });
     sessionMap.set(session.id, sdkId);
     summarizeSessionSpy.mockResolvedValueOnce(true);
 
@@ -144,7 +150,10 @@ describe('issue-696-c1: summarize route contracts', () => {
 
     expect(next).not.toHaveBeenCalled();
     expect(summarizeSessionSpy).toHaveBeenCalledOnce();
-    expect(summarizeSessionSpy).toHaveBeenCalledWith(sdkId);
+    expect(summarizeSessionSpy).toHaveBeenCalledWith(sdkId, {
+      providerID: 'anthropic',
+      modelID: 'claude-x',
+    });
     expect((res.status as ReturnType<typeof vi.fn>).mock.calls[0]?.[0]).toBe(204);
   });
 

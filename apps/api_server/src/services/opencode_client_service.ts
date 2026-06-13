@@ -920,10 +920,15 @@ export class OpencodeClientService {
    */
   async summarizeSession(
     sdkId: string,
+    model: { providerID: string; modelID: string },
   ): Promise<boolean> {
     const client = this.requireClient();
+    // session.summarize REQUIRES providerID + modelID (the model used to write
+    // the summary); omitting them errors with "expected string, received
+    // undefined".
     const raw = await client.session.summarize({
       path: { id: sdkId },
+      body: { providerID: model.providerID, modelID: model.modelID },
     });
     if (raw.error) {
       throw new AppError(

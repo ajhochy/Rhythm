@@ -56,13 +56,13 @@ function resolveSdkSessionId(session: {
   id: string;
   sdkSessionId: string | null;
 }): string | undefined {
-  const mapped = opencodeSessionMap.get(session.id);
-  if (mapped) return mapped;
-  if (session.sdkSessionId) {
-    opencodeSessionMap.set(session.id, session.sdkSessionId);
-    return session.sdkSessionId;
-  }
-  return undefined;
+  // NON-MUTATING: only READ the live routing map; never write to it. A one-off
+  // action (summarize/cancel/diff/…) must not clobber opencodeSessionMap — the
+  // live id registered by ws_gateway's attach is authoritative for turn
+  // routing. Writing a persisted (possibly stale) id here broke response
+  // streaming. The persisted id is used ONLY as a read-only fallback for this
+  // action when the live map has no entry yet.
+  return opencodeSessionMap.get(session.id) ?? session.sdkSessionId ?? undefined;
 }
 
 export class AgentSessionsController {
@@ -716,7 +716,22 @@ export class AgentSessionsController {
       if (!opencodeId) {
         throw AppError.badRequest('Session has no active SDK mapping; cannot summarize.');
       }
-      await opencodeClient.summarizeSession(opencodeId);
+      // session.summarize needs a model to write the summary. Resolve it the
+      // same way a turn does (session's last model → agent default).
+      const { resolveModelForSessionTurn } = await import(
+        '../services/agent_model_resolver'
+      );
+      const model = await resolveModelForSessionTurn({
+        agentId: session.agentKind,
+        sessionProviderId: session.providerId,
+        sessionModelId: session.modelId,
+      });
+      if (!model) {
+        throw AppError.badRequest(
+          'No model available to summarize this session — connect a provider or pick a model first.',
+        );
+      }
+      await opencodeClient.summarizeSession(opencodeId, model);
       res.status(204).end();
     } catch (err) {
       next(err);
