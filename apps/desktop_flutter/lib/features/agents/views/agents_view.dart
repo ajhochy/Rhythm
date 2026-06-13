@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
@@ -2036,6 +2037,14 @@ class _ChatBubble extends StatelessWidget {
   }
 }
 
+/// OPC-M4-1: User bubble renders text, image thumbnails, and file chips.
+///
+/// Parts are rendered in order:
+///   - `text` parts: prose SelectableText (unchanged from before M4-1)
+///   - `file` parts with image MIME: bounded Image.memory thumbnail (max 200px)
+///   - `file` parts with non-image MIME: filename chip
+///
+/// All file parts are keyed by `part.id` for test assertions.
 class _UserBubble extends StatelessWidget {
   const _UserBubble({required this.parts});
 
@@ -2043,29 +2052,119 @@ class _UserBubble extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final text = parts.map((p) => p.text).join('').trim();
-    if (text.isEmpty) return const SizedBox.shrink();
+    final text =
+        parts.where((p) => p.type == 'text').map((p) => p.text).join('').trim();
+    final fileParts = parts.where((p) => p.type == 'file').toList();
+
+    if (text.isEmpty && fileParts.isEmpty) return const SizedBox.shrink();
+
     return Align(
       alignment: Alignment.centerRight,
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 560),
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          decoration: BoxDecoration(
-            color: context.rhythm.accentMuted,
-            borderRadius: BorderRadius.circular(RhythmRadius.md),
-            border: Border.all(
-              color: context.rhythm.accent.withValues(alpha: 0.2),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // OPC-M4-1: render file attachments above the text bubble.
+            for (final fp in fileParts) _buildFilePart(context, fp),
+            if (text.isNotEmpty)
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: context.rhythm.accentMuted,
+                  borderRadius: BorderRadius.circular(RhythmRadius.md),
+                  border: Border.all(
+                    color: context.rhythm.accent.withValues(alpha: 0.2),
+                  ),
+                ),
+                child: SelectableText(
+                  text,
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: context.rhythm.accent,
+                    height: 1.4,
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Render one file part: image → thumbnail; other → filename chip.
+  Widget _buildFilePart(BuildContext context, ChatPart part) {
+    final mime = part.fileMime ?? '';
+    final url = part.fileUrl ?? '';
+
+    if (mime.startsWith('image/') && url.contains(';base64,')) {
+      // Decode the data URI payload.
+      final b64 = url.substring(url.indexOf(';base64,') + 8);
+      try {
+        final bytes = base64Decode(b64);
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 4),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(RhythmRadius.sm),
+            child: Image.memory(
+              bytes,
+              key: Key('file-image-thumbnail-${part.id}'),
+              width: 200,
+              height: 200,
+              fit: BoxFit.contain,
+              // Fallback when bytes are invalid.
+              errorBuilder: (_, __, ___) => _buildFileChip(context, part),
             ),
           ),
-          child: SelectableText(
-            text,
-            style: TextStyle(
-              fontSize: 13,
+        );
+      } catch (_) {
+        // Base64 decode failed — fall through to chip.
+      }
+    }
+
+    return _buildFileChip(context, part);
+  }
+
+  /// Non-image file → a compact filename chip.
+  Widget _buildFileChip(BuildContext context, ChatPart part) {
+    final filename = part.fileFilename ?? 'file';
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: Container(
+        key: Key('file-chip-${part.id}'),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          color: context.rhythm.accentMuted,
+          borderRadius: BorderRadius.circular(RhythmRadius.pill),
+          border: Border.all(
+            color: context.rhythm.accent.withValues(alpha: 0.25),
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.attach_file,
+              size: 12,
               color: context.rhythm.accent,
-              height: 1.4,
             ),
-          ),
+            const SizedBox(width: 4),
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 200),
+              child: Text(
+                filename,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 11,
+                  color: context.rhythm.accent,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -2191,43 +2290,46 @@ class _InputArea extends StatefulWidget {
 }
 
 class _InputAreaState extends State<_InputArea> {
-  /// Pending file attachments shown as chips above the text field.
-  final List<_AttachmentChip> _attachments = [];
-
+  /// OPC-M4-1: Pick files, read bytes, build data URIs, and add to the
+  /// controller's pending-attachment list for the active session.
   Future<void> _pickFiles() async {
     final result = await FilePicker.pickFiles(allowMultiple: true);
     if (result == null) return;
-    setState(() {
-      for (final f in result.files) {
-        final path = f.path;
-        if (path != null) {
-          _attachments.add(_AttachmentChip(path: path, name: f.name));
-        }
+    final controller = context.read<AgentsController>();
+    final id = controller.selectedSessionId;
+    if (id == null) return;
+    for (final f in result.files) {
+      final path = f.path;
+      if (path == null) continue;
+      try {
+        final bytes = await File(path).readAsBytes();
+        final mime = _mimeFromExtension(f.extension ?? '');
+        final dataUri = 'data:$mime;base64,${base64Encode(bytes)}';
+        controller.addPendingAttachment(id, {
+          'type': 'file',
+          'mime': mime,
+          'filename': f.name,
+          'url': dataUri,
+        });
+      } catch (_) {
+        // File read error — skip this attachment silently.
       }
-    });
-  }
-
-  void _removeAttachment(int index) {
-    setState(() => _attachments.removeAt(index));
+    }
   }
 
   void _send() {
-    if (_attachments.isNotEmpty) {
-      // Wire attachments into the WS parts array via AgentsController.
-      final controller = context.read<AgentsController>();
-      final id = controller.selectedSessionId;
-      if (id == null) return;
-      final text = widget.inputController.text;
-      if (text.isEmpty && _attachments.isEmpty) return;
-      controller.sendInput(
-        id,
-        '${text}\n',
-        attachments: _attachments
-            .map((a) => {'type': 'file', 'filePath': a.path})
-            .toList(),
-      );
+    final controller = context.read<AgentsController>();
+    final id = controller.selectedSessionId;
+    if (id == null) return;
+    final text = widget.inputController.text.trim();
+    final pending = controller.pendingAttachmentsFor(id);
+    if (text.isEmpty && pending.isEmpty) return;
+
+    if (pending.isNotEmpty) {
+      // OPC-M4-1: send with parts array (text + file parts).
+      // sendInput merges the controller-held pending attachments internally.
+      controller.sendInput(id, '${text}\n');
       widget.inputController.clear();
-      setState(() => _attachments.clear());
     } else {
       widget.onSend();
     }
@@ -2237,6 +2339,10 @@ class _InputAreaState extends State<_InputArea> {
   Widget build(BuildContext context) {
     final controller = context.watch<AgentsController>();
     final session = controller.selectedSession;
+    // OPC-M4-1: pending attachments from the controller, keyed by session.
+    final pendingAttachments = session != null
+        ? controller.pendingAttachmentsFor(session.id)
+        : const <Map<String, dynamic>>[];
 
     // OPC-M3-3: compute input token count for the context-usage hint.
     final lastInputTokens = session != null
@@ -2252,16 +2358,24 @@ class _InputAreaState extends State<_InputArea> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // Attachment chips
-          if (_attachments.isNotEmpty) ...[
+          // OPC-M4-1: Attachment chips driven by controller state.
+          if (pendingAttachments.isNotEmpty) ...[
             Wrap(
               spacing: 6,
               runSpacing: 6,
               children: [
-                for (var i = 0; i < _attachments.length; i++)
+                for (var i = 0; i < pendingAttachments.length; i++)
                   _AttachmentChipWidget(
-                    chip: _attachments[i],
-                    onRemove: () => _removeAttachment(i),
+                    key: Key('attachment-chip-$i'),
+                    filename:
+                        (pendingAttachments[i]['filename'] as String?) ?? '',
+                    mime: (pendingAttachments[i]['mime'] as String?) ?? '',
+                    onRemove: () {
+                      if (session != null) {
+                        controller.removePendingAttachment(session.id, i);
+                      }
+                    },
+                    removeKey: Key('attachment-chip-$i-remove'),
                   ),
               ],
             ),
@@ -2381,10 +2495,10 @@ class _InputAreaState extends State<_InputArea> {
                                 size: 14,
                                 color: context.rhythm.textSecondary,
                               ),
-                              if (_attachments.isNotEmpty) ...[
+                              if (pendingAttachments.isNotEmpty) ...[
                                 const SizedBox(width: 3),
                                 Text(
-                                  '${_attachments.length}',
+                                  '${pendingAttachments.length}',
                                   style: TextStyle(
                                     fontSize: 11,
                                     fontWeight: FontWeight.w600,
@@ -2433,23 +2547,28 @@ class _InputAreaState extends State<_InputArea> {
 }
 
 // ---------------------------------------------------------------------------
-// Attachment chip data + widget
+// OPC-M4-1: Attachment chip widget
 // ---------------------------------------------------------------------------
 
-class _AttachmentChip {
-  const _AttachmentChip({required this.path, required this.name});
-  final String path;
-  final String name;
-}
-
+/// Shows one pending attachment chip (filename + remove button).
+/// Driven by the controller's pending attachments list.
 class _AttachmentChipWidget extends StatelessWidget {
-  const _AttachmentChipWidget({required this.chip, required this.onRemove});
+  const _AttachmentChipWidget({
+    super.key,
+    required this.filename,
+    required this.mime,
+    required this.onRemove,
+    this.removeKey,
+  });
 
-  final _AttachmentChip chip;
+  final String filename;
+  final String mime;
   final VoidCallback onRemove;
+  final Key? removeKey;
 
   @override
   Widget build(BuildContext context) {
+    final isImage = mime.startsWith('image/');
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
@@ -2462,12 +2581,16 @@ class _AttachmentChipWidget extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.attach_file, size: 11, color: context.rhythm.accent),
+          Icon(
+            isImage ? Icons.image_outlined : Icons.attach_file,
+            size: 11,
+            color: context.rhythm.accent,
+          ),
           const SizedBox(width: 4),
           ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 180),
             child: Text(
-              chip.name,
+              filename.isNotEmpty ? filename : 'file',
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
@@ -2479,6 +2602,7 @@ class _AttachmentChipWidget extends StatelessWidget {
           ),
           const SizedBox(width: 4),
           GestureDetector(
+            key: removeKey,
             onTap: onRemove,
             child: Icon(
               Icons.close,
@@ -3627,6 +3751,93 @@ class ChildTranscriptView extends StatelessWidget {
         ),
       ],
     );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// OPC-M4-1: MIME inference helper
+// ---------------------------------------------------------------------------
+
+/// Infer a MIME type from a file extension.
+/// Falls back to 'application/octet-stream' for unknown extensions.
+String _mimeFromExtension(String ext) {
+  final lower = ext.toLowerCase().replaceAll('.', '');
+  const table = {
+    'png': 'image/png',
+    'jpg': 'image/jpeg',
+    'jpeg': 'image/jpeg',
+    'gif': 'image/gif',
+    'webp': 'image/webp',
+    'svg': 'image/svg+xml',
+    'bmp': 'image/bmp',
+    'ico': 'image/x-icon',
+    'tif': 'image/tiff',
+    'tiff': 'image/tiff',
+    'pdf': 'application/pdf',
+    'txt': 'text/plain',
+    'md': 'text/markdown',
+    'csv': 'text/csv',
+    'json': 'application/json',
+    'xml': 'application/xml',
+    'zip': 'application/zip',
+    'mp4': 'video/mp4',
+    'mp3': 'audio/mpeg',
+    'wav': 'audio/wav',
+  };
+  return table[lower] ?? 'application/octet-stream';
+}
+
+// ---------------------------------------------------------------------------
+// OPC-M4-1: Test harnesses (@visibleForTesting)
+// ---------------------------------------------------------------------------
+
+/// A harness that renders the real [_InputArea] inside a minimal scaffold with
+/// a live [AgentsController]. Used by `opc_m4_1_attachments_test.dart` (c3) to
+/// assert that the composer chip UI and remove-button behavior match the real
+/// widget tree wired in [AgentsView] → [_TranscriptPanel] → [_InputArea].
+///
+/// Exported (`@visibleForTesting`) rather than private so the test file can
+/// reference it by name without depending on the internal widget hierarchy.
+@visibleForTesting
+class InputAreaTestHarness extends StatefulWidget {
+  const InputAreaTestHarness({super.key});
+
+  @override
+  State<InputAreaTestHarness> createState() => _InputAreaTestHarnessState();
+}
+
+class _InputAreaTestHarnessState extends State<InputAreaTestHarness> {
+  final _controller = TextEditingController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // The real _InputArea is private — we test via a minimal Scaffold that
+    // mirrors how _TranscriptPanel embeds it.
+    return _InputArea(
+      inputController: _controller,
+      onSend: () {},
+    );
+  }
+}
+
+/// A harness that renders [_UserBubble] for a given list of [ChatPart]s.
+/// Used by `opc_m4_1_attachments_test.dart` (c4, c5) to assert that file
+/// parts render as thumbnails or filename chips.
+@visibleForTesting
+class UserBubbleTestHarness extends StatelessWidget {
+  const UserBubbleTestHarness({super.key, required this.parts});
+
+  final List<ChatPart> parts;
+
+  @override
+  Widget build(BuildContext context) {
+    return _UserBubble(parts: parts);
   }
 }
 

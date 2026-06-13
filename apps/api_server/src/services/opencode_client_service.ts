@@ -486,19 +486,39 @@ export class OpencodeClientService {
    * Used for fire-and-forget prompts (e.g. initial prompt on session create).
    * Results arrive via the event stream.
    */
+  /**
+   * OPC-M4-1: Send a prompt to a session and return immediately.
+   *
+   * When `parts` is provided it must be a valid SDK parts array containing at
+   * minimum one TextPartInput. FilePart entries (type:'file', mime, filename,
+   * url: 'data:<mime>;base64,...') are forwarded verbatim to the SDK so
+   * vision-capable models receive the image bytes directly.
+   *
+   * When `parts` is omitted, the legacy `[{ type: 'text', text }]` single-part
+   * array is used (backwards-compatible).
+   */
   async promptAsync(
     sessionId: string,
     text: string,
     model?: { providerID: string; modelID: string },
     directory?: string,
+    opts?: Record<string, unknown>,
+    parts?: Array<import('@opencode-ai/sdk').PartInput>,
   ): Promise<boolean> {
     if (!this.client) return false;
     try {
+      // OPC-M4-1: use the caller-supplied parts array when present; otherwise
+      // fall back to a single text part so all existing call-sites are unchanged.
+      const sdkParts: Array<import('@opencode-ai/sdk').PartInput> = parts && parts.length > 0
+        ? parts
+        : [{ type: 'text', text }];
+
       const raw = await this.client.session.promptAsync({
         path: { id: sessionId },
         body: {
           model,
-          parts: [{ type: 'text', text }],
+          parts: sdkParts,
+          ...(opts ?? {}),
         },
         ...(directory ? { query: { directory } } : {}),
       });

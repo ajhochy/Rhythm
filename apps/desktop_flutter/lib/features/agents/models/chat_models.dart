@@ -63,6 +63,9 @@ DateTime? _parseDateTime(dynamic value) {
 /// `compaction` — OPC-M3-3: emitted after a summarize call; rendered as a
 ///         horizontal divider labeled "Conversation compacted" with the summary
 ///         text (stored in [ChatPart.text]) expandable on demand.
+/// `file` — OPC-M4-1: a file or image attachment sent by the user. The data
+///         URI is stored in [fileUrl], MIME type in [fileMime], and original
+///         filename in [fileFilename].
 class ChatPart {
   ChatPart({
     required this.id,
@@ -74,6 +77,9 @@ class ChatPart {
     String? toolOutput,
     String? toolStatus,
     this.durationMs,
+    this.fileMime,
+    this.fileFilename,
+    this.fileUrl,
   })  : _text = text,
         _toolArgs = toolArgs,
         _toolOutput = toolOutput,
@@ -95,6 +101,14 @@ class ChatPart {
   Map<String, dynamic>? _toolArgs;
   String? _toolOutput;
   String? _toolStatus;
+
+  /// OPC-M4-1: File-part fields. Non-null when [type] == 'file'.
+  /// [fileMime] — MIME type, e.g. 'image/png', 'application/pdf'.
+  /// [fileFilename] — original filename, e.g. 'photo.png'.
+  /// [fileUrl] — data URI: 'data:<mime>;base64,<payload>'.
+  String? fileMime;
+  String? fileFilename;
+  String? fileUrl;
 
   String get text => _text;
   set text(String v) => _text = v;
@@ -170,6 +184,14 @@ class ChatPart {
       // (e.g. in a bridge-serialised row), use it as the summary.
       final t = raw['text'];
       if (t is String) text = t;
+    } else if (raw['type'] == 'file') {
+      // OPC-M4-1: file / image attachment. Carry MIME, filename, and data URI.
+      final m = raw['mime'] as String?;
+      if (m != null) fileMime = m;
+      final fn = raw['filename'] as String?;
+      if (fn != null) fileFilename = fn;
+      final u = raw['url'] as String?;
+      if (u != null) fileUrl = u;
     }
   }
 }

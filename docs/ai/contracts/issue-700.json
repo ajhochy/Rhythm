@@ -1,0 +1,55 @@
+{
+  "issue": 700,
+  "generated": "2026-06-13",
+  "criteria": [
+    {
+      "criterion_id": "issue-700-c1",
+      "text": "WS `session.input` with a parts array containing a FilePart forwards that part to the SDK prompt unmodified (vitest spy: parts array deep-equals, data URI intact); oversized payloads respect/raise the WS+express body limits with a clear error frame, not a silent drop (test at limit boundary).",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/opc_m4_1_file_attachments.test.ts",
+      "test_id": "issue-700-c1a: session.input with FilePart forwards parts array verbatim to promptAsync",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-700-c2",
+      "text": "Attaching an image file produces a FilePart whose url is `data:image/<ext>;base64,<payload>` matching the file bytes (controller unit test on a small fixture PNG) — and the prompt no longer contains any `[image]` text token (grep-level regression: the legacy formatter is deleted).",
+      "mode": "unit",
+      "test_file": "apps/desktop_flutter/test/features/agents/opc_m4_1_attachments_test.dart",
+      "test_id": "issue-700-c2: attaching a PNG produces FilePart with correct data URI; no [image] token in sent payload",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-700-c3",
+      "text": "Composer shows a removable chip per pending attachment; removing it excludes the part from the send.",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agents/opc_m4_1_attachments_test.dart",
+      "test_id": "issue-700-c3: REAL-SURFACE composer chip appears per attachment and remove excludes it from send",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-700-c4",
+      "text": "Sent images render as a bounded thumbnail in the user bubble; non-image files render a filename chip (widget tests).",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agents/opc_m4_1_attachments_test.dart",
+      "test_id": "issue-700-c4: user bubble renders image thumbnail for image parts and filename chip for non-image parts",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-700-c5",
+      "text": "Rehydrated file parts (M1-2 persistence) render the same as streamed ones.",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agents/opc_m4_1_attachments_test.dart",
+      "test_id": "issue-700-c5: rehydrated FilePart renders identically to an optimistic/streamed FilePart",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-700-c6",
+      "text": "`ai-workflow checks --level pr` exits 0; vitest + flutter test green.",
+      "mode": "manual",
+      "reason": "Full CI gate pass — confirmed by running ai-workflow checks --level pr locally.",
+      "status": "pending"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": ["issue-700-c6"]
+}

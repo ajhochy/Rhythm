@@ -106,6 +106,26 @@ declare module '@opencode-ai/sdk' {
 
   export type Part = TextPart | ReasoningPart | ToolPart | CompactionPart;
 
+  // ── Input part types (used in prompt / promptAsync request body) ──
+
+  /**
+   * OPC-M4-1 — FilePartInput for multimodal prompts.
+   * `url` carries a data URI: `data:<mime>;base64,<payload>`.
+   * Verified against @opencode-ai/sdk v1.14.49 FilePartInput interface.
+   */
+  export type FilePartInput = {
+    id?: string;
+    type: 'file';
+    mime: string;
+    filename?: string;
+    url: string; // data:<mime>;base64,<payload>
+  };
+
+  /** Union of all valid input part types for the prompt body. */
+  export type PartInput =
+    | { type: 'text'; text: string }
+    | FilePartInput;
+
   // ── Message types ──
 
   export type Message = {
@@ -312,7 +332,7 @@ declare module '@opencode-ai/sdk' {
         body: {
           messageID?: string;
           model?: { providerID: string; modelID: string };
-          parts: Array<{ type: 'text'; text: string }>;
+          parts: Array<PartInput>;
           system?: string;
         };
         query?: { directory?: string };
@@ -322,7 +342,7 @@ declare module '@opencode-ai/sdk' {
         body: {
           messageID?: string;
           model?: { providerID: string; modelID: string };
-          parts: Array<{ type: 'text'; text: string }>;
+          parts: Array<PartInput>;
           system?: string;
         };
         query?: { directory?: string };

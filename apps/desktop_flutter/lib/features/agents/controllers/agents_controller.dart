@@ -148,6 +148,12 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   // True while a todo fetch is in-flight for the given session id.
   final Set<String> _sessionTodosLoading = {};
 
+  // OPC-M4-1: Pending file attachments per session.
+  // Each entry is a FilePart map with keys: type, mime, filename, url (data URI).
+  // Cleared after sendInput() sends the parts array.
+  final Map<String, List<Map<String, dynamic>>> _pendingAttachmentsBySession =
+      {};
+
   // OPC-M3-6: Child-session navigation state.
   // Non-null when the user has tapped a task chip and navigated into a child
   // session transcript. The UI swaps the main transcript area to the child view.
@@ -596,6 +602,65 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   /// Pending permissions for [sessionId], in arrival order.
   List<PendingPermission> pendingPermissionsFor(String sessionId) =>
       List.unmodifiable(_pendingPermissions[sessionId] ?? const []);
+
+  // --------------------------------------------------------------------------
+  // OPC-M4-1: Pending attachment management
+  // --------------------------------------------------------------------------
+
+  /// OPC-M4-1: Returns the current list of pending file attachments for
+  /// [sessionId]. Each entry is a FilePart map with keys: type, mime,
+  /// filename, url (data:URI).
+  List<Map<String, dynamic>> pendingAttachmentsFor(String sessionId) =>
+      List.unmodifiable(_pendingAttachmentsBySession[sessionId] ?? const []);
+
+  /// OPC-M4-1: Add a file attachment to the pending list for [sessionId].
+  /// [part] must be a FilePart map: {type:'file', mime, filename, url}.
+  void addPendingAttachment(String sessionId, Map<String, dynamic> part) {
+    final list = _pendingAttachmentsBySession[sessionId] ?? [];
+    _pendingAttachmentsBySession[sessionId] = [...list, part];
+    notifyListeners();
+  }
+
+  /// OPC-M4-1: Remove the attachment at [index] from the pending list for
+  /// [sessionId]. If [index] is out of bounds, this is a no-op.
+  void removePendingAttachment(String sessionId, int index) {
+    final list = _pendingAttachmentsBySession[sessionId];
+    if (list == null || index < 0 || index >= list.length) return;
+    final updated = [...list]..removeAt(index);
+    _pendingAttachmentsBySession[sessionId] = updated;
+    notifyListeners();
+  }
+
+  /// OPC-M4-1: Clear all pending attachments for [sessionId].
+  void clearPendingAttachments(String sessionId) {
+    _pendingAttachmentsBySession.remove(sessionId);
+    notifyListeners();
+  }
+
+  /// Test-only: seed the pending attachments for [sessionId] without UI.
+  @visibleForTesting
+  void setPendingAttachmentsForTest(
+    String sessionId,
+    List<Map<String, dynamic>> parts,
+  ) {
+    _pendingAttachmentsBySession[sessionId] = List.of(parts);
+    notifyListeners();
+  }
+
+  /// Test-only: set the active session id without triggering HTTP round-trips.
+  ///
+  /// If [session] is provided, it is also added to [_sessions] so that
+  /// [selectedSession] resolves to a non-null value. Callers that only need
+  /// to set the selection index (e.g. when [_sessions] is already populated
+  /// externally) may omit [session].
+  @visibleForTesting
+  void setActiveSessionForTest(String sessionId, [AgentSession? session]) {
+    _selectedSessionId = sessionId;
+    if (session != null && !_sessions.any((s) => s.id == session.id)) {
+      _sessions = [..._sessions, session];
+    }
+    notifyListeners();
+  }
 
   /// Available (provider, model, routeKind) rows for the current session's agent.
   List<AgentModelRoute> get modelRoutes => List.unmodifiable(_modelRoutes);
@@ -1180,16 +1245,25 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     List<Map<String, dynamic>>? attachments,
   }) {
     final override = _pendingTurnOverride;
-    final useParts = attachments != null && attachments.isNotEmpty;
+    // OPC-M4-1: merge explicit attachments param with any controller-held
+    // pending attachments (the latter are added via addPendingAttachment).
+    final controllerPending = List<Map<String, dynamic>>.of(
+        _pendingAttachmentsBySession[sessionId] ?? []);
+    final allAttachments = [
+      ...?attachments,
+      ...controllerPending,
+    ];
+    final useParts = allAttachments.isNotEmpty;
     _repository.send({
       'type': 'session.input',
       'id': sessionId,
-      // M4-1: when attachments exist, send a structured parts array; the
-      // backend composes text + files into the SDK promptAsync call.
+      // OPC-M4-1: when attachments exist, send a structured parts array; the
+      // backend forwards the full parts array (including FileParts with data
+      // URIs) verbatim to the SDK promptAsync call.
       if (useParts)
         'parts': [
           {'type': 'text', 'text': data},
-          ...attachments,
+          ...allAttachments,
         ]
       else
         'data': data,
@@ -1201,6 +1275,10 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
         },
     });
     if (override != null) _pendingTurnOverride = null;
+    // OPC-M4-1: clear pending attachments after send.
+    if (controllerPending.isNotEmpty) {
+      _pendingAttachmentsBySession.remove(sessionId);
+    }
     // OPC-M1-3: optimistic insert into the parts-based chat store so the user's
     // message appears immediately in the single render path.
     final optimisticMsgId =
@@ -1212,14 +1290,27 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
       createdAt: DateTime.now(),
     );
     (_chatMessagesBySession[sessionId] ??= []).add(optimisticMsg);
-    _chatPartsByMessage[optimisticMsgId] = [
+    // Build the parts list for the optimistic insert: text first, then any
+    // file parts so the user bubble renders thumbnails/chips immediately.
+    final optimisticParts = <ChatPart>[
       ChatPart(
         id: '${optimisticMsgId}_text',
         messageId: optimisticMsgId,
         type: 'text',
         text: data,
       ),
+      // OPC-M4-1: add file parts for each attachment.
+      for (var i = 0; i < allAttachments.length; i++)
+        ChatPart(
+          id: '${optimisticMsgId}_file_$i',
+          messageId: optimisticMsgId,
+          type: 'file',
+          fileMime: allAttachments[i]['mime'] as String?,
+          fileFilename: allAttachments[i]['filename'] as String?,
+          fileUrl: allAttachments[i]['url'] as String?,
+        ),
     ];
+    _chatPartsByMessage[optimisticMsgId] = optimisticParts;
     notifyListeners();
   }
 
