@@ -1997,6 +1997,31 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
       if (tokens != null) list[idx].tokens = tokens;
       return;
     }
+    // Reconcile the optimistic insert (sendInput / sendCommand use a temporary
+    // 'optimistic-*' id) with its server-authoritative echo. Without this the
+    // same turn renders twice — once optimistically, once from message.updated
+    // — because the ids never matched. Promote the optimistic message in place:
+    // adopt the real id, re-key its parts, and keep its position + text so the
+    // bubble doesn't flicker or blank out.
+    final optIdx = list.indexWhere(
+      (m) => m.role == role && m.id.startsWith('optimistic-'),
+    );
+    if (optIdx >= 0) {
+      final opt = list[optIdx];
+      final optParts = _chatPartsByMessage.remove(opt.id);
+      if (optParts != null && !_chatPartsByMessage.containsKey(messageId)) {
+        _chatPartsByMessage[messageId] = optParts;
+      }
+      list[optIdx] = ChatMessage(
+        id: messageId,
+        sessionId: sessionId,
+        role: role,
+        createdAt: opt.createdAt,
+        cost: cost ?? opt.cost,
+        tokens: tokens ?? opt.tokens,
+      );
+      return;
+    }
     list.add(ChatMessage(
       id: messageId,
       sessionId: sessionId,

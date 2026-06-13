@@ -1175,13 +1175,36 @@ class _TranscriptPanelState extends State<_TranscriptPanel> {
   final _inputController = TextEditingController();
   final _scrollController = ScrollController();
 
+  /// Whether the transcript is currently scrolled to (or near) the bottom.
+  /// Auto-scroll-on-new-content only fires while this is true, so manually
+  /// scrolling up to read a long message is no longer interrupted by the
+  /// window snapping back to the bottom on every streaming delta.
+  bool _pinnedToBottom = true;
+
+  /// Distance (px) from the bottom within which we still consider the user
+  /// "pinned" — small jitter / the tail of an animation shouldn't unpin.
+  static const double _pinThreshold = 120;
+
   /// Issue #653: track which session ids have already had their composer
   /// draft consumed in this widget instance. Drafts are stored in
   /// AgentsController and consumed once on session selection.
   final Set<String> _draftConsumedForSession = <String>{};
 
   @override
+  void initState() {
+    super.initState();
+    _scrollController.addListener(_onScroll);
+  }
+
+  void _onScroll() {
+    if (!_scrollController.hasClients) return;
+    final pos = _scrollController.position;
+    _pinnedToBottom = pos.maxScrollExtent - pos.pixels <= _pinThreshold;
+  }
+
+  @override
   void dispose() {
+    _scrollController.removeListener(_onScroll);
     _inputController.dispose();
     _scrollController.dispose();
     super.dispose();
@@ -1250,6 +1273,9 @@ class _TranscriptPanelState extends State<_TranscriptPanel> {
   }
 
   void _scrollToBottom() {
+    // An explicit scroll-to-bottom (e.g. the user just sent a message) also
+    // re-pins, so subsequent streamed deltas keep following the bottom.
+    _pinnedToBottom = true;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!_scrollController.hasClients) return;
       _scrollController.animateTo(
@@ -1265,8 +1291,10 @@ class _TranscriptPanelState extends State<_TranscriptPanel> {
     final controller = context.watch<AgentsController>();
     final selected = controller.selectedSession;
 
-    // Auto-scroll when transcript changes.
-    if (selected != null) {
+    // Auto-scroll when transcript changes — but ONLY if the user is already
+    // at the bottom. If they've scrolled up to read, leave their position
+    // alone (otherwise every streaming delta yanks them back down).
+    if (selected != null && _pinnedToBottom) {
       _scrollToBottom();
     }
 
