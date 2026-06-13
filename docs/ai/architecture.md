@@ -45,8 +45,8 @@ WS session.input { id: localId, data: text }
   → SSE events → streamBridge → WS broadcast → Flutter
 
 DELETE /agent-sessions/:id
-  → streamBridge.stopStream(id)    ← no-op (shared stream stays alive)
-  → opencodeSessionMap.delete(id)  ← clean up map entry
+  → streamBridge.stopStream(id)    ← adds id to stoppedSessions; events for this SDK id are dropped
+  → opencodeSessionMap.delete(id)  ← clean up map entry (shared SSE stream stays alive)
   → repo.markClosed(id)
   → HTTP 204
 ```
@@ -60,7 +60,7 @@ Per-user AI accounts. Each user signs into their own provider on their machine. 
 3. **Custom:** OpenRouter or any provider API key
 
 ### Known dead code
-- `services/pty_runner.ts` — no longer imported by any production code; pending removal PR
+_(none — `pty_runner.ts` was deleted in PR #574/#571; confirmed zero references as of OPC-M1-4 / issue #688)_
 
 ### Known gaps
-- `resume()` in `AgentSessionsController` sets status to `starting` but does not create an SDK session or start streaming. Treated as a stub pending a follow-up implementation.
+_(none — `resume()` creates a fresh SDK session and starts streaming; the "stub" note was stale as of OPC-M1-4 / issue #688 audit)_

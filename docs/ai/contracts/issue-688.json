@@ -1,0 +1,71 @@
+{
+  "issue": 688,
+  "generated": "2026-06-12",
+  "criteria": [
+    {
+      "criterion_id": "issue-688-c1",
+      "text": "After DELETE /agent-sessions/:id, feeding the bridge a subsequent SSE event for that session's sdk id produces no WS broadcast and no DB write (vitest with spies).",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/opc_m1_4_stream_lifecycle.test.ts",
+      "test_id": "issue-688-c1: stopStream — events for stopped session produce no broadcast and no DB write",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-688-c2",
+      "text": "stopStream for one session does not affect event relay for a second live session sharing the stream.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/opc_m1_4_stream_lifecycle.test.ts",
+      "test_id": "issue-688-c2: stopStream — second live session still receives events after first is stopped",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-688-c3",
+      "text": "An error event sets the session row status='error' with message; a NEW bridge instance re-reading the same DB still reports error after fake-timer advance >5s — no time-based reset.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/opc_m1_4_stream_lifecycle.test.ts",
+      "test_id": "issue-688-c3: erroredSessions — persisted status='error' survives bridge restart and timer advance",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-688-c4",
+      "text": "Sending a new prompt to an errored session clears the error status via an explicit transition (vitest; and the Flutter side renders persisted error then clears on resend — flutter test).",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/opc_m1_4_stream_lifecycle.test.ts",
+      "test_id": "issue-688-c4: erroredSessions — new prompt to errored session transitions status to 'working'",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-688-c4-flutter",
+      "text": "Flutter side renders persisted error then clears on resend.",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agents/opc_m1_4_stream_lifecycle_test.dart",
+      "test_id": "issue-688-c4-flutter: AgentsController — error state renders then clears on sendInput",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-688-c5",
+      "text": "Repo-wide grep: zero references to pty_runner; no setTimeout in the errored-session path of the bridge.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/opc_m1_4_stream_lifecycle.test.ts",
+      "test_id": "issue-688-c5: source inspection — no setTimeout in bridge errored-session path, no pty_runner import",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-688-c6",
+      "text": "__pending__ never appears in any WS frame payload or REST response body (boundary test: drive a session lifecycle with a stale '__pending__' DB row present and assert no frame/response contains the literal).",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/opc_m1_4_stream_lifecycle.test.ts",
+      "test_id": "issue-688-c6: __pending__ boundary — no WS frame or REST response contains '__pending__'",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-688-c7",
+      "text": "ai-workflow checks --level pr exits 0; full vitest + flutter test green (record as manual/gate-level in JSON).",
+      "mode": "manual",
+      "status": "pass",
+      "reason": "Gate-level check: ai-workflow checks --level pr exit 0 (flutter analyze ✓, dart format ✓, tsc ✓, vitest 645/645 across 68 files). flutter test 317/317 ✓. Verified 2026-06-12."
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": ["issue-688-c7"]
+}

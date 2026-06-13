@@ -164,6 +164,19 @@ function handleClientMessage(ws: WebSocket, raw: import('ws').RawData): void {
             /* DB unavailable — proceed without context */
           }
 
+          // OPC-M1-4: If the session is in status='error', clear the error
+          // state before forwarding the prompt. This is the "explicit user
+          // action" that transitions the session out of error — the new
+          // prompt signals intent to retry. clearErrorStatus is a no-op if
+          // the session is not in error state.
+          {
+            const session = new AgentSessionsRepository().findById(id);
+            if (session?.status === 'error') {
+              const { streamBridge } = await import('./opencode_stream_bridge');
+              streamBridge.clearErrorStatus(id);
+            }
+          }
+
           // Issue #653: legacy '__pending__' agent-less sessions are no
           // longer supported. The client must pick a model in the trigger
           // bubble BEFORE creating the session (POST /agent-sessions

@@ -1,5 +1,5 @@
 export type AgentKind = 'claude-code' | 'codex';
-export type AgentSessionStatus = 'starting' | 'working' | 'idle' | 'resumable' | 'closed';
+export type AgentSessionStatus = 'starting' | 'working' | 'idle' | 'resumable' | 'closed' | 'error';
 
 export type PermissionMode = 'default' | 'acceptEdits' | 'plan' | 'bypassPermissions';
 
@@ -11,6 +11,8 @@ export interface AgentSession {
   taskTitle: string | null;
   agentKind: AgentKind;
   status: AgentSessionStatus;
+  /** Human-readable error message when status='error'. Null otherwise. */
+  statusMessage: string | null;
   sessionToken: string | null;
   cwd: string;
   name: string;

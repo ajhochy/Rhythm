@@ -1163,4 +1163,13 @@ export function runMigrations(db: Database.Database): void {
       ON agent_session_messages(session_id, sdk_message_id)
       WHERE sdk_message_id IS NOT NULL
   `);
+
+  // OPC-M1-4 (issue #688) — Persisted error state for agent_sessions.
+  // Replaces the in-memory `erroredSessions` 5s setTimeout sentinel with a
+  // durable status='error' row and a human-readable status_message column.
+  // Clearing happens only on an explicit user action (new prompt / resume).
+  const agentSessionCols688 = (db.pragma('table_info(agent_sessions)') as { name: string }[]).map((c) => c.name);
+  if (!agentSessionCols688.includes('status_message')) {
+    db.exec(`ALTER TABLE agent_sessions ADD COLUMN status_message TEXT`);
+  }
 }

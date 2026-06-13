@@ -1125,6 +1125,8 @@ class _StatusDot extends StatelessWidget {
       AgentSessionStatus.idle => context.rhythm.success,
       AgentSessionStatus.resumable => context.rhythm.textMuted,
       AgentSessionStatus.closed => context.rhythm.borderSubtle,
+      // OPC-M1-4: error state shown as a red dot.
+      AgentSessionStatus.error => context.rhythm.danger,
     };
     return Container(
       width: 10,
@@ -1479,6 +1481,12 @@ class _StatusChip extends StatelessWidget {
           'Closed',
           context.rhythm.borderSubtle,
           context.rhythm.textMuted,
+        ),
+      // OPC-M1-4: error state shown as a red badge.
+      AgentSessionStatus.error => (
+          'Error',
+          context.rhythm.danger.withValues(alpha: 0.15),
+          context.rhythm.danger,
         ),
     };
 

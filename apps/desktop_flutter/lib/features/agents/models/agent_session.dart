@@ -5,7 +5,11 @@ enum AgentSessionStatus {
   working('working'),
   idle('idle'),
   resumable('resumable'),
-  closed('closed');
+  closed('closed'),
+
+  /// OPC-M1-4: Persisted error state — replaces the old in-memory 5s setTimeout sentinel.
+  /// Cleared only on an explicit user action (new prompt / resume).
+  error('error');
 
   final String wireValue;
   const AgentSessionStatus(this.wireValue);
@@ -72,6 +76,7 @@ class AgentSession {
     this.taskId,
     required this.agentId,
     required this.status,
+    this.statusMessage,
     this.sessionToken,
     required this.cwd,
     required this.name,
@@ -92,6 +97,9 @@ class AgentSession {
   final String? taskId;
   final String agentId;
   final AgentSessionStatus status;
+
+  /// OPC-M1-4: Human-readable error message when status=error. Null otherwise.
+  final String? statusMessage;
   final String? sessionToken;
   final String cwd;
   final String name;
@@ -126,6 +134,7 @@ class AgentSession {
       taskId: asString(json['taskId']),
       agentId: agentId,
       status: AgentSessionStatus.fromWire(asString(json['status']) ?? ''),
+      statusMessage: asString(json['statusMessage']),
       sessionToken: asString(json['sessionToken']),
       cwd: asString(json['cwd']) ?? '',
       name: asString(json['name']) ?? '',
@@ -149,6 +158,7 @@ class AgentSession {
       if (taskId != null) 'taskId': taskId,
       'agent_id': agentId,
       'status': status.wireValue,
+      if (statusMessage != null) 'statusMessage': statusMessage,
       if (sessionToken != null) 'sessionToken': sessionToken,
       'cwd': cwd,
       'name': name,
@@ -172,6 +182,7 @@ class AgentSession {
     Object? taskId = _sentinel,
     String? agentId,
     AgentSessionStatus? status,
+    Object? statusMessage = _sentinel,
     Object? sessionToken = _sentinel,
     String? cwd,
     String? name,
@@ -191,6 +202,9 @@ class AgentSession {
       taskId: taskId == _sentinel ? this.taskId : taskId as String?,
       agentId: agentId ?? this.agentId,
       status: status ?? this.status,
+      statusMessage: statusMessage == _sentinel
+          ? this.statusMessage
+          : statusMessage as String?,
       sessionToken: sessionToken == _sentinel
           ? this.sessionToken
           : sessionToken as String?,

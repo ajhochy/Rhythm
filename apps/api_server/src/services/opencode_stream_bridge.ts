@@ -100,11 +100,17 @@ export class OpencodeStreamBridge {
   // agent_session_messages history populated.
   private pendingText = new Map<string, string>();
 
-  // Sessions that have already received a session.error event in the
-  // current turn. The SDK fires session.idle right after session.error,
-  // which would clobber the 'closed' status we set on error. Track the
-  // failure and let session.idle skip the status update.
-  private erroredSessions = new Set<string>();
+  // OPC-M1-4: Sessions that have been explicitly stopped (via DELETE or
+  // close). Events arriving for a stopped session are silently dropped —
+  // no WS broadcast, no DB write — so the shared SSE stream can stay alive
+  // without producing ghost events for dead local IDs.
+  //
+  // Note: the old `erroredSessions` Set (which used a 5s setTimeout to
+  // auto-clear) has been removed. Error state is now persisted on the DB
+  // row (status='error', status_message). We detect "already errored" by
+  // reading the DB row status, which survives bridge restarts and never
+  // resets on a timer.
+  private stoppedSessions = new Set<string>();
 
   // In-memory accumulator for message.part.delta events, keyed by
   // `${sdkMessageId}:${partId}`. Deltas are written-through to the DB via
@@ -221,6 +227,13 @@ export class OpencodeStreamBridge {
           break;
         }
       }
+    }
+
+    // OPC-M1-4: If the local session has been explicitly stopped (via
+    // stopStream), drop all events for it. The shared SSE subscription stays
+    // alive for other sessions in the same directory.
+    if (localSessionId && this.stoppedSessions.has(localSessionId)) {
+      return;
     }
 
     // If no session mapping found, use the event's sessionID as a fallback key
@@ -454,9 +467,16 @@ export class OpencodeStreamBridge {
             status: status.type,
           });
           // Persist to DB so the agents list badge moves off "Starting".
-          // Skip the update if the session already errored this turn —
-          // otherwise the SDK's idle event would clobber 'closed'.
-          if (localSessionId && !this.erroredSessions.has(localSessionId)) {
+          // OPC-M1-4: Skip the update if the session DB row is already in
+          // status='error' — otherwise the SDK's idle event would clobber
+          // the persisted error state. We read from DB (not an in-memory set)
+          // so the check survives bridge restarts.
+          const currentStatus = (() => {
+            try {
+              return this.sessionsRepo.findById(localSessionId!)?.status;
+            } catch { return undefined; }
+          })();
+          if (localSessionId && currentStatus !== 'error') {
             try {
               const dbStatus = status.type === 'busy' ? 'working' : 'idle';
               this.sessionsRepo.updateStatus(localSessionId, dbStatus);
@@ -480,7 +500,13 @@ export class OpencodeStreamBridge {
           id: eventId,
           working: false,
         });
-        if (localSessionId && !this.erroredSessions.has(localSessionId)) {
+        // OPC-M1-4: Check DB for error status instead of in-memory set.
+        const idleSessionStatus = (() => {
+          try {
+            return localSessionId ? this.sessionsRepo.findById(localSessionId)?.status : undefined;
+          } catch { return undefined; }
+        })();
+        if (localSessionId && idleSessionStatus !== 'error') {
           try {
             this.sessionsRepo.updateStatus(localSessionId, 'idle');
             const updated = this.sessionsRepo.findById(localSessionId);
@@ -574,15 +600,8 @@ export class OpencodeStreamBridge {
         const errorInfo = errProps?.error as Record<string, unknown> | undefined;
         const message = extractErrorMessage(errorInfo);
         if (localSessionId) {
-          this.erroredSessions.add(localSessionId);
-          // Clear the failure flag after a short delay so a follow-up
-          // prompt on the same session can transition cleanly.
-          setTimeout(
-            () => this.erroredSessions.delete(localSessionId),
-            5000,
-          ).unref?.();
-          // Flush any partial assistant text accumulated during the turn so
-          // the user sees what arrived before the error. Then drop the
+          // OPC-M1-4: Flush any partial assistant text accumulated during the
+          // turn so the user sees what arrived before the error. Then drop the
           // pending buffer so the follow-up session.idle doesn't re-emit it.
           const partial = this.pendingText.get(localSessionId);
           if (partial && partial.length > 0) {
@@ -602,12 +621,15 @@ export class OpencodeStreamBridge {
           id: eventId,
           message,
         });
-        // Persist the error so the Agents view doesn't spin "Starting"
-        // forever. We can't add a 'failed' status (the type union doesn't
-        // include one without a migration), so we append an error message
-        // and mark the session 'closed'. The UI's session detail view will
-        // render the appended message and the resumable list will surface
-        // the closure.
+        // OPC-M1-4: Persist error state on the DB row (status='error',
+        // status_message=message). This replaces the old in-memory
+        // erroredSessions + 5s setTimeout sentinel:
+        //   - Error state survives bridge restarts (persisted in SQLite).
+        //   - No time-based auto-clear: error clears only on an explicit
+        //     user action (new prompt → ws_gateway calls clearErrorStatus,
+        //     or resume → controller transitions status to 'starting').
+        //   - session.idle after session.error is suppressed by DB check
+        //     (idleSessionStatus === 'error') — no race condition.
         if (localSessionId) {
           try {
             this.messagesRepo.append(
@@ -616,9 +638,9 @@ export class OpencodeStreamBridge {
               `Error: ${message}`,
               `Error: ${message}`,
             );
-            this.sessionsRepo.markClosed(localSessionId);
-            const closed = this.sessionsRepo.findById(localSessionId);
-            if (closed) broadcastSessionUpdated(closed);
+            this.sessionsRepo.setErrorStatus(localSessionId, message);
+            const updated = this.sessionsRepo.findById(localSessionId);
+            if (updated) broadcastSessionUpdated(updated);
           } catch (err) {
             logger.error(
               '[OpencodeStreamBridge] Failed to persist session error:',
@@ -717,10 +739,39 @@ export class OpencodeStreamBridge {
     }
   }
 
-  /** Stop streaming for a session. */
-  stopStream(_sessionId: string): void {
-    // Keep the event stream alive for other sessions.
-    // Only disconnect if explicitly disposed.
+  /**
+   * OPC-M1-4 — Stop relaying events for a specific local session.
+   *
+   * Unregisters the session from the routing/filter map so that any
+   * subsequent SSE events for its SDK session ID are silently dropped —
+   * no WS broadcast and no DB write. The shared SSE subscription for the
+   * directory stays alive so other sessions in the same cwd are unaffected.
+   *
+   * Called by the controller on DELETE /agent-sessions/:id and destroy().
+   */
+  stopStream(localSessionId: string): void {
+    this.stoppedSessions.add(localSessionId);
+    // Also clean up the pending-text accumulator for this session so stale
+    // deltas don't linger in memory after the session is closed.
+    this.pendingText.delete(localSessionId);
+  }
+
+  /**
+   * OPC-M1-4 — Clear error state for a session on an explicit user action.
+   *
+   * Called by the ws_gateway when a session.input frame arrives for a
+   * session that is currently in status='error'. Transitions the DB row to
+   * status='working' and nulls out status_message so the next turn starts
+   * fresh. No-op if the session is not in error state.
+   */
+  clearErrorStatus(localSessionId: string): void {
+    try {
+      this.sessionsRepo.clearErrorStatus(localSessionId);
+      const updated = this.sessionsRepo.findById(localSessionId);
+      if (updated) broadcastSessionUpdated(updated);
+    } catch (err) {
+      logger.error('[OpencodeStreamBridge] Failed to clear error status:', err);
+    }
   }
 
   /** Clean up all streams. */
@@ -729,6 +780,8 @@ export class OpencodeStreamBridge {
       entry.abort.abort();
     }
     this.streamsByDirectory.clear();
+    this.stoppedSessions.clear();
+    this.pendingText.clear();
   }
 }
 

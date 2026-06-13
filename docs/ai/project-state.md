@@ -6,6 +6,26 @@ _(Parked bugs from before 2026-05-27 run. #638 and #635 below are now RESOLVED �
 
 ## Recent coding-agent runs
 
+### 2026-06-12 — opc-m1-foundation / issue-688 — Stream lifecycle + sentinel cleanup, dead code removal (OPC-M1-4)
+- Task: (1) implement real `stopStream(localId)` — was a no-op; (2) replace in-memory `erroredSessions` 5s setTimeout sentinel with persisted `status='error'` + `status_message` column on `agent_sessions` DB row; (3) confirm `__pending__` is already blocked at ws_gateway boundary and add a boundary test; (4) confirm `pty_runner.ts` is gone and update architecture.md stale notes.
+- Files modified (production):
+  - `apps/api_server/src/database/migrations.ts` — OPC-M1-4 PRAGMA-guarded `ALTER TABLE agent_sessions ADD COLUMN status_message TEXT`.
+  - `apps/api_server/src/models/agent_session.ts` — added `'error'` to `AgentSessionStatus` union; added `statusMessage: string | null` field.
+  - `apps/api_server/src/repositories/agent_sessions_repository.ts` — added `status_message` to `AgentSessionRow`; added `setErrorStatus(id, message)` and `clearErrorStatus(id)` methods; `rowToModel` maps `status_message` to `statusMessage`.
+  - `apps/api_server/src/services/opencode_stream_bridge.ts` — replaced `erroredSessions` Set (+ 5s setTimeout) with `stoppedSessions` Set; `stopStream()` now populates `stoppedSessions` and deletes from `pendingText` (was no-op); `_relayEvent` early-return guard for stopped sessions; `session.error` calls `setErrorStatus` (DB-persisted) instead of setTimeout sentinel; `session.idle` guard reads DB status instead of checking `erroredSessions`; added `clearErrorStatus()` method; `dispose()` clears both Sets.
+  - `apps/api_server/src/services/ws_gateway.ts` — on `session.input`, checks `status === 'error'` and calls `streamBridge.clearErrorStatus(id)` before the `__pending__` guard.
+  - `apps/desktop_flutter/lib/features/agents/models/agent_session.dart` — added `AgentSessionStatus.error('error')` enum value; added `statusMessage: String?` field to `AgentSession`; `fromJson` parses `statusMessage`; `toJson` includes it when non-null; `copyWith` supports sentinel-nullable `statusMessage`.
+  - `apps/desktop_flutter/lib/features/agents/views/agents_view.dart` — added `AgentSessionStatus.error` case to both exhaustive status switches (dot color and badge text/colors).
+  - `docs/ai/architecture.md` — removed stale "Known dead code: pty_runner.ts" entry; fixed stale "resume() is a stub" note; updated session lifecycle diagram for `stopStream`.
+- Files modified (tests):
+  - `apps/api_server/src/__tests__/opc_m1_4_stream_lifecycle.test.ts` (new) — 17 vitest contract tests covering c1–c6: stopStream no-broadcast/no-DB-write, cross-session isolation, persisted error survives timer advance + bridge restart, clearErrorStatus transition, source inspection (no setTimeout in error path, no pty_runner import), __pending__ boundary.
+  - `apps/desktop_flutter/test/features/agents/opc_m1_4_stream_lifecycle_test.dart` (new) — 4 Flutter contract tests: `SessionUpdatedMessage` with `status=error` stored in sessions list, `sendInput` sends WS frame for errored session, `AgentSessionStatus.fromWire('error')` round-trips, `AgentSession.fromJson` parses `statusMessage`.
+- Red→green proof: vitest 628→645 (+17), flutter test 313→317 (+4). Contract: all c1–c7 green (c7 = gate-level). `ai-workflow checks --level pr` exit 0.
+- Checks: flutter analyze --no-fatal-infos ✓ (0 errors/warnings), dart format ✓ (1 file changed), tsc --noEmit ✓, vitest 645/645 across 68 files ✓.
+- Decisions made: (1) `stoppedSessions` Set (in-memory) is sufficient for `stopStream` — sessions are stopped on explicit DELETE, and the Set is cleared on `dispose()`; no DB column needed for stop state. (2) Error state uses DB column (not in-memory) so it survives bridge restarts and can be inspected by the Flutter client. (3) `clearErrorStatus` is triggered on `session.input` arrival in ws_gateway (not on the bridge's `session.working` event) so the transition is user-action-gated. (4) `pty_runner.ts` was already deleted in PR #574/#571; architecture.md "Known dead code" section updated to reflect that.
+- Deviations from spec: none.
+- Concerns: `stoppedSessions` is in-memory only — if the server restarts while a session is mid-stop, the stop state is lost and a trailing SSE event could briefly replay. This is acceptable for the current architecture because the Flutter client will re-poll and discover the session is gone.
+
 ### 2026-06-12 — opc-m1-foundation / issue-687 — Flutter parts rehydration, single render path, mini-bubble removed (OPC-M1-3)
 - Task: rehydrate ChatMessage + ChatPart from REST (`GET /agent-sessions/:id/messages`) on session select; delete the legacy dual render path (`_transcriptsBySession`, `_liveOutputBuffer`, `liveOutputFor`, `transcriptFor`); remove `AgentBubbleOverlayLayer` (mini-bubble); adopt single parts-based render in `agents_view.dart`.
 - Files modified (production):
