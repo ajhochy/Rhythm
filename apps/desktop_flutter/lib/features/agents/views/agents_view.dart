@@ -26,6 +26,7 @@ import '_markdown_message_body.dart';
 import '_message_actions_row.dart';
 import '_reasoning_block.dart';
 import '_retrying_indicator.dart';
+import '_session_side_panel.dart';
 import '_permission_card.dart';
 import '_permission_mode_picker.dart';
 import '_project_vcs_chip.dart';
@@ -97,6 +98,17 @@ class _AgentsViewState extends State<AgentsView> {
               ),
               const SizedBox(width: 12),
               Expanded(child: _TranscriptPanel()),
+              // Right-rail inspector (Context / Changes / Terminal) for the
+              // active session. Mounted here so the M3 session-feature panels
+              // (Changes diff, todo list) actually render — the prior attempt
+              // left SessionSidePanel import-clean but never placed it.
+              if (context.watch<AgentsController>().selectedSession !=
+                  null) ...[
+                const SizedBox(width: 12),
+                SessionSidePanel(
+                  session: context.watch<AgentsController>().selectedSession!,
+                ),
+              ],
             ],
           ),
         ),

@@ -125,6 +125,10 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   // Populated by fetchSessionDiff() and invalidated by session.diff WS events.
   final Map<String, List<Map<String, dynamic>>> _sessionDiffBySession = {};
   final Set<String> _sessionDiffLoading = {};
+  // OPC-M3-1: last fetch error per session (null when the most recent fetch
+  // succeeded). Lets the Changes tab distinguish an error state from an
+  // empty-but-successful diff (acceptance criterion c3).
+  final Map<String, String> _sessionDiffError = {};
 
   // --------------------------------------------------------------------------
   // Model-picker state
@@ -267,6 +271,10 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   bool sessionDiffLoading(String sessionId) =>
       _sessionDiffLoading.contains(sessionId);
 
+  /// OPC-M3-1 — Error message from the most recent diff fetch for [sessionId],
+  /// or null when the last fetch succeeded. Drives the Changes tab error state.
+  String? sessionDiffErrorFor(String sessionId) => _sessionDiffError[sessionId];
+
   /// OPC-M3-1 — Fetch (or refresh) the working-tree diff for [sessionId].
   ///
   /// Updates [_sessionDiffBySession] and notifies listeners on completion.
@@ -280,10 +288,13 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
       final entries = await _repository.fetchSessionDiff(sessionId);
       if (_disposed) return;
       _sessionDiffBySession[sessionId] = entries;
-    } catch (_) {
-      // Non-fatal — keep stale entries; the view shows an error state when
-      // the diff list is empty but a fetch was attempted (errorMessage).
+      _sessionDiffError.remove(sessionId);
+    } catch (e) {
+      if (_disposed) return;
+      // Non-fatal — keep stale entries and surface the error so the Changes
+      // tab can show a distinct error state (c3) with a retry affordance.
       _sessionDiffBySession[sessionId] ??= const [];
+      _sessionDiffError[sessionId] = e.toString();
     } finally {
       _sessionDiffLoading.remove(sessionId);
       if (!_disposed) notifyListeners();
