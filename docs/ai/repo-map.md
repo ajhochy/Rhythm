@@ -14,7 +14,7 @@ apps/
 │   │   │   ├── opencode_client_service.ts  ← SDK wrapper (sessions, providers, auth, events)
 │   │   │   ├── opencode_engine.ts          ← Singleton client + opencodeSessionMap
 │   │   │   ├── opencode_stream_bridge.ts   ← SSE events → WebSocket gateway relay
-│   │   │   ├── ws_gateway.ts               ← WebSocket server; routes session.input via SDK prompt()
+│   │   │   ├── ws_gateway.ts               ← WebSocket server; routes session.input via SDK prompt(); session.command via handleCommandFrame (OPC-M3-4)
 │   │   │   └── pty_runner.ts               ← DEAD CODE — kept pending removal PR
 │   │   ├── repositories/  ← SQLite/Postgres data access
 │   │   ├── models/        ← TypeScript interfaces
@@ -33,7 +33,7 @@ apps/
 │       │   ├── views/_revert_restore_banner.dart ← OPC-M3-2: banner at top of transcript when session has active revert; Restore button dispatches unrevertSession
 │       │   ├── views/_compaction_divider.dart   ← OPC-M3-3: CompactionDivider — divider row + "Conversation compacted" pill + collapsible summary text
 │       │   ├── views/_context_usage_hint.dart   ← OPC-M3-3: ContextUsageHint — warning chip above composer when inputTokens > 0.8×150k
-│       │   ├── controllers/agents_controller.dart ← _appendChatDelta routes by field; chatPartsFor/chatMessagesFor
+│       │   ├── controllers/agents_controller.dart ← _appendChatDelta routes by field; chatPartsFor/chatMessagesFor; sendCommand/slashCommandsFor (OPC-M3-4)
 │       │   └── models/chat_models.dart         ← ChatMessage + ChatPart (durationMs: int? for reasoning)
 │       ├── features/agent_configs/
 │       │   └── views/manage_agents_view.dart  ← "Connect an AI Account" card

@@ -1220,8 +1220,29 @@ class _TranscriptPanelState extends State<_TranscriptPanel> {
     final controller = context.read<AgentsController>();
     final id = controller.selectedSessionId;
     if (id == null) return;
-    final text = _inputController.text;
+    final text = _inputController.text.trim();
     if (text.isEmpty) return;
+
+    // OPC-M3-4: if the text starts with '/' and the command name (the first
+    // word after the slash) is in the cached slash-command list for this session,
+    // dispatch via the structured session.command WS frame. Otherwise, fall back
+    // to plain session.input so free-typed slash text is not misrouted.
+    if (text.startsWith('/')) {
+      final withoutSlash = text.substring(1);
+      final spaceIdx = withoutSlash.indexOf(' ');
+      final cmdName =
+          spaceIdx >= 0 ? withoutSlash.substring(0, spaceIdx) : withoutSlash;
+      final cmdArgs =
+          spaceIdx >= 0 ? withoutSlash.substring(spaceIdx + 1).trim() : '';
+      final knownCommands = controller.slashCommandsFor(id);
+      if (cmdName.isNotEmpty && knownCommands.any((c) => c.name == cmdName)) {
+        controller.sendCommand(id, cmdName, cmdArgs);
+        _inputController.clear();
+        _scrollToBottom();
+        return;
+      }
+    }
+
     controller.sendInput(id, '$text\n');
     _inputController.clear();
     _scrollToBottom();
@@ -1859,6 +1880,14 @@ class _ChatBubble extends StatelessWidget {
       return _UserBubble(parts: parts);
     }
 
+    // OPC-M3-4: command invocation row — shown for messages with role='command'
+    // which are created optimistically when the user selects a slash command
+    // from the popover. Renders as a monospace '/name args' label aligned left.
+    if (message.role == 'command') {
+      final invocationText = parts.map((p) => p.text).join('').trim();
+      return _CommandInvocationRow(text: invocationText);
+    }
+
     // Assistant bubble: walk parts in order, rendering text spans as a
     // SelectableText block and tool parts as collapsible ToolCallPart cards.
     final children = <Widget>[];
@@ -2012,6 +2041,64 @@ class _UserBubble extends StatelessWidget {
               color: context.rhythm.accent,
               height: 1.4,
             ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// OPC-M3-4: Command invocation row — rendered for ChatMessage.role == 'command'.
+///
+/// Displays the slash command text (e.g. '/help' or '/init my-project') as a
+/// distinct pill aligned to the right, styled like the user bubble but using
+/// the `accentMuted` / `accent` palette so it is visually distinct from both
+/// plain user prose (same alignment) and assistant output.
+///
+/// Uses `RhythmColorRoles` tokens — no hard-coded colours.
+class _CommandInvocationRow extends StatelessWidget {
+  const _CommandInvocationRow({required this.text});
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    if (text.isEmpty) return const SizedBox.shrink();
+    return Align(
+      alignment: Alignment.centerRight,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 560),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          decoration: BoxDecoration(
+            color: context.rhythm.accentMuted,
+            borderRadius: BorderRadius.circular(RhythmRadius.md),
+            border: Border.all(
+              color: context.rhythm.accent.withValues(alpha: 0.35),
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.terminal_outlined,
+                size: 13,
+                color: context.rhythm.accent,
+              ),
+              const SizedBox(width: 6),
+              Flexible(
+                child: SelectableText(
+                  text,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontFamily: 'Menlo',
+                    fontWeight: FontWeight.w600,
+                    color: context.rhythm.accent,
+                    height: 1.3,
+                  ),
+                ),
+              ),
+            ],
           ),
         ),
       ),

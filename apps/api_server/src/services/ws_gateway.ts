@@ -90,6 +90,92 @@ export function broadcastSessionRemoved(id: string): void {
   broadcast({ v: 1, type: 'session.removed', id });
 }
 
+/**
+ * OPC-M3-4 — Handle a `session.command` WS frame.
+ *
+ * Transport choice: WS frame over `session.command` (not a REST route).
+ * Rationale: slash-command dispatch is a fire-and-forget operation that
+ * arrives on the same live WS connection as `session.input`. Using a WS
+ * frame keeps all user-initiated session interactions on the same channel
+ * and avoids a cross-channel ordering hazard (WS input vs. REST command
+ * racing in the SDK's message queue).
+ *
+ * Frame shape: { v:1, type:'session.command', id: localSessionId,
+ *                command: string, arguments: string }
+ *
+ * On success: dispatchCommand is called with (sdkId, command, arguments).
+ *             The SDK streams the response back via the event stream (same
+ *             path as promptAsync), so no synchronous response is needed.
+ * On error:   a { v:1, type:'error', id, message } frame is sent back.
+ */
+export async function handleCommandFrame(
+  ws: WebSocket,
+  msg: Record<string, unknown>,
+): Promise<void> {
+  const id = msg.id as string | undefined;
+  const command = msg.command as string | undefined;
+  const args = (msg.arguments ?? '') as string;
+
+  if (!id || !command) {
+    ws.send(
+      JSON.stringify({
+        v: 1,
+        type: 'error',
+        id: id ?? '',
+        message: 'session.command requires id and command fields',
+      }),
+    );
+    return;
+  }
+
+  // Look up local session to verify it exists.
+  let dbSession: import('../models/agent_session').AgentSession | null = null;
+  try {
+    dbSession = new AgentSessionsRepository().findById(id);
+  } catch {
+    // DB unavailable — treat as unknown session.
+  }
+
+  if (!dbSession) {
+    ws.send(
+      JSON.stringify({
+        v: 1,
+        type: 'error',
+        id,
+        message: `Unknown session: ${id}`,
+      }),
+    );
+    return;
+  }
+
+  // Look up the SDK session mapping.
+  const sdkId = opencodeSessionMap.get(id);
+  if (!sdkId) {
+    ws.send(
+      JSON.stringify({
+        v: 1,
+        type: 'error',
+        id,
+        message: `No SDK session mapping for local session ${id}. Start or resume the session first.`,
+      }),
+    );
+    return;
+  }
+
+  try {
+    await opencodeClient.dispatchCommand(sdkId, command, args);
+  } catch (err) {
+    ws.send(
+      JSON.stringify({
+        v: 1,
+        type: 'error',
+        id,
+        message: String(err),
+      }),
+    );
+  }
+}
+
 function handleClientMessage(ws: WebSocket, raw: import('ws').RawData): void {
   let msg: Record<string, unknown>;
   try {
@@ -100,6 +186,13 @@ function handleClientMessage(ws: WebSocket, raw: import('ws').RawData): void {
   }
 
   switch (msg?.type) {
+    case 'session.command': {
+      // OPC-M3-4: handle structured slash-command dispatch.
+      handleCommandFrame(ws, msg).catch((err) =>
+        console.error('[ws_gateway] session.command handler error:', err),
+      );
+      return;
+    }
     case 'session.input': {
       const id = msg.id as string | undefined;
       // M4-1: accept either legacy `data: string` or new `parts: Array<...>`.

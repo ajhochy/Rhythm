@@ -1,5 +1,17 @@
 # Architecture Decisions
 
+## 2026-06-13 — Slash command dispatch uses WS `session.command` frame, not a new REST route (#697)
+
+**Context:** Issue #697 title says "POST /session/{id}/command"; needed to choose between a new REST route and a WebSocket frame for dispatching slash commands from the Flutter client to the server.
+
+**Decision:** WS frame `{v:1, type:'session.command', id: localSessionId, command: string, arguments: string}` via the existing `handleClientMessage` switch in `ws_gateway.ts`. Server handler (`handleCommandFrame`) is exported so it can be tested directly in vitest without a live WS connection.
+
+**Alternatives considered:**
+- REST POST `/agent-sessions/:id/command`: Requires a new route + controller method + data-source HTTP call in Flutter. Adds latency (new round-trip vs. reusing open socket). Every other user-initiated session action (`session.input`, `session.resize`, `session.permission.respond`) already uses WS frames — inconsistency would be hard to justify.
+- gRPC or SSE: Out of scope and over-engineered for this single addition.
+
+**Consequences:** The frame is fire-and-forget (same as `promptAsync`). The Flutter `AgentsDataSource.dispatchCommand` stub exists for interface completeness but the actual dispatch is via `repository.send(...)`. The `dispatchCommand` repo method is still useful for test doubles that need to intercept the call at a higher level.
+
 ## 2026-06-12 — Watchdog uses signal-0 + --parent-pid flag instead of ppid===1 heuristic
 
 **Context:** PR #683 smoke revealed that in `flutter run` (dev mode) the process chain is Flutter→npx→tsx→Node. The api_server's direct parent is tsx runner, so `process.ppid` is never 1 when Flutter exits — the legacy `ppid===1` watchdog fires silently. Production (`flutter build`, direct Flutter→Node spawn) works correctly today, but the flag-based approach is more robust and eliminates the mode-specific gap.

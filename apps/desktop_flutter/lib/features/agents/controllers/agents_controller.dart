@@ -444,6 +444,27 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     notifyListeners();
   }
 
+  /// Test-only: inject a [ChatPart] directly into the parts store.
+  @visibleForTesting
+  void setChatPartForTest(ChatPart part) {
+    final existing = _chatPartsByMessage[part.messageId] ?? [];
+    final idx = existing.indexWhere((p) => p.id == part.id);
+    if (idx >= 0) {
+      existing[idx] = part;
+    } else {
+      _chatPartsByMessage[part.messageId] = [...existing, part];
+    }
+    notifyListeners();
+  }
+
+  /// Test-only: seed the slash-command cache for [sessionId] without a
+  /// network round-trip.
+  @visibleForTesting
+  void setSlashCommandsForTest(String sessionId, List<SlashCommand> commands) {
+    _commandsBySession[sessionId] = commands;
+    notifyListeners();
+  }
+
   List<PendingTrigger> get pendingTriggers =>
       List.unmodifiable(_pendingTriggers);
 
@@ -469,6 +490,12 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   /// Slash-commands for the current session, cached after first fetch.
   List<SlashCommand> get slashCommands =>
       List.unmodifiable(_commandsBySession[_selectedSessionId] ?? const []);
+
+  /// OPC-M3-4 — Slash-commands for a specific [sessionId].
+  /// Used by the send path to determine whether the submitted text is a known
+  /// command (→ structured dispatch) or plain text (→ session.input).
+  List<SlashCommand> slashCommandsFor(String sessionId) =>
+      List.unmodifiable(_commandsBySession[sessionId] ?? const []);
 
   /// Returns true if notify-on-completion is armed for [messageKey] (format: "$sessionId:$messageId").
   bool isNotifyArmed(String messageKey) =>
@@ -1066,6 +1093,51 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
         messageId: optimisticMsgId,
         type: 'text',
         text: data,
+      ),
+    ];
+    notifyListeners();
+  }
+
+  /// OPC-M3-4 — Send a structured slash-command dispatch via the
+  /// `session.command` WS frame.
+  ///
+  /// Use this when the user selects a command from the slash-command popover.
+  /// The WS gateway will call `opencodeClient.dispatchCommand(sdkId, command,
+  /// arguments)` on the server side. The server streams the response back via
+  /// the event stream exactly as it would for a `session.input` prompt.
+  ///
+  /// Unlike `sendInput`, this does NOT send a `session.input` frame, so the
+  /// server does NOT run the text through the promptAsync path. The command
+  /// name + args are dispatched through the SDK's structured command path.
+  ///
+  /// An optimistic `ChatMessage` with role `'command'` is inserted into the
+  /// chat store immediately so the invocation appears in the transcript before
+  /// the server responds.
+  void sendCommand(String sessionId, String command, String args) {
+    _repository.send({
+      'type': 'session.command',
+      'id': sessionId,
+      'command': command,
+      'arguments': args,
+    });
+    // OPC-M3-4: optimistic insert — show the command invocation in the
+    // transcript immediately with a distinct 'command' role.
+    final optimisticMsgId =
+        'optimistic-cmd-${DateTime.now().millisecondsSinceEpoch}';
+    final invocationText = args.isEmpty ? '/$command' : '/$command $args';
+    final optimisticMsg = ChatMessage(
+      id: optimisticMsgId,
+      sessionId: sessionId,
+      role: 'command',
+      createdAt: DateTime.now(),
+    );
+    (_chatMessagesBySession[sessionId] ??= []).add(optimisticMsg);
+    _chatPartsByMessage[optimisticMsgId] = [
+      ChatPart(
+        id: '${optimisticMsgId}_text',
+        messageId: optimisticMsgId,
+        type: 'text',
+        text: invocationText,
       ),
     ];
     notifyListeners();
@@ -1735,6 +1807,12 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   /// assert stuck detection without waiting for the real [Timer].
   @visibleForTesting
   void recomputeStuckForTest() => _recomputeStuck();
+
+  /// Test-only: directly forward a [AgentWsMessage] to the WS message handler.
+  /// Avoids calling [initialize()] (which starts a periodic stuck-check timer)
+  /// while still exercising the full WS message dispatch path.
+  @visibleForTesting
+  void handleWsMessageForTest(AgentWsMessage msg) => _onWsMessage(msg);
 
   /// Recomputes the set of sessions considered "stuck" and notifies listeners
   /// only when the set changes.

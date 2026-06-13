@@ -116,4 +116,14 @@ class AgentsRepository {
   /// OPC-M3-3 — POST /agent-sessions/:id/summarize — trigger compaction.
   Future<void> summarizeSession(String sessionId) =>
       _dataSource.summarizeSession(sessionId);
+
+  /// OPC-M3-4 — Dispatch a slash command via the WS `session.command` frame.
+  /// This is a no-op at the data-source level (the controller calls [send]
+  /// directly); provided here for interface completeness and test doubles.
+  Future<void> dispatchCommand(
+    String sessionId,
+    String command,
+    String args,
+  ) =>
+      _dataSource.dispatchCommand(sessionId, command, args);
 }

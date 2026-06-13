@@ -4,15 +4,33 @@
 
 **Branch:** `opc-m1-foundation`
 **Active milestone:** M3 — Session features
-**Last verified issue:** #696 — OPC-M3-3 Compaction (summarize) with UI affordance (PASS, branch `opc-m1-foundation`, commit `5dc2c73`, not yet merged)
-**Test status:** vitest 664/664 ✓ | flutter test 380/380 ✓ | `ai-workflow checks --level pr` exit 0 ✓
-**Next issue:** #697 — OPC-M3-4 Slash commands via POST /session/{id}/command (M3-4 per current-plan.md)
+**Last verified issue:** #697 — OPC-M3-4 Slash commands via session.command WS frame (PASS, branch `opc-m1-foundation`, commit `50ecf8c`, not yet merged)
+**Test status:** vitest 667/667 ✓ | flutter test 385/385 ✓ | `ai-workflow checks --level pr` exit 0 ✓
+**Next issue:** M3 complete — ready for PR open on `opc-m1-foundation` covering #694–#697
 
 ## Known bugs (parked, not blocking PR #617)
 
 _(Parked bugs from before 2026-05-27 run. #638 and #635 below are now RESOLVED — see 2026-05-27 run entry.)_
 
 ## Recent coding-agent runs
+
+### 2026-06-13 — opc-m1-foundation / issue-697 — Slash commands via session.command WS frame (OPC-M3-4)
+- Files modified (production):
+  - `apps/api_server/src/services/ws_gateway.ts` — added `handleCommandFrame` exported handler + `case 'session.command'` in `handleClientMessage` switch. Frame shape: `{v:1, type:'session.command', id: localSessionId, command: string, arguments: string}`. Calls `opencodeClient.dispatchCommand(sdkId, command, args)`. Full transport-choice rationale comment.
+  - `apps/desktop_flutter/lib/features/agents/data/agents_data_source.dart` — added `dispatchCommand(id, command, args) async {}` stub (WS dispatch is via `send`; stub for interface completeness).
+  - `apps/desktop_flutter/lib/features/agents/repositories/agents_repository.dart` — added `dispatchCommand` delegate.
+  - `apps/desktop_flutter/lib/features/agents/controllers/agents_controller.dart` — added `slashCommandsFor(sessionId)` getter; `sendCommand(sessionId, command, args)` method (sends WS frame + creates optimistic `ChatMessage(role:'command')`); `setChatPartForTest`, `setSlashCommandsForTest`, `handleWsMessageForTest` test hooks.
+  - `apps/desktop_flutter/lib/features/agents/views/agents_view.dart` — `_TranscriptPanel._sendInput()` detects known commands (text starts with `/`, name in `slashCommandsFor(id)`) → `sendCommand()` else `sendInput()`; `_ChatBubble.build` handles `role=='command'` → `_CommandInvocationRow`; new `_CommandInvocationRow` StatelessWidget (right-aligned accent pill with terminal icon + monospace text).
+  - `docs/ai/contracts/issue-697.json` (new) — 6 criteria contract (c1–c5 automated, c6 manual).
+- Files modified (tests):
+  - `apps/api_server/src/__tests__/opc_m3_4_command_dispatch.test.ts` (new) — 3 vitest tests c1a/b/c: happy path; unknown session id → error frame; no SDK mapping → error frame.
+  - `apps/desktop_flutter/test/features/agents/opc_m3_4_command_dispatch_test.dart` (new) — 5 flutter tests c2a, c2b (REAL-SURFACE), c3, c4, c5.
+  - 5 test files updated with `dispatchCommand` interface stub: `agents_controller_test.dart`, `agent_trigger_watcher_test.dart`, `issue_626_chip_status_flip_test.dart`, `new_session_dialog_error_test.dart`, `integration_test/follow_up_smoke_test.dart`.
+- Red→green proof: vitest 664→667 (+3 tests). Flutter 380→385 (+5 tests). All pass.
+- Checks: flutter analyze --no-fatal-infos ✓ (231 infos, all pre-existing, no new errors/warnings), dart format ✓ (clean), tsc --noEmit ✓, vitest 667/667 ✓, flutter test 385/385 ✓, ai-workflow checks --level pr exit 0 ✓.
+- Decisions made: WS `session.command` frame chosen over REST route. Follows `session.input`/`session.resize` handler pattern; fire-and-forget consistent with `promptAsync`; keeps all user-initiated session interactions on same channel. See `docs/ai/decisions.md` for full rationale.
+- Deviations from spec: REST route mentioned in issue title; WS frame used instead (documented in `handleCommandFrame` comment and decisions.md).
+- Concerns: (1) `AgentsRepository` interface exhaustiveness: 5 test files needed stub updates (includes integration_test); pattern continues to accumulate per M3 iteration. (2) `_CommandInvocationRow` visual rendering requires a live agent SDK session to demonstrate; manual-smoke item consistent with existing slash-command manual-smoke boundary.
 
 ### 2026-06-12 — opc-m1-foundation / issue-696 — Compaction (summarize) with UI affordance (OPC-M3-3)
 - Files modified (production):

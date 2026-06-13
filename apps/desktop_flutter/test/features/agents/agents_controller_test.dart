@@ -212,6 +212,10 @@ class _FakeAgentsRepository implements AgentsRepository {
 
   @override
   Future<void> summarizeSession(String sessionId) async {}
+
+  @override
+  Future<void> dispatchCommand(
+      String sessionId, String command, String args) async {}
 }
 
 // ---------------------------------------------------------------------------
