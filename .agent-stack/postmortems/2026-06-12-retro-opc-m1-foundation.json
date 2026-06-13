@@ -1,0 +1,55 @@
+{
+  "run_id": "2026-06-12-retro-opc-m1-foundation",
+  "issue": null,
+  "pr": null,
+  "date": "2026-06-12",
+  "smoke_result": "unknown",
+  "verification_claimed": "PASS",
+  "divergence": false,
+  "criteria_results": [],
+  "process_issues": [
+    {
+      "category": "C2",
+      "description": "#685: implementer's d.ts declared unwrapped SDK returns while the hey-api client returns {data,error} envelopes; 27 'as unknown as' casts papered over the mismatch and the c1 contract test asserted a narrower pattern than the criterion. Caught by gate grep vs criterion text; repaired (envelope types, zero casts, strengthened c1).",
+      "detected_by": "verification-gate grep + SDK source ground-truth"
+    },
+    {
+      "category": "C2",
+      "description": "#686: implementer persisted parts from event.properties.parts on message.updated — a field that does not exist in v1.14.49 (UpdatedEventSchema = {sessionID, info}); the fixture invented the field so 13/13 tests were false-green while production parts_json would never populate. Caught by gate cross-checking the fixture against /tmp/opencode message-v2.ts; repaired (part-event accumulation + fixture-honesty guard test).",
+      "detected_by": "verification-gate fixture-vs-source cross-check"
+    },
+    {
+      "category": "C3",
+      "description": "#689: getSession returned null on ANY error including thrown transport failures, conflating engine hiccups with session-gone — resume() would 410 and offer 'start fresh' against a live conversation. Caught by gate convention review (#685 no-silent-defaults); repaired in-process with discrimination + regression tests.",
+      "detected_by": "verification-gate convention review"
+    },
+    {
+      "category": "infra",
+      "description": "AgentFlow implement_issue unusable for implementation phases: runtime hardcodes maxTurns=10 for tool-using agents (agent-sdk-executor.js:34); implementer died with error_max_turns in 43s. Fell back to SKILL.md chain (Agent-tool coding agents + in-session gates) per documented routing rule. Fix chip filed for the agentflow repo (task_907eeae6).",
+      "detected_by": "implement_issue run failure receipt"
+    }
+  ],
+  "workflow_adherence": {
+    "overall_score": "strict",
+    "expected_chain": [
+      "workflow-orchestrator (continuing session routing)",
+      "PR #704 merge (explicit user sign-off)",
+      "branch opc-m1-foundation + baseline checks",
+      "per issue x5: acceptance-contract -> coding-agent -> verification-gate -> (failure-triage -> repair -> re-gate)",
+      "PR open with Closes lines + CI gate",
+      "project-state-updater + retrospective + smoke handoff"
+    ],
+    "observed_chain": [
+      "PR #704 merged on explicit user instruction; opc-m1-foundation off updated main; baseline ai-workflow checks green pre-dispatch",
+      "#685: agentflow contract phase produced issue-685.json; implement phase died (maxTurns cap) -> SKILL chain fallback; coding-agent red->green 34 tests; gate FAIL c1 (casts) -> failure-triage Skill -> repair agent -> re-gate PASS (437cf2d)",
+      "#686: coding-agent 13 tests green; gate caught invented event field via source ground-truth -> failure-triage Skill -> repair agent (17 real-sequence tests) -> re-gate PASS (659b0f7)",
+      "#687: coding-agent 313 flutter tests; gate greps clean after comment cleanup; visual verification explicitly DEFERRED (live Rhythm.app holds :4001/:4096 - launching would reclaim-kill the user's engine); PASS with documented deferral (19f56a4+4d227fd)",
+      "#688: coding-agent; gate PASS (1ec7c6f) - residual pty_runner/setTimeout greps classified as test-assertion strings and comments",
+      "#689: coding-agent; gate convention review caught getSession transport conflation -> in-process triage+fix+regression tests -> re-gate PASS (fe53451+f4e7ac5)",
+      "per-issue run entries appended to project-state.md by each coding agent"
+    ],
+    "skipped_skills": [],
+    "issues": []
+  },
+  "notes": "Three of five issues had defects that green test suites did not catch and the gate did — all three were variants of asserting invented shapes instead of ground truth. The /tmp/opencode pinned clone (exact embedded SDK version) was the load-bearing verification asset; keep it (or re-clone at the pinned tag) for M2-M4 gates. Manual smoke for M1 is pending user (visual deferral + behavioral resume/reconnect checks)."
+}
