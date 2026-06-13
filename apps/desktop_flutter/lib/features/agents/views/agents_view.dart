@@ -1965,6 +1965,16 @@ class _ChatBubble extends StatelessWidget {
           key: ValueKey('compaction-${part.id}'),
           part: part,
         ));
+      } else if (part.type == 'agent') {
+        // OPC-M4-4: agent-switch marker — flush text then show "Switched to X".
+        flushText();
+        final name = part.agentName;
+        if (name != null && name.isNotEmpty) {
+          children.add(AgentPartMarker(
+            key: ValueKey('agent-${part.id}'),
+            agentName: name,
+          ));
+        }
       } else {
         // text and any future unknown part types — accumulate as prose.
         textBuffer.write(part.text);
@@ -2468,6 +2478,8 @@ class _InputAreaState extends State<_InputArea> {
                     if (session != null)
                       UnifiedAgentModelPicker(session: session),
                     if (session != null) PermissionModePicker(session: session),
+                    // OPC-M4-4: agent selector pill (after permission mode picker)
+                    AgentSelectorPill(sessionId: session?.id),
                     if (session != null) ...[
                       _ThinkingBudgetPicker(session: session),
                       _FastModeToggle(session: session),
@@ -3785,6 +3797,159 @@ String _mimeFromExtension(String ext) {
     'wav': 'audio/wav',
   };
   return table[lower] ?? 'application/octet-stream';
+}
+
+// ---------------------------------------------------------------------------
+// OPC-M4-4: Agent selector pill + agent-part marker
+// ---------------------------------------------------------------------------
+
+/// A pill-shaped button that shows the currently selected agent for the active
+/// session and opens a dropdown to switch between available agents.
+///
+/// Rendered in [_InputArea]'s bottom row, after [PermissionModePicker].
+/// Exported as a public class so `opc_m4_4_agent_selection_test.dart` can
+/// find it in the widget tree by type.
+///
+/// When [sessionId] is null the widget renders nothing.
+class AgentSelectorPill extends StatelessWidget {
+  const AgentSelectorPill({super.key, required this.sessionId});
+
+  final String? sessionId;
+
+  @override
+  Widget build(BuildContext context) {
+    final sid = sessionId;
+    if (sid == null) return const SizedBox.shrink();
+
+    final ctrl = context.watch<AgentsController>();
+    final agents = ctrl.availableAgentsFor(sid);
+    final selected = ctrl.selectedAgentFor(sid);
+    final label = selected ?? 'build';
+
+    return PopupMenuButton<String>(
+      tooltip: 'Switch agent',
+      // Constrain the popup width so it doesn't span the full screen.
+      constraints: const BoxConstraints(maxWidth: 220),
+      itemBuilder: (_) => [
+        // "Default" option always shown so the user can clear selection.
+        PopupMenuItem<String>(
+          value: '',
+          child: Text(
+            'build (default)',
+            style: TextStyle(
+              fontSize: 12,
+              color: context.rhythm.textSecondary,
+            ),
+          ),
+        ),
+        for (final a in agents)
+          PopupMenuItem<String>(
+            value: a.name,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  a.name,
+                  style: const TextStyle(fontSize: 13),
+                ),
+                if (a.description != null)
+                  Text(
+                    a.description!,
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: context.rhythm.textMuted,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+              ],
+            ),
+          ),
+      ],
+      onSelected: (value) {
+        ctrl.setSelectedAgent(sid, value.isEmpty ? null : value);
+      },
+      child: Container(
+        height: 30,
+        padding: const EdgeInsets.symmetric(horizontal: 8),
+        decoration: BoxDecoration(
+          color: selected != null
+              ? context.rhythm.accentMuted
+              : context.rhythm.surfaceMuted,
+          borderRadius: BorderRadius.circular(RhythmRadius.md),
+          border: Border.all(
+            color: selected != null
+                ? context.rhythm.accent
+                : context.rhythm.border,
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.smart_toy_outlined,
+              size: 13,
+              color: selected != null
+                  ? context.rhythm.accent
+                  : context.rhythm.textSecondary,
+            ),
+            const SizedBox(width: 4),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
+                color: selected != null
+                    ? context.rhythm.accent
+                    : context.rhythm.textSecondary,
+              ),
+            ),
+            const SizedBox(width: 2),
+            Icon(
+              Icons.arrow_drop_down,
+              size: 14,
+              color: selected != null
+                  ? context.rhythm.accent
+                  : context.rhythm.textSecondary,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// A labeled marker rendered inline in the transcript for `agent`-type parts.
+///
+/// Shown as a subtle chip: "Switched to plan" (using the agent name from the
+/// part). Exported so tests can find it by type.
+class AgentPartMarker extends StatelessWidget {
+  const AgentPartMarker({super.key, required this.agentName});
+
+  final String agentName;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Icon(
+          Icons.swap_horiz,
+          size: 13,
+          color: context.rhythm.textMuted,
+        ),
+        const SizedBox(width: 4),
+        Text(
+          'Switched to $agentName',
+          style: TextStyle(
+            fontSize: 11,
+            fontStyle: FontStyle.italic,
+            color: context.rhythm.textMuted,
+          ),
+        ),
+      ],
+    );
+  }
 }
 
 // ---------------------------------------------------------------------------

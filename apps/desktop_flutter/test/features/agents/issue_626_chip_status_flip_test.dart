@@ -21,6 +21,7 @@ import 'package:rhythm_desktop/features/agents/controllers/agents_controller.dar
 import 'package:rhythm_desktop/features/agents/models/agent_session.dart';
 import 'package:rhythm_desktop/features/agents/models/agent_session_message.dart';
 import 'package:rhythm_desktop/features/agents/models/agent_ws_message.dart';
+import 'package:rhythm_desktop/features/agents/models/chat_models.dart';
 import 'package:rhythm_desktop/features/agents/repositories/agents_repository.dart';
 import 'package:rhythm_desktop/features/notifications/controllers/notifications_controller.dart';
 import 'package:rhythm_desktop/features/notifications/data/notifications_data_source.dart';
@@ -199,6 +200,9 @@ class _FakeAgentsRepository implements AgentsRepository {
   Future<AgentSession> forkSession(String sessionId, String messageId) async {
     throw UnimplementedError();
   }
+
+  @override
+  Future<List<AgentInfo>> fetchAvailableAgents({String? cwd}) async => const [];
 }
 
 class _FakeLocalNotificationService extends LocalNotificationService {

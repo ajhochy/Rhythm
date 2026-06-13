@@ -14,6 +14,29 @@ _(Parked bugs from before 2026-05-27 run. #638 and #635 below are now RESOLVED �
 
 ## Recent coding-agent runs
 
+### 2026-06-13 — opc-m1-foundation / issue-703 — Custom agent/mode selection (OPC-M4-4)
+- Files modified (production):
+  - `apps/api_server/src/@types/opencode-ai-sdk.d.ts` — added `agents()` method to `OpencodeClient` interface; added `SdkAgent` export type.
+  - `apps/api_server/src/services/opencode_client_service.ts` — added `listAgents(directory?)` typed wrapper calling `client.agents()`.
+  - `apps/api_server/src/controllers/agent_sessions_controller.ts` — added `listAgents()` handler (GET /agent-sessions/agents).
+  - `apps/api_server/src/routes/agent_sessions_routes.ts` — registered `GET /agents` BEFORE `/:id` wildcard to prevent misrouting.
+  - `apps/api_server/src/services/ws_gateway.ts` — added `perTurnAgent` extraction in `handleInputFrame`; included `agent` field in `sdkOpts` when set.
+  - `apps/desktop_flutter/lib/features/agents/models/chat_models.dart` — added `AgentInfo` class; added `agentName` field to `ChatPart`; added `agent` case to `mergePart()`.
+  - `apps/desktop_flutter/lib/features/agents/controllers/agents_controller.dart` — added `_availableAgentsBySession`, `_selectedAgentBySession` state maps; added `availableAgentsFor`, `selectedAgentFor`, `setSelectedAgent`, `fetchAvailableAgents`, `setAvailableAgentsForTest` methods; updated `sendInput()` to include `agent` field; call `fetchAvailableAgents` from `selectSession()`.
+  - `apps/desktop_flutter/lib/features/agents/data/agents_data_source.dart` — added `fetchAvailableAgents({cwd?})` HTTP GET method; added `chat_models.dart` import.
+  - `apps/desktop_flutter/lib/features/agents/repositories/agents_repository.dart` — added `fetchAvailableAgents` delegate; added `chat_models.dart` import.
+  - `apps/desktop_flutter/lib/features/agents/views/agents_view.dart` — added `AgentSelectorPill` public widget (sessionId param); added `AgentPartMarker` public widget; wired `AgentSelectorPill` into `_InputArea` bottom row; wired `AgentPartMarker` into `_ChatBubble.build()` for `agent`-type parts.
+- Files modified (tests):
+  - `docs/ai/contracts/issue-703.json` (new) — 7 criteria contract (c1–c2 vitest; c3–c6 flutter; c7 manual).
+  - `apps/api_server/src/__tests__/opc_m4_4_agent_selection.test.ts` (new) — 4 vitest tests (c1 GET /agents; c1b built-ins only; c2 agent forwarded to promptAsync opts; c2b no agent → opts.agent undefined).
+  - `apps/desktop_flutter/test/features/agents/opc_m4_4_agent_selection_test.dart` (new) — 5 flutter tests (c3 selector persists; c4 agent-type part renders marker; c5 built-ins only no crash; c6 plan agent no permission gating; REAL-SURFACE AgentSelectorPill in InputAreaTestHarness).
+  - 26 test stub files — added `fetchAvailableAgents` stub to all `implements AgentsRepository` stubs in test/ and integration_test/.
+- Red→green proof: vitest 698→702 (+4). Flutter 421→426 (+5). `ai-workflow checks --level pr` exit 0.
+- Checks: flutter analyze --no-fatal-infos ✓ (0 errors, 0 warnings), dart format ✓, tsc --noEmit ✓, vitest 4/4 ✓, flutter test 426/426 ✓, `ai-workflow checks --level pr` exit 0 ✓.
+- Decisions made: (1) `AgentSelectorPill` uses `sessionId: String?` (not `AgentSession?`) so tests can locate it by type and the controller lookup is purely state-based. (2) `GET /agents` registered before `/:id` wildcard to prevent Express treating the literal "agents" as a session id. (3) `agent` field forwarded in `sendInput()` from controller state — never via explicit argument — matching how thinking/fastMode are forwarded. (4) `setSelectedAgent` does NOT touch permissionMode (c6 regression guard).
+- Deviations from spec: none — all 7 contract criteria addressed.
+- Concerns: `AgentsRepository` interface exhaustiveness continues to require stub updates across many test files (25 stubs needed this run). Python insertion script misplaced one method inside a test block (opc_m3_6) — caught and corrected during analyze. A base-stub mixin remains desirable but deferred.
+
 ### 2026-06-13 — opc-m1-foundation / issue-702 — MCP server management UI (OPC-M4-3)
 - Files modified (production):
   - `apps/api_server/src/@types/opencode-ai-sdk.d.ts` — added `McpStatusEntry` typed shape, `McpLocalConfigInput`, `McpRemoteConfigInput`, `add()` method to `mcp` interface.

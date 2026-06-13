@@ -252,6 +252,14 @@ export async function handleInputFrame(
     budget_tokens?: number;
   } | null;
   const perTurnFastMode = typeof msg.fastMode === 'boolean' ? msg.fastMode : null;
+  // OPC-M4-4: per-turn intra-session agent override, never persisted.
+  // The Flutter composer sends `agent: <name>` (e.g. 'plan', 'build', or a
+  // custom agent name) alongside the session.input frame. The SDK's
+  // promptAsync body accepts an `agent?: string` field that routes the turn
+  // to the named agent. Absent → SDK uses its default (build).
+  const perTurnAgent = typeof msg.agent === 'string' && msg.agent.length > 0
+    ? msg.agent
+    : null;
 
   if (!id || typeof data !== 'string') {
     return;
@@ -483,10 +491,12 @@ export async function handleInputFrame(
     // Resolution order: per-turn field overrides session-level field.
     const effectiveThinkingBudget = perTurnThinking?.budget_tokens ?? sessionThinkingBudget;
     const effectiveFastMode = perTurnFastMode ?? sessionFastMode;
-    const sdkOpts = (effectiveThinkingBudget !== null || effectiveFastMode)
+    // OPC-M4-4: include the per-turn agent name when provided.
+    const sdkOpts = (effectiveThinkingBudget !== null || effectiveFastMode || perTurnAgent !== null)
       ? {
           ...(effectiveThinkingBudget !== null ? { thinking: { budget_tokens: effectiveThinkingBudget } } : {}),
           ...(effectiveFastMode ? { fastMode: true } : {}),
+          ...(perTurnAgent !== null ? { agent: perTurnAgent } : {}),
         }
       : undefined;
 

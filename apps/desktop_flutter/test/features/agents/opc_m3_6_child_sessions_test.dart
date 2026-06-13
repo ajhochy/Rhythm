@@ -177,6 +177,9 @@ class _StubAgentsRepository implements AgentsRepository {
 
   @override
   noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+
+  @override
+  Future<List<AgentInfo>> fetchAvailableAgents({String? cwd}) async => const [];
 }
 
 // ---------------------------------------------------------------------------

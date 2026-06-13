@@ -1,3 +1,25 @@
+// OPC-M4-4 — Agent descriptor returned by GET /agent-sessions/agents.
+class AgentInfo {
+  const AgentInfo({
+    required this.name,
+    required this.builtIn,
+    this.description,
+    this.mode,
+  });
+
+  final String name;
+  final bool builtIn;
+  final String? description;
+  final String? mode;
+
+  factory AgentInfo.fromJson(Map<String, dynamic> json) => AgentInfo(
+        name: (json['name'] as String?) ?? '',
+        builtIn: (json['builtIn'] as bool?) ?? false,
+        description: json['description'] as String?,
+        mode: json['mode'] as String?,
+      );
+}
+
 /// Parts-based chat model mirroring Opencode Desktop's `Message` + `Part`
 /// shape (see /tmp/opencode-ref/packages/app/src/context/global-sync/types.ts).
 ///
@@ -80,6 +102,7 @@ class ChatPart {
     this.fileMime,
     this.fileFilename,
     this.fileUrl,
+    this.agentName,
   })  : _text = text,
         _toolArgs = toolArgs,
         _toolOutput = toolOutput,
@@ -109,6 +132,10 @@ class ChatPart {
   String? fileMime;
   String? fileFilename;
   String? fileUrl;
+
+  /// OPC-M4-4: Agent-part field. Non-null when [type] == 'agent'.
+  /// Carries the name of the agent the session switched to (e.g. 'plan', 'build').
+  String? agentName;
 
   String get text => _text;
   set text(String v) => _text = v;
@@ -192,6 +219,10 @@ class ChatPart {
       if (fn != null) fileFilename = fn;
       final u = raw['url'] as String?;
       if (u != null) fileUrl = u;
+    } else if (raw['type'] == 'agent') {
+      // OPC-M4-4: agent-switch marker. Carries the name of the switched-to agent.
+      final n = raw['name'] as String?;
+      if (n != null) agentName = n;
     }
   }
 }

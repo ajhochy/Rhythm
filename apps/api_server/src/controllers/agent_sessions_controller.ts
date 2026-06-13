@@ -43,6 +43,35 @@ function expandHome(path: string): string {
 }
 
 export class AgentSessionsController {
+  /**
+   * OPC-M4-4 — GET /agent-sessions/agents
+   *
+   * Returns the SDK-reported agent list for an optional cwd, shaped as:
+   *   { agents: Array<{ name, builtIn, description?, mode?, color? }> }
+   *
+   * Route choice: on the agent_sessions router (not a separate route file)
+   * so all agent-session affordances stay under one router. Registered before
+   * /:id in agent_sessions_routes.ts so Express does not treat "agents" as a
+   * session id.
+   *
+   * When the opencode engine is not ready, returns an empty list (graceful
+   * degradation) rather than 503 — the Flutter selector shows "no agents" and
+   * falls back to built-ins stored locally.
+   */
+  async listAgents(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const directory = typeof req.query.cwd === 'string' ? req.query.cwd : undefined;
+      if (!opencodeClient.isReady) {
+        res.json({ agents: [] });
+        return;
+      }
+      const agents = await opencodeClient.listAgents(directory);
+      res.json({ agents });
+    } catch (err) {
+      next(err);
+    }
+  }
+
   list(req: Request, res: Response, next: NextFunction): void {
     try {
       const projectIdParam = req.query.projectId;

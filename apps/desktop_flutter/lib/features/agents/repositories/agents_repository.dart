@@ -2,6 +2,7 @@ import '../data/agents_data_source.dart';
 import '../models/agent_session.dart';
 import '../models/agent_session_message.dart';
 import '../models/agent_ws_message.dart';
+import '../models/chat_models.dart';
 
 class AgentsRepository {
   AgentsRepository(this._dataSource);
@@ -146,4 +147,9 @@ class AgentsRepository {
     String args,
   ) =>
       _dataSource.dispatchCommand(sessionId, command, args);
+
+  /// OPC-M4-4 — GET /agent-sessions/agents — list available agents for [cwd].
+  /// Delegates to [AgentsDataSource.fetchAvailableAgents].
+  Future<List<AgentInfo>> fetchAvailableAgents({String? cwd}) =>
+      _dataSource.fetchAvailableAgents(cwd: cwd);
 }

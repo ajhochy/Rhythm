@@ -16,6 +16,7 @@ import '../models/agent_session_connectivity.dart';
 import '../models/agent_session_message.dart';
 import '../models/agent_ws_message.dart';
 import '../models/chat_models.dart';
+// AgentInfo is defined in chat_models.dart (OPC-M4-4).
 import '../repositories/agents_repository.dart';
 
 class PendingPermission {
@@ -153,6 +154,14 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   // Cleared after sendInput() sends the parts array.
   final Map<String, List<Map<String, dynamic>>> _pendingAttachmentsBySession =
       {};
+
+  // OPC-M4-4: Per-session agent selection state.
+  // Available agents fetched from GET /agent-sessions/agents, keyed by sessionId.
+  // An absent entry means no fetch has occurred yet for that session.
+  final Map<String, List<AgentInfo>> _availableAgentsBySession = {};
+  // Currently selected agent name per session. Null = SDK default (build).
+  // Persists for the app run (not persisted to the DB — see spec).
+  final Map<String, String?> _selectedAgentBySession = {};
 
   // OPC-M3-6: Child-session navigation state.
   // Non-null when the user has tapped a task chip and navigated into a child
@@ -664,6 +673,55 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     List<Map<String, dynamic>> parts,
   ) {
     _pendingAttachmentsBySession[sessionId] = List.of(parts);
+    notifyListeners();
+  }
+
+  // ── OPC-M4-4: agent selection ───────────────────────────────────────────────
+
+  /// Available agents for [sessionId]. Returns an empty list when no fetch has
+  /// occurred yet (or when the SDK returned no agents).
+  List<AgentInfo> availableAgentsFor(String sessionId) =>
+      List.unmodifiable(_availableAgentsBySession[sessionId] ?? const []);
+
+  /// Currently selected agent name for [sessionId], or null when using the
+  /// SDK default (build). Does NOT change permissionMode — the PermissionMode-
+  /// Picker is the sole owner of that field (c6 regression contract).
+  String? selectedAgentFor(String sessionId) =>
+      _selectedAgentBySession[sessionId];
+
+  /// Set the per-turn agent for [sessionId]. Null clears back to SDK default.
+  ///
+  /// Does NOT touch permissionMode or any other session field — the agent
+  /// selector is orthogonal to the PermissionModePicker (c6).
+  void setSelectedAgent(String sessionId, String? agentName) {
+    _selectedAgentBySession[sessionId] = agentName;
+    notifyListeners();
+  }
+
+  /// Fetch available agents for [sessionId] from the server.
+  ///
+  /// Called on selectSession. Non-fatal: the selector falls back to an empty
+  /// list (the server returns [] when the engine isn't ready, which the Flutter
+  /// selector treats as "show built-ins only" with a hard-coded build/plan pair).
+  Future<void> fetchAvailableAgents(String sessionId) async {
+    try {
+      final cwd = (_sessions.firstWhereOrNull((s) => s.id == sessionId) ??
+              _resumable.firstWhereOrNull((s) => s.id == sessionId))
+          ?.cwd;
+      final agents = await _repository.fetchAvailableAgents(cwd: cwd);
+      if (_disposed) return;
+      _availableAgentsBySession[sessionId] = agents;
+      if (!_disposed) notifyListeners();
+    } catch (_) {
+      // Non-fatal — keep stale (or empty) list; selector degrades gracefully.
+    }
+  }
+
+  /// Test-only: seed the available agents for [sessionId] without a network
+  /// round-trip. Used by flutter tests to simulate the server response.
+  @visibleForTesting
+  void setAvailableAgentsForTest(String sessionId, List<AgentInfo> agents) {
+    _availableAgentsBySession[sessionId] = List.of(agents);
     notifyListeners();
   }
 
@@ -1274,6 +1332,8 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
       ...controllerPending,
     ];
     final useParts = allAttachments.isNotEmpty;
+    // OPC-M4-4: include the per-session selected agent when set.
+    final selectedAgent = _selectedAgentBySession[sessionId];
     _repository.send({
       'type': 'session.input',
       'id': sessionId,
@@ -1293,6 +1353,8 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
           'providerId': override.providerId,
           'modelId': override.modelId,
         },
+      // OPC-M4-4: forward agent name when set; absent → SDK default (build).
+      if (selectedAgent != null) 'agent': selectedAgent,
     });
     if (override != null) _pendingTurnOverride = null;
     // OPC-M4-1: clear pending attachments after send.
@@ -1516,6 +1578,8 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     _loadSlashCommands(id);
     // OPC-M3-5: fetch the todo list for this session on first select.
     unawaited(fetchSessionTodos(id));
+    // OPC-M4-4: fetch available agents for the session cwd.
+    unawaited(fetchAvailableAgents(id));
   }
 
   Future<void> _loadSlashCommands(String sessionId) async {

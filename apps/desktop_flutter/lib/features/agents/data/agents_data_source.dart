@@ -11,6 +11,7 @@ import '../../../app/core/utils/http_utils.dart';
 import '../models/agent_session.dart';
 import '../models/agent_session_message.dart';
 import '../models/agent_ws_message.dart';
+import '../models/chat_models.dart';
 
 // Sentinel used by updateSession to distinguish "not provided" from "null".
 // Must use a named object rather than a bare const Object() so comparisons work.
@@ -473,6 +474,28 @@ class AgentsDataSource {
     return AgentSession.fromJson(
       jsonDecode(response.body) as Map<String, dynamic>,
     );
+  }
+
+  /// OPC-M4-4 — GET /agent-sessions/agents?cwd=<dir>
+  ///
+  /// Returns the list of agents (built-ins + custom) reported by the local
+  /// OpenCode SDK for the given [cwd]. When [cwd] is null the server uses
+  /// the SDK default directory. Returns an empty list on any error so callers
+  /// can safely ignore failures (agent selector gracefully degrades).
+  Future<List<AgentInfo>> fetchAvailableAgents({String? cwd}) async {
+    final uri = Uri.parse('$_baseUrl/agent-sessions/agents').replace(
+      queryParameters: cwd != null ? {'cwd': cwd} : null,
+    );
+    final response = await http.get(
+      uri,
+      headers: AuthSessionStore.headers(),
+    );
+    assertOk(response);
+    final body = jsonDecode(response.body) as Map<String, dynamic>;
+    final list = body['agents'] as List<dynamic>? ?? const [];
+    return list
+        .map((j) => AgentInfo.fromJson(j as Map<String, dynamic>))
+        .toList();
   }
 
   /// OPC-M3-4 — WS send helper for structured slash-command dispatch.

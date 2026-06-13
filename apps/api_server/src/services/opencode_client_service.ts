@@ -1125,6 +1125,29 @@ export class OpencodeClientService {
   }
 
   /**
+   * OPC-M4-4 — GET /agent — list all agents (built-in + custom) for an
+   * optional cwd. Returns an empty array when the client is not ready.
+   *
+   * Throws on SDK error envelope or thrown exception (never swallows to []).
+   */
+  async listAgents(
+    directory?: string,
+  ): Promise<import('@opencode-ai/sdk').SdkAgent[]> {
+    const client = this.requireClient();
+    const raw = await client.agents(
+      directory ? { query: { directory } } : undefined,
+    );
+    if (raw.error) {
+      throw new AppError(
+        502,
+        'SDK_ERROR',
+        `listAgents failed: ${JSON.stringify(raw.error)}`,
+      );
+    }
+    return raw.data ?? [];
+  }
+
+  /**
    * OPC-M1-5 — GET /session/{id}: check whether an SDK session still exists.
    *
    * Returns the Session object when found, or null when the SDK returns an

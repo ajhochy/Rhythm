@@ -514,5 +514,33 @@ declare module '@opencode-ai/sdk' {
         SdkEnvelope<Array<{ name: string; description?: string }>>
       >;
     };
+    /**
+     * OPC-M4-4 — GET /agent — list all agents (built-in + custom) visible
+     * for a given cwd. Verified in @opencode-ai/sdk v1.14.49 sdk.gen.d.ts:
+     *   `agents(options?: Options<AppAgentsData>)` → `Array<Agent>`.
+     * The optional `directory` query param scopes results to that cwd.
+     */
+    agents(options?: { query?: { directory?: string } }): Promise<
+      SdkEnvelope<Array<SdkAgent>>
+    >;
   }
+
+  /**
+   * OPC-M4-4 — Agent descriptor returned by GET /agent.
+   * Mirrors @opencode-ai/sdk types.gen.d.ts `Agent` type (v1.14.49).
+   */
+  export type SdkAgent = {
+    name: string;
+    description?: string;
+    /** 'subagent' | 'primary' | 'all' */
+    mode: string;
+    builtIn: boolean;
+    color?: string;
+    model?: { modelID: string; providerID: string };
+    permission?: {
+      edit?: string;
+      bash?: Record<string, string>;
+      webfetch?: string;
+    };
+  };
 }
