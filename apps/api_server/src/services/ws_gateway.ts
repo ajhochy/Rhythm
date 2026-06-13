@@ -201,12 +201,13 @@ function handleClientMessage(ws: WebSocket, raw: import('ws').RawData): void {
             return;
           }
 
-          // Auto-resume: sessions persist in SQLite across api_server
+          // OPC-M1-5 Auto-resume: sessions persist in SQLite across api_server
           // restarts, but `opencodeSessionMap` is in-process and is wiped
           // on each boot. If the user sends input to a session that has
-          // no current SDK mapping, transparently create a fresh SDK
-          // session, register the mapping, start the stream bridge, and
-          // continue with the prompt — instead of silently dropping it.
+          // no current SDK mapping, try to re-attach to the EXISTING SDK
+          // session first (using sdk_session_id from the DB row), then
+          // fall back to creating a fresh session only if the SDK session
+          // is gone.
           if (!opencodeId) {
             if (!cwd) {
               console.warn(
@@ -215,38 +216,99 @@ function handleClientMessage(ws: WebSocket, raw: import('ws').RawData): void {
               return;
             }
             try {
-              const opencodeSession = await opencodeClient.createSession(
-                sessionName ?? 'Resumed',
-                cwd,
-              );
-              if (!opencodeSession) {
-                ws.send(
-                  JSON.stringify({
-                    v: 1,
-                    type: 'error',
-                    id,
-                    message:
-                      'Could not resume session — Opencode engine unavailable.',
-                  }),
+              // OPC-M1-5: look up the persisted sdk_session_id first.
+              const dbSessionForResume = new AgentSessionsRepository().findById(id);
+              const persistedSdkId = dbSessionForResume?.sdkSessionId ?? null;
+
+              if (persistedSdkId) {
+                // Try to re-attach to the existing SDK session.
+                const existingSession = await opencodeClient.getSession(persistedSdkId);
+                if (existingSession) {
+                  // Re-attach path — session is alive.
+                  opencodeId = existingSession.id;
+                  opencodeSessionMap.set(id, opencodeId);
+                  const { streamBridge } = await import('./opencode_stream_bridge');
+                  streamBridge.clearErrorStatus(id);
+                  streamBridge
+                    .streamSession(id, opencodeId, cwd)
+                    .catch((err) =>
+                      console.error(
+                        `[ws_gateway] auto-resume (re-attach) stream bridge error for ${id}:`,
+                        err,
+                      ),
+                    );
+                  console.log(
+                    `[ws_gateway] auto-resumed (re-attached) session ${id} -> SDK ${opencodeId}`,
+                  );
+                } else {
+                  // SDK session is gone — create a fresh one and persist the new id.
+                  console.warn(
+                    `[ws_gateway] SDK session "${persistedSdkId}" gone for local session ${id} — creating fresh`,
+                  );
+                  const freshSession = await opencodeClient.createSession(
+                    sessionName ?? 'Resumed',
+                    cwd,
+                  );
+                  if (!freshSession) {
+                    ws.send(
+                      JSON.stringify({
+                        v: 1,
+                        type: 'error',
+                        id,
+                        message: 'Could not resume session — Opencode engine unavailable.',
+                      }),
+                    );
+                    return;
+                  }
+                  opencodeId = freshSession.id;
+                  opencodeSessionMap.set(id, opencodeId);
+                  new AgentSessionsRepository().setSdkSessionId(id, opencodeId);
+                  const { streamBridge } = await import('./opencode_stream_bridge');
+                  streamBridge
+                    .streamSession(id, opencodeId, cwd)
+                    .catch((err) =>
+                      console.error(
+                        `[ws_gateway] auto-resume (fresh after gone) stream bridge error for ${id}:`,
+                        err,
+                      ),
+                    );
+                  console.log(
+                    `[ws_gateway] auto-resumed (fresh, old SDK gone) session ${id} -> SDK ${opencodeId}`,
+                  );
+                }
+              } else {
+                // Legacy path: no sdk_session_id persisted — create a fresh session.
+                const opencodeSession = await opencodeClient.createSession(
+                  sessionName ?? 'Resumed',
+                  cwd,
                 );
-                return;
+                if (!opencodeSession) {
+                  ws.send(
+                    JSON.stringify({
+                      v: 1,
+                      type: 'error',
+                      id,
+                      message: 'Could not resume session — Opencode engine unavailable.',
+                    }),
+                  );
+                  return;
+                }
+                opencodeId = opencodeSession.id;
+                opencodeSessionMap.set(id, opencodeId);
+                new AgentSessionsRepository().setSdkSessionId(id, opencodeId);
+                const { streamBridge } = await import('./opencode_stream_bridge');
+                streamBridge
+                  .streamSession(id, opencodeId, cwd)
+                  .catch((err) =>
+                    console.error(
+                      `[ws_gateway] auto-resume (legacy fresh) stream bridge error for ${id}:`,
+                      err,
+                    ),
+                  );
+                console.log(
+                  `[ws_gateway] auto-resumed (legacy fresh) session ${id} -> SDK ${opencodeId}`,
+                );
               }
-              opencodeId = opencodeSession.id;
-              opencodeSessionMap.set(id, opencodeId);
-              const { streamBridge } = await import(
-                './opencode_stream_bridge'
-              );
-              streamBridge
-                .streamSession(id, opencodeId, cwd)
-                .catch((err) =>
-                  console.error(
-                    `[ws_gateway] auto-resume stream bridge error for ${id}:`,
-                    err,
-                  ),
-                );
-              console.log(
-                `[ws_gateway] auto-resumed session ${id} -> SDK ${opencodeId}`,
-              );
             } catch (err) {
               console.error(
                 `[ws_gateway] auto-resume failed for session ${id}:`,

@@ -14,6 +14,8 @@ interface AgentSessionRow {
   status: string;
   status_message: string | null;
   session_token: string | null;
+  /** OPC-M1-5: Opencode SDK session id for resume re-attachment. */
+  sdk_session_id: string | null;
   cwd: string;
   name: string;
   project_id: string | null;
@@ -39,6 +41,7 @@ function rowToModel(row: AgentSessionRow): AgentSession {
     status: row.status as AgentSessionStatus,
     statusMessage: row.status_message ?? null,
     sessionToken: row.session_token,
+    sdkSessionId: row.sdk_session_id ?? null,
     cwd: row.cwd,
     name: row.name,
     projectId: row.project_id ?? null,
@@ -163,6 +166,20 @@ export class AgentSessionsRepository {
         `UPDATE agent_sessions SET session_token = ?, updated_at = ? WHERE id = ?`,
       )
       .run(token, now, id);
+  }
+
+  /**
+   * OPC-M1-5 — Store the Opencode SDK session id for resume re-attachment.
+   * Called at session create time so resume() can look up the SDK session
+   * without calling createSession() again.
+   */
+  setSdkSessionId(id: string, sdkSessionId: string): void {
+    const now = new Date().toISOString();
+    getDb()
+      .prepare(
+        `UPDATE agent_sessions SET sdk_session_id = ?, updated_at = ? WHERE id = ?`,
+      )
+      .run(sdkSessionId, now, id);
   }
 
   updatePreview(id: string, preview: string, lastActivityAt: string): void {

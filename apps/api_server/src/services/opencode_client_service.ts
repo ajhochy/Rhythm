@@ -1002,6 +1002,37 @@ export class OpencodeClientService {
   }
 
   /**
+   * OPC-M1-5 — GET /session/{id}: check whether an SDK session still exists.
+   *
+   * Returns the Session object when found, or null when the SDK returns an
+   * error envelope (e.g. 404) or throws. Null means the session is gone and
+   * resume() must return HTTP 410.
+   *
+   * Does NOT throw — callers use the null signal to distinguish gone vs. error.
+   */
+  async getSession(
+    sdkId: string,
+  ): Promise<import('@opencode-ai/sdk').Session | null> {
+    const client = this.requireClient();
+    try {
+      const raw = await client.session.get({ path: { id: sdkId } });
+      if (raw.error || !raw.data) {
+        logger.warn(
+          `[OpencodeClientService] getSession: session "${sdkId}" not found: ${JSON.stringify(raw.error ?? 'no data')}`,
+        );
+        return null;
+      }
+      return raw.data;
+    } catch (err) {
+      logger.warn(
+        `[OpencodeClientService] getSession threw for "${sdkId}":`,
+        err,
+      );
+      return null;
+    }
+  }
+
+  /**
    * #614 — Dispose: kills the opencode subprocess that the SDK spawned and
    * clears the client reference. Safe to call multiple times.
    *

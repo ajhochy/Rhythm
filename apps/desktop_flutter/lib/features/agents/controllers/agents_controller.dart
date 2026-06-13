@@ -157,6 +157,11 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
 
   AgentSessionConnectivity _connectivity = const AgentSessionConnectivity();
 
+  /// OPC-M1-5 — The id of the local session whose SDK backing was reported
+  /// gone (HTTP 410) during a resume attempt. Non-null signals the view to
+  /// show a "Start fresh" affordance. Cleared by [clearSessionGone].
+  String? _sessionGoneId;
+
   /// Tracks the first time each session was observed in the `starting` state.
   /// Used by [_recomputeStuck] to detect sessions stuck for >30s.
   ///
@@ -179,6 +184,21 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   AgentSessionConnectivity get connectivity => _connectivity;
   String? get error => _error;
   int? get lastErrorStatus => _lastErrorStatus;
+
+  /// OPC-M1-5 — The local session id whose SDK backing was gone (HTTP 410)
+  /// during resume. Non-null means the view should show a "Start fresh"
+  /// affordance. Cleared by [clearSessionGone].
+  String? get sessionGoneId => _sessionGoneId;
+
+  /// OPC-M1-5 — Reset the start-fresh affordance state after the user
+  /// dismisses the dialog or completes the start-fresh action.
+  void clearSessionGone() {
+    if (_sessionGoneId != null) {
+      _sessionGoneId = null;
+      notifyListeners();
+    }
+  }
+
   List<AgentSession> get sessions => List.unmodifiable(_sessions);
   List<AgentSession> get resumable => List.unmodifiable(_resumable);
   List<AgentSession> get archived => List.unmodifiable(_archived);
@@ -672,8 +692,25 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
       _resumable = _resumable.where((s) => s.id != id).toList();
       _sessions = [..._sessions, session];
       notifyListeners();
+
+      // OPC-M1-5: rehydrate the transcript from the REST endpoint immediately
+      // after a successful resume so prior conversation history is visible
+      // before any new WS messages arrive. One fetch, same path as selectSession.
+      try {
+        final result = await _repository.getSession(id);
+        _rehydrateChatMessages(id, result.messages);
+        notifyListeners();
+      } catch (_) {
+        // Rehydrate failure is non-fatal — the session is already resumed;
+        // history will fill in via WS events as they arrive.
+      }
     } catch (e) {
-      if (e is AppError) {
+      if (e is AppError && e.statusCode == 410) {
+        // OPC-M1-5: SDK session is gone — surface the start-fresh affordance.
+        _sessionGoneId = id;
+        _error = e.message;
+        _lastErrorStatus = e.statusCode;
+      } else if (e is AppError) {
         _error = e.message;
         _lastErrorStatus = e.statusCode;
       } else {

@@ -41,6 +41,7 @@ vi.mock('../services/opencode_stream_bridge', () => ({
   streamBridge: {
     streamSession: vi.fn().mockResolvedValue(undefined),
     stopStream: vi.fn(),
+    clearErrorStatus: vi.fn(),
     dispose: vi.fn(),
   },
 }));
@@ -206,7 +207,7 @@ describe('Agent Sessions API', () => {
 
   // ── resume ────────────────────────────────────────────────────────────────
 
-  it('resumes a resumable session by creating a fresh SDK session, mapping it, and starting the bridge', async () => {
+  it('resumes a resumable session (legacy: no sdk_session_id) by creating a fresh SDK session, mapping it, and starting the bridge', async () => {
     const sessionsRepoLocal = new AgentSessionsRepository();
     const inserted = sessionsRepoLocal.insert({
       agentKind: 'claude-code',

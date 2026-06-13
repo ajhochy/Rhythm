@@ -244,6 +244,10 @@ export class AgentSessionsController {
       // Store the SDK session ID mapping so the WS gateway can route user input
       opencodeSessionMap.set(session.id, opencodeSession.id);
 
+      // OPC-M1-5 — Persist the SDK session id on the DB row so resume() can
+      // re-attach to the EXISTING SDK conversation rather than creating a new one.
+      repo.setSdkSessionId(session.id, opencodeSession.id);
+
       // Start streaming Opencode events through the WebSocket gateway.
       // Pass the cwd so the bridge can subscribe to /event with the right
       // directory filter (opencode only delivers session/message events
@@ -510,7 +514,6 @@ export class AgentSessionsController {
         );
       }
 
-      // Resume via Opencode SDK — create a fresh session with context.
       // Auto-recover if the engine was disposed accidentally.
       if (!opencodeClient.isReady) {
         console.log(
@@ -523,21 +526,63 @@ export class AgentSessionsController {
         }
       }
 
-      // "Resume" means continue the local row with a *fresh* SDK session.
-      // The Opencode SDK does not restore prior conversation history; the local
-      // row keeps the same id, name, and message history for the user, but the
-      // backing SDK session is new. Mirror the create() flow below.
-      const opencodeSession = await opencodeClient.createSession(session.name, session.cwd);
-      if (!opencodeSession) {
-        throw AppError.badRequest('Failed to create Opencode session — check your AI account is authorized');
+      // OPC-M1-5 — Real resume continuity: re-attach to the EXISTING SDK session
+      // rather than creating a fresh one.
+      //
+      // Path 1 (happy path): sdk_session_id is set → verify the SDK session still
+      //   exists via getSession → re-register in the session map → clear any error
+      //   state → stream.
+      // Path 2 (gone): SDK returns null → HTTP 410 naming the session. Client
+      //   shows a "Start fresh" affordance; no session map entry is created.
+      // Path 3 (legacy row with no sdk_session_id): fall back to the old create
+      //   path so pre-migration sessions can still resume.
+
+      let sdkSessionId: string;
+
+      if (session.sdkSessionId) {
+        // Path 1/2: attempt re-attach.
+        const existingSession = await opencodeClient.getSession(session.sdkSessionId);
+
+        if (!existingSession) {
+          // Path 2: SDK session is gone.
+          logger.warn(
+            `[AgentSessionsController] resume: SDK session "${session.sdkSessionId}" no longer exists for local session ${session.id} ("${session.name}")`,
+          );
+          res.status(410).json({
+            error: `SDK session "${session.name}" (${session.sdkSessionId}) no longer exists on the server. Use start-fresh to create a new session.`,
+          });
+          return;
+        }
+
+        // Path 1: session still alive — re-attach.
+        sdkSessionId = existingSession.id;
+        logger.info(
+          `[AgentSessionsController] resume: re-attaching to existing SDK session ${sdkSessionId} for local session ${session.id}`,
+        );
+      } else {
+        // Path 3: legacy row (no sdk_session_id) — create a fresh SDK session to
+        // maintain backward compatibility for sessions created before OPC-M1-5.
+        logger.info(
+          `[AgentSessionsController] resume: no sdk_session_id on session ${session.id} — creating fresh SDK session (legacy path)`,
+        );
+        const opencodeSession = await opencodeClient.createSession(session.name, session.cwd);
+        if (!opencodeSession) {
+          throw AppError.badRequest('Failed to create Opencode session — check your AI account is authorized');
+        }
+        sdkSessionId = opencodeSession.id;
+        // Persist for future resumes.
+        repo.setSdkSessionId(session.id, sdkSessionId);
       }
 
-      // Store the SDK session ID mapping so the WS gateway can route user input
-      opencodeSessionMap.set(session.id, opencodeSession.id);
+      // Register in session map (both re-attach and legacy-create paths).
+      opencodeSessionMap.set(session.id, sdkSessionId);
+
+      // OPC-M1-4: clear persisted error status so errored sessions can resume cleanly.
+      streamBridge.clearErrorStatus(session.id);
 
       // Start streaming Opencode events through the WebSocket gateway
       try {
-        await streamBridge.streamSession(session.id, opencodeSession.id, session.cwd);
+        await streamBridge.streamSession(session.id, sdkSessionId, session.cwd);
       } catch (err) {
         console.error(`[AgentSessionsController] Stream bridge error for session ${session.id}:`, err);
       }

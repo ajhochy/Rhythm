@@ -6,6 +6,25 @@ _(Parked bugs from before 2026-05-27 run. #638 and #635 below are now RESOLVED �
 
 ## Recent coding-agent runs
 
+### 2026-06-12 — opc-m1-foundation / issue-689 — Resume re-attaches SDK session for real continuity (OPC-M1-5)
+- Task: (1) add `sdk_session_id TEXT` column (PRAGMA-guarded migration); (2) persist `sdk_session_id` at `create()` time; (3) rewrite `resume()` to re-attach to the EXISTING SDK session via `getSession()` typed wrapper; HTTP 410 if session gone; (4) add `getSession()` typed wrapper to `OpencodeClientService`; (5) add `clearErrorStatus()` call in `resume()` (OPC-M1-4 integration); (6) update ws_gateway auto-resume path to try re-attach first, fall back to fresh create only if gone; (7) Flutter: `resumeSession()` calls `getSession` rehydrate after success; surfaces `sessionGoneId` + `clearSessionGone()` for 410 affordance; (8) mark `sessionToken` as deprecated (comment only).
+- Files modified (production):
+  - `apps/api_server/src/database/migrations.ts` — OPC-M1-5 PRAGMA-guarded `ALTER TABLE agent_sessions ADD COLUMN sdk_session_id TEXT`.
+  - `apps/api_server/src/models/agent_session.ts` — added `sdkSessionId: string | null`; marked `sessionToken` as deprecated.
+  - `apps/api_server/src/repositories/agent_sessions_repository.ts` — added `sdk_session_id` to `AgentSessionRow` and `rowToModel`; added `setSdkSessionId(id, sdkId)` method.
+  - `apps/api_server/src/services/opencode_client_service.ts` — added `getSession(sdkId)` typed wrapper (calls `client.session.get`, returns null on error/missing).
+  - `apps/api_server/src/controllers/agent_sessions_controller.ts` — `create()` calls `repo.setSdkSessionId` after SDK session creation; `resume()` rewrites to re-attach path (getSession → set map → clearErrorStatus → stream) with 410 fallback; legacy path (no sdk_session_id) creates fresh + persists.
+  - `apps/api_server/src/services/ws_gateway.ts` — auto-resume block updated: tries `getSession(persistedSdkId)` first, then either re-attaches (with clearErrorStatus + persist) or creates fresh + persists; legacy path (no sdk_session_id) unchanged shape but also persists new id.
+  - `apps/desktop_flutter/lib/features/agents/controllers/agents_controller.dart` — `_sessionGoneId` state field; `sessionGoneId` getter; `clearSessionGone()` method; `resumeSession()` calls `_repository.getSession(id)` then `_rehydrateChatMessages` on success; catches 410 AppError and sets `_sessionGoneId`.
+- Files modified (tests):
+  - `apps/api_server/src/__tests__/opc_m1_5_resume_contract.test.ts` (new) — 4 vitest contract tests: c1 (sdk_session_id persisted on create), c2 (resume re-attaches, zero createSession calls), c3 (map points to original SDK id after resume), c4 (410 when SDK gone, no map entry).
+  - `apps/desktop_flutter/test/features/agents/opc_m1_5_resume_test.dart` (new) — 3 Flutter contract tests: c5 (one getSession rehydrate fetch after resume), c6 (410 → sessionGoneId set), c6b (clearSessionGone resets).
+  - `apps/api_server/src/__tests__/agent_sessions.test.ts` — added `clearErrorStatus: vi.fn()` to stream bridge mock; renamed legacy resume test.
+  - `docs/ai/contracts/issue-689.json` (new) — 7-criteria contract (c1–c6 automated, c7 manual gate).
+- Red→green proof: vitest 645→649 (+4), flutter test 317→320 (+3). All contract tests green. `tsc --noEmit` ✓, `dart format` ✓, `flutter analyze --no-fatal-infos` ✓ (0 errors/warnings).
+- Decisions made: (1) Re-attach path uses `session.get` (GET /session/{id}) as the existence check — if it returns null/error, session is gone → 410. (2) Legacy rows (no sdk_session_id) get fresh create on resume + the new id is persisted so subsequent resumes will use re-attach path. (3) `clearErrorStatus` is called on all resume paths (re-attach, legacy) so errored sessions resume cleanly. (4) `sessionGoneId` in Flutter is a simple nullable string — no separate state enum needed; the view checks `sessionGoneId != null` to show the start-fresh affordance.
+- Deviations from spec: none.
+
 ### 2026-06-12 — opc-m1-foundation / issue-688 — Stream lifecycle + sentinel cleanup, dead code removal (OPC-M1-4)
 - Task: (1) implement real `stopStream(localId)` — was a no-op; (2) replace in-memory `erroredSessions` 5s setTimeout sentinel with persisted `status='error'` + `status_message` column on `agent_sessions` DB row; (3) confirm `__pending__` is already blocked at ws_gateway boundary and add a boundary test; (4) confirm `pty_runner.ts` is gone and update architecture.md stale notes.
 - Files modified (production):

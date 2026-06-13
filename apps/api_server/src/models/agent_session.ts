@@ -13,7 +13,18 @@ export interface AgentSession {
   status: AgentSessionStatus;
   /** Human-readable error message when status='error'. Null otherwise. */
   statusMessage: string | null;
+  /**
+   * @deprecated Use sdkSessionId for resume continuity (OPC-M1-5).
+   * Retained for backward compatibility — do not remove the column.
+   */
   sessionToken: string | null;
+  /**
+   * OPC-M1-5 — The Opencode SDK session id (e.g. "ses_abc123").
+   * Set at session create time; used by resume() to re-attach to the existing
+   * SDK conversation rather than creating a fresh session. Null for sessions
+   * created before this migration.
+   */
+  sdkSessionId: string | null;
   cwd: string;
   name: string;
   projectId: string | null;

@@ -1172,4 +1172,14 @@ export function runMigrations(db: Database.Database): void {
   if (!agentSessionCols688.includes('status_message')) {
     db.exec(`ALTER TABLE agent_sessions ADD COLUMN status_message TEXT`);
   }
+
+  // OPC-M1-5 (issue #689) — sdk_session_id column for resume continuity.
+  // Stores the Opencode SDK session id so resume() can re-attach to the same
+  // conversation instead of creating a fresh SDK session. The legacy
+  // session_token field is retained for backward compatibility (not removed),
+  // but sdk_session_id is the authoritative resume key from this migration on.
+  const agentSessionCols689 = (db.pragma('table_info(agent_sessions)') as { name: string }[]).map((c) => c.name);
+  if (!agentSessionCols689.includes('sdk_session_id')) {
+    db.exec(`ALTER TABLE agent_sessions ADD COLUMN sdk_session_id TEXT`);
+  }
 }
