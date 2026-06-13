@@ -1,0 +1,55 @@
+{
+  "issue": 695,
+  "generated": "2026-06-12",
+  "criteria": [
+    {
+      "criterion_id": "issue-695-c1",
+      "text": "POST /agent-sessions/:id/revert body {messageId} invokes the SDK revert wrapper with (sdkId, messageId) — vitest spy assert; POST /agent-sessions/:id/unrevert likewise; SDK errors → AppError with message.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/opc_m3_2_revert_unrevert.test.ts",
+      "test_id": "issue-695-c1: revert/unrevert route contracts",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-695-c2",
+      "text": "Message action row on assistant messages includes 'Revert to here'; tapping shows a confirmation dialog naming the consequence ('Undo file changes after this point'); confirm dispatches the call; cancel does not (widget tests, mocked data source).",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agents/opc_m3_2_revert_test.dart",
+      "test_id": "issue-695-c2: revert action row and confirmation dialog",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-695-c3",
+      "text": "After a successful revert, messages after the revert point render with the reverted treatment (dimmed + badge) based on the session's revert state from the SDK/refetched messages, and a 'Restore reverted changes' banner is visible.",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agents/opc_m3_2_revert_test.dart",
+      "test_id": "issue-695-c3: reverted treatment and restore banner",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-695-c4",
+      "text": "Tapping the banner dispatches unrevert and clears the reverted treatment on success.",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agents/opc_m3_2_revert_test.dart",
+      "test_id": "issue-695-c4: unrevert banner clears reverted treatment",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-695-c5",
+      "text": "Both actions trigger a Changes-tab diff refetch (controller test).",
+      "mode": "unit",
+      "test_file": "apps/desktop_flutter/test/features/agents/opc_m3_2_revert_test.dart",
+      "test_id": "issue-695-c5: revert/unrevert trigger fetchSessionDiff",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-695-c6",
+      "text": "ai-workflow checks --level pr exits 0; vitest + flutter test green.",
+      "mode": "manual",
+      "reason": "Gate-level check; confirmed by verification-gate running ai-workflow checks --level pr.",
+      "status": "pending"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": ["issue-695-c6"]
+}

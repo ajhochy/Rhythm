@@ -130,6 +130,11 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   // empty-but-successful diff (acceptance criterion c3).
   final Map<String, String> _sessionDiffError = {};
 
+  // OPC-M3-2: Per-session revert state.
+  // true means the session currently has a revert applied (some messages are
+  // reverted / dimmed). Cleared after a successful unrevert.
+  final Map<String, bool> _sessionReverted = {};
+
   // --------------------------------------------------------------------------
   // Model-picker state
   // --------------------------------------------------------------------------
@@ -306,6 +311,65 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   /// Triggers a refetch for [sessionId] only — other sessions are unaffected.
   void handleSessionDiffEvent(String sessionId) {
     unawaited(fetchSessionDiff(sessionId));
+  }
+
+  // ── OPC-M3-2: revert / unrevert ────────────────────────────────────────────
+
+  /// True when [sessionId] currently has an active revert (messages after the
+  /// revert point are dimmed + badged; "Restore reverted changes" banner shown).
+  bool sessionIsReverted(String sessionId) =>
+      _sessionReverted[sessionId] ?? false;
+
+  /// OPC-M3-2 — Revert the session to the message identified by [messageId].
+  ///
+  /// On success:
+  ///   - marks the session as reverted so messages after the point render dimmed.
+  ///   - triggers a Changes-tab diff refetch.
+  /// Throws on server error — the view catches and surfaces it.
+  Future<void> revertSession(String sessionId, String messageId) async {
+    await _repository.revertSession(sessionId, messageId);
+    if (_disposed) return;
+    _sessionReverted[sessionId] = true;
+    notifyListeners();
+    unawaited(fetchSessionDiff(sessionId));
+  }
+
+  /// OPC-M3-2 — Restore all reverted messages for [sessionId].
+  ///
+  /// On success:
+  ///   - clears the reverted state.
+  ///   - triggers a Changes-tab diff refetch.
+  /// Throws on server error — the view catches and surfaces it.
+  Future<void> unrevertSession(String sessionId) async {
+    await _repository.unrevertSession(sessionId);
+    if (_disposed) return;
+    _sessionReverted.remove(sessionId);
+    notifyListeners();
+    unawaited(fetchSessionDiff(sessionId));
+  }
+
+  /// Test-only: seed the reverted state for [sessionId] without a server round-trip.
+  @visibleForTesting
+  void setSessionRevertedForTest(String sessionId, bool reverted) {
+    if (reverted) {
+      _sessionReverted[sessionId] = true;
+    } else {
+      _sessionReverted.remove(sessionId);
+    }
+    notifyListeners();
+  }
+
+  /// Test-only: inject a [ChatMessage] directly into the chat store.
+  @visibleForTesting
+  void setMessageForTest(ChatMessage message) {
+    final existing = _chatMessagesBySession[message.sessionId] ?? [];
+    final idx = existing.indexWhere((m) => m.id == message.id);
+    if (idx >= 0) {
+      existing[idx] = message;
+    } else {
+      _chatMessagesBySession[message.sessionId] = [...existing, message];
+    }
+    notifyListeners();
   }
 
   /// Test-only: seed a diff result directly without a HTTP round-trip.

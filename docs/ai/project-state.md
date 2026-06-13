@@ -1,10 +1,40 @@
 # Project State
 
+## Current focus
+
+**Branch:** `opc-m1-foundation`
+**Active milestone:** M3 — Session features
+**Last verified issue:** #695 — OPC-M3-2 Undo: revert / unrevert UI (PASS, commit `73608c6`)
+**Test status:** vitest 661/661 ✓ | flutter test 370/370 ✓ | `ai-workflow checks --level pr` exit 0 ✓
+**Next issue:** #696 — OPC-M3-3 Compaction (summarize) with UI affordance (M3-3 per current-plan.md)
+
 ## Known bugs (parked, not blocking PR #617)
 
 _(Parked bugs from before 2026-05-27 run. #638 and #635 below are now RESOLVED — see 2026-05-27 run entry.)_
 
 ## Recent coding-agent runs
+
+### 2026-06-12 — opc-m1-foundation / issue-695 — Undo: revert / unrevert UI (OPC-M3-2)
+- Files modified (production):
+  - `apps/api_server/src/controllers/agent_sessions_controller.ts` — added `revert()` and `unrevert()` async methods; each looks up the session, gets the SDK mapping, calls `opencodeClient.revertSession(sdkId, messageId)` / `unrevertSession(sdkId)`, forwards SDK errors via `next(err)`.
+  - `apps/api_server/src/routes/agent_sessions_routes.ts` — added `POST /:id/revert` and `POST /:id/unrevert` routes.
+  - `apps/desktop_flutter/lib/features/agents/models/chat_models.dart` — added `isReverted: bool = false` field to `ChatMessage`.
+  - `apps/desktop_flutter/lib/features/agents/data/agents_data_source.dart` — added `revertSession(id, messageId)` and `unrevertSession(id)` HTTP methods.
+  - `apps/desktop_flutter/lib/features/agents/repositories/agents_repository.dart` — added `revertSession` and `unrevertSession` delegate methods.
+  - `apps/desktop_flutter/lib/features/agents/controllers/agents_controller.dart` — added `_sessionReverted` map state; `sessionIsReverted()` getter; `revertSession()` + `unrevertSession()` methods (each calls repo, updates `_sessionReverted`, notifyListeners, unawaited fetchSessionDiff); `setSessionRevertedForTest()` + `setMessageForTest()` test hooks.
+  - `apps/desktop_flutter/lib/features/agents/views/_message_actions_row.dart` — added `role` and `isReverted` constructor params; `_showRevertDialog()` confirmation AlertDialog; `Icons.history` action button for assistant messages; "reverted" badge shown when `isReverted == true`.
+  - `apps/desktop_flutter/lib/features/agents/views/_revert_restore_banner.dart` (new) — `RevertRestoreBanner` widget: shown at top of transcript when `sessionIsReverted` is true; "Restore reverted changes" text + "Restore" TextButton dispatches `unrevertSession`.
+  - `apps/desktop_flutter/lib/features/agents/views/agents_view.dart` — `_buildTranscriptBody` wraps ListView in `Column([RevertRestoreBanner, Expanded(ListView.builder)])`, passes `role`/`isReverted` to `MessageActionsRow`, wraps reverted messages in `Opacity(0.45)`.
+- Files modified (tests):
+  - `apps/api_server/src/__tests__/opc_m3_2_revert_unrevert.test.ts` (new) — 6 vitest tests c1a–c1f: revert calls SDK with (sdkId, messageId); no SDK mapping → 400; SDK error → next(); unrevert same pattern.
+  - `apps/desktop_flutter/test/features/agents/opc_m3_2_revert_test.dart` (new) — 11 flutter tests c2–c5 including REAL-SURFACE test (c2a pumps the actual `MessageActionsRow` as called from `agents_view.dart`).
+  - `docs/ai/contracts/issue-695.json` (new) — 6 criteria contract (c1–c5 automated, c6 manual).
+  - 8 test files updated with `revertSession`/`unrevertSession` interface methods: `opc_m3_1_changes_tab_mounted_test.dart`, `opc_m3_1_changes_tab_test.dart`, `integration_test/follow_up_smoke_test.dart`, `agents_controller_test.dart`, `agent_trigger_watcher_test.dart`, `issue_626_chip_status_flip_test.dart`, `new_session_dialog_error_test.dart`.
+- Red→green proof: vitest 655→661 (+6 tests). Flutter 357→370 (+11 new tests + 8 test files updated for interface). All pass. `ai-workflow checks --level pr` exit 0.
+- Checks: flutter analyze --no-fatal-infos ✓ (231 infos all pre-existing, exit 0), dart format ✓ (3 files reformatted, clean after), tsc --noEmit ✓, vitest ✓.
+- Decisions made: (1) `_sessionReverted` is in-memory controller state, not persisted; reverted state is session-scoped and intentionally transient. (2) `unawaited(fetchSessionDiff)` is called after both revert and unrevert to refresh the Changes tab badge. (3) REAL-SURFACE guard: c2a test pumps `MessageActionsRow` with the exact parameter signature used in `agents_view.dart`'s `_buildTranscriptBody`, preventing the orphaned-widget regression pattern from M1-4/#694. (4) `_buildTranscriptBody` layout changed from bare `ListView.builder` to `Column([RevertRestoreBanner, Expanded(ListView.builder)])` — `Expanded` is required to avoid unbounded-height overflow.
+- Deviations from spec: none.
+- Concerns: (1) The `isReverted` flag on individual `ChatMessage` objects is driven by controller state (`setMessageForTest` exists for tests), but in production the controller marks all messages after the revert point as reverted via `_sessionReverted` map — per-message `isReverted` is computed in `agents_view.dart`'s build loop, not stored on the model persistently. (2) `AgentsRepository` interface exhaustiveness: each new method requires updating all implementors — now 8+ test files; a concrete base class or `noSuchMethod` fallback would reduce this burden.
 
 ### 2026-06-12 — opc-m1-foundation / issue-694 — Changes tab via real GET /session/{id}/diff (OPC-M3-1)
 - Files modified (production):

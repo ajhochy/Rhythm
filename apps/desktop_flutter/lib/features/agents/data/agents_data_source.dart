@@ -365,4 +365,28 @@ class AgentsDataSource {
     final list = jsonDecode(response.body) as List<dynamic>;
     return list.cast<Map<String, dynamic>>();
   }
+
+  /// OPC-M3-2 — POST /agent-sessions/:id/revert { messageId }
+  ///
+  /// Reverts the session to the message identified by [messageId], undoing
+  /// all file changes that occurred after that point. Throws on HTTP error.
+  Future<void> revertSession(String id, String messageId) async {
+    final response = await http.post(
+      Uri.parse('$_baseUrl/agent-sessions/$id/revert'),
+      headers: AuthSessionStore.headers(json: true),
+      body: jsonEncode({'messageId': messageId}),
+    );
+    assertOk(response);
+  }
+
+  /// OPC-M3-2 — POST /agent-sessions/:id/unrevert
+  ///
+  /// Restores all messages that were reverted. Throws on HTTP error.
+  Future<void> unrevertSession(String id) async {
+    final response = await http.post(
+      Uri.parse('$_baseUrl/agent-sessions/$id/unrevert'),
+      headers: AuthSessionStore.headers(),
+    );
+    assertOk(response);
+  }
 }

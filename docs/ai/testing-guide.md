@@ -17,7 +17,7 @@ All commands delegate to `scripts/run_ai_workflow.py` in this repo.
 ### api_server (Node.js/TypeScript)
 ```bash
 cd apps/api_server
-npm test                  # vitest run — 655 tests across 71 files
+npm test                  # vitest run — 661 tests (as of OPC-M3-2 / issue #695)
 node_modules/.bin/tsc --noEmit   # TypeScript type check (no tsc in global PATH)
 ```
 
@@ -41,6 +41,10 @@ dart format . --set-exit-if-changed # CI fails on format violations
 | `src/services/recurrence_service.test.ts` | Rhythm/recurrence generation logic |
 | `src/__tests__/weekly_planning_service.test.ts` | Weekly planner assembly |
 | `src/__tests__/workspace.test.ts` | Workspace join/share/message flows |
+| `src/__tests__/opc_m3_1_changes_tab_diff.test.ts` | OPC-M3-1: GET /session/{id}/diff via typed SDK wrapper (c1a–c1c) |
+| `src/__tests__/opc_m3_2_revert_unrevert.test.ts` | OPC-M3-2: POST /session/{id}/revert + unrevert route contracts (c1a–c1f) |
+| `test/features/agents/opc_m3_1_changes_tab_test.dart` | OPC-M3-1: ChangesTab widget (c2–c5), WS event → fetchSessionDiff |
+| `test/features/agents/opc_m3_2_revert_test.dart` | OPC-M3-2: MessageActionsRow revert button, RevertRestoreBanner, controller revert state (c2–c5); includes REAL-SURFACE test (c2a) |
 
 ## Mocking the Opencode engine in tests
 

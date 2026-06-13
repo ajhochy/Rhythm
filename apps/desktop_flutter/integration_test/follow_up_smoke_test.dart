@@ -234,6 +234,12 @@ class _FakeAgentsRepository implements AgentsRepository {
 
   @override
   Future<List<Map<String, dynamic>>> fetchSessionDiff(String id) async => [];
+
+  @override
+  Future<void> revertSession(String sessionId, String messageId) async {}
+
+  @override
+  Future<void> unrevertSession(String sessionId) async {}
 }
 
 class _FakeLocalNotificationService extends LocalNotificationService {

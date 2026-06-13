@@ -595,6 +595,43 @@ export class AgentSessionsController {
     }
   }
 
+  // OPC-M3-2: revert the session to a prior message (POST /:id/revert).
+  async revert(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const session = repo.findById(req.params.id);
+      if (!session) throw AppError.notFound('AgentSession');
+      const opencodeId = opencodeSessionMap.get(session.id);
+      if (!opencodeId) {
+        throw AppError.badRequest('Session has no active SDK mapping; cannot revert.');
+      }
+      const body = (req.body ?? {}) as Record<string, unknown>;
+      const messageId = body.messageId as string | undefined;
+      if (!messageId || typeof messageId !== 'string') {
+        throw AppError.badRequest('messageId is required in the request body');
+      }
+      const result = await opencodeClient.revertSession(opencodeId, messageId);
+      res.json(result);
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  // OPC-M3-2: restore all reverted messages (POST /:id/unrevert).
+  async unrevert(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const session = repo.findById(req.params.id);
+      if (!session) throw AppError.notFound('AgentSession');
+      const opencodeId = opencodeSessionMap.get(session.id);
+      if (!opencodeId) {
+        throw AppError.badRequest('Session has no active SDK mapping; cannot unrevert.');
+      }
+      const result = await opencodeClient.unrevertSession(opencodeId);
+      res.json(result);
+    } catch (err) {
+      next(err);
+    }
+  }
+
   listMessages(req: Request, res: Response, next: NextFunction): void {
     try {
       const session = repo.findById(req.params.id);

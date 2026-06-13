@@ -107,6 +107,12 @@ class _StubAgentsRepository implements AgentsRepository {
       stagedDiff;
 
   @override
+  Future<void> revertSession(String sessionId, String messageId) async {}
+
+  @override
+  Future<void> unrevertSession(String sessionId) async {}
+
+  @override
   noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 

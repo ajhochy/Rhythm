@@ -11,6 +11,7 @@ class ChatMessage {
     required this.createdAt,
     this.cost,
     this.tokens,
+    this.isReverted = false,
   });
 
   final String id;
@@ -24,6 +25,10 @@ class ChatMessage {
   /// OPC-M2-4: token usage map (null for user / legacy rows).
   /// Keys: 'input', 'output', 'reasoning', 'cache'.
   Map<String, dynamic>? tokens;
+
+  /// OPC-M3-2: true when this message has been reverted (undone) by the user.
+  /// Reverted messages render dimmed with a "reverted" badge.
+  bool isReverted;
 
   /// OPC-M1-3: construct a [ChatMessage] from a structured REST row.
   ///

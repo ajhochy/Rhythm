@@ -203,6 +203,12 @@ class _FakeAgentsRepository implements AgentsRepository {
   Future<List<Map<String, dynamic>>> fetchSessionDiff(String id) async {
     return [];
   }
+
+  @override
+  Future<void> revertSession(String sessionId, String messageId) async {}
+
+  @override
+  Future<void> unrevertSession(String sessionId) async {}
 }
 
 // ---------------------------------------------------------------------------

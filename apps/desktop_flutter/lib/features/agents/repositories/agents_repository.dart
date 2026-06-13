@@ -104,4 +104,12 @@ class AgentsRepository {
   /// OPC-M3-1 — GET /agent-sessions/:id/diff — fetch working-tree diff.
   Future<List<Map<String, dynamic>>> fetchSessionDiff(String id) =>
       _dataSource.fetchSessionDiff(id);
+
+  /// OPC-M3-2 — POST /agent-sessions/:id/revert — revert to a prior message.
+  Future<void> revertSession(String sessionId, String messageId) =>
+      _dataSource.revertSession(sessionId, messageId);
+
+  /// OPC-M3-2 — POST /agent-sessions/:id/unrevert — restore reverted messages.
+  Future<void> unrevertSession(String sessionId) =>
+      _dataSource.unrevertSession(sessionId);
 }

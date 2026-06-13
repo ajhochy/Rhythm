@@ -26,6 +26,7 @@ import '_markdown_message_body.dart';
 import '_message_actions_row.dart';
 import '_reasoning_block.dart';
 import '_retrying_indicator.dart';
+import '_revert_restore_banner.dart';
 import '_session_side_panel.dart';
 import '_permission_card.dart';
 import '_permission_mode_picker.dart';
@@ -1321,43 +1322,64 @@ class _TranscriptPanelState extends State<_TranscriptPanel> {
       );
     }
 
+    // OPC-M3-2: track whether the session has an active revert so we can
+    // dim messages after the revert point and show the restore banner.
+    final isReverted = controller.sessionIsReverted(session.id);
+
     return MessageTimeTicker(
-      child: ListView.builder(
-        controller: _scrollController,
-        padding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
-        itemCount: chatMessages.length,
-        itemBuilder: (context, index) {
-          final m = chatMessages[index];
-          final parts = controller.chatPartsFor(m.id);
-          // Collect full text for copy action.
-          final copyText = parts.map((p) => p.text).join('').trim();
-          // OPC-M2-4: show cost footer for assistant messages with a cost.
-          final showCostFooter = m.role != 'user' && m.cost != null;
-          return Padding(
-            padding: const EdgeInsets.only(bottom: 8),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                _ChatBubble(
-                  message: m,
-                  parts: parts,
-                  sessionId: session.id,
-                ),
-                if (showCostFooter)
-                  Padding(
-                    padding: const EdgeInsets.only(left: 4, top: 2),
-                    child: ChatCostFooter(cost: m.cost, tokens: m.tokens),
-                  ),
-                MessageActionsRow(
-                  sessionId: session.id,
-                  messageId: m.id,
-                  createdAt: m.createdAt,
-                  text: copyText,
-                ),
-              ],
+      child: Column(
+        children: [
+          // OPC-M3-2: banner above the message list when a revert is active.
+          RevertRestoreBanner(sessionId: session.id),
+          Expanded(
+            child: ListView.builder(
+              controller: _scrollController,
+              padding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
+              itemCount: chatMessages.length,
+              itemBuilder: (context, index) {
+                final m = chatMessages[index];
+                final parts = controller.chatPartsFor(m.id);
+                // Collect full text for copy action.
+                final copyText = parts.map((p) => p.text).join('').trim();
+                // OPC-M2-4: show cost footer for assistant messages with a cost.
+                final showCostFooter = m.role != 'user' && m.cost != null;
+                // OPC-M3-2: dim reverted messages.
+                final messageIsReverted = isReverted && m.isReverted;
+                Widget bubble = Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    _ChatBubble(
+                      message: m,
+                      parts: parts,
+                      sessionId: session.id,
+                    ),
+                    if (showCostFooter)
+                      Padding(
+                        padding: const EdgeInsets.only(left: 4, top: 2),
+                        child: ChatCostFooter(cost: m.cost, tokens: m.tokens),
+                      ),
+                    MessageActionsRow(
+                      sessionId: session.id,
+                      messageId: m.id,
+                      createdAt: m.createdAt,
+                      text: copyText,
+                      role: m.role,
+                      isReverted: messageIsReverted,
+                    ),
+                  ],
+                );
+                // OPC-M3-2: wrap reverted messages in an Opacity widget.
+                if (messageIsReverted) {
+                  bubble = Opacity(opacity: 0.45, child: bubble);
+                }
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: bubble,
+                );
+              },
             ),
-          );
-        },
+          ),
+        ],
       ),
     );
   }
