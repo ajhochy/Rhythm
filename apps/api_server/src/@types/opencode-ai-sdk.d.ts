@@ -264,15 +264,27 @@ declare module '@opencode-ai/sdk' {
 
   // ── Permission event ──
 
-  export type EventPermissionAsked = {
-    type: 'permission.asked';
-    properties: {
-      sessionID: string;
-      permissionID: string;
-      toolName: string;
-      args?: Record<string, unknown>;
-      summary?: string;
-    };
+  /**
+   * Real SDK permission shape (v1.14.49 types.gen.d.ts `Permission`). The
+   * `type` field is the tool/permission kind; `title` is the human summary;
+   * `metadata` carries the tool args. There is NO `permission.asked` event —
+   * the SDK emits `permission.updated` with this payload.
+   */
+  export type Permission = {
+    id: string;
+    type: string;
+    pattern?: string | Array<string>;
+    sessionID: string;
+    messageID: string;
+    callID?: string;
+    title: string;
+    metadata: Record<string, unknown>;
+    time: { created: number };
+  };
+
+  export type EventPermissionUpdated = {
+    type: 'permission.updated';
+    properties: Permission;
   };
 
   // OPC-M3-5: emitted by opencode when the todo list for a session changes.
@@ -314,7 +326,7 @@ declare module '@opencode-ai/sdk' {
     | EventSessionError
     | EventSessionDiff
     | EventFileEdited
-    | EventPermissionAsked
+    | EventPermissionUpdated
     | EventTodoUpdated;
 
   // ── Provider types ──

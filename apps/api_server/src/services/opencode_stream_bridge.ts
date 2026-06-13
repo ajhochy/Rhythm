@@ -732,21 +732,27 @@ export class OpencodeStreamBridge {
         break;
       }
 
-      case 'permission.asked': {
-        const permProps = event.properties as {
+      case 'permission.updated': {
+        // The real SDK emits `permission.updated` with a `Permission` payload
+        // (v1.14.49) — there is NO `permission.asked` event. Listening for the
+        // wrong name silently dropped every permission request, so any
+        // permission-gated tool (write/edit) hung the session forever with no
+        // card. `event.properties` IS the Permission object:
+        //   { id, type, pattern?, sessionID, messageID, callID?, title, metadata, time }
+        const perm = event.properties as {
+          id?: string;
+          type?: string;
           sessionID?: string;
-          permissionID?: string;
-          toolName?: string;
-          args?: Record<string, unknown>;
-          summary?: string;
+          title?: string;
+          metadata?: Record<string, unknown>;
         };
-        const permissionId = permProps.permissionID;
+        const permissionId = perm.id;
         if (!permissionId || !localSessionId) break;
 
         const sdkSessionId = opencodeSessionId ?? '';
-        const toolName = permProps.toolName ?? '';
-        const args = permProps.args ?? {};
-        const summary = permProps.summary ?? toolName;
+        const toolName = perm.type ?? '';
+        const args = perm.metadata ?? {};
+        const summary = perm.title ?? toolName;
 
         // Consult the session's permission_mode to decide whether to
         // auto-respond or forward to the user.
