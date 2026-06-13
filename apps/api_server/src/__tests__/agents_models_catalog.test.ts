@@ -21,12 +21,12 @@ vi.mock('../services/opencode_engine', () => {
     isReady: true,
     listProviders: vi.fn().mockResolvedValue([]),
     listModels: vi.fn().mockImplementation((providerId: string) => {
-      const byProvider: Record<string, Array<{ id: string; name?: string }>> = {
+      const byProvider: Record<string, Array<{ id: string; name?: string; contextLimit?: number }>> = {
         anthropic: [
-          { id: 'claude-opus-4-7' },
-          { id: 'claude-opus-4-5' },
-          { id: 'claude-sonnet-4-6' },
-          { id: 'claude-haiku-4-5' },
+          { id: 'claude-opus-4-7', contextLimit: 200000 },
+          { id: 'claude-opus-4-5', contextLimit: 200000 },
+          { id: 'claude-sonnet-4-6', contextLimit: 200000 },
+          { id: 'claude-haiku-4-5', contextLimit: 200000 },
         ],
         openai: [
           { id: 'gpt-5.3-codex' },
@@ -254,6 +254,29 @@ describe('GET /agents/models/catalog', () => {
 
     expect(rows.find((r) => r.provider === 'openai' && r.modelId === 'gpt-5-mini')).toBeUndefined();
     expect(rows.find((r) => r.provider === 'openai' && r.modelId === 'gpt-5.4-mini')).toBeDefined();
+  });
+
+  it('includes contextLimit for models where the SDK reports a limit', async () => {
+    mockAuthedProviders.push('anthropic');
+
+    const res = await fetch(`${baseUrl}/agents/models/catalog`, {
+      headers: authHeaders,
+    });
+    const rows = await res.json() as Array<Record<string, unknown>>;
+
+    // All anthropic rows should have contextLimit: 200000 per mock.
+    const anthropicRows = rows.filter((r) => r.provider === 'anthropic');
+    expect(anthropicRows.length).toBeGreaterThan(0);
+    for (const row of anthropicRows) {
+      expect(row.contextLimit).toBe(200000);
+    }
+
+    // OpenAI rows have no contextLimit in the mock — field must be absent.
+    const openaiRows = rows.filter((r) => r.provider === 'openai');
+    expect(openaiRows.length).toBeGreaterThan(0);
+    for (const row of openaiRows) {
+      expect(row.contextLimit).toBeUndefined();
+    }
   });
 
   afterEach(async () => {

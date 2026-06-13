@@ -195,6 +195,7 @@ class _ContextTab extends StatelessWidget {
   Widget build(BuildContext context) {
     final controller = context.watch<AgentsController>();
     final totalTokens = controller.sessionTotalInputTokens(session.id);
+    final contextWindow = controller.contextWindowForSession(session);
     return ListView(
       padding: const EdgeInsets.all(12),
       children: [
@@ -202,7 +203,8 @@ class _ContextTab extends StatelessWidget {
         _row(context, 'Cwd', session.cwd),
         _row(context, 'Status', session.status.wireValue),
         const SizedBox(height: 8),
-        _ContextUsageGauge(tokensUsed: totalTokens),
+        _ContextUsageGauge(
+            tokensUsed: totalTokens, contextWindow: contextWindow),
       ],
     );
   }
@@ -239,8 +241,12 @@ class _ContextTab extends StatelessWidget {
 /// Issue #718 — Context-usage gauge for the Context tab.
 ///
 /// Displays the cumulative input tokens used vs the model's context-window
-/// capacity (200k default), formatted as "X tokens / 200k" with a coloured
+/// capacity, formatted as "X tokens / Yk" with a coloured
 /// [LinearProgressIndicator].
+///
+/// When [contextWindow] is supplied (from the catalog's per-model limit), it
+/// is used as the denominator. When null, falls back to [_kDefaultContextWindow]
+/// (200k), which is a safe default for claude-sonnet-class models.
 ///
 /// Colour thresholds:
 ///   - green  below 60 %
@@ -249,14 +255,16 @@ class _ContextTab extends StatelessWidget {
 ///
 /// Shows "No messages yet" when [tokensUsed] is 0.
 class _ContextUsageGauge extends StatelessWidget {
-  const _ContextUsageGauge({required this.tokensUsed});
+  const _ContextUsageGauge({required this.tokensUsed, this.contextWindow});
 
   final int tokensUsed;
 
-  /// Default context window (tokens). Claude 3.x / claude-sonnet is 200 000.
-  /// NOTE: The provider-list API does not currently expose per-model context
-  /// limits. A fixed 200k default is used here (200k is the largest safe
-  /// default for claude-sonnet-class models).
+  /// Real context window for this session's model, from the catalog.
+  /// Null when unknown — the gauge falls back to [_kDefaultContextWindow].
+  final int? contextWindow;
+
+  /// Fallback context window (tokens) when the catalog has no per-model limit.
+  /// 200k is the largest safe default for claude-sonnet-class models.
   static const int _kDefaultContextWindow = 200000;
 
   /// Format a token count as a human-readable string.
@@ -304,7 +312,8 @@ class _ContextUsageGauge extends StatelessWidget {
       );
     }
 
-    final fraction = (tokensUsed / _kDefaultContextWindow).clamp(0.0, 1.0);
+    final effectiveWindow = contextWindow ?? _kDefaultContextWindow;
+    final fraction = (tokensUsed / effectiveWindow).clamp(0.0, 1.0);
     final pct = fraction * 100;
 
     // Colour thresholds.
@@ -318,7 +327,7 @@ class _ContextUsageGauge extends StatelessWidget {
     }
 
     final usedLabel = _fmtTokens(tokensUsed);
-    final capacityLabel = _fmtTokens(_kDefaultContextWindow);
+    final capacityLabel = _fmtTokens(effectiveWindow);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,

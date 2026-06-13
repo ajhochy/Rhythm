@@ -3,9 +3,9 @@
 ## Current focus
 
 **Branch:** `opc-m1-foundation` (pushed) — **PR #706** open, covers ALL of M1–M4 (#685–#703, 19 issues) plus issues #710–#719.
-**Status:** Issues #711–#719 all implemented and committed (commit `5d21d29`). CI green: Server CI run 27481545554 ✓ | Desktop CI run 27481545583 ✓. `ai-workflow checks --level pr` exit 0 ✓ (vitest 784/784, flutter analyze ✓, dart format ✓, tsc --noEmit ✓).
-**Last batch:** #711–#719 (9 issues) — see 2026-06-13 batch run entry below.
-**Test status:** vitest 784/784 ✓ | flutter analyze ✓ | dart format ✓ | tsc --noEmit ✓ | `ai-workflow checks --level pr` exit 0 ✓.
+**Status:** Issues #711–#719 all implemented and committed (commit `5d21d29`). Issue #718 extended (real per-model context window in gauge) — uncommitted, awaiting orchestrator commit. CI green on prior commit: Server CI run 27481545554 ✓ | Desktop CI run 27481545583 ✓. `ai-workflow checks --level pr` exit 0 ✓ (vitest 785/785, flutter analyze ✓, dart format ✓, tsc --noEmit ✓).
+**Last batch:** #711–#719 (9 issues) — see 2026-06-13 batch run entry below. #718 subsequently extended with real context-window lookup (see 2026-06-13 #718-real-context-window entry).
+**Test status:** vitest 785/785 ✓ | flutter test 497/497 ✓ | flutter analyze ✓ | dart format ✓ | tsc --noEmit ✓ | `ai-workflow checks --level pr` exit 0 ✓.
 **Key integration note:** #694 mounted the previously-orphaned `SessionSidePanel` inspector into `agents_view.dart` (right rail, shown when a session is selected) — the prior M3 attempt left it + other panels built but unmounted. All M3/M4 UI is verified wired into the real rendered surface with real-surface tests, not isolated widgets. #709 completes the Terminal tab inside that panel (was a placeholder until now). See [[project-agents-inspector-orphaned]].
 **Resolved flake (2026-06-13):** `apps/api_server/src/__tests__/agent_configs_routes.test.ts` no longer intermittently fails with `SocketError: other side closed` (UND_ERR_SOCKET). Root cause: Node's global `fetch` (undici) pooled a keep-alive socket to a closed test server's ephemeral port; a later `listen(0)` recycling that port reused the dead socket. Fix: `server.maxRequestsPerSocket = 1` + `server.closeAllConnections()` in teardown.
 **#710 agentId validation change:** `issue_653_contract.test.ts` c1a/c1c updated — null/empty `agentId` now returns 201 (instant-create); only `'__pending__'` sentinel still rejected with 400. This is intentional (#710 supersedes #653's "must pick agent before create" requirement).
@@ -16,6 +16,22 @@
 _(Parked bugs from before 2026-05-27 run. #638 and #635 below are now RESOLVED — see 2026-05-27 run entry.)_
 
 ## Recent coding-agent runs
+
+### 2026-06-13 — opc-m1-foundation / issue-718-real-context-window — Context gauge uses real per-model context window
+
+- Files modified:
+  - `apps/api_server/src/@types/opencode-ai-sdk.d.ts` — extended model shape in `config.providers()` return to include `limit?: { context?: number; output?: number }`.
+  - `apps/api_server/src/services/opencode_client_service.ts` — `listModels` return type extended to `Array<{id; name?; contextLimit?}>`. Both array and record branches read `model.limit?.context` and emit `contextLimit`.
+  - `apps/api_server/src/routes/agents_models_routes.ts` — `loadProviderModelIds` now returns `{ modelIdsByProvider, contextLimitByKey }`. Catalog handler destructures both; emits `contextLimit` on each catalog row when available.
+  - `apps/desktop_flutter/lib/features/agents/models/catalog_model_entry.dart` — added `final int? contextLimit` field, constructor param, and `fromJson` parse.
+  - `apps/desktop_flutter/lib/features/agents/controllers/agents_controller.dart` — added `contextWindowForSession(AgentSession)` method (catalog lookup by provider+model); added `@visibleForTesting setCatalogForTest(List<CatalogModelEntry>)` hook.
+  - `apps/desktop_flutter/lib/features/agents/views/_session_side_panel.dart` — `_ContextTab.build()` now resolves `contextWindow` from controller and passes to gauge; `_ContextUsageGauge` gains optional `contextWindow` param; uses `effectiveWindow = contextWindow ?? _kDefaultContextWindow`.
+  - `apps/api_server/src/__tests__/agents_models_catalog.test.ts` — updated mock `listModels` to include `contextLimit: 200000` for anthropic models; added test verifying `contextLimit` flows to catalog response.
+  - `apps/desktop_flutter/test/features/agents/issue_718_context_usage_gauge_test.dart` — added c5 (3 unit tests for `contextWindowForSession`) and c6 (1 widget test for gauge with 1M-token model showing "1000k").
+- Checks run: flutter analyze ✓ (0 errors, 0 warnings), dart format ✓ (1 file reformatted first run, clean second), tsc --noEmit ✓, vitest 784/784 ✓, flutter test 497/497 ✓, `ai-workflow checks --level pr` exit 0 ✓.
+- Decisions made: `loadProviderModelIds` returns both maps as a named pair (not a new helper) — minimum-invasive change. `contextLimit` emitted only when non-null (no `contextLimit: null` noise in the catalog JSON). `contextWindowForSession` does a linear scan over `_catalog` (catalog is small, typically <200 entries — acceptable).
+- Deviations from spec: none — all spec steps implemented.
+- Concerns: The GET / (agentId-filtered) route does not surface `contextLimit` — it's only used for the model picker list and doesn't need it. The catalog route (/catalog) is the authoritative source for the gauge.
 
 ### 2026-06-13 — opc-m1-foundation / issues #711–#719 — OPC batch (9 issues)
 

@@ -396,8 +396,8 @@ declare module '@opencode-ai/sdk' {
         providers?: Array<{
           id: string;
           models?:
-            | Array<{ id: string; name?: string }>
-            | Record<string, { id?: string; name?: string }>;
+            | Array<{ id: string; name?: string; limit?: { context?: number; output?: number } }>
+            | Record<string, { id?: string; name?: string; limit?: { context?: number; output?: number } }>;
         }>;
       }>>;
     };

@@ -14,6 +14,13 @@
 ///   c4 — The progress bar value is capped at 1.0 when tokensUsed exceeds
 ///        the 200k context window (e.g. 250k tokens → fraction = 1.0).
 ///
+///   c5 — contextWindowForSession() returns the catalog contextLimit when
+///        the session's providerId+modelId match a catalog entry, and null
+///        when no match is found.
+///
+///   c6 — _ContextUsageGauge with contextWindow: 1 000 000 (1M) shows "1000k"
+///        in the capacity label, proving the real window is used as denominator.
+///
 /// Run with:
 ///   flutter test test/features/agents/issue_718_context_usage_gauge_test.dart
 library;
@@ -33,6 +40,7 @@ import 'package:rhythm_desktop/features/agent_configs/data/agent_configs_data_so
 import 'package:rhythm_desktop/features/agent_configs/repositories/agent_configs_repository.dart';
 import 'package:rhythm_desktop/features/agents/controllers/agents_controller.dart';
 import 'package:rhythm_desktop/features/agents/models/agent_session.dart';
+import 'package:rhythm_desktop/features/agents/models/catalog_model_entry.dart';
 import 'package:rhythm_desktop/features/agents/models/agent_session_message.dart';
 import 'package:rhythm_desktop/features/agents/models/agent_ws_message.dart';
 import 'package:rhythm_desktop/features/agents/models/chat_models.dart';
@@ -378,6 +386,165 @@ void main() {
         );
         // value must be capped at 1.0.
         expect(indicator.value, equals(1.0));
+      },
+    );
+  });
+
+  // ── c5: contextWindowForSession() catalog lookup ─────────────────────────
+
+  group('issue-718-c5: contextWindowForSession()', () {
+    test(
+      'issue-718-c5a: returns contextLimit from catalog when providerId + modelId match',
+      () {
+        // Seed catalog with one entry that has a contextLimit.
+        controller.setCatalogForTest([
+          const CatalogModelEntry(
+            agent: 'claude-code',
+            provider: 'anthropic',
+            modelId: 'claude-sonnet-4-6',
+            displayName: 'claude-sonnet-4-6',
+            route: 'direct',
+            authorized: true,
+            authProvider: 'anthropic',
+            contextLimit: 200000,
+          ),
+        ]);
+
+        final session = AgentSession(
+          id: 'ses-match',
+          agentId: 'claude-code',
+          name: 'Match',
+          cwd: '/tmp',
+          status: AgentSessionStatus.idle,
+          createdAt: _kEpoch,
+          updatedAt: _kEpoch,
+          providerId: 'anthropic',
+          modelId: 'claude-sonnet-4-6',
+        );
+
+        expect(controller.contextWindowForSession(session), equals(200000));
+      },
+    );
+
+    test(
+      'issue-718-c5b: returns null when session has no providerId',
+      () {
+        controller.setCatalogForTest([
+          const CatalogModelEntry(
+            agent: 'claude-code',
+            provider: 'anthropic',
+            modelId: 'claude-sonnet-4-6',
+            displayName: 'claude-sonnet-4-6',
+            route: 'direct',
+            authorized: true,
+            authProvider: 'anthropic',
+            contextLimit: 200000,
+          ),
+        ]);
+
+        final session = _makeSession('ses-no-model'); // no providerId/modelId
+        expect(controller.contextWindowForSession(session), isNull);
+      },
+    );
+
+    test(
+      'issue-718-c5c: returns null when catalog has no matching entry',
+      () {
+        controller.setCatalogForTest([
+          const CatalogModelEntry(
+            agent: 'claude-code',
+            provider: 'anthropic',
+            modelId: 'claude-sonnet-4-6',
+            displayName: 'claude-sonnet-4-6',
+            route: 'direct',
+            authorized: true,
+            authProvider: 'anthropic',
+            contextLimit: 200000,
+          ),
+        ]);
+
+        final session = AgentSession(
+          id: 'ses-no-match',
+          agentId: 'claude-code',
+          name: 'No-match',
+          cwd: '/tmp',
+          status: AgentSessionStatus.idle,
+          createdAt: _kEpoch,
+          updatedAt: _kEpoch,
+          providerId: 'openai',
+          modelId: 'gpt-5',
+        );
+
+        expect(controller.contextWindowForSession(session), isNull);
+      },
+    );
+  });
+
+  // ── c6: gauge uses real context window from catalog ───────────────────────
+
+  group('issue-718-c6: gauge uses real context window (1M token model)', () {
+    testWidgets(
+      'issue-718-c6: capacity label shows 1000k when contextWindow is 1000000',
+      (tester) async {
+        final configsCtrl = await _makeConfigsController();
+        addTearDown(configsCtrl.dispose);
+
+        final agentServerCtrl = _ReadyAgentServerController();
+        addTearDown(agentServerCtrl.dispose);
+
+        const sessionId = 'ses-1m';
+        // Seed catalog with a 1M-token model.
+        controller.setCatalogForTest([
+          const CatalogModelEntry(
+            agent: 'claude-code',
+            provider: 'anthropic',
+            modelId: 'claude-sonnet-1m',
+            displayName: 'claude-sonnet-1m',
+            route: 'direct',
+            authorized: true,
+            authProvider: 'anthropic',
+            contextLimit: 1000000,
+          ),
+        ]);
+
+        final session = AgentSession(
+          id: sessionId,
+          agentId: 'claude-code',
+          name: '1M Model',
+          cwd: '/tmp',
+          status: AgentSessionStatus.idle,
+          createdAt: _kEpoch,
+          updatedAt: _kEpoch,
+          providerId: 'anthropic',
+          modelId: 'claude-sonnet-1m',
+        );
+
+        // Seed 500k tokens (well within 1M window).
+        controller.setMessageForTest(ChatMessage(
+          id: 'msg-1m',
+          sessionId: sessionId,
+          role: 'assistant',
+          createdAt: _kEpoch,
+          tokens: {'input': 500000, 'output': 1000},
+        ));
+
+        await tester.pumpWidget(_wrapWithProviders(
+          configsCtrl: configsCtrl,
+          agentsCtrl: controller,
+          agentServerCtrl: agentServerCtrl,
+          child: SessionSidePanel(session: session),
+        ));
+        await tester.pump();
+
+        // Progress bar must be present.
+        expect(find.byType(LinearProgressIndicator), findsOneWidget);
+        // Capacity label must show "1000k" (the real 1M window).
+        expect(find.textContaining('1000k'), findsOneWidget);
+        // Value should be ~0.5 (500k / 1000k).
+        final indicator = tester.widget<LinearProgressIndicator>(
+          find.byType(LinearProgressIndicator),
+        );
+        expect(indicator.value, closeTo(0.5, 0.01));
       },
     );
   });

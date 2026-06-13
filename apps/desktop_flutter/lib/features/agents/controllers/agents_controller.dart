@@ -1020,6 +1020,33 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     return true;
   }
 
+  /// Issue #718 — Returns the context-window size (tokens) for the given
+  /// session's selected model, looked up from the catalog.
+  ///
+  /// Returns null when the catalog hasn't been loaded yet, the session has no
+  /// selected model, or the catalog entry for the model has no [contextLimit].
+  /// Callers should fall back to a default (e.g. 200k) when null is returned.
+  int? contextWindowForSession(AgentSession session) {
+    final providerId = session.providerId;
+    final modelId = session.modelId;
+    if (providerId == null || modelId == null) return null;
+    for (final e in _catalog) {
+      if (e.provider == providerId &&
+          e.modelId == modelId &&
+          e.contextLimit != null) {
+        return e.contextLimit;
+      }
+    }
+    return null;
+  }
+
+  /// Injects a catalog for testing without going through [refreshCatalog].
+  @visibleForTesting
+  void setCatalogForTest(List<CatalogModelEntry> entries) {
+    _catalog = List.of(entries);
+    _catalogLoaded = true;
+  }
+
   Future<void> load() async {
     _status = AgentsLoadStatus.loading;
     notifyListeners();

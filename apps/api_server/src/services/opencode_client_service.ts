@@ -388,18 +388,25 @@ export class OpencodeClientService {
   /** Get available models for a provider */
   async listModels(
     providerId: string,
-  ): Promise<Array<{ id: string; name?: string }>> {
+  ): Promise<Array<{ id: string; name?: string; contextLimit?: number }>> {
     if (!this.client) return [];
     try {
       const raw = await this.client.config.providers();
       const providers = raw.data?.providers ?? [];
       const provider = providers.find((p) => p.id === providerId);
       const models = provider?.models;
-      if (Array.isArray(models)) return models;
+      if (Array.isArray(models)) {
+        return models.map((m) => ({
+          id: m.id,
+          name: m.name,
+          ...(m.limit?.context != null ? { contextLimit: m.limit.context } : {}),
+        }));
+      }
       if (models && typeof models === 'object') {
         return Object.entries(models).map(([id, model]) => ({
           id: model.id ?? id,
           name: model.name,
+          ...(model.limit?.context != null ? { contextLimit: model.limit.context } : {}),
         }));
       }
       return [];
