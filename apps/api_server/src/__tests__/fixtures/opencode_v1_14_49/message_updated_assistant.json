@@ -1,0 +1,101 @@
+{
+  "_comment": "Real v1.14.49 message.updated event shape for an assistant message. Fields match AssistantMessage in packages/sdk/js/src/gen/types.gen.ts and message-v2.ts Assistant schema.",
+  "type": "message.updated",
+  "properties": {
+    "sessionID": "ses_abc123",
+    "info": {
+      "id": "msg_abc001",
+      "sessionID": "ses_abc123",
+      "role": "assistant",
+      "time": {
+        "created": 1718000000000,
+        "completed": 1718000010000
+      },
+      "parentID": "msg_user001",
+      "modelID": "claude-opus-4-5",
+      "providerID": "anthropic",
+      "mode": "auto",
+      "agent": "opencode",
+      "path": {
+        "cwd": "/tmp/test",
+        "root": "/tmp/test"
+      },
+      "cost": 0.0042,
+      "tokens": {
+        "input": 500,
+        "output": 200,
+        "reasoning": 50,
+        "cache": {
+          "read": 100,
+          "write": 20
+        }
+      },
+      "finish": "stop"
+    },
+    "parts": [
+      {
+        "id": "part_step_start_001",
+        "sessionID": "ses_abc123",
+        "messageID": "msg_abc001",
+        "type": "step-start"
+      },
+      {
+        "id": "part_reasoning_001",
+        "sessionID": "ses_abc123",
+        "messageID": "msg_abc001",
+        "type": "reasoning",
+        "text": "I need to analyze the code carefully.",
+        "time": {
+          "start": 1718000000100,
+          "end": 1718000002000
+        }
+      },
+      {
+        "id": "part_tool_001",
+        "sessionID": "ses_abc123",
+        "messageID": "msg_abc001",
+        "type": "tool",
+        "callID": "call_abc001",
+        "tool": "read",
+        "state": {
+          "status": "completed",
+          "input": { "path": "/tmp/test/foo.ts" },
+          "output": "export function foo() { return 42; }",
+          "title": "Read /tmp/test/foo.ts",
+          "metadata": {},
+          "time": {
+            "start": 1718000002100,
+            "end": 1718000003500
+          }
+        }
+      },
+      {
+        "id": "part_text_001",
+        "sessionID": "ses_abc123",
+        "messageID": "msg_abc001",
+        "type": "text",
+        "text": "I've read the file. The function returns 42.",
+        "time": {
+          "start": 1718000003600
+        }
+      },
+      {
+        "id": "part_step_finish_001",
+        "sessionID": "ses_abc123",
+        "messageID": "msg_abc001",
+        "type": "step-finish",
+        "reason": "stop",
+        "cost": 0.0042,
+        "tokens": {
+          "input": 500,
+          "output": 200,
+          "reasoning": 50,
+          "cache": {
+            "read": 100,
+            "write": 20
+          }
+        }
+      }
+    ]
+  }
+}

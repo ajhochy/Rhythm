@@ -1137,4 +1137,30 @@ export function runMigrations(db: Database.Database): void {
       PRIMARY KEY (provider, model_id)
     )
   `);
+
+  // OPC-M1-2 (issue #686) — Structured parts persistence for agent_session_messages.
+  // Adds sdk_message_id, parts_json, tokens_json, cost columns so the stream bridge
+  // can store the full ordered part array as the single durable transcript store.
+  // Legacy rows (parts_json IS NULL) are served via a back-compat text shim on read.
+  const asmCols686 = (db.pragma('table_info(agent_session_messages)') as { name: string }[]).map((c) => c.name);
+  if (!asmCols686.includes('sdk_message_id')) {
+    db.exec(`ALTER TABLE agent_session_messages ADD COLUMN sdk_message_id TEXT`);
+  }
+  if (!asmCols686.includes('parts_json')) {
+    db.exec(`ALTER TABLE agent_session_messages ADD COLUMN parts_json TEXT`);
+  }
+  if (!asmCols686.includes('tokens_json')) {
+    db.exec(`ALTER TABLE agent_session_messages ADD COLUMN tokens_json TEXT`);
+  }
+  if (!asmCols686.includes('cost')) {
+    db.exec(`ALTER TABLE agent_session_messages ADD COLUMN cost REAL`);
+  }
+  // Unique index on (session_id, sdk_message_id) — used for upsert keying.
+  // The partial WHERE sdk_message_id IS NOT NULL prevents index from treating
+  // multiple NULL sdk_message_ids as duplicates (legacy rows).
+  db.exec(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_asm_sdk_msg
+      ON agent_session_messages(session_id, sdk_message_id)
+      WHERE sdk_message_id IS NOT NULL
+  `);
 }

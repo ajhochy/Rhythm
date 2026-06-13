@@ -69,7 +69,9 @@ export class AgentSessionsController {
     try {
       const session = repo.findById(req.params.id);
       if (!session) throw AppError.notFound('AgentSession');
-      const messages = messagesRepo.listBySession(session.id, 200);
+      // OPC-M1-2: Return structured messages (parts parsed, tokens parsed, cost).
+      // Legacy rows (parts_json IS NULL) get a synthetic [{type:'text',text:rawText}] shim.
+      const messages = messagesRepo.listBySessionStructured(session.id, 200);
       res.json({ session, messages });
     } catch (err) {
       next(err);

@@ -44,6 +44,25 @@ export interface AgentSessionMessage {
   rawText: string;
   strippedText: string;
   createdAt: string;
+  /** SDK message id (null for legacy rows). */
+  sdkMessageId: string | null;
+  /** Raw JSON string of ordered part array (null for legacy rows). */
+  partsJson: string | null;
+  /** Raw JSON string of token usage object (null for legacy rows). */
+  tokensJson: string | null;
+  /** Message cost in USD (null for legacy rows). */
+  cost: number | null;
+}
+
+/**
+ * AgentSessionMessage with parts/tokens deserialized.
+ * Returned by listBySessionStructured() — what the GET /messages endpoint sends.
+ */
+export interface StructuredAgentSessionMessage extends Omit<AgentSessionMessage, 'partsJson' | 'tokensJson'> {
+  /** Parsed part array. Legacy rows get a synthetic [{type:'text', text:rawText}]. */
+  parts: unknown[];
+  /** Parsed token usage object, or null for legacy rows. */
+  tokens: Record<string, unknown> | null;
 }
 
 export interface CreateAgentSessionDto {

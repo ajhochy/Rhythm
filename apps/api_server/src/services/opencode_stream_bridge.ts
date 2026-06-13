@@ -311,6 +311,34 @@ export class OpencodeStreamBridge {
           id: eventId,
           properties: event.properties ?? {},
         });
+
+        // OPC-M1-2 — Persist structured message to DB so the transcript
+        // survives bridge restarts and reconnects. The fixture's parts array
+        // lives at properties.parts (separate from the info envelope).
+        if (localSessionId && info) {
+          try {
+            const sdkMessageId = info.id as string | undefined;
+            const role = info.role as string | undefined;
+            const parts = (props?.parts ?? []) as unknown[];
+            const tokens = (info.tokens ?? null) as Record<string, unknown> | null;
+            const cost = typeof info.cost === 'number' ? info.cost : null;
+
+            if (sdkMessageId && role) {
+              const dbRole: 'output' | 'input' | 'system' =
+                role === 'assistant' ? 'output' : role === 'user' ? 'input' : 'system';
+              this.messagesRepo.upsertStructured(
+                localSessionId,
+                sdkMessageId,
+                dbRole,
+                JSON.stringify(parts),
+                tokens != null ? JSON.stringify(tokens) : null,
+                cost,
+              );
+            }
+          } catch (err) {
+            logger.error('[OpencodeStreamBridge] Failed to persist structured message:', err);
+          }
+        }
         break;
       }
 
@@ -323,6 +351,37 @@ export class OpencodeStreamBridge {
             id: eventId,
             messageId: messageID,
           });
+          // OPC-M1-2 — Delete the row from the DB.
+          if (localSessionId) {
+            try {
+              this.messagesRepo.deleteBySdkMessageId(localSessionId, messageID);
+            } catch (err) {
+              logger.error('[OpencodeStreamBridge] Failed to delete message row:', err);
+            }
+          }
+        }
+        break;
+      }
+
+      case 'message.part.removed': {
+        const messageID = props?.messageID as string | undefined;
+        const partID = props?.partID as string | undefined;
+        if (messageID && partID) {
+          broadcast({
+            v: 1,
+            type: 'message.part.removed',
+            id: eventId,
+            messageId: messageID,
+            partId: partID,
+          });
+          // OPC-M1-2 — Remove the part from parts_json in the DB.
+          if (localSessionId) {
+            try {
+              this.messagesRepo.removePart(localSessionId, messageID, partID);
+            } catch (err) {
+              logger.error('[OpencodeStreamBridge] Failed to remove part from DB:', err);
+            }
+          }
         }
         break;
       }

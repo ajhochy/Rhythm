@@ -115,7 +115,10 @@ declare module '@opencode-ai/sdk' {
   export type EventMessageUpdated = {
     type: 'message.updated';
     properties: {
+      sessionID: string;
       info: Message;
+      /** Ordered part array accompanying the message info (SDK v1.14.49+). */
+      parts?: Part[];
     };
   };
 
@@ -124,6 +127,15 @@ declare module '@opencode-ai/sdk' {
     properties: {
       sessionID: string;
       messageID: string;
+    };
+  };
+
+  export type EventMessagePartRemoved = {
+    type: 'message.part.removed';
+    properties: {
+      sessionID: string;
+      messageID: string;
+      partID: string;
     };
   };
 
@@ -198,6 +210,7 @@ declare module '@opencode-ai/sdk' {
     | EventMessagePartDelta
     | EventMessageUpdated
     | EventMessageRemoved
+    | EventMessagePartRemoved
     | EventSessionStatus
     | EventSessionIdle
     | EventSessionCreated

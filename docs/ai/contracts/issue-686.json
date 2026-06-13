@@ -1,0 +1,63 @@
+{
+  "issue": 686,
+  "generated": "2026-06-12",
+  "criteria": [
+    {
+      "criterion_id": "issue-686-c1",
+      "text": "Migration is idempotent (runs twice cleanly) and preserves existing rows (parts_json IS NULL).",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/opencode_parts_persistence.test.ts",
+      "test_id": "issue-686-c1: migration is idempotent and preserves existing rows",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-686-c2",
+      "text": "Feeding the bridge a recorded v1.14.49 message.updated event (assistant message with text + tool + reasoning parts, tokens, cost) results in one row whose parts_json round-trips the part array and whose tokens_json/cost match the event.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/opencode_parts_persistence.test.ts",
+      "test_id": "issue-686-c2: message.updated upserts parts_json/tokens_json/cost from v1.14.49 fixture",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-686-c3",
+      "text": "A second message.updated for the same sdk_message_id updates the same row (no duplicates; unique index holds).",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/opencode_parts_persistence.test.ts",
+      "test_id": "issue-686-c3: second message.updated for same sdk_message_id updates row without duplication",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-686-c4",
+      "text": "GET /agent-sessions/:id/messages returns messages ordered by creation with `parts` as a parsed array, `tokens`, `cost`; legacy NULL-parts rows come back as [{type:'text', text:<row text>}].",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/opencode_parts_persistence.test.ts",
+      "test_id": "issue-686-c4: GET messages returns structured parts and back-compat shim for legacy rows",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-686-c5",
+      "text": "message.removed deletes the row; message.part.removed removes only that part.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/opencode_parts_persistence.test.ts",
+      "test_id": "issue-686-c5: message.removed deletes row; message.part.removed removes only that part",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-686-c6",
+      "text": "After simulating bridge restart (new bridge instance, same DB), GET still returns the full structured transcript (persistence, not memory).",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/opencode_parts_persistence.test.ts",
+      "test_id": "issue-686-c6: bridge restart — GET still returns full structured transcript from DB",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-686-c7",
+      "text": "ai-workflow checks --level pr exits 0 (mode 'manual', reason 'gate-level check' in the JSON).",
+      "mode": "manual",
+      "reason": "gate-level check — runs flutter analyze, dart format, tsc, vitest as a full suite; cannot be embedded in a unit test",
+      "status": "pass"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": ["issue-686-c7"]
+}
