@@ -6,6 +6,20 @@ _(Parked bugs from before 2026-05-27 run. #638 and #635 below are now RESOLVED �
 
 ## Recent coding-agent runs
 
+### 2026-06-12 — opc-m1-foundation / issue-690 — Markdown rendering in chat bubbles (OPC-M2-1)
+- Files modified (production):
+  - `apps/desktop_flutter/pubspec.yaml` — added `gpt_markdown: ^1.1.7` (+ transitive: `flutter_math_fork`, `flutter_svg`, `path_parsing`, `tuple`).
+  - `apps/desktop_flutter/lib/features/agents/views/_markdown_message_body.dart` (new) — `MarkdownMessageBody` widget: wraps `GptMarkdown` with Rhythm theme tokens; `_RhythmCodeBlock` stateful widget uses `rhythm.surfaceMuted` background, `JetBrainsMono` monospace font, copy button (Clipboard.setData + 2s feedback timer); injected `onLinkTap` callback defaults to `url_launcher`.
+  - `apps/desktop_flutter/lib/features/agents/views/agents_view.dart` — imported `_markdown_message_body.dart`; in `_ChatBubble.flushText()` replaced bare `SelectableText(text)` with `MarkdownMessageBody(text: text)`. `_UserBubble` unchanged (plain SelectableText).
+- Files modified (tests):
+  - `apps/desktop_flutter/test/features/agents/opc_m2_1_markdown_test.dart` (new) — 9 widget tests covering c1–c5: c1a/b/c (no raw `**`/`#`/backtick), c1d (link tap → injected launcher), c2 (copy button writes to Clipboard), c3 (user SelectableText preserves literal `**`), c4a/b (streaming delta appends; sibling keys stable), c5 (code block Container background == `rhythm.surfaceMuted`).
+  - `docs/ai/contracts/issue-690.json` (new) — 6 criteria: c1–c5 automated (pass), c6 manual.
+- Red→green proof: flutter test 320→329 (+9 tests). All 9 new tests pass. `ai-workflow checks --level pr` exit 0.
+- Checks: flutter analyze --no-fatal-infos ✓ (0 errors/0 warnings/209 infos — all pre-existing), dart format ✓ (0 changes), tsc --noEmit ✓, vitest ✓.
+- Decisions made: (1) `MarkdownMessageBody` is a stateless widget — streaming appends arrive as successive pumpWidget calls with longer text; no internal accumulator needed. (2) `_RhythmCodeBlock` is stateful only for the `_copied` 2-second UI feedback timer. (3) In `flushText()`, the outer `Container` with `surfaceMuted` bg + border is kept for structural consistency; `MarkdownMessageBody` renders inside it. (4) User bubbles (`_UserBubble`) continue to use bare `SelectableText` — no markdown for user input per spec. (5) `onLinkTap` is injected/optional defaulting to `launchUrl` so widget tests can mock it without platform channels.
+- Deviations from spec: none. `gpt_markdown` satisfied all 5 criteria (selectability via `GptMarkdown`'s internal `SelectableText`, streaming-delta-friendly stateless rebuild, links via `onLinkTap` callback).
+- Concerns: `gpt_markdown` includes `flutter_math_fork` as a transitive dep (LaTeX rendering). LaTeX is out of scope per the issue — the `useDollarSignsForLatex: false` default means `$` and `\(` in assistant text will not be interpreted as math. If a future issue enables LaTeX, that default can be flipped. The transitive dep adds ~300KB to the app bundle.
+
 ### 2026-06-12 — opc-m1-foundation / issue-689 — Resume re-attaches SDK session for real continuity (OPC-M1-5)
 - Task: (1) add `sdk_session_id TEXT` column (PRAGMA-guarded migration); (2) persist `sdk_session_id` at `create()` time; (3) rewrite `resume()` to re-attach to the EXISTING SDK session via `getSession()` typed wrapper; HTTP 410 if session gone; (4) add `getSession()` typed wrapper to `OpencodeClientService`; (5) add `clearErrorStatus()` call in `resume()` (OPC-M1-4 integration); (6) update ws_gateway auto-resume path to try re-attach first, fall back to fresh create only if gone; (7) Flutter: `resumeSession()` calls `getSession` rehydrate after success; surfaces `sessionGoneId` + `clearSessionGone()` for 410 affordance; (8) mark `sessionToken` as deprecated (comment only).
 - Files modified (production):
@@ -581,7 +595,17 @@ _(Parked bugs from before 2026-05-27 run. #638 and #635 below are now RESOLVED �
 
 ---
 
-## Current Status (2026-06-12 — watchdog --parent-pid fix: MERGED PR #684)
+## Current Status (2026-06-12 — OPC-M2-1 markdown rendering: IMPLEMENTED, PR pending)
+
+🟡 **Branch `opc-m1-foundation`** — OPC-M2-1 (issue #690) markdown rendering complete. `flutter test` 329/329, `ai-workflow checks --level pr` exit 0. Not yet committed or PR'd — orchestrator handles PR open.
+
+- **OPC-M2-1 (#690):** `MarkdownMessageBody` widget wraps `gpt_markdown`; assistant text renders headings, bold/italic, inline code, fenced code blocks (monospace + `surfaceMuted` bg + copy button), lists, and links. User bubbles unchanged (SelectableText). All 9 contract tests pass (c1–c5 automated, c6 gate-level).
+- **M1 foundation (issues #685–#689):** All 5 issues implemented and verified on this branch; waiting for PR open by orchestrator.
+- **Next in M2:** OPC-M2-2 reasoning parts, OPC-M2-3 diff rendering.
+
+---
+
+## Prior Status (2026-06-12 — watchdog --parent-pid fix: MERGED PR #684)
 
 🟢 **[PR #684](https://github.com/ajhochy/Rhythm/pull/684) merged to `main`** — `--parent-pid` watchdog fix. Server CI + Desktop CI green.
 

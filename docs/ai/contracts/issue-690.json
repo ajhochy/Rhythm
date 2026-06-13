@@ -1,0 +1,55 @@
+{
+  "issue": 690,
+  "generated": "2026-06-12",
+  "criteria": [
+    {
+      "criterion_id": "issue-690-c1",
+      "text": "A text part containing `# h`, `**bold**`, `` `code` ``, a fenced block, a list, and a link renders: no literal `**`/backtick/`#` characters findable as raw text; code block uses a monospace TextStyle; link tap invokes the (injected/mocked) launcher with the URL.",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agents/opc_m2_1_markdown_test.dart",
+      "test_id": "issue-690-c1: markdown renders without raw syntax chars; code monospace; link tapped",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-690-c2",
+      "text": "Fenced code block shows a copy affordance; tapping copies the block content to the clipboard (widget test via `Clipboard` mock).",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agents/opc_m2_1_markdown_test.dart",
+      "test_id": "issue-690-c2: copy button copies fenced code block content to clipboard",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-690-c3",
+      "text": "User-role messages render as plain text (no markdown interpretation of user input).",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agents/opc_m2_1_markdown_test.dart",
+      "test_id": "issue-690-c3: user-role bubble renders plain text, not markdown",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-690-c4",
+      "text": "Streaming: appending a delta to the last text part updates the rendered output without throwing and preserves earlier bubbles' widgets (no full-list rebuild assertion via keys).",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agents/opc_m2_1_markdown_test.dart",
+      "test_id": "issue-690-c4: streaming delta appends without throw and preserves sibling keys",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-690-c5",
+      "text": "All colors/typography come from `RhythmColorRoles` tokens (review check; widget test asserts code-block background == `context.rhythm.surfaceMuted`).",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agents/opc_m2_1_markdown_test.dart",
+      "test_id": "issue-690-c5: code block background matches context.rhythm.surfaceMuted",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-690-c6",
+      "text": "`flutter analyze`, `dart format`, full `flutter test` green; `ai-workflow checks --level pr` exits 0.",
+      "mode": "manual",
+      "reason": "Gate-level check run by verification-gate via ai-workflow checks --level pr",
+      "status": "pending"
+    }
+  ],
+  "stack": "dart",
+  "not_tested": ["issue-690-c6"]
+}

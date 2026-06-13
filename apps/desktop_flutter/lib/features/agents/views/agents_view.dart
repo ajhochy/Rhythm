@@ -21,6 +21,7 @@ import '../models/agent_session.dart';
 import '../models/chat_models.dart';
 import '../../settings/services/destructive_modal_service.dart';
 import '_agent_settings_sheet.dart';
+import '_markdown_message_body.dart';
 import '_message_actions_row.dart';
 import '_permission_card.dart';
 import '_permission_mode_picker.dart';
@@ -1750,6 +1751,7 @@ class _ChatBubble extends StatelessWidget {
       final text = textBuffer.toString().trim();
       textBuffer.clear();
       if (text.isEmpty) return;
+      // OPC-M2-1: render assistant text as markdown.
       children.add(
         Container(
           width: double.infinity,
@@ -1759,14 +1761,7 @@ class _ChatBubble extends StatelessWidget {
             borderRadius: BorderRadius.circular(RhythmRadius.md),
             border: Border.all(color: context.rhythm.borderSubtle),
           ),
-          child: SelectableText(
-            text,
-            style: TextStyle(
-              fontSize: 13,
-              color: context.rhythm.textPrimary,
-              height: 1.5,
-            ),
-          ),
+          child: MarkdownMessageBody(text: text),
         ),
       );
     }
