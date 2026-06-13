@@ -5,6 +5,7 @@ import '../../../app/core/ui/tokens/rhythm_theme.dart';
 import '../controllers/agents_controller.dart';
 import '../models/agent_session.dart';
 import '_changes_tab.dart';
+import '_terminal_tab.dart';
 import '_todo_panel.dart';
 
 /// M3-5: right-rail inspector panel for the active session.
@@ -102,9 +103,8 @@ class _SessionSidePanelState extends State<SessionSidePanel> {
           errorMessage: controller.sessionDiffErrorFor(id),
         );
       case _Tab.terminal:
-        return const _PlaceholderTab(
-          message: 'Captured bash output will appear here.',
-        );
+        // OPC-M1-6 / issue #709 — real Terminal command-runner tab.
+        return TerminalTab(sessionId: widget.session.id);
     }
   }
 }
@@ -227,24 +227,6 @@ class _ContextTab extends StatelessWidget {
             ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _PlaceholderTab extends StatelessWidget {
-  const _PlaceholderTab({required this.message});
-  final String message;
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Text(
-          message,
-          style: TextStyle(color: context.rhythm.textMuted, fontSize: 12),
-          textAlign: TextAlign.center,
-        ),
       ),
     );
   }

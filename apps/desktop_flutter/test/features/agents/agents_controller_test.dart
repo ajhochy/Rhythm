@@ -238,6 +238,10 @@ class _FakeAgentsRepository implements AgentsRepository {
 
   @override
   Future<List<AgentInfo>> fetchAvailableAgents({String? cwd}) async => const [];
+
+  @override
+  Future<String> runShellCommand(String sessionId, String command) async =>
+      'msg-shell-stub';
 }
 
 // ---------------------------------------------------------------------------

@@ -136,6 +136,32 @@ declare module '@opencode-ai/sdk' {
     time: { created: number };
   };
 
+  /**
+   * AssistantMessage — the return type of session.shell (and other SDK methods
+   * that create a message and return its metadata).
+   * Verified against @opencode-ai/sdk dist/gen/types.gen.d.ts (v1.14.49).
+   * OPC-M1-6 / issue #709.
+   */
+  export type AssistantMessage = {
+    id: string;
+    sessionID: string;
+    role: 'assistant';
+    time: { created: number; completed?: number };
+    parentID: string;
+    modelID: string;
+    providerID: string;
+    mode: string;
+    cost: number;
+    tokens: {
+      input: number;
+      output: number;
+      reasoning: number;
+      cache: { read: number; write: number };
+    };
+    finish?: string;
+    summary?: boolean;
+  };
+
   // ── Event types ──
 
   export type EventMessagePartUpdated = {
@@ -443,6 +469,24 @@ declare module '@opencode-ai/sdk' {
         path: { id: string };
         query?: { directory?: string };
       }): Promise<SdkEnvelope<Array<Session>>>;
+      /**
+       * POST /session/{id}/shell — run a one-shot shell command in the session.
+       *
+       * Real SDK shape verified in @opencode-ai/sdk dist/gen/types.gen.d.ts
+       * (SessionShellData, v1.14.49):
+       *   body: { agent: string; model?: { providerID, modelID }; command: string }
+       * Returns AssistantMessage on success.
+       * OPC-M1-6 / issue #709.
+       */
+      shell(options: {
+        path: { id: string };
+        body: {
+          agent: string;
+          model?: { providerID: string; modelID: string };
+          command: string;
+        };
+        query?: { directory?: string };
+      }): Promise<SdkEnvelope<AssistantMessage>>;
     };
     /**
      * MCP server management — client.mcp in sdk.gen.ts v1.14.49.

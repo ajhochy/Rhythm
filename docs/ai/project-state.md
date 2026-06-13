@@ -4,17 +4,39 @@
 
 **Branch:** `opc-m1-foundation` (pushed) — **PR #706** open, covers ALL of M1–M4 (#685–#703, 19 issues).
 **Status:** OpenCode v1.14.49 parity plan COMPLETE — every milestone (M1 foundation, M2 rendering, M3 session features, M4 input/config) implemented and committed on this single branch per user decision ("apply them all to this PR, smoke once").
-**Last verified issue:** #703 — OPC-M4-4 Custom agent/mode selection (VERIFIED at f830a88).
-**Test status:** vitest 702/702 ✓ | flutter test 426/426 ✓ | `ai-workflow checks --level pr` exit 0 ✓ | `npm run build` exit 0 ✓.
-**Key integration note:** #694 mounted the previously-orphaned `SessionSidePanel` inspector into `agents_view.dart` (right rail, shown when a session is selected) — the prior M3 attempt left it + other panels built but unmounted. All M3/M4 UI is verified wired into the real rendered surface with real-surface tests, not isolated widgets. See [[project-agents-inspector-orphaned]].
+**Last verified issue:** #709 — OPC-M1-6 Terminal command-runner (session.shell) — VERIFIED at 0db0e2a (vitest 710/710 ✓, flutter test 433/433 ✓, `ai-workflow checks --level pr` exit 0 ✓). Visual pixel-level smoke deferred to `flutter run -d macos` by user.
+**Test status:** vitest 710/710 ✓ | flutter test 433/433 ✓ | `ai-workflow checks --level pr` exit 0 ✓ | `npm run build` exit 0 ✓.
+**Key integration note:** #694 mounted the previously-orphaned `SessionSidePanel` inspector into `agents_view.dart` (right rail, shown when a session is selected) — the prior M3 attempt left it + other panels built but unmounted. All M3/M4 UI is verified wired into the real rendered surface with real-surface tests, not isolated widgets. #709 completes the Terminal tab inside that panel (was a placeholder until now). See [[project-agents-inspector-orphaned]].
 **Resolved flake (2026-06-13):** `apps/api_server/src/__tests__/agent_configs_routes.test.ts` no longer intermittently fails with `SocketError: other side closed` (UND_ERR_SOCKET). Root cause: Node's global `fetch` (undici) pooled a keep-alive socket to a closed test server's ephemeral port; a later `listen(0)` recycling that port reused the dead socket. Fix: `server.maxRequestsPerSocket = 1` (sends `Connection: close`, so undici never pools) + `server.closeAllConnections()` in teardown. Verified 40× file runs + 5× full-suite runs, 0 fails. **Latent risk:** the same `listen(0)` + global-`fetch` pattern lives in ~27 other `src/__tests__/*.ts` files (no shared helper); they share this flake risk and could adopt the same two lines if any flakes.
-**Next step:** human manual smoke of PR #706 (checklist in the PR body), then manual merge. CI green per milestone push.
+**Next step:** human manual smoke of PR #706 (including Terminal tab: run a shell command, verify output streams in the Terminal tab, verify it does NOT appear in main chat) — then manual merge. CI green per milestone push.
 
 ## Known bugs (parked, not blocking PR #617)
 
 _(Parked bugs from before 2026-05-27 run. #638 and #635 below are now RESOLVED — see 2026-05-27 run entry.)_
 
 ## Recent coding-agent runs
+
+### 2026-06-13 — opc-m1-foundation / issue-709 — Terminal command-runner (OPC-M1-6)
+- Files modified (production):
+  - `apps/api_server/src/@types/opencode-ai-sdk.d.ts` — added `AssistantMessage` type; added `session.shell()` method signature.
+  - `apps/api_server/src/services/opencode_client_service.ts` — added `runShell(sdkId, command, model?)` calling `client.session.shell`; throws `AppError(502)` on SDK error.
+  - `apps/api_server/src/controllers/agent_sessions_controller.ts` — added `shell(req, res, next)` handler: 404 on missing session, 400 on empty command, 400 on missing SDK mapping, resolves model via `resolveModelForAgent`, returns `{ messageId }`.
+  - `apps/api_server/src/routes/agent_sessions_routes.ts` — registered `POST /:id/shell`.
+  - `apps/desktop_flutter/lib/features/agents/controllers/agents_controller.dart` — added `_terminalMessageIds`, `_terminalCommandByMessage`, `_terminalErrorBySession`; added `terminalMessageIdsFor`, `terminalEntriesFor`, `terminalErrorFor`, `runShellCommand`, `setTerminalMessageForTest` methods.
+  - `apps/desktop_flutter/lib/features/agents/data/agents_data_source.dart` — added `runShellCommand(id, command)` POST to `/agent-sessions/:id/shell`.
+  - `apps/desktop_flutter/lib/features/agents/repositories/agents_repository.dart` — added `runShellCommand` delegate.
+  - `apps/desktop_flutter/lib/features/agents/views/_terminal_tab.dart` (new) — `TerminalTab`, `_CommandBlock`, `_ErrorLine`, `_CommandInput` widgets; key `terminal-command-input` and `terminal-error-line`.
+  - `apps/desktop_flutter/lib/features/agents/views/_session_side_panel.dart` — replaced `_PlaceholderTab` for Terminal case with real `TerminalTab`; removed dead `_PlaceholderTab` class.
+  - `apps/desktop_flutter/lib/features/agents/views/agents_view.dart` — added terminal message id filtering in `_buildTranscriptBody` (c4).
+- Files modified (tests):
+  - `docs/ai/contracts/issue-709.json` (new) — 6 criteria c1–c6 contract.
+  - `apps/api_server/src/__tests__/opc_m1_6_terminal_command_runner.test.ts` (new) — 4 vitest tests (c1a–c1d).
+  - `apps/desktop_flutter/test/features/agents/opc_terminal_command_runner_test.dart` (new) — 5 flutter tests (c2, c3a, c3b, c4, c5); c3a+c3b are REAL-SURFACE pumping mounted `SessionSidePanel`.
+  - 5 test stub files — added `runShellCommand` stub to all full-implementation `implements AgentsRepository` stubs (others use `noSuchMethod` fallback and required no change).
+- Checks: flutter analyze ✓, dart format ✓, tsc --noEmit ✓, vitest 710/710 ✓, flutter test 433/433 ✓, `ai-workflow checks --level pr` exit 0 ✓.
+- Decisions made: (1) Default SDK agent is `'build'` (opencode's built-in bash runner). (2) Terminal message IDs tracked per-session via `Set<String>` in controller (not in message model) to keep filterable without changing `AgentSessionMessage`. (3) `_terminalCommandByMessage` stores command text alongside the message ID so `terminalEntriesFor()` returns `({String command, String messageId})` records without a separate lookup. (4) `List<ChatPart>` (not `List<dynamic>`) in `_CommandBlock.toolParts` for type safety.
+- Deviations from spec: none — all 6 contract criteria addressed.
+- Concerns: `AssistantMessage` hand-written d.ts shape must stay in sync if SDK evolves. The `'build'` agent name is an opencode internal; if opencode renames it the shell runner silently dispatches to wrong agent.
 
 ### 2026-06-13 — opc-m1-foundation / flaky-test fix — agent_configs_routes UND_ERR_SOCKET
 - Files modified (tests only):

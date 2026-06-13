@@ -1,0 +1,43 @@
+{
+  "issue": 709,
+  "title": "OPC Terminal command-runner (session.shell)",
+  "branch": "opc-m1-foundation",
+  "criteria": [
+    {
+      "id": "c1",
+      "scope": "server",
+      "test": "vitest",
+      "description": "POST /agent-sessions/:id/shell { command } invokes client.session.shell with the command + a resolved model (vitest spy, real model shape) and returns { messageId }; empty command → 400; SDK error → AppError 502 (never silent)."
+    },
+    {
+      "id": "c2",
+      "scope": "flutter",
+      "test": "flutter test",
+      "description": "The mounted Terminal tab shows a command input; pressing Enter dispatches runShellCommand and clears the input."
+    },
+    {
+      "id": "c3",
+      "scope": "flutter",
+      "test": "flutter test (REAL-SURFACE)",
+      "description": "A terminal command's output renders in the Terminal tab via TerminalOutputView — real-surface widget test on the mounted SessionSidePanel."
+    },
+    {
+      "id": "c4",
+      "scope": "flutter",
+      "test": "flutter test",
+      "description": "Terminal-originated messages are excluded from the main chat transcript."
+    },
+    {
+      "id": "c5",
+      "scope": "flutter",
+      "test": "flutter test",
+      "description": "No-authed-model / SDK error surfaces as an inline error line in the tab, not a silent no-op."
+    },
+    {
+      "id": "c6",
+      "scope": "all",
+      "test": "ai-workflow checks --level pr",
+      "description": "ai-workflow checks --level pr exit 0; vitest + flutter test green."
+    }
+  ]
+}
