@@ -7,7 +7,7 @@
 **Last verified issue:** #703 — OPC-M4-4 Custom agent/mode selection (VERIFIED at f830a88).
 **Test status:** vitest 702/702 ✓ | flutter test 426/426 ✓ | `ai-workflow checks --level pr` exit 0 ✓ | `npm run build` exit 0 ✓.
 **Key integration note:** #694 mounted the previously-orphaned `SessionSidePanel` inspector into `agents_view.dart` (right rail, shown when a session is selected) — the prior M3 attempt left it + other panels built but unmounted. All M3/M4 UI is verified wired into the real rendered surface with real-surface tests, not isolated widgets. See [[project-agents-inspector-orphaned]].
-**Known flake:** `apps/api_server/src/__tests__/agent_configs_routes.test.ts` DELETE-404 intermittently fails with `SocketError: other side closed`; passes on re-run; follow-up filed.
+**Resolved flake (2026-06-13):** `apps/api_server/src/__tests__/agent_configs_routes.test.ts` no longer intermittently fails with `SocketError: other side closed` (UND_ERR_SOCKET). Root cause: Node's global `fetch` (undici) pooled a keep-alive socket to a closed test server's ephemeral port; a later `listen(0)` recycling that port reused the dead socket. Fix: `server.maxRequestsPerSocket = 1` (sends `Connection: close`, so undici never pools) + `server.closeAllConnections()` in teardown. Verified 40× file runs + 5× full-suite runs, 0 fails. **Latent risk:** the same `listen(0)` + global-`fetch` pattern lives in ~27 other `src/__tests__/*.ts` files (no shared helper); they share this flake risk and could adopt the same two lines if any flakes.
 **Next step:** human manual smoke of PR #706 (checklist in the PR body), then manual merge. CI green per milestone push.
 
 ## Known bugs (parked, not blocking PR #617)
@@ -15,6 +15,14 @@
 _(Parked bugs from before 2026-05-27 run. #638 and #635 below are now RESOLVED — see 2026-05-27 run entry.)_
 
 ## Recent coding-agent runs
+
+### 2026-06-13 — opc-m1-foundation / flaky-test fix — agent_configs_routes UND_ERR_SOCKET
+- Files modified (tests only):
+  - `apps/api_server/src/__tests__/agent_configs_routes.test.ts` — `makeServer()` now sets `server.maxRequestsPerSocket = 1`; `closeServer()` now calls `server.closeAllConnections()` before `server.close()`.
+- Root cause: the real-server harness uses `createApp().listen(0)` + Node global `fetch` (undici). `server.close()` left undici's idle keep-alive socket pooled; when a later test's `listen(0)` recycled the same ephemeral port, undici reused the dead socket → intermittent `UND_ERR_SOCKET` "other side closed". Surfaced only under the full parallel PR suite (load/timing-dependent); isolated re-runs passed.
+- Why this fix: `undici` is NOT in node_modules (built-in fetch backend), so `setGlobalDispatcher`/`Agent` is unavailable. `maxRequestsPerSocket = 1` makes the server emit `Connection: close` after every response so undici never pools a socket — nothing stale to reuse. `closeAllConnections()` is belt-and-suspenders for any in-flight socket.
+- Reproduction + proof: pre-fix reproduced the failure under a 30× loop (and `closeAllConnections()` alone still failed 1/30); post-fix 40× consecutive file runs = 0 fails, plus 5× full-suite runs = 0 fails. `npm run build` exit 0. Full suite 702/702. Assertion unchanged (no test weakened).
+- Deviations: scoped to the named file only; did NOT touch the ~27 sibling test files with the same pattern (scope discipline) — noted as latent risk in Current focus.
 
 ### 2026-06-13 — opc-m1-foundation / issue-703 — Custom agent/mode selection (OPC-M4-4)
 - Files modified (production):

@@ -23,6 +23,22 @@ node_modules/.bin/tsc --noEmit   # TypeScript type check (no tsc in global PATH)
 
 Note: `better-sqlite3` has ABI compatibility issues on some development machines. If tests fail with `NODE_MODULE_VERSION` errors, run `npm rebuild better-sqlite3`.
 
+### Real-server test harness — avoiding undici socket flakes
+
+Many `src/__tests__/*.ts` files spin up a real server with `createApp().listen(0)` and hit it with the global `fetch` (undici). If teardown only calls `server.close()`, undici's pooled keep-alive socket survives; when a later `listen(0)` recycles that ephemeral port, the dead socket is reused → intermittent `UND_ERR_SOCKET` "other side closed" (load-dependent, passes on isolated re-run). Prevent it in the harness:
+
+```ts
+const server = createApp().listen(0);
+server.maxRequestsPerSocket = 1;          // server sends `Connection: close`; undici never pools
+// ...
+const closeServer = () => new Promise<void>((res, rej) => {
+  server.closeAllConnections();           // destroy any in-flight sockets
+  server.close((e) => (e ? rej(e) : res()));
+});
+```
+
+`undici` is not a direct dependency (it backs Node's built-in `fetch`), so `setGlobalDispatcher`/`Agent` are unavailable — this server-side approach is the dependency-free fix. Applied in `agent_configs_routes.test.ts`; other harness files share the same pattern and risk.
+
 ### desktop_flutter (Flutter/Dart)
 ```bash
 cd apps/desktop_flutter

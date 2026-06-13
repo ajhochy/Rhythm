@@ -15,7 +15,16 @@ function makeDb() {
 }
 
 function makeServer() {
-  return createApp().listen(0);
+  const server = createApp().listen(0);
+  // Close each connection after a single request so the response carries
+  // `Connection: close`. Node's global `fetch` (undici) otherwise keeps the
+  // socket alive in its pool; when a later test's `listen(0)` recycles the same
+  // ephemeral port, undici reuses the now-dead socket and the next fetch fails
+  // intermittently with UND_ERR_SOCKET ("other side closed"). Disabling
+  // keep-alive means undici never pools a socket, so there is nothing stale to
+  // reuse — making the real-server teardown/recycle cycle deterministic.
+  server.maxRequestsPerSocket = 1;
+  return server;
 }
 
 async function setup() {
@@ -34,8 +43,18 @@ async function setup() {
   const server = makeServer();
   await new Promise<void>((r) => server.once('listening', () => r()));
   const baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+  // Force-destroy any sockets (including undici's pooled keep-alive connection
+  // from the global `fetch` dispatcher) before resolving close. Without this,
+  // `server.close()` leaves the idle keep-alive socket open; when a later test's
+  // `listen(0)` recycles the same ephemeral port, undici reuses the now-dead
+  // socket and the next fetch fails intermittently with UND_ERR_SOCKET
+  // ("other side closed"). Destroying connections evicts that stale socket from
+  // undici's pool, making teardown deterministic.
   const closeServer = () =>
-    new Promise<void>((res, rej) => server.close((e) => (e ? rej(e) : res())));
+    new Promise<void>((res, rej) => {
+      server.closeAllConnections();
+      server.close((e) => (e ? rej(e) : res()));
+    });
 
   return { baseUrl, closeServer, authHeaders };
 }
