@@ -22,6 +22,7 @@ import '../models/agent_session.dart';
 import '../models/chat_models.dart';
 import '../../settings/services/destructive_modal_service.dart';
 import '_agent_settings_sheet.dart';
+import '_attachment_mime.dart';
 import '_chat_cost_footer.dart';
 import '_compaction_divider.dart';
 import '_context_usage_hint.dart';
@@ -2410,7 +2411,7 @@ class _InputAreaState extends State<_InputArea> {
       if (path == null) continue;
       try {
         final bytes = await File(path).readAsBytes();
-        final mime = _mimeFromExtension(f.extension ?? '');
+        final mime = resolveAttachmentMime(bytes, f.name, f.extension);
         final dataUri = 'data:$mime;base64,${base64Encode(bytes)}';
         controller.addPendingAttachment(id, {
           'type': 'file',
@@ -3869,33 +3870,6 @@ class ChildTranscriptView extends StatelessWidget {
 
 /// Infer a MIME type from a file extension.
 /// Falls back to 'application/octet-stream' for unknown extensions.
-String _mimeFromExtension(String ext) {
-  final lower = ext.toLowerCase().replaceAll('.', '');
-  const table = {
-    'png': 'image/png',
-    'jpg': 'image/jpeg',
-    'jpeg': 'image/jpeg',
-    'gif': 'image/gif',
-    'webp': 'image/webp',
-    'svg': 'image/svg+xml',
-    'bmp': 'image/bmp',
-    'ico': 'image/x-icon',
-    'tif': 'image/tiff',
-    'tiff': 'image/tiff',
-    'pdf': 'application/pdf',
-    'txt': 'text/plain',
-    'md': 'text/markdown',
-    'csv': 'text/csv',
-    'json': 'application/json',
-    'xml': 'application/xml',
-    'zip': 'application/zip',
-    'mp4': 'video/mp4',
-    'mp3': 'audio/mpeg',
-    'wav': 'audio/wav',
-  };
-  return table[lower] ?? 'application/octet-stream';
-}
-
 // ---------------------------------------------------------------------------
 // OPC-M4-4: Agent selector pill + agent-part marker
 // ---------------------------------------------------------------------------
