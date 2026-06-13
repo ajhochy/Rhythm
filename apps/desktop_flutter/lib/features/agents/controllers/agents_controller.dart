@@ -135,6 +135,11 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   // reverted / dimmed). Cleared after a successful unrevert.
   final Map<String, bool> _sessionReverted = {};
 
+  // OPC-M3-3: Per-session compacting state.
+  // true while a summarize call is in-flight (spinner shown in header).
+  // Cleared when the compaction part arrives via WS, or on error.
+  final Map<String, bool> _sessionCompacting = {};
+
   // --------------------------------------------------------------------------
   // Model-picker state
   // --------------------------------------------------------------------------
@@ -246,6 +251,23 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
 
   bool isWorking(String sessionId) => _working[sessionId] ?? false;
 
+  /// OPC-M3-3: input token count from the last assistant message for [sessionId].
+  ///
+  /// Returns null when there are no assistant messages with token data yet.
+  /// Used by [_InputAreaState] to decide whether to show the context-usage hint.
+  int? lastAssistantInputTokens(String sessionId) {
+    final messages = _chatMessagesBySession[sessionId];
+    if (messages == null) return null;
+    for (final m in messages.reversed) {
+      if (m.role != 'user' && m.tokens != null) {
+        final raw = m.tokens!['input'];
+        if (raw is int) return raw;
+        if (raw is num) return raw.toInt();
+      }
+    }
+    return null;
+  }
+
   /// OPC-M2-4: Current retry state for [sessionId], or null if not retrying.
   ({int attempt, String reason})? retryingFor(String sessionId) =>
       _retryingBySession[sessionId];
@@ -355,6 +377,46 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
       _sessionReverted[sessionId] = true;
     } else {
       _sessionReverted.remove(sessionId);
+    }
+    notifyListeners();
+  }
+
+  // ── OPC-M3-3: compaction (summarize) ────────────────────────────────────────
+
+  /// True while a summarize call is in-flight for [sessionId].
+  bool isCompacting(String sessionId) => _sessionCompacting[sessionId] ?? false;
+
+  /// OPC-M3-3 — Trigger session compaction (summarize) for [sessionId].
+  ///
+  /// Shows a spinner in the session header while the call is in-flight.
+  /// The spinner clears when a `compaction` part arrives via WS, or on error.
+  /// Throws on server error — the view catches and surfaces it.
+  Future<void> summarizeSession(String sessionId) async {
+    _sessionCompacting[sessionId] = true;
+    notifyListeners();
+    try {
+      await _repository.summarizeSession(sessionId);
+    } catch (_) {
+      // Clear compacting state on error so the UI doesn't stay stuck.
+      if (!_disposed) {
+        _sessionCompacting.remove(sessionId);
+        notifyListeners();
+      }
+      rethrow;
+    }
+    // Compacting state cleared when the compaction part arrives via WS
+    // (handled in _appendChatPart for type='compaction'). If for some reason
+    // the part never arrives, the state is kept until the session is re-selected.
+    // This is acceptable: the spinner is a progress hint, not a gate.
+  }
+
+  /// Test-only: seed the compacting state for [sessionId] without a server round-trip.
+  @visibleForTesting
+  void setCompactingForTest(String sessionId, bool compacting) {
+    if (compacting) {
+      _sessionCompacting[sessionId] = true;
+    } else {
+      _sessionCompacting.remove(sessionId);
     }
     notifyListeners();
   }
@@ -1417,6 +1479,10 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
       );
       // OPC-M2-4: a real part arriving means the retry resolved — clear state.
       _retryingBySession.remove(msg.sessionId);
+      // OPC-M3-3: a compaction part arriving means the summarize completed.
+      if (msg.partType == 'compaction') {
+        _sessionCompacting.remove(msg.sessionId);
+      }
       // OPC-M1-3: record part activity for stuck detection.
       _lastPartActivityAt[msg.sessionId] = DateTime.now();
       // A part arriving means the session is no longer stuck.

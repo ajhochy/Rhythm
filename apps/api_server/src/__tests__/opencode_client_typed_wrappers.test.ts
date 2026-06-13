@@ -290,7 +290,7 @@ describe('issue-685-c5: wrappers reject before SDK initialization with engine-no
   });
 
   it('summarizeSession rejects with engine-not-ready AppError when uninitialized', async () => {
-    await expect(svc.summarizeSession('sdk-id', 'anthropic', 'claude-sonnet')).rejects.toThrow();
+    await expect(svc.summarizeSession('sdk-id')).rejects.toThrow();
   });
 
   it('forkSession rejects with engine-not-ready AppError when uninitialized', async () => {
@@ -371,17 +371,14 @@ describe('wrapper method shapes (M3/M4 readiness)', () => {
     );
   });
 
-  it('summarizeSession calls session.summarize with path.id and body.{providerID, modelID}', async () => {
+  it('summarizeSession calls session.summarize with path.id only (no body — OPC-M3-3)', async () => {
     sdkClient.session.summarize.mockResolvedValue({ data: true });
-    await svc.summarizeSession('sdk-sum-id', 'anthropic', 'claude-haiku');
+    await svc.summarizeSession('sdk-sum-id');
     expect(sdkClient.session.summarize).toHaveBeenCalledTimes(1);
     const call = sdkClient.session.summarize.mock.calls[0]![0] as {
       path: { id: string };
-      body: { providerID: string; modelID: string };
     };
     expect(call.path.id).toBe('sdk-sum-id');
-    expect(call.body.providerID).toBe('anthropic');
-    expect(call.body.modelID).toBe('claude-haiku');
   });
 
   it('forkSession calls session.fork with path.id and optional messageID', async () => {

@@ -24,3 +24,4 @@ agentSessionsRouter.get('/:id/messages', controller.listMessages.bind(controller
 agentSessionsRouter.post('/:id/resume', controller.resume.bind(controller));
 agentSessionsRouter.post('/:id/revert', controller.revert.bind(controller));
 agentSessionsRouter.post('/:id/unrevert', controller.unrevert.bind(controller));
+agentSessionsRouter.post('/:id/summarize', controller.summarize.bind(controller));

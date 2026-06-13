@@ -22,6 +22,8 @@ import '../models/chat_models.dart';
 import '../../settings/services/destructive_modal_service.dart';
 import '_agent_settings_sheet.dart';
 import '_chat_cost_footer.dart';
+import '_compaction_divider.dart';
+import '_context_usage_hint.dart';
 import '_markdown_message_body.dart';
 import '_message_actions_row.dart';
 import '_reasoning_block.dart';
@@ -1466,6 +1468,51 @@ class _TranscriptHeader extends StatelessWidget {
             ),
             const SizedBox(width: 6),
           ],
+          // OPC-M3-3: compacting spinner shown while summarize is in-flight.
+          if (controller.isCompacting(session.id)) ...[
+            SizedBox(
+              width: 14,
+              height: 14,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: context.rhythm.accent,
+              ),
+            ),
+            const SizedBox(width: 8),
+          ],
+          // Session overflow menu (archive, compact, etc.).
+          PopupMenuButton<String>(
+            tooltip: 'Session actions',
+            icon: Icon(
+              Icons.more_vert,
+              size: 18,
+              color: context.rhythm.textSecondary,
+            ),
+            padding: EdgeInsets.zero,
+            iconSize: 18,
+            splashRadius: 16,
+            itemBuilder: (_) => [
+              PopupMenuItem<String>(
+                value: 'compact',
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.compress,
+                      size: 16,
+                      color: context.rhythm.textSecondary,
+                    ),
+                    const SizedBox(width: 8),
+                    const Text('Compact session'),
+                  ],
+                ),
+              ),
+            ],
+            onSelected: (v) {
+              if (v == 'compact') {
+                context.read<AgentsController>().summarizeSession(session.id);
+              }
+            },
+          ),
           IconButton(
             onPressed: () =>
                 context.read<AgentsController>().closeSession(session.id),
@@ -1863,6 +1910,14 @@ class _ChatBubble extends StatelessWidget {
       } else if (part.type == 'step-start' || part.type == 'step-finish') {
         // Step boundary markers — hidden from the UI per spec (M2 scope).
         // Kept in the parts list for future inspector use.
+      } else if (part.type == 'compaction') {
+        // OPC-M3-3: flush any accumulated text, then render a full-width
+        // compaction divider ("Conversation compacted" with expandable summary).
+        flushText();
+        children.add(CompactionDivider(
+          key: ValueKey('compaction-${part.id}'),
+          part: part,
+        ));
       } else {
         // text and any future unknown part types — accumulate as prose.
         textBuffer.write(part.text);
@@ -2072,6 +2127,11 @@ class _InputAreaState extends State<_InputArea> {
     final controller = context.watch<AgentsController>();
     final session = controller.selectedSession;
 
+    // OPC-M3-3: compute input token count for the context-usage hint.
+    final lastInputTokens = session != null
+        ? controller.lastAssistantInputTokens(session.id)
+        : null;
+
     return Container(
       padding: const EdgeInsets.fromLTRB(18, 14, 18, 18),
       decoration: BoxDecoration(
@@ -2095,6 +2155,16 @@ class _InputAreaState extends State<_InputArea> {
               ],
             ),
             const SizedBox(height: 8),
+          ],
+          // OPC-M3-3: context-usage hint chip — visible when input tokens are
+          // approaching the context limit (default threshold: 80% of 150k).
+          ContextUsageHint(inputTokens: lastInputTokens),
+          if (lastInputTokens != null &&
+              lastInputTokens >=
+                  (ContextUsageHint.kDefaultContextLimit *
+                          ContextUsageHint.kThresholdFraction)
+                      .round()) ...[
+            const SizedBox(height: 6),
           ],
           // Text field
           SlashCommandPopover(

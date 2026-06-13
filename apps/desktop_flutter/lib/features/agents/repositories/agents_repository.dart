@@ -112,4 +112,8 @@ class AgentsRepository {
   /// OPC-M3-2 — POST /agent-sessions/:id/unrevert — restore reverted messages.
   Future<void> unrevertSession(String sessionId) =>
       _dataSource.unrevertSession(sessionId);
+
+  /// OPC-M3-3 — POST /agent-sessions/:id/summarize — trigger compaction.
+  Future<void> summarizeSession(String sessionId) =>
+      _dataSource.summarizeSession(sessionId);
 }

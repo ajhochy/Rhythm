@@ -389,4 +389,17 @@ class AgentsDataSource {
     );
     assertOk(response);
   }
+
+  /// OPC-M3-3 — POST /agent-sessions/:id/summarize
+  ///
+  /// Triggers session compaction (summarize) via the SDK. The SDK picks the
+  /// default model for the session; no model override is sent. Throws on HTTP
+  /// error — the error is surfaced to the view via the controller.
+  Future<void> summarizeSession(String id) async {
+    final response = await http.post(
+      Uri.parse('$_baseUrl/agent-sessions/$id/summarize'),
+      headers: AuthSessionStore.headers(),
+    );
+    assertOk(response);
+  }
 }

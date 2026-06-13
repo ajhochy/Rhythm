@@ -31,6 +31,8 @@ apps/
 │       │   ├── views/_tool_renderers/          ← OPC-M2-3: UnifiedDiffView, TerminalOutputView, TodoChecklistView, TaskChip
 │       │   ├── views/_changes_tab.dart         ← OPC-M3-1: ChangesTab, _FileDiffRow, ChangesTabBadge (wired into agents_view.dart session panel)
 │       │   ├── views/_revert_restore_banner.dart ← OPC-M3-2: banner at top of transcript when session has active revert; Restore button dispatches unrevertSession
+│       │   ├── views/_compaction_divider.dart   ← OPC-M3-3: CompactionDivider — divider row + "Conversation compacted" pill + collapsible summary text
+│       │   ├── views/_context_usage_hint.dart   ← OPC-M3-3: ContextUsageHint — warning chip above composer when inputTokens > 0.8×150k
 │       │   ├── controllers/agents_controller.dart ← _appendChatDelta routes by field; chatPartsFor/chatMessagesFor
 │       │   └── models/chat_models.dart         ← ChatMessage + ChatPart (durationMs: int? for reasoning)
 │       ├── features/agent_configs/

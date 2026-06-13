@@ -130,6 +130,9 @@ class _StubAgentsRepository implements AgentsRepository {
   Future<void> unrevertSession(String sessionId) async {}
 
   @override
+  Future<void> summarizeSession(String sessionId) async {}
+
+  @override
   noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 

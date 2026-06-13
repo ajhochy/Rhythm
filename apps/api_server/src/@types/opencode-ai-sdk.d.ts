@@ -90,7 +90,21 @@ declare module '@opencode-ai/sdk' {
     result?: unknown;
   };
 
-  export type Part = TextPart | ReasoningPart | ToolPart;
+  /**
+   * OPC-M3-3 — CompactionPart (v1.14.49 types.gen.d.ts).
+   * Emitted by the SDK as a message.part.updated event after a summarize call.
+   * `auto: false` for manual summarize (triggered by the user); `true` for
+   * automatic compaction when the session exceeds the context window.
+   */
+  export type CompactionPart = {
+    id: string;
+    sessionID: string;
+    messageID: string;
+    type: 'compaction';
+    auto: boolean;
+  };
+
+  export type Part = TextPart | ReasoningPart | ToolPart | CompactionPart;
 
   // ── Message types ──
 

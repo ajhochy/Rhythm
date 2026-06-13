@@ -174,6 +174,9 @@ class _FakeAgentsRepository implements AgentsRepository {
 
   @override
   Future<void> unrevertSession(String sessionId) async {}
+
+  @override
+  Future<void> summarizeSession(String sessionId) async {}
 }
 
 class _FakeLocalNotificationService extends LocalNotificationService {

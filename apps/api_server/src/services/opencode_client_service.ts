@@ -884,21 +884,23 @@ export class OpencodeClientService {
   /**
    * POST /session/{id}/summarize — generate a summary for the session.
    *
-   * Returns false when the SDK returns an error envelope; throws on exception.
+   * OPC-M3-3: Throws AppError on SDK error envelope — never swallows to false.
+   * The body fields (providerID, modelID) are optional in v1.14.49; omitting
+   * them lets the SDK pick the default model already configured for the session.
    */
   async summarizeSession(
     sdkId: string,
-    providerId: string,
-    modelId: string,
   ): Promise<boolean> {
     const client = this.requireClient();
     const raw = await client.session.summarize({
       path: { id: sdkId },
-      body: { providerID: providerId, modelID: modelId },
     });
     if (raw.error) {
-      logger.error(`[OpencodeClientService] summarizeSession error for ${sdkId}:`, raw.error);
-      return false;
+      throw new AppError(
+        502,
+        'SDK_ERROR',
+        `summarizeSession failed for session ${sdkId}: ${JSON.stringify(raw.error)}`,
+      );
     }
     return raw.data === true;
   }

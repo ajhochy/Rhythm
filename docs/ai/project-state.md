@@ -4,15 +4,41 @@
 
 **Branch:** `opc-m1-foundation`
 **Active milestone:** M3 — Session features
-**Last verified issue:** #695 — OPC-M3-2 Undo: revert / unrevert UI (PASS, commit `73608c6`)
-**Test status:** vitest 661/661 ✓ | flutter test 370/370 ✓ | `ai-workflow checks --level pr` exit 0 ✓
-**Next issue:** #696 — OPC-M3-3 Compaction (summarize) with UI affordance (M3-3 per current-plan.md)
+**Last verified issue:** #696 — OPC-M3-3 Compaction (summarize) with UI affordance (PASS, branch `opc-m1-foundation`, commit `5dc2c73`, not yet merged)
+**Test status:** vitest 664/664 ✓ | flutter test 380/380 ✓ | `ai-workflow checks --level pr` exit 0 ✓
+**Next issue:** #697 — OPC-M3-4 Slash commands via POST /session/{id}/command (M3-4 per current-plan.md)
 
 ## Known bugs (parked, not blocking PR #617)
 
 _(Parked bugs from before 2026-05-27 run. #638 and #635 below are now RESOLVED — see 2026-05-27 run entry.)_
 
 ## Recent coding-agent runs
+
+### 2026-06-12 — opc-m1-foundation / issue-696 — Compaction (summarize) with UI affordance (OPC-M3-3)
+- Files modified (production):
+  - `apps/api_server/src/services/opencode_client_service.ts` — `summarizeSession(sdkId)` signature simplified (no providerId/modelId args); error branch now throws `AppError(502,'SDK_ERROR',...)` instead of returning `false`.
+  - `apps/api_server/src/controllers/agent_sessions_controller.ts` — added `summarize()` async method: looks up session, gets SDK mapping (400 if absent), calls `opencodeClient.summarizeSession(sdkId)`, returns 204.
+  - `apps/api_server/src/routes/agent_sessions_routes.ts` — added `POST /:id/summarize` route.
+  - `apps/api_server/src/@types/opencode-ai-sdk.d.ts` — added `CompactionPart` type `{ id, sessionID, messageID, type:'compaction', auto: boolean }`; added to `Part` union.
+  - `apps/desktop_flutter/lib/features/agents/models/chat_models.dart` — added `compaction` case to `mergePart` for `ChatPart.fromJson`.
+  - `apps/desktop_flutter/lib/features/agents/data/agents_data_source.dart` — added `summarizeSession(id)`: POST `/agent-sessions/$id/summarize`.
+  - `apps/desktop_flutter/lib/features/agents/repositories/agents_repository.dart` — added `summarizeSession(sessionId)` delegate.
+  - `apps/desktop_flutter/lib/features/agents/controllers/agents_controller.dart` — `_sessionCompacting` map; `isCompacting()` getter; `lastAssistantInputTokens()` getter; `summarizeSession()` method; `setCompactingForTest()` hook; WS `MessagePartUpdatedMessage` handler clears compacting when `partType=='compaction'`.
+  - `apps/desktop_flutter/lib/features/agents/views/_compaction_divider.dart` (new) — `CompactionDivider` StatefulWidget: divider row + "Conversation compacted" pill + collapsible summary text.
+  - `apps/desktop_flutter/lib/features/agents/views/_context_usage_hint.dart` (new) — `ContextUsageHint` widget: warning chip when `inputTokens > 0.8 × 150000`; SizedBox.shrink below threshold.
+  - `apps/desktop_flutter/lib/features/agents/views/agents_view.dart` — `_TranscriptHeader` gains `Icons.more_vert` overflow menu with "Compact session" + compacting spinner; `_ChatBubble` handles `compaction` part type → `CompactionDivider`; `_InputAreaState` adds `ContextUsageHint` above text field.
+- Files modified (tests):
+  - `apps/api_server/src/__tests__/opc_m3_3_compaction.test.ts` (new) — 3 vitest tests c1a/b/c: happy path 204; no SDK mapping 400; SDK error AppError.
+  - `apps/desktop_flutter/test/features/agents/opc_m3_3_compaction_test.dart` (new) — 10 flutter tests c2–c5 including REAL-SURFACE c2a/b (TranscriptHeaderTestHarness).
+  - `docs/ai/contracts/issue-696.json` (new) — 6 criteria contract.
+  - `apps/api_server/src/__tests__/opencode_client_typed_wrappers.test.ts` — updated 2 tests for new `summarizeSession(sdkId)` single-arg signature.
+  - 4 test files updated with `summarizeSession` interface stub: `agent_trigger_watcher_test.dart`, `issue_626_chip_status_flip_test.dart`, `new_session_dialog_error_test.dart`, `opc_m3_1_changes_tab_test.dart`.
+  - `integration_test/follow_up_smoke_test.dart` — added `summarizeSession` stub to `_FakeAgentsRepository`.
+- Red→green proof: vitest 661→664 (+3 tests). Flutter 370→380 (+10 tests). All pass. `ai-workflow checks --level pr` exit 0.
+- Checks: flutter analyze --no-fatal-infos ✓ (no errors, 232 infos all pre-existing), dart format ✓ (3 files reformatted), tsc --noEmit ✓, vitest 664/664 ✓.
+- Decisions made: (1) `summarizeSession` SDK wrapper takes only `sdkId` — v1.14.49 `session.summarize` requires only `path.id`; no body needed. (2) Compacting state cleared on WS `compaction` part arrival (not HTTP 204) to avoid premature spinner removal before the WS confirmation. (3) Context limit defaulted to 150k (no per-model catalog yet); threshold 0.8; both as constants with code comments. (4) `pumpAndSettle` replaced with `pump(Duration.zero)` in c2b test because the active spinner prevents settle.
+- Deviations from spec: none.
+- Concerns: (1) `AgentsRepository` interface exhaustiveness pattern: added 3 more methods in M3, now 8+ test files need updating for each new method. (2) `_context_usage_hint.dart` uses a fixed 150k default — future model catalog endpoint (when available) should replace this constant.
 
 ### 2026-06-12 — opc-m1-foundation / issue-695 — Undo: revert / unrevert UI (OPC-M3-2)
 - Files modified (production):

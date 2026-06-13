@@ -1,0 +1,55 @@
+{
+  "issue": 696,
+  "generated": "2026-06-12",
+  "criteria": [
+    {
+      "criterion_id": "issue-696-c1",
+      "text": "POST /agent-sessions/:id/summarize invokes the SDK summarize wrapper with the mapped sdk id (vitest spy); errors surface as AppError, not silence.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/opc_m3_3_compaction.test.ts",
+      "test_id": "issue-696-c1: summarize route invokes SDK wrapper with sdkId; errors → AppError via next()",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-696-c2",
+      "text": "Session header menu contains \"Compact session\"; tapping dispatches the call and shows a working indicator until the resulting compaction part/message arrives (widget test, mocked source).",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agents/opc_m3_3_compaction_test.dart",
+      "test_id": "issue-696-c2: REAL-SURFACE — TranscriptHeader overflow menu contains Compact session; tapping dispatches summarizeSession",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-696-c3",
+      "text": "A compaction part (real-shape fixture) renders as a divider row labeled \"Conversation compacted\", with the summary text hidden until expanded.",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agents/opc_m3_3_compaction_test.dart",
+      "test_id": "issue-696-c3: CompactionDivider renders 'Conversation compacted' label and hides summary until expanded",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-696-c4",
+      "text": "Compaction parts arriving via stream and via rehydration render identically.",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agents/opc_m3_3_compaction_test.dart",
+      "test_id": "issue-696-c4: compaction part renders identically via stream vs rehydration path",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-696-c5",
+      "text": "When the last assistant message's input-token count exceeds a configurable threshold fraction of the model's context (default 0.8, constant), a hint chip appears near the composer; below threshold it does not (widget test both sides).",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agents/opc_m3_3_compaction_test.dart",
+      "test_id": "issue-696-c5: context hint chip appears above threshold; absent below threshold",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-696-c6",
+      "text": "ai-workflow checks --level pr exits 0; vitest + flutter test green.",
+      "mode": "manual",
+      "status": "pending",
+      "reason": "Gate-level check — verified by ai-workflow checks --level pr exit 0 and the full test suite counts in the coding-agent run entry."
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": ["issue-696-c6"]
+}

@@ -632,6 +632,22 @@ export class AgentSessionsController {
     }
   }
 
+  // OPC-M3-3: trigger session compaction via POST /:id/summarize.
+  async summarize(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const session = repo.findById(req.params.id);
+      if (!session) throw AppError.notFound('AgentSession');
+      const opencodeId = opencodeSessionMap.get(session.id);
+      if (!opencodeId) {
+        throw AppError.badRequest('Session has no active SDK mapping; cannot summarize.');
+      }
+      await opencodeClient.summarizeSession(opencodeId);
+      res.status(204).end();
+    } catch (err) {
+      next(err);
+    }
+  }
+
   listMessages(req: Request, res: Response, next: NextFunction): void {
     try {
       const session = repo.findById(req.params.id);

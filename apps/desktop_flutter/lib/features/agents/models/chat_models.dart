@@ -60,6 +60,9 @@ DateTime? _parseDateTime(dynamic value) {
 /// `reasoning` — model thinking text; rendered as a dimmer collapsible block.
 /// `step-start` / `step-finish` — turn boundaries; usually hidden from the UI
 ///         but kept on the part list so future inspectors can scrub by step.
+/// `compaction` — OPC-M3-3: emitted after a summarize call; rendered as a
+///         horizontal divider labeled "Conversation compacted" with the summary
+///         text (stored in [ChatPart.text]) expandable on demand.
 class ChatPart {
   ChatPart({
     required this.id,
@@ -158,6 +161,13 @@ class ChatPart {
         }
       }
     } else if (raw['type'] == 'text') {
+      final t = raw['text'];
+      if (t is String) text = t;
+    } else if (raw['type'] == 'compaction') {
+      // OPC-M3-3: compaction parts carry optional summary text in a sibling
+      // TextPart (the SDK may include a text part in the same message with the
+      // summary). When a 'text' field is present on the compaction part itself
+      // (e.g. in a bridge-serialised row), use it as the summary.
       final t = raw['text'];
       if (t is String) text = t;
     }
