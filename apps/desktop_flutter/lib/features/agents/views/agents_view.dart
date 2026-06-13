@@ -31,6 +31,10 @@ import '_projects_rail.dart';
 import '_slash_command_popover.dart';
 import '_question_tool_card.dart';
 import '_tool_call_part.dart';
+import '_tool_renderers/_unified_diff_view.dart';
+import '_tool_renderers/_terminal_output_view.dart';
+import '_tool_renderers/_todo_checklist_view.dart';
+import '_tool_renderers/_task_chip.dart';
 import '_unified_agent_model_picker.dart';
 
 class AgentsView extends StatefulWidget {
@@ -1778,7 +1782,8 @@ class _ChatBubble extends StatelessWidget {
             QuestionToolCard(part: part, sessionId: sessionId),
           );
         } else {
-          children.add(ToolCallPart(part: part));
+          // OPC-M2-3: dispatch to a tool-specific renderer by name.
+          children.add(_buildToolRenderer(part));
         }
       } else if (part.type == 'reasoning') {
         // OPC-M2-2: flush any accumulated text before the reasoning block,
@@ -1827,6 +1832,34 @@ class _ChatBubble extends StatelessWidget {
         ],
       ],
     );
+  }
+
+  /// OPC-M2-3: dispatch a tool part to the appropriate renderer based on tool name.
+  ///
+  /// Dispatch table:
+  ///   edit / write / apply_patch → UnifiedDiffView (per-line +/- coloring)
+  ///   bash                       → TerminalOutputView (monospace, ANSI stripped)
+  ///   todowrite                  → TodoChecklistView (per-item checklist)
+  ///   task                       → TaskChip (inert chip; navigation in M3-6)
+  ///   read / glob / grep / webfetch / websearch / skill / plan / lsp
+  ///     and any unrecognized name → ToolCallPart (generic card fallback)
+  Widget _buildToolRenderer(ChatPart part) {
+    final name = part.toolName?.toLowerCase() ?? '';
+    if (const {'edit', 'write', 'apply_patch'}.contains(name)) {
+      return UnifiedDiffView(part: part);
+    }
+    if (name == 'bash') {
+      return TerminalOutputView(part: part);
+    }
+    if (name == 'todowrite') {
+      return TodoChecklistView(part: part);
+    }
+    if (name == 'task') {
+      return TaskChip(part: part);
+    }
+    // read / glob / grep / webfetch / websearch / skill / plan / lsp
+    // and any unrecognized tool → generic card.
+    return ToolCallPart(part: part);
   }
 }
 

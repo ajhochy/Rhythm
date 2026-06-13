@@ -1,0 +1,71 @@
+{
+  "issue": 692,
+  "generated": "2026-06-12",
+  "criteria": [
+    {
+      "criterion_id": "issue-692-c1",
+      "text": "An `edit` tool part (real-shape fixture with old/new content or patch) renders the diff view: added lines styled with the success role, removed with danger, monospace family; file path visible.",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agents/opc_m2_3_tool_renderers_test.dart",
+      "test_id": "issue-692-c1: edit part renders diff view with success/danger line styling and file path",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-692-c2",
+      "text": "A diff longer than 20 lines renders collapsed with a \"Show all (N lines)\" affordance that expands on tap.",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agents/opc_m2_3_tool_renderers_test.dart",
+      "test_id": "issue-692-c2: diff >20 lines collapses with Show all affordance; expands on tap",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-692-c3",
+      "text": "A `bash` tool part renders the command header + output with preserved whitespace (multi-space run intact in the rendered string) and ANSI codes stripped (fixture contains `\\x1b[31m`; rendered text does not); error state shows the exit code.",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agents/opc_m2_3_tool_renderers_test.dart",
+      "test_id": "issue-692-c3: bash part renders command header, strips ANSI codes, preserves whitespace, shows exit code on error",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-692-c4",
+      "text": "A `todowrite` part renders one checklist row per todo with correct checked state.",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agents/opc_m2_3_tool_renderers_test.dart",
+      "test_id": "issue-692-c4: todowrite part renders checklist rows with correct checked/unchecked state",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-692-c5",
+      "text": "A `task` part renders a chip with the subagent description and live ToolState indicator.",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agents/opc_m2_3_tool_renderers_test.dart",
+      "test_id": "issue-692-c5: task part renders chip with description and ToolState indicator",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-692-c6",
+      "text": "An unrecognized tool name renders the existing generic card (regression test).",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agents/opc_m2_3_tool_renderers_test.dart",
+      "test_id": "issue-692-c6: unrecognized tool name falls back to generic ToolCallPart card",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-692-c7",
+      "text": "ToolState pending/running/completed/error each render a distinct indicator (golden-free: assert by icon/semantics).",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agents/opc_m2_3_tool_renderers_test.dart",
+      "test_id": "issue-692-c7: ToolState pending/running/completed/error render distinct indicators",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-692-c8",
+      "text": "All colors via `RhythmColorRoles`; `flutter test` green; `ai-workflow checks --level pr` exits 0.",
+      "mode": "manual",
+      "status": "pass",
+      "reason": "Gate-level check — verified by ai-workflow checks --level pr exit 0 and code review."
+    }
+  ],
+  "stack": "dart",
+  "not_tested": ["issue-692-c8"]
+}
