@@ -997,7 +997,9 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     String? agentId,
     String? taskId,
     required String cwd,
-    required String name,
+    // OPC-#710: name defaults to '' for instant-create sessions. Opencode
+    // auto-titles via session.updated after the first exchange.
+    String name = '',
     String? branch,
     String? stash,
     bool createBranch = false,

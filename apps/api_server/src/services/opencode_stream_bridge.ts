@@ -207,14 +207,17 @@ export class OpencodeStreamBridge {
     // Extract the Opencode session ID — different event types nest it
     // differently:
     //   session.*           → properties.sessionID
-    //   message.updated     → properties.info.sessionID
+    //   message.updated     → properties.info.sessionID  (message.info.sessionID)
     //   message.part.updated→ properties.part.sessionID
     //   message.removed     → properties.sessionID
+    //   session.updated     → properties.info.id  (Session.id, not sessionID)
     const props = (event.properties ?? {}) as Record<string, unknown>;
     const propsInfo = props.info as Record<string, unknown> | undefined;
     const propsPart = props.part as Record<string, unknown> | undefined;
     const opencodeSessionId = (props.sessionID ??
       propsInfo?.sessionID ??
+      // session.updated carries Session shape where id = sdk session id
+      propsInfo?.id ??
       propsPart?.sessionID) as string | undefined;
 
     // Look up the local session ID from the opencodeSessionMap.
@@ -639,6 +642,37 @@ export class OpencodeStreamBridge {
           id: eventId,
           properties: event.properties ?? {},
         });
+        break;
+      }
+
+      case 'session.updated': {
+        // OPC-#710 — auto-title: opencode emits session.updated after the first
+        // exchange with a generated title in info.title. Map it to the Rhythm
+        // session name, persist it, and broadcast SessionUpdatedMessage so the
+        // Flutter session list updates live without polling.
+        //
+        // NOTE: The SDK session id for routing lives in `properties.info.id`
+        // (NOT in a top-level `properties.sessionID`). The `localSessionId` /
+        // `eventId` resolved above already handles this via the opencodeSessionMap
+        // reverse-lookup on `propsInfo?.sessionID` — but for session.updated the
+        // SDK id is `info.id` (not `info.sessionID`). Re-resolve from info.id
+        // to ensure correct mapping.
+        const updatedInfo = props.info as Record<string, unknown> | undefined;
+        if (updatedInfo && localSessionId) {
+          const title = updatedInfo.title as string | undefined;
+          if (title && title.trim().length > 0) {
+            try {
+              this.sessionsRepo.updateFields(localSessionId, { name: title.trim() });
+              const updated = this.sessionsRepo.findById(localSessionId);
+              if (updated) broadcastSessionUpdated(updated);
+            } catch (err) {
+              logger.error(
+                '[OpencodeStreamBridge] Failed to update session name from session.updated:',
+                err,
+              );
+            }
+          }
+        }
         break;
       }
 

@@ -33,7 +33,8 @@ class AgentsRepository {
     String? agentId, // #602: null → agent-less session
     String? taskId,
     required String cwd,
-    required String name,
+    // OPC-#710: name defaults to '' for instant-create sessions.
+    String name = '',
     String? branch,
     String? stash,
     bool createBranch = false,

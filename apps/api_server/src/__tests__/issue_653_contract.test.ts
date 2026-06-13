@@ -127,31 +127,35 @@ describe('agent_sessions_controller — issue #653: eliminate __pending__ sessio
   });
 
   // -------------------------------------------------------------------------
-  // c1 — POST /agent-sessions rejects '__pending__' and null agentId.
+  // c1 — POST /agent-sessions rejects '__pending__' sentinel.
   //
-  // FAILS today: the controller has an `isAgentLess` branch that treats
-  // agentId=null (and agentId='__pending__') as a valid agent-less session,
-  // inserts the row with agentId='__pending__', returns 201.
-  //
-  // PASSES after fix: the controller rejects both with 400 BadRequest. The
-  // client must pick an agent/model before creating the session.
+  // History: the #653 fix rejected agentId=null and agentId='' as well.
+  // Issue #710 (instant new session) superseded that requirement:
+  // null/empty agentId is now valid (creates an agent-less placeholder
+  // session) so the client can open it immediately and configure the
+  // agent later.  Only '__pending__' (the old ORM sentinel) is still
+  // rejected with 400.
   // -------------------------------------------------------------------------
 
-  it('issue-653-c1a: POST rejects agentId=null with 400', async () => {
-    const res = await fetch(`${baseUrl}/agent-sessions`, {
-      method: 'POST',
-      headers: authHeaders,
-      body: JSON.stringify({
-        agentId: null,
-        cwd: '/tmp',
-        name: 'should-reject-null',
-        taskId,
-      }),
-    });
-    expect(res.status).toBe(400);
-    const body = (await res.json()) as { error?: { message?: string } };
-    expect(body.error?.message?.toLowerCase() ?? '').toContain('agent');
-  });
+  it(
+    'issue-653-c1a (updated for #710): POST accepts agentId=null and creates a placeholder session',
+    async () => {
+      const res = await fetch(`${baseUrl}/agent-sessions`, {
+        method: 'POST',
+        headers: authHeaders,
+        body: JSON.stringify({
+          agentId: null,
+          cwd: '/tmp',
+          name: '',
+          taskId,
+        }),
+      });
+      // #710: null agentId is now valid — instant-create returns 201.
+      expect(res.status).toBe(201);
+      const body = (await res.json()) as { id?: string };
+      expect(typeof body.id).toBe('string');
+    },
+  );
 
   it("issue-653-c1b: POST rejects agentId='__pending__' with 400", async () => {
     const res = await fetch(`${baseUrl}/agent-sessions`, {
@@ -167,19 +171,25 @@ describe('agent_sessions_controller — issue #653: eliminate __pending__ sessio
     expect(res.status).toBe(400);
   });
 
-  it('issue-653-c1c: POST rejects empty string agentId with 400', async () => {
-    const res = await fetch(`${baseUrl}/agent-sessions`, {
-      method: 'POST',
-      headers: authHeaders,
-      body: JSON.stringify({
-        agentId: '',
-        cwd: '/tmp',
-        name: 'should-reject-empty',
-        taskId,
-      }),
-    });
-    expect(res.status).toBe(400);
-  });
+  it(
+    'issue-653-c1c (updated for #710): POST accepts empty string agentId as instant-create',
+    async () => {
+      const res = await fetch(`${baseUrl}/agent-sessions`, {
+        method: 'POST',
+        headers: authHeaders,
+        body: JSON.stringify({
+          agentId: '',
+          cwd: '/tmp',
+          name: '',
+          taskId,
+        }),
+      });
+      // #710: empty agentId is now valid — instant-create returns 201.
+      expect(res.status).toBe(201);
+      const body = (await res.json()) as { id?: string };
+      expect(typeof body.id).toBe('string');
+    },
+  );
 
   // -------------------------------------------------------------------------
   // c2 — New sessions have NO auto-seeded system message.

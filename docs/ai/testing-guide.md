@@ -69,6 +69,8 @@ dart format . --set-exit-if-changed # CI fails on format violations
 | `test/features/agents/opc_m3_5_todo_panel_test.dart` | OPC-M3-5: TodoPanel in SessionSidePanel (c3a REAL-SURFACE, c3b empty→hidden, c4a/b WS session-keyed isolation, c5a header count, c5b checkbox states, c6a/b collapse persistence) |
 | `src/__tests__/opc_m3_6_child_sessions.test.ts` | OPC-M3-6: GET /:id/children (no mapping → [], SDK listChildren); GET /:id/children/:childSdkId/messages (role mapping user→input/assistant→output, 404 on missing parent) (c1a–c1b, 7 tests) |
 | `test/features/agents/opc_m3_6_child_sessions_test.dart` | OPC-M3-6: TaskChip tap → ChildTranscriptView (c2a REAL-SURFACE), openChildSession fetches messages (c2b), closeChildSession no-refetch (c3), ChildTranscriptView read-only (c4), children not in sidebar lists (c5), ToolState regression (c6) |
+| `src/__tests__/opc_instant_new_session.test.ts` | #710: bridge session.updated → updateFields + broadcastSessionUpdated (c2a), empty title skipped (c2b), server accepts null/empty agentId (c4) |
+| `test/features/agents/opc_instant_new_session_test.dart` | #710: c1 REAL-SURFACE header tap → onNewSession no dialog; c1-controller empty name default; c3 handleWsMessageForTest → session name updated; c4 empty name → "New session" placeholder; c5 ⋯ button → onOptionsPressed |
 
 ## Mocking the Opencode engine in tests
 

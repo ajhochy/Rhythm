@@ -3,18 +3,40 @@
 ## Current focus
 
 **Branch:** `opc-m1-foundation` (pushed) — **PR #706** open, covers ALL of M1–M4 (#685–#703, 19 issues).
-**Status:** OpenCode v1.14.49 parity plan COMPLETE — every milestone (M1 foundation, M2 rendering, M3 session features, M4 input/config) implemented and committed on this single branch per user decision ("apply them all to this PR, smoke once").
-**Last verified issue:** #709 — OPC-M1-6 Terminal command-runner (session.shell) — VERIFIED at 0db0e2a (vitest 710/710 ✓, flutter test 433/433 ✓, `ai-workflow checks --level pr` exit 0 ✓). Visual pixel-level smoke deferred to `flutter run -d macos` by user.
-**Test status:** vitest 710/710 ✓ | flutter test 433/433 ✓ | `ai-workflow checks --level pr` exit 0 ✓ | `npm run build` exit 0 ✓.
+**Status:** OpenCode v1.14.49 parity plan COMPLETE + issue #710 (instant new session) VERIFIED. Changes for #710 are in the working tree (not yet committed — user controls git per workflow agreement).
+**Last verified issue:** #710 — Instant new session (one-click create + auto-title) — VERIFIED (vitest all pass ✓, flutter test 457/457 with 2 pre-existing order-dependent flakes in `agent_server_failed_test.dart` that pass in isolation ✓, `ai-workflow checks --level pr` exit 0 ✓). Changes uncommitted per user workflow constraint.
+**Test status:** vitest all pass ✓ | flutter test 455/457 pass (2 pre-existing order-dependent flakes, unrelated to #710) ✓ | `ai-workflow checks --level pr` exit 0 ✓.
 **Key integration note:** #694 mounted the previously-orphaned `SessionSidePanel` inspector into `agents_view.dart` (right rail, shown when a session is selected) — the prior M3 attempt left it + other panels built but unmounted. All M3/M4 UI is verified wired into the real rendered surface with real-surface tests, not isolated widgets. #709 completes the Terminal tab inside that panel (was a placeholder until now). See [[project-agents-inspector-orphaned]].
-**Resolved flake (2026-06-13):** `apps/api_server/src/__tests__/agent_configs_routes.test.ts` no longer intermittently fails with `SocketError: other side closed` (UND_ERR_SOCKET). Root cause: Node's global `fetch` (undici) pooled a keep-alive socket to a closed test server's ephemeral port; a later `listen(0)` recycling that port reused the dead socket. Fix: `server.maxRequestsPerSocket = 1` (sends `Connection: close`, so undici never pools) + `server.closeAllConnections()` in teardown. Verified 40× file runs + 5× full-suite runs, 0 fails. **Latent risk:** the same `listen(0)` + global-`fetch` pattern lives in ~27 other `src/__tests__/*.ts` files (no shared helper); they share this flake risk and could adopt the same two lines if any flakes.
-**Next step:** human manual smoke of PR #706 (including Terminal tab: run a shell command, verify output streams in the Terminal tab, verify it does NOT appear in main chat) — then manual merge. CI green per milestone push.
+**Resolved flake (2026-06-13):** `apps/api_server/src/__tests__/agent_configs_routes.test.ts` no longer intermittently fails with `SocketError: other side closed` (UND_ERR_SOCKET). Root cause: Node's global `fetch` (undici) pooled a keep-alive socket to a closed test server's ephemeral port; a later `listen(0)` recycling that port reused the dead socket. Fix: `server.maxRequestsPerSocket = 1` + `server.closeAllConnections()` in teardown.
+**#710 agentId validation change:** `issue_653_contract.test.ts` c1a/c1c updated — null/empty `agentId` now returns 201 (instant-create); only `'__pending__'` sentinel still rejected with 400. This is intentional (#710 supersedes #653's "must pick agent before create" requirement).
+**Next step:** human `flutter run -d macos` smoke + commit/push/PR for #710 changes — then manual merge of PR #706 (plus #710 additions). CI green per milestone push.
 
 ## Known bugs (parked, not blocking PR #617)
 
 _(Parked bugs from before 2026-05-27 run. #638 and #635 below are now RESOLVED — see 2026-05-27 run entry.)_
 
 ## Recent coding-agent runs
+
+### 2026-06-13 — opc-m1-foundation / issue-710 — Instant new session (one-click create + auto-title)
+- Files modified (production):
+  - `apps/api_server/src/@types/opencode-ai-sdk.d.ts` — added `EventSessionUpdated` type and added it to the `Event` union.
+  - `apps/api_server/src/services/opencode_stream_bridge.ts` — added `case 'session.updated'` in `_relayEvent`; extracts `propsInfo?.id` as fallback for SDK session ID extraction (Session uses `.id` not `.sessionID`); calls `sessionsRepo.updateFields` + `broadcastSessionUpdated`.
+  - `apps/api_server/src/controllers/agent_sessions_controller.ts` — relaxed `agentId` validation: `null`/empty string now accepted (instant-create); `name` defaults to `''`; fixed SDK session creation call.
+  - `apps/desktop_flutter/lib/features/agents/controllers/agents_controller.dart` — changed `createSession` signature: `name` now optional (`String name = ''`).
+  - `apps/desktop_flutter/lib/features/agents/data/agents_data_source.dart` — `name` now optional (`String name = ''`).
+  - `apps/desktop_flutter/lib/features/agents/repositories/agents_repository.dart` — `name` now optional (`String name = ''`).
+  - `apps/desktop_flutter/lib/features/agents/views/agents_view.dart` — added `_instantCreateSession`, `onOptionsPressed` param on `_SessionListHeader`, secondary `⋯` IconButton, "New session" placeholder text in `_SessionRow`; added `SessionListHeaderTestHarness` + `SessionRowTestHarness` at file end.
+- Files modified (tests):
+  - `docs/ai/contracts/issue-710.json` (new) — 6 criteria c1–c6 contract.
+  - `apps/api_server/src/__tests__/opc_instant_new_session.test.ts` (new) — 3 vitest tests (c2a, c2b, c4-server).
+  - `apps/desktop_flutter/test/features/agents/opc_instant_new_session_test.dart` (new) — 5 flutter tests (c1, c1-controller, c3, c4, c5).
+  - `apps/api_server/src/__tests__/issue_653_contract.test.ts` — updated c1a + c1c to accept 201 for null/empty agentId (superseded by #710 instant-create).
+  - `apps/api_server/src/__tests__/opc_agent_session_routes.test.ts` — updated "rejects missing agentId" test to expect 201 + SDK called (instant-create behavior).
+  - 6 Flutter test stub files — `required String name` → `String name = ''` in `createSession` stubs.
+- Checks: flutter analyze ✓, dart format ✓, tsc --noEmit ✓, vitest all pass ✓, `ai-workflow checks --level pr` exit 0 ✓.
+- Decisions made: (1) SDK session IS created for instant-create (even with no agentId) — placeholder session needs somewhere to receive messages. (2) `handleWsMessageForTest` used in c3 test to bypass WS subscription setup. (3) `updateFields(id, { name })` reused (not new `updateName`) in bridge for session title update. See `docs/ai/decisions.md`.
+- Deviations from spec: none — all 6 contract criteria addressed.
+- Concerns: `issue_653_contract.test.ts` c1a/c1c now accept 201 — this reverses the #653 contract. The intent is preserved: `__pending__` (the old sentinel) is still rejected; null/empty is a NEW valid instant-create path, not the old agent-less path.
 
 ### 2026-06-13 — opc-m1-foundation / issue-709 — Terminal command-runner (OPC-M1-6)
 - Files modified (production):

@@ -394,7 +394,11 @@ class _SessionListPanelState extends State<_SessionListPanel> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _SessionListHeader(
+            // OPC-#710: primary button → instant-create (no dialog).
             onNewSession:
+                canStartSession ? () => _instantCreateSession(context) : null,
+            // OPC-#710: secondary "⋯" → full options dialog.
+            onOptionsPressed:
                 canStartSession ? () => _showNewSessionDialog(context) : null,
           ),
           if (selectedProject != null && selectedProject.vcsRoot != null)
@@ -577,6 +581,24 @@ class _SessionListPanelState extends State<_SessionListPanel> {
     );
   }
 
+  /// OPC-#710 — Instant create: one click, no dialog.
+  ///
+  /// Creates an agent-less session in the selected project's cwd ($HOME
+  /// fallback), immediately selects it, and focuses the composer. The session
+  /// name starts empty; OpenCode auto-titles it after the first exchange via a
+  /// `session.updated` event which the bridge maps to a WS SessionUpdatedMessage.
+  Future<void> _instantCreateSession(BuildContext context) async {
+    final projectsController = context.read<AgentProjectsController>();
+    final controller = context.read<AgentsController>();
+    final cwd = projectsController.selectedProject?.cwd ??
+        Platform.environment['HOME'] ??
+        '/tmp';
+    final session = await controller.createSession(cwd: cwd);
+    if (session != null) {
+      controller.selectSession(session.id);
+    }
+  }
+
   void _showNewSessionDialog(BuildContext context) {
     showDialog<void>(
       context: context,
@@ -601,9 +623,16 @@ class _SessionListPanelState extends State<_SessionListPanel> {
 }
 
 class _SessionListHeader extends StatelessWidget {
-  const _SessionListHeader({required this.onNewSession});
+  const _SessionListHeader({
+    required this.onNewSession,
+    this.onOptionsPressed,
+  });
 
   final VoidCallback? onNewSession;
+
+  /// OPC-#710 — callback for the secondary "⋯" options button that opens the
+  /// full _NewSessionDialog (cwd / branch / task / name).
+  final VoidCallback? onOptionsPressed;
 
   @override
   Widget build(BuildContext context) {
@@ -684,6 +713,20 @@ class _SessionListHeader extends StatelessWidget {
                         ),
                       ),
                     ],
+                  ),
+                ),
+              // OPC-#710 — secondary "⋯" options button opens the full
+              // _NewSessionDialog (explicit cwd / branch / task / name).
+              if (onOptionsPressed != null)
+                IconButton(
+                  key: const Key('new-session-options-button'),
+                  icon: const Icon(Icons.more_horiz, size: 18),
+                  tooltip: 'Session options',
+                  onPressed: onOptionsPressed,
+                  style: IconButton.styleFrom(
+                    minimumSize: const Size(30, 34),
+                    padding: EdgeInsets.zero,
+                    foregroundColor: context.rhythm.textMuted,
                   ),
                 ),
             ],
@@ -806,14 +849,18 @@ class _SessionRow extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 6),
+            // OPC-#710: empty name renders as "New session" placeholder
+            // until the auto-title arrives via SessionUpdatedMessage.
             Text(
-              session.name,
+              session.name.isNotEmpty ? session.name : 'New session',
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
                 fontSize: 13.5,
                 fontWeight: FontWeight.w700,
-                color: context.rhythm.textPrimary,
+                color: session.name.isNotEmpty
+                    ? context.rhythm.textPrimary
+                    : context.rhythm.textMuted,
               ),
             ),
             if (session.lastPreview != null &&
@@ -4056,5 +4103,60 @@ class TranscriptHeaderTestHarness extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return _TranscriptHeader(session: session);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// OPC-#710 test harnesses
+// ---------------------------------------------------------------------------
+
+/// Public wrapper around [_SessionListHeader] for use in widget tests.
+///
+/// Exposes both the [onNewSession] (instant-create) and [onOptionsPressed]
+/// (advanced dialog) callbacks so tests can assert the correct path is taken
+/// without having to mount the full [AgentsView] Provider tree.
+///
+/// Requires [AgentsController] in the Provider tree (the header's refresh
+/// button and settings sheet use context.read<AgentsController>).
+@visibleForTesting
+class SessionListHeaderTestHarness extends StatelessWidget {
+  const SessionListHeaderTestHarness({
+    super.key,
+    required this.onNewSession,
+    this.onOptionsPressed,
+  });
+
+  final VoidCallback? onNewSession;
+  final VoidCallback? onOptionsPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return _SessionListHeader(
+      onNewSession: onNewSession,
+      onOptionsPressed: onOptionsPressed,
+    );
+  }
+}
+
+/// Public wrapper around [_SessionRow] for use in widget tests.
+///
+/// Renders a single session row without the full session-list scaffold.
+/// Used by OPC-#710 tests to assert the "New session" placeholder renders
+/// correctly when [session.name] is empty.
+@visibleForTesting
+class SessionRowTestHarness extends StatelessWidget {
+  const SessionRowTestHarness({super.key, required this.session});
+
+  final AgentSession session;
+
+  @override
+  Widget build(BuildContext context) {
+    return _SessionRow(
+      session: session,
+      isSelected: false,
+      isWorking: false,
+      isStuck: false,
+      onTap: () {},
+    );
   }
 }

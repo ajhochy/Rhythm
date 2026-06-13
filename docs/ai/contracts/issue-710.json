@@ -1,0 +1,42 @@
+{
+  "issue": 710,
+  "title": "Instant new session (one-click create + auto-title)",
+  "criteria": [
+    {
+      "id": "c1",
+      "description": "Tapping the primary 'New session' button creates a session immediately WITHOUT opening a dialog, in the selected project's cwd ($HOME fallback), and selects it (real-surface widget test on _SessionListHeader)",
+      "automated": true,
+      "kind": "flutter"
+    },
+    {
+      "id": "c2",
+      "description": "Server bridge handles SDK session.updated: maps info.title -> the Rhythm session name, persists it, and broadcasts SessionUpdatedMessage (vitest spy + real Session shape)",
+      "automated": true,
+      "kind": "vitest"
+    },
+    {
+      "id": "c3",
+      "description": "A SessionUpdatedMessage carrying a title replaces the 'New session' placeholder in the list/header (flutter test)",
+      "automated": true,
+      "kind": "flutter"
+    },
+    {
+      "id": "c4",
+      "description": "An empty session name renders as 'New session' (placeholder); createSession accepts an empty name server- and client-side",
+      "automated": true,
+      "kind": "flutter+vitest"
+    },
+    {
+      "id": "c5",
+      "description": "A secondary '...' (options) control next to 'New session' opens the existing _NewSessionDialog (cwd/branch/task/name) unchanged",
+      "automated": true,
+      "kind": "flutter"
+    },
+    {
+      "id": "c6",
+      "description": "ai-workflow checks --level pr exit 0; vitest + flutter test green",
+      "automated": true,
+      "kind": "ci"
+    }
+  ]
+}

@@ -1,5 +1,28 @@
 # Architecture Decisions
 
+## 2026-06-13 — Instant-create (null/empty agentId) supersedes #653 must-pick-agent requirement (#710)
+
+**Context:** Issue #653 required `agentId` to be non-null and non-empty on session creation ("pick an agent before creating a session"). Issue #710 introduced instant-create: tapping "New session" creates a session immediately with no agentId, opening it as a placeholder the user can configure later.
+
+**Decision:** The server controller now accepts `agentId = null | ''` and creates a session with `agentKind = ''`. The SDK session IS created immediately (so the session is usable as soon as the user sends a message). The `'__pending__'` sentinel (old ORM pattern) is still rejected with 400. `issue_653_contract.test.ts` c1a and c1c were updated from `expect(400)` to `expect(201)` with a comment explaining the supersession.
+
+**Alternatives considered:**
+- Keep #653 enforcement, require explicit agentId in the instant-create request: rejected — the instant-create UX requires zero required fields from the user.
+- Create a separate "draft session" endpoint that never touches the SDK: rejected — added complexity; one endpoint handles all create paths more simply.
+
+**Consequences:** A session with `agentKind = ''` is valid in the DB. The Flutter client displays it with a "New session" placeholder name and muted text. The session gets a real title via `session.updated` WS broadcast once the user types a first message. Any client code that relied on `agentKind` being non-empty must guard for `''`.
+
+## 2026-06-13 — session.updated bridge handler uses propsInfo?.id as SDK session ID fallback (#710)
+
+**Context:** The `_relayEvent` bridge method extracted the SDK session ID for routing via `props.sessionID ?? propsInfo?.sessionID ?? propsPart?.sessionID`. The `session.updated` event's `properties.info` is a `Session` object whose SDK field is `id` (not `sessionID`). Without the `propsInfo?.id` fallback the bridge could not correlate the event to a local session.
+
+**Decision:** Added `propsInfo?.id` as a fourth fallback: `props.sessionID ?? propsInfo?.sessionID ?? propsInfo?.id ?? propsPart?.sessionID`. This is safe — `id` on a `Session` is always the SDK session UUID.
+
+**Alternatives considered:**
+- Rename `id` to `sessionID` in our d.ts: rejected — would diverge from the real SDK shape (breaking the SDK-parity guard).
+
+**Consequences:** The extraction chain is now four levels deep. Future SDK events whose `properties` object uses `id` (not `sessionID`) will automatically route correctly without additional changes.
+
 ## 2026-06-13 — McpDataSource uses abstract class + extension for testable baseUrlForTest (#702)
 
 **Context:** Issue #702 test fake uses `class _FakeMcpDataSource implements McpDataSource` but does NOT implement `baseUrlForTest`. Contract test c5 calls `McpDataSource().baseUrlForTest`. These two requirements are contradictory if `baseUrlForTest` is a regular public method on the class.

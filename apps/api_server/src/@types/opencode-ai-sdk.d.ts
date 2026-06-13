@@ -284,6 +284,23 @@ declare module '@opencode-ai/sdk' {
     };
   };
 
+  /**
+   * OPC-#710 — emitted by opencode after the first exchange when it auto-titles
+   * the session. `properties.info` is the full Session shape (which includes
+   * `title`). Verified against @opencode-ai/sdk dist/gen/types.gen.d.ts
+   * (SessionUpdatedEvent, v1.14.49).
+   *
+   * NOTE: the sessionID for routing is nested inside `info.id` (the SDK session
+   * id), NOT in a top-level `properties.sessionID`. The bridge must extract
+   * `props.info.id` to look up the local session.
+   */
+  export type EventSessionUpdated = {
+    type: 'session.updated';
+    properties: {
+      info: Session;
+    };
+  };
+
   export type Event =
     | EventMessagePartUpdated
     | EventMessagePartDelta
@@ -293,6 +310,7 @@ declare module '@opencode-ai/sdk' {
     | EventSessionStatus
     | EventSessionIdle
     | EventSessionCreated
+    | EventSessionUpdated
     | EventSessionError
     | EventSessionDiff
     | EventFileEdited

@@ -109,7 +109,7 @@ class _FakeAgentsRepository implements AgentsRepository {
     String? agentId,
     String? taskId,
     required String cwd,
-    required String name,
+    String name = '',
     String? branch,
     String? stash,
     bool createBranch = false,

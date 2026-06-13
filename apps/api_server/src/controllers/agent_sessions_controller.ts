@@ -124,33 +124,48 @@ export class AgentSessionsController {
       // creating the session (model-pick-first trigger bubble); task context
       // is delivered via a client-side composer prefill, not a deferred
       // server-side resolution.
-      if (
-        agentId === null ||
-        agentId === undefined ||
-        agentId === '' ||
-        agentId === '__pending__'
-      ) {
+      //
+      // OPC-#710 exception: agentId may be null for instant-create sessions
+      // (one-click "New session" with no agent selected yet). The session is
+      // agent-less at creation time; the user picks a model in the composer.
+      // This is distinct from the deprecated '__pending__' sentinel (#653):
+      //   - null / omitted → intentional agent-less session (allowed)
+      //   - '__pending__'  → old client bug (rejected)
+      if (agentId === '__pending__') {
         throw AppError.badRequest(
-          "agentId is required; agent-less ('__pending__') sessions are no longer supported (#653). " +
-            'The client must pick a model in the trigger bubble before opening the chat.',
+          "agentId '__pending__' is no longer supported (#653). " +
+            'Use null for an agent-less session or pass a real agentId.',
         );
       }
-      if (typeof agentId !== 'string') {
-        throw AppError.badRequest('agentId must be a non-empty string');
+      // Validate agentId type (null / undefined / string are all acceptable;
+      // non-string non-null is a client error).
+      if (agentId !== null && agentId !== undefined && typeof agentId !== 'string') {
+        throw AppError.badRequest('agentId must be a string or null');
       }
-      const normalizedAgentId = normalizeAgentId(agentId);
-      const agentConfig = new AgentConfigsRepository().getById(normalizedAgentId);
-      if (!agentConfig) {
-        throw AppError.badRequest(`agent not configured: '${normalizedAgentId}'`);
+
+      // Resolve + validate the agent config only when an agentId was provided.
+      // OPC-#710: omitting agentId (null) creates an agent-less session — the
+      // user picks a model later in the composer, same as the trigger-bubble
+      // flow from #653.
+      let normalizedAgentId: string = '';
+      if (typeof agentId === 'string' && agentId.trim() !== '') {
+        normalizedAgentId = normalizeAgentId(agentId);
+        const agentConfig = new AgentConfigsRepository().getById(normalizedAgentId);
+        if (!agentConfig) {
+          throw AppError.badRequest(`agent not configured: '${normalizedAgentId}'`);
+        }
+        if (!agentConfig.enabled) {
+          throw AppError.badRequest(`agent disabled: '${normalizedAgentId}'`);
+        }
       }
-      if (!agentConfig.enabled) {
-        throw AppError.badRequest(`agent disabled: '${normalizedAgentId}'`);
-      }
+
       if (!cwd || typeof cwd !== 'string' || cwd.trim() === '') {
         throw AppError.badRequest('cwd is required and must be a non-empty string');
       }
-      if (!name || typeof name !== 'string' || name.trim() === '') {
-        throw AppError.badRequest('name is required and must be a non-empty string');
+      // OPC-#710: name may be empty (instant-create). Opencode will auto-title
+      // the session after the first exchange and broadcast session.updated.
+      if (name !== undefined && name !== null && typeof name !== 'string') {
+        throw AppError.badRequest('name must be a string');
       }
 
       let resolvedTaskId: string | null = null;
@@ -230,11 +245,15 @@ export class AgentSessionsController {
       }
 
       const dto: CreateAgentSessionDto = {
+        // OPC-#710: normalizedAgentId is '' for agent-less instant-create.
+        // The AgentKind type accepts arbitrary strings; '' is persisted as the
+        // agent_kind value and treated as "no agent selected yet" by the client.
         agentKind: normalizedAgentId as AgentKind,
         taskId: resolvedTaskId,
         taskTitle: taskTitle != null ? (taskTitle as string) : null,
         cwd: expandedCwd,
-        name: name.trim(),
+        // OPC-#710: name defaults to '' for instant-create sessions.
+        name: typeof name === 'string' ? name.trim() : '',
         projectId,
       };
 
@@ -264,7 +283,11 @@ export class AgentSessionsController {
         console.log(`[AgentSessionsController] Engine recovered — continuing session ${session.id} creation`);
       }
 
-      const opencodeSession = await opencodeClient.createSession(name.trim(), dto.cwd);
+      // OPC-#710: name may be undefined/null for instant-create sessions.
+      const opencodeSession = await opencodeClient.createSession(
+        typeof name === 'string' ? name.trim() : '',
+        dto.cwd,
+      );
       if (!opencodeSession) {
         repo.markClosed(session.id);
         throw AppError.badRequest('Failed to create Opencode session — check your AI account is authorized');

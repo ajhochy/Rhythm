@@ -117,7 +117,7 @@ class _ErrorAgentsRepository implements AgentsRepository {
     String? agentId,
     String? taskId,
     required String cwd,
-    required String name,
+    String name = '',
     String? branch,
     String? stash,
     bool createBranch = false,
@@ -348,8 +348,10 @@ void main() {
     // Wait for AgentConfigsController to load configs.
     await tester.pumpAndSettle();
 
-    // Tap the "New" button to open the dialog.
-    await tester.tap(find.text('New'));
+    // OPC-#710: the primary "New" button now instant-creates a session; the
+    // new-session dialog (this test's subject) opens via the secondary options
+    // button.
+    await tester.tap(find.byKey(const Key('new-session-options-button')));
     await tester.pumpAndSettle();
 
     // Fill in the session name (required to enable Start button).

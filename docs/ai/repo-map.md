@@ -25,7 +25,7 @@ apps/
 │   └── lib/
 │       ├── app/core/agents/       ← AgentServerController (spawns api_server), AgentTriggerWatcher
 │       ├── features/agents/       ← Agent session view, data source (localhost:4001)
-│       │   ├── views/agents_view.dart          ← Main chat view; _ChatBubble routes parts to widgets; OPC-M3-6: ChildTranscriptView; OPC-M4-1: attachment chips in composer, _buildFilePart (image thumbnail or filename chip), InputAreaTestHarness + UserBubbleTestHarness
+│       │   ├── views/agents_view.dart          ← Main chat view; _ChatBubble routes parts to widgets; OPC-M3-6: ChildTranscriptView; OPC-M4-1: attachment chips in composer, _buildFilePart (image thumbnail or filename chip), InputAreaTestHarness + UserBubbleTestHarness; #710: _instantCreateSession, _SessionListHeader(onNewSession+onOptionsPressed), Key(new-session-button)/Key(new-session-options-button), "New session" placeholder in _SessionRow; SessionListHeaderTestHarness + SessionRowTestHarness
 │       │   ├── views/_markdown_message_body.dart ← OPC-M2-1: gpt_markdown wrapper for assistant text
 │       │   ├── views/_reasoning_block.dart     ← OPC-M2-2: collapsible ReasoningBlock StatefulWidget
 │       │   ├── views/_tool_renderers/          ← OPC-M2-3: UnifiedDiffView, TerminalOutputView, TodoChecklistView, TaskChip (OPC-M3-6: navigable — onTap → openChildSession)
