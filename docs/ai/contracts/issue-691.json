@@ -1,0 +1,55 @@
+{
+  "issue": 691,
+  "generated": "2026-06-12",
+  "criteria": [
+    {
+      "criterion_id": "issue-691-c1",
+      "text": "A message.part.delta for a reasoning-type part appends to that part's text (controller unit test with a real-shape delta frame); a text delta still appends to the text part; an unknown-field delta is retained (logged), not silently dropped.",
+      "mode": "unit",
+      "test_file": "apps/desktop_flutter/test/features/agents/opc_m2_2_reasoning_test.dart",
+      "test_id": "issue-691-c1: delta routing — reasoning delta appends to reasoning part; text delta to text part; unknown-field delta retained",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-691-c2",
+      "text": "Reasoning part renders as a collapsed block labeled \"Thinking…\" (or \"Thought for Ns\" once finished); the reasoning text is NOT visible until expanded (widget test: find.text on reasoning content fails collapsed, succeeds after tap).",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agents/opc_m2_2_reasoning_test.dart",
+      "test_id": "issue-691-c2: reasoning block collapsed by default; text hidden until expanded",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-691-c3",
+      "text": "Expand/collapse state is per-block and survives a delta append (no auto-collapse on rebuild).",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agents/opc_m2_2_reasoning_test.dart",
+      "test_id": "issue-691-c3: expand state survives delta-append rebuild",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-691-c4",
+      "text": "The final answer text part renders outside the reasoning block (both findable when expanded).",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agents/opc_m2_2_reasoning_test.dart",
+      "test_id": "issue-691-c4: text part renders outside reasoning block; both findable when reasoning expanded",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-691-c5",
+      "text": "Rehydrated reasoning parts (REST, M1-3) render identically to streamed ones (same widget test fixture through the rehydrate path).",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agents/opc_m2_2_reasoning_test.dart",
+      "test_id": "issue-691-c5: rehydrated reasoning part renders as collapsed block identical to streamed path",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-691-c6",
+      "text": "flutter test green; ai-workflow checks --level pr exits 0.",
+      "mode": "manual",
+      "reason": "Gate-level check — run via ai-workflow checks --level pr and flutter test.",
+      "status": "pending"
+    }
+  ],
+  "stack": "dart",
+  "not_tested": ["issue-691-c6"]
+}

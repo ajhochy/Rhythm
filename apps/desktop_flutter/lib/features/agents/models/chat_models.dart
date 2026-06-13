@@ -56,6 +56,7 @@ class ChatPart {
     Map<String, dynamic>? toolArgs,
     String? toolOutput,
     String? toolStatus,
+    this.durationMs,
   })  : _text = text,
         _toolArgs = toolArgs,
         _toolOutput = toolOutput,
@@ -66,6 +67,11 @@ class ChatPart {
   final String type;
 
   String _text;
+
+  /// OPC-M2-2: Duration in milliseconds for a finished reasoning part.
+  /// Populated from the part's `time.end - time.start` when `time.end` is
+  /// present (reasoning part from step-finish). Null while streaming.
+  int? durationMs;
 
   /// Tool-part fields. Null for non-tool parts.
   String? toolName;
@@ -128,6 +134,15 @@ class ChatPart {
     } else if (raw['type'] == 'reasoning') {
       final t = raw['text'];
       if (t is String) text = t;
+      // OPC-M2-2: extract duration from time.end - time.start when available.
+      final timeMap = raw['time'] as Map<String, dynamic>?;
+      if (timeMap != null) {
+        final start = timeMap['start'];
+        final end = timeMap['end'];
+        if (start is num && end is num) {
+          durationMs = (end - start).round();
+        }
+      }
     } else if (raw['type'] == 'text') {
       final t = raw['text'];
       if (t is String) text = t;

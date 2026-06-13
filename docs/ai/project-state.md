@@ -6,6 +6,21 @@ _(Parked bugs from before 2026-05-27 run. #638 and #635 below are now RESOLVED �
 
 ## Recent coding-agent runs
 
+### 2026-06-12 — opc-m1-foundation / issue-691 — Reasoning collapsible block + non-text delta routing fix (OPC-M2-2)
+- Files modified (production):
+  - `apps/desktop_flutter/lib/features/agents/models/chat_models.dart` — added `durationMs: int?` field to `ChatPart`; `mergePart` for `type='reasoning'` now extracts `time.end - time.start` into `durationMs` when both are present.
+  - `apps/desktop_flutter/lib/features/agents/controllers/agents_controller.dart` — rewrote `_appendChatDelta`: removed the `field != 'text'` early-return that silently dropped non-text deltas; routing now: if part exists + field=text → appendDelta (works for both 'text' and 'reasoning' parts); if part exists + field=unknown → debugPrint and skip (retain, never drop); if no part + field=text → create on-the-fly as 'text'; if no part + field=unknown → debugPrint and skip creation.
+  - `apps/desktop_flutter/lib/features/agents/views/_reasoning_block.dart` (new) — `ReasoningBlock` StatefulWidget: collapsed by default showing "Thinking…" label (or "Thought for Ns" when `part.durationMs != null`); expand/collapse toggle per-block via `_expanded` state; keyed by caller with `ValueKey(part.id)` to survive delta-append rebuilds; uses `RhythmColorRoles` tokens (`textSecondary`, `borderSubtle`, `surfaceMuted`).
+  - `apps/desktop_flutter/lib/features/agents/views/agents_view.dart` — added `import '_reasoning_block.dart'`; in `_ChatBubble` part loop, added `else if (part.type == 'reasoning')` branch: flushText() then add `ReasoningBlock(key: ValueKey('reasoning-${part.id}'), part: part)`; added `step-start`/`step-finish` no-op branch.
+- Files modified (tests):
+  - `apps/desktop_flutter/test/features/agents/opc_m2_2_reasoning_test.dart` (new) — 7 tests: c1a/b/c (controller delta-routing unit tests using real v1.14.49 part shapes), c2–c5 widget tests (collapsed label, expand/collapse survive rebuild, text part outside block, rehydrated part identical to streamed).
+  - `docs/ai/contracts/issue-691.json` (new) — 6 criteria: c1–c5 automated (pass), c6 manual (gate-level).
+- Red→green proof: flutter test 329→336 (+7 tests). All 7 new tests pass. Previous 329 tests all still pass. `ai-workflow checks --level pr` exit 0.
+- Checks: flutter analyze --no-fatal-infos ✓ (0 errors/0 warnings/205 infos — all pre-existing), dart format ✓ (0 changes), tsc --noEmit ✓, vitest ✓.
+- Decisions made: (1) `_appendChatDelta` routes on `field` value, not `part.type` — both text and reasoning parts use `field='text'` for their text delta; the fix is to NOT drop unknown fields and to correctly append to the existing part by looking it up by partId (preserving its type). (2) `durationMs` added to `ChatPart` so `ReasoningBlock` can display "Thought for Ns" without requiring a separate state or passing time separately. (3) `step-start`/`step-finish` parts are silently skipped in `_ChatBubble` — they are kept in the parts list for future inspector use but hidden from the chat UI per spec. (4) `ReasoningBlock` is keyed by `ValueKey('reasoning-${part.id}')` in `_ChatBubble` so expand/collapse state survives delta-append rebuilds (Flutter preserves state elements when key matches). (5) "Thought for Ns" label uses `toStringAsFixed(1)` when ms < 1000, `toStringAsFixed(0)` otherwise — matches human-readable expectation for sub-second vs multi-second thinking.
+- Deviations from spec: none.
+- Concerns: The `_appendChatDelta` on-the-fly part creation (when part.updated hasn't arrived yet) defaults to `type='text'`. If a reasoning delta arrives before the reasoning part.updated event, the part would start as type='text'. This is unlikely in practice (the SDK sends part.updated before deltas) and the part.updated event will overwrite the text field via `_upsertChatPart` when it arrives. If it stays as 'text' type, it renders as prose (safe degradation) rather than the collapsible block — acceptable for the streaming race.
+
 ### 2026-06-12 — opc-m1-foundation / issue-690 — Markdown rendering in chat bubbles (OPC-M2-1)
 - Files modified (production):
   - `apps/desktop_flutter/pubspec.yaml` — added `gpt_markdown: ^1.1.7` (+ transitive: `flutter_math_fork`, `flutter_svg`, `path_parsing`, `tuple`).
@@ -595,13 +610,14 @@ _(Parked bugs from before 2026-05-27 run. #638 and #635 below are now RESOLVED �
 
 ---
 
-## Current Status (2026-06-12 — OPC-M2-1 markdown rendering: IMPLEMENTED, PR pending)
+## Current Status (2026-06-12 — OPC-M2-2 reasoning block + delta routing: IMPLEMENTED, PR pending)
 
-🟡 **Branch `opc-m1-foundation`** — OPC-M2-1 (issue #690) markdown rendering complete. `flutter test` 329/329, `ai-workflow checks --level pr` exit 0. Not yet committed or PR'd — orchestrator handles PR open.
+🟡 **Branch `opc-m1-foundation`** — OPC-M2-2 (issue #691) reasoning collapsible block + delta routing fix complete. `flutter test` 336/336, `ai-workflow checks --level pr` exit 0. Not yet committed or PR'd — orchestrator handles PR open.
 
+- **OPC-M2-2 (#691):** `_appendChatDelta` now routes by `field` value — text/reasoning deltas append to the part's text; unknown-field deltas are logged (debugPrint) and retained, never dropped. `ReasoningBlock` StatefulWidget: collapsed "Thinking…" label (or "Thought for Ns" when `durationMs` present), expand/collapse per-block, survives delta-append rebuilds via `ValueKey(part.id)`. `_ChatBubble` routes `part.type == 'reasoning'` to `ReasoningBlock`, `step-start`/`step-finish` are hidden. `ChatPart` gains `durationMs: int?` field (populated from `time.end - time.start` in `mergePart`). All 7 contract tests pass (c1–c5 automated, c6 gate-level).
 - **OPC-M2-1 (#690):** `MarkdownMessageBody` widget wraps `gpt_markdown`; assistant text renders headings, bold/italic, inline code, fenced code blocks (monospace + `surfaceMuted` bg + copy button), lists, and links. User bubbles unchanged (SelectableText). All 9 contract tests pass (c1–c5 automated, c6 gate-level).
 - **M1 foundation (issues #685–#689):** All 5 issues implemented and verified on this branch; waiting for PR open by orchestrator.
-- **Next in M2:** OPC-M2-2 reasoning parts, OPC-M2-3 diff rendering.
+- **Next in M2:** OPC-M2-3 tool-specific renderers (#692), OPC-M2-4 retry/tokens/cost (#693).
 
 ---
 

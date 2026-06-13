@@ -23,6 +23,7 @@ import '../../settings/services/destructive_modal_service.dart';
 import '_agent_settings_sheet.dart';
 import '_markdown_message_body.dart';
 import '_message_actions_row.dart';
+import '_reasoning_block.dart';
 import '_permission_card.dart';
 import '_permission_mode_picker.dart';
 import '_project_vcs_chip.dart';
@@ -1779,7 +1780,21 @@ class _ChatBubble extends StatelessWidget {
         } else {
           children.add(ToolCallPart(part: part));
         }
+      } else if (part.type == 'reasoning') {
+        // OPC-M2-2: flush any accumulated text before the reasoning block,
+        // then render it as a collapsible ReasoningBlock.
+        flushText();
+        children.add(
+          ReasoningBlock(
+            key: ValueKey('reasoning-${part.id}'),
+            part: part,
+          ),
+        );
+      } else if (part.type == 'step-start' || part.type == 'step-finish') {
+        // Step boundary markers — hidden from the UI per spec (M2 scope).
+        // Kept in the parts list for future inspector use.
       } else {
+        // text and any future unknown part types — accumulate as prose.
         textBuffer.write(part.text);
       }
     }

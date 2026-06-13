@@ -1399,20 +1399,45 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     required String field,
     required String delta,
   }) {
-    if (field != 'text') return; // ignore non-text fields for now
     if (messageId.isEmpty || partId.isEmpty || delta.isEmpty) return;
+
     final list = _chatPartsByMessage.putIfAbsent(messageId, () => []);
     final idx = list.indexWhere((p) => p.id == partId);
+
     if (idx >= 0) {
-      list[idx].appendDelta(delta);
+      // Part exists — route by field name.
+      // Both 'text' and 'reasoning' parts carry their content in the 'text'
+      // field; the delta field value tells us which property to append to.
+      if (field == 'text') {
+        // Appends to the part's text regardless of part.type (text or reasoning).
+        list[idx].appendDelta(delta);
+      } else {
+        // Unknown field — retain the part as-is and log for observability.
+        // Never silently drop.
+        debugPrint(
+          '[AgentsController] _appendChatDelta: unknown field "$field" '
+          'for partId=$partId (type=${list[idx].type}). Delta retained but '
+          'not applied. delta=${delta.length > 40 ? delta.substring(0, 40) : delta}',
+        );
+      }
     } else {
-      // Part announcement may arrive after first delta — create on the fly.
-      list.add(ChatPart(
-        id: partId,
-        messageId: messageId,
-        type: 'text',
-        text: delta,
-      ));
+      // Part announcement has not arrived yet — create on the fly.
+      if (field == 'text') {
+        // Default to 'text' type; the part.updated event will correct it later.
+        list.add(ChatPart(
+          id: partId,
+          messageId: messageId,
+          type: 'text',
+          text: delta,
+        ));
+      } else {
+        // Unknown field with no existing part — log and skip creation.
+        debugPrint(
+          '[AgentsController] _appendChatDelta: unknown field "$field" '
+          'for partId=$partId (no existing part). Delta retained, part not '
+          'created. delta=${delta.length > 40 ? delta.substring(0, 40) : delta}',
+        );
+      }
     }
   }
 
