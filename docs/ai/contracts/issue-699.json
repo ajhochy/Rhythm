@@ -1,0 +1,63 @@
+{
+  "issue": 699,
+  "generated": "2026-06-13",
+  "criteria": [
+    {
+      "criterion_id": "issue-699-c1",
+      "text": "GET /agent-sessions/:id/children invokes the SDK children wrapper with the mapped sdk id and returns child session summaries (vitest spy + fixture); GET /agent-sessions/:id/children/:childSdkId/messages returns the child's structured messages (parts shape identical to M1-2's REST shape).",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/opc_m3_6_child_sessions.test.ts",
+      "test_id": "issue-699-c1",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-699-c2",
+      "text": "Tapping a task chip pushes a child transcript view showing the child's parts via the standard renderers (widget test with fixture).",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agents/opc_m3_6_child_sessions_test.dart",
+      "test_id": "issue-699-c2",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-699-c3",
+      "text": "The child view shows a breadcrumb '< parent-session-name'; tapping returns to the parent transcript at its prior scroll context (no rehydrate refetch of the parent).",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agents/opc_m3_6_child_sessions_test.dart",
+      "test_id": "issue-699-c3",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-699-c4",
+      "text": "The child view has no composer (read-only assert: composer widget absent).",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agents/opc_m3_6_child_sessions_test.dart",
+      "test_id": "issue-699-c4",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-699-c5",
+      "text": "Child sessions never appear in the sidebar session lists (controller test: children excluded from active/resumable lists).",
+      "mode": "unit",
+      "test_file": "apps/desktop_flutter/test/features/agents/opc_m3_6_child_sessions_test.dart",
+      "test_id": "issue-699-c5",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-699-c6",
+      "text": "While the child is streaming (subtask parts updating), the chip's status indicator updates in the parent transcript (existing ToolState path — regression assert).",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agents/opc_m3_6_child_sessions_test.dart",
+      "test_id": "issue-699-c6",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-699-c7",
+      "text": "ai-workflow checks --level pr exits 0; vitest + flutter test green.",
+      "mode": "manual",
+      "status": "pending",
+      "reason": "Full PR-level checks require running the complete test suite and build pipeline; validated at verification-gate stage."
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": ["issue-699-c7"]
+}

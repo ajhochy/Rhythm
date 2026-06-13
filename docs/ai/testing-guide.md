@@ -17,7 +17,7 @@ All commands delegate to `scripts/run_ai_workflow.py` in this repo.
 ### api_server (Node.js/TypeScript)
 ```bash
 cd apps/api_server
-npm test                  # vitest run — 672 tests (as of OPC-M3-5 / issue #698)
+npm test                  # vitest run — 679 tests (as of OPC-M3-6 / issue #699)
 node_modules/.bin/tsc --noEmit   # TypeScript type check (no tsc in global PATH)
 ```
 
@@ -51,6 +51,8 @@ dart format . --set-exit-if-changed # CI fails on format violations
 | `test/features/agents/opc_m3_4_command_dispatch_test.dart` | OPC-M3-4: sendCommand WS frame dispatch, _sendInput routing (known vs unknown command), role='command' optimistic message (c2a/b REAL-SURFACE, c3–c5) |
 | `src/__tests__/opc_m3_5_todo_panel.test.ts` | OPC-M3-5: GET /:id/todo route (no mapping → [], real shape, SDK error → 502); bridge relay todo.updated → WS broadcast (c1–c2) |
 | `test/features/agents/opc_m3_5_todo_panel_test.dart` | OPC-M3-5: TodoPanel in SessionSidePanel (c3a REAL-SURFACE, c3b empty→hidden, c4a/b WS session-keyed isolation, c5a header count, c5b checkbox states, c6a/b collapse persistence) |
+| `src/__tests__/opc_m3_6_child_sessions.test.ts` | OPC-M3-6: GET /:id/children (no mapping → [], SDK listChildren); GET /:id/children/:childSdkId/messages (role mapping user→input/assistant→output, 404 on missing parent) (c1a–c1b, 7 tests) |
+| `test/features/agents/opc_m3_6_child_sessions_test.dart` | OPC-M3-6: TaskChip tap → ChildTranscriptView (c2a REAL-SURFACE), openChildSession fetches messages (c2b), closeChildSession no-refetch (c3), ChildTranscriptView read-only (c4), children not in sidebar lists (c5), ToolState regression (c6) |
 
 ## Mocking the Opencode engine in tests
 

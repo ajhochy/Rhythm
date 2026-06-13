@@ -648,6 +648,69 @@ export class AgentSessionsController {
     }
   }
 
+  // OPC-M3-6: list child sessions via the typed listChildren wrapper.
+  // Returns [] when there is no SDK mapping (same contract as getDiff).
+  // The route is GET /:id/children — no auth is required at the route level
+  // (agentLocal=true, same as all other agent-session routes).
+  async getChildren(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const session = repo.findById(req.params.id);
+      if (!session) throw AppError.notFound('AgentSession');
+      const opencodeId = opencodeSessionMap.get(session.id);
+      if (!opencodeId) {
+        // No active SDK mapping — return empty array (same contract as getDiff).
+        res.json([]);
+        return;
+      }
+      const children = await opencodeClient.listChildren(opencodeId);
+      res.json(children);
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  // OPC-M3-6: get messages for a specific child session identified by its SDK
+  // session id (GET /:id/children/:childSdkId/messages).
+  //
+  // The child's messages are fetched directly from the SDK via listMessages —
+  // child sessions have no local DB row. The returned shape is the same
+  // StructuredAgentSessionMessage-compatible format as M1-2 so the Flutter
+  // client can reuse _rehydrateChatMessages / fromStructuredJson.
+  //
+  // Role mapping: SDK 'user' → 'input', SDK 'assistant' → 'output' (matches
+  // the role convention used throughout the structured-message pipeline).
+  async getChildMessages(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const session = repo.findById(req.params.id);
+      if (!session) throw AppError.notFound('AgentSession');
+      const { childSdkId } = req.params;
+      const sdkMessages = await opencodeClient.listMessages(childSdkId);
+      // Map SDK Message[] → M1-2-compatible structured shape.
+      const messages = sdkMessages.map((msg, idx) => {
+        // SDK role 'user' → 'input', 'assistant' → 'output'
+        const role: 'input' | 'output' = msg.role === 'user' ? 'input' : 'output';
+        return {
+          id: idx + 1,
+          sessionId: `child-${childSdkId}`,
+          role,
+          rawText: '',
+          strippedText: '',
+          createdAt: msg.time?.created
+            ? new Date(msg.time.created).toISOString()
+            : new Date().toISOString(),
+          sdkMessageId: msg.id,
+          // Parts array passes through as-is (same shape as M1-2 parts_json).
+          parts: msg.parts ?? [],
+          tokens: null,
+          cost: null,
+        };
+      });
+      res.json({ messages });
+    } catch (err) {
+      next(err);
+    }
+  }
+
   // OPC-M3-5: get the session todo list (GET /:id/todo).
   async getTodo(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {

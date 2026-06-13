@@ -25,16 +25,16 @@ apps/
 │   └── lib/
 │       ├── app/core/agents/       ← AgentServerController (spawns api_server), AgentTriggerWatcher
 │       ├── features/agents/       ← Agent session view, data source (localhost:4001)
-│       │   ├── views/agents_view.dart          ← Main chat view; _ChatBubble routes parts to widgets
+│       │   ├── views/agents_view.dart          ← Main chat view; _ChatBubble routes parts to widgets; OPC-M3-6: ChildTranscriptView (read-only child transcript + breadcrumb); _TranscriptPanel swaps to ChildTranscriptView when activeChildSessionId != null
 │       │   ├── views/_markdown_message_body.dart ← OPC-M2-1: gpt_markdown wrapper for assistant text
 │       │   ├── views/_reasoning_block.dart     ← OPC-M2-2: collapsible ReasoningBlock StatefulWidget
-│       │   ├── views/_tool_renderers/          ← OPC-M2-3: UnifiedDiffView, TerminalOutputView, TodoChecklistView, TaskChip
+│       │   ├── views/_tool_renderers/          ← OPC-M2-3: UnifiedDiffView, TerminalOutputView, TodoChecklistView, TaskChip (OPC-M3-6: navigable — onTap → openChildSession)
 │       │   ├── views/_changes_tab.dart         ← OPC-M3-1: ChangesTab, _FileDiffRow, ChangesTabBadge (wired into agents_view.dart session panel)
 │       │   ├── views/_revert_restore_banner.dart ← OPC-M3-2: banner at top of transcript when session has active revert; Restore button dispatches unrevertSession
 │       │   ├── views/_compaction_divider.dart   ← OPC-M3-3: CompactionDivider — divider row + "Conversation compacted" pill + collapsible summary text
 │       │   ├── views/_context_usage_hint.dart   ← OPC-M3-3: ContextUsageHint — warning chip above composer when inputTokens > 0.8×150k
 │       │   ├── views/_todo_panel.dart           ← OPC-M3-5: TodoPanel — collapsible todo list panel; _collapseRegistry for per-session persistence; wired into _session_side_panel.dart
-│       │   ├── controllers/agents_controller.dart ← _appendChatDelta routes by field; chatPartsFor/chatMessagesFor; sendCommand/slashCommandsFor (OPC-M3-4); sessionTodosFor/fetchSessionTodos (OPC-M3-5)
+│       │   ├── controllers/agents_controller.dart ← _appendChatDelta routes by field; chatPartsFor/chatMessagesFor; sendCommand/slashCommandsFor (OPC-M3-4); sessionTodosFor/fetchSessionTodos (OPC-M3-5); openChildSession/closeChildSession/childMessagesFor/activeChildSessionId (OPC-M3-6)
 │       │   └── models/chat_models.dart         ← ChatMessage + ChatPart (durationMs: int? for reasoning)
 │       ├── features/agent_configs/
 │       │   └── views/manage_agents_view.dart  ← "Connect an AI Account" card

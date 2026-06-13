@@ -59,6 +59,25 @@ Per-user AI accounts. Each user signs into their own provider on their machine. 
 2. **Free API:** Google Gemini (API key), GitHub Copilot (OAuth)
 3. **Custom:** OpenRouter or any provider API key
 
+### Child-session navigation (OPC-M3-6)
+
+When the SDK spawns a subagent task, the Opencode engine creates a child session under the parent's SDK session id. These child sessions have NO local DB row — they exist only in the SDK.
+
+```
+GET /agent-sessions/:id/children
+  → opencodeSessionMap.get(localId) → sdkId
+  → opencodeClient.listChildren(sdkId)   ← SDK: returns child Session[]
+  → HTTP 200 [child session summaries]
+
+GET /agent-sessions/:id/children/:childSdkId/messages
+  → (parent lookup — 404 if not found)
+  → opencodeClient.listMessages(childSdkId)  ← child SDK id used directly
+  → maps SDK Message[] → M1-2 structured shape (role: user→input, assistant→output)
+  → HTTP 200 { messages: [...] }
+```
+
+Flutter: `TaskChip` (in parent transcript) gains `parentSessionId`/`parentSessionName` params. Tapping calls `AgentsController.openChildSession(...)` → fetches child messages → sets `activeChildSessionId` → `_TranscriptPanel` swaps to `ChildTranscriptView` (read-only, breadcrumb back, no composer). `closeChildSession()` clears state without refetching the parent.
+
 ### Known dead code
 _(none — `pty_runner.ts` was deleted in PR #574/#571; confirmed zero references as of OPC-M1-4 / issue #688)_
 

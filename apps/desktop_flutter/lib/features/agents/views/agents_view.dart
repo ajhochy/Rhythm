@@ -1288,37 +1288,49 @@ class _TranscriptPanelState extends State<_TranscriptPanel> {
             ),
             child: selected == null
                 ? const _EmptyTranscriptState()
-                : Column(
-                    children: [
-                      _TranscriptHeader(session: selected),
-                      Divider(height: 1, color: context.rhythm.borderSubtle),
-                      // #602: agent-less sessions show a centred "choose model" prompt
-                      // until the first message is sent.
-                      if (selected.agentId == '__pending__' &&
-                          controller.chatMessagesFor(selected.id).isEmpty &&
-                          controller.transcript.isEmpty)
-                        Expanded(
-                          child: _AgentLessSessionPrompt(session: selected),
-                        )
-                      else
-                        Expanded(
-                          child: Container(
-                            color:
-                                context.rhythm.canvas.withValues(alpha: 0.45),
-                            child: _buildTranscriptBody(
-                              context,
-                              controller,
-                              selected,
+                // OPC-M3-6: when a child session is active, swap the main
+                // transcript area to the child transcript view. The parent
+                // transcript, composer, and tool bars are hidden; a breadcrumb
+                // in ChildTranscriptView lets the user navigate back.
+                : controller.activeChildSessionId != null
+                    ? ChildTranscriptView(
+                        childSdkId: controller.activeChildSessionId!,
+                        parentSessionName:
+                            controller.activeChildParentName ?? selected.name,
+                        onBack: controller.closeChildSession,
+                      )
+                    : Column(
+                        children: [
+                          _TranscriptHeader(session: selected),
+                          Divider(
+                              height: 1, color: context.rhythm.borderSubtle),
+                          // #602: agent-less sessions show a centred "choose model" prompt
+                          // until the first message is sent.
+                          if (selected.agentId == '__pending__' &&
+                              controller.chatMessagesFor(selected.id).isEmpty &&
+                              controller.transcript.isEmpty)
+                            Expanded(
+                              child: _AgentLessSessionPrompt(session: selected),
+                            )
+                          else
+                            Expanded(
+                              child: Container(
+                                color: context.rhythm.canvas
+                                    .withValues(alpha: 0.45),
+                                child: _buildTranscriptBody(
+                                  context,
+                                  controller,
+                                  selected,
+                                ),
+                              ),
                             ),
+                          _PendingPermissionArea(session: selected),
+                          _InputArea(
+                            inputController: _inputController,
+                            onSend: () => _sendInput(context),
                           ),
-                        ),
-                      _PendingPermissionArea(session: selected),
-                      _InputArea(
-                        inputController: _inputController,
-                        onSend: () => _sendInput(context),
+                        ],
                       ),
-                    ],
-                  ),
           ),
         ),
       ],
@@ -1375,6 +1387,7 @@ class _TranscriptPanelState extends State<_TranscriptPanel> {
                       message: m,
                       parts: parts,
                       sessionId: session.id,
+                      sessionName: session.name,
                     ),
                     if (showCostFooter)
                       Padding(
@@ -1866,11 +1879,15 @@ class _ChatBubble extends StatelessWidget {
     required this.message,
     required this.parts,
     required this.sessionId,
+    this.sessionName = '',
   });
 
   final ChatMessage message;
   final List<ChatPart> parts;
   final String sessionId;
+
+  /// Display name of the owning session — passed to TaskChip for breadcrumb.
+  final String sessionName;
 
   @override
   Widget build(BuildContext context) {
@@ -1984,12 +2001,13 @@ class _ChatBubble extends StatelessWidget {
   }
 
   /// OPC-M2-3: dispatch a tool part to the appropriate renderer based on tool name.
+  /// OPC-M3-6: TaskChip now receives parentSessionId + parentSessionName for navigation.
   ///
   /// Dispatch table:
   ///   edit / write / apply_patch → UnifiedDiffView (per-line +/- coloring)
   ///   bash                       → TerminalOutputView (monospace, ANSI stripped)
   ///   todowrite                  → TodoChecklistView (per-item checklist)
-  ///   task                       → TaskChip (inert chip; navigation in M3-6)
+  ///   task                       → TaskChip (navigable chip; tapping opens child transcript)
   ///   read / glob / grep / webfetch / websearch / skill / plan / lsp
   ///     and any unrecognized name → ToolCallPart (generic card fallback)
   Widget _buildToolRenderer(ChatPart part) {
@@ -2004,7 +2022,13 @@ class _ChatBubble extends StatelessWidget {
       return TodoChecklistView(part: part);
     }
     if (name == 'task') {
-      return TaskChip(part: part);
+      // OPC-M3-6: pass parent context so the chip can navigate to the child
+      // session transcript when tapped.
+      return TaskChip(
+        part: part,
+        parentSessionId: sessionId,
+        parentSessionName: sessionName,
+      );
     }
     // read / glob / grep / webfetch / websearch / skill / plan / lsp
     // and any unrecognized tool → generic card.
@@ -3439,6 +3463,169 @@ class ResumableSessionRowTestHarness extends StatelessWidget {
     return _ResumableSessionRow(
       session: session,
       onResume: onResume ?? () {},
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// OPC-M3-6: ChildTranscriptView — read-only transcript for a child session.
+// ---------------------------------------------------------------------------
+
+/// A read-only transcript panel for a child (subagent) session.
+///
+/// Displays the messages fetched into [AgentsController] for [childSdkId],
+/// with a breadcrumb row that lets the user navigate back to the parent
+/// session via [onBack].
+///
+/// This widget does NOT have a composer or tool bars — child sessions are
+/// observed, not interacted with from the parent view.
+///
+/// Exported (public) so tests can import it from agents_view.dart.
+class ChildTranscriptView extends StatelessWidget {
+  const ChildTranscriptView({
+    super.key,
+    required this.childSdkId,
+    required this.parentSessionName,
+    required this.onBack,
+  });
+
+  final String childSdkId;
+  final String parentSessionName;
+  final VoidCallback onBack;
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = context.watch<AgentsController>();
+    final messages = controller.childMessagesFor(childSdkId);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // Breadcrumb row.
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          decoration: BoxDecoration(
+            color: context.rhythm.surfaceMuted,
+            border: Border(
+              bottom: BorderSide(color: context.rhythm.borderSubtle),
+            ),
+          ),
+          child: Row(
+            children: [
+              GestureDetector(
+                onTap: onBack,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.chevron_left,
+                      size: 18,
+                      color: context.rhythm.accent,
+                    ),
+                    const SizedBox(width: 2),
+                    Text(
+                      parentSessionName,
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: context.rhythm.accent,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              Icon(
+                Icons.chevron_right,
+                size: 14,
+                color: context.rhythm.textMuted,
+              ),
+              const SizedBox(width: 4),
+              Text(
+                'Subagent',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: context.rhythm.textSecondary,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
+        ),
+        // Message list.
+        Expanded(
+          child: messages.isEmpty
+              ? Center(
+                  child: Text(
+                    'No messages in this subagent session.',
+                    style: TextStyle(
+                      color: context.rhythm.textMuted,
+                      fontSize: 13,
+                    ),
+                  ),
+                )
+              : ListView.builder(
+                  padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
+                  itemCount: messages.length,
+                  itemBuilder: (context, index) {
+                    final m = messages[index];
+                    final isUser = m.role == 'input' || m.role == 'user';
+                    // Use strippedText for display (rawText may contain ANSI).
+                    final displayText =
+                        m.strippedText.isNotEmpty ? m.strippedText : m.rawText;
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: isUser
+                          ? Align(
+                              alignment: Alignment.centerRight,
+                              child: Container(
+                                constraints:
+                                    const BoxConstraints(maxWidth: 560),
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 12, vertical: 8),
+                                decoration: BoxDecoration(
+                                  color: context.rhythm.accentMuted,
+                                  borderRadius:
+                                      BorderRadius.circular(RhythmRadius.md),
+                                  border: Border.all(
+                                    color: context.rhythm.accent
+                                        .withValues(alpha: 0.2),
+                                  ),
+                                ),
+                                child: Text(
+                                  displayText,
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    color: context.rhythm.accent,
+                                    height: 1.4,
+                                  ),
+                                ),
+                              ),
+                            )
+                          : Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: context.rhythm.surfaceMuted,
+                                borderRadius:
+                                    BorderRadius.circular(RhythmRadius.md),
+                                border: Border.all(
+                                    color: context.rhythm.borderSubtle),
+                              ),
+                              child: Text(
+                                displayText,
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  color: context.rhythm.textPrimary,
+                                  height: 1.4,
+                                ),
+                              ),
+                            ),
+                    );
+                  },
+                ),
+        ),
+      ],
     );
   }
 }

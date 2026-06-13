@@ -3,16 +3,36 @@
 ## Current focus
 
 **Branch:** `opc-m1-foundation`
-**Active milestone:** M3 — Session features
-**Last verified issue:** #698 — OPC-M3-5 Session todo panel (PASS, branch `opc-m1-foundation`, commit `ca084b9`, not yet merged)
-**Test status:** vitest 672/672 ✓ | flutter test 393/393 ✓ | `ai-workflow checks --level pr` exit 0 ✓
-**Next issue:** M3 complete — ready for PR open on `opc-m1-foundation` covering #694–#698
+**Active milestone:** M3 — Session features — ALL ISSUES COMPLETE (#694–#699)
+**Last verified issue:** #699 — OPC-M3-6 Subagent child-session navigation (VERIFIED, not yet committed — orchestrator commits)
+**Test status:** vitest 679/679 ✓ | flutter test 251/251 (agents suite) ✓ | `ai-workflow checks --level pr` exit 0 ✓
+**Next step:** commit working tree → push branch → open PR on `opc-m1-foundation` covering #694–#699 (6 issues)
 
 ## Known bugs (parked, not blocking PR #617)
 
 _(Parked bugs from before 2026-05-27 run. #638 and #635 below are now RESOLVED — see 2026-05-27 run entry.)_
 
 ## Recent coding-agent runs
+
+### 2026-06-13 — opc-m1-foundation / issue-699 — Subagent child-session navigation (OPC-M3-6)
+- Files modified (production):
+  - `apps/api_server/src/controllers/agent_sessions_controller.ts` — added `getChildren()` (GET /:id/children; returns `[]` when no SDK mapping, else `opencodeClient.listChildren(sdkId)`) and `getChildMessages()` (GET /:id/children/:childSdkId/messages; calls `opencodeClient.listMessages(childSdkId)`, maps SDK shape to M1-2 structured format with role `user→input` / `assistant→output`).
+  - `apps/api_server/src/routes/agent_sessions_routes.ts` — added two routes: `GET /:id/children` and `GET /:id/children/:childSdkId/messages`.
+  - `apps/desktop_flutter/lib/features/agents/data/agents_data_source.dart` — added `fetchChildSessions(parentSessionId)` and `fetchChildMessages(parentSessionId, childSdkId)` (URL-encodes child SDK id; parses response via `AgentSessionMessage.fromStructuredJson`).
+  - `apps/desktop_flutter/lib/features/agents/repositories/agents_repository.dart` — added `fetchChildSessions` and `fetchChildMessages` delegates.
+  - `apps/desktop_flutter/lib/features/agents/controllers/agents_controller.dart` — added `_activeChildSessionId`, `_activeChildParentSessionId`, `_activeChildParentName`, `_childMessagesByChildId` state; `activeChildSessionId`, `activeChildParentSessionId`, `activeChildParentName` getters; `childMessagesFor()` getter; `openChildSession()` async method (fetches + caches messages, sets active child, does NOT add to `_sessions`); `closeChildSession()` method (clears active child, no parent refetch).
+  - `apps/desktop_flutter/lib/features/agents/views/_tool_renderers/_task_chip.dart` — added `parentSessionId` and `parentSessionName` optional params; `_childSdkId()` helper extracting `args['sessionId']`; `GestureDetector` wrapping chip when navigable (`isNavigable` guards all three params); `onTap` calls `controller.openChildSession(...)` via `context.read` wrapped in try/catch.
+  - `apps/desktop_flutter/lib/features/agents/views/agents_view.dart` — added `sessionName` field to `_ChatBubble` (passed from `session.name`); updated `_buildToolRenderer` to pass `parentSessionId/parentSessionName` to `TaskChip`; updated `_TranscriptPanel.build()` to check `controller.activeChildSessionId != null` and show `ChildTranscriptView` instead of parent transcript + composer; added `ChildTranscriptView` public widget (read-only transcript, breadcrumb `‹ parentSessionName`, no `TextField`/composer).
+  - `docs/ai/contracts/issue-699.json` (new) — 7 criteria contract (c1 vitest, c2–c6 flutter, c7 manual).
+- Files modified (tests):
+  - `apps/api_server/src/__tests__/opc_m3_6_child_sessions.test.ts` (new) — 7 vitest tests (c1a GET /children shape; c1b GET /children/:childSdkId/messages shape; role mapping; empty when no SDK session; 404 on missing parent).
+  - `apps/desktop_flutter/test/features/agents/opc_m3_6_child_sessions_test.dart` (new) — 6 flutter tests (c2a REAL-SURFACE chip tap navigation; c2b openChildSession fetches messages; c3 closeChildSession no-refetch; c4 ChildTranscriptView has no TextField; c5 children not in session lists; c6 ToolStateIndicator regression).
+  - 5 stub files updated with `fetchChildSessions`/`fetchChildMessages` stubs: `agents_controller_test.dart`, `agent_trigger_watcher_test.dart`, `issue_626_chip_status_flip_test.dart`, `new_session_dialog_error_test.dart`, `integration_test/follow_up_smoke_test.dart`.
+- Red→green proof: vitest 672→679 (+7 tests). Flutter agents suite 245→251 (+6 tests). All pass.
+- Checks: flutter analyze --no-fatal-infos ✓ (0 errors, 0 warnings, infos only), dart format ✓ (3 files reformatted on first run; clean on second), tsc --noEmit ✓, vitest 679/679 ✓, flutter test 251/251 (agents) ✓, `ai-workflow checks --level pr` exit 0 ✓.
+- Decisions made: (1) Child sessions fetched from SDK directly (no local DB row) — `getChildMessages` uses child SDK id with `opencodeClient.listMessages(childSdkId)`. (2) `ChildTranscriptView` uses plain `Text` widgets (not `SelectableText`/`MarkdownMessageBody`) to avoid timer-pending issues in `testWidgets`. (3) `initialize()` not called in `testWidgets` tests to avoid 5-second periodic WS-reconnect timer from `FakeAsync` timersPending assertion. (4) `isNavigable` guards chip tap — inert chips in tests without Provider context are safe via try/catch.
+- Deviations from spec: none.
+- Concerns: (1) `AgentsRepository` interface exhaustiveness now requires updating stub in 5+ files every time a new method is added — pattern becomes expensive; candidate for extracting a base-stub mixin. (2) c7 (manual smoke: `ai-workflow checks --level pr` exit 0) confirmed above — automated gate passed.
 
 ### 2026-06-13 — opc-m1-foundation / issue-698 — Session todo panel (OPC-M3-5)
 - Files modified (production):

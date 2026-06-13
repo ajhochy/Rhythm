@@ -148,6 +148,18 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   // True while a todo fetch is in-flight for the given session id.
   final Set<String> _sessionTodosLoading = {};
 
+  // OPC-M3-6: Child-session navigation state.
+  // Non-null when the user has tapped a task chip and navigated into a child
+  // session transcript. The UI swaps the main transcript area to the child view.
+  // Null = show parent transcript.
+  String? _activeChildSessionId;
+  String? _activeChildParentSessionId;
+  String? _activeChildParentName;
+
+  // Cache of fetched child messages keyed by childSdkId.
+  // Entries persist for the lifetime of the app so back-navigation is instant.
+  final Map<String, List<AgentSessionMessage>> _childMessagesByChildId = {};
+
   // --------------------------------------------------------------------------
   // Model-picker state
   // --------------------------------------------------------------------------
@@ -439,6 +451,67 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   /// True while a todo fetch is in-flight for [sessionId].
   bool sessionTodosLoading(String sessionId) =>
       _sessionTodosLoading.contains(sessionId);
+
+  // ── OPC-M3-6: child-session navigation ────────────────────────────────────
+
+  /// The SDK session id of the currently active child session, or null when
+  /// the user is viewing the parent transcript.
+  String? get activeChildSessionId => _activeChildSessionId;
+
+  /// The local session id of the parent whose task chip was tapped.
+  String? get activeChildParentSessionId => _activeChildParentSessionId;
+
+  /// The display name of the parent session for the breadcrumb.
+  String? get activeChildParentName => _activeChildParentName;
+
+  /// Messages for the child session identified by [childSdkId].
+  /// Returns an empty list when not yet fetched.
+  List<AgentSessionMessage> childMessagesFor(String childSdkId) =>
+      List.unmodifiable(_childMessagesByChildId[childSdkId] ?? const []);
+
+  /// Open a child session transcript by fetching its messages from the server.
+  ///
+  /// Sets [activeChildSessionId] so the view swaps to the child transcript area.
+  /// Child messages are cached — subsequent opens of the same child are instant.
+  /// Does NOT modify [_sessions] or [_resumable] — children never enter the
+  /// sidebar lists.
+  Future<void> openChildSession({
+    required String parentSessionId,
+    required String parentSessionName,
+    required String childSdkId,
+  }) async {
+    // Use cache if available.
+    if (!_childMessagesByChildId.containsKey(childSdkId)) {
+      try {
+        final messages = await _repository.fetchChildMessages(
+          parentSessionId,
+          childSdkId,
+        );
+        if (_disposed) return;
+        _childMessagesByChildId[childSdkId] = messages;
+      } catch (_) {
+        if (_disposed) return;
+        // Non-fatal: show empty child transcript rather than crashing.
+        _childMessagesByChildId[childSdkId] = const [];
+      }
+    }
+    _activeChildSessionId = childSdkId;
+    _activeChildParentSessionId = parentSessionId;
+    _activeChildParentName = parentSessionName;
+    notifyListeners();
+  }
+
+  /// Navigate back to the parent transcript.
+  ///
+  /// Clears the active child session WITHOUT refetching the parent — the parent's
+  /// chat store is preserved in-memory, so scroll context and messages remain intact.
+  void closeChildSession() {
+    if (_activeChildSessionId == null) return;
+    _activeChildSessionId = null;
+    _activeChildParentSessionId = null;
+    _activeChildParentName = null;
+    notifyListeners();
+  }
 
   /// OPC-M3-5 — Fetch (or refresh) the todo list for [sessionId].
   ///

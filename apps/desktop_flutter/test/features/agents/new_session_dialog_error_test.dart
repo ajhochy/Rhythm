@@ -208,6 +208,16 @@ class _ErrorAgentsRepository implements AgentsRepository {
 
   @override
   Future<List<Map<String, dynamic>>> fetchSessionTodos(String id) async => [];
+
+  @override
+  Future<List<Map<String, dynamic>>> fetchChildSessions(
+          String parentSessionId) async =>
+      [];
+
+  @override
+  Future<List<AgentSessionMessage>> fetchChildMessages(
+          String parentSessionId, String childSdkId) async =>
+      [];
 }
 
 class _FakeLocalNotificationService extends LocalNotificationService {

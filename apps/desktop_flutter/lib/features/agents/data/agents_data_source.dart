@@ -418,6 +418,45 @@ class AgentsDataSource {
     return list.cast<Map<String, dynamic>>();
   }
 
+  /// OPC-M3-6 — GET /agent-sessions/:id/children
+  ///
+  /// Returns the list of child session summaries (raw JSON maps) for the
+  /// parent session identified by [parentSessionId]. Returns an empty list
+  /// when the session has no active SDK mapping. Each entry is a raw SDK
+  /// Session map: { id, projectID, directory, title, version, time }.
+  Future<List<Map<String, dynamic>>> fetchChildSessions(
+      String parentSessionId) async {
+    final response = await http.get(
+      Uri.parse('$_baseUrl/agent-sessions/$parentSessionId/children'),
+      headers: AuthSessionStore.headers(),
+    );
+    assertOk(response);
+    final list = jsonDecode(response.body) as List<dynamic>;
+    return list.cast<Map<String, dynamic>>();
+  }
+
+  /// OPC-M3-6 — GET /agent-sessions/:id/children/:childSdkId/messages
+  ///
+  /// Returns the messages for a specific child session as
+  /// AgentSessionMessage objects (same structured M1-2 shape). Throws on
+  /// HTTP error.
+  Future<List<AgentSessionMessage>> fetchChildMessages(
+      String parentSessionId, String childSdkId) async {
+    final encodedChildId = Uri.encodeComponent(childSdkId);
+    final response = await http.get(
+      Uri.parse(
+          '$_baseUrl/agent-sessions/$parentSessionId/children/$encodedChildId/messages'),
+      headers: AuthSessionStore.headers(),
+    );
+    assertOk(response);
+    final body = jsonDecode(response.body) as Map<String, dynamic>;
+    final rawMessages = body['messages'] as List<dynamic>? ?? const [];
+    return rawMessages
+        .map((j) =>
+            AgentSessionMessage.fromStructuredJson(j as Map<String, dynamic>))
+        .toList();
+  }
+
   /// OPC-M3-4 — WS send helper for structured slash-command dispatch.
   ///
   /// Sends a `session.command` WS frame instead of `session.input`, so the
