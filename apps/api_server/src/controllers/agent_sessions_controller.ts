@@ -42,6 +42,29 @@ function expandHome(path: string): string {
   return path;
 }
 
+/**
+ * Resolve the opencode SDK session id for a Rhythm session.
+ *
+ * The in-memory `opencodeSessionMap` is only populated when a session is
+ * created or (re)attached this server-run, so after a relaunch — or for a
+ * resumable session the user hasn't messaged yet — it misses, and every action
+ * (summarize, cancel, shell, diff, revert, …) failed with "no active SDK
+ * mapping". Fall back to the persisted `sdk_session_id` (OPC-M1-5) and
+ * re-register the map so subsequent calls + streaming reuse it.
+ */
+function resolveSdkSessionId(session: {
+  id: string;
+  sdkSessionId: string | null;
+}): string | undefined {
+  const mapped = opencodeSessionMap.get(session.id);
+  if (mapped) return mapped;
+  if (session.sdkSessionId) {
+    opencodeSessionMap.set(session.id, session.sdkSessionId);
+    return session.sdkSessionId;
+  }
+  return undefined;
+}
+
 export class AgentSessionsController {
   /**
    * OPC-M4-4 — GET /agent-sessions/agents
@@ -420,7 +443,7 @@ export class AgentSessionsController {
     try {
       const session = repo.findById(req.params.id);
       if (!session) throw AppError.notFound('AgentSession');
-      const opencodeId = opencodeSessionMap.get(session.id);
+      const opencodeId = resolveSdkSessionId(session);
       if (!opencodeId) {
         res.json([]);
         return;
@@ -437,7 +460,7 @@ export class AgentSessionsController {
     try {
       const session = repo.findById(req.params.id);
       if (!session) throw AppError.notFound('AgentSession');
-      const opencodeId = opencodeSessionMap.get(session.id);
+      const opencodeId = resolveSdkSessionId(session);
       if (!opencodeId) {
         throw AppError.badRequest('Session has no SDK mapping for permission.');
       }
@@ -481,7 +504,7 @@ export class AgentSessionsController {
     try {
       const session = repo.findById(req.params.id);
       if (!session) throw AppError.notFound('AgentSession');
-      const opencodeId = opencodeSessionMap.get(session.id);
+      const opencodeId = resolveSdkSessionId(session);
       if (!opencodeId) {
         throw AppError.badRequest('Session has no active SDK mapping; cannot cancel.');
       }
@@ -652,7 +675,7 @@ export class AgentSessionsController {
     try {
       const session = repo.findById(req.params.id);
       if (!session) throw AppError.notFound('AgentSession');
-      const opencodeId = opencodeSessionMap.get(session.id);
+      const opencodeId = resolveSdkSessionId(session);
       if (!opencodeId) {
         throw AppError.badRequest('Session has no active SDK mapping; cannot revert.');
       }
@@ -673,7 +696,7 @@ export class AgentSessionsController {
     try {
       const session = repo.findById(req.params.id);
       if (!session) throw AppError.notFound('AgentSession');
-      const opencodeId = opencodeSessionMap.get(session.id);
+      const opencodeId = resolveSdkSessionId(session);
       if (!opencodeId) {
         throw AppError.badRequest('Session has no active SDK mapping; cannot unrevert.');
       }
@@ -689,7 +712,7 @@ export class AgentSessionsController {
     try {
       const session = repo.findById(req.params.id);
       if (!session) throw AppError.notFound('AgentSession');
-      const opencodeId = opencodeSessionMap.get(session.id);
+      const opencodeId = resolveSdkSessionId(session);
       if (!opencodeId) {
         throw AppError.badRequest('Session has no active SDK mapping; cannot summarize.');
       }
@@ -708,7 +731,7 @@ export class AgentSessionsController {
     try {
       const session = repo.findById(req.params.id);
       if (!session) throw AppError.notFound('AgentSession');
-      const opencodeId = opencodeSessionMap.get(session.id);
+      const opencodeId = resolveSdkSessionId(session);
       if (!opencodeId) {
         // No active SDK mapping — return empty array (same contract as getDiff).
         res.json([]);
@@ -768,7 +791,7 @@ export class AgentSessionsController {
     try {
       const session = repo.findById(req.params.id);
       if (!session) throw AppError.notFound('AgentSession');
-      const opencodeId = opencodeSessionMap.get(session.id);
+      const opencodeId = resolveSdkSessionId(session);
       if (!opencodeId) {
         // No active SDK mapping — return empty array (same contract as getDiff).
         res.json([]);
@@ -800,7 +823,7 @@ export class AgentSessionsController {
       const parent = repo.findById(req.params.id);
       if (!parent) throw AppError.notFound('AgentSession');
 
-      const parentSdkId = opencodeSessionMap.get(parent.id);
+      const parentSdkId = resolveSdkSessionId(parent);
       if (!parentSdkId) {
         throw AppError.badRequest('Session has no active SDK mapping; cannot fork.');
       }
@@ -924,7 +947,7 @@ export class AgentSessionsController {
         throw AppError.badRequest('command is required and must not be empty');
       }
 
-      const sdkId = opencodeSessionMap.get(session.id);
+      const sdkId = resolveSdkSessionId(session);
       if (!sdkId) {
         throw AppError.badRequest(
           'Session has no active SDK mapping; cannot run shell command.',
