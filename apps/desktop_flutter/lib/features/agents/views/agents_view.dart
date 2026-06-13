@@ -1284,11 +1284,10 @@ class _TranscriptPanelState extends State<_TranscriptPanel> {
     AgentsController controller,
     AgentSession session,
   ) {
-    // OPC-M1-3: Single render path — parts-based chat only.
-    // _liveOutputBuffer and the legacy _transcriptsBySession render branch
-    // have been deleted. All messages arrive via chatMessagesFor() /
-    // chatPartsFor() (rehydrated from REST on selectSession, then updated
-    // by WS events).
+    // OPC-M1-3: Single render path — parts-based chat only. The legacy
+    // plain-text live-output buffer and transcript render branch have been
+    // deleted. All messages arrive via chatMessagesFor() / chatPartsFor()
+    // (rehydrated from REST on selectSession, then updated by WS events).
     final chatMessages = controller.chatMessagesFor(session.id);
 
     if (chatMessages.isEmpty) {
