@@ -1,0 +1,55 @@
+{
+  "issue": 701,
+  "generated": "2026-06-13",
+  "criteria": [
+    {
+      "criterion_id": "issue-701-c1",
+      "text": "POST /agent-sessions/:id/fork body {messageId} invokes the SDK fork wrapper with (sdkId, messageId), inserts a local row with the new sdk_session_id, populates opencodeSessionMap, and returns 201 with the new session (vitest, spy + DB asserts).",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/opc_m4_2_session_fork.test.ts",
+      "test_id": "issue-701-c1: fork route inserts local row, maps SDK id, returns 201",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-701-c2",
+      "text": "The new session's persisted messages equal the parent's messages up to and including the fork message (DB assert on copied rows; parts_json intact).",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/opc_m4_2_session_fork.test.ts",
+      "test_id": "issue-701-c2: forked session messages copied with parts_json intact",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-701-c3",
+      "text": "SDK fork failure → AppError; no local row is left behind (rollback assert).",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/opc_m4_2_session_fork.test.ts",
+      "test_id": "issue-701-c3: SDK fork failure → AppError, no orphan row",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-701-c4",
+      "text": "\"Fork from here\" in the message action row dispatches the call; the new session appears in the active list (optimistic, reconciled by REST response) and selecting it shows the copied transcript (controller/widget tests with fakes).",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agents/opc_m4_2_fork_test.dart",
+      "test_id": "issue-701-c4: Fork from here in action row dispatches call and session appears in list",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-701-c5",
+      "text": "Prompting the fork routes input to the fork's sdk id, not the parent's (vitest via map).",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/opc_m4_2_session_fork.test.ts",
+      "test_id": "issue-701-c5: fork session map routes prompt to fork's SDK id",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-701-c6",
+      "text": "ai-workflow checks --level pr exits 0; vitest + flutter test green.",
+      "mode": "manual",
+      "reason": "Gate-level check: requires full CI pipeline to pass.",
+      "status": "pending"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": ["issue-701-c6"]
+}

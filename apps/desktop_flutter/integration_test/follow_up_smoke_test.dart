@@ -260,6 +260,11 @@ class _FakeAgentsRepository implements AgentsRepository {
   Future<List<AgentSessionMessage>> fetchChildMessages(
           String parentSessionId, String childSdkId) async =>
       [];
+
+  @override
+  Future<AgentSession> forkSession(String sessionId, String messageId) async {
+    throw UnimplementedError();
+  }
 }
 
 class _FakeLocalNotificationService extends LocalNotificationService {

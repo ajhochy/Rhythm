@@ -458,6 +458,26 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   bool sessionTodosLoading(String sessionId) =>
       _sessionTodosLoading.contains(sessionId);
 
+  // ── OPC-M4-2: session fork ────────────────────────────────────────────────
+
+  /// OPC-M4-2 — Fork the session at [messageId], creating a new session that
+  /// starts from that point in the transcript.
+  ///
+  /// On success:
+  ///   - The forked session is prepended to [_sessions] (optimistic insert
+  ///     so it appears immediately; the 201 REST response is the authority).
+  ///   - The fork is immediately selectable via [selectSession].
+  /// Throws on server error — the view catches and surfaces it.
+  Future<void> forkSession(String sessionId, String messageId) async {
+    final forked = await _repository.forkSession(sessionId, messageId);
+    if (_disposed) return;
+    // Insert at the front so the new fork is visible immediately.
+    if (!_sessions.any((s) => s.id == forked.id)) {
+      _sessions = [forked, ..._sessions];
+    }
+    notifyListeners();
+  }
+
   // ── OPC-M3-6: child-session navigation ────────────────────────────────────
 
   /// The SDK session id of the currently active child session, or null when

@@ -132,6 +132,11 @@ class AgentsRepository {
           String parentSessionId, String childSdkId) =>
       _dataSource.fetchChildMessages(parentSessionId, childSdkId);
 
+  /// OPC-M4-2 — POST /agent-sessions/:id/fork — fork the session at the given
+  /// message. Returns the new [AgentSession].
+  Future<AgentSession> forkSession(String sessionId, String messageId) =>
+      _dataSource.forkSession(sessionId, messageId);
+
   /// OPC-M3-4 — Dispatch a slash command via the WS `session.command` frame.
   /// This is a no-op at the data-source level (the controller calls [send]
   /// directly); provided here for interface completeness and test doubles.

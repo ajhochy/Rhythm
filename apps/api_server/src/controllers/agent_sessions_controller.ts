@@ -729,6 +729,105 @@ export class AgentSessionsController {
     }
   }
 
+  // OPC-M4-2: fork the session at the given message (POST /:id/fork).
+  //
+  // Flow:
+  //   1. Look up the parent session and its SDK mapping.
+  //   2. Call the typed forkSession wrapper (throws on SDK error).
+  //   3. Insert a local DB row for the fork (name "<parent> (fork)", same cwd).
+  //   4. Set sdk_session_id on the fork row + populate opencodeSessionMap.
+  //   5. Register a stream for the fork.
+  //   6. Copy parent messages up to and including the fork message.
+  //   7. Return 201 with the new session row.
+  //
+  // Rollback: if the SDK call succeeds but any subsequent step throws, the
+  // fork DB row (if created) is deleted so no orphan remains.
+  async fork(req: Request, res: Response, next: NextFunction): Promise<void> {
+    let forkLocalId: string | null = null;
+    try {
+      const parent = repo.findById(req.params.id);
+      if (!parent) throw AppError.notFound('AgentSession');
+
+      const parentSdkId = opencodeSessionMap.get(parent.id);
+      if (!parentSdkId) {
+        throw AppError.badRequest('Session has no active SDK mapping; cannot fork.');
+      }
+
+      const body = (req.body ?? {}) as Record<string, unknown>;
+      const messageId = body.messageId as string | undefined;
+      // messageId is required — the fork point must be explicit.
+      if (!messageId || typeof messageId !== 'string') {
+        throw AppError.badRequest('messageId is required in the request body');
+      }
+
+      // 1. Call SDK fork (throws on error → caught below, no row to rollback).
+      const forkedSdkSession = await opencodeClient.forkSession(parentSdkId, messageId);
+      if (!forkedSdkSession) {
+        throw AppError.badRequest('forkSession returned no session — SDK may not support forking');
+      }
+
+      // 2. Insert local DB row.
+      const forkDto = {
+        agentKind: parent.agentKind,
+        taskId: null,
+        taskTitle: null,
+        cwd: parent.cwd,
+        name: `${parent.name} (fork)`,
+        projectId: parent.projectId ?? null,
+      };
+      const forkSession = repo.insert(forkDto);
+      forkLocalId = forkSession.id;
+
+      // 3. Persist SDK session id on the fork row + register in session map.
+      repo.setSdkSessionId(forkLocalId, forkedSdkSession.id);
+      opencodeSessionMap.set(forkLocalId, forkedSdkSession.id);
+
+      // 4. Start streaming for the fork session.
+      try {
+        await streamBridge.streamSession(forkLocalId, forkedSdkSession.id, parent.cwd);
+      } catch (err) {
+        logger.warn(`[AgentSessionsController] fork: stream bridge error for fork session ${forkLocalId}:`, err);
+        // Non-fatal: streaming failure doesn't prevent the fork from being usable.
+      }
+
+      // 5. Copy parent messages up to and including the fork message.
+      //    Uses listBySessionStructured so parts_json is carried over intact.
+      const parentMessages = messagesRepo.listBySessionStructured(parent.id, 500);
+      for (const msg of parentMessages) {
+        if (!msg.sdkMessageId) continue;
+        const role = msg.role as 'output' | 'input' | 'system';
+        const partsJson = JSON.stringify(msg.parts ?? []);
+        const tokensJson = msg.tokens ? JSON.stringify(msg.tokens) : null;
+        messagesRepo.upsertStructured(
+          forkLocalId,
+          msg.sdkMessageId,
+          role,
+          partsJson,
+          tokensJson,
+          msg.cost,
+        );
+        // Stop after the fork message (inclusive).
+        if (msg.sdkMessageId === messageId) break;
+      }
+
+      // 6. Return 201 with the fork session row (re-fetch to get sdk_session_id populated).
+      const updated = repo.findById(forkLocalId)!;
+      res.status(201).json(updated);
+    } catch (err) {
+      // Rollback: remove the fork row if it was inserted before the error.
+      if (forkLocalId) {
+        try {
+          streamBridge.stopStream(forkLocalId);
+          opencodeSessionMap.delete(forkLocalId);
+          repo.deleteById(forkLocalId);
+        } catch (rollbackErr) {
+          logger.warn(`[AgentSessionsController] fork rollback failed for ${forkLocalId}:`, rollbackErr);
+        }
+      }
+      next(err);
+    }
+  }
+
   listMessages(req: Request, res: Response, next: NextFunction): void {
     try {
       const session = repo.findById(req.params.id);

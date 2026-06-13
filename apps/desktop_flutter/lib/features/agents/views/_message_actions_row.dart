@@ -141,6 +141,35 @@ class _MessageActionsRowState extends State<MessageActionsRow>
     _flashController?.forward(from: 0);
   }
 
+  void _showForkDialog(BuildContext context) {
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Fork from here?'),
+        content: const Text(
+          'Create a new session starting from this message — the original '
+          'session is unchanged and both branches are independently promptable.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () {
+              Navigator.of(dialogContext).pop();
+              context.read<AgentsController>().forkSession(
+                    widget.sessionId,
+                    widget.messageId,
+                  );
+            },
+            child: const Text('Fork'),
+          ),
+        ],
+      ),
+    );
+  }
+
   void _showRevertDialog(BuildContext context) {
     showDialog<void>(
       context: context,
@@ -211,6 +240,16 @@ class _MessageActionsRowState extends State<MessageActionsRow>
               tooltip: 'Revert to here',
               color: context.rhythm.textMuted,
               onTap: () => _showRevertDialog(context),
+            ),
+          ],
+          // OPC-M4-2: "Fork from here" — only for assistant messages.
+          if (_isAssistant) ...[
+            const SizedBox(width: 2),
+            _ActionIconButton(
+              icon: Icons.fork_right,
+              tooltip: 'Fork from here',
+              color: context.rhythm.textMuted,
+              onTap: () => _showForkDialog(context),
             ),
           ],
           // OPC-M3-2: "reverted" badge — shown when this message is reverted.

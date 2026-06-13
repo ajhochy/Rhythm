@@ -3,16 +3,39 @@
 ## Current focus
 
 **Branch:** `opc-m1-foundation`
-**Active milestone:** M4 — File attachments — #700 COMPLETE (VERIFIED, not yet committed — orchestrator commits)
-**Last verified issue:** #700 — OPC-M4-1 Real image/file attachments (FilePart with data URI) (VERIFIED)
-**Test status:** vitest 682/682 ✓ | flutter test (opc_m4_1_attachments_test) 4/4 ✓ | `ai-workflow checks --level pr` exit 0 ✓
-**Next step:** commit working tree → push branch → open PR on `opc-m1-foundation` covering #694–#700 (7 issues)
+**Active milestone:** M4 — Session fork — #701 COMPLETE (VERIFIED, not yet committed — orchestrator commits)
+**Last verified issue:** #701 — OPC-M4-2 Session fork (VERIFIED at bc10769)
+**Test status:** vitest 686/686 ✓ | flutter test 408/408 ✓ | `ai-workflow checks --level pr` exit 0 ✓
+**Next step:** commit working tree → push branch → open PR on `opc-m1-foundation` covering #694–#701 (8 issues)
 
 ## Known bugs (parked, not blocking PR #617)
 
 _(Parked bugs from before 2026-05-27 run. #638 and #635 below are now RESOLVED — see 2026-05-27 run entry.)_
 
 ## Recent coding-agent runs
+
+### 2026-06-13 — opc-m1-foundation / issue-701 — Session fork (OPC-M4-2)
+- Files modified (production):
+  - `apps/api_server/src/controllers/agent_sessions_controller.ts` — added `fork()` method: validates parent + SDK mapping, calls `opencodeClient.forkSession()`, inserts local DB row, maps `opencodeSessionMap`, registers stream, copies parent messages up-to-and-including `messageId`, returns 201; rollback (delete row + unmap) on any post-insert error.
+  - `apps/api_server/src/routes/agent_sessions_routes.ts` — added `POST /:id/fork` route.
+  - `apps/desktop_flutter/lib/features/agents/data/agents_data_source.dart` — added `forkSession(id, messageId)` HTTP POST + response parse.
+  - `apps/desktop_flutter/lib/features/agents/repositories/agents_repository.dart` — added `forkSession` delegate.
+  - `apps/desktop_flutter/lib/features/agents/controllers/agents_controller.dart` — added `forkSession()` async method: calls repo, prepends fork to `_sessions` if not already present, notifies.
+  - `apps/desktop_flutter/lib/features/agents/views/_message_actions_row.dart` — added `_showForkDialog()` (AlertDialog Cancel/Fork) and "Fork from here" `_ActionIconButton` (icon `Icons.fork_right`, `_isAssistant` gated) after revert button.
+- Files modified (tests):
+  - `docs/ai/contracts/issue-701.json` (new) — 6 criteria contract (c1–c3, c5 vitest; c4 flutter; c6 manual).
+  - `apps/api_server/src/__tests__/opc_m4_2_session_fork.test.ts` (new) — 4 vitest tests (c1: 201 + DB row + map; c2: messages copied up-to fork point with parts_json; c3: SDK failure → no orphan row; c5: map routes to fork SDK id).
+  - `apps/desktop_flutter/test/features/agents/opc_m4_2_fork_test.dart` (new) — 5 flutter tests (c4a: REAL-SURFACE fork icon visible; c4b: tap dialog → Fork → dispatches forkSession; c4c: fork session in active list; c4d: selecting fork loads messages; c4e: user role → no fork icon).
+  - `apps/desktop_flutter/test/features/agents/agents_controller_test.dart` — added `forkSession` stub.
+  - `apps/desktop_flutter/test/features/agents/agent_trigger_watcher_test.dart` — added `forkSession` stub.
+  - `apps/desktop_flutter/test/features/agents/issue_626_chip_status_flip_test.dart` — added `forkSession` stub.
+  - `apps/desktop_flutter/test/features/agents/new_session_dialog_error_test.dart` — added `forkSession` stub.
+  - `apps/desktop_flutter/integration_test/follow_up_smoke_test.dart` — added `forkSession` stub.
+- Red→green proof: vitest RED (4/4 failing: `controller.fork is not a function`) → GREEN (4/4). Flutter RED (compilation error: `forkSession` not defined) → GREEN (408/408 total suite). `ai-workflow checks --level pr` exit 0.
+- Checks: flutter analyze --no-fatal-infos ✓, dart format ✓, tsc --noEmit ✓, vitest 4/4 ✓, flutter test 408/408 ✓, `ai-workflow checks --level pr` exit 0 ✓.
+- Decisions made: `_showForkDialog` confirmation step keeps the fork action intentional (same AlertDialog pattern as revert from #695). Rollback uses `forkLocalId` sentinel to avoid orphan DB rows on any SDK or stream-register failure.
+- Deviations from spec: c4b test requires tapping the "Fork" button inside the dialog (not just the icon) — spec said "tap icon → dispatch"; dialog is the correct intermediary per the `_showForkDialog` implementation.
+- Concerns: `AgentsRepository` stub maintenance cost now affects 5 test files and 1 integration test per new method addition — per prior entry, candidate for a base-stub mixin.
 
 ### 2026-06-13 — opc-m1-foundation / issue-700 — Real image/file attachments (FilePart with data URI) (OPC-M4-1)
 - Files modified (production):

@@ -457,6 +457,24 @@ class AgentsDataSource {
         .toList();
   }
 
+  /// OPC-M4-2 — POST /agent-sessions/:id/fork { messageId }
+  ///
+  /// Forks the session at [messageId], creating a new session that starts
+  /// from that point in the transcript. Returns the new [AgentSession].
+  /// Throws on HTTP error — the error is surfaced to the view via the
+  /// controller.
+  Future<AgentSession> forkSession(String id, String messageId) async {
+    final response = await http.post(
+      Uri.parse('$_baseUrl/agent-sessions/$id/fork'),
+      headers: AuthSessionStore.headers(json: true),
+      body: jsonEncode({'messageId': messageId}),
+    );
+    assertOk(response);
+    return AgentSession.fromJson(
+      jsonDecode(response.body) as Map<String, dynamic>,
+    );
+  }
+
   /// OPC-M3-4 — WS send helper for structured slash-command dispatch.
   ///
   /// Sends a `session.command` WS frame instead of `session.input`, so the
