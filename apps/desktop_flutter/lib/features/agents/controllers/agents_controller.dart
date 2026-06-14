@@ -359,6 +359,35 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     return total;
   }
 
+  /// OPC-#718: current context occupancy for [sessionId] — the MOST RECENT
+  /// turn's prompt size (input + cached input), which is how full the model's
+  /// context window actually is right now.
+  ///
+  /// This is NOT a sum across messages: each turn re-reads the entire growing
+  /// context, so summing per-turn `input` over-counts wildly (it showed
+  /// 3514.3k / 200k — 100% — for a conversation actually using ~46k). Output is
+  /// excluded — the gauge reflects prompt occupancy, not generated tokens.
+  int sessionContextTokens(String sessionId) {
+    final messages = _chatMessagesBySession[sessionId];
+    if (messages == null) return 0;
+    int asInt(Object? v) => v is num ? v.toInt() : 0;
+    for (final m in messages.reversed) {
+      final t = m.tokens;
+      if (t == null) continue;
+      final cacheRaw = t['cache'];
+      final cache = cacheRaw is num
+          ? cacheRaw.toInt()
+          : (cacheRaw is Map
+              ? ((cacheRaw['read'] as num? ?? 0) +
+                      (cacheRaw['write'] as num? ?? 0))
+                  .toInt()
+              : 0);
+      final total = asInt(t['input']) + cache;
+      if (total > 0) return total;
+    }
+    return 0;
+  }
+
   /// OPC-M2-4: Current retry state for [sessionId], or null if not retrying.
   ({int attempt, String reason})? retryingFor(String sessionId) =>
       _retryingBySession[sessionId];

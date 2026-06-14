@@ -194,7 +194,7 @@ class _ContextTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final controller = context.watch<AgentsController>();
-    final totalTokens = controller.sessionTotalInputTokens(session.id);
+    final totalTokens = controller.sessionContextTokens(session.id);
     final contextWindow = controller.contextWindowForSession(session);
     return ListView(
       padding: const EdgeInsets.all(12),

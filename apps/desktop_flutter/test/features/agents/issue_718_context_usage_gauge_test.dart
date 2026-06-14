@@ -276,6 +276,53 @@ void main() {
     );
   });
 
+  // ── c1': sessionContextTokens — the metric the gauge actually uses ───────
+  group(
+      'issue-718-c1prime: sessionContextTokens() is current occupancy, not a sum',
+      () {
+    test('returns the LATEST turn prompt size (input + cache), NOT the sum',
+        () {
+      const sessionId = 'ses-ctx';
+      controller.setMessageForTest(ChatMessage(
+        id: 'm1',
+        sessionId: sessionId,
+        role: 'assistant',
+        createdAt: _kEpoch,
+        tokens: {'input': 50000, 'output': 1000},
+      ));
+      controller.setMessageForTest(ChatMessage(
+        id: 'm2',
+        sessionId: sessionId,
+        role: 'assistant',
+        createdAt: _kEpoch,
+        tokens: {'input': 75000, 'output': 2000},
+      ));
+      // NOT 125000 (the buggy sum) — the latest turn's prompt is 75000.
+      expect(controller.sessionContextTokens(sessionId), equals(75000));
+    });
+
+    test('counts cached input (cache read+write) toward the prompt size', () {
+      const sessionId = 'ses-cache';
+      // Mirrors the real bug report: input 5, cache 45795 → 45800, not 100%.
+      controller.setMessageForTest(ChatMessage(
+        id: 'm1',
+        sessionId: sessionId,
+        role: 'assistant',
+        createdAt: _kEpoch,
+        tokens: {
+          'input': 5,
+          'output': 19,
+          'cache': {'read': 45795, 'write': 0},
+        },
+      ));
+      expect(controller.sessionContextTokens(sessionId), equals(45800));
+    });
+
+    test('returns 0 for a session with no token-bearing messages', () {
+      expect(controller.sessionContextTokens('nope'), equals(0));
+    });
+  });
+
   // ── c2: gauge shows placeholder when tokensUsed == 0 ────────────────────
 
   group('issue-718-c2: _ContextUsageGauge zero-tokens placeholder', () {
