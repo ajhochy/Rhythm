@@ -821,42 +821,62 @@ class _ClaudeIntegrationSectionState extends State<_ClaudeIntegrationSection> {
                     ],
                   ),
                 ),
-                const SizedBox(height: 16),
-                Text(
-                  'Claude Desktop config (~/.claude/claude_desktop_config.json):',
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    color: context.rhythm.textSecondary,
+                const SizedBox(height: 8),
+                Theme(
+                  data: Theme.of(context).copyWith(
+                    dividerColor: Colors.transparent,
                   ),
-                ),
-                const SizedBox(height: 6),
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF1E293B),
-                    borderRadius: BorderRadius.circular(RhythmRadius.md),
-                  ),
-                  child: SelectableText(
-                    '{\n'
-                    '  "mcpServers": {\n'
-                    '    "rhythm": {\n'
-                    '      "command": "npx",\n'
-                    '      "args": ["-y", "@ajhochy/rhythm-mcp-server"],\n'
-                    '      "env": {\n'
-                    '        "RHYTHM_API_URL": "${serverConfig.url}",\n'
-                    '        "RHYTHM_API_TOKEN": "${_tokenVisible ? token : "••••••••"}"\n'
-                    '      }\n'
-                    '    }\n'
-                    '  }\n'
-                    '}',
-                    style: const TextStyle(
-                      fontFamily: 'JetBrainsMono',
-                      fontSize: 12,
-                      color: Color(0xFF94A3B8),
-                      height: 1.6,
+                  child: ExpansionTile(
+                    tilePadding: EdgeInsets.zero,
+                    childrenPadding: EdgeInsets.zero,
+                    expandedCrossAxisAlignment: CrossAxisAlignment.start,
+                    title: Text(
+                      'Advanced: manual MCP setup',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: context.rhythm.textSecondary,
+                      ),
                     ),
+                    children: [
+                      Text(
+                        'Claude Desktop config (~/.claude/claude_desktop_config.json):',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: context.rhythm.textSecondary,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF1E293B),
+                          borderRadius: BorderRadius.circular(RhythmRadius.md),
+                        ),
+                        child: SelectableText(
+                          '{\n'
+                          '  "mcpServers": {\n'
+                          '    "rhythm": {\n'
+                          '      "command": "npx",\n'
+                          '      "args": ["-y", "@ajhochy/rhythm-mcp-server"],\n'
+                          '      "env": {\n'
+                          '        "RHYTHM_API_URL": "${serverConfig.url}",\n'
+                          '        "RHYTHM_API_TOKEN": "${_tokenVisible ? token : "••••••••"}"\n'
+                          '      }\n'
+                          '    }\n'
+                          '  }\n'
+                          '}',
+                          style: const TextStyle(
+                            fontFamily: 'JetBrainsMono',
+                            fontSize: 12,
+                            color: Color(0xFF94A3B8),
+                            height: 1.6,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
                 const SizedBox(height: 8),
