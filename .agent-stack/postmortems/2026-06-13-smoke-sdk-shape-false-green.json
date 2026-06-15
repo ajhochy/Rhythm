@@ -1,0 +1,22 @@
+{
+  "date": "2026-06-13",
+  "branch": "opc-m1-foundation",
+  "pr": 706,
+  "trigger": "manual_smoke",
+  "verification_claimed": "PASS",
+  "smoke_result": "fail",
+  "issues_implicated": [685, 703],
+  "smoke_notes": "User ran flutter run -d macos. Two runtime errors: (1) GET /agent-sessions/agents → 'TypeError: client.agents is not a function' (#703); (2) '[OpencodeClientService] subscribeToEvents error: undefined' + '[OpencodeStreamBridge] No event stream available for directory=/Users/ajhochhalter' (#685) — agent transcript never streamed.",
+  "category": "C3",
+  "category_name": "test asserts shapes production never produces (false-green at the SDK boundary)",
+  "root_cause": "The hand-written src/@types/opencode-ai-sdk.d.ts declared shapes that do not match the real @opencode-ai/sdk v1.14.49: (a) 'agents' as a top-level client method instead of client.app.agents; (b) event.subscribe as returning the hey-api { data, error } envelope instead of a ServerSentEventsResult = { stream }. Production code followed the d.ts (client.agents(...), raw.data). Tests mocked ABOVE the SDK boundary — the #703 route test stubbed the service method listAgents; the #685 typed-wrapper test's fake client had a shapeless event.subscribe vi.fn() and no app namespace — so neither test ever exercised the real client call. tsc passed because the lie was internally consistent (d.ts ↔ call site).",
+  "why_verification_missed_it": "verification-gate ran tsc + vitest + flutter, all green, because the d.ts and the tests agreed with each other and with the production call sites. None of them were checked against the real installed SDK surface (node_modules/@opencode-ai/sdk/dist/gen/sdk.gen.d.ts). This is the exact root-cause #3 the OpenCode parity plan named, recurring because the validation rule 'at least one vitest asserting the SDK spy is invoked with the expected shape' was satisfied with a fake whose shape was also invented.",
+  "fix": "Corrected the d.ts to the real shapes (app.agents under an app namespace; event.subscribe → Promise<{ stream }> with no envelope); fixed both call sites (client.app.agents, return raw consuming raw.stream). Added opc_sdk_boundary_regression.test.ts: 4 tests mocking the REAL SDK shapes that fail on the pre-fix code. Cross-checked ALL other M3/M4 wrappers (session.*, mcp.*) against the real Session/Mcp classes — all method paths correct.",
+  "prevention": "When hand-authoring an SDK .d.ts, every declared method/return shape MUST be diffed against the real installed SDK's generated types (node_modules/.../sdk.gen.d.ts), not assumed. Boundary tests must build fakes from the REAL shape (e.g. ServerSentEventsResult = { stream }, not an envelope) — a fake invented to match the d.ts re-encodes the same lie. event.subscribe is the one endpoint that does NOT use the { data, error } envelope.",
+  "workflow_adherence": {
+    "verification_gate_ran": true,
+    "gate_outcome": "PASS (false-green — green tsc/vitest/flutter against self-consistent but wrong types)",
+    "real_surface_tested": false,
+    "note": "All checks were green; the gap was that no check compared the hand-written d.ts to the real SDK. Resolved by adding real-shape boundary tests."
+  }
+}

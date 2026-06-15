@@ -1,0 +1,27 @@
+{
+  "_comment": "Real v1.14.49 message.part.updated event for a ToolPart with state=completed. ToolStateCompleted shape from message-v2.ts: status, input, output, title, metadata, time{start,end}.",
+  "type": "message.part.updated",
+  "properties": {
+    "sessionID": "ses_abc123",
+    "time": 1718000003500,
+    "part": {
+      "id": "part_tool_001",
+      "sessionID": "ses_abc123",
+      "messageID": "msg_abc001",
+      "type": "tool",
+      "callID": "call_abc001",
+      "tool": "read",
+      "state": {
+        "status": "completed",
+        "input": { "path": "/tmp/test/foo.ts" },
+        "output": "export function foo() { return 42; }",
+        "title": "Read /tmp/test/foo.ts",
+        "metadata": {},
+        "time": {
+          "start": 1718000002100,
+          "end": 1718000003500
+        }
+      }
+    }
+  }
+}

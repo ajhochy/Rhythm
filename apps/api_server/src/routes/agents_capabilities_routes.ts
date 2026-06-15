@@ -3,6 +3,7 @@ import { requireAuth } from '../middleware/auth_middleware';
 import { env } from '../config/env';
 import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
 import { opencodeClient } from '../services/opencode_engine';
+import { PROVIDER_TO_AGENT_KIND } from '../services/agent_model_resolver';
 
 export const agentsCapabilitiesRouter = Router();
 
@@ -66,7 +67,10 @@ async function probeConfigs(): Promise<Record<string, boolean>> {
 agentsCapabilitiesRouter.get('/', async (_req: Request, res: Response) => {
   try {
     const capabilities = await probeConfigs();
-    res.json(capabilities);
+    res.json({
+      ...capabilities,
+      providerToAgentKind: PROVIDER_TO_AGENT_KIND,
+    });
   } catch (err) {
     console.error('[agents/capabilities] Unexpected error:', err);
     res.json({});
@@ -76,7 +80,10 @@ agentsCapabilitiesRouter.get('/', async (_req: Request, res: Response) => {
 agentsCapabilitiesRouter.post('/refresh', async (_req: Request, res: Response) => {
   try {
     const capabilities = await probeConfigs();
-    res.json(capabilities);
+    res.json({
+      ...capabilities,
+      providerToAgentKind: PROVIDER_TO_AGENT_KIND,
+    });
   } catch (err) {
     console.error('[agents/capabilities] Unexpected error during refresh:', err);
     res.json({});

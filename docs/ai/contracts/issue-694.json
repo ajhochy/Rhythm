@@ -1,0 +1,55 @@
+{
+  "issue": 694,
+  "generated": "2026-06-12",
+  "criteria": [
+    {
+      "criterion_id": "issue-694-c1",
+      "text": "GET /agent-sessions/:id/diff calls the typed wrapper with the mapped sdk id and returns its payload (vitest spy assert with a real-shape diff fixture: file path, additions, deletions, patch text); SDK-error → AppError 502 with message, never a silent [].",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/opc_m3_1_changes_tab_diff.test.ts",
+      "test_id": "issue-694-c1: getDiff calls typed getSessionDiff wrapper and returns real-shape payload; SDK error → AppError 502",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-694-c2",
+      "text": "Changes tab renders one expandable file row per diff entry (path + +N −M counts) using _UnifiedDiffView (widget test on the fixture).",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agents/opc_m3_1_changes_tab_test.dart",
+      "test_id": "issue-694-c2: Changes tab renders one _UnifiedDiffView row per diff entry with path and +N/-M counts",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-694-c3",
+      "text": "Empty diff renders an explicit 'No file changes yet' empty state (distinct from error state).",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agents/opc_m3_1_changes_tab_test.dart",
+      "test_id": "issue-694-c3: Changes tab renders 'No file changes yet' empty state when diff is empty",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-694-c4",
+      "text": "A session.diff WS event triggers a refetch for the affected session only (controller test).",
+      "mode": "unit",
+      "test_file": "apps/desktop_flutter/test/features/agents/opc_m3_1_changes_tab_test.dart",
+      "test_id": "issue-694-c4: session.diff WS event triggers fetchSessionDiff for the affected session only",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-694-c5",
+      "text": "Tab badge shows the changed-file count when nonzero.",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agents/opc_m3_1_changes_tab_test.dart",
+      "test_id": "issue-694-c5: Changes tab badge shows file count when nonzero, hidden when zero",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-694-c6",
+      "text": "ai-workflow checks --level pr exits 0; vitest + flutter test green.",
+      "mode": "manual",
+      "status": "pending",
+      "reason": "Gate-level check — ai-workflow checks --level pr exit 0 is the full PR suite."
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": ["issue-694-c6"]
+}

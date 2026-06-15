@@ -1,17 +1,21 @@
-import 'dart:convert';
-
 import 'package:flutter/material.dart';
-import 'package:http/http.dart' as http;
+import 'package:provider/provider.dart';
 
-import '../../../app/core/constants/app_constants.dart';
 import '../../../app/core/ui/tokens/rhythm_theme.dart';
+import '../controllers/agents_controller.dart';
 import '../models/agent_session.dart';
+import '_changes_tab.dart';
+import '_terminal_tab.dart';
+import '_todo_panel.dart';
 
 /// M3-5: right-rail inspector panel for the active session.
 ///
 /// Tabs:
 ///   - Context: provider, model, cwd, tokens, cost.
 ///   - Changes: working-tree diff fetched from GET /agent-sessions/:id/diff.
+///     Diff state lives on [AgentsController] (single source of truth, shared
+///     with the `session.diff` WS-event refetch path) and renders through the
+///     [ChangesTab] widget (reuses UnifiedDiffView from M2-3).
 ///   - Terminal: captured bash output (placeholder; M3 ships an empty state
 ///     until streaming bash output is plumbed end-to-end).
 class SessionSidePanel extends StatefulWidget {
@@ -27,48 +31,19 @@ enum _Tab { context, changes, terminal }
 
 class _SessionSidePanelState extends State<SessionSidePanel> {
   _Tab _selected = _Tab.context;
-  List<_DiffEntry>? _diff;
-  bool _diffLoading = false;
-  String? _diffError;
 
   @override
   void didUpdateWidget(SessionSidePanel old) {
     super.didUpdateWidget(old);
-    if (old.session.id != widget.session.id) {
-      setState(() => _diff = null);
-      if (_selected == _Tab.changes) _loadDiff();
+    if (old.session.id != widget.session.id && _selected == _Tab.changes) {
+      _ensureDiff();
     }
   }
 
-  Future<void> _loadDiff() async {
-    setState(() {
-      _diffLoading = true;
-      _diffError = null;
-    });
-    try {
-      final res = await http.get(
-        Uri.parse(
-          '${AppConstants.agentLocalBaseUrl}/agent-sessions/${widget.session.id}/diff',
-        ),
-      );
-      if (res.statusCode != 200) {
-        throw Exception('HTTP ${res.statusCode}');
-      }
-      final list = (jsonDecode(res.body) as List<dynamic>)
-          .map((e) => _DiffEntry.fromJson(e as Map<String, dynamic>))
-          .toList();
-      if (!mounted) return;
-      setState(() {
-        _diff = list;
-        _diffLoading = false;
-      });
-    } catch (e) {
-      if (!mounted) return;
-      setState(() {
-        _diffError = e.toString();
-        _diffLoading = false;
-      });
-    }
+  /// Trigger a diff fetch for the current session (no-op if one is already
+  /// in-flight; the controller gates concurrent fetches).
+  void _ensureDiff() {
+    context.read<AgentsController>().fetchSessionDiff(widget.session.id);
   }
 
   @override
@@ -86,17 +61,31 @@ class _SessionSidePanelState extends State<SessionSidePanel> {
         children: [
           _Tabs(
             selected: _selected,
+            sessionId: widget.session.id,
             onSelect: (t) {
               setState(() => _selected = t);
-              if (t == _Tab.changes && _diff == null && !_diffLoading) {
-                _loadDiff();
-              }
+              if (t == _Tab.changes) _ensureDiff();
             },
           ),
           Divider(height: 1, color: context.rhythm.borderSubtle),
           Expanded(child: _buildBody(context)),
+          // OPC-M3-5: collapsible todo panel shown below tab content.
+          // Collapse state is keyed per session so switching sessions
+          // preserves the collapsed/expanded choice for each one.
+          _buildTodoPanel(context),
         ],
       ),
+    );
+  }
+
+  Widget _buildTodoPanel(BuildContext context) {
+    final controller = context.watch<AgentsController>();
+    final todos = controller.sessionTodosFor(widget.session.id);
+    // TodoPanel returns SizedBox.shrink() when todos is empty — no extra
+    // space allocated.
+    return TodoPanel(
+      todos: todos,
+      collapseKey: widget.session.id,
     );
   }
 
@@ -105,23 +94,29 @@ class _SessionSidePanelState extends State<SessionSidePanel> {
       case _Tab.context:
         return _ContextTab(session: widget.session);
       case _Tab.changes:
-        return _ChangesTab(
-          loading: _diffLoading,
-          error: _diffError,
-          entries: _diff,
-          onRefresh: _loadDiff,
+        final controller = context.watch<AgentsController>();
+        final id = widget.session.id;
+        return ChangesTab(
+          sessionId: id,
+          diffEntries: controller.sessionDiffFor(id),
+          isLoading: controller.sessionDiffLoading(id),
+          errorMessage: controller.sessionDiffErrorFor(id),
         );
       case _Tab.terminal:
-        return const _PlaceholderTab(
-          message: 'Captured bash output will appear here.',
-        );
+        // OPC-M1-6 / issue #709 — real Terminal command-runner tab.
+        return TerminalTab(sessionId: widget.session.id);
     }
   }
 }
 
 class _Tabs extends StatelessWidget {
-  const _Tabs({required this.selected, required this.onSelect});
+  const _Tabs({
+    required this.selected,
+    required this.sessionId,
+    required this.onSelect,
+  });
   final _Tab selected;
+  final String sessionId;
   final ValueChanged<_Tab> onSelect;
 
   @override
@@ -131,14 +126,24 @@ class _Tabs extends StatelessWidget {
       child: Row(
         children: [
           _tab(context, _Tab.context, 'Context'),
-          _tab(context, _Tab.changes, 'Changes'),
+          _tab(
+            context,
+            _Tab.changes,
+            'Changes',
+            trailing: ChangesTabBadge(sessionId: sessionId),
+          ),
           _tab(context, _Tab.terminal, 'Terminal'),
         ],
       ),
     );
   }
 
-  Widget _tab(BuildContext context, _Tab t, String label) {
+  Widget _tab(
+    BuildContext context,
+    _Tab t,
+    String label, {
+    Widget? trailing,
+  }) {
     final isSel = t == selected;
     return Expanded(
       child: InkWell(
@@ -154,14 +159,27 @@ class _Tabs extends StatelessWidget {
             ),
           ),
           alignment: Alignment.center,
-          child: Text(
-            label,
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-              color:
-                  isSel ? context.rhythm.textPrimary : context.rhythm.textMuted,
-            ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Flexible(
+                child: Text(
+                  label,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: isSel
+                        ? context.rhythm.textPrimary
+                        : context.rhythm.textMuted,
+                  ),
+                ),
+              ),
+              if (trailing != null) ...[
+                const SizedBox(width: 4),
+                trailing,
+              ],
+            ],
           ),
         ),
       ),
@@ -175,12 +193,18 @@ class _ContextTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final controller = context.watch<AgentsController>();
+    final totalTokens = controller.sessionContextTokens(session.id);
+    final contextWindow = controller.contextWindowForSession(session);
     return ListView(
       padding: const EdgeInsets.all(12),
       children: [
         _row(context, 'Agent', session.agentId),
         _row(context, 'Cwd', session.cwd),
         _row(context, 'Status', session.status.wireValue),
+        const SizedBox(height: 8),
+        _ContextUsageGauge(
+            tokensUsed: totalTokens, contextWindow: contextWindow),
       ],
     );
   }
@@ -214,75 +238,133 @@ class _ContextTab extends StatelessWidget {
   }
 }
 
-class _ChangesTab extends StatelessWidget {
-  const _ChangesTab({
-    required this.loading,
-    required this.error,
-    required this.entries,
-    required this.onRefresh,
-  });
-  final bool loading;
-  final String? error;
-  final List<_DiffEntry>? entries;
-  final VoidCallback onRefresh;
+/// Issue #718 — Context-usage gauge for the Context tab.
+///
+/// Displays the cumulative input tokens used vs the model's context-window
+/// capacity, formatted as "X tokens / Yk" with a coloured
+/// [LinearProgressIndicator].
+///
+/// When [contextWindow] is supplied (from the catalog's per-model limit), it
+/// is used as the denominator. When null, falls back to [_kDefaultContextWindow]
+/// (200k), which is a safe default for claude-sonnet-class models.
+///
+/// Colour thresholds:
+///   - green  below 60 %
+///   - yellow 60–80 %
+///   - red    above 80 %
+///
+/// Shows "No messages yet" when [tokensUsed] is 0.
+class _ContextUsageGauge extends StatelessWidget {
+  const _ContextUsageGauge({required this.tokensUsed, this.contextWindow});
+
+  final int tokensUsed;
+
+  /// Real context window for this session's model, from the catalog.
+  /// Null when unknown — the gauge falls back to [_kDefaultContextWindow].
+  final int? contextWindow;
+
+  /// Fallback context window (tokens) when the catalog has no per-model limit.
+  /// 200k is the largest safe default for claude-sonnet-class models.
+  static const int _kDefaultContextWindow = 200000;
+
+  /// Format a token count as a human-readable string.
+  ///
+  /// Values ≥ 1000 are shown with a "k" suffix (e.g. "128k"); smaller values
+  /// are shown as raw numbers.
+  static String _fmtTokens(int n) {
+    if (n >= 1000) {
+      final k = n / 1000;
+      // Drop the decimal when it's a whole number (e.g. 200k not 200.0k).
+      return k == k.truncateToDouble()
+          ? '${k.truncate()}k'
+          : '${k.toStringAsFixed(1)}k';
+    }
+    return n.toString();
+  }
 
   @override
   Widget build(BuildContext context) {
-    if (loading) {
-      return Center(
-        child: CircularProgressIndicator(color: context.rhythm.accent),
+    // Section label.
+    final label = Text(
+      'CONTEXT USAGE',
+      style: TextStyle(
+        fontSize: 10,
+        fontWeight: FontWeight.w600,
+        letterSpacing: 0.6,
+        color: context.rhythm.textMuted,
+      ),
+    );
+
+    if (tokensUsed == 0) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          label,
+          const SizedBox(height: 4),
+          Text(
+            'No messages yet',
+            style: TextStyle(
+              fontSize: 12,
+              color: context.rhythm.textMuted,
+            ),
+          ),
+        ],
       );
     }
-    if (error != null) {
-      return Padding(
-        padding: const EdgeInsets.all(12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+
+    final effectiveWindow = contextWindow ?? _kDefaultContextWindow;
+    final fraction = (tokensUsed / effectiveWindow).clamp(0.0, 1.0);
+    final pct = fraction * 100;
+
+    // Colour thresholds.
+    final Color barColor;
+    if (pct < 60) {
+      barColor = Colors.green;
+    } else if (pct < 80) {
+      barColor = Colors.orange;
+    } else {
+      barColor = Colors.red;
+    }
+
+    final usedLabel = _fmtTokens(tokensUsed);
+    final capacityLabel = _fmtTokens(effectiveWindow);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        label,
+        const SizedBox(height: 4),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Text(error!, style: const TextStyle(color: Color(0xFFEF4444))),
-            const SizedBox(height: 8),
-            TextButton(onPressed: onRefresh, child: const Text('Retry')),
+            Text(
+              '$usedLabel / $capacityLabel tokens',
+              style: TextStyle(
+                fontSize: 12,
+                color: context.rhythm.textPrimary,
+              ),
+            ),
+            Text(
+              '${pct.round()}%',
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                color: barColor,
+              ),
+            ),
           ],
         ),
-      );
-    }
-    final list = entries ?? const [];
-    if (list.isEmpty) {
-      return const _PlaceholderTab(message: 'No file changes yet.');
-    }
-    return ListView.separated(
-      padding: const EdgeInsets.all(12),
-      itemCount: list.length,
-      separatorBuilder: (_, __) => const SizedBox(height: 8),
-      itemBuilder: (_, i) => SelectableText(
-        list[i].path,
-        style: const TextStyle(fontSize: 12),
-      ),
-    );
-  }
-}
-
-class _PlaceholderTab extends StatelessWidget {
-  const _PlaceholderTab({required this.message});
-  final String message;
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Text(
-          message,
-          style: TextStyle(color: context.rhythm.textMuted, fontSize: 12),
-          textAlign: TextAlign.center,
+        const SizedBox(height: 4),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(2),
+          child: LinearProgressIndicator(
+            value: fraction,
+            minHeight: 5,
+            backgroundColor: context.rhythm.border,
+            valueColor: AlwaysStoppedAnimation<Color>(barColor),
+          ),
         ),
-      ),
+      ],
     );
   }
-}
-
-class _DiffEntry {
-  _DiffEntry({required this.path});
-  final String path;
-  factory _DiffEntry.fromJson(Map<String, dynamic> json) =>
-      _DiffEntry(path: json['path'] as String? ?? '');
 }

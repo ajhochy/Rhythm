@@ -42,7 +42,59 @@ function expandHome(path: string): string {
   return path;
 }
 
+/**
+ * Resolve the opencode SDK session id for a Rhythm session.
+ *
+ * The in-memory `opencodeSessionMap` is only populated when a session is
+ * created or (re)attached this server-run, so after a relaunch — or for a
+ * resumable session the user hasn't messaged yet — it misses, and every action
+ * (summarize, cancel, shell, diff, revert, …) failed with "no active SDK
+ * mapping". Fall back to the persisted `sdk_session_id` (OPC-M1-5) and
+ * re-register the map so subsequent calls + streaming reuse it.
+ */
+function resolveSdkSessionId(session: {
+  id: string;
+  sdkSessionId: string | null;
+}): string | undefined {
+  // NON-MUTATING: only READ the live routing map; never write to it. A one-off
+  // action (summarize/cancel/diff/…) must not clobber opencodeSessionMap — the
+  // live id registered by ws_gateway's attach is authoritative for turn
+  // routing. Writing a persisted (possibly stale) id here broke response
+  // streaming. The persisted id is used ONLY as a read-only fallback for this
+  // action when the live map has no entry yet.
+  return opencodeSessionMap.get(session.id) ?? session.sdkSessionId ?? undefined;
+}
+
 export class AgentSessionsController {
+  /**
+   * OPC-M4-4 — GET /agent-sessions/agents
+   *
+   * Returns the SDK-reported agent list for an optional cwd, shaped as:
+   *   { agents: Array<{ name, builtIn, description?, mode?, color? }> }
+   *
+   * Route choice: on the agent_sessions router (not a separate route file)
+   * so all agent-session affordances stay under one router. Registered before
+   * /:id in agent_sessions_routes.ts so Express does not treat "agents" as a
+   * session id.
+   *
+   * When the opencode engine is not ready, returns an empty list (graceful
+   * degradation) rather than 503 — the Flutter selector shows "no agents" and
+   * falls back to built-ins stored locally.
+   */
+  async listAgents(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const directory = typeof req.query.cwd === 'string' ? req.query.cwd : undefined;
+      if (!opencodeClient.isReady) {
+        res.json({ agents: [] });
+        return;
+      }
+      const agents = await opencodeClient.listAgents(directory);
+      res.json({ agents });
+    } catch (err) {
+      next(err);
+    }
+  }
+
   list(req: Request, res: Response, next: NextFunction): void {
     try {
       const projectIdParam = req.query.projectId;
@@ -69,7 +121,9 @@ export class AgentSessionsController {
     try {
       const session = repo.findById(req.params.id);
       if (!session) throw AppError.notFound('AgentSession');
-      const messages = messagesRepo.listBySession(session.id, 200);
+      // OPC-M1-2: Return structured messages (parts parsed, tokens parsed, cost).
+      // Legacy rows (parts_json IS NULL) get a synthetic [{type:'text',text:rawText}] shim.
+      const messages = messagesRepo.listBySessionStructured(session.id, 200);
       res.json({ session, messages });
     } catch (err) {
       next(err);
@@ -93,33 +147,48 @@ export class AgentSessionsController {
       // creating the session (model-pick-first trigger bubble); task context
       // is delivered via a client-side composer prefill, not a deferred
       // server-side resolution.
-      if (
-        agentId === null ||
-        agentId === undefined ||
-        agentId === '' ||
-        agentId === '__pending__'
-      ) {
+      //
+      // OPC-#710 exception: agentId may be null for instant-create sessions
+      // (one-click "New session" with no agent selected yet). The session is
+      // agent-less at creation time; the user picks a model in the composer.
+      // This is distinct from the deprecated '__pending__' sentinel (#653):
+      //   - null / omitted → intentional agent-less session (allowed)
+      //   - '__pending__'  → old client bug (rejected)
+      if (agentId === '__pending__') {
         throw AppError.badRequest(
-          "agentId is required; agent-less ('__pending__') sessions are no longer supported (#653). " +
-            'The client must pick a model in the trigger bubble before opening the chat.',
+          "agentId '__pending__' is no longer supported (#653). " +
+            'Use null for an agent-less session or pass a real agentId.',
         );
       }
-      if (typeof agentId !== 'string') {
-        throw AppError.badRequest('agentId must be a non-empty string');
+      // Validate agentId type (null / undefined / string are all acceptable;
+      // non-string non-null is a client error).
+      if (agentId !== null && agentId !== undefined && typeof agentId !== 'string') {
+        throw AppError.badRequest('agentId must be a string or null');
       }
-      const normalizedAgentId = normalizeAgentId(agentId);
-      const agentConfig = new AgentConfigsRepository().getById(normalizedAgentId);
-      if (!agentConfig) {
-        throw AppError.badRequest(`agent not configured: '${normalizedAgentId}'`);
+
+      // Resolve + validate the agent config only when an agentId was provided.
+      // OPC-#710: omitting agentId (null) creates an agent-less session — the
+      // user picks a model later in the composer, same as the trigger-bubble
+      // flow from #653.
+      let normalizedAgentId: string = '';
+      if (typeof agentId === 'string' && agentId.trim() !== '') {
+        normalizedAgentId = normalizeAgentId(agentId);
+        const agentConfig = new AgentConfigsRepository().getById(normalizedAgentId);
+        if (!agentConfig) {
+          throw AppError.badRequest(`agent not configured: '${normalizedAgentId}'`);
+        }
+        if (!agentConfig.enabled) {
+          throw AppError.badRequest(`agent disabled: '${normalizedAgentId}'`);
+        }
       }
-      if (!agentConfig.enabled) {
-        throw AppError.badRequest(`agent disabled: '${normalizedAgentId}'`);
-      }
+
       if (!cwd || typeof cwd !== 'string' || cwd.trim() === '') {
         throw AppError.badRequest('cwd is required and must be a non-empty string');
       }
-      if (!name || typeof name !== 'string' || name.trim() === '') {
-        throw AppError.badRequest('name is required and must be a non-empty string');
+      // OPC-#710: name may be empty (instant-create). Opencode will auto-title
+      // the session after the first exchange and broadcast session.updated.
+      if (name !== undefined && name !== null && typeof name !== 'string') {
+        throw AppError.badRequest('name must be a string');
       }
 
       let resolvedTaskId: string | null = null;
@@ -199,11 +268,15 @@ export class AgentSessionsController {
       }
 
       const dto: CreateAgentSessionDto = {
+        // OPC-#710: normalizedAgentId is '' for agent-less instant-create.
+        // The AgentKind type accepts arbitrary strings; '' is persisted as the
+        // agent_kind value and treated as "no agent selected yet" by the client.
         agentKind: normalizedAgentId as AgentKind,
         taskId: resolvedTaskId,
         taskTitle: taskTitle != null ? (taskTitle as string) : null,
         cwd: expandedCwd,
-        name: name.trim(),
+        // OPC-#710: name defaults to '' for instant-create sessions.
+        name: typeof name === 'string' ? name.trim() : '',
         projectId,
       };
 
@@ -233,7 +306,11 @@ export class AgentSessionsController {
         console.log(`[AgentSessionsController] Engine recovered — continuing session ${session.id} creation`);
       }
 
-      const opencodeSession = await opencodeClient.createSession(name.trim(), dto.cwd);
+      // OPC-#710: name may be undefined/null for instant-create sessions.
+      const opencodeSession = await opencodeClient.createSession(
+        typeof name === 'string' ? name.trim() : '',
+        dto.cwd,
+      );
       if (!opencodeSession) {
         repo.markClosed(session.id);
         throw AppError.badRequest('Failed to create Opencode session — check your AI account is authorized');
@@ -241,6 +318,10 @@ export class AgentSessionsController {
 
       // Store the SDK session ID mapping so the WS gateway can route user input
       opencodeSessionMap.set(session.id, opencodeSession.id);
+
+      // OPC-M1-5 — Persist the SDK session id on the DB row so resume() can
+      // re-attach to the EXISTING SDK conversation rather than creating a new one.
+      repo.setSdkSessionId(session.id, opencodeSession.id);
 
       // Start streaming Opencode events through the WebSocket gateway.
       // Pass the cwd so the bridge can subscribe to /event with the right
@@ -355,28 +436,20 @@ export class AgentSessionsController {
     }
   }
 
-  // M3-4: return a session's working-tree diff. Wraps client.session.diff when
-  // available; falls back to an empty list when the SDK build doesn't expose
-  // diff (older SDKs). The empty-list path is shippable — the Flutter side
-  // panel renders an empty Changes tab and the user gets correct UX.
+  // M3-4: return a session's working-tree diff via the typed getSessionDiff
+  // wrapper (OPC-M1-1). The duck-typed probe that always returned [] has been
+  // replaced — getSessionDiff calls the real SDK method.
   async getDiff(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const session = repo.findById(req.params.id);
       if (!session) throw AppError.notFound('AgentSession');
-      const opencodeId = opencodeSessionMap.get(session.id);
+      const opencodeId = resolveSdkSessionId(session);
       if (!opencodeId) {
         res.json([]);
         return;
       }
-      const sdk = (opencodeClient as unknown as {
-        diffSession?: (id: string) => Promise<Array<{ path: string; before: string; after: string }>>;
-      });
-      if (typeof sdk.diffSession !== 'function') {
-        res.json([]);
-        return;
-      }
-      const diff = await sdk.diffSession(opencodeId);
-      res.json(Array.isArray(diff) ? diff : []);
+      const diff = await opencodeClient.getSessionDiff(opencodeId);
+      res.json(diff);
     } catch (err) {
       next(err);
     }
@@ -387,7 +460,7 @@ export class AgentSessionsController {
     try {
       const session = repo.findById(req.params.id);
       if (!session) throw AppError.notFound('AgentSession');
-      const opencodeId = opencodeSessionMap.get(session.id);
+      const opencodeId = resolveSdkSessionId(session);
       if (!opencodeId) {
         throw AppError.badRequest('Session has no SDK mapping for permission.');
       }
@@ -398,7 +471,7 @@ export class AgentSessionsController {
       const permissionId = req.params.permissionId;
 
       // Forward to the SDK.
-      const ok = await opencodeClient.respondPermission(opencodeId, permissionId, decision);
+      const ok = await opencodeClient.respondPermission(opencodeId, permissionId, decision, session.cwd);
       // If the SDK doesn't support this endpoint, respond gracefully (204).
       // The caller can still update their local state.
 
@@ -431,11 +504,11 @@ export class AgentSessionsController {
     try {
       const session = repo.findById(req.params.id);
       if (!session) throw AppError.notFound('AgentSession');
-      const opencodeId = opencodeSessionMap.get(session.id);
+      const opencodeId = resolveSdkSessionId(session);
       if (!opencodeId) {
         throw AppError.badRequest('Session has no active SDK mapping; cannot cancel.');
       }
-      const ok = await opencodeClient.abortSession(opencodeId);
+      const ok = await opencodeClient.abortSession(opencodeId, session.cwd);
       if (!ok) {
         throw AppError.badRequest('Cancel failed at the SDK level.');
       }
@@ -516,7 +589,6 @@ export class AgentSessionsController {
         );
       }
 
-      // Resume via Opencode SDK — create a fresh session with context.
       // Auto-recover if the engine was disposed accidentally.
       if (!opencodeClient.isReady) {
         console.log(
@@ -529,21 +601,63 @@ export class AgentSessionsController {
         }
       }
 
-      // "Resume" means continue the local row with a *fresh* SDK session.
-      // The Opencode SDK does not restore prior conversation history; the local
-      // row keeps the same id, name, and message history for the user, but the
-      // backing SDK session is new. Mirror the create() flow below.
-      const opencodeSession = await opencodeClient.createSession(session.name, session.cwd);
-      if (!opencodeSession) {
-        throw AppError.badRequest('Failed to create Opencode session — check your AI account is authorized');
+      // OPC-M1-5 — Real resume continuity: re-attach to the EXISTING SDK session
+      // rather than creating a fresh one.
+      //
+      // Path 1 (happy path): sdk_session_id is set → verify the SDK session still
+      //   exists via getSession → re-register in the session map → clear any error
+      //   state → stream.
+      // Path 2 (gone): SDK returns null → HTTP 410 naming the session. Client
+      //   shows a "Start fresh" affordance; no session map entry is created.
+      // Path 3 (legacy row with no sdk_session_id): fall back to the old create
+      //   path so pre-migration sessions can still resume.
+
+      let sdkSessionId: string;
+
+      if (session.sdkSessionId) {
+        // Path 1/2: attempt re-attach.
+        const existingSession = await opencodeClient.getSession(session.sdkSessionId);
+
+        if (!existingSession) {
+          // Path 2: SDK session is gone.
+          logger.warn(
+            `[AgentSessionsController] resume: SDK session "${session.sdkSessionId}" no longer exists for local session ${session.id} ("${session.name}")`,
+          );
+          res.status(410).json({
+            error: `SDK session "${session.name}" (${session.sdkSessionId}) no longer exists on the server. Use start-fresh to create a new session.`,
+          });
+          return;
+        }
+
+        // Path 1: session still alive — re-attach.
+        sdkSessionId = existingSession.id;
+        logger.info(
+          `[AgentSessionsController] resume: re-attaching to existing SDK session ${sdkSessionId} for local session ${session.id}`,
+        );
+      } else {
+        // Path 3: legacy row (no sdk_session_id) — create a fresh SDK session to
+        // maintain backward compatibility for sessions created before OPC-M1-5.
+        logger.info(
+          `[AgentSessionsController] resume: no sdk_session_id on session ${session.id} — creating fresh SDK session (legacy path)`,
+        );
+        const opencodeSession = await opencodeClient.createSession(session.name, session.cwd);
+        if (!opencodeSession) {
+          throw AppError.badRequest('Failed to create Opencode session — check your AI account is authorized');
+        }
+        sdkSessionId = opencodeSession.id;
+        // Persist for future resumes.
+        repo.setSdkSessionId(session.id, sdkSessionId);
       }
 
-      // Store the SDK session ID mapping so the WS gateway can route user input
-      opencodeSessionMap.set(session.id, opencodeSession.id);
+      // Register in session map (both re-attach and legacy-create paths).
+      opencodeSessionMap.set(session.id, sdkSessionId);
+
+      // OPC-M1-4: clear persisted error status so errored sessions can resume cleanly.
+      streamBridge.clearErrorStatus(session.id);
 
       // Start streaming Opencode events through the WebSocket gateway
       try {
-        await streamBridge.streamSession(session.id, opencodeSession.id, session.cwd);
+        await streamBridge.streamSession(session.id, sdkSessionId, session.cwd);
       } catch (err) {
         console.error(`[AgentSessionsController] Stream bridge error for session ${session.id}:`, err);
       }
@@ -552,6 +666,254 @@ export class AgentSessionsController {
       const updated = repo.findById(session.id)!;
       res.status(200).json(updated);
     } catch (err) {
+      next(err);
+    }
+  }
+
+  // OPC-M3-2: revert the session to a prior message (POST /:id/revert).
+  async revert(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const session = repo.findById(req.params.id);
+      if (!session) throw AppError.notFound('AgentSession');
+      const opencodeId = resolveSdkSessionId(session);
+      if (!opencodeId) {
+        throw AppError.badRequest('Session has no active SDK mapping; cannot revert.');
+      }
+      const body = (req.body ?? {}) as Record<string, unknown>;
+      const messageId = body.messageId as string | undefined;
+      if (!messageId || typeof messageId !== 'string') {
+        throw AppError.badRequest('messageId is required in the request body');
+      }
+      const result = await opencodeClient.revertSession(opencodeId, messageId);
+      res.json(result);
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  // OPC-M3-2: restore all reverted messages (POST /:id/unrevert).
+  async unrevert(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const session = repo.findById(req.params.id);
+      if (!session) throw AppError.notFound('AgentSession');
+      const opencodeId = resolveSdkSessionId(session);
+      if (!opencodeId) {
+        throw AppError.badRequest('Session has no active SDK mapping; cannot unrevert.');
+      }
+      const result = await opencodeClient.unrevertSession(opencodeId);
+      res.json(result);
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  // OPC-M3-3: trigger session compaction via POST /:id/summarize.
+  async summarize(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const session = repo.findById(req.params.id);
+      if (!session) throw AppError.notFound('AgentSession');
+      const opencodeId = resolveSdkSessionId(session);
+      if (!opencodeId) {
+        throw AppError.badRequest('Session has no active SDK mapping; cannot summarize.');
+      }
+      // session.summarize needs a model to write the summary. Resolve it the
+      // same way a turn does (session's last model → agent default).
+      const { resolveModelForSessionTurn } = await import(
+        '../services/agent_model_resolver'
+      );
+      const model = await resolveModelForSessionTurn({
+        agentId: session.agentKind,
+        sessionProviderId: session.providerId,
+        sessionModelId: session.modelId,
+      });
+      if (!model) {
+        throw AppError.badRequest(
+          'No model available to summarize this session — connect a provider or pick a model first.',
+        );
+      }
+      await opencodeClient.summarizeSession(opencodeId, model, session.cwd);
+      res.status(204).end();
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  // OPC-M3-6: list child sessions via the typed listChildren wrapper.
+  // Returns [] when there is no SDK mapping (same contract as getDiff).
+  // The route is GET /:id/children — no auth is required at the route level
+  // (agentLocal=true, same as all other agent-session routes).
+  async getChildren(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const session = repo.findById(req.params.id);
+      if (!session) throw AppError.notFound('AgentSession');
+      const opencodeId = resolveSdkSessionId(session);
+      if (!opencodeId) {
+        // No active SDK mapping — return empty array (same contract as getDiff).
+        res.json([]);
+        return;
+      }
+      const children = await opencodeClient.listChildren(opencodeId);
+      res.json(children);
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  // OPC-M3-6: get messages for a specific child session identified by its SDK
+  // session id (GET /:id/children/:childSdkId/messages).
+  //
+  // The child's messages are fetched directly from the SDK via listMessages —
+  // child sessions have no local DB row. The returned shape is the same
+  // StructuredAgentSessionMessage-compatible format as M1-2 so the Flutter
+  // client can reuse _rehydrateChatMessages / fromStructuredJson.
+  //
+  // Role mapping: SDK 'user' → 'input', SDK 'assistant' → 'output' (matches
+  // the role convention used throughout the structured-message pipeline).
+  async getChildMessages(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const session = repo.findById(req.params.id);
+      if (!session) throw AppError.notFound('AgentSession');
+      const { childSdkId } = req.params;
+      const sdkMessages = await opencodeClient.listMessages(childSdkId);
+      // Map SDK Message[] → M1-2-compatible structured shape.
+      const messages = sdkMessages.map((msg, idx) => {
+        // SDK role 'user' → 'input', 'assistant' → 'output'
+        const role: 'input' | 'output' = msg.role === 'user' ? 'input' : 'output';
+        return {
+          id: idx + 1,
+          sessionId: `child-${childSdkId}`,
+          role,
+          rawText: '',
+          strippedText: '',
+          createdAt: msg.time?.created
+            ? new Date(msg.time.created).toISOString()
+            : new Date().toISOString(),
+          sdkMessageId: msg.id,
+          // Parts array passes through as-is (same shape as M1-2 parts_json).
+          parts: msg.parts ?? [],
+          tokens: null,
+          cost: null,
+        };
+      });
+      res.json({ messages });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  // OPC-M3-5: get the session todo list (GET /:id/todo).
+  async getTodo(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const session = repo.findById(req.params.id);
+      if (!session) throw AppError.notFound('AgentSession');
+      const opencodeId = resolveSdkSessionId(session);
+      if (!opencodeId) {
+        // No active SDK mapping — return empty array (same contract as getDiff).
+        res.json([]);
+        return;
+      }
+      const todos = await opencodeClient.getTodo(opencodeId);
+      res.json(todos);
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  // OPC-M4-2: fork the session at the given message (POST /:id/fork).
+  //
+  // Flow:
+  //   1. Look up the parent session and its SDK mapping.
+  //   2. Call the typed forkSession wrapper (throws on SDK error).
+  //   3. Insert a local DB row for the fork (name "<parent> (fork)", same cwd).
+  //   4. Set sdk_session_id on the fork row + populate opencodeSessionMap.
+  //   5. Register a stream for the fork.
+  //   6. Copy parent messages up to and including the fork message.
+  //   7. Return 201 with the new session row.
+  //
+  // Rollback: if the SDK call succeeds but any subsequent step throws, the
+  // fork DB row (if created) is deleted so no orphan remains.
+  async fork(req: Request, res: Response, next: NextFunction): Promise<void> {
+    let forkLocalId: string | null = null;
+    try {
+      const parent = repo.findById(req.params.id);
+      if (!parent) throw AppError.notFound('AgentSession');
+
+      const parentSdkId = resolveSdkSessionId(parent);
+      if (!parentSdkId) {
+        throw AppError.badRequest('Session has no active SDK mapping; cannot fork.');
+      }
+
+      const body = (req.body ?? {}) as Record<string, unknown>;
+      const messageId = body.messageId as string | undefined;
+      // messageId is required — the fork point must be explicit.
+      if (!messageId || typeof messageId !== 'string') {
+        throw AppError.badRequest('messageId is required in the request body');
+      }
+
+      // 1. Call SDK fork (throws on error → caught below, no row to rollback).
+      const forkedSdkSession = await opencodeClient.forkSession(parentSdkId, messageId);
+      if (!forkedSdkSession) {
+        throw AppError.badRequest('forkSession returned no session — SDK may not support forking');
+      }
+
+      // 2. Insert local DB row.
+      const forkDto = {
+        agentKind: parent.agentKind,
+        taskId: null,
+        taskTitle: null,
+        cwd: parent.cwd,
+        name: `${parent.name} (fork)`,
+        projectId: parent.projectId ?? null,
+      };
+      const forkSession = repo.insert(forkDto);
+      forkLocalId = forkSession.id;
+
+      // 3. Persist SDK session id on the fork row + register in session map.
+      repo.setSdkSessionId(forkLocalId, forkedSdkSession.id);
+      opencodeSessionMap.set(forkLocalId, forkedSdkSession.id);
+
+      // 4. Start streaming for the fork session.
+      try {
+        await streamBridge.streamSession(forkLocalId, forkedSdkSession.id, parent.cwd);
+      } catch (err) {
+        logger.warn(`[AgentSessionsController] fork: stream bridge error for fork session ${forkLocalId}:`, err);
+        // Non-fatal: streaming failure doesn't prevent the fork from being usable.
+      }
+
+      // 5. Copy parent messages up to and including the fork message.
+      //    Uses listBySessionStructured so parts_json is carried over intact.
+      const parentMessages = messagesRepo.listBySessionStructured(parent.id, 500);
+      for (const msg of parentMessages) {
+        if (!msg.sdkMessageId) continue;
+        const role = msg.role as 'output' | 'input' | 'system';
+        const partsJson = JSON.stringify(msg.parts ?? []);
+        const tokensJson = msg.tokens ? JSON.stringify(msg.tokens) : null;
+        messagesRepo.upsertStructured(
+          forkLocalId,
+          msg.sdkMessageId,
+          role,
+          partsJson,
+          tokensJson,
+          msg.cost,
+        );
+        // Stop after the fork message (inclusive).
+        if (msg.sdkMessageId === messageId) break;
+      }
+
+      // 6. Return 201 with the fork session row (re-fetch to get sdk_session_id populated).
+      const updated = repo.findById(forkLocalId)!;
+      res.status(201).json(updated);
+    } catch (err) {
+      // Rollback: remove the fork row if it was inserted before the error.
+      if (forkLocalId) {
+        try {
+          streamBridge.stopStream(forkLocalId);
+          opencodeSessionMap.delete(forkLocalId);
+          repo.deleteById(forkLocalId);
+        } catch (rollbackErr) {
+          logger.warn(`[AgentSessionsController] fork rollback failed for ${forkLocalId}:`, rollbackErr);
+        }
+      }
       next(err);
     }
   }
@@ -567,6 +929,61 @@ export class AgentSessionsController {
 
       const messages = messagesRepo.listBySession(session.id, limit);
       res.json({ messages });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  // OPC-M1-6 / issue #709: run a one-shot shell command in the session.
+  //
+  // POST /agent-sessions/:id/shell { command }
+  //
+  // Flow:
+  //   1. Look up the session and its active SDK mapping.
+  //   2. Validate the command (400 on empty).
+  //   3. Resolve the session's model using the same resolver as prompts.
+  //   4. Call opencodeClient.runShell(sdkId, command, model).
+  //   5. Return { messageId } so the Flutter terminal tab can track which
+  //      messages were created by the terminal (criterion c4 transcript filter).
+  //
+  // Error handling:
+  //   - No session row → 404.
+  //   - Empty command → 400 (caught before SDK call).
+  //   - No active SDK mapping → 400.
+  //   - SDK error (including no authed model) → AppError 502 via next().
+  async shell(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const session = repo.findById(req.params.id);
+      if (!session) throw AppError.notFound('AgentSession');
+
+      const command =
+        typeof req.body.command === 'string' ? req.body.command.trim() : '';
+      if (!command) {
+        throw AppError.badRequest('command is required and must not be empty');
+      }
+
+      const sdkId = resolveSdkSessionId(session);
+      if (!sdkId) {
+        throw AppError.badRequest(
+          'Session has no active SDK mapping; cannot run shell command.',
+        );
+      }
+
+      // Resolve the session's model using the same fallback logic as prompts.
+      const { resolveModelForAgent } = await import('../services/agent_model_resolver');
+      const agentKind = (session.agentKind as string) ?? 'claude-code';
+      const model = await resolveModelForAgent(agentKind);
+
+      if (!model) {
+        throw new AppError(
+          502,
+          'SDK_ERROR',
+          `Cannot run shell command: no authed model found for agent '${agentKind}'`,
+        );
+      }
+
+      const result = await opencodeClient.runShell(sdkId, command, model);
+      res.json({ messageId: result.messageId });
     } catch (err) {
       next(err);
     }

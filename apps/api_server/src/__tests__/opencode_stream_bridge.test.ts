@@ -167,14 +167,19 @@ describe('OpencodeStreamBridge — permission mode auto-resolution', () => {
     permissionID: string;
     toolName: string;
   }): Record<string, unknown> {
+    // Real SDK event: `permission.updated` carrying a `Permission` payload
+    // (id/type/title/metadata) — NOT the fictional `permission.asked`. The
+    // bridge maps id→permissionId, type→toolName, title→summary.
     return {
-      type: 'permission.asked',
+      type: 'permission.updated',
       properties: {
+        id: opts.permissionID,
+        type: opts.toolName,
         sessionID: SDK_ID,
-        permissionID: opts.permissionID,
-        toolName: opts.toolName,
-        args: { path: '/tmp/file.ts' },
-        summary: `Allow ${opts.toolName}?`,
+        messageID: 'msg-perm',
+        title: `Allow ${opts.toolName}?`,
+        metadata: { path: '/tmp/file.ts' },
+        time: { created: 0 },
       },
     };
   }
@@ -231,7 +236,7 @@ describe('OpencodeStreamBridge — permission mode auto-resolution', () => {
     // Give the async respondPermission call a tick to run.
     await new Promise((r) => setTimeout(r, 10));
 
-    expect(respondPermissionSpy).toHaveBeenCalledWith(SDK_ID, 'perm-2', 'accept');
+    expect(respondPermissionSpy).toHaveBeenCalledWith(SDK_ID, 'perm-2', 'accept', '/tmp');
     const resolved = broadcastSpy.mock.calls
       .map((c) => c[0] as Record<string, unknown>)
       .find((m) => m.type === 'permission.resolved');
@@ -261,7 +266,7 @@ describe('OpencodeStreamBridge — permission mode auto-resolution', () => {
 
     await new Promise((r) => setTimeout(r, 10));
 
-    expect(respondPermissionSpy).toHaveBeenCalledWith(SDK_ID, 'perm-4', 'deny');
+    expect(respondPermissionSpy).toHaveBeenCalledWith(SDK_ID, 'perm-4', 'deny', '/tmp');
     const resolved = broadcastSpy.mock.calls
       .map((c) => c[0] as Record<string, unknown>)
       .find((m) => m.type === 'permission.resolved');
@@ -276,7 +281,7 @@ describe('OpencodeStreamBridge — permission mode auto-resolution', () => {
 
     await new Promise((r) => setTimeout(r, 10));
 
-    expect(respondPermissionSpy).toHaveBeenCalledWith(SDK_ID, 'perm-5', 'accept');
+    expect(respondPermissionSpy).toHaveBeenCalledWith(SDK_ID, 'perm-5', 'accept', '/tmp');
     const resolved = broadcastSpy.mock.calls
       .map((c) => c[0] as Record<string, unknown>)
       .find((m) => m.type === 'permission.resolved');

@@ -1,5 +1,65 @@
 # Architecture Decisions
 
+## 2026-06-13 — Instant-create (null/empty agentId) supersedes #653 must-pick-agent requirement (#710)
+
+**Context:** Issue #653 required `agentId` to be non-null and non-empty on session creation ("pick an agent before creating a session"). Issue #710 introduced instant-create: tapping "New session" creates a session immediately with no agentId, opening it as a placeholder the user can configure later.
+
+**Decision:** The server controller now accepts `agentId = null | ''` and creates a session with `agentKind = ''`. The SDK session IS created immediately (so the session is usable as soon as the user sends a message). The `'__pending__'` sentinel (old ORM pattern) is still rejected with 400. `issue_653_contract.test.ts` c1a and c1c were updated from `expect(400)` to `expect(201)` with a comment explaining the supersession.
+
+**Alternatives considered:**
+- Keep #653 enforcement, require explicit agentId in the instant-create request: rejected — the instant-create UX requires zero required fields from the user.
+- Create a separate "draft session" endpoint that never touches the SDK: rejected — added complexity; one endpoint handles all create paths more simply.
+
+**Consequences:** A session with `agentKind = ''` is valid in the DB. The Flutter client displays it with a "New session" placeholder name and muted text. The session gets a real title via `session.updated` WS broadcast once the user types a first message. Any client code that relied on `agentKind` being non-empty must guard for `''`.
+
+## 2026-06-13 — session.updated bridge handler uses propsInfo?.id as SDK session ID fallback (#710)
+
+**Context:** The `_relayEvent` bridge method extracted the SDK session ID for routing via `props.sessionID ?? propsInfo?.sessionID ?? propsPart?.sessionID`. The `session.updated` event's `properties.info` is a `Session` object whose SDK field is `id` (not `sessionID`). Without the `propsInfo?.id` fallback the bridge could not correlate the event to a local session.
+
+**Decision:** Added `propsInfo?.id` as a fourth fallback: `props.sessionID ?? propsInfo?.sessionID ?? propsInfo?.id ?? propsPart?.sessionID`. This is safe — `id` on a `Session` is always the SDK session UUID.
+
+**Alternatives considered:**
+- Rename `id` to `sessionID` in our d.ts: rejected — would diverge from the real SDK shape (breaking the SDK-parity guard).
+
+**Consequences:** The extraction chain is now four levels deep. Future SDK events whose `properties` object uses `id` (not `sessionID`) will automatically route correctly without additional changes.
+
+## 2026-06-13 — McpDataSource uses abstract class + extension for testable baseUrlForTest (#702)
+
+**Context:** Issue #702 test fake uses `class _FakeMcpDataSource implements McpDataSource` but does NOT implement `baseUrlForTest`. Contract test c5 calls `McpDataSource().baseUrlForTest`. These two requirements are contradictory if `baseUrlForTest` is a regular public method on the class.
+
+**Decision:** `McpDataSource` is an abstract class declaring only the 5 async operation methods (no `baseUrlForTest`). `_McpDataSourceImpl` is the private concrete class that holds `_baseUrl`. `baseUrlForTest` is defined as an extension method on `McpDataSource` (via `McpDataSourceTestExtension`) that casts to `_McpDataSourceImpl` and reads `_baseUrl`. Extension methods are NOT part of the Dart interface contract — `implements McpDataSource` does NOT require the fake to implement them. Both test requirements are satisfied.
+
+**Alternatives considered:**
+- Make `baseUrlForTest` abstract on `McpDataSource`: fails — fake must implement it but test file can't be modified.
+- Make `McpDataSource` a factory with a private concrete: `McpDataSource()` return type is the abstract type; `ds.baseUrlForTest` won't compile unless it's on the abstract type.
+- Expose `baseUrl` as a public field on the concrete impl and cast in c5: too fragile — callers could reach it accidentally.
+
+**Consequences:** All extension-based access is in-library only. Production code cannot accidentally call `baseUrlForTest` from another package (analyzer enforces `@visibleForTesting`). The cast in the extension `(this as _McpDataSourceImpl)` will throw at runtime if called on a fake — which is the desired behavior (tests should use the real class for c5).
+
+## 2026-06-13 — removeMcp edits opencode.json directly (no SDK remove method) (#702)
+
+**Context:** The opencode SDK v1.14.49 `Mcp` class has `status`, `add`, `connect`, `disconnect` but NO `remove`/`delete` method.
+
+**Decision:** `removeMcp(name)` in `opencode_client_service.ts` implements removal as: (1) disconnect best-effort (swallows errors), (2) reads `~/.config/opencode/opencode.json`, removes the `mcp[name]` key, writes back. Uses Node `fs` (sync reads, atomic write).
+
+**Alternatives considered:**
+- Expose a "disable" flag: SDK `McpLocalConfigInput` has `enabled?: boolean`. Setting `enabled:false` via `addMcp` would hide the server but leave it in config. Rejected — users expect "Remove" to actually remove.
+- Wait for SDK to add remove: Out of scope for this milestone.
+
+**Consequences:** Fragile if opencode changes its config file location or format. The config path `~/.config/opencode/opencode.json` is a known opencode convention but not a public contract. If opencode v2 changes this, `removeMcp` will silently fail to clean up config (the disconnect still works). Track as a follow-up when SDK adds a native remove API.
+
+## 2026-06-13 — Slash command dispatch uses WS `session.command` frame, not a new REST route (#697)
+
+**Context:** Issue #697 title says "POST /session/{id}/command"; needed to choose between a new REST route and a WebSocket frame for dispatching slash commands from the Flutter client to the server.
+
+**Decision:** WS frame `{v:1, type:'session.command', id: localSessionId, command: string, arguments: string}` via the existing `handleClientMessage` switch in `ws_gateway.ts`. Server handler (`handleCommandFrame`) is exported so it can be tested directly in vitest without a live WS connection.
+
+**Alternatives considered:**
+- REST POST `/agent-sessions/:id/command`: Requires a new route + controller method + data-source HTTP call in Flutter. Adds latency (new round-trip vs. reusing open socket). Every other user-initiated session action (`session.input`, `session.resize`, `session.permission.respond`) already uses WS frames — inconsistency would be hard to justify.
+- gRPC or SSE: Out of scope and over-engineered for this single addition.
+
+**Consequences:** The frame is fire-and-forget (same as `promptAsync`). The Flutter `AgentsDataSource.dispatchCommand` stub exists for interface completeness but the actual dispatch is via `repository.send(...)`. The `dispatchCommand` repo method is still useful for test doubles that need to intercept the call at a higher level.
+
 ## 2026-06-12 — Watchdog uses signal-0 + --parent-pid flag instead of ppid===1 heuristic
 
 **Context:** PR #683 smoke revealed that in `flutter run` (dev mode) the process chain is Flutter→npx→tsx→Node. The api_server's direct parent is tsx runner, so `process.ppid` is never 1 when Flutter exits — the legacy `ppid===1` watchdog fires silently. Production (`flutter build`, direct Flutter→Node spawn) works correctly today, but the flag-based approach is more robust and eliminates the mode-specific gap.
@@ -207,3 +267,38 @@
 **Consequences:**
 - + Stalled AgentFlow runs are recoverable without re-running completed phases.
 - - The fallback-to-ollama behavior is silent until an agent executes; check the `📦 [agent] model:` line in resume output before trusting a resumed run.
+
+## 2026-06-13 — OPC-M4-1: attachment state in controller, not view (handleInputFrame extraction)
+
+**Context:** Issue #700 required real FilePart forwarding to the SDK. Two key non-obvious choices:
+
+1. **Attachment pending-state in `AgentsController`, not `_InputAreaState`** — Prior approach stored attachment chips in local `StatefulWidget` state. Moving to controller means widget tests can `setPendingAttachmentsForTest()` without simulating file-picker UI events. It also means `sendInput()` can merge them internally, keeping the repository interface unchanged (no new `AgentsRepository` method, avoiding the 23+ stub-file update tax).
+
+2. **`handleInputFrame` extracted as exported `async function`** — The `session.input` async IIFE in `handleClientMessage` was extracted to a named exported function (matching the `handleCommandFrame` pattern). The vitest test imports it directly. Alternatives rejected: (a) testing via a full WS server — too heavyweight; (b) keeping the IIFE and wrapping it — requires an internal mock mechanism. Named export is the minimal correct change and satisfies the REAL-surface requirement by testing the exact code path the WS switch uses.
+
+3. **`as unknown as` cast removed from `opencode_client_service.ts` by updating `.d.ts`** — Issue #685 had a constraint test checking zero `as unknown as` in that file. The previous session's implementation introduced one. Fix: add `FilePartInput` + `PartInput` union to the hand-typed `.d.ts` so the SDK call is fully typed. The `as unknown as` cast in `ws_gateway.ts` (for `.bind()` return type preservation) is in a different file not checked by the constraint test and is kept intentionally per the #604 regression note.
+
+**Consequences:**
+- + Controller-held attachment state is trivially testable and survives widget rebuilds.
+- + `AgentsRepository` interface unchanged — no stub tax.
+- + Issue #685 constraint continues to hold (zero `as unknown as` in `opencode_client_service.ts`).
+- - `_pickFiles()` still needs real file access at runtime; test coverage uses injected data URIs (not live file picker).
+
+## 2026-06-13 — OPC-M1-6 / #709: Terminal message tracking in controller state (not message model)
+
+**Context:** Issue #709 required terminal-originated messages to be excluded from the main chat transcript (c4) while still being surfaceable in the Terminal tab.
+
+1. **`Set<String> _terminalMessageIds` per session in `AgentsController`, not in `AgentSessionMessage`** — Adding a `isTerminal: bool` field to `AgentSessionMessage` would require schema changes, migration logic in `_appendChatDelta`, and updated JSON parsing. Tracking IDs in controller state avoids all of that. The filter in `agents_view.dart` `_buildTranscriptBody` is a single `.where()` — O(n) over the terminal set which is small (one entry per shell command run).
+
+2. **`_terminalCommandByMessage` records command text alongside the ID** — `terminalEntriesFor()` returns `({String command, String messageId})` records so `_CommandBlock` can render the `$ $command` echo header without a secondary lookup. Alternatives: store only IDs and look up command text from session input history — rejected (too much indirection; terminal commands are not in the regular chat input flow).
+
+3. **Default SDK agent is `'build'`** — opencode's built-in bash-running agent. This is an internal opencode name; if opencode renames it the shell runner will silently misdispatch. A future issue should surface agent names via `GET /agent-sessions/agents` and let the user choose (or at least pick the first bash-capable agent dynamically).
+
+4. **`List<ChatPart>` (not `List<dynamic>`) in `_CommandBlock.toolParts`** — Initial implementation used `List<dynamic>` to avoid importing `chat_models.dart`. Changed to typed `List<ChatPart>` for type safety; `import '../models/chat_models.dart'` added to `_terminal_tab.dart`.
+
+**Consequences:**
+- + No model schema changes; backward-compatible with existing message data.
+- + `terminalMessageIdsFor()` is `O(1)` per lookup (Set); filter in transcript is `O(m)` where m = terminal command count (always small).
+- - Terminal message exclusion is in-memory only — if the app restarts with a resumed session, the terminal IDs are not persisted. Resumed sessions will briefly show terminal messages in the transcript until the user re-runs a command. Deferred (no persistence requirement in #709).
+- - `'build'` agent name is a hardcoded opencode internal; see note above.
+

@@ -1,0 +1,55 @@
+{
+  "issue": 697,
+  "generated": "2026-06-12",
+  "criteria": [
+    {
+      "criterion_id": "issue-697-c1",
+      "text": "A `session.command` WS frame (or POST route — implementer picks one and documents it) `{id, command, arguments}` invokes the SDK command wrapper with (sdkId, command, arguments) — vitest spy assert; unknown local id → error frame.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/opc_m3_4_command_dispatch.test.ts",
+      "test_id": "issue-697-c1: session.command WS frame dispatches SDK wrapper / unknown id → error",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-697-c2",
+      "text": "Selecting a command in the popover and submitting sends the structured frame, NOT a `session.input` with text prefix (controller test asserts message type and absence of `/cmd` text send).",
+      "mode": "unit",
+      "test_file": "apps/desktop_flutter/test/features/agents/opc_m3_4_command_dispatch_test.dart",
+      "test_id": "issue-697-c2: selecting command from popover sends session.command WS frame not session.input",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-697-c3",
+      "text": "The user's command invocation renders in the transcript as a distinct command row (`/name args`), and the streamed response parts render normally.",
+      "mode": "unit",
+      "test_file": "apps/desktop_flutter/test/features/agents/opc_m3_4_command_dispatch_test.dart",
+      "test_id": "issue-697-c3: command message role renders as command row with /name args text",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-697-c4",
+      "text": "Typing `/notacommand foo` (not in `command.list`) and submitting sends plain `session.input` text (regression).",
+      "mode": "unit",
+      "test_file": "apps/desktop_flutter/test/features/agents/opc_m3_4_command_dispatch_test.dart",
+      "test_id": "issue-697-c4: free-typed slash text not in command list sends plain session.input",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-697-c5",
+      "text": "Command failure (SDK error) surfaces as a system error message in the transcript.",
+      "mode": "unit",
+      "test_file": "apps/desktop_flutter/test/features/agents/opc_m3_4_command_dispatch_test.dart",
+      "test_id": "issue-697-c5: SDK command failure → WS error frame → system error message in transcript",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-697-c6",
+      "text": "`ai-workflow checks --level pr` exits 0; vitest + flutter test green.",
+      "mode": "manual",
+      "status": "pending",
+      "reason": "Gate-level check — run ai-workflow checks --level pr to verify."
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": ["issue-697-c6"]
+}

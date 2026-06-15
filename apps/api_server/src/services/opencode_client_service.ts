@@ -5,6 +5,7 @@ import { promisify } from 'util';
 import type { OpencodeClient, Event } from '@opencode-ai/sdk';
 import { logger } from '../utils/logger';
 import { OpencodeAuthStore } from './opencode_auth_store';
+import { AppError } from '../errors/app_error';
 
 /**
  * Run a command and capture stdout. `execFile` is required lazily (not bound at
@@ -202,6 +203,8 @@ export class OpencodeClientService {
   private server: OpencodeServerHandle | null = null;
   private error: Error | null = null;
   private authStore = new OpencodeAuthStore();
+  /** Set to true by the shutdown handler before dispose() is called. */
+  private _shuttingDown = false;
 
   get isReady(): boolean {
     return this.status === 'ready';
@@ -219,9 +222,7 @@ export class OpencodeClientService {
   async ensureReady(): Promise<boolean> {
     const currentStatus = this.status;
     if (currentStatus === 'ready') return true;
-    // If the engine was intentionally shut down, do not re-initialize.
-    const svc = this as unknown as Record<string, unknown>;
-    if (svc['_shuttingDown']) {
+    if (this._shuttingDown) {
       logger.info('[WARN] [OpencodeClientService] ensureReady called during shutdown — skipping');
       return false;
     }
@@ -357,14 +358,7 @@ export class OpencodeClientService {
   async listCommands(): Promise<Array<{ name: string; description?: string }>> {
     if (!this.client) return [];
     try {
-      // Cast to access the `command` property — the SDK's TS type exported from
-      // `@opencode-ai/sdk` may not surface `command` in CommonJS imports, but the
-      // runtime object has it (verified in @opencode-ai/sdk/dist/gen/sdk.gen.d.ts:391).
-      const commandApi = (this.client as unknown as Record<string, { list: () => Promise<unknown> }>)['command'];
-      const raw = (await commandApi.list()) as unknown as {
-        data?: Array<{ name: string; description?: string }>;
-        error?: unknown;
-      };
+      const raw = await this.client.command.list();
       const commands = raw.data ?? [];
       return commands.map((c) => ({ name: c.name, description: c.description }));
     } catch (err) {
@@ -377,9 +371,7 @@ export class OpencodeClientService {
   async listProviders(): Promise<string[]> {
     if (!this.client) return [];
     try {
-      const raw = (await this.client.config.providers()) as unknown as {
-        data?: { providers?: Array<{ id: string }> };
-      };
+      const raw = await this.client.config.providers();
       const providers = raw.data?.providers ?? [];
       return providers.map((p) => p.id);
     } catch (err) {
@@ -396,27 +388,25 @@ export class OpencodeClientService {
   /** Get available models for a provider */
   async listModels(
     providerId: string,
-  ): Promise<Array<{ id: string; name?: string }>> {
+  ): Promise<Array<{ id: string; name?: string; contextLimit?: number }>> {
     if (!this.client) return [];
     try {
-      const raw = (await this.client.config.providers()) as unknown as {
-        data?: {
-          providers?: Array<{
-            id: string;
-            models?:
-              | Array<{ id: string; name?: string }>
-              | Record<string, { id?: string; name?: string }>;
-          }>;
-        };
-      };
+      const raw = await this.client.config.providers();
       const providers = raw.data?.providers ?? [];
       const provider = providers.find((p) => p.id === providerId);
       const models = provider?.models;
-      if (Array.isArray(models)) return models;
+      if (Array.isArray(models)) {
+        return models.map((m) => ({
+          id: m.id,
+          name: m.name,
+          ...(m.limit?.context != null ? { contextLimit: m.limit.context } : {}),
+        }));
+      }
       if (models && typeof models === 'object') {
         return Object.entries(models).map(([id, model]) => ({
           id: model.id ?? id,
           name: model.name,
+          ...(model.limit?.context != null ? { contextLimit: model.limit.context } : {}),
         }));
       }
       return [];
@@ -430,10 +420,10 @@ export class OpencodeClientService {
   async setAuth(providerId: string, apiKey: string): Promise<boolean> {
     if (!this.client) return false;
     try {
-      const raw = (await this.client.auth.set({
+      const raw = await this.client.auth.set({
         path: { id: providerId },
         body: { type: 'api', key: apiKey },
-      })) as unknown as { data?: unknown; error?: unknown };
+      });
       return raw.data === true;
     } catch (err) {
       logger.error(`[OpencodeClientService] setAuth failed for ${providerId}:`, err);
@@ -448,15 +438,15 @@ export class OpencodeClientService {
   ): Promise<{ id: string } | null> {
     if (!this.client) return null;
     try {
-      const raw = (await this.client.session.create({
+      const raw = await this.client.session.create({
         body: { title },
         ...(directory ? { query: { directory } } : {}),
-      })) as unknown as { data?: { id?: string }; error?: { message?: string } };
+      });
       const id = raw.data?.id;
       if (!id) {
         logger.error(
           '[OpencodeClientService] createSession failed: SDK returned %s %s',
-          raw.error ? `error="${raw.error.message ?? JSON.stringify(raw.error)}"` : 'no id',
+          raw.error ? `error="${JSON.stringify(raw.error)}"` : 'no id',
           raw.data ? `data=${JSON.stringify(raw.data).slice(0, 200)}` : '',
         );
       }
@@ -479,20 +469,14 @@ export class OpencodeClientService {
   ): Promise<{ info: import('@opencode-ai/sdk').Message; parts: Array<import('@opencode-ai/sdk').Part> } | null> {
     if (!this.client) return null;
     try {
-      const raw = (await this.client.session.prompt({
+      const raw = await this.client.session.prompt({
         path: { id: sessionId },
         body: {
           model,
           parts: [{ type: 'text', text }],
         },
         ...(directory ? { query: { directory } } : {}),
-      })) as unknown as {
-        data?: {
-          info: import('@opencode-ai/sdk').Message;
-          parts: Array<import('@opencode-ai/sdk').Part>;
-        };
-        error?: unknown;
-      };
+      });
       if (raw.error || !raw.data) {
         logger.error(`[OpencodeClientService] prompt error for ${sessionId}:`, raw.error);
         return null;
@@ -509,29 +493,66 @@ export class OpencodeClientService {
    * Used for fire-and-forget prompts (e.g. initial prompt on session create).
    * Results arrive via the event stream.
    */
+  /**
+   * OPC-M4-1: Send a prompt to a session and return immediately.
+   *
+   * When `parts` is provided it must be a valid SDK parts array containing at
+   * minimum one TextPartInput. FilePart entries (type:'file', mime, filename,
+   * url: 'data:<mime>;base64,...') are forwarded verbatim to the SDK so
+   * vision-capable models receive the image bytes directly.
+   *
+   * When `parts` is omitted, the legacy `[{ type: 'text', text }]` single-part
+   * array is used (backwards-compatible).
+   */
   async promptAsync(
     sessionId: string,
     text: string,
     model?: { providerID: string; modelID: string },
     directory?: string,
+    opts?: Record<string, unknown>,
+    parts?: Array<import('@opencode-ai/sdk').PartInput>,
   ): Promise<boolean> {
     if (!this.client) return false;
     try {
-      const raw = (await this.client.session.promptAsync({
+      // OPC-M4-1: use the caller-supplied parts array when present; otherwise
+      // fall back to a single text part so all existing call-sites are unchanged.
+      const sdkParts: Array<import('@opencode-ai/sdk').PartInput> = parts && parts.length > 0
+        ? parts
+        : [{ type: 'text', text }];
+
+      const raw = await this.client.session.promptAsync({
         path: { id: sessionId },
         body: {
           model,
-          parts: [{ type: 'text', text }],
+          parts: sdkParts,
+          ...(opts ?? {}),
         },
         ...(directory ? { query: { directory } } : {}),
-      })) as unknown as { data?: unknown; error?: unknown };
+      });
       if (raw.error) {
         logger.error(`[OpencodeClientService] promptAsync error for ${sessionId}:`, raw.error);
         return false;
       }
+      // Guard: SDK silent no-op — the model may be unrecognized (e.g. OpenRouter
+      // unknown-model) and the SDK returns {} with neither data nor error. Treat
+      // as failure so callers don't think the prompt was enqueued (issue #632).
+      //
+      // #711 — for the anthropic/claude provider path, promptAsync returns HTTP
+      // 204 No Content on success (void response). hey-api maps 204 to
+      // { data: undefined, error: undefined } — identical to the OpenRouter
+      // silent-no-op shape. Distinguish them via the HTTP status: 204 is a
+      // genuine success; anything else with no data is a silent no-op.
       if (!raw.data) {
+        // Access the underlying HTTP response when available (hey-api 'fields'
+        // mode attaches it as `raw.response`). A 204 means the prompt was
+        // accepted by the opencode server — not a silent no-op.
+        const httpStatus = raw.response?.status;
+        if (httpStatus === 204) {
+          // Successful async enqueue — opencode will stream results via SSE.
+          return true;
+        }
         logger.warn(
-          `[OpencodeClientService] promptAsync silent no-op for ${sessionId}: SDK returned neither data nor error (model may not be supported)`,
+          `[OpencodeClientService] promptAsync silent no-op for ${sessionId}: SDK returned neither data nor error (model may not be supported; HTTP status=${httpStatus ?? 'unknown'})`,
         );
         return false;
       }
@@ -555,10 +576,20 @@ export class OpencodeClientService {
   ): Promise<{ stream: AsyncIterable<Event> } | null> {
     if (!this.client) return null;
     try {
-      const events = await this.client.event.subscribe(
+      // event.subscribe does NOT return the { data, error } envelope — it
+      // returns a ServerSentEventsResult = { stream } directly. Consume it as
+      // such; treating it as an envelope (raw.data) always saw `undefined` and
+      // dropped the stream ("No event stream available").
+      const raw = await this.client.event.subscribe(
         directory ? { query: { directory } } : undefined,
       );
-      return events as unknown as { stream: AsyncIterable<Event> };
+      if (!raw || !raw.stream) {
+        logger.error(
+          '[OpencodeClientService] subscribeToEvents: no stream in result',
+        );
+        return null;
+      }
+      return raw;
     } catch (err) {
       logger.error('[OpencodeClientService] subscribeToEvents failed:', err);
       return null;
@@ -581,16 +612,14 @@ export class OpencodeClientService {
   > {
     if (!this.client) return null;
     try {
-      const raw = (await this.client.provider.oauth.authorize({
+      const raw = await this.client.provider.oauth.authorize({
         path: { id: providerId },
         body: { method: methodIndex ?? 0 },
         ...(directory ? { query: { directory } } : {}),
-      })) as unknown as {
-        data?: { url: string; method: string; instructions: string };
-        error?: { data?: { message?: string } };
-      };
+      });
       if (raw.error || !raw.data) {
-        const message = raw.error?.data?.message ?? 'Unknown SDK error';
+        const errData = raw.error as { data?: { message?: string } } | undefined;
+        const message = errData?.data?.message ?? 'Unknown SDK error';
         logger.error(
           `[OpencodeClientService] getOAuthUrl error for ${providerId}: ${message}`,
         );
@@ -619,11 +648,11 @@ export class OpencodeClientService {
   ): Promise<boolean> {
     if (!this.client) return false;
     try {
-      const raw = (await this.client.provider.oauth.callback({
+      const raw = await this.client.provider.oauth.callback({
         path: { id: providerId },
         body: { method: methodIndex ?? 0, code },
         ...(directory ? { query: { directory } } : {}),
-      })) as unknown as { data?: unknown; error?: unknown };
+      });
       if (raw.error || raw.data !== true) {
         logger.error(
           `[OpencodeClientService] OAuth callback error for ${providerId}:`,
@@ -643,29 +672,26 @@ export class OpencodeClientService {
    * `permissionId` is the ID from the `permission.asked` event.
    * Returns true when the SDK accepted the response, false otherwise
    * (including when the SDK version doesn't expose the permission endpoint).
+   *
+   * @deprecated Use {@link respondToPermission} instead.
    */
   async respondPermission(
     sessionId: string,
     permissionId: string,
     decision: 'accept' | 'deny',
+    directory?: string,
   ): Promise<boolean> {
     if (!this.client) return false;
     try {
-      const sessionClient = this.client.session as unknown as Record<string, unknown>;
-      const permApi = sessionClient['permission'] as {
-        respond?: (opts: {
-          path: { id: string; permissionId: string };
-          body: { decision: 'accept' | 'deny' };
-        }) => Promise<unknown>;
-      } | undefined;
-      if (!permApi || typeof permApi.respond !== 'function') {
-        logger.info('[OpencodeClientService] SDK does not expose session.permission.respond — skipping');
-        return false;
-      }
-      await permApi.respond({
-        path: { id: sessionId, permissionId },
-        body: { decision },
-      });
+      // Map old 'accept'/'deny' to the SDK's 'once'/'reject' convention.
+      const sdkDecision: 'once' | 'always' | 'reject' =
+        decision === 'accept' ? 'once' : 'reject';
+      await this.respondToPermission(
+        sessionId,
+        permissionId,
+        sdkDecision,
+        directory,
+      );
       return true;
     } catch (err) {
       logger.error(`[OpencodeClientService] respondPermission failed for session ${sessionId}:`, err);
@@ -674,12 +700,16 @@ export class OpencodeClientService {
   }
 
   /** Abort a running session */
-  async abortSession(sessionId: string): Promise<boolean> {
+  async abortSession(sessionId: string, directory?: string): Promise<boolean> {
     if (!this.client) return false;
     try {
-      const raw = (await this.client.session.abort({
+      // opencode scopes sessions per directory — pass it so abort targets the
+      // right session (other session.* calls pass directory too; omitting it
+      // made Stop a silent no-op).
+      const raw = await this.client.session.abort({
         path: { id: sessionId },
-      })) as unknown as { data?: unknown; error?: unknown };
+        ...(directory ? { query: { directory } } : {}),
+      });
       if (raw.error) {
         logger.error(`[OpencodeClientService] abortSession error for ${sessionId}:`, raw.error);
         return false;
@@ -702,20 +732,590 @@ export class OpencodeClientService {
   ): Promise<boolean> {
     if (!this.client) return false;
     try {
-      const raw = (await this.client.auth.set({
+      const raw = await this.client.auth.set({
         path: { id: providerId },
         body: {
           type: 'oauth',
           access: creds.access,
           refresh: creds.refresh,
           expires: creds.expires,
-        } as unknown as { type: 'api'; key: string },
-      })) as unknown as { data?: unknown; error?: unknown };
+        },
+      });
       return raw.data === true;
     } catch (err) {
       logger.error(`[OpencodeClientService] setOAuthCredentials failed for ${providerId}:`, err);
       return false;
     }
+  }
+
+  // ── Typed SDK wrappers (OPC-M1-1) ─────────────────────────────────────────
+  //
+  // Each wrapper below:
+  //   1. Throws AppError.badRequest("engine not ready …") when `this.client`
+  //      is null (SDK not initialized) — never silently resolves undefined.
+  //   2. Calls the exact SDK method name from sdk.gen.ts v1.14.49 with the
+  //      correct path/body shape from types.gen.ts.
+  //   3. The SDK returns hey-api envelopes { data?, error? } — wrappers read
+  //      .data directly — no re-cast required.
+  //   4. On error envelope or thrown exception → throws (never swallows).
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /** Throws the standard "engine not ready" error when the SDK is not initialized. */
+  private requireClient(): import('@opencode-ai/sdk').OpencodeClient {
+    if (!this.client) {
+      throw new AppError(
+        503,
+        'ENGINE_NOT_READY',
+        `Opencode engine not ready (${this.statusMessage})`,
+      );
+    }
+    return this.client;
+  }
+
+  /**
+   * GET /session/{id}/diff — typed replacement for the broken `diffSession`
+   * duck-typed probe in agent_sessions_controller.ts.
+   *
+   * Throws on SDK error or exception — never swallows to [].
+   */
+  async getSessionDiff(
+    sdkId: string,
+  ): Promise<import('@opencode-ai/sdk').FileDiff[]> {
+    const client = this.requireClient();
+    const raw = await client.session.diff({
+      path: { id: sdkId },
+    });
+    if (raw.error) {
+      throw new AppError(
+        502,
+        'SDK_ERROR',
+        `getSessionDiff failed for session ${sdkId}: ${JSON.stringify(raw.error)}`,
+      );
+    }
+    return raw.data ?? [];
+  }
+
+  /**
+   * POST /session/{id}/permissions/{permissionID} — typed replacement for the
+   * duck-typed `session['permission'].respond` probe that could silently no-op.
+   *
+   * @throws Error with message containing "postSessionIdPermissionsPermissionId"
+   *   when the SDK object does not expose this method.
+   */
+  async respondToPermission(
+    sdkId: string,
+    permissionId: string,
+    decision: 'once' | 'always' | 'reject',
+    directory?: string,
+    _feedback?: string,
+  ): Promise<void> {
+    const client = this.requireClient();
+    const methodName = 'postSessionIdPermissionsPermissionId';
+    if (
+      !(methodName in client) ||
+      typeof client[methodName as keyof typeof client] !== 'function'
+    ) {
+      throw new Error(
+        `SDK does not expose method '${methodName}' — cannot respond to permission request`,
+      );
+    }
+    // opencode scopes permissions per directory — its own respond call passes
+    // `directory`. Omitting it leaves the permission unresolved, so the gated
+    // tool (write/edit) hangs even after the user clicks Allow (and in bypass
+    // mode). Pass the session cwd.
+    await client.postSessionIdPermissionsPermissionId({
+      path: { id: sdkId, permissionID: permissionId },
+      body: { response: decision },
+      ...(directory ? { query: { directory } } : {}),
+    });
+  }
+
+  /**
+   * POST /session/{id}/command — dispatch a slash-command in the session.
+   *
+   * Returns null when the SDK returns an error envelope.
+   * Throws on unexpected exceptions.
+   */
+  async dispatchCommand(
+    sdkId: string,
+    command: string,
+    args: string,
+  ): Promise<{ info: import('@opencode-ai/sdk').Message; parts: import('@opencode-ai/sdk').Part[] } | null> {
+    const client = this.requireClient();
+    const raw = await client.session.command({
+      path: { id: sdkId },
+      body: { command, arguments: args },
+    });
+    if (raw.error || !raw.data) {
+      logger.error(`[OpencodeClientService] dispatchCommand error for ${sdkId}:`, raw.error);
+      return null;
+    }
+    return raw.data;
+  }
+
+  /**
+   * GET /session/{id}/messages — list messages in the session.
+   *
+   * Throws on SDK error or exception — never swallows to [].
+   */
+  async listMessages(
+    sdkId: string,
+  ): Promise<import('@opencode-ai/sdk').Message[]> {
+    const client = this.requireClient();
+    const raw = await client.session.messages({
+      path: { id: sdkId },
+    });
+    if (raw.error) {
+      throw new AppError(
+        502,
+        'SDK_ERROR',
+        `listMessages failed for session ${sdkId}: ${JSON.stringify(raw.error)}`,
+      );
+    }
+    return raw.data ?? [];
+  }
+
+  /**
+   * GET /session/{id}/todo — todo list for the session.
+   *
+   * Throws on SDK error or exception — never swallows to [].
+   */
+  async getTodo(
+    sdkId: string,
+  ): Promise<import('@opencode-ai/sdk').Todo[]> {
+    const client = this.requireClient();
+    const raw = await client.session.todo({
+      path: { id: sdkId },
+    });
+    if (raw.error) {
+      throw new AppError(
+        502,
+        'SDK_ERROR',
+        `getTodo failed for session ${sdkId}: ${JSON.stringify(raw.error)}`,
+      );
+    }
+    return raw.data ?? [];
+  }
+
+  /**
+   * POST /session/{id}/revert — revert the session to a prior message.
+   * `messageId` is required; `partId` is optional.
+   *
+   * Throws on SDK error or exception.
+   */
+  async revertSession(
+    sdkId: string,
+    messageId?: string,
+  ): Promise<import('@opencode-ai/sdk').Session | null> {
+    const client = this.requireClient();
+    const raw = await client.session.revert({
+      path: { id: sdkId },
+      body: { messageID: messageId ?? '' },
+    });
+    if (raw.error || !raw.data) {
+      throw new AppError(
+        502,
+        'SDK_ERROR',
+        `revertSession failed for session ${sdkId}: ${JSON.stringify(raw.error)}`,
+      );
+    }
+    return raw.data;
+  }
+
+  /**
+   * POST /session/{id}/unrevert — restore all reverted messages.
+   *
+   * Throws on SDK error or exception.
+   */
+  async unrevertSession(
+    sdkId: string,
+  ): Promise<import('@opencode-ai/sdk').Session | null> {
+    const client = this.requireClient();
+    const raw = await client.session.unrevert({
+      path: { id: sdkId },
+    });
+    if (raw.error || !raw.data) {
+      throw new AppError(
+        502,
+        'SDK_ERROR',
+        `unrevertSession failed for session ${sdkId}: ${JSON.stringify(raw.error)}`,
+      );
+    }
+    return raw.data;
+  }
+
+  /**
+   * POST /session/{id}/summarize — generate a summary for the session.
+   *
+   * OPC-M3-3: Throws AppError on SDK error envelope — never swallows to false.
+   * The body fields (providerID, modelID) are optional in v1.14.49; omitting
+   * them lets the SDK pick the default model already configured for the session.
+   */
+  async summarizeSession(
+    sdkId: string,
+    model: { providerID: string; modelID: string },
+    directory?: string,
+  ): Promise<boolean> {
+    const client = this.requireClient();
+    // session.summarize REQUIRES providerID + modelID (the model used to write
+    // the summary); omitting them errors with "expected string, received
+    // undefined". It also needs `directory` — opencode scopes sessions per
+    // directory, so without it summarize is a no-op (no compaction, no event).
+    const raw = await client.session.summarize({
+      path: { id: sdkId },
+      body: { providerID: model.providerID, modelID: model.modelID },
+      ...(directory ? { query: { directory } } : {}),
+    });
+    if (raw.error) {
+      throw new AppError(
+        502,
+        'SDK_ERROR',
+        `summarizeSession failed for session ${sdkId}: ${JSON.stringify(raw.error)}`,
+      );
+    }
+    return raw.data === true;
+  }
+
+  /**
+   * POST /session/{id}/fork — fork the session at an optional message.
+   *
+   * Throws on SDK error or exception.
+   */
+  async forkSession(
+    sdkId: string,
+    messageId?: string,
+  ): Promise<import('@opencode-ai/sdk').Session | null> {
+    const client = this.requireClient();
+    const raw = await client.session.fork({
+      path: { id: sdkId },
+      body: messageId ? { messageID: messageId } : undefined,
+    });
+    if (raw.error || !raw.data) {
+      throw new AppError(
+        502,
+        'SDK_ERROR',
+        `forkSession failed for session ${sdkId}: ${JSON.stringify(raw.error)}`,
+      );
+    }
+    return raw.data;
+  }
+
+  /**
+   * GET /session/{id}/children — list child sessions.
+   *
+   * Throws on SDK error or exception — never swallows to [].
+   */
+  async listChildren(
+    sdkId: string,
+  ): Promise<import('@opencode-ai/sdk').Session[]> {
+    const client = this.requireClient();
+    const raw = await client.session.children({
+      path: { id: sdkId },
+    });
+    if (raw.error) {
+      throw new AppError(
+        502,
+        'SDK_ERROR',
+        `listChildren failed for session ${sdkId}: ${JSON.stringify(raw.error)}`,
+      );
+    }
+    return raw.data ?? [];
+  }
+
+  /**
+   * GET /mcp — status map for all MCP servers.
+   *
+   * Throws on SDK error or exception.
+   */
+  async listMcp(): Promise<Record<string, import('@opencode-ai/sdk').McpStatusEntry>> {
+    const client = this.requireClient();
+    const raw = await client.mcp.status();
+    if (raw.error) {
+      throw new AppError(
+        502,
+        'SDK_ERROR',
+        `listMcp failed: ${JSON.stringify(raw.error)}`,
+      );
+    }
+    return raw.data ?? {};
+  }
+
+  /**
+   * POST /mcp — add a new MCP server to the opencode engine.
+   *
+   * `config` is either a local config (type:'local', command:[...]) or a
+   * remote config (type:'remote', url:'...'). Throws AppError on SDK error.
+   *
+   * OPC-M4-3: typed wrapper for client.mcp.add().
+   *
+   * Issue #716 fix: `client.mcp.add()` only registers the server in-memory for
+   * the running opencode instance. `client.mcp.status()` (used by listMcp /
+   * GET /opencode/mcp) re-derives from the persisted opencode.json config, so a
+   * server added only in-memory disappears from the list immediately after add.
+   * We persist the new entry to opencode.json BEFORE calling the SDK so that
+   * the subsequent status call (and any app restart) includes it.
+   */
+  async addMcp(
+    name: string,
+    config: import('@opencode-ai/sdk').McpLocalConfigInput | import('@opencode-ai/sdk').McpRemoteConfigInput,
+  ): Promise<Record<string, import('@opencode-ai/sdk').McpStatusEntry>> {
+    // ── Step 1: persist to opencode.json so the server survives re-list / restart ──
+    const { existsSync, readFileSync, writeFileSync, mkdirSync } =
+      require('fs') as typeof import('fs');
+    const { join, dirname } = require('path') as typeof import('path');
+    const { homedir } = require('os') as typeof import('os');
+
+    const configPath = join(homedir(), '.config', 'opencode', 'opencode.json');
+
+    let parsed: Record<string, unknown> = {};
+    if (existsSync(configPath)) {
+      try {
+        parsed = JSON.parse(readFileSync(configPath, 'utf8'));
+      } catch (err) {
+        throw new AppError(
+          502,
+          'SDK_ERROR',
+          `addMcp: could not parse opencode.json for ${name}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+
+    // Merge the new server into the mcp section.
+    const mcpSection = (parsed.mcp as Record<string, unknown> | undefined) ?? {};
+    mcpSection[name] = config;
+    parsed.mcp = mcpSection;
+
+    try {
+      mkdirSync(dirname(configPath), { recursive: true });
+      writeFileSync(configPath, JSON.stringify(parsed, null, 2) + '\n', 'utf8');
+      logger.info(`[OpencodeClientService] addMcp: persisted ${name} to opencode.json`);
+    } catch (err) {
+      throw new AppError(
+        502,
+        'SDK_ERROR',
+        `addMcp: could not write opencode.json for ${name}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+
+    // ── Step 2: register with the running engine (in-memory, live session) ──
+    const client = this.requireClient();
+    const raw = await client.mcp.add({
+      body: { name, config },
+    });
+    if (raw.error) {
+      throw new AppError(
+        502,
+        'SDK_ERROR',
+        `addMcp failed for ${name}: ${JSON.stringify(raw.error)}`,
+      );
+    }
+    return raw.data ?? {};
+  }
+
+  /**
+   * POST /mcp/{name}/connect — connect a named MCP server.
+   *
+   * OPC-M4-3: throws AppError on SDK error envelope (never swallows to false).
+   */
+  async connectMcp(name: string): Promise<boolean> {
+    const client = this.requireClient();
+    const raw = await client.mcp.connect({
+      path: { name },
+    });
+    if (raw.error) {
+      throw new AppError(
+        502,
+        'SDK_ERROR',
+        `connectMcp failed for ${name}: ${JSON.stringify(raw.error)}`,
+      );
+    }
+    return raw.data === true;
+  }
+
+  /**
+   * POST /mcp/{name}/disconnect — disconnect a named MCP server.
+   *
+   * OPC-M4-3: throws AppError on SDK error envelope (never swallows to false).
+   */
+  async disconnectMcp(name: string): Promise<boolean> {
+    const client = this.requireClient();
+    const raw = await client.mcp.disconnect({
+      path: { name },
+    });
+    if (raw.error) {
+      throw new AppError(
+        502,
+        'SDK_ERROR',
+        `disconnectMcp failed for ${name}: ${JSON.stringify(raw.error)}`,
+      );
+    }
+    return raw.data === true;
+  }
+
+  /**
+   * Remove a named MCP server.
+   *
+   * The SDK v1.14.49 does not expose a direct DELETE /mcp/{name} endpoint on
+   * `client.mcp`. We implement removal by disconnecting then removing the
+   * server from the opencode.json config file (the same file that
+   * opencode_plugin_config.ts manages for plugins). After the next engine
+   * restart the server will no longer appear. Throws AppError on failure.
+   *
+   * OPC-M4-3 typed wrapper.
+   */
+  async removeMcp(name: string): Promise<void> {
+    // 1. Disconnect first (best-effort — ignore "not connected" errors).
+    try {
+      await this.disconnectMcp(name);
+    } catch {
+      // Server may already be disconnected / not found — proceed to config removal.
+    }
+
+    // 2. Remove from opencode.json mcp section so it is not re-added on restart.
+    const { existsSync, readFileSync, writeFileSync, mkdirSync } =
+      require('fs') as typeof import('fs');
+    const { join, dirname } = require('path') as typeof import('path');
+    const { homedir } = require('os') as typeof import('os');
+
+    const configPath = join(homedir(), '.config', 'opencode', 'opencode.json');
+
+    if (!existsSync(configPath)) {
+      // Nothing to remove — server was dynamically added only (not in config).
+      return;
+    }
+
+    let parsed: Record<string, unknown>;
+    try {
+      parsed = JSON.parse(readFileSync(configPath, 'utf8'));
+    } catch (err) {
+      throw new AppError(
+        502,
+        'SDK_ERROR',
+        `removeMcp: could not parse opencode.json for ${name}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+
+    const mcpSection = parsed.mcp as Record<string, unknown> | undefined;
+    if (!mcpSection || !(name in mcpSection)) {
+      // Not present in config — nothing to do.
+      return;
+    }
+
+    delete mcpSection[name];
+    if (Object.keys(mcpSection).length === 0) {
+      delete parsed.mcp;
+    } else {
+      parsed.mcp = mcpSection;
+    }
+
+    try {
+      mkdirSync(dirname(configPath), { recursive: true });
+      writeFileSync(configPath, JSON.stringify(parsed, null, 2) + '\n', 'utf8');
+      logger.info(`[OpencodeClientService] removeMcp: removed ${name} from opencode.json`);
+    } catch (err) {
+      throw new AppError(
+        502,
+        'SDK_ERROR',
+        `removeMcp: could not write opencode.json for ${name}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+
+  /**
+   * POST /session/{id}/shell — run a one-shot shell command in the session.
+   *
+   * OPC-M1-6 / issue #709.
+   * Requires an agent name and a resolved model (the SDK refuses shell calls
+   * without both). The default agent is 'build' (opencode built-in that runs
+   * bash without requiring an LLM turn). `model` is passed through from the
+   * caller; pass the session's resolved model so the SDK can attribute tokens.
+   *
+   * Returns the id of the created AssistantMessage so the Flutter tab can
+   * track which chat messages originated from the Terminal tab (criterion c4).
+   *
+   * Throws AppError(502) on SDK error or empty data — never swallows.
+   */
+  async runShell(
+    sdkId: string,
+    command: string,
+    model?: { providerID: string; modelID: string },
+  ): Promise<{ messageId: string }> {
+    const client = this.requireClient();
+    const raw = await client.session.shell({
+      path: { id: sdkId },
+      body: {
+        agent: 'build',
+        model,
+        command,
+      },
+    });
+    if (raw.error || !raw.data) {
+      throw new AppError(
+        502,
+        'SDK_ERROR',
+        `runShell failed for session ${sdkId}: ${JSON.stringify(raw.error ?? 'no data')}`,
+      );
+    }
+    return { messageId: raw.data.id };
+  }
+
+  /**
+   * OPC-M4-4 — GET /agent — list all agents (built-in + custom) for an
+   * optional cwd. Returns an empty array when the client is not ready.
+   *
+   * Throws on SDK error envelope or thrown exception (never swallows to []).
+   */
+  async listAgents(
+    directory?: string,
+  ): Promise<import('@opencode-ai/sdk').SdkAgent[]> {
+    const client = this.requireClient();
+    const raw = await client.app.agents(
+      directory ? { query: { directory } } : undefined,
+    );
+    if (raw.error) {
+      throw new AppError(
+        502,
+        'SDK_ERROR',
+        `listAgents failed: ${JSON.stringify(raw.error)}`,
+      );
+    }
+    return raw.data ?? [];
+  }
+
+  /**
+   * OPC-M1-5 — GET /session/{id}: check whether an SDK session still exists.
+   *
+   * Returns the Session object when found, or null when the SDK returns an
+   * error envelope (e.g. 404) or throws. Null means the session is gone and
+   * resume() must return HTTP 410.
+   *
+   * Does NOT throw — callers use the null signal to distinguish gone vs. error.
+   */
+  async getSession(
+    sdkId: string,
+  ): Promise<import('@opencode-ai/sdk').Session | null> {
+    const client = this.requireClient();
+    let raw: { data?: import('@opencode-ai/sdk').Session; error?: unknown };
+    try {
+      raw = await client.session.get({ path: { id: sdkId } });
+    } catch (err) {
+      // A thrown error is transport/engine trouble, NOT proof the session is
+      // gone. Conflating the two would let a transient hiccup 410 a live
+      // conversation (resume → "start fresh" against intact history).
+      throw new AppError(
+        502,
+        'SDK_ERROR',
+        `getSession transport failure for session ${sdkId}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+    if (raw.error || !raw.data) {
+      // The engine responded but doesn't know this id — genuinely gone.
+      logger.warn(
+        `[OpencodeClientService] getSession: session "${sdkId}" not found: ${JSON.stringify(raw.error ?? 'no data')}`,
+      );
+      return null;
+    }
+    return raw.data;
   }
 
   /**
@@ -756,6 +1356,7 @@ export class OpencodeClientService {
         logger.error('[OpencodeClientService] server.close() threw:', err);
       }
     }
+    this._shuttingDown = true;
     this.server = null;
     this.client = null;
     this.status = 'uninitialized';

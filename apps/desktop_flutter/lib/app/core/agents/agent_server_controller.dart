@@ -22,6 +22,17 @@ class AgentServerController extends ChangeNotifier {
   /// Rich failure message surfaced by the service (e.g. ABI rebuild command).
   String? _richFailureMessage;
   Map<String, bool> _capabilities = const {};
+
+  /// OPC-M1-3: provider-id → agent-kind mapping fetched from
+  /// GET /agents/capabilities as the `providerToAgentKind` field.
+  /// Offline fallback: the hardcoded constants below.
+  Map<String, String> _providerToAgentKind = const {
+    'anthropic': 'claude-code',
+    'github-copilot': 'claude-code',
+    'openai': 'codex',
+    'google': 'gemini-cli',
+  };
+
   HealthPoller? _poller;
 
   AgentServerStatus get status => _status;
@@ -54,6 +65,10 @@ class AgentServerController extends ChangeNotifier {
 
   Map<String, bool> get capabilities => _capabilities;
 
+  /// OPC-M1-3: provider-id → agent-kind map. Fetched from capabilities
+  /// endpoint; falls back to the compile-time defaults when offline.
+  Map<String, String> get providerToAgentKind => _providerToAgentKind;
+
   bool isAgentAvailable(String kind) => _capabilities[kind] == true;
   bool get hasAnyAgent => _capabilities.values.any((v) => v);
 
@@ -63,6 +78,12 @@ class AgentServerController extends ChangeNotifier {
     _stderrTail = null;
     _richFailureMessage = null;
     _capabilities = const {};
+    _providerToAgentKind = const {
+      'anthropic': 'claude-code',
+      'github-copilot': 'claude-code',
+      'openai': 'codex',
+      'google': 'gemini-cli',
+    };
     notifyListeners();
 
     final result = await _service.start();
@@ -119,9 +140,27 @@ class AgentServerController extends ChangeNotifier {
         );
         return;
       }
-      _capabilities = decoded.map(
-        (key, value) => MapEntry(key, value == true),
-      );
+      // OPC-M1-3: The capabilities response now contains two kinds of values:
+      //   - boolean flags  (e.g. { 'claude-code': true, 'codex': false })
+      //   - providerToAgentKind: { 'anthropic': 'claude-code', ... }
+      // Extract each separately; casting all values to bool would lose the map.
+      final boolCaps = <String, bool>{};
+      Map<String, String>? newProviderMap;
+      for (final entry in decoded.entries) {
+        if (entry.key == 'providerToAgentKind') {
+          final raw = entry.value;
+          if (raw is Map) {
+            newProviderMap =
+                raw.map((k, v) => MapEntry(k.toString(), v.toString()));
+          }
+        } else {
+          boolCaps[entry.key] = entry.value == true;
+        }
+      }
+      _capabilities = boolCaps;
+      if (newProviderMap != null && newProviderMap.isNotEmpty) {
+        _providerToAgentKind = newProviderMap;
+      }
       notifyListeners();
     } catch (e) {
       stderr.writeln(

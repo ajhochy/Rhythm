@@ -1,0 +1,10 @@
+{
+  "_comment": "Real v1.14.49 session.status event shape for an idle state.",
+  "type": "session.status",
+  "properties": {
+    "sessionID": "ses_abc123",
+    "status": {
+      "type": "idle"
+    }
+  }
+}

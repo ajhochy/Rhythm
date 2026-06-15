@@ -150,7 +150,7 @@ void main() {
   group('issue-628-c1: reconnectSession notifies listeners for any session',
       () {
     test(
-      'cold-session reconnect back-fills transcriptFor AND fires notifyListeners',
+      'cold-session reconnect back-fills chatMessagesFor AND fires notifyListeners',
       () async {
         // Arrange: controller with no selected session, repo serves one
         // message for sessionId "cold-1".
@@ -173,8 +173,10 @@ void main() {
         );
         addTearDown(controller.dispose);
 
-        // Confirm precondition: no selection, empty transcript map.
-        expect(controller.transcriptFor('cold-1'), isEmpty);
+        // Confirm precondition: no selection, empty chat store.
+        // OPC-M1-3: reconnectSession now populates chatMessagesBySession,
+        // not transcriptFor.
+        expect(controller.chatMessagesFor('cold-1'), isEmpty);
 
         var listenerCalls = 0;
         controller.addListener(() => listenerCalls++);
@@ -182,21 +184,20 @@ void main() {
         // Act: reconnect a session that is NOT the selected one.
         await controller.reconnectSession('cold-1');
 
-        // Assert 1 — data contract: transcriptFor must return the
+        // Assert 1 — data contract: chatMessagesFor must return the
         // back-filled messages, proving the REST round-trip landed.
-        expect(controller.transcriptFor('cold-1'), hasLength(1));
-        expect(controller.transcriptFor('cold-1').first.id, equals(1));
+        // OPC-M1-3: ChatMessage.id is the string form of the db id.
+        expect(controller.chatMessagesFor('cold-1'), hasLength(1));
+        expect(controller.chatMessagesFor('cold-1').first.id, equals('1'));
 
         // Assert 2 — UI rebuild contract: notifyListeners must fire even
-        // though sessionId != _selectedSessionId. THIS IS THE FAILING
-        // ASSERTION before the fix — current code (line 686) only notifies
-        // inside the `if (_selectedSessionId == id)` branch, so a cold
-        // bubble using Provider.of/context.watch will never rebuild.
+        // though sessionId != _selectedSessionId. This ensures that the
+        // parts-based transcript view rebuilds after a cold reconnect.
         expect(
           listenerCalls,
           greaterThan(0),
           reason: 'notifyListeners must fire after reconnectSession back-fills '
-              'a non-selected session so cold mini-bubbles rebuild.',
+              'a non-selected session so the transcript view rebuilds.',
         );
       },
     );

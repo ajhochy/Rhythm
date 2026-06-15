@@ -45,8 +45,8 @@ WS session.input { id: localId, data: text }
   → SSE events → streamBridge → WS broadcast → Flutter
 
 DELETE /agent-sessions/:id
-  → streamBridge.stopStream(id)    ← no-op (shared stream stays alive)
-  → opencodeSessionMap.delete(id)  ← clean up map entry
+  → streamBridge.stopStream(id)    ← adds id to stoppedSessions; events for this SDK id are dropped
+  → opencodeSessionMap.delete(id)  ← clean up map entry (shared SSE stream stays alive)
   → repo.markClosed(id)
   → HTTP 204
 ```
@@ -59,8 +59,27 @@ Per-user AI accounts. Each user signs into their own provider on their machine. 
 2. **Free API:** Google Gemini (API key), GitHub Copilot (OAuth)
 3. **Custom:** OpenRouter or any provider API key
 
+### Child-session navigation (OPC-M3-6)
+
+When the SDK spawns a subagent task, the Opencode engine creates a child session under the parent's SDK session id. These child sessions have NO local DB row — they exist only in the SDK.
+
+```
+GET /agent-sessions/:id/children
+  → opencodeSessionMap.get(localId) → sdkId
+  → opencodeClient.listChildren(sdkId)   ← SDK: returns child Session[]
+  → HTTP 200 [child session summaries]
+
+GET /agent-sessions/:id/children/:childSdkId/messages
+  → (parent lookup — 404 if not found)
+  → opencodeClient.listMessages(childSdkId)  ← child SDK id used directly
+  → maps SDK Message[] → M1-2 structured shape (role: user→input, assistant→output)
+  → HTTP 200 { messages: [...] }
+```
+
+Flutter: `TaskChip` (in parent transcript) gains `parentSessionId`/`parentSessionName` params. Tapping calls `AgentsController.openChildSession(...)` → fetches child messages → sets `activeChildSessionId` → `_TranscriptPanel` swaps to `ChildTranscriptView` (read-only, breadcrumb back, no composer). `closeChildSession()` clears state without refetching the parent.
+
 ### Known dead code
-- `services/pty_runner.ts` — no longer imported by any production code; pending removal PR
+_(none — `pty_runner.ts` was deleted in PR #574/#571; confirmed zero references as of OPC-M1-4 / issue #688)_
 
 ### Known gaps
-- `resume()` in `AgentSessionsController` sets status to `starting` but does not create an SDK session or start streaming. Treated as a stub pending a follow-up implementation.
+_(none — `resume()` creates a fresh SDK session and starts streaming; the "stub" note was stale as of OPC-M1-4 / issue #688 audit)_

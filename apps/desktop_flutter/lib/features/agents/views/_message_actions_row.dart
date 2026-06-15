@@ -83,6 +83,8 @@ class MessageActionsRow extends StatefulWidget {
     required this.messageId,
     required this.createdAt,
     required this.text,
+    this.role = 'assistant',
+    this.isReverted = false,
   });
 
   final String sessionId;
@@ -91,6 +93,13 @@ class MessageActionsRow extends StatefulWidget {
 
   /// Full text content of the associated bubble (text + stringified tool output).
   final String text;
+
+  /// The role of the associated message ('user' | 'assistant' | 'system').
+  /// Only assistant messages show the "Revert to here" action.
+  final String role;
+
+  /// Whether this message has already been reverted.
+  final bool isReverted;
 
   @override
   State<MessageActionsRow> createState() => _MessageActionsRowState();
@@ -102,6 +111,9 @@ class _MessageActionsRowState extends State<MessageActionsRow>
   AnimationController? _flashController;
 
   String get _messageKey => '${widget.sessionId}:${widget.messageId}';
+
+  bool get _isAssistant =>
+      widget.role == 'assistant' || widget.role == 'output';
 
   @override
   void initState() {
@@ -127,6 +139,64 @@ class _MessageActionsRowState extends State<MessageActionsRow>
     if (!mounted) return;
     setState(() => _copiedFlash = true);
     _flashController?.forward(from: 0);
+  }
+
+  void _showForkDialog(BuildContext context) {
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Fork from here?'),
+        content: const Text(
+          'Create a new session starting from this message — the original '
+          'session is unchanged and both branches are independently promptable.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () {
+              Navigator.of(dialogContext).pop();
+              context.read<AgentsController>().forkSession(
+                    widget.sessionId,
+                    widget.messageId,
+                  );
+            },
+            child: const Text('Fork'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showRevertDialog(BuildContext context) {
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Revert to here?'),
+        content: const Text(
+          'Undo file changes after this point — this will reset all files that '
+          'were modified by messages after this one.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () {
+              Navigator.of(dialogContext).pop();
+              context.read<AgentsController>().revertSession(
+                    widget.sessionId,
+                    widget.messageId,
+                  );
+            },
+            child: const Text('Revert'),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -162,6 +232,46 @@ class _MessageActionsRowState extends State<MessageActionsRow>
                 notifyArmed ? context.rhythm.accent : context.rhythm.textMuted,
             onTap: () => controller.toggleNotify(_messageKey),
           ),
+          // OPC-M3-2: "Revert to here" — only for assistant messages.
+          if (_isAssistant) ...[
+            const SizedBox(width: 2),
+            _ActionIconButton(
+              icon: Icons.history,
+              tooltip: 'Revert to here',
+              color: context.rhythm.textMuted,
+              onTap: () => _showRevertDialog(context),
+            ),
+          ],
+          // OPC-M4-2: "Fork from here" — only for assistant messages.
+          if (_isAssistant) ...[
+            const SizedBox(width: 2),
+            _ActionIconButton(
+              icon: Icons.fork_right,
+              tooltip: 'Fork from here',
+              color: context.rhythm.textMuted,
+              onTap: () => _showForkDialog(context),
+            ),
+          ],
+          // OPC-M3-2: "reverted" badge — shown when this message is reverted.
+          if (widget.isReverted) ...[
+            const SizedBox(width: 4),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+              decoration: BoxDecoration(
+                color: context.rhythm.surfaceMuted,
+                borderRadius: BorderRadius.circular(4),
+                border: Border.all(color: context.rhythm.border),
+              ),
+              child: Text(
+                'reverted',
+                style: TextStyle(
+                  fontSize: 9,
+                  color: context.rhythm.textMuted,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ),
+          ],
           const Spacer(),
           // Relative timestamp.
           Text(

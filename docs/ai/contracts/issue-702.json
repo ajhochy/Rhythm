@@ -1,0 +1,55 @@
+{
+  "issue": 702,
+  "generated": "2026-06-13",
+  "criteria": [
+    {
+      "criterion_id": "issue-702-c1",
+      "text": "GET /opencode/mcp returns the SDK's MCP server list (vitest spy + real-shape fixture: name, type, connection status); POST /opencode/mcp (add), POST /opencode/mcp/:name/connect, POST /opencode/mcp/:name/disconnect, DELETE /opencode/mcp/:name each invoke the corresponding typed wrapper; SDK errors → AppError with message.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/opc_m4_3_mcp_routes.test.ts",
+      "test_id": "issue-702-c1",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-702-c2",
+      "text": "The section lists each server with name + status badge (connected/disconnected/error using success/textMuted/danger roles); empty state shows guidance text (widget test).",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/settings/opc_m4_3_mcp_section_test.dart",
+      "test_id": "issue-702-c2",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-702-c3",
+      "text": "Add-server dialog validates required fields (name + command-or-url) and dispatches the add call; the list refreshes on success (controller test with fake data source).",
+      "mode": "unit",
+      "test_file": "apps/desktop_flutter/test/features/settings/opc_m4_3_mcp_section_test.dart",
+      "test_id": "issue-702-c3",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-702-c4",
+      "text": "Connect/disconnect buttons dispatch their calls and update the row's status from the refetched list; failures surface inline error text, not silence.",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/settings/opc_m4_3_mcp_section_test.dart",
+      "test_id": "issue-702-c4",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-702-c5",
+      "text": "MCP data source hard-codes AppConstants.agentLocalBaseUrl (never serverConfigService.url) — unit assert mirroring issue #644's contract pattern.",
+      "mode": "unit",
+      "test_file": "apps/desktop_flutter/test/features/settings/opc_m4_3_mcp_section_test.dart",
+      "test_id": "issue-702-c5",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-702-c6",
+      "text": "ai-workflow checks --level pr exits 0; vitest + flutter test green.",
+      "mode": "manual",
+      "status": "pending",
+      "reason": "Full PR-level gate is run by verification-gate after implementation."
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": ["issue-702-c6"]
+}

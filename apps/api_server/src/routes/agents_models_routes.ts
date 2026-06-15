@@ -29,15 +29,24 @@ function aggregatorLabel(providerId: string): string {
 
 async function loadProviderModelIds(
   providerIds: Iterable<string>,
-): Promise<Map<string, Set<string>>> {
-  const out = new Map<string, Set<string>>();
+): Promise<{
+  modelIdsByProvider: Map<string, Set<string>>;
+  contextLimitByKey: Map<string, number>;
+}> {
+  const modelIdsByProvider = new Map<string, Set<string>>();
+  const contextLimitByKey = new Map<string, number>();
   await Promise.all(
     [...new Set(providerIds)].map(async (providerId) => {
       const models = await opencodeClient.listModels(providerId);
-      out.set(providerId, new Set(models.map((m) => m.id)));
+      modelIdsByProvider.set(providerId, new Set(models.map((m) => m.id)));
+      for (const m of models) {
+        if (m.contextLimit != null) {
+          contextLimitByKey.set(`${providerId}/${m.id}`, m.contextLimit);
+        }
+      }
     }),
   );
-  return out;
+  return { modelIdsByProvider, contextLimitByKey };
 }
 
 function routeExistsInProviderCatalog(
@@ -113,7 +122,7 @@ agentsModelsRouter.get('/catalog', async (_req: Request, res: Response) => {
     }
 
     const allEntries = await listAllRoutes(authedSet);
-    const modelIdsByProvider = await loadProviderModelIds(
+    const { modelIdsByProvider, contextLimitByKey } = await loadProviderModelIds(
       allEntries.map((entry) => entry.authProvider),
     );
 
@@ -185,17 +194,21 @@ agentsModelsRouter.get('/catalog', async (_req: Request, res: Response) => {
     }
 
     const allModels = [...filtered, ...curatedEntries];
-    const response = allModels.map((entry) => ({
-      agent: entry.agent,
-      provider: entry.authProvider,
-      modelId: entry.modelID,
-      displayName: entry.modelID,
-      variantLabel: entry.variantLabel,
-      route: entry.route,
-      authorized: entry.authorized,
-      authProvider: entry.authProvider,
-      connectUrl: entry.connectUrl,
-    }));
+    const response = allModels.map((entry) => {
+      const contextLimit = contextLimitByKey.get(`${entry.authProvider}/${entry.modelID}`);
+      return {
+        agent: entry.agent,
+        provider: entry.authProvider,
+        modelId: entry.modelID,
+        displayName: entry.modelID,
+        variantLabel: entry.variantLabel,
+        route: entry.route,
+        authorized: entry.authorized,
+        authProvider: entry.authProvider,
+        connectUrl: entry.connectUrl,
+        ...(contextLimit != null ? { contextLimit } : {}),
+      };
+    });
 
     res.json(response);
   } catch (err) {
@@ -220,7 +233,7 @@ agentsModelsRouter.get('/', async (req: Request, res: Response) => {
 
     const authedProviders = await opencodeClient.listAuthedProviders();
     const authedSet = new Set(authedProviders);
-    const modelIdsByProvider = await loadProviderModelIds(authedSet);
+    const { modelIdsByProvider } = await loadProviderModelIds(authedSet);
 
     // Issue #609 — load visibility map for openrouter (other providers always visible).
     let visibilityMap: Map<string, boolean> | null = null;

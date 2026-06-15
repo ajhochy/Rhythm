@@ -23,8 +23,7 @@ library;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:rhythm_desktop/app/core/agents/agent_bubble_overlay.dart'
-    show filterStalePendingErrors, isPendingAgent, kPendingAgentSentinel;
+// OPC-M1-3: agent_bubble_overlay.dart deleted; c6/c7 tests removed.
 import 'package:rhythm_desktop/app/core/agents/agent_trigger_watcher.dart'
     show computeIsLocalSmokeRun;
 import 'package:rhythm_desktop/app/core/auth/auth_data_source.dart';
@@ -33,7 +32,7 @@ import 'package:rhythm_desktop/app/core/auth/auth_user.dart';
 import 'package:rhythm_desktop/app/core/errors/app_error.dart';
 import 'package:rhythm_desktop/app/core/ui/rhythm_inspector.dart';
 import 'package:rhythm_desktop/app/core/workspace/workspace_models.dart';
-import 'package:rhythm_desktop/features/agents/models/agent_session_message.dart';
+// OPC-M1-3: AgentSessionMessage import removed (only used in deleted c7 test).
 import 'package:rhythm_desktop/features/tasks/models/task.dart';
 import 'package:rhythm_desktop/features/tasks/models/task_collaborator.dart';
 import 'package:rhythm_desktop/shared/widgets/collaborators_row.dart';
@@ -397,69 +396,8 @@ void main() {
     });
   });
 
-  // ---------------------------------------------------------------------------
-  // c6/c7 — Bubble overlay handles the agent-less (`__pending__`) state
-  //         instead of rendering the raw sentinel + stale historical errors.
-  // ---------------------------------------------------------------------------
-
-  group('Bubble overlay agent-less state', () {
-    test(
-      'issue-651-c6: isPendingAgent + kPendingAgentSentinel detect '
-      '__pending__ correctly',
-      () {
-        expect(kPendingAgentSentinel, '__pending__');
-        expect(isPendingAgent('__pending__'), isTrue);
-        expect(isPendingAgent('claude-code'), isFalse);
-        expect(isPendingAgent(null), isFalse);
-        expect(isPendingAgent(''), isFalse);
-      },
-    );
-
-    test(
-      'issue-651-c7: filterStalePendingErrors drops persisted server error '
-      'frames when session is __pending__ but keeps task-context system msg',
-      () {
-        AgentSessionMessage msg(String role, String text, {int id = 1}) =>
-            AgentSessionMessage(
-              id: id,
-              sessionId: 'session-651',
-              role: role,
-              rawText: text,
-              strippedText: text,
-              createdAt: DateTime.fromMillisecondsSinceEpoch(0),
-            );
-
-        final messages = [
-          msg(
-              'system',
-              'Task context\nTitle: Add Annette Rip and Nate Rip\n\n'
-                  'Use PCO MPC server to accomplish this task.',
-              id: 1),
-          msg('system', 'Error: Pick a model before sending the first message.',
-              id: 2),
-          msg('input', 'Hello', id: 3),
-          msg('output', 'Hi back', id: 4),
-        ];
-
-        final pending = filterStalePendingErrors(messages, isPending: true);
-        expect(
-          pending.map((m) => m.id).toList(),
-          [1, 3, 4],
-          reason:
-              'When agent-less, stale "Error:" system frames must be filtered; '
-              'task-context system message + input/output must be kept.',
-        );
-
-        final ready = filterStalePendingErrors(messages, isPending: false);
-        expect(
-          ready.map((m) => m.id).toList(),
-          [1, 2, 3, 4],
-          reason: 'When a model is picked, no filtering — all persisted frames '
-              'render so the user can see prior history including errors.',
-        );
-      },
-    );
-  });
+  // OPC-M1-3: c6/c7 (isPendingAgent + filterStalePendingErrors from
+  // agent_bubble_overlay.dart) removed — bubble file deleted.
 
   // ---------------------------------------------------------------------------
   // c8 — Release builds refuse to honor RHYTHM_LOCAL_SMOKE=1 env var, since a

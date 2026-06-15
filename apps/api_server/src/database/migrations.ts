@@ -1137,4 +1137,49 @@ export function runMigrations(db: Database.Database): void {
       PRIMARY KEY (provider, model_id)
     )
   `);
+
+  // OPC-M1-2 (issue #686) — Structured parts persistence for agent_session_messages.
+  // Adds sdk_message_id, parts_json, tokens_json, cost columns so the stream bridge
+  // can store the full ordered part array as the single durable transcript store.
+  // Legacy rows (parts_json IS NULL) are served via a back-compat text shim on read.
+  const asmCols686 = (db.pragma('table_info(agent_session_messages)') as { name: string }[]).map((c) => c.name);
+  if (!asmCols686.includes('sdk_message_id')) {
+    db.exec(`ALTER TABLE agent_session_messages ADD COLUMN sdk_message_id TEXT`);
+  }
+  if (!asmCols686.includes('parts_json')) {
+    db.exec(`ALTER TABLE agent_session_messages ADD COLUMN parts_json TEXT`);
+  }
+  if (!asmCols686.includes('tokens_json')) {
+    db.exec(`ALTER TABLE agent_session_messages ADD COLUMN tokens_json TEXT`);
+  }
+  if (!asmCols686.includes('cost')) {
+    db.exec(`ALTER TABLE agent_session_messages ADD COLUMN cost REAL`);
+  }
+  // Unique index on (session_id, sdk_message_id) — used for upsert keying.
+  // The partial WHERE sdk_message_id IS NOT NULL prevents index from treating
+  // multiple NULL sdk_message_ids as duplicates (legacy rows).
+  db.exec(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_asm_sdk_msg
+      ON agent_session_messages(session_id, sdk_message_id)
+      WHERE sdk_message_id IS NOT NULL
+  `);
+
+  // OPC-M1-4 (issue #688) — Persisted error state for agent_sessions.
+  // Replaces the in-memory `erroredSessions` 5s setTimeout sentinel with a
+  // durable status='error' row and a human-readable status_message column.
+  // Clearing happens only on an explicit user action (new prompt / resume).
+  const agentSessionCols688 = (db.pragma('table_info(agent_sessions)') as { name: string }[]).map((c) => c.name);
+  if (!agentSessionCols688.includes('status_message')) {
+    db.exec(`ALTER TABLE agent_sessions ADD COLUMN status_message TEXT`);
+  }
+
+  // OPC-M1-5 (issue #689) — sdk_session_id column for resume continuity.
+  // Stores the Opencode SDK session id so resume() can re-attach to the same
+  // conversation instead of creating a fresh SDK session. The legacy
+  // session_token field is retained for backward compatibility (not removed),
+  // but sdk_session_id is the authoritative resume key from this migration on.
+  const agentSessionCols689 = (db.pragma('table_info(agent_sessions)') as { name: string }[]).map((c) => c.name);
+  if (!agentSessionCols689.includes('sdk_session_id')) {
+    db.exec(`ALTER TABLE agent_sessions ADD COLUMN sdk_session_id TEXT`);
+  }
 }

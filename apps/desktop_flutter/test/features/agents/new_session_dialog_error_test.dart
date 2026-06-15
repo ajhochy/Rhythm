@@ -15,6 +15,7 @@ import 'package:rhythm_desktop/features/agents/controllers/agents_controller.dar
 import 'package:rhythm_desktop/features/agents/models/agent_session.dart';
 import 'package:rhythm_desktop/features/agents/models/agent_session_message.dart';
 import 'package:rhythm_desktop/features/agents/models/agent_ws_message.dart';
+import 'package:rhythm_desktop/features/agents/models/chat_models.dart';
 import 'package:rhythm_desktop/features/agents/repositories/agents_repository.dart';
 import 'package:rhythm_desktop/features/agents/views/agents_view.dart';
 import 'package:rhythm_desktop/features/notifications/controllers/notifications_controller.dart';
@@ -116,7 +117,7 @@ class _ErrorAgentsRepository implements AgentsRepository {
     String? agentId,
     String? taskId,
     required String cwd,
-    required String name,
+    String name = '',
     String? branch,
     String? stash,
     bool createBranch = false,
@@ -187,6 +188,49 @@ class _ErrorAgentsRepository implements AgentsRepository {
   Future<List<AgentSessionMessage>> getMessages(String id, {int? limit}) async {
     return [];
   }
+
+  @override
+  Future<List<Map<String, dynamic>>> fetchSessionDiff(String id) async {
+    return [];
+  }
+
+  @override
+  Future<void> revertSession(String sessionId, String messageId) async {}
+
+  @override
+  Future<void> unrevertSession(String sessionId) async {}
+
+  @override
+  Future<void> summarizeSession(String sessionId) async {}
+
+  @override
+  Future<void> dispatchCommand(
+      String sessionId, String command, String args) async {}
+
+  @override
+  Future<List<Map<String, dynamic>>> fetchSessionTodos(String id) async => [];
+
+  @override
+  Future<List<Map<String, dynamic>>> fetchChildSessions(
+          String parentSessionId) async =>
+      [];
+
+  @override
+  Future<List<AgentSessionMessage>> fetchChildMessages(
+          String parentSessionId, String childSdkId) async =>
+      [];
+
+  @override
+  Future<AgentSession> forkSession(String sessionId, String messageId) async {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<List<AgentInfo>> fetchAvailableAgents({String? cwd}) async => const [];
+
+  @override
+  Future<String> runShellCommand(String sessionId, String command) async =>
+      'msg-shell-stub';
 }
 
 class _FakeLocalNotificationService extends LocalNotificationService {
@@ -304,8 +348,10 @@ void main() {
     // Wait for AgentConfigsController to load configs.
     await tester.pumpAndSettle();
 
-    // Tap the "New" button to open the dialog.
-    await tester.tap(find.text('New'));
+    // OPC-#710: the primary "New" button now instant-creates a session; the
+    // new-session dialog (this test's subject) opens via the secondary options
+    // button.
+    await tester.tap(find.byKey(const Key('new-session-options-button')));
     await tester.pumpAndSettle();
 
     // Fill in the session name (required to enable Start button).

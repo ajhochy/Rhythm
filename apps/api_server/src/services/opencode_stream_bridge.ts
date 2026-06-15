@@ -100,11 +100,28 @@ export class OpencodeStreamBridge {
   // agent_session_messages history populated.
   private pendingText = new Map<string, string>();
 
-  // Sessions that have already received a session.error event in the
-  // current turn. The SDK fires session.idle right after session.error,
-  // which would clobber the 'closed' status we set on error. Track the
-  // failure and let session.idle skip the status update.
-  private erroredSessions = new Set<string>();
+  // OPC-M1-4: Sessions that have been explicitly stopped (via DELETE or
+  // close). Events arriving for a stopped session are silently dropped —
+  // no WS broadcast, no DB write — so the shared SSE stream can stay alive
+  // without producing ghost events for dead local IDs.
+  //
+  // Note: the old `erroredSessions` Set (which used a 5s setTimeout to
+  // auto-clear) has been removed. Error state is now persisted on the DB
+  // row (status='error', status_message). We detect "already errored" by
+  // reading the DB row status, which survives bridge restarts and never
+  // resets on a timer.
+  private stoppedSessions = new Set<string>();
+
+  // In-memory accumulator for message.part.delta events, keyed by
+  // `${sdkMessageId}:${partId}`. Deltas are written-through to the DB via
+  // applyPartDelta immediately (so a bridge restart loses at most in-flight
+  // deltas). This accumulator is only used to assemble the full text for
+  // the legacy transcript.append broadcast on session.idle.
+  //
+  // Flush points: next message.part.updated for the same part (bridge
+  // receives the authoritative full-text version — accumulator discarded),
+  // message.updated for the same message, or session.idle (turn boundary).
+  private pendingPartDeltas = new Map<string, { sdkMessageId: string; partId: string; text: string }>();
 
   // In-memory map of pending permissions. Key = `${localSessionId}:${permissionId}`.
   // Cleared when the user (or auto-logic) resolves the permission.
@@ -190,14 +207,17 @@ export class OpencodeStreamBridge {
     // Extract the Opencode session ID — different event types nest it
     // differently:
     //   session.*           → properties.sessionID
-    //   message.updated     → properties.info.sessionID
+    //   message.updated     → properties.info.sessionID  (message.info.sessionID)
     //   message.part.updated→ properties.part.sessionID
     //   message.removed     → properties.sessionID
+    //   session.updated     → properties.info.id  (Session.id, not sessionID)
     const props = (event.properties ?? {}) as Record<string, unknown>;
     const propsInfo = props.info as Record<string, unknown> | undefined;
     const propsPart = props.part as Record<string, unknown> | undefined;
     const opencodeSessionId = (props.sessionID ??
       propsInfo?.sessionID ??
+      // session.updated carries Session shape where id = sdk session id
+      propsInfo?.id ??
       propsPart?.sessionID) as string | undefined;
 
     // Look up the local session ID from the opencodeSessionMap.
@@ -210,6 +230,13 @@ export class OpencodeStreamBridge {
           break;
         }
       }
+    }
+
+    // OPC-M1-4: If the local session has been explicitly stopped (via
+    // stopStream), drop all events for it. The shared SSE subscription stays
+    // alive for other sessions in the same directory.
+    if (localSessionId && this.stoppedSessions.has(localSessionId)) {
+      return;
     }
 
     // If no session mapping found, use the event's sessionID as a fallback key
@@ -231,11 +258,12 @@ export class OpencodeStreamBridge {
       case 'message.part.updated': {
         // Forward the full part object to the client so it can mirror
         // Opencode Desktop's `setStore("part", messageID, ...)` pattern —
-        // upsert by part.id keyed under part.messageID. Also keep emitting
-        // the legacy `output` delta for any client still on the old buffer
-        // model (used only for the live preview animation).
+        // upsert by part.id keyed under part.messageID.
+        //
+        // OPC-M1-2 — message.part.updated is the ONLY carrier of part data.
+        // UpdatedEventSchema carries only { sessionID, info } — no parts.
+        // Persist the part into the DB row's parts_json here.
         const part = props?.part as Record<string, unknown> | undefined;
-        const delta = props?.delta as string | undefined;
         if (part) {
           broadcast({
             v: 1,
@@ -243,14 +271,25 @@ export class OpencodeStreamBridge {
             id: eventId,
             part,
           });
-        }
-        if (delta) {
-          broadcast({
-            v: 1,
-            type: 'output',
-            id: eventId,
-            data: delta,
-          });
+
+          // Persist part to DB.
+          if (localSessionId) {
+            const sdkMessageId = part.messageID as string | undefined;
+            if (sdkMessageId) {
+              try {
+                // When part.updated arrives, the authoritative text is in the
+                // part object — discard any in-memory delta accumulator for
+                // this part since the full value supersedes it.
+                const partId = part.id as string | undefined;
+                if (partId) {
+                  this.pendingPartDeltas.delete(`${sdkMessageId}:${partId}`);
+                }
+                this.messagesRepo.upsertPart(localSessionId, sdkMessageId, part);
+              } catch (err) {
+                logger.error('[OpencodeStreamBridge] Failed to persist part:', err);
+              }
+            }
+          }
         }
         break;
       }
@@ -258,16 +297,38 @@ export class OpencodeStreamBridge {
       case 'message.part.delta': {
         // Streaming text delta during an assistant turn. Forward verbatim
         // so the client can append delta into the right part by partID.
+        //
+        // OPC-M1-2 — Write-through delta to DB immediately via applyPartDelta
+        // so a bridge restart loses at most in-flight (unwritten) deltas. The
+        // authoritative full-text arrives later in message.part.updated, which
+        // overwrites the accumulated value, making delta accumulation lossless
+        // across a normal turn.
+        //
+        // Flush points for pendingPartDeltas in-memory accumulator (used only
+        // for the legacy transcript.append broadcast on session.idle):
+        //   1. Next message.part.updated for the same part — full value replaces.
+        //   2. message.updated for the same message — delta discarded.
+        //   3. session.idle — full turn boundary flush.
         const messageID = props?.messageID as string | undefined;
         const partID = props?.partID as string | undefined;
         const field = props?.field as string | undefined;
         const delta = props?.delta as string | undefined;
         if (delta && field === 'text' && localSessionId) {
-          // Keep the accumulator so we can persist assistant turns on idle.
+          // Keep the per-session accumulator so we can persist assistant turns on idle.
           this.pendingText.set(
             localSessionId,
             (this.pendingText.get(localSessionId) ?? '') + delta,
           );
+          // Keep per-part accumulator for structured transcript.
+          if (messageID && partID) {
+            const key = `${messageID}:${partID}`;
+            const existing = this.pendingPartDeltas.get(key);
+            if (existing) {
+              existing.text += delta;
+            } else {
+              this.pendingPartDeltas.set(key, { sdkMessageId: messageID, partId: partID, text: delta });
+            }
+          }
         }
         if (messageID && partID && typeof delta === 'string') {
           broadcast({
@@ -279,6 +340,14 @@ export class OpencodeStreamBridge {
             field: field ?? 'text',
             delta,
           });
+          // Write-through to DB — bounded loss on restart (only unsaved deltas lost).
+          if (localSessionId && field) {
+            try {
+              this.messagesRepo.applyPartDelta(localSessionId, messageID, partID, field, delta);
+            } catch (err) {
+              logger.error('[OpencodeStreamBridge] Failed to apply part delta to DB:', err);
+            }
+          }
         }
         // Keep legacy `output` event for older client builds.
         if (delta && field === 'text') {
@@ -295,6 +364,11 @@ export class OpencodeStreamBridge {
       case 'message.updated': {
         // Forward the full message info so the client can upsert it under
         // its sessionID — same as Opencode Desktop's reducer pattern.
+        //
+        // OPC-M1-2 — IMPORTANT: the real UpdatedEventSchema = { sessionID, info }
+        // carries NO parts field. Parts arrive exclusively via message.part.updated.
+        // We only persist info-level metadata (role, tokens, cost) here and
+        // deliberately preserve any parts_json already accumulated in the DB row.
         const info = props?.info as Record<string, unknown> | undefined;
         if (info) {
           broadcast({
@@ -311,6 +385,31 @@ export class OpencodeStreamBridge {
           id: eventId,
           properties: event.properties ?? {},
         });
+
+        if (localSessionId && info) {
+          try {
+            const sdkMessageId = info.id as string | undefined;
+            const role = info.role as string | undefined;
+            const tokens = (info.tokens ?? null) as Record<string, unknown> | null;
+            const cost = typeof info.cost === 'number' ? info.cost : null;
+
+            if (sdkMessageId && role) {
+              const dbRole: 'output' | 'input' | 'system' =
+                role === 'assistant' ? 'output' : role === 'user' ? 'input' : 'system';
+              // upsertMessageInfo preserves existing parts_json — does NOT clobber
+              // parts accumulated from earlier message.part.updated events.
+              this.messagesRepo.upsertMessageInfo(
+                localSessionId,
+                sdkMessageId,
+                dbRole,
+                tokens != null ? JSON.stringify(tokens) : null,
+                cost,
+              );
+            }
+          } catch (err) {
+            logger.error('[OpencodeStreamBridge] Failed to persist message info:', err);
+          }
+        }
         break;
       }
 
@@ -323,36 +422,93 @@ export class OpencodeStreamBridge {
             id: eventId,
             messageId: messageID,
           });
+          // OPC-M1-2 — Delete the row from the DB.
+          if (localSessionId) {
+            try {
+              this.messagesRepo.deleteBySdkMessageId(localSessionId, messageID);
+            } catch (err) {
+              logger.error('[OpencodeStreamBridge] Failed to delete message row:', err);
+            }
+          }
+        }
+        break;
+      }
+
+      case 'message.part.removed': {
+        const messageID = props?.messageID as string | undefined;
+        const partID = props?.partID as string | undefined;
+        if (messageID && partID) {
+          broadcast({
+            v: 1,
+            type: 'message.part.removed',
+            id: eventId,
+            messageId: messageID,
+            partId: partID,
+          });
+          // OPC-M1-2 — Remove the part from parts_json in the DB.
+          if (localSessionId) {
+            try {
+              this.messagesRepo.removePart(localSessionId, messageID, partID);
+            } catch (err) {
+              logger.error('[OpencodeStreamBridge] Failed to remove part from DB:', err);
+            }
+          }
         }
         break;
       }
 
       case 'session.status': {
-        // status.type tells us busy/idle
+        // status.type tells us busy | idle | retry
         const statusProps = event.properties as Record<string, unknown>;
-        const status = statusProps?.status as { type: string } | undefined;
+        const status = statusProps?.status as { type: string; attempt?: number; message?: string; next?: number } | undefined;
         if (status) {
-          broadcast({
-            v: 1,
-            type: 'session.status',
-            id: eventId,
-            working: status.type === 'busy',
-            status: status.type,
-          });
-          // Persist to DB so the agents list badge moves off "Starting".
-          // Skip the update if the session already errored this turn —
-          // otherwise the SDK's idle event would clobber 'closed'.
-          if (localSessionId && !this.erroredSessions.has(localSessionId)) {
-            try {
-              const dbStatus = status.type === 'busy' ? 'working' : 'idle';
-              this.sessionsRepo.updateStatus(localSessionId, dbStatus);
-              const updated = this.sessionsRepo.findById(localSessionId);
-              if (updated) broadcastSessionUpdated(updated);
-            } catch (err) {
-              logger.error(
-                '[OpencodeStreamBridge] Failed to update session status:',
-                err,
-              );
+          if (status.type === 'retry') {
+            // OPC-M2-4: relay retry as a distinct WS status 'retrying' carrying
+            // attempt count and reason. Do NOT persist to DB (retry is transient;
+            // the session is still in its prior persistent status). Do NOT update
+            // the DB row — idle/busy transitions do that; retry is in-flight.
+            broadcast({
+              v: 1,
+              type: 'session.status',
+              id: eventId,
+              working: true,
+              status: 'retrying',
+              attempt: status.attempt ?? 1,
+              reason: status.message ?? '',
+            });
+            // No DB update for retry — the session status stays at its previous value
+            // (busy/working). The retrying state is surfaced purely in the WS frame.
+          } else {
+            // idle or busy — existing behaviour unchanged.
+            broadcast({
+              v: 1,
+              type: 'session.status',
+              id: eventId,
+              working: status.type === 'busy',
+              status: status.type,
+            });
+            // Persist to DB so the agents list badge moves off "Starting".
+            // OPC-M1-4: Skip the update if the session DB row is already in
+            // status='error' — otherwise the SDK's idle event would clobber
+            // the persisted error state. We read from DB (not an in-memory set)
+            // so the check survives bridge restarts.
+            const currentStatus = (() => {
+              try {
+                return this.sessionsRepo.findById(localSessionId!)?.status;
+              } catch { return undefined; }
+            })();
+            if (localSessionId && currentStatus !== 'error') {
+              try {
+                const dbStatus = status.type === 'busy' ? 'working' : 'idle';
+                this.sessionsRepo.updateStatus(localSessionId, dbStatus);
+                const updated = this.sessionsRepo.findById(localSessionId);
+                if (updated) broadcastSessionUpdated(updated);
+              } catch (err) {
+                logger.error(
+                  '[OpencodeStreamBridge] Failed to update session status:',
+                  err,
+                );
+              }
             }
           }
         }
@@ -366,7 +522,13 @@ export class OpencodeStreamBridge {
           id: eventId,
           working: false,
         });
-        if (localSessionId && !this.erroredSessions.has(localSessionId)) {
+        // OPC-M1-4: Check DB for error status instead of in-memory set.
+        const idleSessionStatus = (() => {
+          try {
+            return localSessionId ? this.sessionsRepo.findById(localSessionId)?.status : undefined;
+          } catch { return undefined; }
+        })();
+        if (localSessionId && idleSessionStatus !== 'error') {
           try {
             this.sessionsRepo.updateStatus(localSessionId, 'idle');
             const updated = this.sessionsRepo.findById(localSessionId);
@@ -377,25 +539,50 @@ export class OpencodeStreamBridge {
               err,
             );
           }
-          // Persist the assembled assistant turn (if any), finalize it into
-          // the Flutter transcript via `transcript.append`, and clear the
-          // pending buffer. Without this broadcast, the streaming delta text
-          // lives only in the Flutter `_liveOutputBuffer` preview and never
-          // appears as a finalized assistant message in the chat history.
+          // Finalize the assistant turn into the Flutter transcript via
+          // `transcript.append` and clear the pending buffer. Without this
+          // broadcast, the streaming delta text lives only in the Flutter
+          // `_liveOutputBuffer` preview and never appears as a finalized
+          // assistant message in the chat history.
+          //
+          // OPC-M1-2: When structured messages are already persisted (from
+          // message.part.updated events), skip the legacy DB append — it would
+          // create a duplicate row. We still broadcast transcript.append so the
+          // Flutter client finalizes the live preview. Legacy sessions (no SDK
+          // message IDs) still use the append path for DB persistence.
           const text = this.pendingText.get(localSessionId);
           if (text && text.length > 0) {
-            try {
-              this.messagesRepo.append(localSessionId, 'output', text, text);
-              this.sessionsRepo.updatePreview(
-                localSessionId,
-                text.slice(0, 200),
-                new Date().toISOString(),
-              );
-            } catch (err) {
-              logger.error(
-                '[OpencodeStreamBridge] Failed to persist assistant turn:',
-                err,
-              );
+            const hasStructured = this.messagesRepo.hasStructuredMessages(localSessionId);
+            if (!hasStructured) {
+              // Legacy path: no structured messages — persist the plain-text row.
+              try {
+                this.messagesRepo.append(localSessionId, 'output', text, text);
+                this.sessionsRepo.updatePreview(
+                  localSessionId,
+                  text.slice(0, 200),
+                  new Date().toISOString(),
+                );
+              } catch (err) {
+                logger.error(
+                  '[OpencodeStreamBridge] Failed to persist assistant turn:',
+                  err,
+                );
+              }
+            } else {
+              // Structured path: raw_text already updated by upsertPart/applyPartDelta.
+              // Just update the session preview from the accumulated text.
+              try {
+                this.sessionsRepo.updatePreview(
+                  localSessionId,
+                  text.slice(0, 200),
+                  new Date().toISOString(),
+                );
+              } catch (err) {
+                logger.error(
+                  '[OpencodeStreamBridge] Failed to update session preview:',
+                  err,
+                );
+              }
             }
             broadcast({
               v: 1,
@@ -405,6 +592,8 @@ export class OpencodeStreamBridge {
               text,
             });
             this.pendingText.delete(localSessionId);
+            // Clear per-part delta accumulators — turn boundary reached.
+            this.pendingPartDeltas.clear();
           } else {
             // Zero tokens streamed this turn — surface as user-visible error (#636)
             broadcast({
@@ -418,6 +607,34 @@ export class OpencodeStreamBridge {
         break;
       }
 
+      case 'session.diff': {
+        // OPC-M3-1: relay session.diff events so the Flutter Changes tab knows
+        // to refetch GET /agent-sessions/:id/diff for the affected session.
+        // The event carries no diff payload itself — the client must call the
+        // REST endpoint to get the full FileDiff array.
+        broadcast({
+          v: 1,
+          type: 'session.diff',
+          id: eventId,
+        });
+        break;
+      }
+
+      case 'todo.updated': {
+        // OPC-M3-5: relay todo.updated events so the Flutter todo panel can
+        // update in real-time without polling. The full todo list is embedded
+        // in the event properties — no REST refetch needed.
+        const todoProps = event.properties as Record<string, unknown>;
+        const todos = todoProps?.todos as Array<unknown> | undefined;
+        broadcast({
+          v: 1,
+          type: 'todo.updated',
+          id: eventId,
+          todos: todos ?? [],
+        });
+        break;
+      }
+
       case 'session.created': {
         broadcast({
           v: 1,
@@ -428,20 +645,44 @@ export class OpencodeStreamBridge {
         break;
       }
 
+      case 'session.updated': {
+        // OPC-#710 — auto-title: opencode emits session.updated after the first
+        // exchange with a generated title in info.title. Map it to the Rhythm
+        // session name, persist it, and broadcast SessionUpdatedMessage so the
+        // Flutter session list updates live without polling.
+        //
+        // NOTE: The SDK session id for routing lives in `properties.info.id`
+        // (NOT in a top-level `properties.sessionID`). The `localSessionId` /
+        // `eventId` resolved above already handles this via the opencodeSessionMap
+        // reverse-lookup on `propsInfo?.sessionID` — but for session.updated the
+        // SDK id is `info.id` (not `info.sessionID`). Re-resolve from info.id
+        // to ensure correct mapping.
+        const updatedInfo = props.info as Record<string, unknown> | undefined;
+        if (updatedInfo && localSessionId) {
+          const title = updatedInfo.title as string | undefined;
+          if (title && title.trim().length > 0) {
+            try {
+              this.sessionsRepo.updateFields(localSessionId, { name: title.trim() });
+              const updated = this.sessionsRepo.findById(localSessionId);
+              if (updated) broadcastSessionUpdated(updated);
+            } catch (err) {
+              logger.error(
+                '[OpencodeStreamBridge] Failed to update session name from session.updated:',
+                err,
+              );
+            }
+          }
+        }
+        break;
+      }
+
       case 'session.error': {
         const errProps = event.properties as Record<string, unknown>;
         const errorInfo = errProps?.error as Record<string, unknown> | undefined;
         const message = extractErrorMessage(errorInfo);
         if (localSessionId) {
-          this.erroredSessions.add(localSessionId);
-          // Clear the failure flag after a short delay so a follow-up
-          // prompt on the same session can transition cleanly.
-          setTimeout(
-            () => this.erroredSessions.delete(localSessionId),
-            5000,
-          ).unref?.();
-          // Flush any partial assistant text accumulated during the turn so
-          // the user sees what arrived before the error. Then drop the
+          // OPC-M1-4: Flush any partial assistant text accumulated during the
+          // turn so the user sees what arrived before the error. Then drop the
           // pending buffer so the follow-up session.idle doesn't re-emit it.
           const partial = this.pendingText.get(localSessionId);
           if (partial && partial.length > 0) {
@@ -461,12 +702,15 @@ export class OpencodeStreamBridge {
           id: eventId,
           message,
         });
-        // Persist the error so the Agents view doesn't spin "Starting"
-        // forever. We can't add a 'failed' status (the type union doesn't
-        // include one without a migration), so we append an error message
-        // and mark the session 'closed'. The UI's session detail view will
-        // render the appended message and the resumable list will surface
-        // the closure.
+        // OPC-M1-4: Persist error state on the DB row (status='error',
+        // status_message=message). This replaces the old in-memory
+        // erroredSessions + 5s setTimeout sentinel:
+        //   - Error state survives bridge restarts (persisted in SQLite).
+        //   - No time-based auto-clear: error clears only on an explicit
+        //     user action (new prompt → ws_gateway calls clearErrorStatus,
+        //     or resume → controller transitions status to 'starting').
+        //   - session.idle after session.error is suppressed by DB check
+        //     (idleSessionStatus === 'error') — no race condition.
         if (localSessionId) {
           try {
             this.messagesRepo.append(
@@ -475,9 +719,9 @@ export class OpencodeStreamBridge {
               `Error: ${message}`,
               `Error: ${message}`,
             );
-            this.sessionsRepo.markClosed(localSessionId);
-            const closed = this.sessionsRepo.findById(localSessionId);
-            if (closed) broadcastSessionUpdated(closed);
+            this.sessionsRepo.setErrorStatus(localSessionId, message);
+            const updated = this.sessionsRepo.findById(localSessionId);
+            if (updated) broadcastSessionUpdated(updated);
           } catch (err) {
             logger.error(
               '[OpencodeStreamBridge] Failed to persist session error:',
@@ -488,21 +732,32 @@ export class OpencodeStreamBridge {
         break;
       }
 
-      case 'permission.asked': {
-        const permProps = event.properties as {
-          sessionID?: string;
+      // Handle BOTH event names. The generated SDK types only declare
+      // `permission.updated` (Permission shape: {id,type,title,metadata}), but
+      // the actual running opencode binary emits `permission.asked` (older
+      // shape: {permissionID,toolName,summary,args}) — confirmed from the live
+      // event trace. Listening for only one name dropped the request and hung
+      // the write forever. Extract fields defensively from either shape.
+      case 'permission.asked':
+      case 'permission.updated': {
+        const perm = event.properties as {
+          id?: string;
           permissionID?: string;
+          type?: string;
           toolName?: string;
-          args?: Record<string, unknown>;
+          sessionID?: string;
+          title?: string;
           summary?: string;
+          metadata?: Record<string, unknown>;
+          args?: Record<string, unknown>;
         };
-        const permissionId = permProps.permissionID;
+        const permissionId = perm.permissionID ?? perm.id;
         if (!permissionId || !localSessionId) break;
 
         const sdkSessionId = opencodeSessionId ?? '';
-        const toolName = permProps.toolName ?? '';
-        const args = permProps.args ?? {};
-        const summary = permProps.summary ?? toolName;
+        const toolName = perm.toolName ?? perm.type ?? '';
+        const args = perm.args ?? perm.metadata ?? {};
+        const summary = perm.summary ?? perm.title ?? toolName;
 
         // Consult the session's permission_mode to decide whether to
         // auto-respond or forward to the user.
@@ -522,10 +777,18 @@ export class OpencodeStreamBridge {
 
         if (shouldAutoAccept || shouldAutoDeny) {
           const decision = shouldAutoAccept ? 'accept' : 'deny';
+          // Pass the session cwd as directory — opencode scopes permissions per
+          // directory; without it the auto-response doesn't unblock the tool.
+          const dir = this.sessionsRepo.findById(localSessionId)?.cwd;
           // Auto-resolve — call the SDK to unblock the agent.
           (async () => {
             try {
-              await opencodeClient.respondPermission(sdkSessionId, permissionId, decision);
+              await opencodeClient.respondPermission(
+                sdkSessionId,
+                permissionId,
+                decision,
+                dir,
+              );
             } catch (err) {
               logger.error(`[OpencodeStreamBridge] Auto-${decision} respondPermission failed:`, err);
             }
@@ -576,10 +839,39 @@ export class OpencodeStreamBridge {
     }
   }
 
-  /** Stop streaming for a session. */
-  stopStream(_sessionId: string): void {
-    // Keep the event stream alive for other sessions.
-    // Only disconnect if explicitly disposed.
+  /**
+   * OPC-M1-4 — Stop relaying events for a specific local session.
+   *
+   * Unregisters the session from the routing/filter map so that any
+   * subsequent SSE events for its SDK session ID are silently dropped —
+   * no WS broadcast and no DB write. The shared SSE subscription for the
+   * directory stays alive so other sessions in the same cwd are unaffected.
+   *
+   * Called by the controller on DELETE /agent-sessions/:id and destroy().
+   */
+  stopStream(localSessionId: string): void {
+    this.stoppedSessions.add(localSessionId);
+    // Also clean up the pending-text accumulator for this session so stale
+    // deltas don't linger in memory after the session is closed.
+    this.pendingText.delete(localSessionId);
+  }
+
+  /**
+   * OPC-M1-4 — Clear error state for a session on an explicit user action.
+   *
+   * Called by the ws_gateway when a session.input frame arrives for a
+   * session that is currently in status='error'. Transitions the DB row to
+   * status='working' and nulls out status_message so the next turn starts
+   * fresh. No-op if the session is not in error state.
+   */
+  clearErrorStatus(localSessionId: string): void {
+    try {
+      this.sessionsRepo.clearErrorStatus(localSessionId);
+      const updated = this.sessionsRepo.findById(localSessionId);
+      if (updated) broadcastSessionUpdated(updated);
+    } catch (err) {
+      logger.error('[OpencodeStreamBridge] Failed to clear error status:', err);
+    }
   }
 
   /** Clean up all streams. */
@@ -588,6 +880,8 @@ export class OpencodeStreamBridge {
       entry.abort.abort();
     }
     this.streamsByDirectory.clear();
+    this.stoppedSessions.clear();
+    this.pendingText.clear();
   }
 }
 

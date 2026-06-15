@@ -17,11 +17,27 @@ All commands delegate to `scripts/run_ai_workflow.py` in this repo.
 ### api_server (Node.js/TypeScript)
 ```bash
 cd apps/api_server
-npm test                  # vitest run — 362 tests across 34 files
+npm test                  # vitest run — 679 tests (as of OPC-M3-6 / issue #699)
 node_modules/.bin/tsc --noEmit   # TypeScript type check (no tsc in global PATH)
 ```
 
 Note: `better-sqlite3` has ABI compatibility issues on some development machines. If tests fail with `NODE_MODULE_VERSION` errors, run `npm rebuild better-sqlite3`.
+
+### Real-server test harness — avoiding undici socket flakes
+
+Many `src/__tests__/*.ts` files spin up a real server with `createApp().listen(0)` and hit it with the global `fetch` (undici). If teardown only calls `server.close()`, undici's pooled keep-alive socket survives; when a later `listen(0)` recycles that ephemeral port, the dead socket is reused → intermittent `UND_ERR_SOCKET` "other side closed" (load-dependent, passes on isolated re-run). Prevent it in the harness:
+
+```ts
+const server = createApp().listen(0);
+server.maxRequestsPerSocket = 1;          // server sends `Connection: close`; undici never pools
+// ...
+const closeServer = () => new Promise<void>((res, rej) => {
+  server.closeAllConnections();           // destroy any in-flight sockets
+  server.close((e) => (e ? rej(e) : res()));
+});
+```
+
+`undici` is not a direct dependency (it backs Node's built-in `fetch`), so `setGlobalDispatcher`/`Agent` are unavailable — this server-side approach is the dependency-free fix. Applied in `agent_configs_routes.test.ts`; other harness files share the same pattern and risk.
 
 ### desktop_flutter (Flutter/Dart)
 ```bash
@@ -41,6 +57,20 @@ dart format . --set-exit-if-changed # CI fails on format violations
 | `src/services/recurrence_service.test.ts` | Rhythm/recurrence generation logic |
 | `src/__tests__/weekly_planning_service.test.ts` | Weekly planner assembly |
 | `src/__tests__/workspace.test.ts` | Workspace join/share/message flows |
+| `src/__tests__/opc_m3_1_changes_tab_diff.test.ts` | OPC-M3-1: GET /session/{id}/diff via typed SDK wrapper (c1a–c1c) |
+| `src/__tests__/opc_m3_2_revert_unrevert.test.ts` | OPC-M3-2: POST /session/{id}/revert + unrevert route contracts (c1a–c1f) |
+| `src/__tests__/opc_m3_3_compaction.test.ts` | OPC-M3-3: POST /session/{id}/summarize route contract + SDK error→AppError (c1a–c1c) |
+| `src/__tests__/opc_m3_4_command_dispatch.test.ts` | OPC-M3-4: session.command WS frame → handleCommandFrame → dispatchCommand (c1a–c1c) |
+| `test/features/agents/opc_m3_1_changes_tab_test.dart` | OPC-M3-1: ChangesTab widget (c2–c5), WS event → fetchSessionDiff |
+| `test/features/agents/opc_m3_2_revert_test.dart` | OPC-M3-2: MessageActionsRow revert button, RevertRestoreBanner, controller revert state (c2–c5); includes REAL-SURFACE test (c2a) |
+| `test/features/agents/opc_m3_3_compaction_test.dart` | OPC-M3-3: TranscriptHeader overflow menu "Compact session" + spinner, CompactionDivider, ContextUsageHint (c2–c5); includes REAL-SURFACE test (c2a/b) |
+| `test/features/agents/opc_m3_4_command_dispatch_test.dart` | OPC-M3-4: sendCommand WS frame dispatch, _sendInput routing (known vs unknown command), role='command' optimistic message (c2a/b REAL-SURFACE, c3–c5) |
+| `src/__tests__/opc_m3_5_todo_panel.test.ts` | OPC-M3-5: GET /:id/todo route (no mapping → [], real shape, SDK error → 502); bridge relay todo.updated → WS broadcast (c1–c2) |
+| `test/features/agents/opc_m3_5_todo_panel_test.dart` | OPC-M3-5: TodoPanel in SessionSidePanel (c3a REAL-SURFACE, c3b empty→hidden, c4a/b WS session-keyed isolation, c5a header count, c5b checkbox states, c6a/b collapse persistence) |
+| `src/__tests__/opc_m3_6_child_sessions.test.ts` | OPC-M3-6: GET /:id/children (no mapping → [], SDK listChildren); GET /:id/children/:childSdkId/messages (role mapping user→input/assistant→output, 404 on missing parent) (c1a–c1b, 7 tests) |
+| `test/features/agents/opc_m3_6_child_sessions_test.dart` | OPC-M3-6: TaskChip tap → ChildTranscriptView (c2a REAL-SURFACE), openChildSession fetches messages (c2b), closeChildSession no-refetch (c3), ChildTranscriptView read-only (c4), children not in sidebar lists (c5), ToolState regression (c6) |
+| `src/__tests__/opc_instant_new_session.test.ts` | #710: bridge session.updated → updateFields + broadcastSessionUpdated (c2a), empty title skipped (c2b), server accepts null/empty agentId (c4) |
+| `test/features/agents/opc_instant_new_session_test.dart` | #710: c1 REAL-SURFACE header tap → onNewSession no dialog; c1-controller empty name default; c3 handleWsMessageForTest → session name updated; c4 empty name → "New session" placeholder; c5 ⋯ button → onOptionsPressed |
 
 ## Mocking the Opencode engine in tests
 

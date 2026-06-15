@@ -2,9 +2,12 @@
 
 ## Status
 
-Active. **Replaces** the PR #617 bug-fix sprint plan (completed; preserved in git history).
-Planning-only run: this document + `docs/ai/generated-issues/opencode-m*-*.md`.
-No implementation in this run. GitHub issues will be created by the orchestrator after review.
+**COMPLETE (2026-06-13).** All four milestones (M1–M4, issues #685–#703, 19 issues) implemented
+on branch `opc-m1-foundation` / **PR #706** (per user decision to stack everything on one PR and
+smoke once, overriding the per-issue-PR / per-milestone-smoke strategy below). vitest 702/702,
+flutter test 426/426, `ai-workflow checks --level pr` exit 0. Awaiting human manual smoke + merge.
+
+_(Originally a planning-only run that replaced the PR #617 bug-fix sprint plan.)_
 
 ## Goal (one sentence)
 

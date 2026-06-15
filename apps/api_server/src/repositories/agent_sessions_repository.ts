@@ -12,7 +12,10 @@ interface AgentSessionRow {
   task_title: string | null;
   agent_kind: string;
   status: string;
+  status_message: string | null;
   session_token: string | null;
+  /** OPC-M1-5: Opencode SDK session id for resume re-attachment. */
+  sdk_session_id: string | null;
   cwd: string;
   name: string;
   project_id: string | null;
@@ -36,7 +39,9 @@ function rowToModel(row: AgentSessionRow): AgentSession {
     taskTitle: row.task_title ?? null,
     agentKind: row.agent_kind as AgentSession['agentKind'],
     status: row.status as AgentSessionStatus,
+    statusMessage: row.status_message ?? null,
     sessionToken: row.session_token,
+    sdkSessionId: row.sdk_session_id ?? null,
     cwd: row.cwd,
     name: row.name,
     projectId: row.project_id ?? null,
@@ -163,6 +168,20 @@ export class AgentSessionsRepository {
       .run(token, now, id);
   }
 
+  /**
+   * OPC-M1-5 — Store the Opencode SDK session id for resume re-attachment.
+   * Called at session create time so resume() can look up the SDK session
+   * without calling createSession() again.
+   */
+  setSdkSessionId(id: string, sdkSessionId: string): void {
+    const now = new Date().toISOString();
+    getDb()
+      .prepare(
+        `UPDATE agent_sessions SET sdk_session_id = ?, updated_at = ? WHERE id = ?`,
+      )
+      .run(sdkSessionId, now, id);
+  }
+
   updatePreview(id: string, preview: string, lastActivityAt: string): void {
     const now = new Date().toISOString();
     getDb()
@@ -174,6 +193,34 @@ export class AgentSessionsRepository {
 
   markClosed(id: string): void {
     this.updateStatus(id, 'closed');
+  }
+
+  /**
+   * OPC-M1-4 — Persist error state on the session row.
+   * Replaces the in-memory setTimeout sentinel: error is now durable and
+   * survives bridge restarts. Clearing happens only on an explicit user action.
+   */
+  setErrorStatus(id: string, message: string): void {
+    const now = new Date().toISOString();
+    getDb()
+      .prepare(
+        `UPDATE agent_sessions SET status = 'error', status_message = ?, updated_at = ? WHERE id = ?`,
+      )
+      .run(message, now, id);
+  }
+
+  /**
+   * OPC-M1-4 — Clear error state on explicit user action (new prompt / resume).
+   * Transitions status to 'working' and nulls out status_message.
+   * No-op if the session is not in status='error'.
+   */
+  clearErrorStatus(id: string): void {
+    const now = new Date().toISOString();
+    getDb()
+      .prepare(
+        `UPDATE agent_sessions SET status = 'working', status_message = NULL, updated_at = ? WHERE id = ? AND status = 'error'`,
+      )
+      .run(now, id);
   }
 
   /** Hard-delete a single session row. Foreign-key cascade removes messages. */

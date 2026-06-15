@@ -4,11 +4,15 @@
 // declarations provide what OpencodeClientService needs without requiring
 // TypeScript to resolve the SDK's module graph.
 //
-// Based on @opencode-ai/sdk v0.x — types.gen.d.ts SDK-generated types.
+// hey-api envelope model: every generated SDK method returns
+//   Promise<{ data?: T; error?: unknown }>
+// (ThrowOnError=false default — verified in sdk.gen.ts v1.14.49).
+// All method signatures below follow that contract exactly.
 
 declare module '@opencode-ai/sdk' {
   export function createOpencode(options?: Record<string, unknown>): Promise<{
     client: OpencodeClient;
+    server: { url: string; close(): void };
   }>;
 
   export function createOpencodeClient(config?: {
@@ -22,6 +26,13 @@ declare module '@opencode-ai/sdk' {
     type: 'api';
     key: string;
     metadata?: Record<string, string>;
+  };
+
+  export type OAuthAuth = {
+    type: 'oauth';
+    access: string;
+    refresh: string;
+    expires: number;
   };
 
   export type OAuth = {
@@ -79,7 +90,41 @@ declare module '@opencode-ai/sdk' {
     result?: unknown;
   };
 
-  export type Part = TextPart | ReasoningPart | ToolPart;
+  /**
+   * OPC-M3-3 — CompactionPart (v1.14.49 types.gen.d.ts).
+   * Emitted by the SDK as a message.part.updated event after a summarize call.
+   * `auto: false` for manual summarize (triggered by the user); `true` for
+   * automatic compaction when the session exceeds the context window.
+   */
+  export type CompactionPart = {
+    id: string;
+    sessionID: string;
+    messageID: string;
+    type: 'compaction';
+    auto: boolean;
+  };
+
+  export type Part = TextPart | ReasoningPart | ToolPart | CompactionPart;
+
+  // ── Input part types (used in prompt / promptAsync request body) ──
+
+  /**
+   * OPC-M4-1 — FilePartInput for multimodal prompts.
+   * `url` carries a data URI: `data:<mime>;base64,<payload>`.
+   * Verified against @opencode-ai/sdk v1.14.49 FilePartInput interface.
+   */
+  export type FilePartInput = {
+    id?: string;
+    type: 'file';
+    mime: string;
+    filename?: string;
+    url: string; // data:<mime>;base64,<payload>
+  };
+
+  /** Union of all valid input part types for the prompt body. */
+  export type PartInput =
+    | { type: 'text'; text: string }
+    | FilePartInput;
 
   // ── Message types ──
 
@@ -89,6 +134,32 @@ declare module '@opencode-ai/sdk' {
     role: 'user' | 'assistant';
     parts: Array<Part>;
     time: { created: number };
+  };
+
+  /**
+   * AssistantMessage — the return type of session.shell (and other SDK methods
+   * that create a message and return its metadata).
+   * Verified against @opencode-ai/sdk dist/gen/types.gen.d.ts (v1.14.49).
+   * OPC-M1-6 / issue #709.
+   */
+  export type AssistantMessage = {
+    id: string;
+    sessionID: string;
+    role: 'assistant';
+    time: { created: number; completed?: number };
+    parentID: string;
+    modelID: string;
+    providerID: string;
+    mode: string;
+    cost: number;
+    tokens: {
+      input: number;
+      output: number;
+      reasoning: number;
+      cache: { read: number; write: number };
+    };
+    finish?: string;
+    summary?: boolean;
   };
 
   // ── Event types ──
@@ -104,6 +175,11 @@ declare module '@opencode-ai/sdk' {
   export type EventMessageUpdated = {
     type: 'message.updated';
     properties: {
+      sessionID: string;
+      /**
+       * Message metadata only. UpdatedEventSchema = { sessionID, info } —
+       * there is NO parts field here. Parts arrive via message.part.updated.
+       */
       info: Message;
     };
   };
@@ -113,6 +189,15 @@ declare module '@opencode-ai/sdk' {
     properties: {
       sessionID: string;
       messageID: string;
+    };
+  };
+
+  export type EventMessagePartRemoved = {
+    type: 'message.part.removed';
+    properties: {
+      sessionID: string;
+      messageID: string;
+      partID: string;
     };
   };
 
@@ -162,6 +247,14 @@ declare module '@opencode-ai/sdk' {
     };
   };
 
+  // OPC-M3-1: emitted by opencode when working-tree diffs change for a session.
+  export type EventSessionDiff = {
+    type: 'session.diff';
+    properties: {
+      sessionID: string;
+    };
+  };
+
   export type EventFileEdited = {
     type: 'file.edited';
     properties: {
@@ -171,14 +264,69 @@ declare module '@opencode-ai/sdk' {
 
   // ── Permission event ──
 
+  /**
+   * Real SDK permission shape (v1.14.49 types.gen.d.ts `Permission`). The
+   * `type` field is the tool/permission kind; `title` is the human summary;
+   * `metadata` carries the tool args. There is NO `permission.asked` event —
+   * the SDK emits `permission.updated` with this payload.
+   */
+  export type Permission = {
+    id: string;
+    type: string;
+    pattern?: string | Array<string>;
+    sessionID: string;
+    messageID: string;
+    callID?: string;
+    title: string;
+    metadata: Record<string, unknown>;
+    time: { created: number };
+  };
+
+  export type EventPermissionUpdated = {
+    type: 'permission.updated';
+    properties: Permission;
+  };
+
+  /**
+   * The RUNNING opencode binary emits `permission.asked` (confirmed from the
+   * live event trace) even though the generated sdk.gen types only declare
+   * `permission.updated`. Older payload shape: flat permissionID/toolName/etc.
+   * The bridge handles both names + both shapes defensively.
+   */
   export type EventPermissionAsked = {
     type: 'permission.asked';
     properties: {
-      sessionID: string;
-      permissionID: string;
-      toolName: string;
+      sessionID?: string;
+      permissionID?: string;
+      toolName?: string;
       args?: Record<string, unknown>;
       summary?: string;
+    };
+  };
+
+  // OPC-M3-5: emitted by opencode when the todo list for a session changes.
+  export type EventTodoUpdated = {
+    type: 'todo.updated';
+    properties: {
+      sessionID: string;
+      todos: Todo[];
+    };
+  };
+
+  /**
+   * OPC-#710 — emitted by opencode after the first exchange when it auto-titles
+   * the session. `properties.info` is the full Session shape (which includes
+   * `title`). Verified against @opencode-ai/sdk dist/gen/types.gen.d.ts
+   * (SessionUpdatedEvent, v1.14.49).
+   *
+   * NOTE: the sessionID for routing is nested inside `info.id` (the SDK session
+   * id), NOT in a top-level `properties.sessionID`. The bridge must extract
+   * `props.info.id` to look up the local session.
+   */
+  export type EventSessionUpdated = {
+    type: 'session.updated';
+    properties: {
+      info: Session;
     };
   };
 
@@ -187,12 +335,17 @@ declare module '@opencode-ai/sdk' {
     | EventMessagePartDelta
     | EventMessageUpdated
     | EventMessageRemoved
+    | EventMessagePartRemoved
     | EventSessionStatus
     | EventSessionIdle
     | EventSessionCreated
+    | EventSessionUpdated
     | EventSessionError
+    | EventSessionDiff
     | EventFileEdited
-    | EventPermissionAsked;
+    | EventPermissionUpdated
+    | EventPermissionAsked
+    | EventTodoUpdated;
 
   // ── Provider types ──
 
@@ -202,90 +355,317 @@ declare module '@opencode-ai/sdk' {
     instructions: string;
   };
 
-  // ── OpencodeClient ──
+  // ── File diff type (v1.14.49) ──
+
+  export type FileDiff = {
+    file: string;
+    before: string;
+    after: string;
+    additions: number;
+    deletions: number;
+  };
+
+  // ── Todo type (v1.14.49) ──
+
+  export type Todo = {
+    id: string;
+    content: string;
+    status: string;
+    priority: string;
+  };
+
+  // ── MCP status types (v1.14.49) ──
+
+  export type McpStatusEntry = {
+    /** 'connected' | 'disconnected' | 'failed' | 'disabled' | 'needs_auth' | … */
+    status: string;
+    /** Present when status === 'failed' */
+    error?: string;
+    [key: string]: unknown;
+  };
+
+  /** Body shape for POST /mcp (add server). */
+  export type McpLocalConfigInput = {
+    type: 'local';
+    command: string[];
+    environment?: Record<string, string>;
+    enabled?: boolean;
+  };
+
+  export type McpRemoteConfigInput = {
+    type: 'remote';
+    url: string;
+    enabled?: boolean;
+    headers?: Record<string, string>;
+  };
+
+  // ── hey-api envelope alias ──
+  // Every generated SDK method returns Promise<SdkEnvelope<T>>.
+  // When the SDK is compiled with the `fields` option (hey-api >=0.73),
+  // the underlying HTTP Response object is attached as `response` on the
+  // envelope. This is present for all successful calls, including 204 void
+  // responses where `data` is undefined. Used in #711 to distinguish a
+  // genuine 204 No Content success from an OpenRouter silent no-op ({}).
+  export type SdkEnvelope<T> = { data?: T; error?: unknown; response?: { status?: number } };
 
   export interface OpencodeClient {
     config: {
-      providers(): Promise<{
+      providers(): Promise<SdkEnvelope<{
         providers?: Array<{
           id: string;
-          models?: Array<{ id: string; name?: string }>;
+          models?:
+            | Array<{ id: string; name?: string; limit?: { context?: number; output?: number } }>
+            | Record<string, { id?: string; name?: string; limit?: { context?: number; output?: number } }>;
         }>;
-      }>;
+      }>>;
     };
     session: {
-      list(): Promise<Array<Session>>;
+      list(): Promise<SdkEnvelope<Array<Session>>>;
       create(options: {
         body: { parentID?: string; title?: string };
         query?: { directory?: string };
-      }): Promise<Session>;
+      }): Promise<SdkEnvelope<Session>>;
       prompt(options: {
         path: { id: string };
         body: {
           messageID?: string;
           model?: { providerID: string; modelID: string };
-          parts: Array<{ type: 'text'; text: string }>;
+          parts: Array<PartInput>;
           system?: string;
         };
         query?: { directory?: string };
-      }): Promise<{ info: Message; parts: Array<Part> }>;
+      }): Promise<SdkEnvelope<{ info: Message; parts: Array<Part> }>>;
       promptAsync(options: {
         path: { id: string };
         body: {
           messageID?: string;
           model?: { providerID: string; modelID: string };
-          parts: Array<{ type: 'text'; text: string }>;
+          parts: Array<PartInput>;
           system?: string;
+          /**
+           * #714 — reasoning/thinking configuration for the opencode server.
+           *
+           * Confirmed against the opencode v1.14.40 binary (Ih zod schema):
+           *   reasoningConfig: { type, budgetTokens, maxReasoningEffort, display }
+           *
+           * For the anthropic provider: set type:'enabled' + budgetTokens to
+           * enable extended thinking. The older `thinking: { budget_tokens }` field
+           * (snake_case) is NOT recognized by the server and is silently dropped.
+           */
+          reasoningConfig?: {
+            type?: 'enabled' | 'disabled' | 'adaptive';
+            budgetTokens?: number;
+            maxReasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+            display?: 'omitted' | 'summarized';
+          };
         };
         query?: { directory?: string };
-      }): Promise<void>;
+      }): Promise<SdkEnvelope<void>>;
       status(options?: {
         query?: { directory?: string };
-      }): Promise<Record<string, SessionStatus>>;
-      get(options: { path: { id: string } }): Promise<Session>;
-      delete(options: { path: { id: string } }): Promise<void>;
+      }): Promise<SdkEnvelope<Record<string, SessionStatus>>>;
+      get(options: { path: { id: string } }): Promise<SdkEnvelope<Session>>;
+      delete(options: { path: { id: string } }): Promise<SdkEnvelope<void>>;
       messages(options: {
         path: { id: string };
-      }): Promise<Array<Message>>;
-      abort(options: { path: { id: string } }): Promise<void>;
+      }): Promise<SdkEnvelope<Array<Message>>>;
+      abort(options: {
+        path: { id: string };
+        query?: { directory?: string };
+      }): Promise<SdkEnvelope<void>>;
       /**
-       * Respond to a pending permission request.
-       * `permissionID` is the ID from the `permission.asked` event.
+       * GET /session/{id}/diff — returns a list of file diffs for the session.
+       * Real SDK method name verified in sdk.gen.ts v1.14.49.
        */
-      permission?: {
-        respond(options: {
-          path: { id: string; permissionId: string };
-          body: { decision: 'accept' | 'deny' };
-        }): Promise<void>;
-      };
+      diff(options: {
+        path: { id: string };
+        query?: { directory?: string; messageID?: string };
+      }): Promise<SdkEnvelope<Array<FileDiff>>>;
+      /**
+       * POST /session/{id}/command — dispatch a slash command in the session.
+       * Real SDK method name verified in sdk.gen.ts v1.14.49.
+       */
+      command(options: {
+        path: { id: string };
+        body: {
+          command: string;
+          arguments: string;
+          messageID?: string;
+          agent?: string;
+          model?: string;
+        };
+        query?: { directory?: string };
+      }): Promise<SdkEnvelope<{ info: Message; parts: Array<Part> }>>;
+      /**
+       * POST /session/{id}/revert — revert to a prior message.
+       */
+      revert(options: {
+        path: { id: string };
+        body: { messageID: string; partID?: string };
+        query?: { directory?: string };
+      }): Promise<SdkEnvelope<Session>>;
+      /**
+       * POST /session/{id}/unrevert — restore all reverted messages.
+       */
+      unrevert(options: {
+        path: { id: string };
+        query?: { directory?: string };
+      }): Promise<SdkEnvelope<Session>>;
+      /**
+       * POST /session/{id}/summarize — summarize the session.
+       */
+      summarize(options: {
+        path: { id: string };
+        body?: { providerID: string; modelID: string };
+        query?: { directory?: string };
+      }): Promise<SdkEnvelope<boolean>>;
+      /**
+       * GET /session/{id}/todo — get the todo list for the session.
+       */
+      todo(options: {
+        path: { id: string };
+        query?: { directory?: string };
+      }): Promise<SdkEnvelope<Array<Todo>>>;
+      /**
+       * POST /session/{id}/fork — fork the session at a message.
+       */
+      fork(options: {
+        path: { id: string };
+        body?: { messageID?: string };
+        query?: { directory?: string };
+      }): Promise<SdkEnvelope<Session>>;
+      /**
+       * GET /session/{id}/children — list child sessions.
+       */
+      children(options: {
+        path: { id: string };
+        query?: { directory?: string };
+      }): Promise<SdkEnvelope<Array<Session>>>;
+      /**
+       * POST /session/{id}/shell — run a one-shot shell command in the session.
+       *
+       * Real SDK shape verified in @opencode-ai/sdk dist/gen/types.gen.d.ts
+       * (SessionShellData, v1.14.49):
+       *   body: { agent: string; model?: { providerID, modelID }; command: string }
+       * Returns AssistantMessage on success.
+       * OPC-M1-6 / issue #709.
+       */
+      shell(options: {
+        path: { id: string };
+        body: {
+          agent: string;
+          model?: { providerID: string; modelID: string };
+          command: string;
+        };
+        query?: { directory?: string };
+      }): Promise<SdkEnvelope<AssistantMessage>>;
     };
+    /**
+     * MCP server management — client.mcp in sdk.gen.ts v1.14.49.
+     */
+    mcp: {
+      /** GET /mcp — status map keyed by server name. */
+      status(options?: {
+        query?: { directory?: string };
+      }): Promise<SdkEnvelope<Record<string, McpStatusEntry>>>;
+      /** POST /mcp — add a new MCP server dynamically (OPC-M4-3). */
+      add(options?: {
+        body?: {
+          name: string;
+          config: McpLocalConfigInput | McpRemoteConfigInput;
+        };
+        query?: { directory?: string };
+      }): Promise<SdkEnvelope<Record<string, McpStatusEntry>>>;
+      /** POST /mcp/{name}/connect */
+      connect(options: {
+        path: { name: string };
+        query?: { directory?: string };
+      }): Promise<SdkEnvelope<boolean>>;
+      /** POST /mcp/{name}/disconnect */
+      disconnect(options: {
+        path: { name: string };
+        query?: { directory?: string };
+      }): Promise<SdkEnvelope<boolean>>;
+    };
+    /**
+     * POST /session/{id}/permissions/{permissionID}
+     * Top-level method on OpencodeClient in sdk.gen.ts v1.14.49.
+     * Method name: postSessionIdPermissionsPermissionId
+     */
+    postSessionIdPermissionsPermissionId(options: {
+      path: { id: string; permissionID: string };
+      body?: { response: 'once' | 'always' | 'reject' };
+      query?: { directory?: string };
+    }): Promise<SdkEnvelope<boolean>>;
     provider: {
-      list(): Promise<Array<{ id: string }>>;
-      auth(): Promise<Array<{ id: string; methods: Array<unknown> }>>;
+      list(): Promise<SdkEnvelope<Array<{ id: string }>>>;
+      auth(): Promise<SdkEnvelope<Array<{ id: string; methods: Array<unknown> }>>>;
       oauth: {
         authorize(options: {
           path: { id: string };
           body: { method: number };
           query?: { directory?: string };
-        }): Promise<ProviderAuthAuthorization>;
+        }): Promise<SdkEnvelope<ProviderAuthAuthorization>>;
         callback(options: {
           path: { id: string };
           body: { method: number; code?: string };
           query?: { directory?: string };
-        }): Promise<boolean>;
+        }): Promise<SdkEnvelope<boolean>>;
       };
     };
     auth: {
       set(options: {
         path: { id: string };
-        body: ApiAuth;
+        body: ApiAuth | OAuthAuth;
         query?: { directory?: string };
-      }): Promise<boolean>;
+      }): Promise<SdkEnvelope<boolean>>;
     };
     event: {
+      // NOTE: event.subscribe is the ONE endpoint that does NOT use the
+      // hey-api { data, error } envelope. The real SDK returns a
+      // ServerSentEventsResult = `{ stream: AsyncGenerator<Event> }` directly
+      // (dist/gen/core/serverSentEvents.gen.d.ts, v1.14.49). Wrapping it in
+      // SdkEnvelope was wrong and made subscribeToEvents always see a missing
+      // `.data` → "No event stream available".
       subscribe(options?: { query?: { directory?: string } }): Promise<{
         stream: AsyncIterable<Event>;
       }>;
     };
+    command: {
+      list(options?: { query?: { directory?: string } }): Promise<
+        SdkEnvelope<Array<{ name: string; description?: string }>>
+      >;
+    };
+    /**
+     * OPC-M4-4 — "List all agents" lives under the `app` namespace in the real
+     * SDK: `client.app.agents(...)` (v1.14.49 sdk.gen.d.ts class App). It was
+     * previously (and wrongly) declared as a top-level `client.agents(...)`,
+     * which threw `client.agents is not a function` at runtime.
+     * The optional `directory` query param scopes results to that cwd.
+     */
+    app: {
+      agents(options?: { query?: { directory?: string } }): Promise<
+        SdkEnvelope<Array<SdkAgent>>
+      >;
+    };
   }
+
+  /**
+   * OPC-M4-4 — Agent descriptor returned by GET /agent.
+   * Mirrors @opencode-ai/sdk types.gen.d.ts `Agent` type (v1.14.49).
+   */
+  export type SdkAgent = {
+    name: string;
+    description?: string;
+    /** 'subagent' | 'primary' | 'all' */
+    mode: string;
+    builtIn: boolean;
+    color?: string;
+    model?: { modelID: string; providerID: string };
+    permission?: {
+      edit?: string;
+      bash?: Record<string, string>;
+      webfetch?: string;
+    };
+  };
 }

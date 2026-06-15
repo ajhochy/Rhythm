@@ -16,6 +16,7 @@ class CatalogModelEntry {
     required this.authorized,
     required this.authProvider,
     this.connectUrl,
+    this.contextLimit,
   });
 
   /// Agent kind (e.g. 'claude-code', 'codex', 'gemini-cli', 'opencode').
@@ -46,6 +47,12 @@ class CatalogModelEntry {
   /// Non-null for most rows; may be null if the server has no connect path.
   final String? connectUrl;
 
+  /// Issue #718 — Context window size in tokens for this model, as reported by
+  /// the opencode SDK's `config.providers()` → `model.limit.context` field.
+  /// Null when the SDK did not supply a limit for this model (caller should
+  /// fall back to a default, e.g. 200k).
+  final int? contextLimit;
+
   bool get isDirect => route == 'direct';
   bool get isAggregator => route == 'aggregator';
 
@@ -61,6 +68,7 @@ class CatalogModelEntry {
       authorized: json['authorized'] as bool? ?? false,
       authProvider: json['authProvider'] as String? ?? '',
       connectUrl: json['connectUrl'] as String?,
+      contextLimit: json['contextLimit'] as int?,
     );
   }
 

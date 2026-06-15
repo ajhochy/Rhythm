@@ -9,9 +9,16 @@ import '../models/agent_model_route.dart';
 import '../models/catalog_model_entry.dart';
 
 class AgentModelsDataSource {
-  AgentModelsDataSource() : _baseUrl = AppConstants.agentLocalBaseUrl;
+  AgentModelsDataSource({http.Client? client})
+      : _baseUrl = AppConstants.agentLocalBaseUrl,
+        _client = client ?? http.Client();
 
   final String _baseUrl;
+
+  // Injectable so the catalog→picker flow can be exercised end-to-end against a
+  // fake backend (see opc_openrouter_curation_picker_test.dart). Defaults to a
+  // real client in production.
+  final http.Client _client;
 
   /// Fetches the catalogue of available (provider, model, routeKind) rows for
   /// [agentId]. Only authed providers are returned by the server.
@@ -22,7 +29,8 @@ class AgentModelsDataSource {
       final uri = Uri.parse(
         '$_baseUrl/agents/models',
       ).replace(queryParameters: {'agentId': agentId});
-      final response = await http.get(uri, headers: AuthSessionStore.headers());
+      final response =
+          await _client.get(uri, headers: AuthSessionStore.headers());
       assertOk(response);
       final list = jsonDecode(response.body) as List<dynamic>;
       return list
@@ -42,7 +50,8 @@ class AgentModelsDataSource {
   Future<List<CatalogModelEntry>> fetchCatalog() async {
     try {
       final uri = Uri.parse('$_baseUrl/agents/models/catalog');
-      final response = await http.get(uri, headers: AuthSessionStore.headers());
+      final response =
+          await _client.get(uri, headers: AuthSessionStore.headers());
       assertOk(response);
       final list = jsonDecode(response.body) as List<dynamic>;
       return list
@@ -59,7 +68,7 @@ class AgentModelsDataSource {
     String providerId,
     String modelId,
   ) async {
-    final response = await http.patch(
+    final response = await _client.patch(
       Uri.parse('$_baseUrl/agent-sessions/$sessionId'),
       headers: AuthSessionStore.headers(json: true),
       body: jsonEncode({'providerId': providerId, 'modelId': modelId}),

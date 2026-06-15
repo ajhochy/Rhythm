@@ -1,0 +1,19 @@
+{
+  "_comment": "Real v1.14.49 message.part.updated event for a ReasoningPart. ReasoningPart from message-v2.ts: id, sessionID, messageID, type, text, time{start,end?}.",
+  "type": "message.part.updated",
+  "properties": {
+    "sessionID": "ses_abc123",
+    "time": 1718000002000,
+    "part": {
+      "id": "part_reasoning_001",
+      "sessionID": "ses_abc123",
+      "messageID": "msg_abc001",
+      "type": "reasoning",
+      "text": "I need to analyze the code carefully.",
+      "time": {
+        "start": 1718000000100,
+        "end": 1718000002000
+      }
+    }
+  }
+}

@@ -1,0 +1,63 @@
+{
+  "issue": 689,
+  "generated": "2026-06-12",
+  "criteria": [
+    {
+      "criterion_id": "issue-689-c1",
+      "text": "POST create persists sdk_session_id; vitest asserts the row value equals the mocked SDK session id.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/opc_m1_5_resume_contract.test.ts",
+      "test_id": "issue-689-c1: POST create persists sdk_session_id matching mocked SDK id",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-689-c2",
+      "text": "resume() on a session with a live SDK session re-maps opencodeSessionMap and does NOT call createSession (spy: zero create calls).",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/opc_m1_5_resume_contract.test.ts",
+      "test_id": "issue-689-c2: resume() re-attaches via sdk_session_id without calling createSession",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-689-c3",
+      "text": "After resume, a WS session.input routes the prompt to the ORIGINAL sdk id (spy on prompt/promptAsync args).",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/opc_m1_5_resume_contract.test.ts",
+      "test_id": "issue-689-c3: after resume WS session.input routes to original SDK session id",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-689-c4",
+      "text": "resume() when the SDK reports the session missing returns HTTP 410 naming the session; no map entry created.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/opc_m1_5_resume_contract.test.ts",
+      "test_id": "issue-689-c4: resume() returns 410 when SDK session gone; no map entry",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-689-c5",
+      "text": "Flutter: resuming triggers exactly one messages rehydrate fetch and renders prior parts (controller test with fakes).",
+      "mode": "unit",
+      "test_file": "apps/desktop_flutter/test/features/agents/opc_m1_5_resume_test.dart",
+      "test_id": "issue-689-c5: resume triggers one rehydrate fetch and populates chatMessages",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-689-c6",
+      "text": "Flutter: 410 surfaces the start-fresh affordance (widget/controller test).",
+      "mode": "unit",
+      "test_file": "apps/desktop_flutter/test/features/agents/opc_m1_5_resume_test.dart",
+      "test_id": "issue-689-c6: 410 response surfaces start-fresh affordance in controller state",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-689-c7",
+      "text": "ai-workflow checks --level pr exits 0 (manual/gate-level in JSON).",
+      "mode": "manual",
+      "status": "pending",
+      "reason": "Gate-level check — runs flutter analyze, dart format, tsc, and vitest. Verified by the coding-agent as the final step before committing."
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": ["issue-689-c7"]
+}

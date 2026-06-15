@@ -11,14 +11,20 @@ import '../../../app/core/utils/http_utils.dart';
 import '../models/agent_model_route.dart';
 
 class AgentModelVisibilityDataSource {
-  AgentModelVisibilityDataSource() : _baseUrl = AppConstants.agentLocalBaseUrl;
+  AgentModelVisibilityDataSource({http.Client? client})
+      : _baseUrl = AppConstants.agentLocalBaseUrl,
+        _client = client ?? http.Client();
 
   final String _baseUrl;
+
+  // Injectable so the curation→picker flow can be tested end-to-end against a
+  // fake backend. Defaults to a real client in production.
+  final http.Client _client;
 
   /// Fetches existing visibility rows from the server.
   Future<List<AgentModelVisibility>> fetchVisibility() async {
     try {
-      final res = await http.get(
+      final res = await _client.get(
         Uri.parse('$_baseUrl/agent-models/visibility'),
         headers: AuthSessionStore.headers(),
       );
@@ -45,7 +51,7 @@ class AgentModelVisibilityDataSource {
               })
           .toList(),
     });
-    final res = await http.patch(
+    final res = await _client.patch(
       Uri.parse('$_baseUrl/agent-models/visibility'),
       headers: AuthSessionStore.headers(json: true),
       body: body,
@@ -56,7 +62,7 @@ class AgentModelVisibilityDataSource {
   /// Fetches the OpenRouter public model catalog (server-side proxy, cached 1 h).
   Future<List<OpenRouterModelEntry>> fetchOpenRouterModels() async {
     try {
-      final res = await http.get(
+      final res = await _client.get(
         Uri.parse('$_baseUrl/opencode/models?provider=openrouter'),
         headers: AuthSessionStore.headers(),
       );

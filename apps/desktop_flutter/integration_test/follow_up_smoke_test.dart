@@ -28,6 +28,7 @@ import 'package:rhythm_desktop/features/agents/controllers/agents_controller.dar
 import 'package:rhythm_desktop/features/agents/models/agent_session.dart';
 import 'package:rhythm_desktop/features/agents/models/agent_session_message.dart';
 import 'package:rhythm_desktop/features/agents/models/agent_ws_message.dart';
+import 'package:rhythm_desktop/features/agents/models/chat_models.dart';
 import 'package:rhythm_desktop/features/agents/repositories/agents_repository.dart';
 import 'package:rhythm_desktop/features/agents/views/_permission_mode_picker.dart';
 import 'package:rhythm_desktop/features/agents/views/_project_vcs_chip.dart';
@@ -140,7 +141,7 @@ class _FakeAgentsRepository implements AgentsRepository {
     String? agentId,
     String? taskId,
     required String cwd,
-    required String name,
+    String name = '',
     String? branch,
     String? stash,
     bool createBranch = false,
@@ -231,6 +232,47 @@ class _FakeAgentsRepository implements AgentsRepository {
     _store[idx] = updated;
     return updated;
   }
+
+  @override
+  Future<List<Map<String, dynamic>>> fetchSessionDiff(String id) async => [];
+
+  @override
+  Future<void> revertSession(String sessionId, String messageId) async {}
+
+  @override
+  Future<void> unrevertSession(String sessionId) async {}
+
+  @override
+  Future<void> summarizeSession(String sessionId) async {}
+
+  @override
+  Future<void> dispatchCommand(
+      String sessionId, String command, String args) async {}
+
+  @override
+  Future<List<Map<String, dynamic>>> fetchSessionTodos(String id) async => [];
+
+  @override
+  Future<List<Map<String, dynamic>>> fetchChildSessions(
+          String parentSessionId) async =>
+      [];
+
+  @override
+  Future<List<AgentSessionMessage>> fetchChildMessages(
+          String parentSessionId, String childSdkId) async =>
+      [];
+
+  @override
+  Future<AgentSession> forkSession(String sessionId, String messageId) async {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<List<AgentInfo>> fetchAvailableAgents({String? cwd}) async => const [];
+
+  @override
+  Future<String> runShellCommand(String sessionId, String command) async =>
+      'msg-shell-stub';
 }
 
 class _FakeLocalNotificationService extends LocalNotificationService {

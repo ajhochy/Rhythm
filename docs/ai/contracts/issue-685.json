@@ -1,0 +1,66 @@
+{
+  "issue": 685,
+  "generated": "2026-06-12",
+  "stack": "typescript",
+  "criteria": [
+    {
+      "criterion_id": "issue-685-c1",
+      "text": "Repo-wide grep: zero occurrences of `diffSession`, zero `as unknown as` casts targeting SDK objects in `opencode_client_service.ts`, `agent_sessions_controller.ts`, `ws_gateway.ts`. Strengthened (repair 2026-06-12): whole-file assertion that `opencode_client_service.ts` contains ZERO `as unknown as` occurrences (no allowlist); `getSessionDiff` must THROW on error envelope (not return []).",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/opencode_client_typed_wrappers.test.ts",
+      "test_id": "issue-685-c1: no duck-typing patterns remain in SDK integration code",
+      "status": "pass",
+      "repair_note": "2026-06-12: original d.ts declared unwrapped returns; all 27 `as unknown as` casts in opencode_client_service.ts were papering over that mismatch. Fixed by declaring SdkEnvelope<T> returns in d.ts (hey-api reality). Silent wrapper defaults (return []) also fixed to throw AppError 502 on error envelope."
+    },
+    {
+      "criterion_id": "issue-685-c2",
+      "text": "`getSessionDiff` invokes the SDK method that maps to `GET /session/{id}/diff` (spy.mock.calls asserts the SDK client method + sdkId argument) and returns its payload verbatim.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/opencode_client_typed_wrappers.test.ts",
+      "test_id": "issue-685-c2: getSessionDiff invokes SDK method with correct arguments and returns payload",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-685-c3",
+      "text": "`respondToPermission` invokes the SDK permission endpoint with `{decision, feedback}`; when the SDK object lacks the method, it **throws** an Error whose message contains the method name (asserted), instead of returning undefined.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/opencode_client_typed_wrappers.test.ts",
+      "test_id": "issue-685-c3: respondToPermission throws descriptive error when SDK method missing",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-685-c4",
+      "text": "`dispatchCommand` invokes the SDK command endpoint with `{command, args}` shape.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/opencode_client_typed_wrappers.test.ts",
+      "test_id": "issue-685-c4: dispatchCommand invokes SDK with command and args",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-685-c5",
+      "text": "Every wrapper, when called before SDK init, throws/rejects with the existing \"engine not ready\" AppError (no silent resolve).",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/opencode_client_typed_wrappers.test.ts",
+      "test_id": "issue-685-c5: wrappers reject before SDK initialization with engine-not-ready error",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-685-c6",
+      "text": "`GET /agents/capabilities` response includes the provider→agent-kind mapping object.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/agents_capabilities_routes.test.ts",
+      "test_id": "issue-685-c6: GET /agents/capabilities includes provider-to-agent-kind mapping",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-685-c7",
+      "text": "`ai-workflow checks --level pr` exits 0.",
+      "mode": "manual",
+      "reason": "gate-level check",
+      "test_file": "apps/api_server/src/__tests__/opencode_client_typed_wrappers.test.ts",
+      "test_id": "issue-685-c7: build validation passes",
+      "status": "pass"
+    }
+  ],
+  "not_tested": []
+}

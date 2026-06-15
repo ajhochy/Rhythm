@@ -26,6 +26,9 @@ vi.mock('../services/opencode_engine', () => {
     promptAsync: vi.fn().mockResolvedValue(true),
     subscribeToEvents: vi.fn().mockResolvedValue(null),
     ensureReady: vi.fn().mockImplementation(async () => _ready),
+    // OPC-M1-1: typed wrapper replaces duck-typed diffSession probe
+    getSessionDiff: vi.fn().mockResolvedValue([]),
+    abortSession: vi.fn().mockResolvedValue(true),
   };
   return {
     opencodeClient: mockClient,
@@ -38,6 +41,7 @@ vi.mock('../services/opencode_stream_bridge', () => ({
   streamBridge: {
     streamSession: vi.fn().mockResolvedValue(undefined),
     stopStream: vi.fn(),
+    clearErrorStatus: vi.fn(),
     dispose: vi.fn(),
   },
 }));
@@ -203,7 +207,7 @@ describe('Agent Sessions API', () => {
 
   // ── resume ────────────────────────────────────────────────────────────────
 
-  it('resumes a resumable session by creating a fresh SDK session, mapping it, and starting the bridge', async () => {
+  it('resumes a resumable session (legacy: no sdk_session_id) by creating a fresh SDK session, mapping it, and starting the bridge', async () => {
     const sessionsRepoLocal = new AgentSessionsRepository();
     const inserted = sessionsRepoLocal.insert({
       agentKind: 'claude-code',
@@ -710,7 +714,7 @@ describe('Agent Sessions API', () => {
     expect(await res.json()).toEqual([]);
   });
 
-  it('GET /agent-sessions/:id/diff calls SDK diffSession when available', async () => {
+  it('GET /agent-sessions/:id/diff calls SDK getSessionDiff when available', async () => {
     const createRes = await fetch(`${baseUrl}/agent-sessions`, {
       method: 'POST',
       headers: authHeaders,
@@ -722,16 +726,18 @@ describe('Agent Sessions API', () => {
     });
     const session = (await createRes.json()) as { id: string };
     const { opencodeClient } = await import('../services/opencode_engine');
-    (opencodeClient as unknown as { diffSession: (s: string) => Promise<unknown[]> })
-      .diffSession = vi.fn().mockResolvedValue([
-        { path: 'a.txt', before: 'old', after: 'new' },
-      ]);
+    // OPC-M1-1: mock the typed wrapper, not the old duck-typed diffSession probe.
+    vi.mocked(
+      (opencodeClient as unknown as { getSessionDiff: ReturnType<typeof vi.fn> }).getSessionDiff,
+    ).mockResolvedValueOnce([
+      { file: 'a.txt', before: 'old', after: 'new', additions: 1, deletions: 0 },
+    ]);
     const res = await fetch(`${baseUrl}/agent-sessions/${session.id}/diff`, {
       headers: authHeaders,
     });
-    const body = (await res.json()) as Array<{ path: string }>;
+    const body = (await res.json()) as Array<{ file: string }>;
     expect(body).toHaveLength(1);
-    expect(body[0].path).toBe('a.txt');
+    expect(body[0].file).toBe('a.txt');
   });
 
   it('POST /agent-sessions/:id/cancel returns 400 when no SDK mapping exists', async () => {

@@ -1,0 +1,18 @@
+{
+  "_comment": "Real v1.14.49 message.part.updated event. PartUpdatedEventSchema = { sessionID, part, time }. This is a TextPart after delta accumulation.",
+  "type": "message.part.updated",
+  "properties": {
+    "sessionID": "ses_abc123",
+    "time": 1718000003600,
+    "part": {
+      "id": "part_text_001",
+      "sessionID": "ses_abc123",
+      "messageID": "msg_abc001",
+      "type": "text",
+      "text": "I've read the file. The function returns 42.",
+      "time": {
+        "start": 1718000003600
+      }
+    }
+  }
+}

@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
@@ -18,11 +19,19 @@ import '../../agent_projects/controllers/agent_projects_controller.dart';
 import '../../agent_projects/views/edit_project_dialog.dart';
 import '../controllers/agents_controller.dart';
 import '../models/agent_session.dart';
-import '../models/agent_session_message.dart';
 import '../models/chat_models.dart';
 import '../../settings/services/destructive_modal_service.dart';
 import '_agent_settings_sheet.dart';
+import '_attachment_mime.dart';
+import '_chat_cost_footer.dart';
+import '_compaction_divider.dart';
+import '_context_usage_hint.dart';
+import '_markdown_message_body.dart';
 import '_message_actions_row.dart';
+import '_reasoning_block.dart';
+import '_retrying_indicator.dart';
+import '_revert_restore_banner.dart';
+import '_session_side_panel.dart';
 import '_permission_card.dart';
 import '_permission_mode_picker.dart';
 import '_project_vcs_chip.dart';
@@ -30,6 +39,10 @@ import '_projects_rail.dart';
 import '_slash_command_popover.dart';
 import '_question_tool_card.dart';
 import '_tool_call_part.dart';
+import '_tool_renderers/_unified_diff_view.dart';
+import '_tool_renderers/_terminal_output_view.dart';
+import '_tool_renderers/_todo_checklist_view.dart';
+import '_tool_renderers/_task_chip.dart';
 import '_unified_agent_model_picker.dart';
 
 class AgentsView extends StatefulWidget {
@@ -90,6 +103,17 @@ class _AgentsViewState extends State<AgentsView> {
               ),
               const SizedBox(width: 12),
               Expanded(child: _TranscriptPanel()),
+              // Right-rail inspector (Context / Changes / Terminal) for the
+              // active session. Mounted here so the M3 session-feature panels
+              // (Changes diff, todo list) actually render — the prior attempt
+              // left SessionSidePanel import-clean but never placed it.
+              if (context.watch<AgentsController>().selectedSession !=
+                  null) ...[
+                const SizedBox(width: 12),
+                SessionSidePanel(
+                  session: context.watch<AgentsController>().selectedSession!,
+                ),
+              ],
             ],
           ),
         ),
@@ -371,7 +395,11 @@ class _SessionListPanelState extends State<_SessionListPanel> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _SessionListHeader(
+            // OPC-#710: primary button → instant-create (no dialog).
             onNewSession:
+                canStartSession ? () => _instantCreateSession(context) : null,
+            // OPC-#710: secondary "⋯" → full options dialog.
+            onOptionsPressed:
                 canStartSession ? () => _showNewSessionDialog(context) : null,
           ),
           if (selectedProject != null && selectedProject.vcsRoot != null)
@@ -437,11 +465,19 @@ class _SessionListPanelState extends State<_SessionListPanel> {
                       color: context.rhythm.accent,
                     ),
                   )
-                : filteredSessions.isEmpty && controller.resumable.isEmpty
+                : filteredSessions.isEmpty &&
+                        controller.resumable.isEmpty &&
+                        !controller.isCreating
                     ? const _EmptySessionsState()
                     : ListView(
                         padding: const EdgeInsets.fromLTRB(12, 12, 12, 14),
                         children: [
+                          // OPC-#713: optimistic loading row shown while a new
+                          // session is being created (instant-create path).
+                          if (controller.isCreating) ...[
+                            _CreatingSessionRow(),
+                            const SizedBox(height: 8),
+                          ],
                           // Active sessions (filtered by selected project).
                           for (final session in filteredSessions) ...[
                             _SessionRow(
@@ -554,6 +590,24 @@ class _SessionListPanelState extends State<_SessionListPanel> {
     );
   }
 
+  /// OPC-#710 — Instant create: one click, no dialog.
+  ///
+  /// Creates an agent-less session in the selected project's cwd ($HOME
+  /// fallback), immediately selects it, and focuses the composer. The session
+  /// name starts empty; OpenCode auto-titles it after the first exchange via a
+  /// `session.updated` event which the bridge maps to a WS SessionUpdatedMessage.
+  Future<void> _instantCreateSession(BuildContext context) async {
+    final projectsController = context.read<AgentProjectsController>();
+    final controller = context.read<AgentsController>();
+    final cwd = projectsController.selectedProject?.cwd ??
+        Platform.environment['HOME'] ??
+        '/tmp';
+    final session = await controller.createSession(cwd: cwd);
+    if (session != null) {
+      controller.selectSession(session.id);
+    }
+  }
+
   void _showNewSessionDialog(BuildContext context) {
     showDialog<void>(
       context: context,
@@ -578,9 +632,16 @@ class _SessionListPanelState extends State<_SessionListPanel> {
 }
 
 class _SessionListHeader extends StatelessWidget {
-  const _SessionListHeader({required this.onNewSession});
+  const _SessionListHeader({
+    required this.onNewSession,
+    this.onOptionsPressed,
+  });
 
   final VoidCallback? onNewSession;
+
+  /// OPC-#710 — callback for the secondary "⋯" options button that opens the
+  /// full _NewSessionDialog (cwd / branch / task / name).
+  final VoidCallback? onOptionsPressed;
 
   @override
   Widget build(BuildContext context) {
@@ -663,6 +724,20 @@ class _SessionListHeader extends StatelessWidget {
                     ],
                   ),
                 ),
+              // OPC-#710 — secondary "⋯" options button opens the full
+              // _NewSessionDialog (explicit cwd / branch / task / name).
+              if (onOptionsPressed != null)
+                IconButton(
+                  key: const Key('new-session-options-button'),
+                  icon: const Icon(Icons.more_horiz, size: 18),
+                  tooltip: 'Session options',
+                  onPressed: onOptionsPressed,
+                  style: IconButton.styleFrom(
+                    minimumSize: const Size(30, 34),
+                    padding: EdgeInsets.zero,
+                    foregroundColor: context.rhythm.textMuted,
+                  ),
+                ),
             ],
           ),
           const SizedBox(height: 10),
@@ -714,6 +789,54 @@ class _EmptySessionsState extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// OPC-#713: Optimistic loading row shown while a session create is in-flight.
+// ---------------------------------------------------------------------------
+
+/// A ghosted, non-interactive row shown in the session list while the
+/// instant-create SDK call is in-flight. Gives the user immediate visual
+/// feedback that their click registered.
+class _CreatingSessionRow extends StatelessWidget {
+  const _CreatingSessionRow();
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 160),
+      curve: Curves.easeOut,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: context.rhythm.accentMuted,
+        borderRadius: BorderRadius.circular(RhythmRadius.lg),
+        border: Border.all(
+          color: context.rhythm.accent.withValues(alpha: 0.28),
+        ),
+      ),
+      child: Row(
+        children: [
+          SizedBox(
+            width: 14,
+            height: 14,
+            child: CircularProgressIndicator(
+              strokeWidth: 2,
+              color: context.rhythm.accent,
+            ),
+          ),
+          const SizedBox(width: 10),
+          Text(
+            'Starting session…',
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: context.rhythm.accent,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -783,14 +906,18 @@ class _SessionRow extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 6),
+            // OPC-#710: empty name renders as "New session" placeholder
+            // until the auto-title arrives via SessionUpdatedMessage.
             Text(
-              session.name,
+              session.name.isNotEmpty ? session.name : 'New session',
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
                 fontSize: 13.5,
                 fontWeight: FontWeight.w700,
-                color: context.rhythm.textPrimary,
+                color: session.name.isNotEmpty
+                    ? context.rhythm.textPrimary
+                    : context.rhythm.textMuted,
               ),
             ),
             if (session.lastPreview != null &&
@@ -1007,12 +1134,10 @@ class _ArchivedSessionRow extends StatelessWidget {
 /// [CatalogModelEntry.provider] (e.g. 'openai') as the session's providerId —
 /// NOT the agent config id ('codex'). The badge must map provider → config id
 /// before calling [AgentConfigsController.byId]. (Issue #645.)
-const Map<String, String> _kProviderToAgentKind = {
-  'anthropic': 'claude-code',
-  'github-copilot': 'claude-code',
-  'openai': 'codex',
-  'google': 'gemini-cli',
-};
+///
+/// OPC-M1-3: The mapping is now fetched from [AgentServerController.providerToAgentKind]
+/// (which reads it from the GET /agents/capabilities response) instead of a
+/// hard-coded local constant. The controller provides an offline fallback.
 
 class _AgentKindBadge extends StatelessWidget {
   const _AgentKindBadge({
@@ -1025,9 +1150,9 @@ class _AgentKindBadge extends StatelessWidget {
   /// Optional session-level provider ID (e.g. 'openai', 'google', 'anthropic').
   /// Stored by [setSessionModel] via [_applyPick] which passes
   /// [CatalogModelEntry.provider]. When set, the badge maps this to the
-  /// canonical agent config id via [_kProviderToAgentKind] so the pill
-  /// reflects the actual agent in use rather than the stale session-creation
-  /// agentId. (Issue #645.)
+  /// canonical agent config id via [AgentServerController.providerToAgentKind]
+  /// so the pill reflects the actual agent in use rather than the stale
+  /// session-creation agentId. (Issue #645 / OPC-M1-3.)
   final String? providerId;
 
   @override
@@ -1035,6 +1160,11 @@ class _AgentKindBadge extends StatelessWidget {
     // Issue #645 fix: use context.watch so the badge subscribes to
     // AgentConfigsController changes and rebuilds when configs are refreshed.
     final configsCtrl = context.watch<AgentConfigsController>();
+
+    // OPC-M1-3: get providerToAgentKind from AgentServerController (populated
+    // from capabilities endpoint; has offline fallback defaults).
+    final providerToAgentKind =
+        context.watch<AgentServerController>().providerToAgentKind;
 
     // Resolver precedence (mirroring server-side ws_gateway.ts logic):
     //   1. providerId → mapped agent config — when the user picked a model via
@@ -1046,7 +1176,7 @@ class _AgentKindBadge extends StatelessWidget {
     //      absent, unmapped, or resolves to the same agent.
     AgentConfig? config;
     if (providerId != null && providerId!.isNotEmpty) {
-      final mappedKind = _kProviderToAgentKind[providerId!];
+      final mappedKind = providerToAgentKind[providerId!];
       if (mappedKind != null && mappedKind != agentId) {
         config = configsCtrl.byId(mappedKind);
       }
@@ -1123,6 +1253,8 @@ class _StatusDot extends StatelessWidget {
       AgentSessionStatus.idle => context.rhythm.success,
       AgentSessionStatus.resumable => context.rhythm.textMuted,
       AgentSessionStatus.closed => context.rhythm.borderSubtle,
+      // OPC-M1-4: error state shown as a red dot.
+      AgentSessionStatus.error => context.rhythm.danger,
     };
     return Container(
       width: 10,
@@ -1147,13 +1279,36 @@ class _TranscriptPanelState extends State<_TranscriptPanel> {
   final _inputController = TextEditingController();
   final _scrollController = ScrollController();
 
+  /// Whether the transcript is currently scrolled to (or near) the bottom.
+  /// Auto-scroll-on-new-content only fires while this is true, so manually
+  /// scrolling up to read a long message is no longer interrupted by the
+  /// window snapping back to the bottom on every streaming delta.
+  bool _pinnedToBottom = true;
+
+  /// Distance (px) from the bottom within which we still consider the user
+  /// "pinned" — small jitter / the tail of an animation shouldn't unpin.
+  static const double _pinThreshold = 120;
+
   /// Issue #653: track which session ids have already had their composer
   /// draft consumed in this widget instance. Drafts are stored in
   /// AgentsController and consumed once on session selection.
   final Set<String> _draftConsumedForSession = <String>{};
 
   @override
+  void initState() {
+    super.initState();
+    _scrollController.addListener(_onScroll);
+  }
+
+  void _onScroll() {
+    if (!_scrollController.hasClients) return;
+    final pos = _scrollController.position;
+    _pinnedToBottom = pos.maxScrollExtent - pos.pixels <= _pinThreshold;
+  }
+
+  @override
   void dispose() {
+    _scrollController.removeListener(_onScroll);
     _inputController.dispose();
     _scrollController.dispose();
     super.dispose();
@@ -1193,14 +1348,38 @@ class _TranscriptPanelState extends State<_TranscriptPanel> {
     final controller = context.read<AgentsController>();
     final id = controller.selectedSessionId;
     if (id == null) return;
-    final text = _inputController.text;
+    final text = _inputController.text.trim();
     if (text.isEmpty) return;
+
+    // OPC-M3-4: if the text starts with '/' and the command name (the first
+    // word after the slash) is in the cached slash-command list for this session,
+    // dispatch via the structured session.command WS frame. Otherwise, fall back
+    // to plain session.input so free-typed slash text is not misrouted.
+    if (text.startsWith('/')) {
+      final withoutSlash = text.substring(1);
+      final spaceIdx = withoutSlash.indexOf(' ');
+      final cmdName =
+          spaceIdx >= 0 ? withoutSlash.substring(0, spaceIdx) : withoutSlash;
+      final cmdArgs =
+          spaceIdx >= 0 ? withoutSlash.substring(spaceIdx + 1).trim() : '';
+      final knownCommands = controller.slashCommandsFor(id);
+      if (cmdName.isNotEmpty && knownCommands.any((c) => c.name == cmdName)) {
+        controller.sendCommand(id, cmdName, cmdArgs);
+        _inputController.clear();
+        _scrollToBottom();
+        return;
+      }
+    }
+
     controller.sendInput(id, '$text\n');
     _inputController.clear();
     _scrollToBottom();
   }
 
   void _scrollToBottom() {
+    // An explicit scroll-to-bottom (e.g. the user just sent a message) also
+    // re-pins, so subsequent streamed deltas keep following the bottom.
+    _pinnedToBottom = true;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!_scrollController.hasClients) return;
       _scrollController.animateTo(
@@ -1216,8 +1395,10 @@ class _TranscriptPanelState extends State<_TranscriptPanel> {
     final controller = context.watch<AgentsController>();
     final selected = controller.selectedSession;
 
-    // Auto-scroll when transcript changes.
-    if (selected != null) {
+    // Auto-scroll when transcript changes — but ONLY if the user is already
+    // at the bottom. If they've scrolled up to read, leave their position
+    // alone (otherwise every streaming delta yanks them back down).
+    if (selected != null && _pinnedToBottom) {
       _scrollToBottom();
     }
 
@@ -1240,37 +1421,49 @@ class _TranscriptPanelState extends State<_TranscriptPanel> {
             ),
             child: selected == null
                 ? const _EmptyTranscriptState()
-                : Column(
-                    children: [
-                      _TranscriptHeader(session: selected),
-                      Divider(height: 1, color: context.rhythm.borderSubtle),
-                      // #602: agent-less sessions show a centred "choose model" prompt
-                      // until the first message is sent.
-                      if (selected.agentId == '__pending__' &&
-                          controller.chatMessagesFor(selected.id).isEmpty &&
-                          controller.transcript.isEmpty)
-                        Expanded(
-                          child: _AgentLessSessionPrompt(session: selected),
-                        )
-                      else
-                        Expanded(
-                          child: Container(
-                            color:
-                                context.rhythm.canvas.withValues(alpha: 0.45),
-                            child: _buildTranscriptBody(
-                              context,
-                              controller,
-                              selected,
+                // OPC-M3-6: when a child session is active, swap the main
+                // transcript area to the child transcript view. The parent
+                // transcript, composer, and tool bars are hidden; a breadcrumb
+                // in ChildTranscriptView lets the user navigate back.
+                : controller.activeChildSessionId != null
+                    ? ChildTranscriptView(
+                        childSdkId: controller.activeChildSessionId!,
+                        parentSessionName:
+                            controller.activeChildParentName ?? selected.name,
+                        onBack: controller.closeChildSession,
+                      )
+                    : Column(
+                        children: [
+                          _TranscriptHeader(session: selected),
+                          Divider(
+                              height: 1, color: context.rhythm.borderSubtle),
+                          // #602: agent-less sessions show a centred "choose model" prompt
+                          // until the first message is sent.
+                          if (selected.agentId == '__pending__' &&
+                              controller.chatMessagesFor(selected.id).isEmpty &&
+                              controller.transcript.isEmpty)
+                            Expanded(
+                              child: _AgentLessSessionPrompt(session: selected),
+                            )
+                          else
+                            Expanded(
+                              child: Container(
+                                color: context.rhythm.canvas
+                                    .withValues(alpha: 0.45),
+                                child: _buildTranscriptBody(
+                                  context,
+                                  controller,
+                                  selected,
+                                ),
+                              ),
                             ),
+                          _PendingPermissionArea(session: selected),
+                          _InputArea(
+                            inputController: _inputController,
+                            onSend: () => _sendInput(context),
                           ),
-                        ),
-                      _PendingPermissionArea(session: selected),
-                      _InputArea(
-                        inputController: _inputController,
-                        onSend: () => _sendInput(context),
+                        ],
                       ),
-                    ],
-                  ),
           ),
         ),
       ],
@@ -1282,16 +1475,20 @@ class _TranscriptPanelState extends State<_TranscriptPanel> {
     AgentsController controller,
     AgentSession session,
   ) {
-    // Parts-based chat (Opencode Desktop port). Each ChatMessage holds an
-    // ordered list of ChatParts; streaming deltas append to part.text in
-    // place so the same bubble grows.
-    final chatMessages = controller.chatMessagesFor(session.id);
-    final legacyTranscript = controller.transcriptFor(session.id);
-    final liveOutput = controller.liveOutputFor(session.id);
-    final hasChat = chatMessages.isNotEmpty;
-    final hasLegacy = legacyTranscript.isNotEmpty || liveOutput.isNotEmpty;
+    // OPC-M1-3: Single render path — parts-based chat only. The legacy
+    // plain-text live-output buffer and transcript render branch have been
+    // deleted. All messages arrive via chatMessagesFor() / chatPartsFor()
+    // (rehydrated from REST on selectSession, then updated by WS events).
+    //
+    // OPC-M1-6 / issue #709 c4: filter out terminal-tab messages so shell
+    // command outputs don't appear in the chat transcript.
+    final terminalIds = controller.terminalMessageIdsFor(session.id);
+    final allChatMessages = controller.chatMessagesFor(session.id);
+    final chatMessages = terminalIds.isEmpty
+        ? allChatMessages
+        : allChatMessages.where((m) => !terminalIds.contains(m.id)).toList();
 
-    if (!hasChat && !hasLegacy) {
+    if (chatMessages.isEmpty) {
       return Center(
         child: Text(
           'Session started. Waiting for output…',
@@ -1300,72 +1497,66 @@ class _TranscriptPanelState extends State<_TranscriptPanel> {
       );
     }
 
-    // Prefer the parts-based chat when the server emits the new events.
-    if (hasChat) {
-      // System-role entries from legacyTranscript (WS error frames, context
-      // notes) are not represented in chatMessages. Include them so errors
-      // remain visible even when the SDK is emitting the new event format.
-      final systemMessages =
-          legacyTranscript.where((m) => m.role == 'system').toList();
-      final totalCount = chatMessages.length + systemMessages.length;
-      return MessageTimeTicker(
-        child: ListView.builder(
-          controller: _scrollController,
-          padding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
-          itemCount: totalCount,
-          itemBuilder: (context, index) {
-            if (index < chatMessages.length) {
-              final m = chatMessages[index];
-              final parts = controller.chatPartsFor(m.id);
-              // Collect full text for copy action.
-              final copyText = parts.map((p) => p.text).join('').trim();
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                child: Column(
+    // OPC-M3-2: track whether the session has an active revert so we can
+    // dim messages after the revert point and show the restore banner.
+    final isReverted = controller.sessionIsReverted(session.id);
+
+    return MessageTimeTicker(
+      child: Column(
+        children: [
+          // OPC-M3-2: banner above the message list when a revert is active.
+          RevertRestoreBanner(sessionId: session.id),
+          Expanded(
+            child: ListView.builder(
+              controller: _scrollController,
+              padding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
+              itemCount: chatMessages.length,
+              itemBuilder: (context, index) {
+                final m = chatMessages[index];
+                final parts = controller.chatPartsFor(m.id);
+                // Collect full text for copy action.
+                final copyText = parts.map((p) => p.text).join('').trim();
+                // OPC-M2-4: show cost footer for assistant messages with a cost.
+                final showCostFooter = m.role != 'user' && m.cost != null;
+                // OPC-M3-2: dim reverted messages.
+                final messageIsReverted = isReverted && m.isReverted;
+                Widget bubble = Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     _ChatBubble(
                       message: m,
                       parts: parts,
                       sessionId: session.id,
+                      sessionName: session.name,
                     ),
+                    if (showCostFooter)
+                      Padding(
+                        padding: const EdgeInsets.only(left: 4, top: 2),
+                        child: ChatCostFooter(cost: m.cost, tokens: m.tokens),
+                      ),
                     MessageActionsRow(
                       sessionId: session.id,
                       messageId: m.id,
                       createdAt: m.createdAt,
                       text: copyText,
+                      role: m.role,
+                      isReverted: messageIsReverted,
                     ),
                   ],
-                ),
-              );
-            }
-            final sysMsg = systemMessages[index - chatMessages.length];
-            return Padding(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: _MessageBlock(message: sysMsg),
-            );
-          },
-        ),
-      );
-    }
-
-    // Legacy fallback (older servers / replay path).
-    return ListView.builder(
-      controller: _scrollController,
-      padding: const EdgeInsets.fromLTRB(20, 20, 20, 16),
-      itemCount: legacyTranscript.length + (liveOutput.isNotEmpty ? 1 : 0),
-      itemBuilder: (context, index) {
-        if (index < legacyTranscript.length) {
-          return Padding(
-            padding: const EdgeInsets.only(bottom: 8),
-            child: _MessageBlock(message: legacyTranscript[index]),
-          );
-        }
-        return Padding(
-          padding: const EdgeInsets.only(bottom: 8),
-          child: _LiveOutputBlock(text: liveOutput),
-        );
-      },
+                );
+                // OPC-M3-2: wrap reverted messages in an Opacity widget.
+                if (messageIsReverted) {
+                  bubble = Opacity(opacity: 0.45, child: bubble);
+                }
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: bubble,
+                );
+              },
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
@@ -1380,6 +1571,8 @@ class _TranscriptHeader extends StatelessWidget {
     final controller = context.watch<AgentsController>();
     final agentServerController = context.watch<AgentServerController>();
     final isWorking = controller.isWorking(session.id);
+    final retrying = controller.retryingFor(session.id);
+    final sessionTotal = controller.sessionTotalCost(session.id);
     final showReconnect =
         agentServerController.status != AgentServerStatus.ready ||
             controller.connectivity.isWsDisconnected;
@@ -1403,8 +1596,43 @@ class _TranscriptHeader extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 8),
+          // OPC-M2-4: show retrying indicator when the bridge relayed a retry.
+          if (retrying != null) ...[
+            RetryingIndicator(
+              attempt: retrying.attempt,
+              reason: retrying.reason,
+            ),
+            const SizedBox(width: 8),
+          ],
           _StatusChip(status: session.status, isWorking: isWorking),
           const SizedBox(width: 8),
+          // Stop an in-flight turn (escape hatch for a hung/stuck session).
+          // Icon-only to match the other header actions and fit the narrow
+          // (≤350px) header without overflowing.
+          if (isWorking)
+            IconButton(
+              key: const Key('stop-turn-button'),
+              onPressed: () =>
+                  context.read<AgentsController>().cancelSession(session.id),
+              icon: const Icon(Icons.stop_circle_outlined, size: 18),
+              color: context.rhythm.danger,
+              tooltip: 'Stop',
+              visualDensity: VisualDensity.compact,
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints.tightFor(width: 32, height: 32),
+            ),
+          // OPC-M2-4: session total cost displayed as a subtle label.
+          if (sessionTotal != null) ...[
+            Text(
+              'Total: \$${sessionTotal.toStringAsFixed(4)}',
+              style: TextStyle(
+                fontSize: 11,
+                color: context.rhythm.textMuted,
+                fontFeatures: const [FontFeature.tabularFigures()],
+              ),
+            ),
+            const SizedBox(width: 8),
+          ],
           if (showReconnect) ...[
             OutlinedButton(
               onPressed: () =>
@@ -1429,6 +1657,51 @@ class _TranscriptHeader extends StatelessWidget {
             ),
             const SizedBox(width: 6),
           ],
+          // OPC-M3-3: compacting spinner shown while summarize is in-flight.
+          if (controller.isCompacting(session.id)) ...[
+            SizedBox(
+              width: 14,
+              height: 14,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: context.rhythm.accent,
+              ),
+            ),
+            const SizedBox(width: 8),
+          ],
+          // Session overflow menu (archive, compact, etc.).
+          PopupMenuButton<String>(
+            tooltip: 'Session actions',
+            icon: Icon(
+              Icons.more_vert,
+              size: 18,
+              color: context.rhythm.textSecondary,
+            ),
+            padding: EdgeInsets.zero,
+            iconSize: 18,
+            splashRadius: 16,
+            itemBuilder: (_) => [
+              PopupMenuItem<String>(
+                value: 'compact',
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.compress,
+                      size: 16,
+                      color: context.rhythm.textSecondary,
+                    ),
+                    const SizedBox(width: 8),
+                    const Text('Compact session'),
+                  ],
+                ),
+              ),
+            ],
+            onSelected: (v) {
+              if (v == 'compact') {
+                context.read<AgentsController>().summarizeSession(session.id);
+              }
+            },
+          ),
           IconButton(
             onPressed: () =>
                 context.read<AgentsController>().closeSession(session.id),
@@ -1515,6 +1788,12 @@ class _StatusChip extends StatelessWidget {
           'Closed',
           context.rhythm.borderSubtle,
           context.rhythm.textMuted,
+        ),
+      // OPC-M1-4: error state shown as a red badge.
+      AgentSessionStatus.error => (
+          'Error',
+          context.rhythm.danger.withValues(alpha: 0.15),
+          context.rhythm.danger,
         ),
     };
 
@@ -1743,74 +2022,8 @@ class _EmptyTranscriptState extends StatelessWidget {
   }
 }
 
-class _MessageBlock extends StatelessWidget {
-  const _MessageBlock({required this.message});
-
-  final AgentSessionMessage message;
-
-  @override
-  Widget build(BuildContext context) {
-    final isInput = message.role == 'input';
-    final isSystem = message.role == 'system';
-
-    if (isInput) {
-      return Container(
-        width: double.infinity,
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        decoration: BoxDecoration(
-          color: context.rhythm.accentMuted,
-          borderRadius: BorderRadius.circular(RhythmRadius.md),
-          border: Border.all(
-            color: context.rhythm.accent.withValues(alpha: 0.2),
-          ),
-        ),
-        child: SelectableText(
-          message.strippedText,
-          style: TextStyle(
-            fontSize: 12,
-            fontStyle: FontStyle.italic,
-            color: context.rhythm.accent.withValues(alpha: 0.85),
-            height: 1.4,
-          ),
-        ),
-      );
-    }
-
-    if (isSystem) {
-      return Padding(
-        padding: const EdgeInsets.symmetric(vertical: 2),
-        child: SelectableText(
-          message.strippedText,
-          style: TextStyle(
-            fontSize: 11,
-            color: context.rhythm.textMuted,
-            fontStyle: FontStyle.italic,
-          ),
-        ),
-      );
-    }
-
-    // output
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: context.rhythm.surfaceMuted,
-        borderRadius: BorderRadius.circular(RhythmRadius.md),
-        border: Border.all(color: context.rhythm.borderSubtle),
-      ),
-      child: SelectableText(
-        message.strippedText,
-        style: TextStyle(
-          fontSize: 12,
-          fontFamily: 'Menlo',
-          color: context.rhythm.textPrimary,
-          height: 1.5,
-        ),
-      ),
-    );
-  }
-}
+// OPC-M1-3: _MessageBlock removed (legacy AgentSessionMessage render widget
+// deleted with the legacy render path).
 
 /// Renders one ChatMessage and its ordered Parts.
 /// User parts are right-aligned with an accent bubble; assistant parts are
@@ -1821,11 +2034,15 @@ class _ChatBubble extends StatelessWidget {
     required this.message,
     required this.parts,
     required this.sessionId,
+    this.sessionName = '',
   });
 
   final ChatMessage message;
   final List<ChatPart> parts;
   final String sessionId;
+
+  /// Display name of the owning session — passed to TaskChip for breadcrumb.
+  final String sessionName;
 
   @override
   Widget build(BuildContext context) {
@@ -1833,6 +2050,14 @@ class _ChatBubble extends StatelessWidget {
 
     if (isUser) {
       return _UserBubble(parts: parts);
+    }
+
+    // OPC-M3-4: command invocation row — shown for messages with role='command'
+    // which are created optimistically when the user selects a slash command
+    // from the popover. Renders as a monospace '/name args' label aligned left.
+    if (message.role == 'command') {
+      final invocationText = parts.map((p) => p.text).join('').trim();
+      return _CommandInvocationRow(text: invocationText);
     }
 
     // Assistant bubble: walk parts in order, rendering text spans as a
@@ -1844,6 +2069,7 @@ class _ChatBubble extends StatelessWidget {
       final text = textBuffer.toString().trim();
       textBuffer.clear();
       if (text.isEmpty) return;
+      // OPC-M2-1: render assistant text as markdown.
       children.add(
         Container(
           width: double.infinity,
@@ -1853,14 +2079,7 @@ class _ChatBubble extends StatelessWidget {
             borderRadius: BorderRadius.circular(RhythmRadius.md),
             border: Border.all(color: context.rhythm.borderSubtle),
           ),
-          child: SelectableText(
-            text,
-            style: TextStyle(
-              fontSize: 13,
-              color: context.rhythm.textPrimary,
-              height: 1.5,
-            ),
-          ),
+          child: MarkdownMessageBody(text: text),
         ),
       );
     }
@@ -1876,9 +2095,42 @@ class _ChatBubble extends StatelessWidget {
             QuestionToolCard(part: part, sessionId: sessionId),
           );
         } else {
-          children.add(ToolCallPart(part: part));
+          // OPC-M2-3: dispatch to a tool-specific renderer by name.
+          children.add(_buildToolRenderer(part));
+        }
+      } else if (part.type == 'reasoning') {
+        // OPC-M2-2: flush any accumulated text before the reasoning block,
+        // then render it as a collapsible ReasoningBlock.
+        flushText();
+        children.add(
+          ReasoningBlock(
+            key: ValueKey('reasoning-${part.id}'),
+            part: part,
+          ),
+        );
+      } else if (part.type == 'step-start' || part.type == 'step-finish') {
+        // Step boundary markers — hidden from the UI per spec (M2 scope).
+        // Kept in the parts list for future inspector use.
+      } else if (part.type == 'compaction') {
+        // OPC-M3-3: flush any accumulated text, then render a full-width
+        // compaction divider ("Conversation compacted" with expandable summary).
+        flushText();
+        children.add(CompactionDivider(
+          key: ValueKey('compaction-${part.id}'),
+          part: part,
+        ));
+      } else if (part.type == 'agent') {
+        // OPC-M4-4: agent-switch marker — flush text then show "Switched to X".
+        flushText();
+        final name = part.agentName;
+        if (name != null && name.isNotEmpty) {
+          children.add(AgentPartMarker(
+            key: ValueKey('agent-${part.id}'),
+            agentName: name,
+          ));
         }
       } else {
+        // text and any future unknown part types — accumulate as prose.
         textBuffer.write(part.text);
       }
     }
@@ -1912,8 +2164,51 @@ class _ChatBubble extends StatelessWidget {
       ],
     );
   }
+
+  /// OPC-M2-3: dispatch a tool part to the appropriate renderer based on tool name.
+  /// OPC-M3-6: TaskChip now receives parentSessionId + parentSessionName for navigation.
+  ///
+  /// Dispatch table:
+  ///   edit / write / apply_patch → UnifiedDiffView (per-line +/- coloring)
+  ///   bash                       → TerminalOutputView (monospace, ANSI stripped)
+  ///   todowrite                  → TodoChecklistView (per-item checklist)
+  ///   task                       → TaskChip (navigable chip; tapping opens child transcript)
+  ///   read / glob / grep / webfetch / websearch / skill / plan / lsp
+  ///     and any unrecognized name → ToolCallPart (generic card fallback)
+  Widget _buildToolRenderer(ChatPart part) {
+    final name = part.toolName?.toLowerCase() ?? '';
+    if (const {'edit', 'write', 'apply_patch'}.contains(name)) {
+      return UnifiedDiffView(part: part);
+    }
+    if (name == 'bash') {
+      return TerminalOutputView(part: part);
+    }
+    if (name == 'todowrite') {
+      return TodoChecklistView(part: part);
+    }
+    if (name == 'task') {
+      // OPC-M3-6: pass parent context so the chip can navigate to the child
+      // session transcript when tapped.
+      return TaskChip(
+        part: part,
+        parentSessionId: sessionId,
+        parentSessionName: sessionName,
+      );
+    }
+    // read / glob / grep / webfetch / websearch / skill / plan / lsp
+    // and any unrecognized tool → generic card.
+    return ToolCallPart(part: part);
+  }
 }
 
+/// OPC-M4-1: User bubble renders text, image thumbnails, and file chips.
+///
+/// Parts are rendered in order:
+///   - `text` parts: prose SelectableText (unchanged from before M4-1)
+///   - `file` parts with image MIME: bounded Image.memory thumbnail (max 200px)
+///   - `file` parts with non-image MIME: filename chip
+///
+/// All file parts are keyed by `part.id` for test assertions.
 class _UserBubble extends StatelessWidget {
   const _UserBubble({required this.parts});
 
@@ -1921,28 +2216,176 @@ class _UserBubble extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final text = parts.map((p) => p.text).join('').trim();
+    final text =
+        parts.where((p) => p.type == 'text').map((p) => p.text).join('').trim();
+    final fileParts = parts.where((p) => p.type == 'file').toList();
+
+    if (text.isEmpty && fileParts.isEmpty) return const SizedBox.shrink();
+
+    return Align(
+      alignment: Alignment.centerRight,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 560),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // OPC-M4-1: render file attachments above the text bubble.
+            for (final fp in fileParts) _buildFilePart(context, fp),
+            if (text.isNotEmpty)
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: context.rhythm.accentMuted,
+                  borderRadius: BorderRadius.circular(RhythmRadius.md),
+                  border: Border.all(
+                    color: context.rhythm.accent.withValues(alpha: 0.2),
+                  ),
+                ),
+                child: SelectableText(
+                  text,
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: context.rhythm.accent,
+                    height: 1.4,
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Render one file part: image → thumbnail; other → filename chip.
+  Widget _buildFilePart(BuildContext context, ChatPart part) {
+    final mime = part.fileMime ?? '';
+    final url = part.fileUrl ?? '';
+
+    if (mime.startsWith('image/') && url.contains(';base64,')) {
+      // Decode the data URI payload.
+      final b64 = url.substring(url.indexOf(';base64,') + 8);
+      try {
+        final bytes = base64Decode(b64);
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 4),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(RhythmRadius.sm),
+            child: Image.memory(
+              bytes,
+              key: Key('file-image-thumbnail-${part.id}'),
+              width: 200,
+              height: 200,
+              fit: BoxFit.contain,
+              // Fallback when bytes are invalid.
+              errorBuilder: (_, __, ___) => _buildFileChip(context, part),
+            ),
+          ),
+        );
+      } catch (_) {
+        // Base64 decode failed — fall through to chip.
+      }
+    }
+
+    return _buildFileChip(context, part);
+  }
+
+  /// Non-image file → a compact filename chip.
+  Widget _buildFileChip(BuildContext context, ChatPart part) {
+    final filename = part.fileFilename ?? 'file';
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: Container(
+        key: Key('file-chip-${part.id}'),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          color: context.rhythm.accentMuted,
+          borderRadius: BorderRadius.circular(RhythmRadius.pill),
+          border: Border.all(
+            color: context.rhythm.accent.withValues(alpha: 0.25),
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.attach_file,
+              size: 12,
+              color: context.rhythm.accent,
+            ),
+            const SizedBox(width: 4),
+            ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 200),
+              child: Text(
+                filename,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 11,
+                  color: context.rhythm.accent,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// OPC-M3-4: Command invocation row — rendered for ChatMessage.role == 'command'.
+///
+/// Displays the slash command text (e.g. '/help' or '/init my-project') as a
+/// distinct pill aligned to the right, styled like the user bubble but using
+/// the `accentMuted` / `accent` palette so it is visually distinct from both
+/// plain user prose (same alignment) and assistant output.
+///
+/// Uses `RhythmColorRoles` tokens — no hard-coded colours.
+class _CommandInvocationRow extends StatelessWidget {
+  const _CommandInvocationRow({required this.text});
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
     if (text.isEmpty) return const SizedBox.shrink();
     return Align(
       alignment: Alignment.centerRight,
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 560),
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
           decoration: BoxDecoration(
             color: context.rhythm.accentMuted,
             borderRadius: BorderRadius.circular(RhythmRadius.md),
             border: Border.all(
-              color: context.rhythm.accent.withValues(alpha: 0.2),
+              color: context.rhythm.accent.withValues(alpha: 0.35),
             ),
           ),
-          child: SelectableText(
-            text,
-            style: TextStyle(
-              fontSize: 13,
-              color: context.rhythm.accent,
-              height: 1.4,
-            ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                Icons.terminal_outlined,
+                size: 13,
+                color: context.rhythm.accent,
+              ),
+              const SizedBox(width: 6),
+              Flexible(
+                child: SelectableText(
+                  text,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontFamily: 'Menlo',
+                    fontWeight: FontWeight.w600,
+                    color: context.rhythm.accent,
+                    height: 1.3,
+                  ),
+                ),
+              ),
+            ],
           ),
         ),
       ),
@@ -1950,33 +2393,7 @@ class _UserBubble extends StatelessWidget {
   }
 }
 
-class _LiveOutputBlock extends StatelessWidget {
-  const _LiveOutputBlock({required this.text});
-
-  final String text;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: context.rhythm.surfaceMuted,
-        borderRadius: BorderRadius.circular(RhythmRadius.md),
-        border: Border.all(color: context.rhythm.accent.withValues(alpha: 0.2)),
-      ),
-      child: SelectableText(
-        text,
-        style: TextStyle(
-          fontSize: 12,
-          fontFamily: 'Menlo',
-          color: context.rhythm.textPrimary,
-          height: 1.5,
-        ),
-      ),
-    );
-  }
-}
+// OPC-M1-3: _LiveOutputBlock removed (legacy PTY output render path deleted).
 
 // ---------------------------------------------------------------------------
 // Pending permissions area (#608)
@@ -2037,43 +2454,112 @@ class _InputArea extends StatefulWidget {
 }
 
 class _InputAreaState extends State<_InputArea> {
-  /// Pending file attachments shown as chips above the text field.
-  final List<_AttachmentChip> _attachments = [];
+  /// OPC-M4-1 / Issue #717: Pick files, classify by MIME, and add to the
+  /// controller's pending-attachment list for the active session.
+  ///
+  /// Classification rules:
+  ///   - image/*              → FilePart with data URI (thumbnail rendered in bubble).
+  ///   - application/pdf      → FilePart with data URI (sent with correct MIME).
+  ///   - text/* / json / xml  → TextPart: content decoded as UTF-8, capped at 100 KB.
+  ///   - application/octet-stream → blocked: SnackBar error shown, not added.
+  static const int _kTextSizeCap = 100 * 1024; // 100 KB
 
   Future<void> _pickFiles() async {
     final result = await FilePicker.pickFiles(allowMultiple: true);
     if (result == null) return;
-    setState(() {
-      for (final f in result.files) {
-        final path = f.path;
-        if (path != null) {
-          _attachments.add(_AttachmentChip(path: path, name: f.name));
-        }
-      }
-    });
-  }
+    final controller = context.read<AgentsController>();
+    final id = controller.selectedSessionId;
+    if (id == null) return;
+    for (final f in result.files) {
+      final path = f.path;
+      if (path == null) continue;
+      try {
+        final bytes = await File(path).readAsBytes();
+        final mime = resolveAttachmentMime(bytes, f.name, f.extension);
 
-  void _removeAttachment(int index) {
-    setState(() => _attachments.removeAt(index));
+        if (mime == 'application/octet-stream') {
+          // Genuinely unsupported binary — block at attach time.
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                  '${f.name}: unsupported file type. '
+                  'Only text files, images, and PDFs can be attached.',
+                ),
+                duration: const Duration(seconds: 4),
+              ),
+            );
+          }
+          continue;
+        }
+
+        if (isTextLikeMime(mime)) {
+          // Issue #717: inline text/code/log files as a text part so the
+          // model can read their contents directly.
+          final decoded = tryDecodeUtf8(bytes);
+          if (decoded == null) {
+            // Somehow resolved to a text MIME but bytes aren't valid UTF-8
+            // (should be rare — resolveAttachmentMime uses the same probe).
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(
+                    '${f.name}: file could not be decoded as text.',
+                  ),
+                  duration: const Duration(seconds: 4),
+                ),
+              );
+            }
+            continue;
+          }
+          final String content;
+          final bool truncated = bytes.length > _kTextSizeCap;
+          if (truncated) {
+            // Truncate at the byte boundary and re-decode to keep valid UTF-8.
+            final truncBytes = bytes.sublist(0, _kTextSizeCap);
+            final partial = tryDecodeUtf8(truncBytes) ??
+                const Utf8Decoder(allowMalformed: true)
+                    .convert(truncBytes.toList());
+            content =
+                '$partial\n\n… [truncated — showing first 100 KB of ${f.name}]';
+          } else {
+            content = decoded;
+          }
+          controller.addPendingAttachment(id, {
+            'type': 'text',
+            'filename': f.name,
+            'mime': mime,
+            'text': content,
+          });
+        } else {
+          // image/* and application/pdf → FilePart with data URI.
+          final dataUri = 'data:$mime;base64,${base64Encode(bytes)}';
+          controller.addPendingAttachment(id, {
+            'type': 'file',
+            'mime': mime,
+            'filename': f.name,
+            'url': dataUri,
+          });
+        }
+      } catch (_) {
+        // File read error — skip this attachment silently.
+      }
+    }
   }
 
   void _send() {
-    if (_attachments.isNotEmpty) {
-      // Wire attachments into the WS parts array via AgentsController.
-      final controller = context.read<AgentsController>();
-      final id = controller.selectedSessionId;
-      if (id == null) return;
-      final text = widget.inputController.text;
-      if (text.isEmpty && _attachments.isEmpty) return;
-      controller.sendInput(
-        id,
-        '${text}\n',
-        attachments: _attachments
-            .map((a) => {'type': 'file', 'filePath': a.path})
-            .toList(),
-      );
+    final controller = context.read<AgentsController>();
+    final id = controller.selectedSessionId;
+    if (id == null) return;
+    final text = widget.inputController.text.trim();
+    final pending = controller.pendingAttachmentsFor(id);
+    if (text.isEmpty && pending.isEmpty) return;
+
+    if (pending.isNotEmpty) {
+      // OPC-M4-1: send with parts array (text + file parts).
+      // sendInput merges the controller-held pending attachments internally.
+      controller.sendInput(id, '${text}\n');
       widget.inputController.clear();
-      setState(() => _attachments.clear());
     } else {
       widget.onSend();
     }
@@ -2083,6 +2569,15 @@ class _InputAreaState extends State<_InputArea> {
   Widget build(BuildContext context) {
     final controller = context.watch<AgentsController>();
     final session = controller.selectedSession;
+    // OPC-M4-1: pending attachments from the controller, keyed by session.
+    final pendingAttachments = session != null
+        ? controller.pendingAttachmentsFor(session.id)
+        : const <Map<String, dynamic>>[];
+
+    // OPC-M3-3: compute input token count for the context-usage hint.
+    final lastInputTokens = session != null
+        ? controller.lastAssistantInputTokens(session.id)
+        : null;
 
     return Container(
       padding: const EdgeInsets.fromLTRB(18, 14, 18, 18),
@@ -2093,20 +2588,38 @@ class _InputAreaState extends State<_InputArea> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // Attachment chips
-          if (_attachments.isNotEmpty) ...[
+          // OPC-M4-1: Attachment chips driven by controller state.
+          if (pendingAttachments.isNotEmpty) ...[
             Wrap(
               spacing: 6,
               runSpacing: 6,
               children: [
-                for (var i = 0; i < _attachments.length; i++)
+                for (var i = 0; i < pendingAttachments.length; i++)
                   _AttachmentChipWidget(
-                    chip: _attachments[i],
-                    onRemove: () => _removeAttachment(i),
+                    key: Key('attachment-chip-$i'),
+                    filename:
+                        (pendingAttachments[i]['filename'] as String?) ?? '',
+                    mime: (pendingAttachments[i]['mime'] as String?) ?? '',
+                    onRemove: () {
+                      if (session != null) {
+                        controller.removePendingAttachment(session.id, i);
+                      }
+                    },
+                    removeKey: Key('attachment-chip-$i-remove'),
                   ),
               ],
             ),
             const SizedBox(height: 8),
+          ],
+          // OPC-M3-3: context-usage hint chip — visible when input tokens are
+          // approaching the context limit (default threshold: 80% of 150k).
+          ContextUsageHint(inputTokens: lastInputTokens),
+          if (lastInputTokens != null &&
+              lastInputTokens >=
+                  (ContextUsageHint.kDefaultContextLimit *
+                          ContextUsageHint.kThresholdFraction)
+                      .round()) ...[
+            const SizedBox(height: 6),
           ],
           // Text field
           SlashCommandPopover(
@@ -2185,6 +2698,8 @@ class _InputAreaState extends State<_InputArea> {
                     if (session != null)
                       UnifiedAgentModelPicker(session: session),
                     if (session != null) PermissionModePicker(session: session),
+                    // OPC-M4-4: agent selector pill (after permission mode picker)
+                    AgentSelectorPill(sessionId: session?.id),
                     if (session != null) ...[
                       _ThinkingBudgetPicker(session: session),
                       _FastModeToggle(session: session),
@@ -2212,10 +2727,10 @@ class _InputAreaState extends State<_InputArea> {
                                 size: 14,
                                 color: context.rhythm.textSecondary,
                               ),
-                              if (_attachments.isNotEmpty) ...[
+                              if (pendingAttachments.isNotEmpty) ...[
                                 const SizedBox(width: 3),
                                 Text(
-                                  '${_attachments.length}',
+                                  '${pendingAttachments.length}',
                                   style: TextStyle(
                                     fontSize: 11,
                                     fontWeight: FontWeight.w600,
@@ -2264,23 +2779,28 @@ class _InputAreaState extends State<_InputArea> {
 }
 
 // ---------------------------------------------------------------------------
-// Attachment chip data + widget
+// OPC-M4-1: Attachment chip widget
 // ---------------------------------------------------------------------------
 
-class _AttachmentChip {
-  const _AttachmentChip({required this.path, required this.name});
-  final String path;
-  final String name;
-}
-
+/// Shows one pending attachment chip (filename + remove button).
+/// Driven by the controller's pending attachments list.
 class _AttachmentChipWidget extends StatelessWidget {
-  const _AttachmentChipWidget({required this.chip, required this.onRemove});
+  const _AttachmentChipWidget({
+    super.key,
+    required this.filename,
+    required this.mime,
+    required this.onRemove,
+    this.removeKey,
+  });
 
-  final _AttachmentChip chip;
+  final String filename;
+  final String mime;
   final VoidCallback onRemove;
+  final Key? removeKey;
 
   @override
   Widget build(BuildContext context) {
+    final isImage = mime.startsWith('image/');
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
@@ -2293,12 +2813,16 @@ class _AttachmentChipWidget extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.attach_file, size: 11, color: context.rhythm.accent),
+          Icon(
+            isImage ? Icons.image_outlined : Icons.attach_file,
+            size: 11,
+            color: context.rhythm.accent,
+          ),
           const SizedBox(width: 4),
           ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 180),
             child: Text(
-              chip.name,
+              filename.isNotEmpty ? filename : 'file',
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
@@ -2310,6 +2834,7 @@ class _AttachmentChipWidget extends StatelessWidget {
           ),
           const SizedBox(width: 4),
           GestureDetector(
+            key: removeKey,
             onTap: onRemove,
             child: Icon(
               Icons.close,
@@ -2585,6 +3110,20 @@ class _NewSessionDialogState extends State<_NewSessionDialog> {
     }
   }
 
+  /// OPC-#713: Open a native directory picker and populate [_cwdController]
+  /// with the chosen path. Text entry remains editable for manual overrides.
+  Future<void> _browseCwd() async {
+    final path = await FilePicker.getDirectoryPath(
+      dialogTitle: 'Choose working directory',
+      initialDirectory: _cwdController.text.trim().isNotEmpty
+          ? _cwdController.text.trim()
+          : null,
+    );
+    if (path != null && mounted) {
+      setState(() => _cwdController.text = path);
+    }
+  }
+
   @override
   void dispose() {
     _nameController.dispose();
@@ -2781,14 +3320,44 @@ class _NewSessionDialogState extends State<_NewSessionDialog> {
               ),
             ),
             const SizedBox(height: 6),
-            TextField(
-              controller: _cwdController,
-              style: TextStyle(
-                fontSize: 13,
-                fontFamily: 'Menlo',
-                color: context.rhythm.textPrimary,
-              ),
-              decoration: _inputDecoration(context, hint: '~/'),
+            // OPC-#713: cwd row = editable text field + Browse… button.
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: _cwdController,
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontFamily: 'Menlo',
+                      color: context.rhythm.textPrimary,
+                    ),
+                    decoration: _inputDecoration(context, hint: '~/'),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                SizedBox(
+                  height: 38,
+                  child: OutlinedButton(
+                    onPressed: _browseCwd,
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: context.rhythm.accent,
+                      side: BorderSide(color: context.rhythm.border),
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(RhythmRadius.md),
+                      ),
+                    ),
+                    child: const Text(
+                      'Browse…',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ),
 
             // Branch selector — only shown when the selected project has a
@@ -3298,6 +3867,382 @@ class ResumableSessionRowTestHarness extends StatelessWidget {
   }
 }
 
+// ---------------------------------------------------------------------------
+// OPC-M3-6: ChildTranscriptView — read-only transcript for a child session.
+// ---------------------------------------------------------------------------
+
+/// A read-only transcript panel for a child (subagent) session.
+///
+/// Displays the messages fetched into [AgentsController] for [childSdkId],
+/// with a breadcrumb row that lets the user navigate back to the parent
+/// session via [onBack].
+///
+/// This widget does NOT have a composer or tool bars — child sessions are
+/// observed, not interacted with from the parent view.
+///
+/// Exported (public) so tests can import it from agents_view.dart.
+class ChildTranscriptView extends StatelessWidget {
+  const ChildTranscriptView({
+    super.key,
+    required this.childSdkId,
+    required this.parentSessionName,
+    required this.onBack,
+  });
+
+  final String childSdkId;
+  final String parentSessionName;
+  final VoidCallback onBack;
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = context.watch<AgentsController>();
+    final messages = controller.childMessagesFor(childSdkId);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // Breadcrumb row.
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          decoration: BoxDecoration(
+            color: context.rhythm.surfaceMuted,
+            border: Border(
+              bottom: BorderSide(color: context.rhythm.borderSubtle),
+            ),
+          ),
+          child: Row(
+            children: [
+              GestureDetector(
+                onTap: onBack,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.chevron_left,
+                      size: 18,
+                      color: context.rhythm.accent,
+                    ),
+                    const SizedBox(width: 2),
+                    Text(
+                      parentSessionName,
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: context.rhythm.accent,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              Icon(
+                Icons.chevron_right,
+                size: 14,
+                color: context.rhythm.textMuted,
+              ),
+              const SizedBox(width: 4),
+              Text(
+                'Subagent',
+                style: TextStyle(
+                  fontSize: 12,
+                  color: context.rhythm.textSecondary,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
+        ),
+        // Message list.
+        Expanded(
+          child: messages.isEmpty
+              ? Center(
+                  child: Text(
+                    'No messages in this subagent session.',
+                    style: TextStyle(
+                      color: context.rhythm.textMuted,
+                      fontSize: 13,
+                    ),
+                  ),
+                )
+              : ListView.builder(
+                  padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
+                  itemCount: messages.length,
+                  itemBuilder: (context, index) {
+                    final m = messages[index];
+                    final isUser = m.role == 'input' || m.role == 'user';
+                    // Use strippedText for display (rawText may contain ANSI).
+                    final displayText =
+                        m.strippedText.isNotEmpty ? m.strippedText : m.rawText;
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: isUser
+                          ? Align(
+                              alignment: Alignment.centerRight,
+                              child: Container(
+                                constraints:
+                                    const BoxConstraints(maxWidth: 560),
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 12, vertical: 8),
+                                decoration: BoxDecoration(
+                                  color: context.rhythm.accentMuted,
+                                  borderRadius:
+                                      BorderRadius.circular(RhythmRadius.md),
+                                  border: Border.all(
+                                    color: context.rhythm.accent
+                                        .withValues(alpha: 0.2),
+                                  ),
+                                ),
+                                child: Text(
+                                  displayText,
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    color: context.rhythm.accent,
+                                    height: 1.4,
+                                  ),
+                                ),
+                              ),
+                            )
+                          : Container(
+                              width: double.infinity,
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                color: context.rhythm.surfaceMuted,
+                                borderRadius:
+                                    BorderRadius.circular(RhythmRadius.md),
+                                border: Border.all(
+                                    color: context.rhythm.borderSubtle),
+                              ),
+                              child: Text(
+                                displayText,
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  color: context.rhythm.textPrimary,
+                                  height: 1.4,
+                                ),
+                              ),
+                            ),
+                    );
+                  },
+                ),
+        ),
+      ],
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// OPC-M4-1: MIME inference helper
+// ---------------------------------------------------------------------------
+
+/// Infer a MIME type from a file extension.
+/// Falls back to 'application/octet-stream' for unknown extensions.
+// ---------------------------------------------------------------------------
+// OPC-M4-4: Agent selector pill + agent-part marker
+// ---------------------------------------------------------------------------
+
+/// A pill-shaped button that shows the currently selected agent for the active
+/// session and opens a dropdown to switch between available agents.
+///
+/// Rendered in [_InputArea]'s bottom row, after [PermissionModePicker].
+/// Exported as a public class so `opc_m4_4_agent_selection_test.dart` can
+/// find it in the widget tree by type.
+///
+/// When [sessionId] is null the widget renders nothing.
+class AgentSelectorPill extends StatelessWidget {
+  const AgentSelectorPill({super.key, required this.sessionId});
+
+  final String? sessionId;
+
+  @override
+  Widget build(BuildContext context) {
+    final sid = sessionId;
+    if (sid == null) return const SizedBox.shrink();
+
+    final ctrl = context.watch<AgentsController>();
+    final agents = ctrl.availableAgentsFor(sid);
+    final selected = ctrl.selectedAgentFor(sid);
+    final label = selected ?? 'build';
+
+    return PopupMenuButton<String>(
+      tooltip: 'Switch agent',
+      // Constrain the popup width so it doesn't span the full screen.
+      constraints: const BoxConstraints(maxWidth: 220),
+      itemBuilder: (_) => [
+        // "Default" option always shown so the user can clear selection.
+        PopupMenuItem<String>(
+          value: '',
+          child: Text(
+            'build (default)',
+            style: TextStyle(
+              fontSize: 12,
+              color: context.rhythm.textSecondary,
+            ),
+          ),
+        ),
+        for (final a in agents)
+          PopupMenuItem<String>(
+            value: a.name,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  a.name,
+                  style: const TextStyle(fontSize: 13),
+                ),
+                if (a.description != null)
+                  Text(
+                    a.description!,
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: context.rhythm.textMuted,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+              ],
+            ),
+          ),
+      ],
+      onSelected: (value) {
+        ctrl.setSelectedAgent(sid, value.isEmpty ? null : value);
+      },
+      child: Container(
+        height: 30,
+        padding: const EdgeInsets.symmetric(horizontal: 8),
+        decoration: BoxDecoration(
+          color: selected != null
+              ? context.rhythm.accentMuted
+              : context.rhythm.surfaceMuted,
+          borderRadius: BorderRadius.circular(RhythmRadius.md),
+          border: Border.all(
+            color: selected != null
+                ? context.rhythm.accent
+                : context.rhythm.border,
+          ),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              Icons.smart_toy_outlined,
+              size: 13,
+              color: selected != null
+                  ? context.rhythm.accent
+                  : context.rhythm.textSecondary,
+            ),
+            const SizedBox(width: 4),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
+                color: selected != null
+                    ? context.rhythm.accent
+                    : context.rhythm.textSecondary,
+              ),
+            ),
+            const SizedBox(width: 2),
+            Icon(
+              Icons.arrow_drop_down,
+              size: 14,
+              color: selected != null
+                  ? context.rhythm.accent
+                  : context.rhythm.textSecondary,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// A labeled marker rendered inline in the transcript for `agent`-type parts.
+///
+/// Shown as a subtle chip: "Switched to plan" (using the agent name from the
+/// part). Exported so tests can find it by type.
+class AgentPartMarker extends StatelessWidget {
+  const AgentPartMarker({super.key, required this.agentName});
+
+  final String agentName;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Icon(
+          Icons.swap_horiz,
+          size: 13,
+          color: context.rhythm.textMuted,
+        ),
+        const SizedBox(width: 4),
+        Text(
+          'Switched to $agentName',
+          style: TextStyle(
+            fontSize: 11,
+            fontStyle: FontStyle.italic,
+            color: context.rhythm.textMuted,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// OPC-M4-1: Test harnesses (@visibleForTesting)
+// ---------------------------------------------------------------------------
+
+/// A harness that renders the real [_InputArea] inside a minimal scaffold with
+/// a live [AgentsController]. Used by `opc_m4_1_attachments_test.dart` (c3) to
+/// assert that the composer chip UI and remove-button behavior match the real
+/// widget tree wired in [AgentsView] → [_TranscriptPanel] → [_InputArea].
+///
+/// Exported (`@visibleForTesting`) rather than private so the test file can
+/// reference it by name without depending on the internal widget hierarchy.
+@visibleForTesting
+class InputAreaTestHarness extends StatefulWidget {
+  const InputAreaTestHarness({super.key});
+
+  @override
+  State<InputAreaTestHarness> createState() => _InputAreaTestHarnessState();
+}
+
+class _InputAreaTestHarnessState extends State<InputAreaTestHarness> {
+  final _controller = TextEditingController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // The real _InputArea is private — we test via a minimal Scaffold that
+    // mirrors how _TranscriptPanel embeds it.
+    return _InputArea(
+      inputController: _controller,
+      onSend: () {},
+    );
+  }
+}
+
+/// A harness that renders [_UserBubble] for a given list of [ChatPart]s.
+/// Used by `opc_m4_1_attachments_test.dart` (c4, c5) to assert that file
+/// parts render as thumbnails or filename chips.
+@visibleForTesting
+class UserBubbleTestHarness extends StatelessWidget {
+  const UserBubbleTestHarness({super.key, required this.parts});
+
+  final List<ChatPart> parts;
+
+  @override
+  Widget build(BuildContext context) {
+    return _UserBubble(parts: parts);
+  }
+}
+
 /// Public wrapper around [_TranscriptHeader] for use in widget tests.
 ///
 /// Requires [AgentConfigsController] and [AgentsController] in the Provider
@@ -3313,5 +4258,60 @@ class TranscriptHeaderTestHarness extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return _TranscriptHeader(session: session);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// OPC-#710 test harnesses
+// ---------------------------------------------------------------------------
+
+/// Public wrapper around [_SessionListHeader] for use in widget tests.
+///
+/// Exposes both the [onNewSession] (instant-create) and [onOptionsPressed]
+/// (advanced dialog) callbacks so tests can assert the correct path is taken
+/// without having to mount the full [AgentsView] Provider tree.
+///
+/// Requires [AgentsController] in the Provider tree (the header's refresh
+/// button and settings sheet use context.read<AgentsController>).
+@visibleForTesting
+class SessionListHeaderTestHarness extends StatelessWidget {
+  const SessionListHeaderTestHarness({
+    super.key,
+    required this.onNewSession,
+    this.onOptionsPressed,
+  });
+
+  final VoidCallback? onNewSession;
+  final VoidCallback? onOptionsPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return _SessionListHeader(
+      onNewSession: onNewSession,
+      onOptionsPressed: onOptionsPressed,
+    );
+  }
+}
+
+/// Public wrapper around [_SessionRow] for use in widget tests.
+///
+/// Renders a single session row without the full session-list scaffold.
+/// Used by OPC-#710 tests to assert the "New session" placeholder renders
+/// correctly when [session.name] is empty.
+@visibleForTesting
+class SessionRowTestHarness extends StatelessWidget {
+  const SessionRowTestHarness({super.key, required this.session});
+
+  final AgentSession session;
+
+  @override
+  Widget build(BuildContext context) {
+    return _SessionRow(
+      session: session,
+      isSelected: false,
+      isWorking: false,
+      isStuck: false,
+      onTap: () {},
+    );
   }
 }

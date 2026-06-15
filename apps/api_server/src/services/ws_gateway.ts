@@ -90,6 +90,486 @@ export function broadcastSessionRemoved(id: string): void {
   broadcast({ v: 1, type: 'session.removed', id });
 }
 
+/**
+ * OPC-M3-4 — Handle a `session.command` WS frame.
+ *
+ * Transport choice: WS frame over `session.command` (not a REST route).
+ * Rationale: slash-command dispatch is a fire-and-forget operation that
+ * arrives on the same live WS connection as `session.input`. Using a WS
+ * frame keeps all user-initiated session interactions on the same channel
+ * and avoids a cross-channel ordering hazard (WS input vs. REST command
+ * racing in the SDK's message queue).
+ *
+ * Frame shape: { v:1, type:'session.command', id: localSessionId,
+ *                command: string, arguments: string }
+ *
+ * On success: dispatchCommand is called with (sdkId, command, arguments).
+ *             The SDK streams the response back via the event stream (same
+ *             path as promptAsync), so no synchronous response is needed.
+ * On error:   a { v:1, type:'error', id, message } frame is sent back.
+ */
+export async function handleCommandFrame(
+  ws: WebSocket,
+  msg: Record<string, unknown>,
+): Promise<void> {
+  const id = msg.id as string | undefined;
+  const command = msg.command as string | undefined;
+  const args = (msg.arguments ?? '') as string;
+
+  if (!id || !command) {
+    ws.send(
+      JSON.stringify({
+        v: 1,
+        type: 'error',
+        id: id ?? '',
+        message: 'session.command requires id and command fields',
+      }),
+    );
+    return;
+  }
+
+  // Look up local session to verify it exists.
+  let dbSession: import('../models/agent_session').AgentSession | null = null;
+  try {
+    dbSession = new AgentSessionsRepository().findById(id);
+  } catch {
+    // DB unavailable — treat as unknown session.
+  }
+
+  if (!dbSession) {
+    ws.send(
+      JSON.stringify({
+        v: 1,
+        type: 'error',
+        id,
+        message: `Unknown session: ${id}`,
+      }),
+    );
+    return;
+  }
+
+  // Look up the SDK session mapping.
+  const sdkId = opencodeSessionMap.get(id);
+  if (!sdkId) {
+    ws.send(
+      JSON.stringify({
+        v: 1,
+        type: 'error',
+        id,
+        message: `No SDK session mapping for local session ${id}. Start or resume the session first.`,
+      }),
+    );
+    return;
+  }
+
+  try {
+    await opencodeClient.dispatchCommand(sdkId, command, args);
+  } catch (err) {
+    ws.send(
+      JSON.stringify({
+        v: 1,
+        type: 'error',
+        id,
+        message: String(err),
+      }),
+    );
+  }
+}
+
+/**
+ * OPC-M4-1 — Handle a `session.input` WS frame.
+ *
+ * Accepts either:
+ *   - Legacy shape: `{ type: 'session.input', id, data: string }`
+ *   - Parts shape:  `{ type: 'session.input', id, parts: Array<Part> }`
+ *
+ * When `parts` is present the full parts array is forwarded verbatim to
+ * `promptAsync` (6th arg), enabling real multimodal input (FilePart with
+ * data URIs). The text extracted from text-type parts is used as the
+ * `data` string argument so the SDK's text path works unchanged.
+ *
+ * Size guard: any FilePart whose `url` exceeds 20 MB yields a clear error
+ * frame and returns without calling promptAsync.
+ *
+ * Exported for unit testing (see src/__tests__/opc_m4_1_file_attachments.test.ts).
+ */
+export async function handleInputFrame(
+  ws: WebSocket,
+  msg: Record<string, unknown>,
+): Promise<void> {
+  const id = msg.id as string | undefined;
+
+  // OPC-M4-1: accept either legacy `data: string` or new `parts: Array<...>`.
+  let data = msg.data as string | undefined;
+  const partsInput = msg.parts as
+    | Array<Record<string, unknown>>
+    | undefined;
+
+  let partsToForward: Array<Record<string, unknown>> | undefined;
+
+  if (Array.isArray(partsInput) && partsInput.length > 0) {
+    // OPC-M4-1 size guard: reject payloads with oversized file data URIs.
+    const kMaxBytes = 20 * 1024 * 1024; // 20 MB
+    for (const p of partsInput) {
+      if (p.type === 'file' || p.type === 'image') {
+        const url = p.url as unknown;
+        if (typeof url === 'string' && url.length > kMaxBytes) {
+          if (id) {
+            ws.send(
+              JSON.stringify({
+                v: 1,
+                type: 'error',
+                id,
+                message:
+                  `Attachment exceeds the 20 MB size limit. Please reduce the file size and try again.`,
+              }),
+            );
+          }
+          return;
+        }
+      }
+    }
+
+    // Extract text from text parts for the `data` string.
+    if (!data) {
+      const textLines = partsInput
+        .filter((p) => p.type === 'text' && typeof p.text === 'string')
+        .map((p) => p.text as string);
+      data = textLines.join('\n').trim();
+    }
+
+    // Forward the full parts array (text + file parts) to the SDK.
+    partsToForward = partsInput;
+  }
+
+  // M2-2: per-turn override on the WS frame, never persisted.
+  const perTurnOverride = (msg.modelOverride ?? null) as {
+    providerId?: string;
+    modelId?: string;
+  } | null;
+  // Issue #604: per-turn reasoning budget + fast-mode, never persisted.
+  const perTurnThinking = (msg.thinking ?? null) as {
+    budget_tokens?: number;
+  } | null;
+  const perTurnFastMode = typeof msg.fastMode === 'boolean' ? msg.fastMode : null;
+  // OPC-M4-4: per-turn intra-session agent override, never persisted.
+  // The Flutter composer sends `agent: <name>` (e.g. 'plan', 'build', or a
+  // custom agent name) alongside the session.input frame. The SDK's
+  // promptAsync body accepts an `agent?: string` field that routes the turn
+  // to the named agent. Absent → SDK uses its default (build).
+  const perTurnAgent = typeof msg.agent === 'string' && msg.agent.length > 0
+    ? msg.agent
+    : null;
+
+  if (!id || typeof data !== 'string') {
+    return;
+  }
+
+  let opencodeId = opencodeSessionMap.get(id);
+  let cwd: string | undefined;
+  let agentKind: string | undefined;
+  let sessionName: string | undefined;
+  let sessionProviderId: string | null = null;
+  let sessionModelId: string | null = null;
+  let sessionThinkingBudget: number | null = null;
+  let sessionFastMode = false;
+  // #711: read permissionMode so it can be forwarded in the prompt opts.
+  // The opencode server inspects this field in the body to bypass its
+  // own per-tool permission gate — when 'bypassPermissions', it executes
+  // tools without emitting permission.updated events. Without forwarding
+  // it here, Claude/anthropic sessions silently hang waiting for user
+  // approval while openrouter free sessions (chat-only, no tool calls)
+  // appear to "work" because they never trigger tool-use at all.
+  let sessionPermissionMode: string = 'default';
+  try {
+    const session = new AgentSessionsRepository().findById(id);
+    if (session) {
+      cwd = session.cwd;
+      agentKind = session.agentKind;
+      sessionName = session.name;
+      sessionProviderId = session.providerId;
+      sessionModelId = session.modelId;
+      sessionThinkingBudget = session.thinkingBudget ?? null;
+      sessionFastMode = session.fastMode ?? false;
+      sessionPermissionMode = session.permissionMode ?? 'default';
+    }
+  } catch {
+    /* DB unavailable — proceed without context */
+  }
+
+  // OPC-M1-4: If the session is in status='error', clear the error
+  // state before forwarding the prompt. This is the "explicit user
+  // action" that transitions the session out of error — the new
+  // prompt signals intent to retry. clearErrorStatus is a no-op if
+  // the session is not in error state.
+  {
+    const session = new AgentSessionsRepository().findById(id);
+    if (session?.status === 'error') {
+      const { streamBridge } = await import('./opencode_stream_bridge');
+      streamBridge.clearErrorStatus(id);
+    }
+  }
+
+  // Issue #653: legacy '__pending__' agent-less sessions are no
+  // longer supported. The client must pick a model in the trigger
+  // bubble BEFORE creating the session (POST /agent-sessions
+  // rejects null/empty/'__pending__' agentIds with 400). Any session
+  // row carrying the historical sentinel is invalid — reject the
+  // input frame with a clear error so a stale client can be
+  // updated. We deliberately do NOT resurrect the previous
+  // resolve-on-first-turn path; that's the architectural mistake
+  // #653 fixes.
+  if (agentKind === '__pending__') {
+    ws.send(
+      JSON.stringify({
+        v: 1,
+        type: 'error',
+        id,
+        message:
+          "This chat was created in a legacy state ('__pending__'). " +
+          'Close it and open a new chat from the task — the new ' +
+          'flow lets you pick the model before sending. (#653)',
+      }),
+    );
+    return;
+  }
+
+  // OPC-M1-5 Auto-resume: sessions persist in SQLite across api_server
+  // restarts, but `opencodeSessionMap` is in-process and is wiped
+  // on each boot. If the user sends input to a session that has
+  // no current SDK mapping, try to re-attach to the EXISTING SDK
+  // session first (using sdk_session_id from the DB row), then
+  // fall back to creating a fresh session only if the SDK session
+  // is gone.
+  if (!opencodeId) {
+    if (!cwd) {
+      console.warn(
+        `[ws_gateway] session.input for unknown session ${id} (no DB row); dropping`,
+      );
+      return;
+    }
+    try {
+      // OPC-M1-5: look up the persisted sdk_session_id first.
+      const dbSessionForResume = new AgentSessionsRepository().findById(id);
+      const persistedSdkId = dbSessionForResume?.sdkSessionId ?? null;
+
+      if (persistedSdkId) {
+        // Try to re-attach to the existing SDK session.
+        const existingSession = await opencodeClient.getSession(persistedSdkId);
+        if (existingSession) {
+          // Re-attach path — session is alive.
+          opencodeId = existingSession.id;
+          opencodeSessionMap.set(id, opencodeId);
+          const { streamBridge } = await import('./opencode_stream_bridge');
+          streamBridge.clearErrorStatus(id);
+          streamBridge
+            .streamSession(id, opencodeId, cwd)
+            .catch((err) =>
+              console.error(
+                `[ws_gateway] auto-resume (re-attach) stream bridge error for ${id}:`,
+                err,
+              ),
+            );
+          console.log(
+            `[ws_gateway] auto-resumed (re-attached) session ${id} -> SDK ${opencodeId}`,
+          );
+        } else {
+          // SDK session is gone — create a fresh one and persist the new id.
+          console.warn(
+            `[ws_gateway] SDK session "${persistedSdkId}" gone for local session ${id} — creating fresh`,
+          );
+          const freshSession = await opencodeClient.createSession(
+            sessionName ?? 'Resumed',
+            cwd,
+          );
+          if (!freshSession) {
+            ws.send(
+              JSON.stringify({
+                v: 1,
+                type: 'error',
+                id,
+                message: 'Could not resume session — Opencode engine unavailable.',
+              }),
+            );
+            return;
+          }
+          opencodeId = freshSession.id;
+          opencodeSessionMap.set(id, opencodeId);
+          new AgentSessionsRepository().setSdkSessionId(id, opencodeId);
+          const { streamBridge } = await import('./opencode_stream_bridge');
+          streamBridge
+            .streamSession(id, opencodeId, cwd)
+            .catch((err) =>
+              console.error(
+                `[ws_gateway] auto-resume (fresh after gone) stream bridge error for ${id}:`,
+                err,
+              ),
+            );
+          console.log(
+            `[ws_gateway] auto-resumed (fresh, old SDK gone) session ${id} -> SDK ${opencodeId}`,
+          );
+        }
+      } else {
+        // Legacy path: no sdk_session_id persisted — create a fresh session.
+        const opencodeSession = await opencodeClient.createSession(
+          sessionName ?? 'Resumed',
+          cwd,
+        );
+        if (!opencodeSession) {
+          ws.send(
+            JSON.stringify({
+              v: 1,
+              type: 'error',
+              id,
+              message: 'Could not resume session — Opencode engine unavailable.',
+            }),
+          );
+          return;
+        }
+        opencodeId = opencodeSession.id;
+        opencodeSessionMap.set(id, opencodeId);
+        new AgentSessionsRepository().setSdkSessionId(id, opencodeId);
+        const { streamBridge } = await import('./opencode_stream_bridge');
+        streamBridge
+          .streamSession(id, opencodeId, cwd)
+          .catch((err) =>
+            console.error(
+              `[ws_gateway] auto-resume (legacy fresh) stream bridge error for ${id}:`,
+              err,
+            ),
+          );
+        console.log(
+          `[ws_gateway] auto-resumed (legacy fresh) session ${id} -> SDK ${opencodeId}`,
+        );
+      }
+    } catch (err) {
+      console.error(
+        `[ws_gateway] auto-resume failed for session ${id}:`,
+        err,
+      );
+      ws.send(
+        JSON.stringify({
+          v: 1,
+          type: 'error',
+          id,
+          message: `Could not resume session: ${String(err)}`,
+        }),
+      );
+      return;
+    }
+  }
+
+  try {
+    const { resolveModelForSessionTurn } = await import(
+      './agent_model_resolver'
+    );
+    const model = agentKind
+      ? await resolveModelForSessionTurn({
+          agentId: agentKind,
+          sessionProviderId,
+          sessionModelId,
+          perTurnOverride,
+        })
+      : undefined;
+
+    // Guard: if model is undefined (unknown agentKind not in the
+    // resolver's fallback table), surface the problem explicitly
+    // instead of forwarding an undeclared model to the SDK.  The SDK
+    // silently no-ops on undefined model — it stores the user message
+    // part and publishes message.updated events, but never fires an
+    // LLM call, leaving the UI stuck on "working" indefinitely.
+    if (!model && agentKind) {
+      console.error(
+        `[ws_gateway] session ${id}: could not resolve model for agentKind='${agentKind}' — no route in catalog`,
+      );
+      ws.send(
+        JSON.stringify({
+          v: 1,
+          type: 'error',
+          id,
+          message: `Could not resolve a model for agent '${agentKind}'. Please select a model in the session settings.`,
+        }),
+      );
+      return;
+    }
+    console.log(
+      `[ws_gateway] session ${id}: routing turn to ${model ? `${model.providerID}/${model.modelID}` : '<no model>'}`,
+    );
+
+    // Issue #604: build optional thinking / fast-mode opts to pass through.
+    // Resolution order: per-turn field overrides session-level field.
+    const effectiveThinkingBudget = perTurnThinking?.budget_tokens ?? sessionThinkingBudget;
+    const effectiveFastMode = perTurnFastMode ?? sessionFastMode;
+    // OPC-M4-4: include the per-turn agent name when provided.
+    // #711: include permissionMode so the opencode server can honour
+    // it in-turn (bypassing its per-tool permission gate) rather than
+    // relying solely on the stream bridge's post-hoc auto-respond path.
+    // The opencode server reads this field from the prompt body and
+    // skips emitting permission.updated events for tool calls when it
+    // is 'bypassPermissions' — without this, Claude/anthropic sessions
+    // silently stall while waiting for user permission approval, even
+    // though Rhythm already has the permissionMode stored on the session.
+    //
+    // #714: The opencode server's prompt body accepts `reasoningConfig` to
+    // enable extended thinking / reasoning. The field shape (confirmed by
+    // inspecting the opencode v1.14.40 binary) is:
+    //   reasoningConfig: { type: "enabled", budgetTokens: <N> }
+    // This is the canonical field for BOTH the anthropic and bedrock paths.
+    // The older `thinking: { budget_tokens: N }` (snake_case) was wrong and
+    // silently ignored by the server — it is NOT in the opencode prompt body
+    // schema (Ih in the binary). openrouter "free" models (e.g. DeepSeek-R1)
+    // emit reasoning blocks unconditionally, masking the bug on that path.
+    if (effectiveThinkingBudget !== null) {
+      console.log(
+        `[ws_gateway] session ${id}: enabling reasoning via reasoningConfig.budgetTokens=${effectiveThinkingBudget}`,
+      );
+    }
+    const sdkOpts = (effectiveThinkingBudget !== null || effectiveFastMode || perTurnAgent !== null || sessionPermissionMode !== 'default')
+      ? {
+          ...(effectiveThinkingBudget !== null
+            ? { reasoningConfig: { type: 'enabled', budgetTokens: effectiveThinkingBudget } }
+            : {}),
+          ...(effectiveFastMode ? { fastMode: true } : {}),
+          ...(perTurnAgent !== null ? { agent: perTurnAgent } : {}),
+          ...(sessionPermissionMode !== 'default' ? { permissionMode: sessionPermissionMode } : {}),
+        }
+      : undefined;
+
+    // Bind through unknown to allow passing extra opts / parts that the
+    // hand-typed SDK typedef may not list — these are forwarded
+    // best-effort. CRITICAL: use `.bind(opencodeClient)` so the
+    // method retains its `this` binding. Bare `as unknown as` cast
+    // loses `this`, and the very first line of promptAsync reads
+    // `this.client` → throws `TypeError: Cannot read properties of
+    // undefined (reading 'client')` on every prompt. Regression from
+    // acdc835 (#604) which introduced the casted alias.
+    const promptFn = opencodeClient.promptAsync.bind(
+      opencodeClient,
+    ) as unknown as (
+      id: string,
+      data: string,
+      model?: { providerID: string; modelID: string },
+      cwd?: string,
+      opts?: Record<string, unknown>,
+      parts?: Array<Record<string, unknown>>,
+    ) => Promise<unknown>;
+    await promptFn(opencodeId, data, model, cwd, sdkOpts, partsToForward);
+  } catch (err) {
+    console.error(
+      `[ws_gateway] SDK prompt error for session ${id}:`,
+      err,
+    );
+    ws.send(
+      JSON.stringify({
+        v: 1,
+        type: 'error',
+        id,
+        message: String(err),
+      }),
+    );
+  }
+}
+
 function handleClientMessage(ws: WebSocket, raw: import('ws').RawData): void {
   let msg: Record<string, unknown>;
   try {
@@ -100,239 +580,17 @@ function handleClientMessage(ws: WebSocket, raw: import('ws').RawData): void {
   }
 
   switch (msg?.type) {
+    case 'session.command': {
+      // OPC-M3-4: handle structured slash-command dispatch.
+      handleCommandFrame(ws, msg).catch((err) =>
+        console.error('[ws_gateway] session.command handler error:', err),
+      );
+      return;
+    }
     case 'session.input': {
-      const id = msg.id as string | undefined;
-      // M4-1: accept either legacy `data: string` or new `parts: Array<...>`.
-      // When `parts` is present, the first text part becomes the prompt
-      // string we hand to promptAsync; file/image parts are appended as a
-      // bullet list so the agent can see them. Real multimodal hand-off
-      // requires the SDK's `parts` array — wired here for forward-compat,
-      // gracefully degraded when the SDK doesn't support it yet.
-      let data = msg.data as string | undefined;
-      const partsInput = msg.parts as
-        | Array<Record<string, unknown>>
-        | undefined;
-      if (!data && Array.isArray(partsInput)) {
-        const textParts = partsInput
-          .filter((p) => p.type === 'text' && typeof p.text === 'string')
-          .map((p) => p.text as string);
-        const fileParts = partsInput.filter((p) => p.type === 'file');
-        const imageParts = partsInput.filter((p) => p.type === 'image');
-        const lines: string[] = [...textParts];
-        for (const fp of fileParts) {
-          const path = (fp.filePath ?? fp.path) as unknown;
-          if (typeof path === 'string') lines.push(`@${path}`);
-        }
-        for (const ip of imageParts) {
-          const path = (ip.filePath ?? ip.url) as unknown;
-          if (typeof path === 'string') lines.push(`[image] ${path}`);
-        }
-        data = lines.join('\n').trim();
-      }
-      // M2-2: per-turn override on the WS frame, never persisted.
-      const perTurnOverride = (msg.modelOverride ?? null) as {
-        providerId?: string;
-        modelId?: string;
-      } | null;
-      // Issue #604: per-turn reasoning budget + fast-mode, never persisted.
-      const perTurnThinking = (msg.thinking ?? null) as {
-        budget_tokens?: number;
-      } | null;
-      const perTurnFastMode = typeof msg.fastMode === 'boolean' ? msg.fastMode : null;
-      if (id && typeof data === 'string') {
-        (async () => {
-          let opencodeId = opencodeSessionMap.get(id);
-          let cwd: string | undefined;
-          let agentKind: string | undefined;
-          let sessionName: string | undefined;
-          let sessionProviderId: string | null = null;
-          let sessionModelId: string | null = null;
-          let sessionThinkingBudget: number | null = null;
-          let sessionFastMode = false;
-          try {
-            const session = new AgentSessionsRepository().findById(id);
-            if (session) {
-              cwd = session.cwd;
-              agentKind = session.agentKind;
-              sessionName = session.name;
-              sessionProviderId = session.providerId;
-              sessionModelId = session.modelId;
-              sessionThinkingBudget = session.thinkingBudget ?? null;
-              sessionFastMode = session.fastMode ?? false;
-            }
-          } catch {
-            /* DB unavailable — proceed without context */
-          }
-
-          // Issue #653: legacy '__pending__' agent-less sessions are no
-          // longer supported. The client must pick a model in the trigger
-          // bubble BEFORE creating the session (POST /agent-sessions
-          // rejects null/empty/'__pending__' agentIds with 400). Any session
-          // row carrying the historical sentinel is invalid — reject the
-          // input frame with a clear error so a stale client can be
-          // updated. We deliberately do NOT resurrect the previous
-          // resolve-on-first-turn path; that's the architectural mistake
-          // #653 fixes.
-          if (agentKind === '__pending__') {
-            ws.send(
-              JSON.stringify({
-                v: 1,
-                type: 'error',
-                id,
-                message:
-                  "This chat was created in a legacy state ('__pending__'). " +
-                  'Close it and open a new chat from the task — the new ' +
-                  'flow lets you pick the model before sending. (#653)',
-              }),
-            );
-            return;
-          }
-
-          // Auto-resume: sessions persist in SQLite across api_server
-          // restarts, but `opencodeSessionMap` is in-process and is wiped
-          // on each boot. If the user sends input to a session that has
-          // no current SDK mapping, transparently create a fresh SDK
-          // session, register the mapping, start the stream bridge, and
-          // continue with the prompt — instead of silently dropping it.
-          if (!opencodeId) {
-            if (!cwd) {
-              console.warn(
-                `[ws_gateway] session.input for unknown session ${id} (no DB row); dropping`,
-              );
-              return;
-            }
-            try {
-              const opencodeSession = await opencodeClient.createSession(
-                sessionName ?? 'Resumed',
-                cwd,
-              );
-              if (!opencodeSession) {
-                ws.send(
-                  JSON.stringify({
-                    v: 1,
-                    type: 'error',
-                    id,
-                    message:
-                      'Could not resume session — Opencode engine unavailable.',
-                  }),
-                );
-                return;
-              }
-              opencodeId = opencodeSession.id;
-              opencodeSessionMap.set(id, opencodeId);
-              const { streamBridge } = await import(
-                './opencode_stream_bridge'
-              );
-              streamBridge
-                .streamSession(id, opencodeId, cwd)
-                .catch((err) =>
-                  console.error(
-                    `[ws_gateway] auto-resume stream bridge error for ${id}:`,
-                    err,
-                  ),
-                );
-              console.log(
-                `[ws_gateway] auto-resumed session ${id} -> SDK ${opencodeId}`,
-              );
-            } catch (err) {
-              console.error(
-                `[ws_gateway] auto-resume failed for session ${id}:`,
-                err,
-              );
-              ws.send(
-                JSON.stringify({
-                  v: 1,
-                  type: 'error',
-                  id,
-                  message: `Could not resume session: ${String(err)}`,
-                }),
-              );
-              return;
-            }
-          }
-
-          try {
-            const { resolveModelForSessionTurn } = await import(
-              './agent_model_resolver'
-            );
-            const model = agentKind
-              ? await resolveModelForSessionTurn({
-                  agentId: agentKind,
-                  sessionProviderId,
-                  sessionModelId,
-                  perTurnOverride,
-                })
-              : undefined;
-
-            // Guard: if model is undefined (unknown agentKind not in the
-            // resolver's fallback table), surface the problem explicitly
-            // instead of forwarding an undeclared model to the SDK.  The SDK
-            // silently no-ops on undefined model — it stores the user message
-            // part and publishes message.updated events, but never fires an
-            // LLM call, leaving the UI stuck on "working" indefinitely.
-            if (!model && agentKind) {
-              console.error(
-                `[ws_gateway] session ${id}: could not resolve model for agentKind='${agentKind}' — no route in catalog`,
-              );
-              ws.send(
-                JSON.stringify({
-                  v: 1,
-                  type: 'error',
-                  id,
-                  message: `Could not resolve a model for agent '${agentKind}'. Please select a model in the session settings.`,
-                }),
-              );
-              return;
-            }
-            console.log(
-              `[ws_gateway] session ${id}: routing turn to ${model ? `${model.providerID}/${model.modelID}` : '<no model>'}`,
-            );
-
-            // Issue #604: build optional thinking / fast-mode opts to pass through.
-            // Resolution order: per-turn field overrides session-level field.
-            const effectiveThinkingBudget = perTurnThinking?.budget_tokens ?? sessionThinkingBudget;
-            const effectiveFastMode = perTurnFastMode ?? sessionFastMode;
-            const sdkOpts = (effectiveThinkingBudget !== null || effectiveFastMode)
-              ? {
-                  ...(effectiveThinkingBudget !== null ? { thinking: { budget_tokens: effectiveThinkingBudget } } : {}),
-                  ...(effectiveFastMode ? { fastMode: true } : {}),
-                }
-              : undefined;
-
-            // Bind through unknown to allow passing extra opts that the
-            // hand-typed SDK typedef may not list — these are forwarded
-            // best-effort. CRITICAL: use `.bind(opencodeClient)` so the
-            // method retains its `this` binding. Bare `as unknown as` cast
-            // loses `this`, and the very first line of promptAsync reads
-            // `this.client` → throws `TypeError: Cannot read properties of
-            // undefined (reading 'client')` on every prompt. Regression from
-            // acdc835 (#604) which introduced the casted alias.
-            const promptFn = opencodeClient.promptAsync.bind(
-              opencodeClient,
-            ) as unknown as (
-              id: string,
-              data: string,
-              model?: { providerID: string; modelID: string },
-              cwd?: string,
-              opts?: Record<string, unknown>,
-            ) => Promise<unknown>;
-            await promptFn(opencodeId, data, model, cwd, sdkOpts);
-          } catch (err) {
-            console.error(
-              `[ws_gateway] SDK prompt error for session ${id}:`,
-              err,
-            );
-            ws.send(
-              JSON.stringify({
-                v: 1,
-                type: 'error',
-                id,
-                message: String(err),
-              }),
-            );
-          }
-        })();
-      }
+      handleInputFrame(ws, msg).catch((err) =>
+        console.error('[ws_gateway] session.input handler error:', err),
+      );
       return;
     }
     case 'session.resize': {

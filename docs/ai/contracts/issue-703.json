@@ -1,0 +1,63 @@
+{
+  "issue": 703,
+  "generated": "2026-06-13",
+  "criteria": [
+    {
+      "criterion_id": "issue-703-c1",
+      "text": "GET /agent-sessions/agents (or capabilities extension — implementer documents choice) returns the SDK-reported agent list for a cwd (vitest spy + fixture incl. a custom agent entry).",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/opc_m4_4_agent_selection.test.ts",
+      "test_id": "issue-703-c1: GET /agent-sessions/agents returns SDK-reported agent list including custom agent",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-703-c2",
+      "text": "WS session.input carrying agent: <name> forwards it on the SDK prompt call (vitest spy assert).",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/opc_m4_4_agent_selection.test.ts",
+      "test_id": "issue-703-c2: session.input with agent field forwards agent to promptAsync",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-703-c3",
+      "text": "The composer shows an agent selector populated from the endpoint; default matches the SDK default; selection persists per session for the app run (controller test).",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agents/opc_m4_4_agent_selection_test.dart",
+      "test_id": "issue-703-c3: agent selector populates from endpoint and persists per session",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-703-c4",
+      "text": "An agent-type part in the transcript renders a labeled marker ('Switched to plan') rather than the generic card (widget test with fixture).",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agents/opc_m4_4_agent_selection_test.dart",
+      "test_id": "issue-703-c4: agent-type part renders labeled marker not generic card",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-703-c5",
+      "text": "When the SDK reports only built-ins, the selector still works with build/plan (no crash on absent custom agents).",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agents/opc_m4_4_agent_selection_test.dart",
+      "test_id": "issue-703-c5: selector works with built-ins only (no crash)",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-703-c6",
+      "text": "Existing permission-mode behavior (plan mode auto-deny semantics) is regression-tested — selecting the plan agent must not double-apply permission gating.",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agents/opc_m4_4_agent_selection_test.dart",
+      "test_id": "issue-703-c6: selecting plan agent does not double-apply permission gating",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-703-c7",
+      "text": "ai-workflow checks --level pr exits 0; vitest + flutter test green.",
+      "mode": "manual",
+      "status": "pending",
+      "reason": "Gate-level check; confirmed by ai-workflow checks --level pr exit code"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": ["issue-703-c7"]
+}

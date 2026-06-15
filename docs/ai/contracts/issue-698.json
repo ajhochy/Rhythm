@@ -1,0 +1,63 @@
+{
+  "issue": 698,
+  "generated": "2026-06-13",
+  "criteria": [
+    {
+      "criterion_id": "issue-698-c1",
+      "text": "GET /agent-sessions/:id/todo invokes the SDK todo wrapper and returns the list (vitest spy + real-shape fixture).",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/opc_m3_5_todo_panel.test.ts",
+      "test_id": "issue-698-c1: GET /agent-sessions/:id/todo calls getTodo wrapper and returns real-shape payload",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-698-c2",
+      "text": "The bridge relays a todo.updated SSE event as a WS frame carrying session id + todo list (vitest).",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/opc_m3_5_todo_panel.test.ts",
+      "test_id": "issue-698-c2: bridge relays todo.updated SSE as a WS frame with session id and todo list",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-698-c3",
+      "text": "Selecting a session fetches todos once and renders the panel when nonempty; empty list → no panel (widget tests).",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agents/opc_m3_5_todo_panel_test.dart",
+      "test_id": "issue-698-c3: session select fetches todos once; nonempty → panel visible; empty → panel hidden",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-698-c4",
+      "text": "A todo.updated WS frame replaces the session's todo state and the panel re-renders (controller test: state keyed per session — an update for session B does not touch session A).",
+      "mode": "unit",
+      "test_file": "apps/desktop_flutter/test/features/agents/opc_m3_5_todo_panel_test.dart",
+      "test_id": "issue-698-c4: todo.updated WS frame replaces session todo state; session-keyed isolation",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-698-c5",
+      "text": "Panel header shows completed/total count; rows reuse the M2-3 checklist styling with status-driven check state.",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agents/opc_m3_5_todo_panel_test.dart",
+      "test_id": "issue-698-c5: panel header shows completed/total count and checklist rows have correct check states",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-698-c6",
+      "text": "Panel collapse state persists while switching between sessions in the same app run.",
+      "mode": "ui",
+      "test_file": "apps/desktop_flutter/test/features/agents/opc_m3_5_todo_panel_test.dart",
+      "test_id": "issue-698-c6: todo panel collapse state survives session switch in same app run",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-698-c7",
+      "text": "ai-workflow checks --level pr exits 0; vitest + flutter test green.",
+      "mode": "manual",
+      "status": "pending",
+      "reason": "Gate-level check — confirmed by running ai-workflow checks --level pr after implementation"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": ["issue-698-c7"]
+}
