@@ -64,7 +64,11 @@ export class GoogleBrokerController {
       const account = await integrationsService.ensureFreshGoogleAccount(
         req.auth!.user.id,
       );
-      const { calendarId, ...patch } = req.body as Record<string, unknown>;
+      const { calendarId, start, end, ...rest } =
+        req.body as Record<string, unknown>;
+      const patch: Record<string, unknown> = { ...rest };
+      if (start !== undefined) patch.start = { dateTime: start };
+      if (end !== undefined) patch.end = { dateTime: end };
       const result = await calendar.updateEvent(
         account,
         (calendarId as string) ?? 'primary',

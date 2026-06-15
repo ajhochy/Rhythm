@@ -152,6 +152,29 @@ describe('GET /integrations/google/calendar/events', () => {
   });
 });
 
+describe('PATCH /integrations/google/calendar/events/:id', () => {
+  it('wraps start/end into {dateTime} objects (symmetric with create)', async () => {
+    updateEvent.mockResolvedValue({ id: 'evt1' });
+
+    const { status } = await req(
+      'PATCH',
+      '/integrations/google/calendar/events/evt1',
+      {
+        start: '2026-06-20T09:00:00-07:00',
+        end: '2026-06-20T10:00:00-07:00',
+        summary: 'Moved',
+      },
+    );
+
+    expect(status).toBe(200);
+    expect(updateEvent).toHaveBeenCalledTimes(1);
+    const patch = updateEvent.mock.calls[0][3];
+    expect(patch.start).toEqual({ dateTime: '2026-06-20T09:00:00-07:00' });
+    expect(patch.end).toEqual({ dateTime: '2026-06-20T10:00:00-07:00' });
+    expect(patch.summary).toBe('Moved');
+  });
+});
+
 describe('POST /integrations/google/gmail/send', () => {
   it('maps NeedsScopeUpgradeError to a 409 with structured body (NOT 500)', async () => {
     sendMessage.mockRejectedValue(
