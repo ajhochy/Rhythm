@@ -86,6 +86,7 @@ class _IntegrationsViewState extends State<IntegrationsView> {
                                 title: 'Google Calendar',
                                 description:
                                     'Read-only calendar timing for shadow events in the planner.',
+                                keyProvider: 'google_calendar',
                                 onConnect: () =>
                                     _openExternal(controller.googleBeginUri()),
                                 onSync: controller.syncGoogleCalendar,
@@ -204,6 +205,7 @@ class _IntegrationCard extends StatelessWidget {
     this.onSync,
     this.syncing = false,
     this.child,
+    this.keyProvider,
   });
 
   final String title;
@@ -213,6 +215,11 @@ class _IntegrationCard extends StatelessWidget {
   final Future<void> Function()? onSync;
   final bool syncing;
   final Widget? child;
+
+  /// When set, the connect/sync affordances are branched on
+  /// [IntegrationAccount.status] and tagged with stable ValueKeys
+  /// (`integration-$keyProvider-sync` / `integration-$keyProvider-reconnect`).
+  final String? keyProvider;
 
   @override
   Widget build(BuildContext context) {
@@ -330,41 +337,7 @@ class _IntegrationCard extends StatelessWidget {
               spacing: 10,
               runSpacing: 10,
               crossAxisAlignment: WrapCrossAlignment.center,
-              children: [
-                FilledButton.icon(
-                  onPressed: onConnect,
-                  icon: Icon(connected ? Icons.sync : Icons.link, size: 16),
-                  label: Text(connected ? 'Reconnect' : 'Connect'),
-                ),
-                if (connected && onSync != null)
-                  OutlinedButton.icon(
-                    onPressed: syncing ? null : () => onSync!.call(),
-                    icon: syncing
-                        ? const SizedBox(
-                            width: 14,
-                            height: 14,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : Icon(Icons.download, size: 16),
-                    label: Text(
-                      title == 'Gmail'
-                          ? 'Sync Gmail'
-                          : title == 'Planning Center'
-                              ? 'Sync Planning Center'
-                              : 'Sync Calendar',
-                    ),
-                  ),
-                if (!connected && onConnect == null)
-                  Text(
-                    'Coming next',
-                    style: Theme.of(
-                      context,
-                    )
-                        .textTheme
-                        .bodySmall
-                        ?.copyWith(color: context.rhythm.textMuted),
-                  ),
-              ],
+              children: _buildActions(context, connected),
             ),
             if (child != null) ...[
               const SizedBox(height: 18),
@@ -383,6 +356,69 @@ class _IntegrationCard extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  Widget _syncButton(BuildContext context, {Key? key}) {
+    return OutlinedButton.icon(
+      key: key,
+      onPressed: syncing ? null : () => onSync?.call(),
+      icon: syncing
+          ? const SizedBox(
+              width: 14,
+              height: 14,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            )
+          : Icon(Icons.download, size: 16),
+      label: Text(
+        title == 'Gmail'
+            ? 'Sync Gmail'
+            : title == 'Planning Center'
+                ? 'Sync Planning Center'
+                : 'Sync Calendar',
+      ),
+    );
+  }
+
+  List<Widget> _buildActions(BuildContext context, bool connected) {
+    // Status-driven affordances for cards that opt in via [keyProvider]:
+    // connected -> Sync only; needs_reauth / disconnected / error -> Reconnect.
+    if (keyProvider != null) {
+      final status = account?.status ?? 'disconnected';
+      if (status == 'connected') {
+        return [
+          if (onSync != null)
+            _syncButton(
+              context,
+              key: ValueKey('integration-$keyProvider-sync'),
+            ),
+        ];
+      }
+      return [
+        FilledButton.icon(
+          key: ValueKey('integration-$keyProvider-reconnect'),
+          onPressed: onConnect,
+          icon: const Icon(Icons.sync, size: 16),
+          label: const Text('Reconnect Google'),
+        ),
+      ];
+    }
+
+    return [
+      FilledButton.icon(
+        onPressed: onConnect,
+        icon: Icon(connected ? Icons.sync : Icons.link, size: 16),
+        label: Text(connected ? 'Reconnect' : 'Connect'),
+      ),
+      if (connected && onSync != null) _syncButton(context),
+      if (!connected && onConnect == null)
+        Text(
+          'Coming next',
+          style: Theme.of(context)
+              .textTheme
+              .bodySmall
+              ?.copyWith(color: context.rhythm.textMuted),
+        ),
+    ];
   }
 }
 

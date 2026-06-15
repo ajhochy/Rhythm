@@ -65,6 +65,32 @@ class _McpSectionState extends State<McpSection> {
         ),
         const SizedBox(height: 12),
 
+        // ── Rhythm install status ──────────────────────────────────────────
+        if (ctrl.servers.any((s) => s.name == 'rhythm')) ...[
+          Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: Row(
+              children: [
+                Icon(
+                  Icons.check_circle,
+                  size: 16,
+                  color: context.rhythm.success,
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  'Rhythm tools: installed in opencode',
+                  key: const ValueKey('rhythm-mcp-installed'),
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: context.rhythm.success,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+
         // ── Server list card ───────────────────────────────────────────────
         Container(
           padding: const EdgeInsets.all(20),

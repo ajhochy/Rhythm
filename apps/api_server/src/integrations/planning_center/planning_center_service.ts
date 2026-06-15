@@ -176,6 +176,15 @@ function isoDate(value: string | null): string | null {
 
 const SPECIAL_SERVICE_TEMPLATE_NAME = 'special service project';
 
+export class PcoPermissionError extends Error {
+  constructor(
+    message = 'Insufficient Planning Center permissions for this action.',
+  ) {
+    super(message);
+    this.name = 'PcoPermissionError';
+  }
+}
+
 export class PlanningCenterService {
   async collectAutomationSignals(
     account: IntegrationAccount,
@@ -629,6 +638,58 @@ export class PlanningCenterService {
     return signals;
   }
 
+  async listServiceTypes(account: IntegrationAccount) {
+    const res = await this.getJson(account, '/services/v2/service_types?per_page=100');
+    return (res.data ?? []).map((r) => ({
+      id: r.id,
+      name: (r.attributes?.name as string | undefined) ?? '',
+    }));
+  }
+
+  async listPlans(account: IntegrationAccount, serviceTypeId: string) {
+    const res = await this.getJson(
+      account,
+      `/services/v2/service_types/${serviceTypeId}/plans?filter=future&per_page=100`,
+    );
+    return (res.data ?? []).map((r) => ({
+      id: r.id,
+      title: (r.attributes?.title as string | undefined) ?? null,
+      dates: (r.attributes?.dates as string | undefined) ?? null,
+    }));
+  }
+
+  async listPlanItems(
+    account: IntegrationAccount,
+    serviceTypeId: string,
+    planId: string,
+  ) {
+    const res = await this.getJson(
+      account,
+      `/services/v2/service_types/${serviceTypeId}/plans/${planId}/items?per_page=100`,
+    );
+    return (res.data ?? []).map((r) => ({
+      id: r.id,
+      title: (r.attributes?.title as string | undefined) ?? null,
+      type: (r.attributes?.item_type as string | undefined) ?? null,
+    }));
+  }
+
+  async listNeededPositions(
+    account: IntegrationAccount,
+    serviceTypeId: string,
+    planId: string,
+  ) {
+    const res = await this.getJson(
+      account,
+      `/services/v2/service_types/${serviceTypeId}/plans/${planId}/needed_positions?per_page=100`,
+    );
+    return (res.data ?? []).map((r) => ({
+      id: r.id,
+      teamPositionName: (r.attributes?.team_position_name as string | undefined) ?? null,
+      quantity: (r.attributes?.quantity as number | undefined) ?? null,
+    }));
+  }
+
   async fetchServiceItems(
     account: IntegrationAccount,
     serviceTypeId: string,
@@ -647,6 +708,94 @@ export class PlanningCenterService {
         sequence: (attrs.sequence as number) ?? 0,
       };
     });
+  }
+
+  private async sendJson(
+    account: IntegrationAccount,
+    method: 'POST' | 'PATCH' | 'DELETE',
+    path: string,
+    body?: unknown,
+  ): Promise<JsonApiResponse> {
+    const response = await fetch(
+      `https://api.planningcenteronline.com${path}`,
+      {
+        method,
+        headers: {
+          Authorization: `Bearer ${account.accessToken}`,
+          'User-Agent': 'Rhythm (https://github.com/ajhochy/Rhythm)',
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+        },
+        body: body === undefined ? undefined : JSON.stringify(body),
+      },
+    );
+    if (response.status === 403) {
+      throw new PcoPermissionError();
+    }
+    if (!response.ok) {
+      const text = await response.text();
+      throw AppError.badRequest(`Planning Center request failed: ${text}`);
+    }
+    return (await response.json()) as JsonApiResponse;
+  }
+
+  async updatePlanItem(
+    account: IntegrationAccount,
+    serviceTypeId: string,
+    planId: string,
+    itemId: string,
+    attributes: Record<string, unknown>,
+  ): Promise<{ id: string }> {
+    const res = await this.sendJson(
+      account,
+      'PATCH',
+      `/services/v2/service_types/${serviceTypeId}/plans/${planId}/items/${itemId}`,
+      { data: { type: 'Item', id: itemId, attributes } },
+    );
+    const data = res.data as unknown as { id?: string } | undefined;
+    return { id: data?.id ?? itemId };
+  }
+
+  async assignPersonToPlan(
+    account: IntegrationAccount,
+    planId: string,
+    personId: string,
+    teamId: string,
+    positionName: string,
+  ): Promise<{ id: string }> {
+    const res = await this.sendJson(
+      account,
+      'POST',
+      `/services/v2/plans/${planId}/team_members`,
+      {
+        data: {
+          type: 'PlanPerson',
+          attributes: { team_position_name: positionName },
+          relationships: {
+            person: { data: { type: 'Person', id: personId } },
+            team: { data: { type: 'Team', id: teamId } },
+          },
+        },
+      },
+    );
+    const data = res.data as unknown as { id?: string } | undefined;
+    return { id: data?.id ?? '' };
+  }
+
+  async updateScheduledPerson(
+    account: IntegrationAccount,
+    planId: string,
+    memberId: string,
+    status: string,
+  ): Promise<{ id: string }> {
+    const res = await this.sendJson(
+      account,
+      'PATCH',
+      `/services/v2/plans/${planId}/team_members/${memberId}`,
+      { data: { type: 'PlanPerson', id: memberId, attributes: { status } } },
+    );
+    const data = res.data as unknown as { id?: string } | undefined;
+    return { id: data?.id ?? memberId };
   }
 
   private async getJson(

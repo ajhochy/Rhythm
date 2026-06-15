@@ -40,11 +40,19 @@ class _FakeAgentServerController extends AgentServerController {
 
   final bool _ready;
 
+  /// F2: counts how many times the auth-change re-fire hook was invoked.
+  int onAuthChangedCount = 0;
+
   @override
   bool get isReady => _ready;
 
   @override
   bool get hasAnyAgent => _ready;
+
+  @override
+  void onAuthChanged() {
+    onAuthChangedCount++;
+  }
 
   @override
   Future<void> initialize() async {}
@@ -296,6 +304,10 @@ class _StubAuthSessionService extends AuthSessionService {
 
   @override
   bool get isAuthenticated => _token != null;
+
+  /// Test-only: simulate a token change firing [notifyListeners] (as
+  /// signInWithGoogle / restoreSession do on a real token rotation).
+  void simulateAuthChange() => notifyListeners();
 }
 
 // ---------------------------------------------------------------------------
@@ -582,6 +594,52 @@ void main() {
 
       watcher.stop();
       expect(watcher.isPolling, isFalse);
+    });
+  });
+
+  // --------------------------------------------------------------------------
+  // F2: auth-change re-fire wiring
+  // --------------------------------------------------------------------------
+
+  group('auth-change re-fire (F2)', () {
+    test('AuthSessionService notify drives AgentServerController.onAuthChanged',
+        () {
+      final auth = _StubAuthSessionService(token: 'tok');
+      final watcher = AgentTriggerWatcher(
+        serverConfigService: serverConfigService,
+        authSessionService: auth,
+        agentServerController: agentServerController,
+        agentsController: agentsController,
+      );
+      addTearDown(watcher.dispose);
+
+      expect(agentServerController.onAuthChangedCount, 0);
+
+      auth.simulateAuthChange();
+      expect(agentServerController.onAuthChangedCount, 1);
+
+      auth.simulateAuthChange();
+      expect(agentServerController.onAuthChangedCount, 2);
+    });
+
+    test('listener is removed on dispose (no leak / no further fires)', () {
+      final auth = _StubAuthSessionService(token: 'tok');
+      final watcher = AgentTriggerWatcher(
+        serverConfigService: serverConfigService,
+        authSessionService: auth,
+        agentServerController: agentServerController,
+        agentsController: agentsController,
+      );
+
+      auth.simulateAuthChange();
+      expect(agentServerController.onAuthChangedCount, 1);
+
+      watcher.dispose();
+
+      // After dispose the listener must be gone — further notifications are
+      // no-ops on the controller.
+      auth.simulateAuthChange();
+      expect(agentServerController.onAuthChangedCount, 1);
     });
   });
 }

@@ -22,22 +22,22 @@
       "criterion_id": "issue-677-c3",
       "text": "The SHA is baked into the image at build time by the publish workflow (e.g. --build-arg GIT_SHA=${{ github.sha }} → env var read by the server).",
       "mode": "manual",
-      "status": "UNVERIFIED",
-      "reason": "Docker image build with build-args cannot run inside vitest; verified by static review of Dockerfile + workflow and live-confirmed on the first post-merge image publish (curl /health on the NAS after pull shows the merge SHA)."
+      "status": "pass",
+      "reason": "Closed live 2026-06-11: production /health returned commit 3313c97...afc9a4 + builtAt 2026-06-11T23:20:29Z after NAS pull — the workflow build-arg → Dockerfile env → server chain works end-to-end."
     },
     {
       "criterion_id": "issue-677-c4",
       "text": "docs/release/hosted_deployment_synology_cloudflare.md routine-update section gains a final verify step: curl /health and compare commit to the just-merged SHA.",
       "mode": "manual",
-      "status": "UNVERIFIED",
-      "reason": "Documentation change — verified by review of the runbook diff."
+      "status": "pass",
+      "reason": "Runbook verify step merged in PR #679 and exercised successfully by the user on this deploy."
     },
     {
       "criterion_id": "issue-677-c5",
       "text": "Consider renaming the workflow from 'API Deploy (Synology)' to 'API Image Publish (GHCR)' so a green run is not mistaken for a completed deployment.",
       "mode": "manual",
-      "status": "UNVERIFIED",
-      "reason": "Resolved: workflow renamed to 'API Image Publish (GHCR)' in this PR with an explanatory comment. Listed manual because the rename is verified by PR review, not a test."
+      "status": "pass",
+      "reason": "Rename applied and merged in PR #679 (user-reviewed); run list now shows 'API Image Publish (GHCR)'."
     }
   ],
   "stack": "typescript",

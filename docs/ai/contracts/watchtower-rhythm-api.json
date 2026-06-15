@@ -22,8 +22,8 @@
       "criterion_id": "watchtower-rhythm-api-c3",
       "text": "The deployment runbook documents the auto-update path: deploys to rhythm-api are automatic within ~30 min of an image publish; the manual pull/up steps remain as the immediate-deploy fallback; verification stays the /health commit curl.",
       "mode": "manual",
-      "status": "UNVERIFIED",
-      "reason": "Documentation change — verified by review of the runbook diff."
+      "status": "pass",
+      "reason": "Runbook auto-update section merged in PR #680 (user-reviewed)."
     },
     {
       "criterion_id": "watchtower-rhythm-api-c4",

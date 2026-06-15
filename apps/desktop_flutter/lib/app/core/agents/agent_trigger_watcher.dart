@@ -118,7 +118,15 @@ class AgentTriggerWatcher extends ChangeNotifier {
         _agentServerController = agentServerController,
         _agentsController = agentsController,
         _interval = interval,
-        _httpClient = httpClient ?? http.Client();
+        _httpClient = httpClient ?? http.Client() {
+    // F2: re-fire the rhythm MCP auto-install whenever the auth session
+    // changes (sign-in / token rotation). AuthSessionService notifies its
+    // listeners on token change; the per-token de-dupe inside the controller
+    // makes repeat calls cheap no-ops.
+    _authSessionService.addListener(_onAuthSessionChanged);
+  }
+
+  void _onAuthSessionChanged() => _agentServerController.onAuthChanged();
 
   final ServerConfigService _serverConfigService;
   final AuthSessionService _authSessionService;
@@ -255,6 +263,7 @@ class AgentTriggerWatcher extends ChangeNotifier {
 
   @override
   void dispose() {
+    _authSessionService.removeListener(_onAuthSessionChanged);
     stop();
     _httpClient.close();
     super.dispose();

@@ -519,6 +519,16 @@ export class IntegrationsService {
     return account;
   }
 
+  async ensureFreshPlanningCenterAccount(
+    userId: number,
+  ): Promise<IntegrationAccount> {
+    const account = await this.ensureFreshAccount('planning_center', userId);
+    if (!account || !account.accessToken) {
+      throw AppError.badRequest('Planning Center is not connected');
+    }
+    return account;
+  }
+
   private async ensureFreshAccount(
     provider: "google_calendar" | "gmail" | "planning_center",
     userId: number,

@@ -110,8 +110,10 @@ void main() async {
   )..initialize();
 
   final agentService = ApiServerService();
-  final agentServerController = AgentServerController(agentService)
-    ..initialize();
+  final agentServerController = AgentServerController(
+    agentService,
+    serverConfigService: serverConfigService,
+  )..initialize();
 
   // #614 — Wire SIGINT / SIGTERM listeners so that a terminal kill (Ctrl-C or
   // `kill <pid>`) still shuts down the spawned api_server cleanly.

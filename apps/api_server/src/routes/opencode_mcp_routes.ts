@@ -85,6 +85,29 @@ opencodeMcpRouter.post(
   },
 );
 
+// ── POST /rhythm/ensure — auto-install/refresh the rhythm MCP server ─────────
+opencodeMcpRouter.post(
+  '/rhythm/ensure',
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { apiToken, apiUrl } = req.body as {
+        apiToken?: string;
+        apiUrl?: string;
+      };
+      if (!apiToken || apiToken.trim() === '') {
+        return next(new AppError(400, 'BAD_REQUEST', 'apiToken is required'));
+      }
+      const result = await opencodeClient.ensureRhythmMcp(
+        apiToken.trim(),
+        (apiUrl && apiUrl.trim()) || 'https://api.vcrcapps.com',
+      );
+      res.json(result);
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
 // ── POST /:name/connect ──────────────────────────────────────────────────────
 
 opencodeMcpRouter.post(
