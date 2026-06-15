@@ -36,6 +36,14 @@ class IntegrationsDataSource {
         },
       );
 
+  Uri googleAgentBeginUri() => Uri.parse('$_baseUrl/auth/google/begin').replace(
+        queryParameters: {
+          'intent': 'agent',
+          if (AuthSessionStore.sessionToken != null)
+            'sessionToken': AuthSessionStore.sessionToken!,
+        },
+      );
+
   Uri planningCenterBeginUri() =>
       Uri.parse('$_baseUrl/auth/planning-center/begin').replace(
         queryParameters: {

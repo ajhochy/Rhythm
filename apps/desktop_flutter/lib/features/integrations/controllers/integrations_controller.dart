@@ -93,6 +93,7 @@ class IntegrationsController extends ChangeNotifier {
   }
 
   Uri googleBeginUri() => _repository.googleBeginUri();
+  Uri googleAgentBeginUri() => _repository.googleAgentBeginUri();
   Uri planningCenterBeginUri() => _repository.planningCenterBeginUri();
 
   Future<void> syncAll() async {
