@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { PlanningCenterService } from '../integrations/planning_center/planning_center_service';
+import { PlanningCenterService, PcoPermissionError } from '../integrations/planning_center/planning_center_service';
 import type { IntegrationAccount } from '../models/integration_account';
 
 function acct(): IntegrationAccount {
@@ -49,5 +49,41 @@ describe('PlanningCenterService.listPlans', () => {
       '/services/v2/service_types/st1/plans?filter=future',
     );
     expect(String(fetchMock.mock.calls[0][0])).toContain('per_page=100');
+  });
+});
+
+describe('PlanningCenterService.updatePlanItem', () => {
+  it('PATCHes the item and returns its id', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({ data: { id: 'i1', attributes: { title: 'New' } } }),
+        { status: 200 },
+      ),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const svc = new PlanningCenterService();
+    const res = await svc.updatePlanItem(acct(), 'st1', 'p1', 'i1', { title: 'New' });
+    expect(res.id).toBe('i1');
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(String(url)).toContain(
+      '/services/v2/service_types/st1/plans/p1/items/i1',
+    );
+    expect(init.method).toBe('PATCH');
+    expect((init.headers as Record<string, string>)['Content-Type']).toBe(
+      'application/json',
+    );
+    const body = JSON.parse(init.body as string);
+    expect(body.data.attributes.title).toBe('New');
+  });
+
+  it('maps a PCO 403 to PcoPermissionError', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue(new Response('forbidden', { status: 403 })),
+    );
+    const svc = new PlanningCenterService();
+    await expect(
+      svc.updatePlanItem(acct(), 'st1', 'p1', 'i1', { title: 'X' }),
+    ).rejects.toBeInstanceOf(PcoPermissionError);
   });
 });
