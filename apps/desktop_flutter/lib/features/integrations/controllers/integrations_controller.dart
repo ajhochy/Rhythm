@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import '../models/gmail_signal.dart';
 import '../models/google_calendar_settings.dart';
@@ -31,6 +33,7 @@ class IntegrationsController extends ChangeNotifier {
   bool _syncingPlanningCenter = false;
   bool _savingPlanningCenterTaskFilters = false;
   bool _syncingAll = false;
+  bool _autoSyncedCalendar = false;
 
   List<IntegrationAccount> get accounts => _accounts;
   GoogleCalendarSettings get googleCalendarSettings => _googleCalendarSettings;
@@ -90,6 +93,20 @@ class IntegrationsController extends ChangeNotifier {
       _errorMessage = e.toString();
     }
     notifyListeners();
+    unawaited(maybeAutoSyncCalendar());
+  }
+
+  /// Kick a one-time silent calendar sync when the credential captured at
+  /// sign-in is connected and has never synced. No-op otherwise (idempotent
+  /// within a session).
+  Future<void> maybeAutoSyncCalendar() async {
+    if (_autoSyncedCalendar) return;
+    final matches = _accounts.where((a) => a.provider == 'google_calendar');
+    if (matches.isEmpty) return;
+    final account = matches.first;
+    if (account.status != 'connected' || account.lastSyncedAt != null) return;
+    _autoSyncedCalendar = true;
+    await syncGoogleCalendar();
   }
 
   Uri googleBeginUri() => _repository.googleBeginUri();
