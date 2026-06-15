@@ -1,0 +1,52 @@
+{
+  "run_id": "2026-06-11-issue-677-deploy-smoke",
+  "issue": 677,
+  "date": "2026-06-11",
+  "smoke_result": "pass",
+  "verification_claimed": "PASS",
+  "divergence": false,
+  "criteria_results": [
+    {
+      "criterion_id": "issue-677-c1",
+      "text": "GET /health additionally returns the build commit SHA (and optionally build timestamp).",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "User's production curl: {\"status\":\"ok\",\"service\":\"rhythm-api-server\",\"commit\":\"3313c97951a1e4477de69ff7d2f699c620afc9a4\",\"builtAt\":\"2026-06-11T23:20:29Z\"} — matches HEAD of main exactly."
+    },
+    {
+      "criterion_id": "issue-677-c3",
+      "text": "The SHA is baked into the image at build time by the publish workflow (build-arg GIT_SHA → env var read by the server).",
+      "contract_status": "untested",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Closed live: the GHCR image built by the renamed 'API Image Publish (GHCR)' run carried the merge SHA and builtAt through to the production /health response after the NAS pull + up -d."
+    },
+    {
+      "criterion_id": "watchtower-rhythm-api-c4",
+      "text": "Next merge that publishes a new :main image results in Watchtower recreating rhythm-api within the 30-minute poll, observable as /health commit drift without SSH.",
+      "contract_status": "untested",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Label is now APPLIED (container recreated with the labeled compose), but the auto-update behavior itself can only be observed on the next api_server merge. Remains the single open criterion across all current contracts."
+    }
+  ],
+  "process_issues": [],
+  "workflow_adherence": {
+    "overall_score": "strict",
+    "expected_chain": ["workflow-orchestrator", "acceptance-contract", "coding-agent", "verification-gate", "project-state-updater (run entries)", "PR + CI gate", "manual smoke", "failure-postmortem"],
+    "observed_chain": ["workflow-orchestrator (routing both #677 and watchtower runs)", "acceptance-contract (×2, red-proven)", "coding-agent (×2)", "verification-gate (×2, evidence blocks)", "PR #679 + #680 opened, CI watched green", "user merges", "NAS compose copied + manual pull/up -d", "deploy smoke (user curl)", "failure-postmortem"],
+    "skipped_skills": [],
+    "issues": []
+  },
+  "implementation_files": [
+    "apps/api_server/src/controllers/health_controller.ts",
+    "apps/api_server/Dockerfile",
+    ".github/workflows/api_deploy_synology.yml",
+    "docs/release/hosted_deployment_synology_cloudflare.md",
+    "apps/api_server/docker-compose.synology.yml"
+  ],
+  "failure_output": "",
+  "overall_category": "none",
+  "suggested_follow_up": "None needed — the deploy-verifiability loop closed on first try. Watch for watchtower-rhythm-api-c4 on the next api_server merge (auto-recreate without SSH) and record it then."
+}
