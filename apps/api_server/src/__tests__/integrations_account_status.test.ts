@@ -71,3 +71,13 @@ describe('deriveAccountStatus(google_calendar)', () => {
     });
   });
 });
+
+import { buildAccountDto } from '../controllers/integrations_controller';
+
+describe('buildAccountDto', () => {
+  it('uses derived status and exposes needsReauth', () => {
+    const dto = buildAccountDto('google_calendar', null);
+    expect(dto.status).toBe('disconnected');
+    expect(dto.needsReauth).toBe(false);
+  });
+});
