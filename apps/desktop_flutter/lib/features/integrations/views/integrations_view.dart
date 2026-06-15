@@ -141,6 +141,12 @@ class _IntegrationsViewState extends State<IntegrationsView> {
                                 ),
                               ),
                               const SizedBox(height: 20),
+                              _GoogleAgentConsentCard(
+                                onEnable: () => _openExternal(
+                                  controller.googleAgentBeginUri(),
+                                ),
+                              ),
+                              const SizedBox(height: 16),
                               const _ImportSection(),
                               const SizedBox(height: 4),
                             ],
@@ -1388,6 +1394,68 @@ class _ImportSection extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Google agent consent card
+// ---------------------------------------------------------------------------
+
+class _GoogleAgentConsentCard extends StatelessWidget {
+  const _GoogleAgentConsentCard({required this.onEnable});
+
+  final VoidCallback onEnable;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: context.rhythm.surfaceRaised,
+        borderRadius: BorderRadius.circular(RhythmRadius.xl),
+        border: Border.all(color: context.rhythm.borderSubtle),
+        boxShadow: RhythmElevation.panel,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'ASSISTANT TOOLS',
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: context.rhythm.textSecondary,
+              letterSpacing: 0.8,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            'Google tools for the assistant',
+            style: TextStyle(
+              fontWeight: FontWeight.w600,
+              color: context.rhythm.textPrimary,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'Grant the assistant access to full Google Calendar and Gmail '
+            '(read + send) so it can create events, draft emails, and act '
+            'on your behalf.',
+            style: TextStyle(
+              fontSize: 13,
+              color: context.rhythm.textSecondary,
+            ),
+          ),
+          const SizedBox(height: 16),
+          OutlinedButton.icon(
+            key: const ValueKey('enable-google-tools'),
+            onPressed: onEnable,
+            icon: const Icon(Icons.open_in_new, size: 16),
+            label: const Text('Enable Google tools for the assistant'),
+          ),
+        ],
+      ),
     );
   }
 }

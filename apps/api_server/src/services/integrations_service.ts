@@ -504,12 +504,27 @@ export class IntegrationsService {
     }
   }
 
+  /**
+   * Public broker entry point. Returns a fresh Google credential (refreshing
+   * tokens if near expiry). Gmail and Calendar share one Google credential in
+   * this codebase — sign-in stores identical tokens to both rows — so the
+   * canonical `google_calendar` account is used for both calendar and gmail
+   * brokered calls. Throws if Google is not connected.
+   */
+  async ensureFreshGoogleAccount(userId: number): Promise<IntegrationAccount> {
+    const account = await this.ensureFreshAccount('google_calendar', userId);
+    if (!account) {
+      throw AppError.badRequest('Google is not connected');
+    }
+    return account;
+  }
+
   async ensureFreshPlanningCenterAccount(
     userId: number,
   ): Promise<IntegrationAccount> {
-    const account = await this.ensureFreshAccount("planning_center", userId);
+    const account = await this.ensureFreshAccount('planning_center', userId);
     if (!account || !account.accessToken) {
-      throw AppError.badRequest("Planning Center is not connected");
+      throw AppError.badRequest('Planning Center is not connected');
     }
     return account;
   }

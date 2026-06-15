@@ -17,6 +17,15 @@ const GOOGLE_SCOPES = [
 
 export const GOOGLE_DESKTOP_SCOPES = GOOGLE_SCOPES;
 
+export const GOOGLE_AGENT_SCOPES = [
+  'openid',
+  'email',
+  'profile',
+  'https://www.googleapis.com/auth/calendar',
+  'https://www.googleapis.com/auth/gmail.readonly',
+  'https://www.googleapis.com/auth/gmail.send',
+];
+
 interface GoogleTokenResponse {
   access_token: string;
   expires_in?: number;
@@ -39,8 +48,11 @@ export class GoogleOAuthService {
     sessionToken: string;
     loginHint?: string | null;
     forceConsent?: boolean;
+    scopes?: string[];
   }): string {
     this.assertConfigured();
+
+    const scopeList = options.scopes ?? GOOGLE_SCOPES;
 
     const params = new URLSearchParams({
       client_id: env.googleClientId,
@@ -48,7 +60,7 @@ export class GoogleOAuthService {
       response_type: 'code',
       access_type: 'offline',
       include_granted_scopes: 'true',
-      scope: GOOGLE_SCOPES.join(' '),
+      scope: scopeList.join(' '),
       state: options.sessionToken,
       ...(options.loginHint ? { login_hint: options.loginHint } : {}),
       ...(options.forceConsent ? { prompt: 'consent' } : {}),

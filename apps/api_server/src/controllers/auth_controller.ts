@@ -3,7 +3,7 @@ import { AppError } from '../errors/app_error';
 import { IntegrationAccountsRepository } from '../repositories/integration_accounts_repository';
 import { WorkspaceRepository } from '../repositories/workspace_repository';
 import { AuthService } from '../services/auth_service';
-import { GoogleOAuthService } from '../services/google_oauth_service';
+import { GoogleOAuthService, GOOGLE_AGENT_SCOPES } from '../services/google_oauth_service';
 import { PlanningCenterOAuthService } from '../services/planning_center_oauth_service';
 
 const googleOAuth = new GoogleOAuthService();
@@ -65,13 +65,26 @@ export class AuthController {
     next: NextFunction,
   ) {
     try {
-      const { sessionToken } = _req.query as Record<string, string>;
+      const { sessionToken, intent } = _req.query as Record<string, string>;
       const user = sessionToken
         ? await authService.getUserForSessionToken(sessionToken)
         : null;
       if (!sessionToken || !user) {
         throw AppError.unauthorized('Valid sessionToken is required');
       }
+
+      if (intent === 'agent') {
+        res.redirect(
+          googleOAuth.getAuthorizationUrl({
+            sessionToken,
+            loginHint: user.email,
+            forceConsent: true,
+            scopes: GOOGLE_AGENT_SCOPES,
+          }),
+        );
+        return;
+      }
+
       const existingCalendar = await integrationAccountsRepo.findByProviderAsync(
         'google_calendar',
         user.id,

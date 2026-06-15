@@ -21,6 +21,7 @@ class IntegrationsRepository {
       _dataSource.fetchPlanningCenterTaskOptions();
 
   Uri googleBeginUri() => _dataSource.googleBeginUri();
+  Uri googleAgentBeginUri() => _dataSource.googleAgentBeginUri();
   Uri planningCenterBeginUri() => _dataSource.planningCenterBeginUri();
 
   Future<void> syncGoogleCalendar() => _dataSource.syncGoogleCalendar();
