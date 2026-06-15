@@ -150,10 +150,11 @@ describe('issue-696-c1: summarize route contracts', () => {
 
     expect(next).not.toHaveBeenCalled();
     expect(summarizeSessionSpy).toHaveBeenCalledOnce();
-    expect(summarizeSessionSpy).toHaveBeenCalledWith(sdkId, {
-      providerID: 'anthropic',
-      modelID: 'claude-x',
-    });
+    expect(summarizeSessionSpy).toHaveBeenCalledWith(
+      sdkId,
+      { providerID: 'anthropic', modelID: 'claude-x' },
+      os.homedir(),
+    );
     expect((res.status as ReturnType<typeof vi.fn>).mock.calls[0]?.[0]).toBe(204);
   });
 

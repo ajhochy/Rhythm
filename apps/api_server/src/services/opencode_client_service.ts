@@ -954,14 +954,17 @@ export class OpencodeClientService {
   async summarizeSession(
     sdkId: string,
     model: { providerID: string; modelID: string },
+    directory?: string,
   ): Promise<boolean> {
     const client = this.requireClient();
     // session.summarize REQUIRES providerID + modelID (the model used to write
     // the summary); omitting them errors with "expected string, received
-    // undefined".
+    // undefined". It also needs `directory` — opencode scopes sessions per
+    // directory, so without it summarize is a no-op (no compaction, no event).
     const raw = await client.session.summarize({
       path: { id: sdkId },
       body: { providerID: model.providerID, modelID: model.modelID },
+      ...(directory ? { query: { directory } } : {}),
     });
     if (raw.error) {
       throw new AppError(

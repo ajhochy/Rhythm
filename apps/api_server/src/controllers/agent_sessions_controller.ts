@@ -731,7 +731,7 @@ export class AgentSessionsController {
           'No model available to summarize this session — connect a provider or pick a model first.',
         );
       }
-      await opencodeClient.summarizeSession(opencodeId, model);
+      await opencodeClient.summarizeSession(opencodeId, model, session.cwd);
       res.status(204).end();
     } catch (err) {
       next(err);
