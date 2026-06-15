@@ -1,6 +1,7 @@
 import { AppError } from '../../errors/app_error';
 import type { IntegrationAccount } from '../../models/integration_account';
 import type { GoogleCalendarOption } from '../../models/google_calendar_preferences';
+import { assertScope } from '../google_scope_guard';
 
 interface GoogleCalendarEventDateTime {
   date?: string;
@@ -131,5 +132,70 @@ export class GoogleCalendarService {
     }
 
     return normalized;
+  }
+
+  async createEvent(
+    account: IntegrationAccount,
+    calendarId: string,
+    event: Record<string, unknown>,
+  ): Promise<unknown> {
+    assertScope(account, 'https://www.googleapis.com/auth/calendar');
+    const res = await fetch(
+      `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${account.accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(event),
+      },
+    );
+    if (!res.ok) {
+      throw AppError.badRequest(`Calendar create failed: ${await res.text()}`);
+    }
+    return res.json();
+  }
+
+  async updateEvent(
+    account: IntegrationAccount,
+    calendarId: string,
+    eventId: string,
+    patch: Record<string, unknown>,
+  ): Promise<unknown> {
+    assertScope(account, 'https://www.googleapis.com/auth/calendar');
+    const res = await fetch(
+      `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}`,
+      {
+        method: 'PATCH',
+        headers: {
+          Authorization: `Bearer ${account.accessToken}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(patch),
+      },
+    );
+    if (!res.ok) {
+      throw AppError.badRequest(`Calendar update failed: ${await res.text()}`);
+    }
+    return res.json();
+  }
+
+  async deleteEvent(
+    account: IntegrationAccount,
+    calendarId: string,
+    eventId: string,
+  ): Promise<void> {
+    assertScope(account, 'https://www.googleapis.com/auth/calendar');
+    const res = await fetch(
+      `https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}`,
+      {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${account.accessToken}` },
+      },
+    );
+    if (!res.ok && res.status !== 410) {
+      throw AppError.badRequest(`Calendar delete failed: ${await res.text()}`);
+    }
   }
 }
