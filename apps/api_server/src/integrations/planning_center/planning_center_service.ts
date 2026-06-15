@@ -630,22 +630,22 @@ export class PlanningCenterService {
   }
 
   async listServiceTypes(account: IntegrationAccount) {
-    const res = await this.getJson(account, '/services/v2/service_types');
+    const res = await this.getJson(account, '/services/v2/service_types?per_page=100');
     return (res.data ?? []).map((r) => ({
       id: r.id,
-      name: (r.attributes?.name as string) ?? '',
+      name: (r.attributes?.name as string | undefined) ?? '',
     }));
   }
 
   async listPlans(account: IntegrationAccount, serviceTypeId: string) {
     const res = await this.getJson(
       account,
-      `/services/v2/service_types/${serviceTypeId}/plans?filter=future`,
+      `/services/v2/service_types/${serviceTypeId}/plans?filter=future&per_page=100`,
     );
     return (res.data ?? []).map((r) => ({
       id: r.id,
-      title: (r.attributes?.title as string) ?? null,
-      dates: (r.attributes?.dates as string) ?? null,
+      title: (r.attributes?.title as string | undefined) ?? null,
+      dates: (r.attributes?.dates as string | undefined) ?? null,
     }));
   }
 
@@ -656,12 +656,12 @@ export class PlanningCenterService {
   ) {
     const res = await this.getJson(
       account,
-      `/services/v2/service_types/${serviceTypeId}/plans/${planId}/items`,
+      `/services/v2/service_types/${serviceTypeId}/plans/${planId}/items?per_page=100`,
     );
     return (res.data ?? []).map((r) => ({
       id: r.id,
-      title: (r.attributes?.title as string) ?? null,
-      type: (r.attributes?.item_type as string) ?? null,
+      title: (r.attributes?.title as string | undefined) ?? null,
+      type: (r.attributes?.item_type as string | undefined) ?? null,
     }));
   }
 
@@ -672,12 +672,12 @@ export class PlanningCenterService {
   ) {
     const res = await this.getJson(
       account,
-      `/services/v2/service_types/${serviceTypeId}/plans/${planId}/needed_positions`,
+      `/services/v2/service_types/${serviceTypeId}/plans/${planId}/needed_positions?per_page=100`,
     );
     return (res.data ?? []).map((r) => ({
       id: r.id,
-      teamPositionName: (r.attributes?.team_position_name as string) ?? null,
-      quantity: (r.attributes?.quantity as number) ?? null,
+      teamPositionName: (r.attributes?.team_position_name as string | undefined) ?? null,
+      quantity: (r.attributes?.quantity as number | undefined) ?? null,
     }));
   }
 

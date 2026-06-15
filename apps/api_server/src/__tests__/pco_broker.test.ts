@@ -28,6 +28,7 @@ describe('PlanningCenterService.listServiceTypes', () => {
     expect(result).toEqual([{ id: 'st1', name: 'Sunday' }]);
     const [url, init] = fetchMock.mock.calls[0];
     expect(String(url)).toContain('/services/v2/service_types');
+    expect(String(url)).toContain('per_page=100');
     expect((init.headers as Record<string, string>).Authorization).toBe('Bearer at');
   });
 });
@@ -47,5 +48,6 @@ describe('PlanningCenterService.listPlans', () => {
     expect(String(fetchMock.mock.calls[0][0])).toContain(
       '/services/v2/service_types/st1/plans?filter=future',
     );
+    expect(String(fetchMock.mock.calls[0][0])).toContain('per_page=100');
   });
 });
