@@ -220,8 +220,14 @@ class AgentServerController extends ChangeNotifier {
       if (!gateOpen) return;
       // token is non-null here because the gate required authenticated == true.
       if (token == _lastInstalledToken) return;
-      _lastInstalledToken = token;
-      await _autoInstaller.ensure(apiToken: token!, apiUrl: url);
+      // Only mark this token as installed when the installer actually
+      // succeeds. On a false/throw, leave _lastInstalledToken unchanged so a
+      // later trigger (ready hook or onAuthChanged) retries the same token.
+      final installed =
+          await _autoInstaller.ensure(apiToken: token!, apiUrl: url);
+      if (installed) {
+        _lastInstalledToken = token;
+      }
     } catch (err) {
       stderr.writeln(
         '[AgentServerController] rhythm MCP auto-install attempt failed: $err',
