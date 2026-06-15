@@ -6,50 +6,52 @@ import type {
 import { IntegrationAccountsRepository } from '../repositories/integration_accounts_repository';
 import { AutomationCatalogService } from '../services/automation_catalog_service';
 import { IntegrationsService } from '../services/integrations_service';
+import { deriveAccountStatus } from './integrations_status';
 
 const repo = new IntegrationAccountsRepository();
 const service = new IntegrationsService();
 const catalog = new AutomationCatalogService();
 
-function toAccountDto(
+export function buildAccountDto(
   provider: IntegrationProvider,
   account: IntegrationAccount | null,
 ) {
   const providerMeta = catalog
     .getProviders()
     .find((item) => item.source === provider);
+  const { status, needsReauth } = deriveAccountStatus(provider, account);
+  const base = {
+    providerDisplayName: providerMeta?.label ?? provider,
+    availableTriggerFamilies: providerMeta?.triggerKeys ?? [],
+    syncSupportMode: providerMeta?.syncSupport ?? 'manual',
+    status,
+    needsReauth,
+  };
   if (!account) {
     return {
+      ...base,
       id: provider,
       provider,
-      providerDisplayName: providerMeta?.label ?? provider,
       accountLabel: null,
       email: null,
       displayName: null,
-      status: 'disconnected',
       expiresAt: null,
       lastSyncedAt: null,
       errorMessage: null,
       scope: null,
-      availableTriggerFamilies: providerMeta?.triggerKeys ?? [],
-      syncSupportMode: providerMeta?.syncSupport ?? 'manual',
     };
   }
-
   return {
+    ...base,
     id: account.id,
     provider: account.provider,
-    providerDisplayName: providerMeta?.label ?? account.provider,
     accountLabel: account.displayName ?? account.email,
     email: account.email,
     displayName: account.displayName,
-    status: account.status,
     expiresAt: account.expiresAt,
     lastSyncedAt: account.lastSyncedAt,
     errorMessage: account.errorMessage,
     scope: account.scope,
-    availableTriggerFamilies: providerMeta?.triggerKeys ?? [],
-    syncSupportMode: providerMeta?.syncSupport ?? 'manual',
   };
 }
 
@@ -60,9 +62,9 @@ export class IntegrationsController {
       const byProvider = new Map(existing.map((account) => [account.provider, account]));
 
       res.json([
-        toAccountDto('google_calendar', byProvider.get('google_calendar') ?? null),
-        toAccountDto('gmail', byProvider.get('gmail') ?? null),
-        toAccountDto('planning_center', byProvider.get('planning_center') ?? null),
+        buildAccountDto('google_calendar', byProvider.get('google_calendar') ?? null),
+        buildAccountDto('gmail', byProvider.get('gmail') ?? null),
+        buildAccountDto('planning_center', byProvider.get('planning_center') ?? null),
       ]);
     } catch (err) {
       next(err);
