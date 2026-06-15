@@ -5,16 +5,37 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
+import '../auth/auth_session_store.dart';
 import '../constants/app_constants.dart';
 import '../server/api_server_service.dart';
+import '../services/server_config_service.dart';
 import 'health_poller.dart';
+import 'rhythm_mcp_auto_installer.dart';
 
 enum AgentServerStatus { starting, ready, failed }
 
 class AgentServerController extends ChangeNotifier {
-  AgentServerController(this._service);
+  AgentServerController(
+    this._service, {
+    RhythmMcpAutoInstaller? autoInstaller,
+    ServerConfigService? serverConfigService,
+  })  : _autoInstaller = autoInstaller ?? RhythmMcpAutoInstaller(),
+        _serverConfigService = serverConfigService;
 
   final ApiServerService _service;
+
+  /// F2: installs/refreshes the rhythm MCP server inside the opencode engine
+  /// once the engine is ready, a user is authed, and the cloud server is in
+  /// use. Failures are non-fatal inside the installer.
+  final RhythmMcpAutoInstaller _autoInstaller;
+
+  /// Optional live source of the configured server URL. When absent we fall
+  /// back to [AppConstants.apiBaseUrl] (the cloud baseline).
+  final ServerConfigService? _serverConfigService;
+
+  /// De-dupes auto-install attempts: we only call the installer when the
+  /// session token differs from the last token we installed for.
+  String? _lastInstalledToken;
   AgentServerStatus _status = AgentServerStatus.starting;
   AgentServerFailureReason? _failureReason;
   String? _stderrTail;
@@ -94,8 +115,13 @@ class AgentServerController extends ChangeNotifier {
     notifyListeners();
 
     if (result.ok) {
-      // Fire-and-forget; failures are non-fatal.
-      unawaited(refreshCapabilities());
+      // Fire-and-forget; failures are non-fatal. After capabilities are
+      // detected, attempt the rhythm MCP auto-install (F2) — also fire-and-
+      // forget, gated and de-duped inside _maybeAutoInstallRhythmMcp.
+      unawaited(
+        refreshCapabilities()
+            .whenComplete(() => unawaited(_maybeAutoInstallRhythmMcp())),
+      );
 
       _poller = HealthPoller(
         checkFn: () => _service.checkHealth(AppConstants.agentLocalBaseUrl),
@@ -167,6 +193,39 @@ class AgentServerController extends ChangeNotifier {
         '[AgentServerController] failed to fetch capabilities: $e',
       );
       // _capabilities stays empty; status is unchanged.
+    }
+  }
+
+  /// F2: re-fire the rhythm MCP auto-install when the auth session changes
+  /// (sign-in / token rotation). Safe to call eagerly — the gate and the
+  /// per-token de-dupe make repeat calls cheap no-ops. Wire this wherever the
+  /// app reacts to auth changes.
+  void onAuthChanged() {
+    unawaited(_maybeAutoInstallRhythmMcp());
+  }
+
+  /// Attempts the rhythm MCP auto-install if and only if the engine is ready,
+  /// a user is authenticated, and the configured server is the cloud API.
+  /// De-dupes on the session token so the same token is never installed twice.
+  /// Belt-and-suspenders: the whole body is guarded — never throws.
+  Future<void> _maybeAutoInstallRhythmMcp() async {
+    try {
+      final token = AuthSessionStore.sessionToken;
+      final url = _serverConfigService?.url ?? AppConstants.apiBaseUrl;
+      final gateOpen = shouldAutoInstallRhythmMcp(
+        engineReady: isReady,
+        authenticated: token != null && token.isNotEmpty,
+        isCloudServer: url.contains('api.vcrcapps.com'),
+      );
+      if (!gateOpen) return;
+      // token is non-null here because the gate required authenticated == true.
+      if (token == _lastInstalledToken) return;
+      _lastInstalledToken = token;
+      await _autoInstaller.ensure(apiToken: token!, apiUrl: url);
+    } catch (err) {
+      stderr.writeln(
+        '[AgentServerController] rhythm MCP auto-install attempt failed: $err',
+      );
     }
   }
 

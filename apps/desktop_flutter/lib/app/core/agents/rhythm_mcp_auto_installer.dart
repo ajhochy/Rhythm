@@ -5,6 +5,16 @@ import 'package:http/http.dart' as http;
 
 import '../constants/app_constants.dart';
 
+/// All three conditions must hold before auto-installing: the engine is ready,
+/// a user is authenticated, and the configured server is the cloud API (a
+/// localhost-only token cannot be reached by the MCP server process).
+bool shouldAutoInstallRhythmMcp({
+  required bool engineReady,
+  required bool authenticated,
+  required bool isCloudServer,
+}) =>
+    engineReady && authenticated && isCloudServer;
+
 /// Auto-installs (and refreshes) the rhythm MCP server inside the embedded
 /// opencode engine via the local agent server. Failures are non-fatal: a
 /// `false` return means "not installed this time", never an exception that

@@ -7,7 +7,8 @@ import 'package:rhythm_desktop/app/core/agents/rhythm_mcp_auto_installer.dart';
 
 void main() {
   group('RhythmMcpAutoInstaller.ensure', () {
-    test('POSTs apiToken + apiUrl to the local agent ensure endpoint', () async {
+    test('POSTs apiToken + apiUrl to the local agent ensure endpoint',
+        () async {
       late Map<String, dynamic> body;
       late Uri calledUri;
       final client = MockClient((req) async {
@@ -45,6 +46,63 @@ void main() {
       expect(
         await installer.ensure(apiToken: 't', apiUrl: 'u'),
         false,
+      );
+    });
+  });
+
+  group('shouldAutoInstallRhythmMcp pure gate', () {
+    test('returns true only when all three conditions hold', () {
+      expect(
+        shouldAutoInstallRhythmMcp(
+          engineReady: true,
+          authenticated: true,
+          isCloudServer: true,
+        ),
+        isTrue,
+      );
+    });
+
+    test('returns false when the engine is not ready', () {
+      expect(
+        shouldAutoInstallRhythmMcp(
+          engineReady: false,
+          authenticated: true,
+          isCloudServer: true,
+        ),
+        isFalse,
+      );
+    });
+
+    test('returns false when not authenticated', () {
+      expect(
+        shouldAutoInstallRhythmMcp(
+          engineReady: true,
+          authenticated: false,
+          isCloudServer: true,
+        ),
+        isFalse,
+      );
+    });
+
+    test('returns false when the server is not the cloud API', () {
+      expect(
+        shouldAutoInstallRhythmMcp(
+          engineReady: true,
+          authenticated: true,
+          isCloudServer: false,
+        ),
+        isFalse,
+      );
+    });
+
+    test('returns false when all three are false', () {
+      expect(
+        shouldAutoInstallRhythmMcp(
+          engineReady: false,
+          authenticated: false,
+          isCloudServer: false,
+        ),
+        isFalse,
       );
     });
   });
