@@ -10,6 +10,7 @@ import { facilitiesRouter } from './routes/facilities_routes';
 import { dashboardRouter } from './routes/dashboard_routes';
 import { healthRouter } from './routes/health_routes';
 import { integrationsRouter } from './routes/integrations_routes';
+import { pcoBrokerRouter } from './routes/pco_broker_routes';
 import { messagesRouter } from './routes/messages_routes';
 import { projectInstancesRouter } from './routes/project_instances_routes';
 import { projectTemplatesRouter } from './routes/project_templates_routes';
@@ -67,6 +68,7 @@ export function createApp() {
   app.use('/auth', authRouter);
   app.use('/automation-catalog', automationCatalogRouter);
   app.use('/automation-rules', automationRulesRouter);
+  app.use('/integrations/planning-center/api', pcoBrokerRouter);
   app.use('/integrations', integrationsRouter);
   app.use('/tasks', tasksRouter);
   app.use('/project-templates', projectTemplatesRouter);
