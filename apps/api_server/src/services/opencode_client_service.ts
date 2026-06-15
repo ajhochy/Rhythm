@@ -679,13 +679,19 @@ export class OpencodeClientService {
     sessionId: string,
     permissionId: string,
     decision: 'accept' | 'deny',
+    directory?: string,
   ): Promise<boolean> {
     if (!this.client) return false;
     try {
       // Map old 'accept'/'deny' to the SDK's 'once'/'reject' convention.
       const sdkDecision: 'once' | 'always' | 'reject' =
         decision === 'accept' ? 'once' : 'reject';
-      await this.respondToPermission(sessionId, permissionId, sdkDecision);
+      await this.respondToPermission(
+        sessionId,
+        permissionId,
+        sdkDecision,
+        directory,
+      );
       return true;
     } catch (err) {
       logger.error(`[OpencodeClientService] respondPermission failed for session ${sessionId}:`, err);
@@ -800,6 +806,7 @@ export class OpencodeClientService {
     sdkId: string,
     permissionId: string,
     decision: 'once' | 'always' | 'reject',
+    directory?: string,
     _feedback?: string,
   ): Promise<void> {
     const client = this.requireClient();
@@ -812,9 +819,14 @@ export class OpencodeClientService {
         `SDK does not expose method '${methodName}' — cannot respond to permission request`,
       );
     }
+    // opencode scopes permissions per directory — its own respond call passes
+    // `directory`. Omitting it leaves the permission unresolved, so the gated
+    // tool (write/edit) hangs even after the user clicks Allow (and in bypass
+    // mode). Pass the session cwd.
     await client.postSessionIdPermissionsPermissionId({
       path: { id: sdkId, permissionID: permissionId },
       body: { response: decision },
+      ...(directory ? { query: { directory } } : {}),
     });
   }
 

@@ -196,6 +196,16 @@ describe('issue-685-c3: respondToPermission throws descriptive error when SDK me
     expect(call.body.response).toBe('once');
   });
 
+  it('passes the directory query when given (opencode scopes permissions per dir)', async () => {
+    sdkClient.postSessionIdPermissionsPermissionId.mockResolvedValue({ data: true });
+    await svc.respondToPermission('sdk-id-d', 'perm-d', 'once', '/Users/me/proj');
+    const call = sdkClient.postSessionIdPermissionsPermissionId.mock
+      .calls[0]![0] as { query?: { directory?: string } };
+    // Without directory the response doesn't reach the right session and the
+    // gated tool hangs even after Allow.
+    expect(call.query?.directory).toBe('/Users/me/proj');
+  });
+
   it('passes feedback/decision variants correctly', async () => {
     sdkClient.postSessionIdPermissionsPermissionId.mockResolvedValue({ data: true });
 

@@ -471,7 +471,7 @@ export class AgentSessionsController {
       const permissionId = req.params.permissionId;
 
       // Forward to the SDK.
-      const ok = await opencodeClient.respondPermission(opencodeId, permissionId, decision);
+      const ok = await opencodeClient.respondPermission(opencodeId, permissionId, decision, session.cwd);
       // If the SDK doesn't support this endpoint, respond gracefully (204).
       // The caller can still update their local state.
 

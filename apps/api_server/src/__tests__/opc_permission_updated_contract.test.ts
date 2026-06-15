@@ -120,6 +120,29 @@ describe('OpencodeStreamBridge — permission.updated (real SDK event) surfaces 
     expect(permMsg!.summary).toBe('Write to /tm/rhythm_smoke.txt'); // from Permission.title
   });
 
+  it('also handles the running binary\'s permission.asked event (older flat shape)', () => {
+    // opencode 1.14.40 emits permission.asked with {permissionID,toolName,summary}
+    // (NOT the 1.14.49-typed permission.updated/Permission shape). The bridge
+    // must handle both, or the gated tool hangs with no card.
+    relay({
+      type: 'permission.asked',
+      properties: {
+        sessionID: SDK_ID,
+        permissionID: 'perm-xyz',
+        toolName: 'write',
+        summary: 'Write to /tmp/rhythm_711.txt',
+        args: { filePath: '/tmp/rhythm_711.txt' },
+      },
+    });
+    const permMsg = broadcastSpy.mock.calls
+      .map((c) => c[0] as Record<string, unknown>)
+      .find((m) => m.type === 'permission.asked');
+    expect(permMsg, 'permission.asked must surface a card').toBeTruthy();
+    expect(permMsg!.permissionId).toBe('perm-xyz'); // from permissionID
+    expect(permMsg!.toolName).toBe('write');
+    expect(permMsg!.summary).toBe('Write to /tmp/rhythm_711.txt');
+  });
+
   it('does NOT route permission.updated to the generic-event branch', () => {
     relay(permissionUpdated(SDK_ID));
     const generic = broadcastSpy.mock.calls

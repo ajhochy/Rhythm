@@ -236,7 +236,7 @@ describe('OpencodeStreamBridge — permission mode auto-resolution', () => {
     // Give the async respondPermission call a tick to run.
     await new Promise((r) => setTimeout(r, 10));
 
-    expect(respondPermissionSpy).toHaveBeenCalledWith(SDK_ID, 'perm-2', 'accept');
+    expect(respondPermissionSpy).toHaveBeenCalledWith(SDK_ID, 'perm-2', 'accept', '/tmp');
     const resolved = broadcastSpy.mock.calls
       .map((c) => c[0] as Record<string, unknown>)
       .find((m) => m.type === 'permission.resolved');
@@ -266,7 +266,7 @@ describe('OpencodeStreamBridge — permission mode auto-resolution', () => {
 
     await new Promise((r) => setTimeout(r, 10));
 
-    expect(respondPermissionSpy).toHaveBeenCalledWith(SDK_ID, 'perm-4', 'deny');
+    expect(respondPermissionSpy).toHaveBeenCalledWith(SDK_ID, 'perm-4', 'deny', '/tmp');
     const resolved = broadcastSpy.mock.calls
       .map((c) => c[0] as Record<string, unknown>)
       .find((m) => m.type === 'permission.resolved');
@@ -281,7 +281,7 @@ describe('OpencodeStreamBridge — permission mode auto-resolution', () => {
 
     await new Promise((r) => setTimeout(r, 10));
 
-    expect(respondPermissionSpy).toHaveBeenCalledWith(SDK_ID, 'perm-5', 'accept');
+    expect(respondPermissionSpy).toHaveBeenCalledWith(SDK_ID, 'perm-5', 'accept', '/tmp');
     const resolved = broadcastSpy.mock.calls
       .map((c) => c[0] as Record<string, unknown>)
       .find((m) => m.type === 'permission.resolved');

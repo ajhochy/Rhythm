@@ -287,6 +287,23 @@ declare module '@opencode-ai/sdk' {
     properties: Permission;
   };
 
+  /**
+   * The RUNNING opencode binary emits `permission.asked` (confirmed from the
+   * live event trace) even though the generated sdk.gen types only declare
+   * `permission.updated`. Older payload shape: flat permissionID/toolName/etc.
+   * The bridge handles both names + both shapes defensively.
+   */
+  export type EventPermissionAsked = {
+    type: 'permission.asked';
+    properties: {
+      sessionID?: string;
+      permissionID?: string;
+      toolName?: string;
+      args?: Record<string, unknown>;
+      summary?: string;
+    };
+  };
+
   // OPC-M3-5: emitted by opencode when the todo list for a session changes.
   export type EventTodoUpdated = {
     type: 'todo.updated';
@@ -327,6 +344,7 @@ declare module '@opencode-ai/sdk' {
     | EventSessionDiff
     | EventFileEdited
     | EventPermissionUpdated
+    | EventPermissionAsked
     | EventTodoUpdated;
 
   // ── Provider types ──

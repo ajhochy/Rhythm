@@ -732,27 +732,32 @@ export class OpencodeStreamBridge {
         break;
       }
 
+      // Handle BOTH event names. The generated SDK types only declare
+      // `permission.updated` (Permission shape: {id,type,title,metadata}), but
+      // the actual running opencode binary emits `permission.asked` (older
+      // shape: {permissionID,toolName,summary,args}) — confirmed from the live
+      // event trace. Listening for only one name dropped the request and hung
+      // the write forever. Extract fields defensively from either shape.
+      case 'permission.asked':
       case 'permission.updated': {
-        // The real SDK emits `permission.updated` with a `Permission` payload
-        // (v1.14.49) — there is NO `permission.asked` event. Listening for the
-        // wrong name silently dropped every permission request, so any
-        // permission-gated tool (write/edit) hung the session forever with no
-        // card. `event.properties` IS the Permission object:
-        //   { id, type, pattern?, sessionID, messageID, callID?, title, metadata, time }
         const perm = event.properties as {
           id?: string;
+          permissionID?: string;
           type?: string;
+          toolName?: string;
           sessionID?: string;
           title?: string;
+          summary?: string;
           metadata?: Record<string, unknown>;
+          args?: Record<string, unknown>;
         };
-        const permissionId = perm.id;
+        const permissionId = perm.permissionID ?? perm.id;
         if (!permissionId || !localSessionId) break;
 
         const sdkSessionId = opencodeSessionId ?? '';
-        const toolName = perm.type ?? '';
-        const args = perm.metadata ?? {};
-        const summary = perm.title ?? toolName;
+        const toolName = perm.toolName ?? perm.type ?? '';
+        const args = perm.args ?? perm.metadata ?? {};
+        const summary = perm.summary ?? perm.title ?? toolName;
 
         // Consult the session's permission_mode to decide whether to
         // auto-respond or forward to the user.
@@ -772,10 +777,18 @@ export class OpencodeStreamBridge {
 
         if (shouldAutoAccept || shouldAutoDeny) {
           const decision = shouldAutoAccept ? 'accept' : 'deny';
+          // Pass the session cwd as directory — opencode scopes permissions per
+          // directory; without it the auto-response doesn't unblock the tool.
+          const dir = this.sessionsRepo.findById(localSessionId)?.cwd;
           // Auto-resolve — call the SDK to unblock the agent.
           (async () => {
             try {
-              await opencodeClient.respondPermission(sdkSessionId, permissionId, decision);
+              await opencodeClient.respondPermission(
+                sdkSessionId,
+                permissionId,
+                decision,
+                dir,
+              );
             } catch (err) {
               logger.error(`[OpencodeStreamBridge] Auto-${decision} respondPermission failed:`, err);
             }

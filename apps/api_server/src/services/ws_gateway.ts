@@ -212,14 +212,6 @@ export async function handleInputFrame(
     const kMaxBytes = 20 * 1024 * 1024; // 20 MB
     for (const p of partsInput) {
       if (p.type === 'file' || p.type === 'image') {
-        // Diagnostic: surface the actual media type reaching the server so a
-        // "media type application/octet-stream not supported" error can be
-        // traced to the client-computed mime.
-        const urlPrefix =
-          typeof p.url === 'string' ? (p.url as string).slice(0, 40) : '(none)';
-        console.log(
-          `[ws_gateway] forwarding file part: mime=${String(p.mime)} filename=${String(p.filename)} urlPrefix=${urlPrefix}`,
-        );
         const url = p.url as unknown;
         if (typeof url === 'string' && url.length > kMaxBytes) {
           if (id) {
