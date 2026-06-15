@@ -629,6 +629,58 @@ export class PlanningCenterService {
     return signals;
   }
 
+  async listServiceTypes(account: IntegrationAccount) {
+    const res = await this.getJson(account, '/services/v2/service_types');
+    return (res.data ?? []).map((r) => ({
+      id: r.id,
+      name: (r.attributes?.name as string) ?? '',
+    }));
+  }
+
+  async listPlans(account: IntegrationAccount, serviceTypeId: string) {
+    const res = await this.getJson(
+      account,
+      `/services/v2/service_types/${serviceTypeId}/plans?filter=future`,
+    );
+    return (res.data ?? []).map((r) => ({
+      id: r.id,
+      title: (r.attributes?.title as string) ?? null,
+      dates: (r.attributes?.dates as string) ?? null,
+    }));
+  }
+
+  async listPlanItems(
+    account: IntegrationAccount,
+    serviceTypeId: string,
+    planId: string,
+  ) {
+    const res = await this.getJson(
+      account,
+      `/services/v2/service_types/${serviceTypeId}/plans/${planId}/items`,
+    );
+    return (res.data ?? []).map((r) => ({
+      id: r.id,
+      title: (r.attributes?.title as string) ?? null,
+      type: (r.attributes?.item_type as string) ?? null,
+    }));
+  }
+
+  async listNeededPositions(
+    account: IntegrationAccount,
+    serviceTypeId: string,
+    planId: string,
+  ) {
+    const res = await this.getJson(
+      account,
+      `/services/v2/service_types/${serviceTypeId}/plans/${planId}/needed_positions`,
+    );
+    return (res.data ?? []).map((r) => ({
+      id: r.id,
+      teamPositionName: (r.attributes?.team_position_name as string) ?? null,
+      quantity: (r.attributes?.quantity as number) ?? null,
+    }));
+  }
+
   async fetchServiceItems(
     account: IntegrationAccount,
     serviceTypeId: string,
