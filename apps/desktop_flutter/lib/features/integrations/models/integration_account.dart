@@ -13,6 +13,7 @@ class IntegrationAccount {
     this.scope,
     this.availableTriggerFamilies = const [],
     this.syncSupportMode,
+    this.needsReauth = false,
   });
 
   factory IntegrationAccount.fromJson(Map<String, dynamic> json) {
@@ -34,6 +35,7 @@ class IntegrationAccount {
               .map((item) => item.toString())
               .toList(),
       syncSupportMode: json['syncSupportMode'] as String?,
+      needsReauth: json['needsReauth'] as bool? ?? false,
     );
   }
 
@@ -50,4 +52,5 @@ class IntegrationAccount {
   final String? scope;
   final List<String> availableTriggerFamilies;
   final String? syncSupportMode;
+  final bool needsReauth;
 }
