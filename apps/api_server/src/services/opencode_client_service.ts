@@ -1113,6 +1113,73 @@ export class OpencodeClientService {
   }
 
   /**
+   * Idempotently register the rhythm MCP server into opencode.json with the
+   * live production token + URL. Adds when absent, rewrites + reconnects when
+   * the token/URL changed, no-ops when identical. `opts.configPath` overrides
+   * the default (~/.config/opencode/opencode.json) for tests; `opts.register`
+   * controls whether to also register live with a running engine.
+   */
+  async ensureRhythmMcp(
+    apiToken: string,
+    apiUrl: string,
+    opts?: { configPath?: string; register?: boolean },
+  ): Promise<{ changed: boolean; registered: boolean }> {
+    const { existsSync, readFileSync, writeFileSync, mkdirSync } =
+      require('fs') as typeof import('fs');
+    const { join, dirname } = require('path') as typeof import('path');
+    const { homedir } = require('os') as typeof import('os');
+
+    const configPath =
+      opts?.configPath ??
+      join(homedir(), '.config', 'opencode', 'opencode.json');
+
+    const desired = {
+      type: 'local' as const,
+      command: ['npx', '-y', '@ajhochy/rhythm-mcp-server'],
+      environment: { RHYTHM_API_URL: apiUrl, RHYTHM_API_TOKEN: apiToken },
+    };
+
+    let parsed: Record<string, unknown> = {};
+    if (existsSync(configPath)) {
+      try {
+        parsed = JSON.parse(readFileSync(configPath, 'utf8'));
+      } catch (err) {
+        throw new AppError(
+          502,
+          'SDK_ERROR',
+          `ensureRhythmMcp: could not parse opencode.json: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+
+    const mcpSection = (parsed.mcp as Record<string, unknown> | undefined) ?? {};
+    const existing = mcpSection.rhythm;
+    if (JSON.stringify(existing) === JSON.stringify(desired)) {
+      return { changed: false, registered: false };
+    }
+
+    mcpSection.rhythm = desired;
+    parsed.mcp = mcpSection;
+    mkdirSync(dirname(configPath), { recursive: true });
+    writeFileSync(configPath, JSON.stringify(parsed, null, 2) + '\n', 'utf8');
+    logger.info('[OpencodeClientService] ensureRhythmMcp: persisted rhythm config');
+
+    let registered = false;
+    if (opts?.register !== false) {
+      try {
+        const client = this.requireClient();
+        await client.mcp.add({ body: { name: 'rhythm', config: desired } });
+        registered = true;
+      } catch (err) {
+        logger.warn(
+          `[OpencodeClientService] ensureRhythmMcp: live registration skipped: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+    return { changed: true, registered };
+  }
+
+  /**
    * POST /mcp/{name}/connect — connect a named MCP server.
    *
    * OPC-M4-3: throws AppError on SDK error envelope (never swallows to false).
