@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../app/core/agents/agent_server_controller.dart';
 import '../../../app/core/errors/app_error.dart';
@@ -256,6 +257,12 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   /// When the parent session transitions out of working, a desktop notification
   /// is fired for all messages in the working session that are armed.
   final Set<String> _notifyOnCompletion = {};
+
+  // --------------------------------------------------------------------------
+  // Inspector panel collapse state (persisted via shared_preferences)
+  // --------------------------------------------------------------------------
+  static const _inspectorCollapsedKey = 'agents.inspector.collapsed';
+  bool _panelCollapsed = false;
 
   AgentSessionConnectivity _connectivity = const AgentSessionConnectivity();
 
@@ -1006,6 +1013,38 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   // --------------------------------------------------------------------------
+  // Inspector panel collapse (persisted)
+  // --------------------------------------------------------------------------
+
+  /// Whether the inspector panel is collapsed. Persisted across app launches
+  /// via shared_preferences key [_inspectorCollapsedKey].
+  bool get panelCollapsed => _panelCollapsed;
+
+  /// Load the persisted inspector panel collapse state from shared_preferences.
+  /// Called from [initialize] so the preference is restored on startup.
+  Future<void> loadInspectorPrefs() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      _panelCollapsed = prefs.getBool(_inspectorCollapsedKey) ?? false;
+      notifyListeners();
+    } catch (_) {
+      _panelCollapsed = false;
+    }
+  }
+
+  /// Set and persist the inspector panel collapse flag.
+  /// No-op when [collapsed] matches the current value.
+  Future<void> setPanelCollapsed(bool collapsed) async {
+    if (_panelCollapsed == collapsed) return;
+    _panelCollapsed = collapsed;
+    notifyListeners();
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(_inspectorCollapsedKey, collapsed);
+    } catch (_) {}
+  }
+
+  // --------------------------------------------------------------------------
   // Lifecycle
   // --------------------------------------------------------------------------
 
@@ -1023,6 +1062,7 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
       _agentServerController.addListener(_onServerStateChanged);
       _serverListenerAttached = true;
     }
+    unawaited(loadInspectorPrefs());
     await _tryConnectWs();
   }
 
