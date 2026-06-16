@@ -126,10 +126,11 @@ class ChangesTab extends StatelessWidget {
 /// Diff summary line (files / +adds / −dels) plus the panel-level revert and
 /// restore controls. Shown only when there are diff entries.
 ///
-/// Revert target: the FIRST (earliest) message of the session, so reverting
-/// rolls back all of the session's file changes. When the session has no
-/// messages yet (no safe target), the Revert button renders disabled with a
-/// tooltip pointing the user at the transcript.
+/// Revert target: the EARLIEST message with role == 'user' in the session.
+/// User prompts make no file edits, so reverting TO that message undoes all
+/// assistant file changes that came after it. When no user message exists yet
+/// (e.g. the session just started), the Revert button renders disabled with a
+/// tooltip ("No revert point yet").
 class _ChangesSummaryHeader extends StatelessWidget {
   const _ChangesSummaryHeader({
     required this.sessionId,
@@ -152,10 +153,18 @@ class _ChangesSummaryHeader extends StatelessWidget {
       dels += (entry['deletions'] as num?)?.toInt() ?? 0;
     }
 
-    // Earliest message id is the revert target (rolls back all changes).
+    // Earliest USER message is the safe revert target: user prompts make no
+    // file edits, so reverting TO the first user message undoes all assistant
+    // file changes made after it.
     final messages = controller.chatMessagesFor(sessionId);
-    final firstMessageId = messages.isNotEmpty ? messages.first.id : null;
-    final canRevert = !reverted && firstMessageId != null;
+    ChatMessage? firstUserMessage;
+    for (final m in messages) {
+      if (m.role == 'user') {
+        firstUserMessage = m;
+        break;
+      }
+    }
+    final canRevert = !reverted && firstUserMessage != null;
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -190,11 +199,12 @@ class _ChangesSummaryHeader extends StatelessWidget {
             Tooltip(
               message: canRevert
                   ? 'Revert all file changes in this session'
-                  : 'Revert from the transcript',
+                  : 'No revert point yet',
               child: TextButton.icon(
                 key: const ValueKey('changes-revert-button'),
                 onPressed: canRevert
-                    ? () => _confirmRevert(context, controller, firstMessageId)
+                    ? () => _confirmRevert(
+                        context, controller, firstUserMessage!.id)
                     : null,
                 icon: const Icon(Icons.undo, size: 16),
                 label: const Text('Revert'),

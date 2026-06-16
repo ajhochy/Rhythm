@@ -25,6 +25,7 @@ import 'package:rhythm_desktop/features/agents/controllers/agents_controller.dar
 import 'package:rhythm_desktop/features/agents/models/agent_session.dart';
 import 'package:rhythm_desktop/features/agents/models/agent_session_message.dart';
 import 'package:rhythm_desktop/features/agents/models/agent_ws_message.dart';
+import 'package:rhythm_desktop/features/agents/models/chat_models.dart';
 import 'package:rhythm_desktop/features/agents/repositories/agents_repository.dart';
 import 'package:rhythm_desktop/features/agents/views/_session_side_panel.dart';
 import 'package:rhythm_desktop/features/notifications/controllers/notifications_controller.dart';
@@ -176,12 +177,22 @@ void main() {
   tearDown(() => controller.dispose());
 
   testWidgets(
-    'Changes tab shows a summary header (files / +adds / −dels) and a revert '
-    'button when a diff is present',
+    'Changes tab shows a summary header (files / +adds / −dels) and an ENABLED '
+    'revert button when a diff is present and a user message exists',
     (tester) async {
       final session = _makeSession('s1');
       // Seed the diff the Changes tab fetches when selected.
       repo.stagedDiff = _kDiffFixture;
+
+      // Seed a user message so the revert button has a safe target.
+      controller.setMessageForTest(
+        ChatMessage(
+          id: 'msg-user-1',
+          sessionId: 's1',
+          role: 'user',
+          createdAt: DateTime.fromMillisecondsSinceEpoch(1000),
+        ),
+      );
 
       await tester
           .pumpWidget(_wrap(controller, SessionSidePanel(session: session)));
@@ -198,10 +209,46 @@ void main() {
       expect(txt, contains('10')); // additions
       expect(txt, contains('3')); // deletions
 
+      // Revert button must be rendered.
       expect(
         find.byKey(const ValueKey('changes-revert-button')),
         findsOneWidget,
       );
+      // With a user message present the button must be ENABLED (onPressed != null).
+      final revertBtn = tester.widget<TextButton>(
+        find.byKey(const ValueKey('changes-revert-button')),
+      );
+      expect(revertBtn.onPressed, isNotNull);
+    },
+  );
+
+  testWidgets(
+    'Revert button is present but DISABLED when there are diff entries but no '
+    'user message has arrived yet',
+    (tester) async {
+      final session = _makeSession('s1');
+      // Seed a diff — but do NOT seed any messages.
+      repo.stagedDiff = _kDiffFixture;
+
+      await tester
+          .pumpWidget(_wrap(controller, SessionSidePanel(session: session)));
+      await tester.pump();
+
+      await tester.tap(find.text('Changes'));
+      await tester.pump();
+      await tester.pump();
+
+      // Summary header and revert button should be rendered.
+      expect(find.byKey(const ValueKey('changes-summary')), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('changes-revert-button')),
+        findsOneWidget,
+      );
+      // No user message → button must be DISABLED (onPressed == null).
+      final revertBtn = tester.widget<TextButton>(
+        find.byKey(const ValueKey('changes-revert-button')),
+      );
+      expect(revertBtn.onPressed, isNull);
     },
   );
 
