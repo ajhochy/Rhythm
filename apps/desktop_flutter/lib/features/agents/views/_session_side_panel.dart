@@ -49,6 +49,7 @@ class _SessionSidePanelState extends State<SessionSidePanel> {
   @override
   Widget build(BuildContext context) {
     return Container(
+      key: const ValueKey('inspector-panel'),
       width: 320,
       decoration: BoxDecoration(
         color: context.rhythm.surfaceRaised,
@@ -133,6 +134,18 @@ class _Tabs extends StatelessWidget {
             trailing: ChangesTabBadge(sessionId: sessionId),
           ),
           _tab(context, _Tab.terminal, 'Terminal'),
+          IconButton(
+            key: const ValueKey('inspector-collapse-button'),
+            icon: const Icon(Icons.chevron_right, size: 18),
+            tooltip: 'Collapse',
+            onPressed: () =>
+                context.read<AgentsController>().setPanelCollapsed(true),
+            style: IconButton.styleFrom(
+              minimumSize: const Size(28, 28),
+              padding: EdgeInsets.zero,
+              foregroundColor: context.rhythm.textMuted,
+            ),
+          ),
         ],
       ),
     );

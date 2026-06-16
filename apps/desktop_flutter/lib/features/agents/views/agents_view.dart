@@ -89,35 +89,82 @@ class _AgentsViewState extends State<AgentsView> {
         ),
         child: Padding(
           padding: const EdgeInsets.all(12),
-          child: Row(
-            children: [
-              ProjectsRail(
-                onAddProject: () => _showNewProjectDialog(context),
-              ),
-              const SizedBox(width: 12),
-              _SessionListPanel(
-                resumableSectionExpanded: _resumableSectionExpanded,
-                onToggleResumable: () => setState(
-                  () => _resumableSectionExpanded = !_resumableSectionExpanded,
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(child: _TranscriptPanel()),
-              // Right-rail inspector (Context / Changes / Terminal) for the
-              // active session. Mounted here so the M3 session-feature panels
-              // (Changes diff, todo list) actually render — the prior attempt
-              // left SessionSidePanel import-clean but never placed it.
-              if (context.watch<AgentsController>().selectedSession !=
-                  null) ...[
-                const SizedBox(width: 12),
-                SessionSidePanel(
-                  session: context.watch<AgentsController>().selectedSession!,
-                ),
-              ],
-            ],
-          ),
+          child: _buildWorkspace(context),
         ),
       ),
+    );
+  }
+
+  /// Builds the three-pane workspace (rail · sessions · transcript) plus the
+  /// optional right-rail inspector.
+  ///
+  /// The inspector (SessionSidePanel) is shown for the active session unless
+  /// the user has collapsed it via [AgentsController.panelCollapsed]. When
+  /// collapsed, a small floating expand button overlays the top-right of the
+  /// content area so the panel can be brought back. Both affordances are gated
+  /// on having a selected session.
+  Widget _buildWorkspace(BuildContext context) {
+    final controller = context.watch<AgentsController>();
+    final selectedSession = controller.selectedSession;
+    final panelCollapsed = controller.panelCollapsed;
+    final showCollapsedAffordance = selectedSession != null && panelCollapsed;
+
+    final row = Row(
+      children: [
+        ProjectsRail(
+          onAddProject: () => _showNewProjectDialog(context),
+        ),
+        const SizedBox(width: 12),
+        _SessionListPanel(
+          resumableSectionExpanded: _resumableSectionExpanded,
+          onToggleResumable: () => setState(
+            () => _resumableSectionExpanded = !_resumableSectionExpanded,
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(child: _TranscriptPanel()),
+        // Right-rail inspector (Context / Changes / Terminal) for the active
+        // session. Mounted here so the M3 session-feature panels (Changes
+        // diff, todo list) actually render. Hidden when the user collapses it.
+        if (selectedSession != null && !panelCollapsed) ...[
+          const SizedBox(width: 12),
+          SessionSidePanel(session: selectedSession),
+        ],
+      ],
+    );
+
+    if (!showCollapsedAffordance) return row;
+
+    // Collapsed: overlay a floating expand button at the top-right edge where
+    // the inspector panel used to sit.
+    return Stack(
+      children: [
+        row,
+        Positioned(
+          top: 0,
+          right: 0,
+          child: Material(
+            color: context.rhythm.surfaceRaised,
+            elevation: 2,
+            borderRadius: BorderRadius.circular(RhythmRadius.md),
+            child: IconButton(
+              key: const ValueKey('inspector-expand-button'),
+              icon: const Icon(Icons.chevron_left, size: 18),
+              tooltip: 'Show inspector',
+              onPressed: () =>
+                  context.read<AgentsController>().setPanelCollapsed(false),
+              style: IconButton.styleFrom(
+                minimumSize: const Size(32, 32),
+                padding: EdgeInsets.zero,
+                foregroundColor: context.rhythm.textMuted,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(RhythmRadius.md),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 
