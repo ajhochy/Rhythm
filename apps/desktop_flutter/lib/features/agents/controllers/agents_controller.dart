@@ -1158,6 +1158,20 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     return null;
   }
 
+  /// Human-readable model name for [session], looked up from the catalog by
+  /// matching provider + model id. Falls back to '`providerId`/`modelId`'
+  /// (with '?' for missing parts) when the catalog has no matching entry.
+  String modelDisplayName(AgentSession session) {
+    final providerId = session.providerId;
+    final modelId = session.modelId;
+    for (final e in _catalog) {
+      if (e.provider == providerId && e.modelId == modelId) {
+        return e.displayName;
+      }
+    }
+    return '${providerId ?? '?'}/${modelId ?? '?'}';
+  }
+
   /// Injects a catalog for testing without going through [refreshCatalog].
   @visibleForTesting
   void setCatalogForTest(List<CatalogModelEntry> entries) {
