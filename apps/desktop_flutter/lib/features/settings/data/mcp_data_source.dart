@@ -11,6 +11,8 @@ class McpServerEntry {
     required this.name,
     required this.status,
     this.error,
+    this.needsCredentials = false,
+    this.environment,
   });
 
   final String name;
@@ -21,11 +23,24 @@ class McpServerEntry {
   /// Present when [status] == 'failed'.
   final String? error;
 
+  /// MCP-1: true when the server is installed but missing required
+  /// credentials — either a key-based server with an empty required env value,
+  /// or a remote server the SDK reports as `needs_auth`. Computed server-side;
+  /// the UI must not recompute this (MCP-4).
+  final bool needsCredentials;
+
+  /// MCP-1: the server's env keys with redacted values (e.g. `{API_KEY: '***'}`).
+  /// Present only when the persisted config declares an environment map.
+  final Map<String, String>? environment;
+
   factory McpServerEntry.fromJson(Map<String, dynamic> json) {
+    final rawEnv = json['environment'] as Map<String, dynamic>?;
     return McpServerEntry(
       name: json['name'] as String,
       status: json['status'] as String? ?? 'unknown',
       error: json['error'] as String?,
+      needsCredentials: json['needsCredentials'] as bool? ?? false,
+      environment: rawEnv?.map((k, v) => MapEntry(k, v as String)),
     );
   }
 }

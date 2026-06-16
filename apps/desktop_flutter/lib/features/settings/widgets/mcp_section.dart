@@ -162,6 +162,20 @@ class _McpSectionState extends State<McpSection> {
   }
 }
 
+/// MCP-4: opens the Add/Edit secrets dialog pre-filled with [serverName] so the
+/// user can supply a missing credential without retyping the name.
+Future<void> _showCredentialsDialog(
+  BuildContext context,
+  McpController ctrl,
+  String serverName,
+) async {
+  await showDialog<void>(
+    context: context,
+    builder: (dialogCtx) =>
+        _AddMcpServerDialog(ctrl: ctrl, initialName: serverName),
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Individual server row
 // ---------------------------------------------------------------------------
@@ -181,6 +195,14 @@ class _McpServerRow extends StatelessWidget {
     final isConnected = server.status == 'connected';
     final isFailed = server.status == 'failed';
 
+    // MCP-4: a remote server the SDK reports as needs_auth shows a distinct
+    // "Sign-in required" badge; a curated key-based server missing required env
+    // shows a tappable "Needs credentials" badge. Both signals come straight
+    // from the GET response (status / needsCredentials) — the UI never
+    // recomputes credential logic.
+    final needsSignIn = server.status == 'needs_auth';
+    final needsCredentials = server.needsCredentials && !needsSignIn;
+
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: Column(
@@ -188,11 +210,22 @@ class _McpServerRow extends StatelessWidget {
         children: [
           Row(
             children: [
-              // Status badge
-              _StatusBadge(
-                key: Key('mcp-badge-${server.name}'),
-                status: server.status,
-              ),
+              // Status badge — variant depends on credential/auth signals.
+              if (needsCredentials)
+                _NeedsCredentialsBadge(
+                  key: Key('mcp-needs-credentials-${server.name}'),
+                  onTap: () =>
+                      _showCredentialsDialog(context, ctrl, server.name),
+                )
+              else if (needsSignIn)
+                _SignInRequiredBadge(
+                  key: Key('mcp-needs-signin-${server.name}'),
+                )
+              else
+                _StatusBadge(
+                  key: Key('mcp-badge-${server.name}'),
+                  status: server.status,
+                ),
               const SizedBox(width: 10),
               Expanded(
                 child: Text(
@@ -278,21 +311,101 @@ class _StatusBadge extends StatelessWidget {
   }
 }
 
+/// MCP-4: warning badge for a curated key-based server that is installed but
+/// missing required credentials. Visually distinct (warning/orange) and
+/// tappable — tapping opens the secrets dialog pre-filled with the server name.
+class _NeedsCredentialsBadge extends StatelessWidget {
+  const _NeedsCredentialsBadge({super.key, required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = context.rhythm.warning;
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(4),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+        decoration: BoxDecoration(
+          color: color.withValues(alpha: 0.14),
+          borderRadius: BorderRadius.circular(4),
+          border: Border.all(color: color.withValues(alpha: 0.5)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.key_outlined, size: 12, color: color),
+            const SizedBox(width: 4),
+            Text(
+              'Needs credentials',
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                color: color,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// MCP-4: badge for a remote server the SDK reports as `needs_auth`. Distinct
+/// from "Needs credentials" — sign-in is an OAuth flow, not a typed secret.
+class _SignInRequiredBadge extends StatelessWidget {
+  const _SignInRequiredBadge({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final color = context.rhythm.accent;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(4),
+        border: Border.all(color: color.withValues(alpha: 0.5)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.login, size: 12, color: color),
+          const SizedBox(width: 4),
+          Text(
+            'Sign-in required',
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              color: color,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Add MCP server dialog
 // ---------------------------------------------------------------------------
 
 class _AddMcpServerDialog extends StatefulWidget {
-  const _AddMcpServerDialog({required this.ctrl});
+  const _AddMcpServerDialog({required this.ctrl, this.initialName});
 
   final McpController ctrl;
+
+  /// MCP-4: when opened from a "Needs credentials" affordance, pre-fill the
+  /// server name so the user only has to supply the missing secret.
+  final String? initialName;
 
   @override
   State<_AddMcpServerDialog> createState() => _AddMcpServerDialogState();
 }
 
 class _AddMcpServerDialogState extends State<_AddMcpServerDialog> {
-  final _nameController = TextEditingController();
+  late final TextEditingController _nameController =
+      TextEditingController(text: widget.initialName ?? '');
   final _commandController = TextEditingController();
   final _urlController = TextEditingController();
   final _formKey = GlobalKey<FormState>();
