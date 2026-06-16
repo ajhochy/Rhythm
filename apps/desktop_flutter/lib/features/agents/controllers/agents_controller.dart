@@ -887,6 +887,30 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     }
   }
 
+  // --------------------------------------------------------------------------
+  // PTY
+  // --------------------------------------------------------------------------
+
+  /// POST /agent-sessions/:id/pty — create a new PTY for the session.
+  ///
+  /// Returns the ptyId assigned by the server. Throws on HTTP error.
+  Future<String> createPty(String sessionId) =>
+      _repository.createPty(sessionId);
+
+  /// PATCH /pty/:id — resize the PTY to [cols] × [rows].
+  ///
+  /// Throws on HTTP error.
+  Future<void> resizePty(String ptyId, int cols, int rows) =>
+      _repository.resizePty(ptyId, cols, rows);
+
+  /// DELETE /pty/:id — kill the PTY process.
+  ///
+  /// Throws on HTTP error.
+  Future<void> killPty(String ptyId) => _repository.killPty(ptyId);
+
+  /// Returns the WebSocket URL for the PTY with [ptyId].
+  String ptyWsUrl(String ptyId) => _repository.ptyWsUrl(ptyId);
+
   /// Test-only: seed a terminal message entry without a network round-trip.
   /// Registers [messageId] in the terminal set for [sessionId] and records
   /// the [command] echo header. Does NOT add a ChatMessage to the chat store.
