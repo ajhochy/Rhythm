@@ -17,8 +17,50 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { AppError } from '../errors/app_error';
 import { opencodeClient } from '../services/opencode_engine';
+import type { CuratedTokenResolver } from '../services/opencode_client_service';
+import type { CuratedMcpServer } from '../config/curated_mcp_servers';
+import { IntegrationsService } from '../services/integrations_service';
 
 export const opencodeMcpRouter = Router();
+
+const integrationsService = new IntegrationsService();
+
+/**
+ * MCP-6 — build the token bridge resolver for a given Rhythm user. It reuses
+ * the existing `ensureFresh*Account` refresh accessors so token refresh logic
+ * is never reimplemented here. Returns `null` (→ skip the server) when the
+ * account is not connected; `ensureFresh*Account` throws AppError(400) in that
+ * case, which we map to `null` rather than propagating.
+ */
+function buildCuratedTokenResolver(userId: number): CuratedTokenResolver {
+  return async (provider) => {
+    try {
+      const account =
+        provider === 'google'
+          ? await integrationsService.ensureFreshGoogleAccount(userId)
+          : await integrationsService.ensureFreshPlanningCenterAccount(userId);
+      return account.accessToken ?? null;
+    } catch {
+      // Not connected (or refresh failed) → signal "skip this server".
+      return null;
+    }
+  };
+}
+
+/**
+ * MCP-6 — redact every `environment` value in a curated server payload so a
+ * bridged OAuth token never appears verbatim in an HTTP response. Mirrors the
+ * '***' redaction the GET /opencode/mcp route applies (MCP-1).
+ */
+function redactServerEnv(server: CuratedMcpServer): CuratedMcpServer {
+  if (!server.environment) return server;
+  return {
+    ...server,
+    environment: Object.fromEntries(
+      Object.keys(server.environment).map((k) => [k, '***']),
+    ),
+  };
+}
 
 // ── GET / — list all MCP servers ────────────────────────────────────────────
 
@@ -140,10 +182,25 @@ opencodeMcpRouter.post(
 // ── POST /curated/ensure — idempotently install the curated MCP servers ──────
 opencodeMcpRouter.post(
   '/curated/ensure',
-  async (_req: Request, res: Response, next: NextFunction) => {
+  async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const result = await opencodeClient.ensureCuratedMcps();
-      res.json(result);
+      // MCP-6 — when a user is resolvable, bridge their stored Google/PCO
+      // OAuth tokens into the token-bridged curated servers. Without a user
+      // (unauthenticated agent-local call) the resolver is omitted, so
+      // token-bridged servers are simply skipped — zero-auth servers still
+      // install.
+      const userId = req.auth?.user.id;
+      const tokenResolver =
+        userId != null ? buildCuratedTokenResolver(userId) : undefined;
+
+      const result = await opencodeClient.ensureCuratedMcps({ tokenResolver });
+
+      // Redact any environment values (bridged tokens) before responding —
+      // tokens may be written to opencode.json but never echoed over HTTP.
+      res.json({
+        ...result,
+        servers: result.servers.map(redactServerEnv),
+      });
     } catch (err) {
       next(err);
     }

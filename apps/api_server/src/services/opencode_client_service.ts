@@ -9,7 +9,19 @@ import { AppError } from '../errors/app_error';
 import {
   CURATED_MCP_SERVERS,
   type CuratedMcpServer,
+  type CuratedTokenProvider,
 } from '../config/curated_mcp_servers';
+
+/**
+ * MCP-6 — resolves a FRESH OAuth access token for a curated server's
+ * `tokenProvider`. Implementations reuse Rhythm's existing
+ * `ensureFresh*Account` refresh path (see opencode_mcp_routes.ts wiring).
+ * Returns the access token string, or `null` when no account is connected
+ * (no row / no token) so the bridge can SKIP that server cleanly.
+ */
+export type CuratedTokenResolver = (
+  provider: CuratedTokenProvider,
+) => Promise<string | null>;
 
 /**
  * Run a command and capture stdout. `execFile` is required lazily (not bound at
@@ -1229,10 +1241,23 @@ export class OpencodeClientService {
    * `opts.configPath` overrides the default
    * (~/.config/opencode/opencode.json) for tests; `opts.register` controls
    * whether to also live-register (default true).
+   *
+   * MCP-6 — `opts.tokenResolver` bridges Rhythm's stored OAuth credentials
+   * into curated servers that declare a `tokenProvider`. For each such server
+   * the resolver is asked for a FRESH access token; the token is injected into
+   * the server's `environment[tokenEnvKey]` before the JSON-compare/persist.
+   * When the resolver returns `null`/empty (no account connected) that ONE
+   * server is SKIPPED entirely — it is never written with an empty placeholder
+   * token — and the remaining servers continue. A resolver that THROWS for one
+   * provider is treated the same as "no account" for that server (logged,
+   * skipped) so a single broken provider can't abort the whole ensure. When no
+   * `tokenResolver` is supplied, token-bridged servers are skipped (no token
+   * source available); zero-auth servers (PDF Tools) are unaffected.
    */
   async ensureCuratedMcps(opts?: {
     configPath?: string;
     register?: boolean;
+    tokenResolver?: CuratedTokenResolver;
   }): Promise<{
     changed: boolean;
     registered: boolean;
@@ -1263,21 +1288,61 @@ export class OpencodeClientService {
     const mcpSection =
       (parsed.mcp as Record<string, unknown> | undefined) ?? {};
 
-    // Build the desired opencode.json entry for a curated server.
-    const toEntry = (s: CuratedMcpServer): Record<string, unknown> => {
+    // Build the desired opencode.json entry for a curated server. The optional
+    // `environment` override carries the bridged fresh token (MCP-6) merged
+    // over any static `server.environment`.
+    const toEntry = (
+      s: CuratedMcpServer,
+      environment?: Record<string, string>,
+    ): Record<string, unknown> => {
       const entry: Record<string, unknown> =
         s.type === 'remote'
           ? { type: 'remote', url: s.url }
           : { type: 'local', command: s.command };
-      if (s.environment && Object.keys(s.environment).length > 0) {
-        entry.environment = s.environment;
+      const env = { ...(s.environment ?? {}), ...(environment ?? {}) };
+      if (Object.keys(env).length > 0) {
+        entry.environment = env;
       }
       return entry;
     };
 
+    // MCP-6 — resolve a fresh token for a token-bridged server. Returns the
+    // env map to inject, or `null` to signal "skip this server entirely"
+    // (no account connected / no resolver / resolver threw).
+    const resolveBridgedEnv = async (
+      server: CuratedMcpServer,
+    ): Promise<Record<string, string> | null> => {
+      if (!server.tokenProvider || !server.tokenEnvKey) return {};
+      if (!opts?.tokenResolver) {
+        logger.info(
+          `[OpencodeClientService] ensureCuratedMcps: skipping ${server.id} — no token resolver supplied`,
+        );
+        return null;
+      }
+      let token: string | null;
+      try {
+        token = await opts.tokenResolver(server.tokenProvider);
+      } catch (err) {
+        logger.warn(
+          `[OpencodeClientService] ensureCuratedMcps: skipping ${server.id} — token resolve failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
+        return null;
+      }
+      if (!token || token.trim() === '') {
+        logger.info(
+          `[OpencodeClientService] ensureCuratedMcps: skipping ${server.id} — no ${server.tokenProvider} account connected`,
+        );
+        return null;
+      }
+      return { [server.tokenEnvKey]: token };
+    };
+
     const changedServers: CuratedMcpServer[] = [];
     for (const server of CURATED_MCP_SERVERS) {
-      const desired = toEntry(server);
+      const bridgedEnv = await resolveBridgedEnv(server);
+      // null → token-bridged server with no connected account: skip entirely.
+      if (bridgedEnv === null) continue;
+      const desired = toEntry(server, bridgedEnv);
       const existing = mcpSection[server.id];
       if (JSON.stringify(existing) === JSON.stringify(desired)) {
         continue;
@@ -1304,10 +1369,11 @@ export class OpencodeClientService {
       try {
         const client = this.requireClient();
         for (const server of changedServers) {
+          // Register the entry exactly as persisted (incl. any bridged token).
           await client.mcp.add({
             body: {
               name: server.id,
-              config: toEntry(server) as
+              config: mcpSection[server.id] as
                 | import('@opencode-ai/sdk').McpLocalConfigInput
                 | import('@opencode-ai/sdk').McpRemoteConfigInput,
             },

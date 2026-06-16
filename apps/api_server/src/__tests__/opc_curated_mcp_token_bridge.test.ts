@@ -1,0 +1,330 @@
+/**
+ * MCP-6 — Google + PCO token bridge (reuse stored OAuth).
+ *
+ * Acceptance criteria:
+ *   c1 — a Google integration_account row with a valid token exists →
+ *        ensuring the Google server injects the fresh access token into
+ *        environment[GOOGLE_OAUTH_ACCESS_TOKEN]; same for PCO into its key.
+ *   c2 — the token bridge calls the existing ensureFresh*Account refresh path:
+ *        when expires_at is in the past the refresh fetch is invoked and the
+ *        REFRESHED token is the one injected.
+ *   c3 — no Google/PCO account connected → that server is SKIPPED (not written
+ *        with an empty token); ensureCuratedMcps() does not throw; other servers
+ *        (PDF Tools) still install.
+ *   c4 — token values never returned verbatim in the route response — the
+ *        response `servers` payload contains no plaintext token (redacted).
+ *
+ * Run with:
+ *   cd apps/api_server && npx vitest run src/__tests__/opc_curated_mcp_token_bridge.test.ts
+ */
+
+import { vi, afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { mkdtempSync, rmSync, readFileSync } from 'fs';
+import { join } from 'path';
+import { tmpdir } from 'os';
+import type { AddressInfo } from 'node:net';
+import Database from 'better-sqlite3';
+import { OpencodeClientService } from '../services/opencode_client_service';
+import { CURATED_MCP_SERVERS } from '../config/curated_mcp_servers';
+
+const GOOGLE = CURATED_MCP_SERVERS.find((s) => s.id === 'google-workspace')!;
+const PCO = CURATED_MCP_SERVERS.find((s) => s.id === 'planning-center')!;
+const PDF = CURATED_MCP_SERVERS.find((s) => s.id === 'pdf-tools')!;
+
+// ─────────────────────────────────────────────────────────────────────────────
+// c1 — fresh tokens injected into the declared env keys (service-level, using
+// an injected resolver that mimics ensureFresh*Account returning a token).
+// ─────────────────────────────────────────────────────────────────────────────
+describe('ensureCuratedMcps token bridge — injection (c1)', () => {
+  let dir: string;
+  let configPath: string;
+  let svc: OpencodeClientService;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'opencode-token-bridge-'));
+    configPath = join(dir, 'opencode.json');
+    svc = new OpencodeClientService();
+  });
+  afterEach(() => rmSync(dir, { recursive: true, force: true }));
+
+  it('c1: injects the fresh Google + PCO access tokens into their env keys', async () => {
+    const tokenResolver = vi.fn(async (provider: 'google' | 'pco') =>
+      provider === 'google' ? 'google-access-tok' : 'pco-access-tok',
+    );
+
+    const result = await svc.ensureCuratedMcps({
+      configPath,
+      register: false,
+      tokenResolver,
+    });
+
+    expect(result.changed).toBe(true);
+    const parsed = JSON.parse(readFileSync(configPath, 'utf8'));
+
+    // Google server env key populated with the fresh token.
+    expect(parsed.mcp['google-workspace'].environment).toEqual({
+      [GOOGLE.tokenEnvKey!]: 'google-access-tok',
+    });
+    // PCO server env key populated with the fresh token.
+    expect(parsed.mcp['planning-center'].environment).toEqual({
+      [PCO.tokenEnvKey!]: 'pco-access-tok',
+    });
+    // Zero-auth PDF Tools still installed, no environment.
+    expect(parsed.mcp['pdf-tools'].command).toEqual(PDF.command);
+    expect(parsed.mcp['pdf-tools'].environment).toBeUndefined();
+
+    expect(tokenResolver).toHaveBeenCalledWith('google');
+    expect(tokenResolver).toHaveBeenCalledWith('pco');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// c2 — the bridge uses the REAL ensureFreshGoogleAccount refresh path. With an
+// expired token the refresh fetch is invoked and the refreshed token is used.
+// ─────────────────────────────────────────────────────────────────────────────
+describe('ensureCuratedMcps token bridge — real refresh path (c2)', () => {
+  let dir: string;
+  let configPath: string;
+  const realFetch = globalThis.fetch;
+
+  beforeEach(() => {
+    vi.resetModules();
+    dir = mkdtempSync(join(tmpdir(), 'opencode-token-refresh-'));
+    configPath = join(dir, 'opencode.json');
+
+    // Google refresh requires the desktop client to be configured.
+    vi.doMock('../config/env', () => ({
+      env: {
+        dbClient: 'sqlite',
+        googleClientId: 'web-client',
+        googleClientSecret: 'web-secret',
+        googleRedirectUri: 'http://localhost/cb',
+        googleAuthClientId: 'desktop-client',
+        googleAuthClientSecret: 'desktop-secret',
+      },
+    }));
+  });
+
+  afterEach(() => {
+    globalThis.fetch = realFetch;
+    vi.doUnmock('../config/env');
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('c2: expired token → refresh fetch invoked, refreshed token injected', async () => {
+    const { setDb } = await import('../database/db');
+    const { runMigrations } = await import('../database/migrations');
+    const db = new Database(':memory:');
+    db.pragma('foreign_keys = ON');
+    runMigrations(db);
+    setDb(db);
+
+    // Seed a user (FK target) and an EXPIRED Google account row (real shape).
+    db.prepare(
+      `INSERT INTO users (email, name) VALUES (?, ?)`,
+    ).run('owner@example.com', 'Owner');
+    const ownerId = (
+      db.prepare('SELECT id FROM users WHERE email = ?').get('owner@example.com') as {
+        id: number;
+      }
+    ).id;
+    const past = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+    const now = new Date().toISOString();
+    for (const provider of ['google_calendar', 'gmail']) {
+      db.prepare(
+        `INSERT INTO integration_accounts (
+          id, owner_id, provider, external_account_id, email, display_name,
+          status, access_token, refresh_token, scope, token_type, expires_at,
+          last_synced_at, error_message, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).run(
+        `acct-${provider}`,
+        ownerId,
+        provider,
+        'ext-1',
+        'owner@example.com',
+        'Owner',
+        'connected',
+        'STALE-google-token',
+        'google-refresh-token',
+        'openid email profile',
+        'Bearer',
+        past, // expired → must refresh
+        null,
+        null,
+        now,
+        now,
+      );
+    }
+
+    // Stub the Google token endpoint so the real refresh path runs offline.
+    const fetchSpy = vi.fn(async (url: string | URL) => {
+      const u = String(url);
+      if (u.includes('oauth2.googleapis.com/token')) {
+        return new Response(
+          JSON.stringify({
+            access_token: 'FRESH-google-token',
+            expires_in: 3600,
+            token_type: 'Bearer',
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+      throw new Error(`unexpected fetch to ${u}`);
+    });
+    globalThis.fetch = fetchSpy as unknown as typeof fetch;
+
+    const { IntegrationsService } = await import('../services/integrations_service');
+    const integrations = new IntegrationsService();
+    const tokenResolver = async (provider: 'google' | 'pco') => {
+      if (provider !== 'google') return null;
+      const account = await integrations.ensureFreshGoogleAccount(ownerId);
+      return account.accessToken ?? null;
+    };
+
+    const svc = new OpencodeClientService();
+    const result = await svc.ensureCuratedMcps({
+      configPath,
+      register: false,
+      tokenResolver,
+    });
+
+    expect(result.changed).toBe(true);
+    // The refresh endpoint was actually hit (refresh path exercised).
+    expect(
+      fetchSpy.mock.calls.some(([u]) =>
+        String(u).includes('oauth2.googleapis.com/token'),
+      ),
+    ).toBe(true);
+
+    const parsed = JSON.parse(readFileSync(configPath, 'utf8'));
+    // The REFRESHED token is what got injected — not the stale one.
+    expect(parsed.mcp['google-workspace'].environment).toEqual({
+      [GOOGLE.tokenEnvKey!]: 'FRESH-google-token',
+    });
+    expect(
+      JSON.stringify(parsed.mcp['google-workspace']),
+    ).not.toContain('STALE-google-token');
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// c3 — no account connected → token-bridged servers skipped, no throw, PDF
+// Tools still installs. Driven through the REAL route with an empty temp DB.
+// c4 — the route response redacts env values (no plaintext token).
+// ─────────────────────────────────────────────────────────────────────────────
+describe('POST /opencode/mcp/curated/ensure token bridge (c3, c4)', () => {
+  let dir: string;
+  let baseUrl: string;
+  let close: () => Promise<void>;
+  const ensureCuratedMcpsSpy = vi.fn();
+
+  beforeEach(async () => {
+    vi.resetModules();
+    ensureCuratedMcpsSpy.mockReset();
+    dir = mkdtempSync(join(tmpdir(), 'opencode-token-route-'));
+
+    vi.doMock('../services/opencode_engine', () => ({
+      opencodeClient: {
+        isReady: true,
+        ensureCuratedMcps: ensureCuratedMcpsSpy,
+        statusMessage: 'ready',
+        listCommands: vi.fn().mockResolvedValue([]),
+      },
+      opencodeSessionMap: new Map(),
+    }));
+    vi.doMock('../config/env', () => ({
+      env: {
+        dbClient: 'sqlite',
+        agentLocal: true,
+        corsAllowedOrigins: [],
+        jwtSecret: 'test-secret',
+      },
+    }));
+
+    const { setDb } = await import('../database/db');
+    const { runMigrations } = await import('../database/migrations');
+    setDb(
+      (() => {
+        const db = new Database(':memory:');
+        db.pragma('foreign_keys = ON');
+        runMigrations(db);
+        return db;
+      })(),
+    );
+
+    const { createApp } = await import('../app');
+    const server = createApp().listen(0);
+    await new Promise<void>((r) => server.once('listening', () => r()));
+    baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+    close = () =>
+      new Promise<void>((res, rej) =>
+        server.close((e) => (e ? rej(e) : res())),
+      );
+  });
+
+  afterEach(async () => {
+    await close();
+    vi.doUnmock('../services/opencode_engine');
+    vi.doUnmock('../config/env');
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('c3: unauthenticated (no user) → token-bridged servers skipped, no throw, PDF Tools installs', async () => {
+    // Run the REAL ensureCuratedMcps against a temp config with NO resolver
+    // wired (route omits it when there is no authed user). The Google/PCO
+    // servers must be skipped; PDF Tools must still install.
+    const configPath = join(dir, 'opencode.json');
+    const svc = new OpencodeClientService();
+    const result = await svc.ensureCuratedMcps({ configPath, register: false });
+
+    expect(result.changed).toBe(true);
+    const parsed = JSON.parse(readFileSync(configPath, 'utf8'));
+    expect(parsed.mcp['pdf-tools'].command).toEqual(PDF.command);
+    // Token-bridged servers NOT written (no empty placeholder token).
+    expect(parsed.mcp['google-workspace']).toBeUndefined();
+    expect(parsed.mcp['planning-center']).toBeUndefined();
+    expect(result.servers.some((s) => s.id === 'google-workspace')).toBe(false);
+    expect(result.servers.some((s) => s.id === 'planning-center')).toBe(false);
+  });
+
+  it('c4: route response redacts env values — no plaintext token echoed', async () => {
+    // The route receives a service result that (hypothetically) carries an
+    // environment with a token. The route MUST redact it before responding.
+    ensureCuratedMcpsSpy.mockResolvedValueOnce({
+      changed: true,
+      registered: false,
+      servers: [
+        {
+          id: 'google-workspace',
+          name: 'Google Workspace',
+          type: 'local',
+          command: GOOGLE.command,
+          environment: { [GOOGLE.tokenEnvKey!]: 'super-secret-bearer-token' },
+          tokenProvider: 'google',
+          tokenEnvKey: GOOGLE.tokenEnvKey,
+          requiredEnv: GOOGLE.requiredEnv,
+        },
+      ],
+    });
+
+    const res = await fetch(`${baseUrl}/opencode/mcp/curated/ensure`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: '{}',
+    });
+
+    expect(res.status).toBe(200);
+    const raw = await res.text();
+    // The plaintext token must NOT appear verbatim anywhere in the response.
+    expect(raw).not.toContain('super-secret-bearer-token');
+
+    const body = JSON.parse(raw) as {
+      servers: Array<{ environment?: Record<string, string> }>;
+    };
+    // The env key is preserved but redacted to '***'.
+    expect(body.servers[0].environment).toEqual({
+      [GOOGLE.tokenEnvKey!]: '***',
+    });
+  });
+});
