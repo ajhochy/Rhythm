@@ -6,10 +6,13 @@
  * in opencode_client_service.ts idempotently merges this list into the
  * `mcp` block (add missing, refresh changed, no-op identical).
  *
- * MCP-2 ships ONLY the zero-auth PDF Tools entry as a first end-to-end proof.
+ * MCP-2 ships the zero-auth PDF Tools entry as a first end-to-end proof.
  * MCP-6 adds the Google Workspace + Planning Center entries whose credentials
  * are bridged from Rhythm's stored OAuth tokens (see `tokenProvider` below).
- * The remaining curated servers land in MCP-7 — do NOT add them here.
+ * MCP-7 completes the set to 7: adds Canva + Notion (remote, OAuth-on-first-use
+ * via opencode), Stripe + Mailchimp (local, API key supplied via the secrets
+ * UI). See docs/ai/decisions.md (2026-06-16) for per-server rationale, pins,
+ * and credential approach. Pins marked TODO(verify-pin) must be confirmed at PR.
  */
 
 /**
@@ -68,7 +71,8 @@ export const CURATED_MCP_SERVERS: CuratedMcpServer[] = [
     id: 'pdf-tools',
     name: 'PDF Tools',
     type: 'local',
-    // TODO(MCP-7): confirm exact package + pin a version.
+    // TODO(verify-pin): confirm package/url + env keys before release —
+    // the published PDF Tools package name + a pinned version are unconfirmed.
     command: ['npx', '-y', '@modelcontextprotocol/server-pdf'],
     requiredEnv: [],
   },
@@ -76,12 +80,12 @@ export const CURATED_MCP_SERVERS: CuratedMcpServer[] = [
     id: 'google-workspace',
     name: 'Google Workspace',
     type: 'local',
-    // TODO(MCP-7): confirm exact package + pin a version, and confirm the real
-    // server reads its bearer from GOOGLE_OAUTH_ACCESS_TOKEN (rename if not).
+    // TODO(verify-pin): confirm package/url + env keys before release —
+    // confirm the published package name + pin, and that the server reads its
+    // bearer from GOOGLE_OAUTH_ACCESS_TOKEN (rename tokenEnvKey/requiredEnv if not).
     command: ['npx', '-y', '@modelcontextprotocol/server-google-workspace'],
     // MCP-6 — credential bridged from Rhythm's stored Google OAuth tokens.
     tokenProvider: 'google',
-    // TODO(MCP-7): confirm the env key the real server expects for the token.
     tokenEnvKey: 'GOOGLE_OAUTH_ACCESS_TOKEN',
     requiredEnv: ['GOOGLE_OAUTH_ACCESS_TOKEN'],
   },
@@ -89,13 +93,59 @@ export const CURATED_MCP_SERVERS: CuratedMcpServer[] = [
     id: 'planning-center',
     name: 'Planning Center',
     type: 'local',
-    // TODO(MCP-7): confirm exact package + pin a version, and confirm the real
-    // server reads its bearer from PCO_ACCESS_TOKEN (rename if not).
+    // TODO(verify-pin): confirm package/url + env keys before release —
+    // @ajhochy/pco-mcp-server is the in-house server; pin a version, and confirm
+    // it reads its bearer from PCO_ACCESS_TOKEN (rename if not). Fallback to a
+    // PCO Personal Access Token via the secrets UI if the token bridge is
+    // unavailable (no connected PCO OAuth account).
     command: ['npx', '-y', '@ajhochy/pco-mcp-server'],
     // MCP-6 — credential bridged from Rhythm's stored Planning Center OAuth tokens.
     tokenProvider: 'pco',
-    // TODO(MCP-7): confirm the env key the real server expects for the token.
     tokenEnvKey: 'PCO_ACCESS_TOKEN',
     requiredEnv: ['PCO_ACCESS_TOKEN'],
+  },
+  {
+    id: 'canva',
+    name: 'Canva',
+    type: 'remote',
+    // Official Canva hosted MCP. OAuth is initiated on first use by opencode —
+    // no API key required, hence requiredEnv: [].
+    // TODO(verify-pin): confirm package/url + env keys before release — confirm
+    // https://mcp.canva.com/mcp is the current official remote endpoint.
+    url: 'https://mcp.canva.com/mcp',
+    requiredEnv: [],
+  },
+  {
+    id: 'notion',
+    name: 'Notion',
+    type: 'remote',
+    // Official makenotion hosted MCP. OAuth on first use by opencode.
+    // TODO(verify-pin): confirm package/url + env keys before release — confirm
+    // https://mcp.notion.com/mcp is the current official remote endpoint.
+    url: 'https://mcp.notion.com/mcp',
+    requiredEnv: [],
+  },
+  {
+    id: 'stripe',
+    name: 'Stripe',
+    type: 'local',
+    // Official Stripe MCP. Reads its restricted secret key from STRIPE_SECRET_KEY
+    // in the environment (alternatively `--api-key=`); supplied via the secrets UI.
+    // TODO(verify-pin): confirm package/url + env keys before release — pin a
+    // version of @stripe/mcp.
+    command: ['npx', '-y', '@stripe/mcp', '--tools=all'],
+    requiredEnv: ['STRIPE_SECRET_KEY'],
+  },
+  {
+    id: 'mailchimp',
+    name: 'Mailchimp',
+    type: 'local',
+    // Maintained community Mailchimp Marketing MCP. Reads MAILCHIMP_API_KEY from
+    // the environment; the key embeds the data-center suffix (e.g. `...-us21`),
+    // so no separate server-prefix env var is required. Supplied via the secrets UI.
+    // TODO(verify-pin): confirm package/url + env keys before release — community
+    // (not official) package; pin a version of @agentx-ai/mailchimp-mcp-server.
+    command: ['npx', '-y', '@agentx-ai/mailchimp-mcp-server'],
+    requiredEnv: ['MAILCHIMP_API_KEY'],
   },
 ];
