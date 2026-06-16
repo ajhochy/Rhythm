@@ -50,6 +50,7 @@ abstract class McpDataSource {
     required String name,
     String? command,
     String? url,
+    Map<String, String>? environment,
   });
 
   Future<void> connectServer(String name);
@@ -106,10 +107,17 @@ class _McpDataSourceImpl implements McpDataSource {
     required String name,
     String? command,
     String? url,
+    Map<String, String>? environment,
   }) async {
-    final body = <String, String>{'name': name};
+    final body = <String, dynamic>{'name': name};
     if (command != null && command.isNotEmpty) body['command'] = command;
     if (url != null && url.isNotEmpty) body['url'] = url;
+    // MCP-3: per-server env secrets. Omit entirely when there are no secret
+    // rows so existing command/url-only requests stay byte-identical
+    // (backward-compat with the MCP-1 backend).
+    if (environment != null && environment.isNotEmpty) {
+      body['environment'] = environment;
+    }
 
     final response = await http.post(
       Uri.parse('$_baseUrl/opencode/mcp'),

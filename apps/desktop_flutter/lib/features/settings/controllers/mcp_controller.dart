@@ -53,9 +53,15 @@ class McpController extends ChangeNotifier {
     required String name,
     String? command,
     String? url,
+    Map<String, String>? environment,
   }) async {
     try {
-      await _dataSource.addServer(name: name, command: command, url: url);
+      await _dataSource.addServer(
+        name: name,
+        command: command,
+        url: url,
+        environment: environment,
+      );
       // Refresh to pick up the newly added server.
       await refresh();
     } catch (e) {

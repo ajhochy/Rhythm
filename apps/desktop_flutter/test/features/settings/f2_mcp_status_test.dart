@@ -38,6 +38,7 @@ class _FakeMcpDataSource implements McpDataSource {
     required String name,
     String? command,
     String? url,
+    Map<String, String>? environment,
   }) async {}
 
   @override

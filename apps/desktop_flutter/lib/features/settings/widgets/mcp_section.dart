@@ -299,12 +299,41 @@ class _AddMcpServerDialogState extends State<_AddMcpServerDialog> {
   bool _submitting = false;
   String? _submitError;
 
+  /// MCP-3: dynamic key/value rows for per-server env secrets. Each row owns a
+  /// key controller + a value controller; empty rows are ignored on submit.
+  final List<_EnvRow> _envRows = [];
+
   @override
   void dispose() {
     _nameController.dispose();
     _commandController.dispose();
     _urlController.dispose();
+    for (final row in _envRows) {
+      row.dispose();
+    }
     super.dispose();
+  }
+
+  void _addEnvRow() {
+    setState(() => _envRows.add(_EnvRow()));
+  }
+
+  void _removeEnvRow(_EnvRow row) {
+    setState(() {
+      _envRows.remove(row);
+      row.dispose();
+    });
+  }
+
+  /// Builds a `Map<String,String>` from the non-empty env rows (trimmed keys).
+  Map<String, String> _collectEnvironment() {
+    final env = <String, String>{};
+    for (final row in _envRows) {
+      final key = row.keyController.text.trim();
+      if (key.isEmpty) continue;
+      env[key] = row.valueController.text;
+    }
+    return env;
   }
 
   Future<void> _submit() async {
@@ -324,11 +353,14 @@ class _AddMcpServerDialogState extends State<_AddMcpServerDialog> {
       _submitError = null;
     });
 
+    final environment = _collectEnvironment();
+
     try {
       await widget.ctrl.addServer(
         name: name,
         command: command.isEmpty ? null : command,
         url: url.isEmpty ? null : url,
+        environment: environment.isEmpty ? null : environment,
       );
       if (mounted) Navigator.of(context).pop();
     } catch (e) {
@@ -413,6 +445,70 @@ class _AddMcpServerDialogState extends State<_AddMcpServerDialog> {
                   return null;
                 },
               ),
+              const SizedBox(height: 16),
+              // ── MCP-3: per-server env secrets editor ──────────────────────
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'Environment secrets',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: context.rhythm.textSecondary,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    key: const Key('mcp-dialog-env-add'),
+                    icon: const Icon(Icons.add, size: 18),
+                    tooltip: 'Add secret',
+                    onPressed: _submitting ? null : _addEnvRow,
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(),
+                    color: context.rhythm.accent,
+                  ),
+                ],
+              ),
+              for (final row in _envRows) ...[
+                const SizedBox(height: 8),
+                Row(
+                  key: row.rowKey,
+                  children: [
+                    Expanded(
+                      child: TextFormField(
+                        controller: row.keyController,
+                        decoration: const InputDecoration(
+                          labelText: 'Key',
+                          hintText: 'e.g. API_KEY',
+                          isDense: true,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: TextFormField(
+                        controller: row.valueController,
+                        decoration: const InputDecoration(
+                          labelText: 'Value',
+                          isDense: true,
+                        ),
+                      ),
+                    ),
+                    IconButton(
+                      icon: Icon(
+                        Icons.remove_circle_outline,
+                        size: 18,
+                        color: context.rhythm.textSecondary,
+                      ),
+                      tooltip: 'Remove secret',
+                      onPressed: _submitting ? null : () => _removeEnvRow(row),
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(),
+                    ),
+                  ],
+                ),
+              ],
               if (_submitError != null) ...[
                 const SizedBox(height: 12),
                 Text(
@@ -445,5 +541,24 @@ class _AddMcpServerDialogState extends State<_AddMcpServerDialog> {
         ),
       ],
     );
+  }
+}
+
+/// MCP-3: holds the controllers and a stable key for one env-secret row in the
+/// Add-MCP dialog. A stable [rowKey] keeps Flutter from reusing TextFields
+/// across rows when one is removed.
+class _EnvRow {
+  _EnvRow()
+      : keyController = TextEditingController(),
+        valueController = TextEditingController(),
+        rowKey = UniqueKey();
+
+  final TextEditingController keyController;
+  final TextEditingController valueController;
+  final Key rowKey;
+
+  void dispose() {
+    keyController.dispose();
+    valueController.dispose();
   }
 }

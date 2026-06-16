@@ -28,8 +28,12 @@
 ///   flutter test test/features/settings/opc_m4_3_mcp_section_test.dart
 library;
 
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'package:provider/provider.dart';
 
 import 'package:rhythm_desktop/app/core/constants/app_constants.dart';
@@ -57,6 +61,7 @@ class _FakeMcpDataSource implements McpDataSource {
   String? lastAddName;
   String? lastAddCommand;
   String? lastAddUrl;
+  Map<String, String>? lastAddEnvironment;
 
   int connectCallCount = 0;
   String? lastConnectName;
@@ -75,11 +80,13 @@ class _FakeMcpDataSource implements McpDataSource {
     required String name,
     String? command,
     String? url,
+    Map<String, String>? environment,
   }) async {
     addCallCount++;
     lastAddName = name;
     lastAddCommand = command;
     lastAddUrl = url;
+    lastAddEnvironment = environment;
   }
 
   @override
@@ -415,6 +422,188 @@ void main() {
       // McpSection must be in the rendered tree.
       expect(find.byType(McpSection), findsOneWidget,
           reason: 'McpSection must be mounted in the widget tree (#694 guard)');
+    },
+  );
+
+  // ── MCP-3: per-server env-secrets field in Add-MCP dialog ────────────────
+
+  // c1 — dialog renders the secrets editor; adding a row + confirm calls
+  //      addServer with a non-empty environment map.
+  testWidgets(
+    'mcp-3-c1: dialog secrets editor — add row + confirm passes non-empty '
+    'environment map to addServer',
+    (tester) async {
+      final ds = _FakeMcpDataSource(
+        listResult: [
+          const McpServerEntry(name: 'secret-mcp', status: 'connected'),
+        ],
+      );
+      final ctrl = McpController(ds);
+
+      await tester.pumpWidget(_wrap(const McpSection(), mcpController: ctrl));
+      await tester.pump();
+
+      // Open dialog.
+      await tester.tap(find.byKey(const Key('mcp-add-button')));
+      await tester.pumpAndSettle();
+
+      // The secrets editor "add row" affordance must be present.
+      expect(find.byKey(const Key('mcp-dialog-env-add')), findsOneWidget,
+          reason: 'secrets editor add-row affordance must render');
+
+      // Fill required fields so the form validates.
+      await tester.enterText(
+        find.byKey(const Key('mcp-dialog-name-field')),
+        'secret-mcp',
+      );
+      await tester.enterText(
+        find.widgetWithText(TextFormField, 'Command (local server)'),
+        'npx -y my-mcp',
+      );
+
+      // Add a secret row and fill it.
+      await tester.tap(find.byKey(const Key('mcp-dialog-env-add')));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.widgetWithText(TextFormField, 'Key'),
+        'API_KEY',
+      );
+      await tester.enterText(
+        find.widgetWithText(TextFormField, 'Value'),
+        'sk-123',
+      );
+
+      // Confirm.
+      await tester.tap(find.byKey(const Key('mcp-dialog-add-confirm')));
+      await tester.pumpAndSettle();
+
+      expect(ds.addCallCount, 1);
+      expect(ds.lastAddName, 'secret-mcp');
+      expect(ds.lastAddEnvironment, isNotNull,
+          reason: 'environment map must be forwarded when a secret row is set');
+      expect(ds.lastAddEnvironment, equals({'API_KEY': 'sk-123'}));
+    },
+  );
+
+  // c2 — McpController.addServer(environment:{...}) forwards the map unchanged;
+  //      other params unchanged.
+  test(
+    'mcp-3-c2: McpController.addServer forwards environment map to data source',
+    () async {
+      final ds = _FakeMcpDataSource(
+        listResult: [
+          const McpServerEntry(name: 'secret-mcp', status: 'connected'),
+        ],
+      );
+      final ctrl = McpController(ds);
+
+      await ctrl.addServer(
+        name: 'secret-mcp',
+        command: 'npx -y my-mcp',
+        environment: const {'TOKEN': 'abc', 'REGION': 'us'},
+      );
+
+      expect(ds.addCallCount, 1);
+      expect(ds.lastAddName, 'secret-mcp');
+      expect(ds.lastAddCommand, 'npx -y my-mcp');
+      expect(ds.lastAddUrl, isNull);
+      expect(ds.lastAddEnvironment, equals({'TOKEN': 'abc', 'REGION': 'us'}));
+    },
+  );
+
+  // c3 — McpDataSource.addServer includes environment in the POST JSON body;
+  //      endpoint is /opencode/mcp.
+  test(
+    'mcp-3-c3: McpDataSource.addServer POSTs environment in the JSON body',
+    () async {
+      late Uri capturedUri;
+      late Map<String, dynamic> capturedBody;
+
+      final client = MockClient((req) async {
+        capturedUri = req.url;
+        capturedBody = jsonDecode(req.body) as Map<String, dynamic>;
+        return http.Response('{}', 200);
+      });
+
+      await http.runWithClient(
+        () async {
+          final ds = McpDataSource();
+          await ds.addServer(
+            name: 'secret-mcp',
+            command: 'npx -y my-mcp',
+            environment: const {'API_KEY': 'sk-123'},
+          );
+        },
+        () => client,
+      );
+
+      expect(capturedUri.path, '/opencode/mcp');
+      expect(capturedBody['name'], 'secret-mcp');
+      expect(capturedBody['command'], 'npx -y my-mcp');
+      expect(capturedBody['environment'], equals({'API_KEY': 'sk-123'}));
+    },
+  );
+
+  // c4 — No secret rows → environment omitted from the POST body; existing
+  //      command/url-only behavior unchanged (no regression).
+  test(
+    'mcp-3-c4: McpDataSource.addServer omits environment when none provided',
+    () async {
+      late Map<String, dynamic> capturedBody;
+
+      final client = MockClient((req) async {
+        capturedBody = jsonDecode(req.body) as Map<String, dynamic>;
+        return http.Response('{}', 200);
+      });
+
+      await http.runWithClient(
+        () async {
+          final ds = McpDataSource();
+          await ds.addServer(name: 'plain-mcp', command: 'npx -y my-mcp');
+        },
+        () => client,
+      );
+
+      expect(capturedBody.containsKey('environment'), isFalse,
+          reason: 'environment must be omitted when no secret rows are set');
+      expect(capturedBody['name'], 'plain-mcp');
+      expect(capturedBody['command'], 'npx -y my-mcp');
+    },
+  );
+
+  // c4 (dialog side) — dialog with NO secret rows passes a null/empty
+  //      environment to addServer (no regression on command/url-only path).
+  testWidgets(
+    'mcp-3-c4-dialog: confirm with no secret rows passes null environment',
+    (tester) async {
+      final ds = _FakeMcpDataSource(
+        listResult: [
+          const McpServerEntry(name: 'plain-mcp', status: 'connected'),
+        ],
+      );
+      final ctrl = McpController(ds);
+
+      await tester.pumpWidget(_wrap(const McpSection(), mcpController: ctrl));
+      await tester.pump();
+
+      await tester.tap(find.byKey(const Key('mcp-add-button')));
+      await tester.pumpAndSettle();
+
+      await tester.enterText(
+        find.byKey(const Key('mcp-dialog-name-field')),
+        'plain-mcp',
+      );
+      await tester.enterText(
+        find.widgetWithText(TextFormField, 'Command (local server)'),
+        'npx -y my-mcp',
+      );
+
+      await tester.tap(find.byKey(const Key('mcp-dialog-add-confirm')));
+      await tester.pumpAndSettle();
+
+      expect(ds.addCallCount, 1);
+      expect(ds.lastAddEnvironment, isNull,
+          reason: 'no secret rows → environment must be null (omitted)');
     },
   );
 }
