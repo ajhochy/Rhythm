@@ -1,5 +1,5 @@
 /// Unit tests for the inspector context getters on [AgentsController]:
-/// [AgentsController.sessionCostTotal] and
+/// [AgentsController.sessionTotalCost] and
 /// [AgentsController.sessionTokenBreakdown].
 ///
 /// Messages are seeded through the public WS test seam
@@ -166,16 +166,16 @@ void main() {
 
   tearDown(() => controller.dispose());
 
-  group('sessionCostTotal', () {
+  group('sessionTotalCost (via ?? 0)', () {
     test('sums cost across messages in the session', () {
       _seedMessage(controller, sessionId: 's1', messageId: 'm1', cost: 0.001);
       _seedMessage(controller, sessionId: 's1', messageId: 'm2', cost: 0.0025);
 
-      expect(controller.sessionCostTotal('s1'), closeTo(0.0035, 1e-9));
+      expect(controller.sessionTotalCost('s1') ?? 0, closeTo(0.0035, 1e-9));
     });
 
     test('returns 0 for an unknown session', () {
-      expect(controller.sessionCostTotal('unknown'), 0);
+      expect(controller.sessionTotalCost('unknown') ?? 0, 0);
     });
   });
 
@@ -207,6 +207,24 @@ void main() {
       expect(b.output, 0);
       expect(b.reasoning, 0);
       expect(b.cacheRead, 0);
+      expect(b.cacheWrite, 0);
+    });
+
+    test('cache as bare int: cacheRead == int, cacheWrite == 0', () {
+      _seedMessage(
+        controller,
+        sessionId: 's2',
+        messageId: 'm1',
+        tokens: const {
+          'input': 200,
+          'output': 80,
+          'reasoning': 0,
+          'cache': 7, // bare int — read-count only
+        },
+      );
+
+      final b = controller.sessionTokenBreakdown('s2');
+      expect(b.cacheRead, 7);
       expect(b.cacheWrite, 0);
     });
   });

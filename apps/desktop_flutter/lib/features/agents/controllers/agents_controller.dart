@@ -427,19 +427,6 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     return hasCost ? total : null;
   }
 
-  /// Inspector Context tab: total cost (USD) for [sessionId] = sum of every
-  /// message's [ChatMessage.cost]. Unlike [sessionTotalCost] this always
-  /// returns a concrete number (0 when the session is unknown or has no cost).
-  double sessionCostTotal(String sessionId) {
-    final messages = _chatMessagesBySession[sessionId];
-    if (messages == null) return 0;
-    var total = 0.0;
-    for (final m in messages) {
-      total += m.cost ?? 0;
-    }
-    return total;
-  }
-
   /// Inspector Context tab: token usage from the latest message in [sessionId]
   /// that carries a tokens map. `cache` may be an int (read count) or a
   /// `{read, write}` map. Returns an all-zero [TokenBreakdown] when no token
