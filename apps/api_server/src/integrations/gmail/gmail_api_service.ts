@@ -1,6 +1,6 @@
 import { AppError } from '../../errors/app_error';
 import type { IntegrationAccount } from '../../models/integration_account';
-import { assertScope } from '../google_scope_guard';
+import { assertScope, NeedsScopeUpgradeError } from '../google_scope_guard';
 
 const GMAIL = 'https://gmail.googleapis.com/gmail/v1/users/me';
 
@@ -57,7 +57,20 @@ export class GmailApiService {
       headers: { Authorization: `Bearer ${account.accessToken}` },
     });
     if (!res.ok) {
-      throw AppError.badRequest(`Gmail request failed: ${await res.text()}`);
+      const text = await res.text();
+      // A token that still carries gmail.metadata makes Gmail refuse the `q`
+      // search parameter (and full-body reads) even when gmail.readonly is also
+      // granted (issue #726). Surface this as a structured needs_scope_upgrade
+      // (actionable "revoke + re-consent" signal) rather than an opaque 400.
+      const mentionsMetadataLimit =
+        /Metadata scope does not support/i.test(text) ||
+        (res.status === 403 && /metadata/i.test(text));
+      if (mentionsMetadataLimit) {
+        throw new NeedsScopeUpgradeError(
+          'https://www.googleapis.com/auth/gmail.readonly',
+        );
+      }
+      throw AppError.badRequest(`Gmail request failed: ${text}`);
     }
     return res.json();
   }

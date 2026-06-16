@@ -33,6 +33,30 @@ import '../constants/app_constants.dart';
 import 'navigation_sidebar.dart';
 import '../ui/tokens/rhythm_theme.dart';
 
+/// Returns true when the user has a connected Google Calendar account with
+/// calendar.readonly scope.
+///
+/// Gmail is opt-in via step-up consent ("Enable Google tools") and is NOT
+/// required here — checking for it caused a permanent block after issue #726
+/// removed gmail scope from the base sign-in flow.
+///
+/// Extracted as a top-level function so it can be unit-tested independently.
+bool googleAccessReady(List<IntegrationAccount> accounts) {
+  IntegrationAccount? calendarAccount;
+  for (final account in accounts) {
+    if (account.provider == 'google_calendar') {
+      calendarAccount = account;
+      break;
+    }
+  }
+  return calendarAccount != null &&
+      calendarAccount.connected == true &&
+      calendarAccount.scope?.contains(
+            'https://www.googleapis.com/auth/calendar.readonly',
+          ) ==
+          true;
+}
+
 class AppShell extends StatefulWidget {
   const AppShell({super.key});
 
@@ -802,32 +826,7 @@ class _AuthGateState extends State<_AuthGate> {
   }
 
   bool _hasGoogleAccess(IntegrationsController integrations) {
-    final accounts = integrations.accounts;
-    final calendarAccount = _accountFor(accounts, 'google_calendar');
-    final gmailAccount = _accountFor(accounts, 'gmail');
-    final calendarReady = calendarAccount != null &&
-        calendarAccount.connected == true &&
-        calendarAccount.scope?.contains(
-              'https://www.googleapis.com/auth/calendar.readonly',
-            ) ==
-            true;
-    final gmailReady = gmailAccount != null &&
-        gmailAccount.connected == true &&
-        gmailAccount.scope?.contains(
-              'https://www.googleapis.com/auth/gmail.metadata',
-            ) ==
-            true;
-    return calendarReady && gmailReady;
-  }
-
-  IntegrationAccount? _accountFor(
-    List<IntegrationAccount> accounts,
-    String provider,
-  ) {
-    for (final account in accounts) {
-      if (account.provider == provider) return account;
-    }
-    return null;
+    return googleAccessReady(integrations.accounts);
   }
 
   Future<void> _beginGoogleAccessSetup() async {

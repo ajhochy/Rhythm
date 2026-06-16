@@ -25,7 +25,6 @@ class DesktopGoogleOAuthClient {
     'email',
     'profile',
     'https://www.googleapis.com/auth/calendar.readonly',
-    'https://www.googleapis.com/auth/gmail.metadata',
   ];
 
   final String _baseUrl;

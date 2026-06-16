@@ -36,7 +36,6 @@ class MobileGoogleOAuthClient implements OAuthClient {
     'email',
     'profile',
     'https://www.googleapis.com/auth/calendar.readonly',
-    'https://www.googleapis.com/auth/gmail.metadata',
   ];
 
   static const String _discoveryUrl =

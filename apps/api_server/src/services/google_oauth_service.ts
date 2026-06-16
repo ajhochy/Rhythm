@@ -12,7 +12,6 @@ const GOOGLE_SCOPES = [
   'email',
   'profile',
   'https://www.googleapis.com/auth/calendar.readonly',
-  'https://www.googleapis.com/auth/gmail.metadata',
 ];
 
 export const GOOGLE_DESKTOP_SCOPES = GOOGLE_SCOPES;
