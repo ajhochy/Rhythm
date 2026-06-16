@@ -137,6 +137,19 @@ opencodeMcpRouter.post(
   },
 );
 
+// ── POST /curated/ensure — idempotently install the curated MCP servers ──────
+opencodeMcpRouter.post(
+  '/curated/ensure',
+  async (_req: Request, res: Response, next: NextFunction) => {
+    try {
+      const result = await opencodeClient.ensureCuratedMcps();
+      res.json(result);
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
 // ── POST /:name/connect ──────────────────────────────────────────────────────
 
 opencodeMcpRouter.post(

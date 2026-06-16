@@ -6,6 +6,10 @@ import type { OpencodeClient, Event } from '@opencode-ai/sdk';
 import { logger } from '../utils/logger';
 import { OpencodeAuthStore } from './opencode_auth_store';
 import { AppError } from '../errors/app_error';
+import {
+  CURATED_MCP_SERVERS,
+  type CuratedMcpServer,
+} from '../config/curated_mcp_servers';
 
 /**
  * Run a command and capture stdout. `execFile` is required lazily (not bound at
@@ -1201,6 +1205,123 @@ export class OpencodeClientService {
       }
     }
     return { changed: true, registered };
+  }
+
+  /**
+   * Idempotently merge the curated MCP server registry
+   * ({@link CURATED_MCP_SERVERS}) into opencode.json's `mcp` block.
+   *
+   * For each curated server we compute the desired opencode.json entry
+   * (`{type, command|url[, environment]}`) and JSON-compare it against the
+   * existing entry under the same key:
+   *   - absent → add it (changed)
+   *   - different → refresh it (changed)
+   *   - identical → leave untouched
+   * Unrelated entries (e.g. the `rhythm` server) are preserved exactly. The
+   * file is written ONCE, and only when something actually changed — a no-op
+   * run leaves the file byte-identical.
+   *
+   * After persisting, each changed server is best-effort live-registered with
+   * the running engine via `client.mcp.add()`. This is NON-FATAL: any failure
+   * (engine not ready, SDK error) is logged and yields `registered:false`; the
+   * file write has already succeeded and is never rolled back.
+   *
+   * `opts.configPath` overrides the default
+   * (~/.config/opencode/opencode.json) for tests; `opts.register` controls
+   * whether to also live-register (default true).
+   */
+  async ensureCuratedMcps(opts?: {
+    configPath?: string;
+    register?: boolean;
+  }): Promise<{
+    changed: boolean;
+    registered: boolean;
+    servers: CuratedMcpServer[];
+  }> {
+    const { existsSync, readFileSync, writeFileSync, mkdirSync } =
+      require('fs') as typeof import('fs');
+    const { join, dirname } = require('path') as typeof import('path');
+    const { homedir } = require('os') as typeof import('os');
+
+    const configPath =
+      opts?.configPath ??
+      join(homedir(), '.config', 'opencode', 'opencode.json');
+
+    let parsed: Record<string, unknown> = {};
+    if (existsSync(configPath)) {
+      try {
+        parsed = JSON.parse(readFileSync(configPath, 'utf8'));
+      } catch (err) {
+        throw new AppError(
+          502,
+          'SDK_ERROR',
+          `ensureCuratedMcps: could not parse opencode.json: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+
+    const mcpSection =
+      (parsed.mcp as Record<string, unknown> | undefined) ?? {};
+
+    // Build the desired opencode.json entry for a curated server.
+    const toEntry = (s: CuratedMcpServer): Record<string, unknown> => {
+      const entry: Record<string, unknown> =
+        s.type === 'remote'
+          ? { type: 'remote', url: s.url }
+          : { type: 'local', command: s.command };
+      if (s.environment && Object.keys(s.environment).length > 0) {
+        entry.environment = s.environment;
+      }
+      return entry;
+    };
+
+    const changedServers: CuratedMcpServer[] = [];
+    for (const server of CURATED_MCP_SERVERS) {
+      const desired = toEntry(server);
+      const existing = mcpSection[server.id];
+      if (JSON.stringify(existing) === JSON.stringify(desired)) {
+        continue;
+      }
+      mcpSection[server.id] = desired;
+      changedServers.push(server);
+    }
+
+    const changed = changedServers.length > 0;
+    if (changed) {
+      parsed.mcp = mcpSection;
+      mkdirSync(dirname(configPath), { recursive: true });
+      writeFileSync(configPath, JSON.stringify(parsed, null, 2) + '\n', 'utf8');
+      logger.info(
+        `[OpencodeClientService] ensureCuratedMcps: persisted ${changedServers
+          .map((s) => s.id)
+          .join(', ')}`,
+      );
+    }
+
+    // ── Best-effort live registration (NON-FATAL) ──
+    let registered = false;
+    if (changed && opts?.register !== false) {
+      try {
+        const client = this.requireClient();
+        for (const server of changedServers) {
+          await client.mcp.add({
+            body: {
+              name: server.id,
+              config: toEntry(server) as
+                | import('@opencode-ai/sdk').McpLocalConfigInput
+                | import('@opencode-ai/sdk').McpRemoteConfigInput,
+            },
+          });
+        }
+        registered = true;
+      } catch (err) {
+        logger.warn(
+          `[OpencodeClientService] ensureCuratedMcps: live registration skipped: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+
+    return { changed, registered, servers: changedServers };
   }
 
   /**
