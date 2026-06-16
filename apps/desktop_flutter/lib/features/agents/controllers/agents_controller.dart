@@ -518,6 +518,9 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   bool sessionIsReverted(String sessionId) =>
       _sessionReverted[sessionId] ?? false;
 
+  /// Alias of [sessionIsReverted] — true when [sessionId] has an active revert.
+  bool isSessionReverted(String sessionId) => sessionIsReverted(sessionId);
+
   /// OPC-M3-2 — Revert the session to the message identified by [messageId].
   ///
   /// On success:

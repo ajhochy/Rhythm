@@ -92,17 +92,171 @@ class ChangesTab extends StatelessWidget {
       );
     }
 
-    // One file row per diff entry (c2).
-    return ListView.builder(
-      padding: const EdgeInsets.all(12),
-      itemCount: diffEntries.length,
-      itemBuilder: (context, index) {
-        final entry = diffEntries[index];
-        return Padding(
-          padding: const EdgeInsets.only(bottom: 8),
-          child: _FileDiffRow(entry: entry),
-        );
-      },
+    // Summary header (files / +adds / −dels) + revert/restore controls,
+    // then one file row per diff entry (c2).
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _ChangesSummaryHeader(
+          sessionId: sessionId,
+          diffEntries: diffEntries,
+        ),
+        Expanded(
+          child: ListView.builder(
+            padding: const EdgeInsets.all(12),
+            itemCount: diffEntries.length,
+            itemBuilder: (context, index) {
+              final entry = diffEntries[index];
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: _FileDiffRow(entry: entry),
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// _ChangesSummaryHeader
+// ---------------------------------------------------------------------------
+
+/// Diff summary line (files / +adds / −dels) plus the panel-level revert and
+/// restore controls. Shown only when there are diff entries.
+///
+/// Revert target: the FIRST (earliest) message of the session, so reverting
+/// rolls back all of the session's file changes. When the session has no
+/// messages yet (no safe target), the Revert button renders disabled with a
+/// tooltip pointing the user at the transcript.
+class _ChangesSummaryHeader extends StatelessWidget {
+  const _ChangesSummaryHeader({
+    required this.sessionId,
+    required this.diffEntries,
+  });
+
+  final String sessionId;
+  final List<Map<String, dynamic>> diffEntries;
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = context.watch<AgentsController>();
+    final reverted = controller.isSessionReverted(sessionId);
+
+    final files = diffEntries.length;
+    var adds = 0;
+    var dels = 0;
+    for (final entry in diffEntries) {
+      adds += (entry['additions'] as num?)?.toInt() ?? 0;
+      dels += (entry['deletions'] as num?)?.toInt() ?? 0;
+    }
+
+    // Earliest message id is the revert target (rolls back all changes).
+    final messages = controller.chatMessagesFor(sessionId);
+    final firstMessageId = messages.isNotEmpty ? messages.first.id : null;
+    final canRevert = !reverted && firstMessageId != null;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: context.rhythm.surfaceRaised,
+        border: Border(
+          bottom: BorderSide(color: context.rhythm.borderSubtle),
+        ),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              '$files files · +$adds −$dels',
+              key: const ValueKey('changes-summary'),
+              style: TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                fontFamily: 'JetBrainsMono',
+                color: context.rhythm.textSecondary,
+              ),
+            ),
+          ),
+          if (reverted)
+            TextButton.icon(
+              key: const ValueKey('changes-restore-button'),
+              onPressed: () => _confirmRestore(context, controller),
+              icon: const Icon(Icons.restore, size: 16),
+              label: const Text('Restore'),
+            )
+          else
+            Tooltip(
+              message: canRevert
+                  ? 'Revert all file changes in this session'
+                  : 'Revert from the transcript',
+              child: TextButton.icon(
+                key: const ValueKey('changes-revert-button'),
+                onPressed: canRevert
+                    ? () => _confirmRevert(context, controller, firstMessageId)
+                    : null,
+                icon: const Icon(Icons.undo, size: 16),
+                label: const Text('Revert'),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  void _confirmRevert(
+    BuildContext context,
+    AgentsController controller,
+    String messageId,
+  ) {
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Revert changes?'),
+        content: const Text(
+          'Undo all file changes made by this session. This resets every file '
+          'modified during the session.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () {
+              Navigator.of(dialogContext).pop();
+              controller.revertSession(sessionId, messageId);
+            },
+            child: const Text('Revert'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _confirmRestore(BuildContext context, AgentsController controller) {
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Restore changes?'),
+        content: const Text(
+          'Re-apply the reverted file changes for this session.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () {
+              Navigator.of(dialogContext).pop();
+              controller.unrevertSession(sessionId);
+            },
+            child: const Text('Restore'),
+          ),
+        ],
+      ),
     );
   }
 }
