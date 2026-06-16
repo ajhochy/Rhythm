@@ -48,7 +48,8 @@ describe('Google step-up scopes', () => {
     expect(url).toContain(encodeURIComponent('https://www.googleapis.com/auth/calendar.readonly'));
     // base set must NOT include the full calendar scope (only readonly)
     expect(url).not.toContain(encodeURIComponent('https://www.googleapis.com/auth/calendar%20'));
-    // base set includes gmail.metadata
-    expect(url).toContain(encodeURIComponent('https://www.googleapis.com/auth/gmail.metadata'));
+    // base set must NOT include gmail.metadata (consolidated behind the step-up
+    // gmail.readonly — see issue #726)
+    expect(url).not.toContain(encodeURIComponent('https://www.googleapis.com/auth/gmail.metadata'));
   });
 });

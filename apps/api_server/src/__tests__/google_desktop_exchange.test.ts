@@ -94,7 +94,7 @@ describe('Google desktop PKCE exchange', () => {
             refresh_token: 'refresh-456',
             expires_in: 3600,
             scope:
-              'openid email profile https://www.googleapis.com/auth/calendar.readonly https://www.googleapis.com/auth/gmail.metadata',
+              'openid email profile https://www.googleapis.com/auth/calendar.readonly',
             token_type: 'Bearer',
           }),
           { status: 200, headers: { 'Content-Type': 'application/json' } },

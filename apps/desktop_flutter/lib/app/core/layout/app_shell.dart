@@ -814,7 +814,7 @@ class _AuthGateState extends State<_AuthGate> {
     final gmailReady = gmailAccount != null &&
         gmailAccount.connected == true &&
         gmailAccount.scope?.contains(
-              'https://www.googleapis.com/auth/gmail.metadata',
+              'https://www.googleapis.com/auth/gmail.readonly',
             ) ==
             true;
     return calendarReady && gmailReady;

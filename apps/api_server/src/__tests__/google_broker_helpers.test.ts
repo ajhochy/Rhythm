@@ -175,6 +175,32 @@ describe('GmailApiService', () => {
       );
     });
 
+    it('throws NeedsScopeUpgradeError when Gmail rejects q due to lingering metadata scope', async () => {
+      // Account has gmail.readonly, but the token still carries gmail.metadata
+      // (user has not yet revoked + re-consented). Gmail refuses the `q` param.
+      const account = makeAccount(
+        'openid https://www.googleapis.com/auth/gmail.readonly https://www.googleapis.com/auth/gmail.metadata',
+      );
+      vi.stubGlobal(
+        'fetch',
+        vi.fn().mockResolvedValue(
+          new Response(
+            JSON.stringify({
+              error: {
+                code: 403,
+                message: "Metadata scope does not support 'q' parameter",
+              },
+            }),
+            { status: 403, headers: { 'Content-Type': 'application/json' } },
+          ),
+        ),
+      );
+      const svc = new GmailApiService();
+      await expect(svc.searchMessages(account, 'from:boss')).rejects.toThrow(
+        NeedsScopeUpgradeError,
+      );
+    });
+
     it('returns search results when gmail.readonly scope is present', async () => {
       const account = makeAccount(
         'openid https://www.googleapis.com/auth/gmail.readonly',
