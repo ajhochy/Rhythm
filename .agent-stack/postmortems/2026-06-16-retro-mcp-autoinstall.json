@@ -1,0 +1,52 @@
+{
+  "date": "2026-06-16",
+  "type": "workflow-retrospective",
+  "run": "workflow/run-2026-06-16-mcp-autoinstall",
+  "summary": "Curated MCP-server autoinstall (7 servers) into the embedded opencode engine. Planning via AgentFlow plan_and_issues; 7 issues MCP-1..7 implemented, verified, committed; draft PR #729; CI green. Manual smoke deferred to post-merge by user.",
+  "outcome": "PASS (automated). Smoke deferred.",
+  "verification": {
+    "api_server": "tsc 0 errors; vitest 857/857 across 97 files",
+    "desktop_flutter": "flutter analyze 0 errors; flutter test 548/548; dart format clean",
+    "ci": "Server CI success (exit 0); Desktop CI success (exit 0)"
+  },
+  "workflow_adherence": {
+    "orchestrator_entry": "ok — workflow-orchestrator invoked before any edit; Guard 1/4 checks run.",
+    "events": [
+      {
+        "id": "W-agentflow-tier1-model-inaccessible",
+        "phase": "plan_and_issues / plan",
+        "what": "AgentFlow tier1 model alias was pinned to claude-fable-5, which is inaccessible in this session. The plan phase failed with 'model may not exist or you may not have access'. align + research had already completed and were cached.",
+        "recovery": "Remapped tier1 (and tier1-api) in ~/.config/agentflow/workflows/agentflow.config.json to claude-opus-4-8 (strongest accessible; matches 'strongest model for planning' decision), then resumed via CLI `agentflow resume` (MCP resume refuses 'failed' instances; only CLI resumes them). A transient API 500 on first resume cleared on retry.",
+        "pattern": "AgentFlow model-tier config can pin a model the running session cannot access; failed (not paused) instances are only resumable via the CLI, not the MCP resume tool.",
+        "suggested_improvement": "agentflow.config.json tier aliases should be validated against session-accessible models at workflow start, or fall back gracefully. Document the CLI-resume path for failed instances in the orchestrator AgentFlow dispatcher section."
+      },
+      {
+        "id": "W-shared-checkout-collision",
+        "phase": "implement / MCP-1",
+        "what": "A concurrent, intentional 'inspector UI parity' session was committing to the same main checkout (as ajhochy, timestamps overlapping this run). It reset the run branch and switched HEAD out from under the workflow; MCP-1's verified changes were left uncommitted on the wrong branch (feat/inspector-ui-parity).",
+        "recovery": "Halted per Guard 4. Preserved MCP-1 work to /tmp (patch + contract). Created an isolated git worktree off main, cherry-picked the planning commit, re-applied + re-verified MCP-1 (842/842) there, committed. Surgically restored the stray MCP-1 files from the shared checkout to avoid polluting the concurrent session.",
+        "pattern": "Running an implementation workflow in a checkout another active session shares causes branch/HEAD races. Worktree isolation is the fix and should be the DEFAULT when concurrent sessions are possible.",
+        "suggested_improvement": "Orchestrator should detect/expect concurrent sessions and default to a dedicated git worktree for any multi-issue run, rather than reacting after a collision."
+      },
+      {
+        "id": "W-agentflow-writes-main-checkout",
+        "phase": "implement / pivot",
+        "what": "AgentFlow implement_issue's agents operate in the AgentFlow server process CWD (the main checkout), not a worktree — so its edits land in the shared checkout and would keep colliding with the concurrent session even after worktree isolation.",
+        "recovery": "Pivoted MCP-2..7 to worktree-scoped coding subagents (the sanctioned skill-chain fallback) operating inside ~/Documents/Rhythm-mcp-autoinstall. node_modules symlinked + flutter pub get to make the worktree buildable.",
+        "pattern": "AgentFlow implement_issue is CWD-bound to the main checkout and is incompatible with worktree isolation; when isolation is required, fall back to worktree-scoped subagents.",
+        "suggested_improvement": "AgentFlow workflow tools should accept a working-directory parameter, or the orchestrator should not use implement_issue when the run is isolated in a worktree."
+      }
+    ],
+    "guards_fired": ["Guard 1 (orchestrator entry)", "Guard 4 (repo+branch confirmation — caught the collision)", "Guard 2 (verified each step's evidence before commit)"],
+    "verification_discipline": "Every issue re-verified independently in the worktree (not trusting subagent self-reports) before commit. Full-suite + CI gate run before PR handoff."
+  },
+  "smoke": {
+    "status": "deferred",
+    "reason": "User chose to smoke-test after merge. failure-postmortem to be recorded after the post-merge manual smoke (Settings -> MCP: 7 servers appear, uncredentialed flagged, secrets entry persists, remote OAuth reachable)."
+  },
+  "open_followups": [
+    "Confirm + version-pin MCP package specs flagged TODO(verify-pin) (esp. community @agentx-ai/mailchimp-mcp-server; unversioned npx specs) — supply-chain.",
+    "Confirm Google/PCO MCP servers accept a raw bearer token via env (GOOGLE_OAUTH_ACCESS_TOKEN/PCO_ACCESS_TOKEN); else they degrade to their own OAuth-on-first-use.",
+    "/opencode/mcp router is unauthenticated in agent-local mode — token injection only fires when req.auth is present; confirm caller path supplies it."
+  ]
+}
