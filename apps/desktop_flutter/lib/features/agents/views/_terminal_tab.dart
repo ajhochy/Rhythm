@@ -147,9 +147,15 @@ class _TerminalTabState extends State<TerminalTab> {
     _ptyId = null;
   }
 
-  /// Restart after the process exited: open a fresh PTY (nothing to kill).
+  /// Restart the terminal. Tears down any live PTY/socket first so neither the
+  /// error-state path (live channel that emitted an error) nor the exited-state
+  /// path (stream already done, pty already dead) leaks resources.
+  ///
+  /// [_teardown] is safe to call when nothing is live: cancelling a completed
+  /// subscription, closing an already-closed sink, and calling killPty on a
+  /// dead pty are all no-ops / fire-and-forget.
   void _restart() {
-    _ptyId = null;
+    _teardown();
     _start();
   }
 

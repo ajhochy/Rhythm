@@ -398,4 +398,121 @@ void main() {
       await fake.close();
     },
   );
+
+  testWidgets(
+    'issue-708: Retry from live-error state kills old PTY before starting fresh one',
+    (tester) async {
+      // The first PTY that gets created. We want to confirm it is killed on
+      // Retry even though the stream ended in error (not a clean close).
+      const firstPtyId = 'pty-first';
+      const secondPtyId = 'pty-second';
+
+      // Use a StreamController we control so we can push an error after
+      // connect, simulating a live-channel failure.
+      final firstFake = _FakeChannel();
+      final secondFake = _FakeChannel();
+
+      // Track which fake the factory should hand out.
+      StreamChannel<dynamic> channelFactory(String ptyId) {
+        if (ptyId == firstPtyId) return firstFake.channel;
+        return secondFake.channel;
+      }
+
+      // Use a sequenced stub that returns different ptyIds on successive calls.
+      final patchedRepo = _SequencedStubRepo(
+        firstId: firstPtyId,
+        secondId: secondPtyId,
+        delegate: repo,
+      );
+      final patchedController = _buildController(patchedRepo);
+
+      await tester.runAsync(() async {
+        await tester.pumpWidget(_wrap(
+          patchedController,
+          TerminalTab(
+            sessionId: 's-retry',
+            channelFactory: channelFactory,
+          ),
+        ));
+        // Let async createPty + stream setup finish.
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      });
+      await tester.pump();
+
+      // Widget should be connected (TerminalView).
+      expect(find.byType(TerminalView), findsOneWidget);
+      expect(patchedRepo.createPtyCalls, equals(['s-retry']));
+
+      // Now push an error on the live channel → widget goes to error state.
+      await tester.runAsync(() async {
+        firstFake._incoming.addError(Exception('connection reset'));
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      });
+      await tester.pump();
+
+      // Widget should show the Retry button.
+      expect(find.text('Retry'), findsOneWidget);
+
+      // Tap Retry.
+      await tester.runAsync(() async {
+        await tester.tap(find.text('Retry'));
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      });
+      await tester.pump();
+
+      // The old PTY MUST have been killed.
+      expect(
+        patchedRepo.killPtyCalls,
+        contains(firstPtyId),
+        reason: 'Retry must call killPty on the old live PTY to avoid a leak',
+      );
+
+      // A fresh PTY must have been created.
+      expect(patchedRepo.createPtyCalls.length, equals(2),
+          reason: 'createPty should be called again after Retry');
+      expect(patchedRepo.createPtyCalls.last, equals('s-retry'));
+
+      // The first fake channel's sink must be closed.
+      expect(firstFake.sinkClosed, isTrue,
+          reason: 'Old channel sink must be closed on Retry');
+
+      await firstFake.close();
+      await secondFake.close();
+      patchedController.dispose();
+    },
+  );
+}
+
+/// Variant of [_StubAgentsRepository] that returns a different ptyId on the
+/// second [createPty] call.
+class _SequencedStubRepo extends _StubAgentsRepository {
+  _SequencedStubRepo({
+    required this.firstId,
+    required this.secondId,
+    required _StubAgentsRepository delegate,
+  }) : _delegate = delegate;
+
+  final String firstId;
+  final String secondId;
+  final _StubAgentsRepository _delegate;
+  int _callCount = 0;
+
+  @override
+  final List<String> createPtyCalls = [];
+
+  @override
+  final List<String> killPtyCalls = [];
+
+  @override
+  Future<String> createPty(String sessionId) async {
+    createPtyCalls.add(sessionId);
+    _callCount++;
+    return _callCount == 1 ? firstId : secondId;
+  }
+
+  @override
+  Future<void> killPty(String ptyId) async {
+    killPtyCalls.add(ptyId);
+    await _delegate.killPty(ptyId);
+  }
 }
