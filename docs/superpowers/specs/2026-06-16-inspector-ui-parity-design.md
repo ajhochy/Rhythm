@@ -49,16 +49,21 @@ streaming + interactive PTY terminal, which needs backend PTY-event relay.
 
 - Add a collapse toggle (chevron `IconButton`) in the panel header
   (`_session_side_panel.dart`).
-- **Expanded:** current 320px full panel. **Collapsed:** a ~44px rail showing
-  the three tab icons (no labels/body) + an expand chevron. Tapping a tab icon
-  while collapsed expands the panel to that tab.
+- **Expanded:** current 320px full panel. **Collapsed:** the panel is **fully
+  hidden** (takes no width — chat area reclaims the space). A small **floating
+  expand button** (a chevron icon button, e.g. top-right of the agents content
+  area) appears while collapsed; tapping it re-expands the panel to its last
+  tab.
 - State: a `bool panelCollapsed` on `AgentsController` (or a dedicated
   `InspectorUiState` `ChangeNotifier` if cleaner), with
   `setPanelCollapsed(bool)` that persists to `shared_preferences` under a
   single global key (`agents.inspector.collapsed`) and `notifyListeners()`.
-- Load the persisted value on controller init. Width stays fixed at 320.
-- `agents_view.dart:110–115` switches between the rail and full panel on the
-  collapsed flag.
+- Load the persisted value on controller init. Width stays fixed at 320 when
+  expanded.
+- `agents_view.dart:110–115`: when collapsed, omit the panel entirely and show
+  the floating expand button; when expanded, show the full panel (with its
+  collapse chevron). The floating button only appears when a session is
+  selected (same condition that currently gates the panel).
 
 ### 2. Context tab parity
 
@@ -119,8 +124,9 @@ Given this inspector's history of being built as isolated, unmounted widgets,
 - Pump `AgentsView` (or the smallest real surface that mounts
   `_session_side_panel`) with a real `AgentsController` seeded with a selected
   session + fake messages/diff, and assert:
-  - Collapsed rail renders tab icons and hides the body; expand restores it; the
-    persisted flag round-trips (set → reload → state).
+  - Collapsing hides the panel entirely and shows the floating expand button;
+    tapping it restores the full panel; the persisted flag round-trips
+    (set → reload → state).
   - Context shows the cost line, the token breakdown values, and the metadata
     rows for a session with assistant messages; shows the empty state otherwise.
   - Changes shows the "N files · +A −D" summary for seeded diff entries and the
