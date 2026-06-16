@@ -141,7 +141,8 @@ void main() {
 
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
-  test('panelCollapsed defaults false and setPanelCollapsed persists', () async {
+  test('panelCollapsed defaults false and setPanelCollapsed persists',
+      () async {
     final c = _buildController();
     expect(c.panelCollapsed, false);
     await c.setPanelCollapsed(true);
@@ -152,7 +153,8 @@ void main() {
   });
 
   test('loadInspectorPrefs restores persisted value', () async {
-    SharedPreferences.setMockInitialValues({'agents.inspector.collapsed': true});
+    SharedPreferences.setMockInitialValues(
+        {'agents.inspector.collapsed': true});
     final c = _buildController();
     await c.loadInspectorPrefs();
     expect(c.panelCollapsed, true);
