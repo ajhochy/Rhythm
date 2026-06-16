@@ -252,8 +252,7 @@ void main() {
       expect(parts, hasLength(1), reason: 'Exactly one part must exist.');
 
       final part = parts.first;
-      expect(part.type, equals('tool'),
-          reason: 'Part type must be "tool".');
+      expect(part.type, equals('tool'), reason: 'Part type must be "tool".');
       expect(part.toolName, equals('bash'),
           reason: 'Tool name must be "bash".');
       expect(part.toolStatus, equals('running'),
@@ -317,7 +316,8 @@ void main() {
       ));
       await Future<void>.delayed(Duration.zero);
 
-      final outputAfterRunning = ctrl.chatPartsFor(_kMessageId).first.toolOutput;
+      final outputAfterRunning =
+          ctrl.chatPartsFor(_kMessageId).first.toolOutput;
 
       // Completed (full).
       repo.emit(MessagePartUpdatedMessage(
