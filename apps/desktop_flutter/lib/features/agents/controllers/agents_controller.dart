@@ -55,6 +55,24 @@ class PendingTrigger {
   final DateTime arrivedAt;
 }
 
+/// Per-message token usage broken out for the inspector Context tab. `cache`
+/// in the raw tokens map is split into [cacheRead] / [cacheWrite] (it may also
+/// arrive as a single int read count — see [AgentsController.sessionTokenBreakdown]).
+class TokenBreakdown {
+  const TokenBreakdown({
+    this.input = 0,
+    this.output = 0,
+    this.reasoning = 0,
+    this.cacheRead = 0,
+    this.cacheWrite = 0,
+  });
+  final int input;
+  final int output;
+  final int reasoning;
+  final int cacheRead;
+  final int cacheWrite;
+}
+
 class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   AgentsController(
     this._repository,
@@ -407,6 +425,50 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
       }
     }
     return hasCost ? total : null;
+  }
+
+  /// Inspector Context tab: total cost (USD) for [sessionId] = sum of every
+  /// message's [ChatMessage.cost]. Unlike [sessionTotalCost] this always
+  /// returns a concrete number (0 when the session is unknown or has no cost).
+  double sessionCostTotal(String sessionId) {
+    final messages = _chatMessagesBySession[sessionId];
+    if (messages == null) return 0;
+    var total = 0.0;
+    for (final m in messages) {
+      total += m.cost ?? 0;
+    }
+    return total;
+  }
+
+  /// Inspector Context tab: token usage from the latest message in [sessionId]
+  /// that carries a tokens map. `cache` may be an int (read count) or a
+  /// `{read, write}` map. Returns an all-zero [TokenBreakdown] when no token
+  /// data exists for the session.
+  TokenBreakdown sessionTokenBreakdown(String sessionId) {
+    final messages = _chatMessagesBySession[sessionId];
+    if (messages == null) return const TokenBreakdown();
+    int asInt(Object? v) => v is num ? v.toInt() : 0;
+    for (final m in messages.reversed) {
+      final t = m.tokens;
+      if (t == null) continue;
+      final cacheRaw = t['cache'];
+      int cacheRead = 0;
+      int cacheWrite = 0;
+      if (cacheRaw is Map) {
+        cacheRead = asInt(cacheRaw['read']);
+        cacheWrite = asInt(cacheRaw['write']);
+      } else if (cacheRaw is num) {
+        cacheRead = cacheRaw.toInt();
+      }
+      return TokenBreakdown(
+        input: asInt(t['input']),
+        output: asInt(t['output']),
+        reasoning: asInt(t['reasoning']),
+        cacheRead: cacheRead,
+        cacheWrite: cacheWrite,
+      );
+    }
+    return const TokenBreakdown();
   }
 
   /// OPC-M3-1 — FileDiff entries for [sessionId] in the order returned by the
