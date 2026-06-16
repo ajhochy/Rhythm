@@ -27,11 +27,32 @@ opencodeMcpRouter.get(
   async (_req: Request, res: Response, next: NextFunction) => {
     try {
       const statusMap = await opencodeClient.listMcp();
-      // Convert map { name → entry } → array [{ name, status, error?, … }]
-      const entries = Object.entries(statusMap).map(([name, entry]) => ({
-        name,
-        ...entry,
-      }));
+      const persistedConfigs = await opencodeClient.getPersistedMcpConfigs();
+
+      const entries = Object.entries(statusMap).map(([name, entry]) => {
+        const config = persistedConfigs[name];
+        const envMap = config?.environment as Record<string, string> | undefined;
+
+        // Redact env values
+        const environment = envMap
+          ? Object.fromEntries(Object.keys(envMap).map((k) => [k, '***']))
+          : undefined;
+
+        // needsCredentials: local → any env value empty; remote → SDK status needs_auth
+        let needsCredentials = false;
+        if (entry.status === 'needs_auth') {
+          needsCredentials = true;
+        } else if (envMap) {
+          needsCredentials = Object.values(envMap).some((v) => !v || v.trim() === '');
+        }
+
+        return {
+          name,
+          ...entry,
+          ...(environment !== undefined ? { environment } : {}),
+          needsCredentials,
+        };
+      });
       res.json(entries);
     } catch (err) {
       next(err);
@@ -45,10 +66,11 @@ opencodeMcpRouter.post(
   '/',
   async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const { name, command, url } = req.body as {
+      const { name, command, url, environment } = req.body as {
         name?: string;
         command?: string;
         url?: string;
+        environment?: Record<string, string>;
       };
 
       if (!name || typeof name !== 'string' || name.trim() === '') {
@@ -74,7 +96,14 @@ opencodeMcpRouter.post(
       } else {
         // Split command string into argv array.
         const argv = (command as string).trim().split(/\s+/);
-        config = { type: 'local', command: argv };
+        const localConfig: import('@opencode-ai/sdk').McpLocalConfigInput = {
+          type: 'local',
+          command: argv,
+        };
+        if (environment && typeof environment === 'object') {
+          localConfig.environment = environment;
+        }
+        config = localConfig;
       }
 
       const updated = await opencodeClient.addMcp(name.trim(), config);

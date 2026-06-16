@@ -1,0 +1,48 @@
+{
+  "issue": "mcp-1",
+  "generated": "2026-06-16",
+  "criteria": [
+    {
+      "criterion_id": "mcp-1-c1",
+      "text": "POST /opencode/mcp with body {name, command, environment:{K:'v'}} persists environment into opencode.json mcp[name].environment; Assert written file contents contain the environment map exactly",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/opc_m4_3_mcp_routes.test.ts",
+      "test_id": "mcp-1-c1: POST /opencode/mcp persists environment map",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "mcp-1-c2",
+      "text": "POST /opencode/mcp with {name, url, type:'remote'} persists a {type:'remote',url} entry with no command; Assert file contents contain the remote entry shape",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/opc_m4_3_mcp_routes.test.ts",
+      "test_id": "mcp-1-c2: POST /opencode/mcp with remote type persists correctly",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "mcp-1-c3",
+      "text": "POST /opencode/mcp with neither command nor url returns 400 with a clear, testable error",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/opc_m4_3_mcp_routes.test.ts",
+      "test_id": "mcp-1-c3: POST /opencode/mcp without command/url returns 400",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "mcp-1-c4",
+      "text": "GET /opencode/mcp entries expose environment keys (values may be redacted) and a boolean needsCredentials field; Assert shape against a real-shape SDK status fixture; values must NOT contain secrets in the response",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/opc_m4_3_mcp_routes.test.ts",
+      "test_id": "mcp-1-c4: GET /opencode/mcp exposes environment keys and needsCredentials",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "mcp-1-c5",
+      "text": "All existing opc_m4_3_mcp_routes.test.ts assertions still pass; no breaking changes to command/url-only entries",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/opc_m4_3_mcp_routes.test.ts",
+      "test_id": "mcp-1-c5: Regression test for existing MCP routes",
+      "status": "pending"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}

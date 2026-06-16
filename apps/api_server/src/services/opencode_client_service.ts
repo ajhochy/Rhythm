@@ -1113,6 +1113,30 @@ export class OpencodeClientService {
   }
 
   /**
+   * Read the persisted MCP server configs from opencode.json.
+   * Returns the `mcp` section as a map of server name → raw config object.
+   * Returns {} when the file is absent or unparseable (never throws).
+   *
+   * Used by the GET /opencode/mcp route to surface environment keys and
+   * derive the `needsCredentials` signal.
+   */
+  async getPersistedMcpConfigs(): Promise<Record<string, Record<string, unknown>>> {
+    const { existsSync, readFileSync } = require('fs') as typeof import('fs');
+    const { join } = require('path') as typeof import('path');
+    const { homedir } = require('os') as typeof import('os');
+    const configPath = join(homedir(), '.config', 'opencode', 'opencode.json');
+    if (!existsSync(configPath)) {
+      return {};
+    }
+    try {
+      const parsed = JSON.parse(readFileSync(configPath, 'utf8')) as Record<string, unknown>;
+      return (parsed.mcp as Record<string, Record<string, unknown>> | undefined) ?? {};
+    } catch {
+      return {};
+    }
+  }
+
+  /**
    * Idempotently register the rhythm MCP server into opencode.json with the
    * live production token + URL. Adds when absent, rewrites + reconnects when
    * the token/URL changed, no-ops when identical. `opts.configPath` overrides
