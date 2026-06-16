@@ -2,20 +2,97 @@
 
 ## Current focus
 
-**Branch:** `opc-m1-foundation` (pushed) — **PR #706** open, covers ALL of M1–M4 (#685–#703, 19 issues) plus issues #710–#719.
-**Status:** Issues #711–#719 all implemented and committed (commit `5d21d29`). Issue #718 extended (real per-model context window in gauge) — uncommitted, awaiting orchestrator commit. CI green on prior commit: Server CI run 27481545554 ✓ | Desktop CI run 27481545583 ✓. `ai-workflow checks --level pr` exit 0 ✓ (vitest 785/785, flutter analyze ✓, dart format ✓, tsc --noEmit ✓).
-**Last batch:** #711–#719 (9 issues) — see 2026-06-13 batch run entry below. #718 subsequently extended with real context-window lookup (see 2026-06-13 #718-real-context-window entry).
-**Test status:** vitest 785/785 ✓ | flutter test 497/497 ✓ | flutter analyze ✓ | dart format ✓ | tsc --noEmit ✓ | `ai-workflow checks --level pr` exit 0 ✓.
-**Key integration note:** #694 mounted the previously-orphaned `SessionSidePanel` inspector into `agents_view.dart` (right rail, shown when a session is selected) — the prior M3 attempt left it + other panels built but unmounted. All M3/M4 UI is verified wired into the real rendered surface with real-surface tests, not isolated widgets. #709 completes the Terminal tab inside that panel (was a placeholder until now). See [[project-agents-inspector-orphaned]].
-**Resolved flake (2026-06-13):** `apps/api_server/src/__tests__/agent_configs_routes.test.ts` no longer intermittently fails with `SocketError: other side closed` (UND_ERR_SOCKET). Root cause: Node's global `fetch` (undici) pooled a keep-alive socket to a closed test server's ephemeral port; a later `listen(0)` recycling that port reused the dead socket. Fix: `server.maxRequestsPerSocket = 1` + `server.closeAllConnections()` in teardown.
-**#710 agentId validation change:** `issue_653_contract.test.ts` c1a/c1c updated — null/empty `agentId` now returns 201 (instant-create); only `'__pending__'` sentinel still rejected with 400. This is intentional (#710 supersedes #653's "must pick agent before create" requirement).
-**Next step:** human `flutter run -d macos` smoke test, then merge PR #706.
+**Branch:** `workflow/run-2026-06-16-mcp-autoinstall` (isolated git worktree at `~/Documents/Rhythm-mcp-autoinstall`, off `main` `20e9672`). Draft PR pending.
+**Status:** Curated MCP-server autoinstall feature — all 7 issues (MCP-1…MCP-7) implemented, verified, and committed on the run branch. Auto-installs 7 church-staff MCP servers into the embedded opencode engine: PDF Tools (zero-auth), Google Workspace + Planning Center (token-bridged from Rhythm's stored OAuth), Stripe + Mailchimp (API-key via the new secrets UI), Canva + Notion (remote, OAuth-on-first-use). See per-issue entries below + `docs/ai/decisions.md` (2026-06-16).
+**Worktree-isolation note:** this run was moved into a dedicated worktree mid-flight after a concurrent "inspector UI parity" session reset the shared checkout's branch/HEAD. The AgentFlow `implement_issue` engine writes to the main checkout, so MCP-2…7 were implemented via worktree-scoped coding subagents (skill-chain fallback) instead. node_modules symlinked + `flutter pub get` in the worktree.
+**Test status:** api_server tsc 0 ✓ | vitest 857/857 (97 files) ✓ | flutter test 548/548 ✓ | flutter analyze 0 errors ✓ | dart format clean ✓.
+**Open follow-ups before release:** (1) several MCP package pins are placeholders flagged `TODO(verify-pin)` (esp. community `@agentx-ai/mailchimp-mcp-server` + unversioned npx specs) — confirm + version-pin for supply-chain safety; (2) Google/PCO token-bridge injects Rhythm's raw access token into a server env var (`GOOGLE_OAUTH_ACCESS_TOKEN`/`PCO_ACCESS_TOKEN`) — confirm the chosen servers actually accept a bearer token via env (else they fall back to their own OAuth, which still works); (3) the `/opencode/mcp` router is unauthenticated in agent-local mode, so token injection only fires when `req.auth` is present — confirm the caller path supplies it.
+**Next step:** push run branch, open draft PR, then human `flutter run -d macos` smoke test (Settings → MCP: confirm 7 servers appear, uncredentialed ones flagged, secrets entry persists, remote OAuth reachable).
 
 ## Known bugs (parked, not blocking PR #617)
 
 _(Parked bugs from before 2026-05-27 run. #638 and #635 below are now RESOLVED — see 2026-05-27 run entry.)_
 
 ## Recent coding-agent runs
+
+### 2026-06-16 — workflow/run-2026-06-16-mcp-autoinstall / MCP-7 — complete curated registry to 7 + record decisions
+- Files modified:
+  - `apps/api_server/src/config/curated_mcp_servers.ts` — added 4 entries to `CURATED_MCP_SERVERS`: `canva` + `notion` (`type:'remote'`, official hosted URLs `https://mcp.canva.com/mcp` / `https://mcp.notion.com/mcp`, no command, `requiredEnv:[]`, OAuth-on-first-use); `stripe` (`type:'local'`, `npx -y @stripe/mcp --tools=all`, `requiredEnv:['STRIPE_SECRET_KEY']`); `mailchimp` (`type:'local'`, `npx -y @agentx-ai/mailchimp-mcp-server`, `requiredEnv:['MAILCHIMP_API_KEY']`). Normalized the existing pdf-tools/google/pco TODOs to `TODO(verify-pin)` and added a PCO PAT fallback note. No type or service changes — `toEntry()` already persisted `{type:'remote',url}`.
+  - `apps/api_server/src/__tests__/opc_curated_mcp_ensure.test.ts` — appended MCP-7 c1–c5: registry has exactly 7 ids; canva/notion remote shape; local-server shape; per-id `requiredEnv`; ensure-on-empty writes locals+remotes (token-bridged skipped, no account), second run byte-identical no-op.
+  - `docs/ai/decisions.md` — dated 2026-06-16 entry recording per-server pin/rationale/credential-approach/fallback for all 7; unconfirmed pins flagged.
+- Checks run:
+  - `npm run build` (tsc) — PASS, no output.
+  - `npx vitest run` (full api_server suite) — PASS, 97 files / 857 tests.
+  - targeted MCP-7 + MCP-6 files — PASS, 15 tests.
+- Decisions made: kept Stripe/Mailchimp as local stdio (explicit key control via secrets UI), Canva/Notion as remote (official OAuth-on-connect). See docs/ai/decisions.md 2026-06-16.
+- Deviations from spec: none. (Issue said routes/__tests__/ for the test; used src/__tests__/ per the dispatch instruction.)
+- Concerns: several pins unconfirmed (TODO(verify-pin)) — esp. community `@agentx-ai/mailchimp-mcp-server` and unversioned npx specs; confirm + version-pin at PR for supply-chain safety.
+
+### 2026-06-16 — workflow/run-2026-06-16-mcp-autoinstall / MCP-6 — Google + PCO token bridge (reuse stored OAuth)
+- Files modified:
+  - `apps/api_server/src/config/curated_mcp_servers.ts` — added `CuratedTokenProvider` type (`'google' | 'pco'`) and two metadata fields on `CuratedMcpServer`: `tokenProvider?` and `tokenEnvKey?` (the `environment` key the fresh access token is injected into; also listed in `requiredEnv`). Added two registry entries: `google-workspace` (tokenProvider `google`, key `GOOGLE_OAUTH_ACCESS_TOKEN`) and `planning-center` (tokenProvider `pco`, key `PCO_ACCESS_TOKEN`). Both `type:'local'` with placeholder argv carrying `TODO(MCP-7)` notes (confirm exact package + the real server's env key name).
+  - `apps/api_server/src/services/opencode_client_service.ts` — added exported `CuratedTokenResolver` type. Extended `ensureCuratedMcps()` with an optional `opts.tokenResolver`: for entries with a `tokenProvider`, it resolves a FRESH token and injects it into `environment[tokenEnvKey]` BEFORE the JSON-compare/persist. `null`/empty/throw from the resolver → that ONE server is SKIPPED (never written with an empty token); other servers continue. No resolver supplied → token-bridged servers skipped; zero-auth (PDF Tools) unaffected. Live-registration now registers the persisted entry (`mcpSection[id]`, incl. bridged token) instead of recomputing a token-less one.
+  - `apps/api_server/src/routes/opencode_mcp_routes.ts` — `POST /opencode/mcp/curated/ensure` now builds a `tokenResolver` from `IntegrationsService` keyed off `req.auth?.user.id` (REUSES the existing `ensureFreshGoogleAccount` / `ensureFreshPlanningCenterAccount` accessors; "not connected" → `null` → skip). Response `servers` env values are redacted to `***` (mirrors MCP-1 GET redaction) so tokens are never echoed over HTTP.
+  - `apps/api_server/src/__tests__/opc_curated_mcp_token_bridge.test.ts` (NEW) — c1 injection (google+pco keys populated), c2 real refresh path (expired row → `ensureFreshGoogleAccount` hits the stubbed Google token endpoint → refreshed token injected), c3 no-account skip via real route/empty DB (google/pco absent, pdf-tools present, no throw), c4 route redaction (plaintext token never echoed).
+- Reused accessor: `IntegrationsService.ensureFreshGoogleAccount(userId)` / `ensureFreshPlanningCenterAccount(userId)` in `apps/api_server/src/services/integrations_service.ts` (refresh logic NOT reimplemented).
+- Checks run:
+  - `npm run build` (tsc) — PASS.
+  - `npx vitest run src/__tests__/opc_curated_mcp_token_bridge.test.ts` — PASS (4/4).
+  - `npx vitest run src/__tests__/opc_curated_mcp_ensure.test.ts` (MCP-2 regression) — PASS (5/5).
+  - `npx vitest run` (full suite) — PASS (97 files, 851 tests).
+- Decisions made: token bridge implemented as an injected `CuratedTokenResolver` callback (matches the existing `StalePortDeps` injectable-deps style) so the core injection/skip logic is testable without a DB, while the route wires the real `IntegrationsService`. Resolver throw treated as "skip" (not connected) so one broken provider can't abort the whole ensure.
+- Deviations from spec: test placed at `src/__tests__/` not `routes/__tests__/` (that dir does not exist), as the dispatch prompt directed. The `/opencode/mcp` router is mounted WITHOUT `requireAuth`, so when there is no authed user the resolver is omitted and token-bridged servers skip — full credential-bearing wiring depends on an authenticated caller.
+- Concerns: env key names + package argv are placeholders pending MCP-7 (flagged with TODO(MCP-7)). Since the route is unauthenticated in agent-local mode, the bridge only injects tokens when a user is resolvable via `req.auth`; confirm the caller path supplies auth before relying on Google/PCO install in production.
+
+### 2026-06-16 — workflow/run-2026-06-16-mcp-autoinstall / MCP-5 — Curated autoinstall trigger wiring
+- Files modified:
+  - `apps/desktop_flutter/lib/app/core/agents/curated_mcp_auto_installer.dart` (NEW) — `CuratedMcpAutoInstaller.ensure({apiToken, apiUrl})` POSTs to `${agentLocalBaseUrl}/opencode/mcp/curated/ensure` (the route added by MCP-2). Returns true on 2xx, false (debugPrint, non-fatal) on non-2xx OR thrown. Optional `http.Client` ctor param. Plus top-level `shouldAutoInstallCuratedMcp({engineReady, authenticated, isCloudServer})` = AND of all three. Byte-for-byte mirror of `rhythm_mcp_auto_installer.dart`.
+  - `apps/desktop_flutter/lib/app/core/agents/agent_server_controller.dart` — added `curatedAutoInstaller` ctor param (defaults to `CuratedMcpAutoInstaller()`), a separate `_lastCuratedInstalledToken` de-dupe field, and `_maybeAutoInstallCuratedMcp()` (same gate/de-dupe/non-fatal shape as `_maybeAutoInstallRhythmMcp`). Curated install fired alongside the rhythm one in BOTH trigger points: the `initialize()` `refreshCapabilities().whenComplete(...)` hook and `onAuthChanged()`. Separate de-dupe token so one installer's failure never blocks the other's retry for the same token.
+  - `apps/desktop_flutter/test/features/agents/curated_mcp_autoinstall_test.dart` (NEW) — mirrors `f2_rhythm_mcp_autoinstall_test.dart`; covers c1 (POST path/host/port/headers/body + true on 2xx), c2 (false on 400, 500, and thrown — never throws), c3 (gate truth table), c4 (controller de-dupe: same token twice → one ensure(); failed ensure → retries).
+- Checks run:
+  - `dart format lib/app/core/agents test/features/agents` — PASS (0 changed).
+  - `flutter analyze --no-fatal-infos lib/app/core/agents test/features/agents` — PASS (0 errors, 0 warnings; 50 pre-existing infos in unrelated agent test files, none in the new files).
+  - `flutter test test/features/agents/curated_mcp_autoinstall_test.dart` — PASS (11/11).
+  - `flutter test test/features/agents/f2_rhythm_mcp_autoinstall_test.dart` — PASS (10/10), no regression.
+- Decisions made: gave the curated installer its OWN de-dupe token (`_lastCuratedInstalledToken`) rather than sharing `_lastInstalledToken`, so a failure of one installer does not suppress the other for the same token (independent retry). Wired into the same two trigger sites as rhythm to keep the two installers behaviorally identical.
+- Deviations from spec: none.
+- Concerns: in tests the controller-level cases now exercise the REAL sibling installer against `localhost:4001` (no server → 400, logged, non-fatal); this is expected and does not affect assertions. No live opencode engine smoke — the POST→route→ensureCuratedMcps path is unit-proven only (server side proven separately in MCP-2).
+
+### 2026-06-16 — workflow/run-2026-06-16-mcp-autoinstall / MCP-4 — Surface installed-but-uncredentialed servers in McpSection
+- Files modified:
+  - `apps/desktop_flutter/lib/features/settings/data/mcp_data_source.dart` — `McpServerEntry` now parses the MCP-1 GET fields: `needsCredentials` (`bool`, default false) and `environment` (`Map<String,String>?`, redacted keys). Previously the model dropped both. Status enum already supported the `needs_auth` string.
+  - `apps/desktop_flutter/lib/features/settings/widgets/mcp_section.dart` — `_McpServerRow` now picks a badge variant from the GET signals (no recomputed credential logic): `needs_auth` → `_SignInRequiredBadge` (keyed `mcp-needs-signin-{name}`, accent + login icon); `needsCredentials && !needs_auth` → tappable `_NeedsCredentialsBadge` (keyed `mcp-needs-credentials-{name}`, warning/orange + key icon); otherwise the original `_StatusBadge`. Tapping the credentials badge opens `_AddMcpServerDialog` pre-filled with the server name via new top-level `_showCredentialsDialog`; dialog gained `initialName`.
+  - `apps/desktop_flutter/test/features/settings/f2_mcp_status_test.dart` — extended with MCP-4 c1–c4 on the real `McpSection` surface. `_FakeMcpDataSource` reused unchanged (const `McpServerEntry` fixtures now carry `needsCredentials`/`environment`).
+- Checks run:
+  - `dart format lib/features/settings test/features/settings` — PASS (0 changed).
+  - `flutter analyze --no-fatal-infos lib/features/settings test/features/settings` — PASS (0 errors, 0 warnings; 11 pre-existing infos in unrelated settings files, none in MCP-4 files).
+  - `flutter test test/features/settings/` — PASS (27/27, incl. 4 new MCP-4 tests + the #694 real-surface guard).
+- Decisions made: drove badge selection purely off `needsCredentials`/`status` from the API (per issue); `needs_auth` takes priority over `needsCredentials` so a remote server shows one badge ("Sign-in required"), never both. "Needs credentials" is the only tappable affordance.
+- Deviations from spec: none.
+- Concerns: none. Visual styling (warning/orange vs accent) verified only via token usage + tests, not a UI smoke — final look should be confirmed in `flutter run`.
+
+### 2026-06-16 — workflow/run-2026-06-16-mcp-autoinstall / MCP-3 — Per-server env-secrets field in Add-MCP dialog
+- Files modified:
+  - `apps/desktop_flutter/lib/features/settings/data/mcp_data_source.dart` — `McpDataSource.addServer` (interface + `_McpDataSourceImpl`) gained optional `Map<String,String>? environment`. POST body type widened `Map<String,String>` → `Map<String,dynamic>`; `environment` added to the body only when non-null AND non-empty, so command/url-only requests stay byte-identical (backward-compat with MCP-1 backend).
+  - `apps/desktop_flutter/lib/features/settings/controllers/mcp_controller.dart` — `McpController.addServer` gained optional `environment`, forwarded unchanged to the data source. Existing params untouched.
+  - `apps/desktop_flutter/lib/features/settings/widgets/mcp_section.dart` — `_AddMcpServerDialog` got a dynamic key/value secrets editor. Add-row affordance has `Key('mcp-dialog-env-add')`. Each row = key TextField + value TextField + remove button, backed by a new `_EnvRow` helper (key/value controllers + `UniqueKey` rowKey, disposed in dialog `dispose`). `_collectEnvironment()` builds a `Map<String,String>` from rows with non-empty trimmed keys; `_submit` passes `environment.isEmpty ? null : environment`.
+  - `apps/desktop_flutter/test/features/settings/opc_m4_3_mcp_section_test.dart` — extended existing section test: fake DS captures `lastAddEnvironment`; added 5 tests (mcp-3-c1 dialog→map via real McpSection surface, c2 controller forwarding, c3 POST body includes environment via MockClient+runWithClient, c4 omits environment, c4-dialog null env path).
+  - `apps/desktop_flutter/test/features/settings/f2_mcp_status_test.dart` — updated its `_FakeMcpDataSource.addServer` override to add the `environment` param (required to satisfy the widened interface; otherwise `invalid_override` analyze error).
+- Checks run: `dart format` clean (0 changed on re-check) ✓ | `flutter analyze --no-fatal-infos` — 0 errors (250 pre-existing infos/warnings) ✓ | `flutter test test/features/settings/` — 23/23 pass (incl. 5 new MCP-3) ✓.
+- Decisions made: used `http/testing.dart` `MockClient` + `http.runWithClient` for c3 because the data source calls top-level `http.post` (no injectable client) — matches the pattern in `test/features/agents/f2_rhythm_mcp_autoinstall_test.dart`. c1/c4-dialog pump the real `McpSection`/dialog surface (not an isolated stub) per the #694 orphaned-widget guard.
+- Deviations from spec: none functional. Spec said omit OR send `{}` when empty — chose to OMIT (asserted in c4). Added a second repo fake fix (`f2_mcp_status_test.dart`) required by the interface change.
+- Concerns: env values are not validated/masked (plaintext TextField) — acceptable for this issue's scope; backend (MCP-1) owns secret handling. Did not run the full app test suite, only the settings scope as instructed.
+
+### 2026-06-16 — workflow/run-2026-06-16-mcp-autoinstall / MCP-2 — Idempotent ensureCuratedMcps() + curated registry scaffold + route
+- Files modified:
+  - `apps/api_server/src/config/curated_mcp_servers.ts` (NEW) — exports `CuratedMcpServer` type + `CURATED_MCP_SERVERS` array. ONE entry for now: PDF Tools, zero-auth local stdio (`command: ['npx','-y','@modelcontextprotocol/server-pdf']`, `requiredEnv: []`) with a `TODO(MCP-7): confirm exact package` note. Other 6 servers deferred to MCP-7.
+  - `apps/api_server/src/services/opencode_client_service.ts` — added `ensureCuratedMcps(opts?)` modeled on `ensureRhythmMcp` + `ensureRequiredPlugins`: read opencode.json, JSON-compare each curated entry vs `mcp[id]`, add/refresh changed, leave identical untouched, single write only when changed (byte-identical on no-op), preserves unrelated entries incl. `rhythm`. Best-effort `client.mcp.add()` per changed server in try/catch (non-fatal). Returns `{changed, registered, servers}`. Added import of curated registry.
+  - `apps/api_server/src/routes/opencode_mcp_routes.ts` — added `POST /opencode/mcp/curated/ensure` calling `opencodeClient.ensureCuratedMcps()`, returns the result JSON. Literal `/curated/ensure` path — no conflict with `/:name/*` routes.
+  - `apps/api_server/src/__tests__/opc_curated_mcp_ensure.test.ts` (NEW) — 5 tests (c1–c5), mirrors `opc_rhythm_mcp_ensure.test.ts` (mkdtempSync temp config) + `opc_m4_3_mcp_routes.test.ts` (supertest via createApp, spy mock for `ensureCuratedMcps`).
+- Checks run: `npm run build` (tsc) exit 0 ✓ | target test `opc_curated_mcp_ensure.test.ts` 5/5 ✓ (RED→GREEN proven) | full vitest suite 847/847 ✓ (was 842 + 5 new).
+- Decisions made: c4 (SDK live-register non-fatal) proven by calling with `register:true` on a service with no SDK client → `requireClient()` throws inside the best-effort block, caught, `registered:false`, file write already done. The c5 route test uses isolated `vi.doMock`/`resetModules` so its `opencode_engine` mock doesn't leak into sibling route tests.
+- Deviations from spec: test placed in `src/__tests__/` (the issue text's `routes/__tests__/` does not exist) — per dispatch instructions. `npm run build` is `tsc -p tsconfig.json` (emits) not `--noEmit`; exit 0 either way.
+- Concerns: PDF Tools package id `@modelcontextprotocol/server-pdf` is a plausible placeholder pending MCP-7 confirmation (marked with TODO). No live engine smoke (no running opencode) — registration path is unit-proven only.
 
 ### 2026-06-13 — opc-m1-foundation / issue-718-real-context-window — Context gauge uses real per-model context window
 
