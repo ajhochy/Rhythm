@@ -127,8 +127,12 @@ class _AgentsViewState extends State<AgentsView> {
         // Right-rail inspector (Context / Changes / Terminal) for the active
         // session. Mounted here so the M3 session-feature panels (Changes
         // diff, todo list) actually render. Hidden when the user collapses it.
+        // A thin draggable handle on the panel's LEFT edge resizes it; because
+        // the panel is on the right, dragging the handle LEFT widens it.
         if (selectedSession != null && !panelCollapsed) ...[
-          const SizedBox(width: 12),
+          const SizedBox(width: 6),
+          const _InspectorResizeHandle(),
+          const SizedBox(width: 6),
           SessionSidePanel(session: selectedSession),
         ],
       ],
@@ -171,6 +175,41 @@ class _AgentsViewState extends State<AgentsView> {
 
   void _showNewProjectDialog(BuildContext context) {
     showEditProjectDialog(context);
+  }
+}
+
+/// Thin (6px) vertical drag handle sitting at the LEFT edge of the inspector
+/// side panel. Dragging it resizes the panel via [AgentsController.setPanelWidth].
+///
+/// Because the panel is anchored on the RIGHT, dragging the handle LEFT
+/// (negative dx) must INCREASE the width — hence `panelWidth - delta.dx`.
+/// The controller clamps the result to its [min, max] range, so the handle
+/// itself does no bounds checking.
+class _InspectorResizeHandle extends StatelessWidget {
+  const _InspectorResizeHandle();
+
+  @override
+  Widget build(BuildContext context) {
+    return MouseRegion(
+      cursor: SystemMouseCursors.resizeLeftRight,
+      child: GestureDetector(
+        key: const Key('inspector-resize-handle'),
+        behavior: HitTestBehavior.opaque,
+        onHorizontalDragUpdate: (details) {
+          final controller = context.read<AgentsController>();
+          controller.setPanelWidth(controller.panelWidth - details.delta.dx);
+        },
+        child: SizedBox(
+          width: 6,
+          child: Center(
+            child: Container(
+              width: 1,
+              color: context.rhythm.border,
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }
 

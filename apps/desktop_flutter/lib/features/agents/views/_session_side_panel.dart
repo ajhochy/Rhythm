@@ -49,9 +49,10 @@ class _SessionSidePanelState extends State<SessionSidePanel> {
 
   @override
   Widget build(BuildContext context) {
+    final width = context.watch<AgentsController>().panelWidth;
     return Container(
       key: const ValueKey('inspector-panel'),
-      width: 320,
+      width: width,
       decoration: BoxDecoration(
         color: context.rhythm.surfaceRaised,
         borderRadius: BorderRadius.circular(RhythmRadius.xl),
