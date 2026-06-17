@@ -302,3 +302,40 @@
 - - Terminal message exclusion is in-memory only — if the app restarts with a resumed session, the terminal IDs are not persisted. Resumed sessions will briefly show terminal messages in the transcript until the user re-runs a command. Deferred (no persistence requirement in #709).
 - - `'build'` agent name is a hardcoded opencode internal; see note above.
 
+
+## 2026-06-16 — MCP-7: curated MCP server registry completed to 7 + credential approaches
+
+**Context:** `CURATED_MCP_SERVERS` (apps/api_server/src/config/curated_mcp_servers.ts) is the source-of-truth list Rhythm auto-installs into the user's opencode.json via `ensureCuratedMcps()`. MCP-2 shipped pdf-tools; MCP-6 added the two token-bridged servers. MCP-7 completes the set to 7. Exact package names / remote URLs are a supply-chain pin risk; every uncertain pin carries a `// TODO(verify-pin)` comment to confirm at PR. No service changes were needed — `toEntry()` already persists `{type:'remote',url}` for remote servers and `{type:'local',command}` for local ones.
+
+**Per-server record (id — pin — rationale — credential approach — fallback):**
+
+1. **pdf-tools** — `npx -y @modelcontextprotocol/server-pdf` (local) — zero-auth PDF tooling, first end-to-end proof (MCP-2). Credential: none (`requiredEnv: []`). Pin UNCONFIRMED (TODO-verify): published package name + version. Fallback: n/a.
+2. **google-workspace** — `npx -y @modelcontextprotocol/server-google-workspace` (local) — Google Workspace tools. Credential: **token bridge** — fresh OAuth access token injected into `GOOGLE_OAUTH_ACCESS_TOKEN` from Rhythm's stored Google tokens at ensure time (MCP-6); skipped entirely when no account connected. Pin UNCONFIRMED (TODO-verify): package name + version + that the server reads that env key. Fallback: none today (server is skipped if no connected Google account).
+3. **planning-center** — `npx -y @ajhochy/pco-mcp-server` (local) — in-house Planning Center MCP. Credential: **token bridge** into `PCO_ACCESS_TOKEN` (MCP-6); skipped when no PCO account connected. Pin: in-house package, version UNCONFIRMED (TODO-verify). Fallback: a PCO Personal Access Token supplied via the secrets UI if the OAuth token bridge is unavailable.
+4. **canva** — remote `https://mcp.canva.com/mcp` — **official** Canva hosted MCP. Credential: **remote OAuth on first use** by opencode, no API key (`requiredEnv: []`). URL confirmed via Canva docs/PulseMCP (June 2026) but marked TODO-verify against drift. Fallback: n/a.
+5. **notion** — remote `https://mcp.notion.com/mcp` — **official** makenotion hosted MCP. Credential: remote OAuth on first use (`requiredEnv: []`). URL per issue; TODO-verify. Fallback: n/a.
+6. **stripe** — `npx -y @stripe/mcp --tools=all` (local) — **official** Stripe MCP. Credential: **API key via secrets UI** — server reads `STRIPE_SECRET_KEY` from env (a restricted API key is recommended; `--api-key=` flag is an alternative). Package confirmed; version pin UNCONFIRMED (TODO-verify). Fallback: Stripe also hosts a remote MCP at `https://mcp.stripe.com` if the local stdio server is undesirable.
+7. **mailchimp** — `npx -y @agentx-ai/mailchimp-mcp-server` (local) — **maintained community** (not official) Mailchimp Marketing MCP. Credential: **API key via secrets UI** — reads `MAILCHIMP_API_KEY`; the key embeds the data-center suffix (e.g. `...-us21`) so no separate server-prefix env var is needed. Package + env key UNCONFIRMED (TODO-verify): community package, pin a version. Fallback: alternative community Mailchimp MCP servers exist (e.g. damientilman/mailchimp-mcp-server) if this one is unmaintained.
+
+**Alternatives considered:** running Stripe/Notion as remote-only vs local stdio — chose local stdio for Stripe (explicit key control via secrets UI) and remote for Notion/Canva (their official OAuth-on-connect path avoids storing long-lived keys).
+
+**Consequences:**
+- + Registry is feature-complete at 7; remote + local + token-bridge + API-key credential shapes are all represented and tested.
+- + No `ensureCuratedMcps()` changes required — remote persistence path already existed.
+- - Several pins are unconfirmed (TODO-verify) and must be validated + version-pinned before release to mitigate supply-chain risk, especially the community Mailchimp package.
+
+## 2026-06-17 — Deferred: per-user access control on the local opencode/agent integration
+
+**Context:** Different macOS users (or anyone who logs into Rhythm) on the *same* machine currently see the *same* local agent sessions — opencode session history, transcripts, terminal output, file diffs. This data lives in local SQLite served over `localhost:4001` with the `AGENT_LOCAL` auth bypass (no user identity on those requests); it never syncs to production or across the workspace. Production data (tasks/messages/etc.) IS per-user (login-gated Postgres); the local agent data is NOT scoped to a user. Question raised: is per-user access control worth adding?
+
+**Threat model:** The only exposure path is a *shared physical machine* — e.g. someone logs into Rhythm as themselves on a coworker's Mac and sees that coworker's agent history. Agent sessions are the most sensitive *local* data (full transcripts, terminal output, broad MCP reach: Gmail/Calendar/PCO/tasks). But: nothing is network-exposed or shared org-wide, and a person already on someone else's macOS account has far broader access than Rhythm anyway. Church-staff devices are effectively 1:1 (user:device), so the shared-machine case is rare.
+
+**Decision:** **Do not build per-user ACL now (YAGNI).** Cost is real — `owner_id` on `agent_sessions`/messages + migration + filtering every agent query + threading the logged-in user identity through the `AGENT_LOCAL` bypass (which deliberately carries no user today) — for a narrow, local-only, rare-scenario risk. Record as a known limitation instead.
+
+**Revisit trigger:** a genuinely shared machine enters use (e.g. a front-desk/kiosk Mac).
+
+**Cheap mitigation if revisited (preferred over a full row-level ACL):** clear or scope the local agent state on user-switch/logout, which covers the borrowed-machine case for a fraction of the effort.
+
+**Consequences:**
+- + No work spent hardening a local-only surface against a rare scenario; `AGENT_LOCAL` bypass stays simple.
+- − Known gap: on a shared machine, an authenticated user sees the prior user's local agent sessions. Documented, accepted.

@@ -68,9 +68,20 @@ export const ROUTE_FALLBACKS_BY_AGENT: Record<string, ModelRoute[]> = {
     { providerID: 'openrouter', modelID: 'openai/gpt-5.4' },
     { providerID: 'openrouter', modelID: 'openai/gpt-5.4-mini' },
   ],
+  // Direct `google` routes come FIRST so the agent uses the user's own Google
+  // account (free Gemini Code Assist via the opencode-gemini-auth plugin) before
+  // spending OpenRouter credits. The plugin only registers the `google` provider
+  // when a Code Assist projectId is resolvable (set via
+  // provider.google.options.projectId in opencode.json — required for Workspace
+  // accounts); when it isn't, `google` is absent from the engine and the resolver
+  // falls through to the OpenRouter routes below. Model IDs MUST match the
+  // plugin's catalog (verify with `opencode models google`); the older
+  // `gemini-3-pro-preview`/`gemini-3-flash` ids do NOT exist.
   'gemini-cli': [
-    { providerID: 'google', modelID: 'gemini-3-pro-preview' },
-    { providerID: 'google', modelID: 'gemini-3-flash' },
+    { providerID: 'google', modelID: 'gemini-2.5-pro' },
+    { providerID: 'google', modelID: 'gemini-2.5-flash' },
+    { providerID: 'google', modelID: 'gemini-3.1-pro-preview' },
+    // OpenRouter fallback when the google provider isn't registered.
     {
       providerID: 'openrouter',
       modelID: 'google/gemini-3.1-pro-preview-customtools',

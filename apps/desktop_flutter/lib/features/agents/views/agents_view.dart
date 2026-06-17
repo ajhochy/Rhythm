@@ -13,6 +13,7 @@ import '../../agent_configs/controllers/agent_configs_controller.dart';
 import '../../agent_configs/models/agent_config.dart';
 import '../../settings/views/settings_view.dart';
 import '../../agent_configs/widgets/agent_icon.dart';
+import 'agent_badge_identity.dart';
 import '../../tasks/controllers/tasks_controller.dart';
 import '../../tasks/models/task.dart';
 import '../../agent_projects/controllers/agent_projects_controller.dart';
@@ -126,8 +127,12 @@ class _AgentsViewState extends State<AgentsView> {
         // Right-rail inspector (Context / Changes / Terminal) for the active
         // session. Mounted here so the M3 session-feature panels (Changes
         // diff, todo list) actually render. Hidden when the user collapses it.
+        // A thin draggable handle on the panel's LEFT edge resizes it; because
+        // the panel is on the right, dragging the handle LEFT widens it.
         if (selectedSession != null && !panelCollapsed) ...[
-          const SizedBox(width: 12),
+          const SizedBox(width: 6),
+          const _InspectorResizeHandle(),
+          const SizedBox(width: 6),
           SessionSidePanel(session: selectedSession),
         ],
       ],
@@ -170,6 +175,41 @@ class _AgentsViewState extends State<AgentsView> {
 
   void _showNewProjectDialog(BuildContext context) {
     showEditProjectDialog(context);
+  }
+}
+
+/// Thin (6px) vertical drag handle sitting at the LEFT edge of the inspector
+/// side panel. Dragging it resizes the panel via [AgentsController.setPanelWidth].
+///
+/// Because the panel is anchored on the RIGHT, dragging the handle LEFT
+/// (negative dx) must INCREASE the width — hence `panelWidth - delta.dx`.
+/// The controller clamps the result to its [min, max] range, so the handle
+/// itself does no bounds checking.
+class _InspectorResizeHandle extends StatelessWidget {
+  const _InspectorResizeHandle();
+
+  @override
+  Widget build(BuildContext context) {
+    return MouseRegion(
+      cursor: SystemMouseCursors.resizeLeftRight,
+      child: GestureDetector(
+        key: const Key('inspector-resize-handle'),
+        behavior: HitTestBehavior.opaque,
+        onHorizontalDragUpdate: (details) {
+          final controller = context.read<AgentsController>();
+          controller.setPanelWidth(controller.panelWidth - details.delta.dx);
+        },
+        child: SizedBox(
+          width: 6,
+          child: Center(
+            child: Container(
+              width: 1,
+              color: context.rhythm.border,
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }
 
@@ -945,7 +985,10 @@ class _SessionRow extends StatelessWidget {
             Row(
               children: [
                 _AgentKindBadge(
-                    agentId: session.agentId, providerId: session.providerId),
+                  agentId: session.agentId,
+                  providerId: session.providerId,
+                  modelId: session.modelId,
+                ),
                 const Spacer(),
                 _StatusDot(status: session.status, isWorking: isWorking),
                 const SizedBox(width: 4),
@@ -1018,7 +1061,10 @@ class _ResumableSessionRow extends StatelessWidget {
       child: Row(
         children: [
           _AgentKindBadge(
-              agentId: session.agentId, providerId: session.providerId),
+            agentId: session.agentId,
+            providerId: session.providerId,
+            modelId: session.modelId,
+          ),
           const SizedBox(width: 8),
           Expanded(
             child: Text(
@@ -1190,17 +1236,25 @@ class _AgentKindBadge extends StatelessWidget {
   const _AgentKindBadge({
     required this.agentId,
     this.providerId,
+    this.modelId,
   });
 
   final String agentId;
 
-  /// Optional session-level provider ID (e.g. 'openai', 'google', 'anthropic').
-  /// Stored by [setSessionModel] via [_applyPick] which passes
-  /// [CatalogModelEntry.provider]. When set, the badge maps this to the
-  /// canonical agent config id via [AgentServerController.providerToAgentKind]
-  /// so the pill reflects the actual agent in use rather than the stale
-  /// session-creation agentId. (Issue #645 / OPC-M1-3.)
+  /// Optional session-level provider ID (e.g. 'openai', 'google', 'anthropic',
+  /// 'openrouter'). Stored by [setSessionModel] via [_applyPick] which passes
+  /// [CatalogModelEntry.provider]. Direct providers map to a canonical agent
+  /// config via [AgentServerController.providerToAgentKind]; aggregators
+  /// (openrouter/together/groq) are intentionally absent from that map and are
+  /// resolved from [modelId] instead. (Issue #645 / OPC-M1-3.)
   final String? providerId;
+
+  /// Optional session-level model ID (e.g. 'anthropic/claude-opus-4.7',
+  /// 'meta-llama/llama-3.1-70b'). Used to derive identity when [providerId] is
+  /// an aggregator with no 1:1 agent mapping, so a Llama/DeepSeek model via
+  /// OpenRouter reads "OpenRouter" instead of falling back to the default
+  /// claude-code agentId and mislabeling as "Claude Code".
+  final String? modelId;
 
   @override
   Widget build(BuildContext context) {
@@ -1213,40 +1267,33 @@ class _AgentKindBadge extends StatelessWidget {
     final providerToAgentKind =
         context.watch<AgentServerController>().providerToAgentKind;
 
-    // Resolver precedence (mirroring server-side ws_gateway.ts logic):
-    //   1. providerId → mapped agent config — when the user picked a model via
-    //      setSessionModel, session.providerId stores the provider name (e.g.
-    //      'openai'). Map it to the agent config id ('codex') and look up the
-    //      config. If the mapped agent differs from agentId, prefer it so the
-    //      pill reflects the actual agent in use.
-    //   2. agentId — the session-creation agent; fallback when providerId is
-    //      absent, unmapped, or resolves to the same agent.
-    AgentConfig? config;
-    if (providerId != null && providerId!.isNotEmpty) {
-      final mappedKind = providerToAgentKind[providerId!];
-      if (mappedKind != null && mappedKind != agentId) {
-        config = configsCtrl.byId(mappedKind);
-      }
-    }
-    config ??= configsCtrl.byId(agentId);
-    return _AgentConfigBadge(agentId: agentId, config: config);
+    final identity = resolveAgentBadgeIdentity(
+      agentId: agentId,
+      providerId: providerId,
+      modelId: modelId,
+      providerToAgentKind: providerToAgentKind,
+      configById: configsCtrl.byId,
+    );
+    return _AgentConfigBadge(identity: identity);
   }
 }
 
-/// Renders an agent badge pill using [AgentConfig] when available, or falls
-/// back to displaying the raw [agentId] with a neutral style when the config
-/// has been deleted.
+/// Renders an agent badge pill from a resolved [AgentBadgeIdentity]:
+///   - config present → agent icon asset + config label (accent style)
+///   - config null but [AgentBadgeIdentity.materialIcon] present → neutral
+///     Material icon + label (accent style — e.g. the OpenRouter identity)
+///   - neither → label only (muted — a truly-unknown / deleted agent)
 class _AgentConfigBadge extends StatelessWidget {
-  const _AgentConfigBadge({required this.agentId, required this.config});
+  const _AgentConfigBadge({required this.identity});
 
-  final String agentId;
-  final AgentConfig? config;
+  final AgentBadgeIdentity identity;
 
   @override
   Widget build(BuildContext context) {
-    final label = config?.label ?? agentId;
-    final badgeColor =
-        config != null ? context.rhythm.accent : context.rhythm.textMuted;
+    final config = identity.config;
+    final badgeColor = identity.isRecognised
+        ? context.rhythm.accent
+        : context.rhythm.textMuted;
     final bgColor = badgeColor.withValues(alpha: 0.12);
 
     return Container(
@@ -1259,11 +1306,14 @@ class _AgentConfigBadge extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           if (config != null) ...[
-            AgentIcon(config!.icon, size: 12, fallbackLabel: config!.label),
+            AgentIcon(config.icon, size: 12, fallbackLabel: config.label),
+            const SizedBox(width: 4),
+          ] else if (identity.materialIcon != null) ...[
+            Icon(identity.materialIcon, size: 12, color: badgeColor),
             const SizedBox(width: 4),
           ],
           Text(
-            label,
+            identity.label,
             style: TextStyle(
               fontSize: 10,
               fontWeight: FontWeight.w700,
@@ -1629,7 +1679,10 @@ class _TranscriptHeader extends StatelessWidget {
       child: Row(
         children: [
           _AgentKindBadge(
-              agentId: session.agentId, providerId: session.providerId),
+            agentId: session.agentId,
+            providerId: session.providerId,
+            modelId: session.modelId,
+          ),
           const SizedBox(width: 10),
           Expanded(
             child: Text(
@@ -3878,14 +3931,20 @@ class AgentKindBadgeTestHarness extends StatelessWidget {
     super.key,
     required this.agentId,
     this.providerId,
+    this.modelId,
   });
 
   final String agentId;
   final String? providerId;
+  final String? modelId;
 
   @override
   Widget build(BuildContext context) {
-    return _AgentKindBadge(agentId: agentId, providerId: providerId);
+    return _AgentKindBadge(
+      agentId: agentId,
+      providerId: providerId,
+      modelId: modelId,
+    );
   }
 }
 

@@ -30,12 +30,14 @@ const {
   connectMcpSpy,
   disconnectMcpSpy,
   removeMcpSpy,
+  getPersistedMcpConfigsSpy,
 } = vi.hoisted(() => ({
   listMcpSpy: vi.fn(),
   addMcpSpy: vi.fn(),
   connectMcpSpy: vi.fn(),
   disconnectMcpSpy: vi.fn(),
   removeMcpSpy: vi.fn(),
+  getPersistedMcpConfigsSpy: vi.fn(),
 }));
 
 vi.mock('../services/opencode_engine', () => ({
@@ -46,6 +48,7 @@ vi.mock('../services/opencode_engine', () => ({
     connectMcp: connectMcpSpy,
     disconnectMcp: disconnectMcpSpy,
     removeMcp: removeMcpSpy,
+    getPersistedMcpConfigs: getPersistedMcpConfigsSpy,
     statusMessage: 'ready',
     listCommands: vi.fn().mockResolvedValue([]),
   },
@@ -82,6 +85,7 @@ describe('issue-702-c1: MCP route contracts', () => {
 
   beforeEach(async () => {
     vi.clearAllMocks();
+    getPersistedMcpConfigsSpy.mockResolvedValue({});
     setDb((() => {
       const db = new Database(':memory:');
       db.pragma('foreign_keys = ON');
@@ -196,7 +200,7 @@ describe('issue-702-c1: MCP route contracts', () => {
   // ── POST /opencode/mcp/:name/connect ────────────────────────────────────
 
   it('issue-702-c1g: POST /opencode/mcp/:name/connect invokes connectMcp with correct name', async () => {
-    connectMcpSpy.mockResolvedValueOnce(true);
+    connectMcpSpy.mockResolvedValueOnce({ connected: true });
 
     const res = await fetch(`${baseUrl}/opencode/mcp/rhythm-mcp/connect`, {
       method: 'POST',
@@ -205,6 +209,27 @@ describe('issue-702-c1: MCP route contracts', () => {
     expect(res.status).toBe(200);
     expect(connectMcpSpy).toHaveBeenCalledOnce();
     expect(connectMcpSpy).toHaveBeenCalledWith('rhythm-mcp');
+    const body = (await res.json()) as { ok: boolean; authorizationUrl: string | null };
+    expect(body.ok).toBe(true);
+    // Already authed → no consent URL.
+    expect(body.authorizationUrl).toBeNull();
+  });
+
+  it('mcp-oauth-c1: POST /opencode/mcp/:name/connect returns authorizationUrl when the server needs OAuth', async () => {
+    connectMcpSpy.mockResolvedValueOnce({
+      connected: false,
+      authorizationUrl: 'https://provider/oauth?x',
+    });
+
+    const res = await fetch(`${baseUrl}/opencode/mcp/canva/connect`, {
+      method: 'POST',
+    });
+
+    expect(res.status).toBe(200);
+    expect(connectMcpSpy).toHaveBeenCalledWith('canva');
+    const body = (await res.json()) as { ok: boolean; authorizationUrl: string | null };
+    expect(body.ok).toBe(false);
+    expect(body.authorizationUrl).toBe('https://provider/oauth?x');
   });
 
   it('issue-702-c1h: POST /opencode/mcp/:name/connect — SDK error → AppError', async () => {
@@ -269,5 +294,139 @@ describe('issue-702-c1: MCP route contracts', () => {
     expect(res.status).toBe(502);
     const body = await res.json() as Record<string, unknown>;
     expect(body).toHaveProperty('error');
+  });
+});
+
+describe('issue-mcp-1: env-map plumbing + entry surfacing', () => {
+  let baseUrl: string;
+  let close: () => Promise<void>;
+
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    setDb((() => {
+      const db = new Database(':memory:');
+      db.pragma('foreign_keys = ON');
+      runMigrations(db);
+      return db;
+    })());
+    const server = createApp().listen(0);
+    await new Promise<void>((r) => server.once('listening', () => r()));
+    baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+    close = () => new Promise<void>((res, rej) =>
+      server.close((e) => (e ? rej(e) : res())),
+    );
+    // Default: no persisted configs
+    getPersistedMcpConfigsSpy.mockResolvedValue({});
+  });
+
+  afterEach(async () => {
+    await close();
+  });
+
+  // c1: environment map persisted (route passes environment in config to addMcp)
+  it('mcp-1-c1: POST /opencode/mcp persists environment map', async () => {
+    addMcpSpy.mockResolvedValueOnce({});
+
+    const res = await fetch(`${baseUrl}/opencode/mcp`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: 'env-mcp',
+        command: 'npx my-server',
+        environment: { API_KEY: 'secret', ANOTHER: 'val' },
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(addMcpSpy).toHaveBeenCalledOnce();
+    const [nameArg, configArg] = addMcpSpy.mock.calls[0] as [string, Record<string, unknown>];
+    expect(nameArg).toBe('env-mcp');
+    expect(configArg).toMatchObject({
+      type: 'local',
+      environment: { API_KEY: 'secret', ANOTHER: 'val' },
+    });
+  });
+
+  // c2: remote type support
+  it('mcp-1-c2: POST /opencode/mcp with remote type persists correctly', async () => {
+    addMcpSpy.mockResolvedValueOnce({});
+
+    const res = await fetch(`${baseUrl}/opencode/mcp`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: 'remote-mcp',
+        url: 'https://example.com/mcp',
+        type: 'remote',
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(addMcpSpy).toHaveBeenCalledOnce();
+    const [nameArg, configArg] = addMcpSpy.mock.calls[0] as [string, Record<string, unknown>];
+    expect(nameArg).toBe('remote-mcp');
+    expect(configArg).toMatchObject({ type: 'remote', url: 'https://example.com/mcp' });
+    expect(configArg).not.toHaveProperty('command');
+  });
+
+  // c3: neither command nor url → 400
+  it('mcp-1-c3: POST /opencode/mcp without command/url returns 400', async () => {
+    const res = await fetch(`${baseUrl}/opencode/mcp`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'bad-mcp' }),
+    });
+
+    expect(res.status).toBe(400);
+    expect(addMcpSpy).not.toHaveBeenCalled();
+  });
+
+  // c4: GET exposes environment keys (redacted) and needsCredentials
+  it('mcp-1-c4: GET /opencode/mcp exposes environment keys and needsCredentials', async () => {
+    listMcpSpy.mockResolvedValueOnce({
+      'env-mcp': { status: 'connected' },
+      'needs-auth-mcp': { status: 'needs_auth' },
+      'no-env-mcp': { status: 'connected' },
+    });
+    getPersistedMcpConfigsSpy.mockResolvedValueOnce({
+      'env-mcp': {
+        type: 'local',
+        command: ['npx', 'my-server'],
+        environment: { API_KEY: 'secret', EMPTY_KEY: '' },
+      },
+      'needs-auth-mcp': { type: 'remote', url: 'https://example.com' },
+      'no-env-mcp': { type: 'local', command: ['npx', 'no-env'] },
+    });
+
+    const res = await fetch(`${baseUrl}/opencode/mcp`);
+    expect(res.status).toBe(200);
+
+    const body = await res.json() as Array<{
+      name: string;
+      status: string;
+      environment?: Record<string, string>;
+      needsCredentials: boolean;
+    }>;
+
+    // env-mcp: has environment, one empty value → needsCredentials true; values redacted
+    const envEntry = body.find((e) => e.name === 'env-mcp');
+    expect(envEntry).toBeDefined();
+    expect(envEntry!.environment).toBeDefined();
+    expect(Object.keys(envEntry!.environment!)).toContain('API_KEY');
+    expect(Object.keys(envEntry!.environment!)).toContain('EMPTY_KEY');
+    // Values must NOT contain real secrets
+    expect(Object.values(envEntry!.environment!)).not.toContain('secret');
+    expect(envEntry!.needsCredentials).toBe(true); // EMPTY_KEY is empty
+
+    // needs-auth-mcp: SDK says needs_auth → needsCredentials true
+    const authEntry = body.find((e) => e.name === 'needs-auth-mcp');
+    expect(authEntry).toBeDefined();
+    expect(authEntry!.needsCredentials).toBe(true);
+
+    // no-env-mcp: no environment in config → no environment key, needsCredentials false
+    const noEnvEntry = body.find((e) => e.name === 'no-env-mcp');
+    expect(noEnvEntry).toBeDefined();
+    expect(noEnvEntry!.environment).toBeUndefined();
+    expect(noEnvEntry!.needsCredentials).toBe(false);
   });
 });

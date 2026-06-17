@@ -2,6 +2,20 @@ import path from 'path';
 
 export type DbClient = 'sqlite' | 'postgres';
 
+/**
+ * Google Cloud project ID used to enable the native Google Gemini provider in
+ * the embedded opencode engine. The `opencode-gemini-auth` plugin only
+ * registers the `google` provider for Google **Workspace** accounts when
+ * `provider.google.options.projectId` is present in opencode.json. Rhythm is a
+ * single-org internal app (all users are in the `visaliacrc.com` Workspace), so
+ * this is a shared constant. Overridable via env so it never needs a code
+ * change to update.
+ */
+export const GEMINI_CODE_ASSIST_PROJECT_ID =
+  process.env.GEMINI_PROJECT_ID ||
+  process.env.OPENCODE_GEMINI_PROJECT_ID ||
+  'rhythm-491406';
+
 const dbClientValue = (process.env.DB_CLIENT ?? 'sqlite').trim().toLowerCase();
 
 function parseDbClient(value: string): DbClient {

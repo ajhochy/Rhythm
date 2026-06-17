@@ -11,6 +11,10 @@ class McpServerEntry {
     required this.name,
     required this.status,
     this.error,
+    this.needsCredentials = false,
+    this.environment,
+    this.url,
+    this.requiredEnv = const [],
   });
 
   final String name;
@@ -21,11 +25,50 @@ class McpServerEntry {
   /// Present when [status] == 'failed'.
   final String? error;
 
+  /// MCP-1: true when the server is installed but missing required
+  /// credentials — either a key-based server with an empty required env value,
+  /// or a remote server the SDK reports as `needs_auth`. Computed server-side;
+  /// the UI must not recompute this (MCP-4).
+  final bool needsCredentials;
+
+  /// MCP-1: the server's env keys with redacted values (e.g. `{API_KEY: '***'}`).
+  /// Present only when the persisted config declares an environment map.
+  final Map<String, String>? environment;
+
+  /// OA3: the remote server URL, present for `type: 'remote'` servers (the list
+  /// response spreads the persisted config, which carries `url`). Local
+  /// command-based servers leave this null. Used to detect OAuth servers.
+  final String? url;
+
+  /// MCP-4 (credentials dialog): the curated server's required env-var names
+  /// (e.g. `['STRIPE_SECRET_KEY']`). Empty when the server is not a curated
+  /// key-based server. Computed server-side; drives the focused credentials
+  /// dialog's fields (one obscured field per entry).
+  final List<String> requiredEnv;
+
+  /// OA3: true when this is a remote (URL-backed) server with no required
+  /// credentials — i.e. an OAuth server. Detection rule: remote URL present
+  /// AND no env-based credentials. A `needs_auth` status is also a definite
+  /// OAuth signal. Key-based servers (needsCredentials with an env map) are NOT
+  /// OAuth.
+  bool get isOAuth {
+    if (status == 'needs_auth') return true;
+    final hasUrl = url != null && url!.isNotEmpty;
+    final hasEnv = environment != null && environment!.isNotEmpty;
+    return hasUrl && !hasEnv;
+  }
+
   factory McpServerEntry.fromJson(Map<String, dynamic> json) {
+    final rawEnv = json['environment'] as Map<String, dynamic>?;
+    final rawRequired = json['requiredEnv'] as List<dynamic>?;
     return McpServerEntry(
       name: json['name'] as String,
       status: json['status'] as String? ?? 'unknown',
       error: json['error'] as String?,
+      needsCredentials: json['needsCredentials'] as bool? ?? false,
+      environment: rawEnv?.map((k, v) => MapEntry(k, v as String)),
+      url: json['url'] as String?,
+      requiredEnv: rawRequired?.map((e) => e as String).toList() ?? const [],
     );
   }
 }
@@ -50,13 +93,42 @@ abstract class McpDataSource {
     required String name,
     String? command,
     String? url,
+    Map<String, String>? environment,
   });
 
-  Future<void> connectServer(String name);
+  /// Connects (or begins OAuth for) the named MCP server.
+  ///
+  /// Returns the OAuth consent URL (`authorizationUrl`) when the server needs
+  /// the user to authorize in a browser (e.g. canva, notion). Returns `null`
+  /// when the server is already authenticated / connected.
+  Future<String?> connectServer(String name);
+
+  /// OA3: begins the backend-driven remote-OAuth flow for [name].
+  ///
+  /// POSTs to `…/opencode/mcp/$name/oauth/start`. Returns the consent
+  /// `authorizationUrl` the caller must open in a browser, or `null` if the
+  /// response carries no URL.
+  Future<String?> startOAuth(String name);
+
+  /// OA3: polls the backend OAuth status for [name].
+  ///
+  /// GETs `…/opencode/mcp/$name/oauth/status`. Returns the `status` string —
+  /// one of `pending` | `connected` | `failed:<msg>` | `unknown` (defaults to
+  /// `unknown` when the field is absent).
+  Future<String> oauthStatus(String name);
 
   Future<void> disconnectServer(String name);
 
   Future<void> removeServer(String name);
+
+  /// MCP-4: submits credentials for a curated key-based server.
+  ///
+  /// POSTs `…/opencode/mcp/$name/credentials` with body
+  /// `{ "environment": { … } }`. The backend merges the key into the curated
+  /// server's known command and reconnects. Throws with the parsed
+  /// `error.message` on a non-2xx response (404 NOT_CURATED,
+  /// 400 NOT_KEY_BASED, 400 MISSING_CREDENTIALS, …).
+  Future<void> setCredentials(String name, Map<String, String> environment);
 }
 
 /// Testing extension — exposes the underlying base URL for contract test c5.
@@ -106,10 +178,17 @@ class _McpDataSourceImpl implements McpDataSource {
     required String name,
     String? command,
     String? url,
+    Map<String, String>? environment,
   }) async {
-    final body = <String, String>{'name': name};
+    final body = <String, dynamic>{'name': name};
     if (command != null && command.isNotEmpty) body['command'] = command;
     if (url != null && url.isNotEmpty) body['url'] = url;
+    // MCP-3: per-server env secrets. Omit entirely when there are no secret
+    // rows so existing command/url-only requests stay byte-identical
+    // (backward-compat with the MCP-1 backend).
+    if (environment != null && environment.isNotEmpty) {
+      body['environment'] = environment;
+    }
 
     final response = await http.post(
       Uri.parse('$_baseUrl/opencode/mcp'),
@@ -130,7 +209,7 @@ class _McpDataSourceImpl implements McpDataSource {
   // ── Connect ───────────────────────────────────────────────────────────────
 
   @override
-  Future<void> connectServer(String name) async {
+  Future<String?> connectServer(String name) async {
     final response = await http.post(
       Uri.parse('$_baseUrl/opencode/mcp/$name/connect'),
     );
@@ -142,6 +221,62 @@ class _McpDataSourceImpl implements McpDataSource {
         msg = err?['message'] as String? ?? msg;
       } catch (_) {}
       throw Exception('Failed to connect MCP server "$name": $msg');
+    }
+    // Remote OAuth servers return a consent URL the caller must open; already
+    // authenticated servers return null here.
+    try {
+      final b = jsonDecode(response.body) as Map<String, dynamic>;
+      return b['authorizationUrl'] as String?;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  // ── OAuth: start ────────────────────────────────────────────────────────
+
+  @override
+  Future<String?> startOAuth(String name) async {
+    final response = await http.post(
+      Uri.parse('$_baseUrl/opencode/mcp/$name/oauth/start'),
+    );
+    if (response.statusCode != 200) {
+      String msg = 'HTTP ${response.statusCode}';
+      try {
+        final b = jsonDecode(response.body) as Map<String, dynamic>;
+        final err = b['error'] as Map<String, dynamic>?;
+        msg = err?['message'] as String? ?? msg;
+      } catch (_) {}
+      throw Exception('Failed to start OAuth for MCP server "$name": $msg');
+    }
+    try {
+      final b = jsonDecode(response.body) as Map<String, dynamic>;
+      return b['authorizationUrl'] as String?;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  // ── OAuth: status ─────────────────────────────────────────────────────────
+
+  @override
+  Future<String> oauthStatus(String name) async {
+    final response = await http.get(
+      Uri.parse('$_baseUrl/opencode/mcp/$name/oauth/status'),
+    );
+    if (response.statusCode != 200) {
+      String msg = 'HTTP ${response.statusCode}';
+      try {
+        final b = jsonDecode(response.body) as Map<String, dynamic>;
+        final err = b['error'] as Map<String, dynamic>?;
+        msg = err?['message'] as String? ?? msg;
+      } catch (_) {}
+      throw Exception('Failed to read OAuth status for "$name": $msg');
+    }
+    try {
+      final b = jsonDecode(response.body) as Map<String, dynamic>;
+      return b['status'] as String? ?? 'unknown';
+    } catch (_) {
+      return 'unknown';
     }
   }
 
@@ -160,6 +295,29 @@ class _McpDataSourceImpl implements McpDataSource {
         msg = err?['message'] as String? ?? msg;
       } catch (_) {}
       throw Exception('Failed to disconnect MCP server "$name": $msg');
+    }
+  }
+
+  // ── Credentials ─────────────────────────────────────────────────────────
+
+  @override
+  Future<void> setCredentials(
+    String name,
+    Map<String, String> environment,
+  ) async {
+    final response = await http.post(
+      Uri.parse('$_baseUrl/opencode/mcp/$name/credentials'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({'environment': environment}),
+    );
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      String msg = 'HTTP ${response.statusCode}';
+      try {
+        final b = jsonDecode(response.body) as Map<String, dynamic>;
+        final err = b['error'] as Map<String, dynamic>?;
+        msg = err?['message'] as String? ?? msg;
+      } catch (_) {}
+      throw Exception('Failed to set credentials for "$name": $msg');
     }
   }
 

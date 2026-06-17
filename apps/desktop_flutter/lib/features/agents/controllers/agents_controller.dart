@@ -265,6 +265,12 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   static const _inspectorCollapsedKey = 'agents.inspector.collapsed';
   bool _panelCollapsed = false;
 
+  static const _inspectorWidthKey = 'agents.inspector.width';
+  static const double _kDefaultPanelWidth = 320;
+  static const double _kMinPanelWidth = 280;
+  static const double _kMaxPanelWidth = 640;
+  double _panelWidth = _kDefaultPanelWidth;
+
   AgentSessionConnectivity _connectivity = const AgentSessionConnectivity();
 
   /// OPC-M1-5 — The id of the local session whose SDK backing was reported
@@ -1093,16 +1099,42 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   /// via shared_preferences key [_inspectorCollapsedKey].
   bool get panelCollapsed => _panelCollapsed;
 
-  /// Load the persisted inspector panel collapse state from shared_preferences.
-  /// Called from [initialize] so the preference is restored on startup.
+  /// Current width (px) of the inspector panel. Persisted across app launches
+  /// via shared_preferences key [_inspectorWidthKey]. Always within
+  /// [[_kMinPanelWidth], [_kMaxPanelWidth]].
+  double get panelWidth => _panelWidth;
+
+  /// Load the persisted inspector panel prefs (collapse flag + width) from
+  /// shared_preferences. Called from [initialize] so prefs are restored on
+  /// startup. Persistence failures are non-fatal (defaults retained).
   Future<void> loadInspectorPrefs() async {
     try {
       final prefs = await SharedPreferences.getInstance();
       _panelCollapsed = prefs.getBool(_inspectorCollapsedKey) ?? false;
+      final storedWidth = prefs.getDouble(_inspectorWidthKey);
+      if (storedWidth != null) {
+        _panelWidth =
+            storedWidth.clamp(_kMinPanelWidth, _kMaxPanelWidth).toDouble();
+      }
       notifyListeners();
     } catch (_) {
       _panelCollapsed = false;
+      _panelWidth = _kDefaultPanelWidth;
     }
+  }
+
+  /// Set and persist the inspector panel width, clamped to
+  /// [[_kMinPanelWidth], [_kMaxPanelWidth]]. No-op when the clamped value
+  /// matches the current width. Persistence failures are non-fatal.
+  Future<void> setPanelWidth(double width) async {
+    final clamped = width.clamp(_kMinPanelWidth, _kMaxPanelWidth).toDouble();
+    if (_panelWidth == clamped) return;
+    _panelWidth = clamped;
+    notifyListeners();
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setDouble(_inspectorWidthKey, clamped);
+    } catch (_) {}
   }
 
   /// Set and persist the inspector panel collapse flag.

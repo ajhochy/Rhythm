@@ -9,6 +9,7 @@ import '../auth/auth_session_store.dart';
 import '../constants/app_constants.dart';
 import '../server/api_server_service.dart';
 import '../services/server_config_service.dart';
+import 'curated_mcp_auto_installer.dart';
 import 'health_poller.dart';
 import 'rhythm_mcp_auto_installer.dart';
 
@@ -18,8 +19,11 @@ class AgentServerController extends ChangeNotifier {
   AgentServerController(
     this._service, {
     RhythmMcpAutoInstaller? autoInstaller,
+    CuratedMcpAutoInstaller? curatedAutoInstaller,
     ServerConfigService? serverConfigService,
   })  : _autoInstaller = autoInstaller ?? RhythmMcpAutoInstaller(),
+        _curatedAutoInstaller =
+            curatedAutoInstaller ?? CuratedMcpAutoInstaller(),
         _serverConfigService = serverConfigService;
 
   final ApiServerService _service;
@@ -29,6 +33,11 @@ class AgentServerController extends ChangeNotifier {
   /// use. Failures are non-fatal inside the installer.
   final RhythmMcpAutoInstaller _autoInstaller;
 
+  /// MCP-5: installs/refreshes the curated MCP servers inside the opencode
+  /// engine under the same gate as the rhythm installer. Failures are
+  /// non-fatal inside the installer.
+  final CuratedMcpAutoInstaller _curatedAutoInstaller;
+
   /// Optional live source of the configured server URL. When absent we fall
   /// back to [AppConstants.apiBaseUrl] (the cloud baseline).
   final ServerConfigService? _serverConfigService;
@@ -36,6 +45,10 @@ class AgentServerController extends ChangeNotifier {
   /// De-dupes auto-install attempts: we only call the installer when the
   /// session token differs from the last token we installed for.
   String? _lastInstalledToken;
+
+  /// MCP-5: separate de-dupe for the curated installer so a failure of one
+  /// installer never blocks a retry of the other for the same token.
+  String? _lastCuratedInstalledToken;
   AgentServerStatus _status = AgentServerStatus.starting;
   AgentServerFailureReason? _failureReason;
   String? _stderrTail;
@@ -119,8 +132,10 @@ class AgentServerController extends ChangeNotifier {
       // detected, attempt the rhythm MCP auto-install (F2) — also fire-and-
       // forget, gated and de-duped inside _maybeAutoInstallRhythmMcp.
       unawaited(
-        refreshCapabilities()
-            .whenComplete(() => unawaited(_maybeAutoInstallRhythmMcp())),
+        refreshCapabilities().whenComplete(() {
+          unawaited(_maybeAutoInstallRhythmMcp());
+          unawaited(_maybeAutoInstallCuratedMcp());
+        }),
       );
 
       _poller = HealthPoller(
@@ -202,6 +217,7 @@ class AgentServerController extends ChangeNotifier {
   /// app reacts to auth changes.
   void onAuthChanged() {
     unawaited(_maybeAutoInstallRhythmMcp());
+    unawaited(_maybeAutoInstallCuratedMcp());
   }
 
   /// Attempts the rhythm MCP auto-install if and only if the engine is ready,
@@ -231,6 +247,37 @@ class AgentServerController extends ChangeNotifier {
     } catch (err) {
       stderr.writeln(
         '[AgentServerController] rhythm MCP auto-install attempt failed: $err',
+      );
+    }
+  }
+
+  /// MCP-5: attempts the curated MCP auto-install under the same gate as the
+  /// rhythm installer (engine ready, authenticated, cloud server). De-dupes on
+  /// the session token via its own [_lastCuratedInstalledToken] so the same
+  /// token is never installed twice. Belt-and-suspenders: never throws.
+  Future<void> _maybeAutoInstallCuratedMcp() async {
+    try {
+      final token = AuthSessionStore.sessionToken;
+      final url = _serverConfigService?.url ?? AppConstants.apiBaseUrl;
+      final gateOpen = shouldAutoInstallCuratedMcp(
+        engineReady: isReady,
+        authenticated: token != null && token.isNotEmpty,
+        isCloudServer: url.contains('api.vcrcapps.com'),
+      );
+      if (!gateOpen) return;
+      // token is non-null here because the gate required authenticated == true.
+      if (token == _lastCuratedInstalledToken) return;
+      // Only mark this token as installed when the installer actually
+      // succeeds. On a false/throw, leave the token unchanged so a later
+      // trigger (ready hook or onAuthChanged) retries the same token.
+      final installed =
+          await _curatedAutoInstaller.ensure(apiToken: token!, apiUrl: url);
+      if (installed) {
+        _lastCuratedInstalledToken = token;
+      }
+    } catch (err) {
+      stderr.writeln(
+        '[AgentServerController] curated MCP auto-install attempt failed: $err',
       );
     }
   }

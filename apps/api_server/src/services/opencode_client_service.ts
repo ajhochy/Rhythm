@@ -6,6 +6,23 @@ import type { OpencodeClient, Event } from '@opencode-ai/sdk';
 import { logger } from '../utils/logger';
 import { OpencodeAuthStore } from './opencode_auth_store';
 import { AppError } from '../errors/app_error';
+import {
+  CURATED_MCP_SERVERS,
+  type CuratedMcpServer,
+  type CuratedTokenProvider,
+} from '../config/curated_mcp_servers';
+import { ensureGeminiProjectConfig } from './gemini_project_config';
+
+/**
+ * MCP-6 — resolves a FRESH OAuth access token for a curated server's
+ * `tokenProvider`. Implementations reuse Rhythm's existing
+ * `ensureFresh*Account` refresh path (see opencode_mcp_routes.ts wiring).
+ * Returns the access token string, or `null` when no account is connected
+ * (no row / no token) so the bridge can SKIP that server cleanly.
+ */
+export type CuratedTokenResolver = (
+  provider: CuratedTokenProvider,
+) => Promise<string | null>;
 
 /**
  * Run a command and capture stdout. `execFile` is required lazily (not bound at
@@ -285,6 +302,16 @@ export class OpencodeClientService {
           directory?: string;
         }) => OpencodeClient;
       };
+      // Ensure the Gemini Code Assist projectId is on disk in opencode.json
+      // BEFORE createOpencode() spawns the engine — the opencode-gemini-auth
+      // plugin reads provider.google.options.projectId at provider-registration
+      // time, so it must be persisted first or the google provider won't
+      // register for Workspace accounts. Never throws; logs and continues.
+      const geminiCfg = ensureGeminiProjectConfig();
+      logger.info(
+        `[OpencodeClientService] ensured Gemini Code Assist projectId=${geminiCfg.projectId} (changed=${geminiCfg.changed})`,
+      );
+
       // #655 — Before spawning, reclaim :4096 from a stale opencode orphan
       // (e.g. one reparented to launchd after a Force-Quit / SIGKILL). A bound
       // port makes the SDK's fresh spawn exit code 1 ("engine not ready"). A
@@ -1113,6 +1140,30 @@ export class OpencodeClientService {
   }
 
   /**
+   * Read the persisted MCP server configs from opencode.json.
+   * Returns the `mcp` section as a map of server name → raw config object.
+   * Returns {} when the file is absent or unparseable (never throws).
+   *
+   * Used by the GET /opencode/mcp route to surface environment keys and
+   * derive the `needsCredentials` signal.
+   */
+  async getPersistedMcpConfigs(): Promise<Record<string, Record<string, unknown>>> {
+    const { existsSync, readFileSync } = require('fs') as typeof import('fs');
+    const { join } = require('path') as typeof import('path');
+    const { homedir } = require('os') as typeof import('os');
+    const configPath = join(homedir(), '.config', 'opencode', 'opencode.json');
+    if (!existsSync(configPath)) {
+      return {};
+    }
+    try {
+      const parsed = JSON.parse(readFileSync(configPath, 'utf8')) as Record<string, unknown>;
+      return (parsed.mcp as Record<string, Record<string, unknown>> | undefined) ?? {};
+    } catch {
+      return {};
+    }
+  }
+
+  /**
    * Idempotently register the rhythm MCP server into opencode.json with the
    * live production token + URL. Adds when absent, rewrites + reconnects when
    * the token/URL changed, no-ops when identical. `opts.configPath` overrides
@@ -1180,12 +1231,221 @@ export class OpencodeClientService {
   }
 
   /**
+   * Idempotently merge the curated MCP server registry
+   * ({@link CURATED_MCP_SERVERS}) into opencode.json's `mcp` block.
+   *
+   * For each curated server we compute the desired opencode.json entry
+   * (`{type, command|url[, environment]}`) and JSON-compare it against the
+   * existing entry under the same key:
+   *   - absent → add it (changed)
+   *   - different → refresh it (changed)
+   *   - identical → leave untouched
+   * Unrelated entries (e.g. the `rhythm` server) are preserved exactly. The
+   * file is written ONCE, and only when something actually changed — a no-op
+   * run leaves the file byte-identical.
+   *
+   * After persisting, each changed server is best-effort live-registered with
+   * the running engine via `client.mcp.add()`. This is NON-FATAL: any failure
+   * (engine not ready, SDK error) is logged and yields `registered:false`; the
+   * file write has already succeeded and is never rolled back.
+   *
+   * `opts.configPath` overrides the default
+   * (~/.config/opencode/opencode.json) for tests; `opts.register` controls
+   * whether to also live-register (default true).
+   *
+   * MCP-6 — `opts.tokenResolver` bridges Rhythm's stored OAuth credentials
+   * into curated servers that declare a `tokenProvider`. For each such server
+   * the resolver is asked for a FRESH access token; the token is injected into
+   * the server's `environment[tokenEnvKey]` before the JSON-compare/persist.
+   * When the resolver returns `null`/empty (no account connected) that ONE
+   * server is SKIPPED entirely — it is never written with an empty placeholder
+   * token — and the remaining servers continue. A resolver that THROWS for one
+   * provider is treated the same as "no account" for that server (logged,
+   * skipped) so a single broken provider can't abort the whole ensure. When no
+   * `tokenResolver` is supplied, token-bridged servers are skipped (no token
+   * source available); zero-auth servers (PDF Tools) are unaffected.
+   */
+  async ensureCuratedMcps(opts?: {
+    configPath?: string;
+    register?: boolean;
+    tokenResolver?: CuratedTokenResolver;
+    /**
+     * Curated server list to ensure. Defaults to {@link CURATED_MCP_SERVERS}.
+     * Overridable so the token-bridge mechanism stays unit-covered with a
+     * synthetic `tokenProvider` fixture now that the verified catalog has no
+     * token-bridged curated entry (google/pco were dropped). Production callers
+     * never pass this.
+     */
+    servers?: CuratedMcpServer[];
+  }): Promise<{
+    changed: boolean;
+    registered: boolean;
+    servers: CuratedMcpServer[];
+  }> {
+    const { existsSync, readFileSync, writeFileSync, mkdirSync } =
+      require('fs') as typeof import('fs');
+    const { join, dirname } = require('path') as typeof import('path');
+    const { homedir } = require('os') as typeof import('os');
+
+    const configPath =
+      opts?.configPath ??
+      join(homedir(), '.config', 'opencode', 'opencode.json');
+
+    let parsed: Record<string, unknown> = {};
+    if (existsSync(configPath)) {
+      try {
+        parsed = JSON.parse(readFileSync(configPath, 'utf8'));
+      } catch (err) {
+        throw new AppError(
+          502,
+          'SDK_ERROR',
+          `ensureCuratedMcps: could not parse opencode.json: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+
+    const mcpSection =
+      (parsed.mcp as Record<string, unknown> | undefined) ?? {};
+
+    // Build the desired opencode.json entry for a curated server. The optional
+    // `environment` override carries the bridged fresh token (MCP-6) merged
+    // over any static `server.environment`.
+    const toEntry = (
+      s: CuratedMcpServer,
+      environment?: Record<string, string>,
+    ): Record<string, unknown> => {
+      const entry: Record<string, unknown> =
+        s.type === 'remote'
+          ? { type: 'remote', url: s.url }
+          : { type: 'local', command: s.command };
+      const env = { ...(s.environment ?? {}), ...(environment ?? {}) };
+      if (Object.keys(env).length > 0) {
+        entry.environment = env;
+      }
+      return entry;
+    };
+
+    // MCP-6 — resolve a fresh token for a token-bridged server. Returns the
+    // env map to inject, or `null` to signal "skip this server entirely"
+    // (no account connected / no resolver / resolver threw).
+    const resolveBridgedEnv = async (
+      server: CuratedMcpServer,
+    ): Promise<Record<string, string> | null> => {
+      if (!server.tokenProvider || !server.tokenEnvKey) return {};
+      if (!opts?.tokenResolver) {
+        logger.info(
+          `[OpencodeClientService] ensureCuratedMcps: skipping ${server.id} — no token resolver supplied`,
+        );
+        return null;
+      }
+      let token: string | null;
+      try {
+        token = await opts.tokenResolver(server.tokenProvider);
+      } catch (err) {
+        logger.warn(
+          `[OpencodeClientService] ensureCuratedMcps: skipping ${server.id} — token resolve failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
+        return null;
+      }
+      if (!token || token.trim() === '') {
+        logger.info(
+          `[OpencodeClientService] ensureCuratedMcps: skipping ${server.id} — no ${server.tokenProvider} account connected`,
+        );
+        return null;
+      }
+      return { [server.tokenEnvKey]: token };
+    };
+
+    const curatedServers = opts?.servers ?? CURATED_MCP_SERVERS;
+    const changedServers: CuratedMcpServer[] = [];
+    for (const server of curatedServers) {
+      const bridgedEnv = await resolveBridgedEnv(server);
+      // null → token-bridged server with no connected account: skip entirely.
+      if (bridgedEnv === null) continue;
+      const desired = toEntry(server, bridgedEnv);
+      const existing = mcpSection[server.id];
+      if (JSON.stringify(existing) === JSON.stringify(desired)) {
+        continue;
+      }
+      mcpSection[server.id] = desired;
+      changedServers.push(server);
+    }
+
+    const changed = changedServers.length > 0;
+    if (changed) {
+      parsed.mcp = mcpSection;
+      mkdirSync(dirname(configPath), { recursive: true });
+      writeFileSync(configPath, JSON.stringify(parsed, null, 2) + '\n', 'utf8');
+      logger.info(
+        `[OpencodeClientService] ensureCuratedMcps: persisted ${changedServers
+          .map((s) => s.id)
+          .join(', ')}`,
+      );
+    }
+
+    // ── Best-effort live registration (NON-FATAL) ──
+    let registered = false;
+    if (changed && opts?.register !== false) {
+      try {
+        const client = this.requireClient();
+        for (const server of changedServers) {
+          // Register the entry exactly as persisted (incl. any bridged token).
+          await client.mcp.add({
+            body: {
+              name: server.id,
+              config: mcpSection[server.id] as
+                | import('@opencode-ai/sdk').McpLocalConfigInput
+                | import('@opencode-ai/sdk').McpRemoteConfigInput,
+            },
+          });
+        }
+        registered = true;
+      } catch (err) {
+        logger.warn(
+          `[OpencodeClientService] ensureCuratedMcps: live registration skipped: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+
+    return { changed, registered, servers: changedServers };
+  }
+
+  /**
    * POST /mcp/{name}/connect — connect a named MCP server.
    *
-   * OPC-M4-3: throws AppError on SDK error envelope (never swallows to false).
+   * Returns `{ connected, authorizationUrl? }`.
+   *
+   * For remote OAuth servers (e.g. canva, notion) `client.mcp.connect` resolves
+   * to `false` because the server is not yet authenticated. In that case we
+   * begin the OAuth flow via `client.mcp.auth.start`, whose 200 body carries the
+   * consent URL (`{ authorizationUrl }`, verified against the real SDK's
+   * McpAuthStartResponses). We surface that URL so the caller can open it in a
+   * browser. Servers that don't use OAuth simply have no auth.start endpoint —
+   * that error is tolerated and we return `{ connected: false }`.
+   *
+   * OPC-M4-3: throws AppError on the connect SDK error envelope (never swallows).
    */
-  async connectMcp(name: string): Promise<boolean> {
+  async connectMcp(
+    name: string,
+  ): Promise<{ connected: boolean; authorizationUrl?: string }> {
     const client = this.requireClient();
+    // OAuth-needing servers (e.g. canva, notion) report connect:true while they
+    // still require interactive sign-in, so the consent URL — not connect's
+    // boolean — is the source of truth. Ask auth.start FIRST and surface its
+    // authorizationUrl when present. Only fall back to a plain connect when
+    // there's no auth URL (server doesn't support/need OAuth).
+    try {
+      const authRaw = await client.mcp.auth.start({ path: { name } });
+      const authorizationUrl = authRaw.error
+        ? undefined
+        : authRaw.data?.authorizationUrl;
+      if (authorizationUrl) {
+        return { connected: false, authorizationUrl };
+      }
+    } catch {
+      // auth.start unsupported / failed for this server — fall through.
+    }
+
     const raw = await client.mcp.connect({
       path: { name },
     });
@@ -1194,6 +1454,32 @@ export class OpencodeClientService {
         502,
         'SDK_ERROR',
         `connectMcp failed for ${name}: ${JSON.stringify(raw.error)}`,
+      );
+    }
+    return { connected: raw.data === true };
+  }
+
+  /**
+   * POST /mcp/{name}/connect — RAW reconnect (NO auth.start-first).
+   *
+   * Used by the self-contained MCP OAuth workaround (mcp_oauth_service.ts):
+   * after we write tokens into opencode's mcp-auth.json ourselves, the engine
+   * just needs to re-read them and establish an authenticated session. Calling
+   * the auth.start-first {@link connectMcp} here would re-enter opencode's
+   * broken auth path (which never registers the OAuth state) and surface a
+   * fresh consent URL instead of connecting. So this calls `client.mcp.connect`
+   * directly and returns the boolean.
+   *
+   * Throws AppError on the SDK error envelope.
+   */
+  async reconnectMcp(name: string): Promise<boolean> {
+    const client = this.requireClient();
+    const raw = await client.mcp.connect({ path: { name } });
+    if (raw.error) {
+      throw new AppError(
+        502,
+        'SDK_ERROR',
+        `reconnectMcp failed for ${name}: ${JSON.stringify(raw.error)}`,
       );
     }
     return raw.data === true;
