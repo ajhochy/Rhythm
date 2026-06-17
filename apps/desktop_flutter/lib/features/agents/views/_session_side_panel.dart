@@ -1,10 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../../app/core/agents/agent_server_controller.dart';
 import '../../../app/core/formatters/date_formatters.dart';
 import '../../../app/core/ui/tokens/rhythm_theme.dart';
+import '../../agent_configs/controllers/agent_configs_controller.dart';
 import '../controllers/agents_controller.dart';
 import '../models/agent_session.dart';
+import 'agent_badge_identity.dart';
 import '_changes_tab.dart';
 import '_terminal_tab.dart';
 import '_todo_panel.dart';
@@ -216,7 +219,7 @@ class _ContextTab extends StatelessWidget {
     return ListView(
       padding: const EdgeInsets.all(12),
       children: [
-        _row(context, 'Agent', session.agentId),
+        _row(context, 'Agent', _agentLabel(context)),
         _row(context, 'Cwd', session.cwd),
         _row(context, 'Status', session.status.wireValue),
         const SizedBox(height: 8),
@@ -228,6 +231,31 @@ class _ContextTab extends StatelessWidget {
         if (hasMessages) ..._buildDetails(context, controller, messageCount),
       ],
     );
+  }
+
+  /// Model-family-aware agent label, mirroring the session-row badge: an
+  /// OpenRouter (aggregator) session reflects the actual model family
+  /// (e.g. "OpenRouter" for a Llama model) rather than the stale creation
+  /// agentId, which defaults to claude-code.
+  String _agentLabel(BuildContext context) {
+    // The resolver needs the server + configs controllers (always provided
+    // app-wide). When the panel is pumped in isolation without them (some
+    // widget tests), degrade gracefully to the raw agentId rather than throw.
+    try {
+      final providerToAgentKind =
+          context.watch<AgentServerController>().providerToAgentKind;
+      final configsCtrl = context.watch<AgentConfigsController>();
+      final identity = resolveAgentBadgeIdentity(
+        agentId: session.agentId,
+        providerId: session.providerId,
+        modelId: session.modelId,
+        providerToAgentKind: providerToAgentKind,
+        configById: configsCtrl.byId,
+      );
+      return identity.label;
+    } on ProviderNotFoundException {
+      return session.agentId;
+    }
   }
 
   List<Widget> _buildDetails(
