@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../app/core/agents/agent_server_controller.dart';
 import '../../../app/core/errors/app_error.dart';
@@ -53,6 +54,24 @@ class PendingTrigger {
   /// user opens the chat from the trigger bubble.
   final String? taskNotes;
   final DateTime arrivedAt;
+}
+
+/// Per-message token usage broken out for the inspector Context tab. `cache`
+/// in the raw tokens map is split into [cacheRead] / [cacheWrite] (it may also
+/// arrive as a single int read count — see [AgentsController.sessionTokenBreakdown]).
+class TokenBreakdown {
+  const TokenBreakdown({
+    this.input = 0,
+    this.output = 0,
+    this.reasoning = 0,
+    this.cacheRead = 0,
+    this.cacheWrite = 0,
+  });
+  final int input;
+  final int output;
+  final int reasoning;
+  final int cacheRead;
+  final int cacheWrite;
 }
 
 class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
@@ -239,6 +258,12 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   /// is fired for all messages in the working session that are armed.
   final Set<String> _notifyOnCompletion = {};
 
+  // --------------------------------------------------------------------------
+  // Inspector panel collapse state (persisted via shared_preferences)
+  // --------------------------------------------------------------------------
+  static const _inspectorCollapsedKey = 'agents.inspector.collapsed';
+  bool _panelCollapsed = false;
+
   AgentSessionConnectivity _connectivity = const AgentSessionConnectivity();
 
   /// OPC-M1-5 — The id of the local session whose SDK backing was reported
@@ -409,6 +434,37 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     return hasCost ? total : null;
   }
 
+  /// Inspector Context tab: token usage from the latest message in [sessionId]
+  /// that carries a tokens map. `cache` may be an int (read count) or a
+  /// `{read, write}` map. Returns an all-zero [TokenBreakdown] when no token
+  /// data exists for the session.
+  TokenBreakdown sessionTokenBreakdown(String sessionId) {
+    final messages = _chatMessagesBySession[sessionId];
+    if (messages == null) return const TokenBreakdown();
+    int asInt(Object? v) => v is num ? v.toInt() : 0;
+    for (final m in messages.reversed) {
+      final t = m.tokens;
+      if (t == null) continue;
+      final cacheRaw = t['cache'];
+      int cacheRead = 0;
+      int cacheWrite = 0;
+      if (cacheRaw is Map) {
+        cacheRead = asInt(cacheRaw['read']);
+        cacheWrite = asInt(cacheRaw['write']);
+      } else if (cacheRaw is num) {
+        cacheRead = cacheRaw.toInt();
+      }
+      return TokenBreakdown(
+        input: asInt(t['input']),
+        output: asInt(t['output']),
+        reasoning: asInt(t['reasoning']),
+        cacheRead: cacheRead,
+        cacheWrite: cacheWrite,
+      );
+    }
+    return const TokenBreakdown();
+  }
+
   /// OPC-M3-1 — FileDiff entries for [sessionId] in the order returned by the
   /// server. Returns an empty list when no diff has been fetched yet.
   List<Map<String, dynamic>> sessionDiffFor(String sessionId) =>
@@ -461,6 +517,9 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   /// revert point are dimmed + badged; "Restore reverted changes" banner shown).
   bool sessionIsReverted(String sessionId) =>
       _sessionReverted[sessionId] ?? false;
+
+  /// Alias of [sessionIsReverted] — true when [sessionId] has an active revert.
+  bool isSessionReverted(String sessionId) => sessionIsReverted(sessionId);
 
   /// OPC-M3-2 — Revert the session to the message identified by [messageId].
   ///
@@ -957,6 +1016,38 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   // --------------------------------------------------------------------------
+  // Inspector panel collapse (persisted)
+  // --------------------------------------------------------------------------
+
+  /// Whether the inspector panel is collapsed. Persisted across app launches
+  /// via shared_preferences key [_inspectorCollapsedKey].
+  bool get panelCollapsed => _panelCollapsed;
+
+  /// Load the persisted inspector panel collapse state from shared_preferences.
+  /// Called from [initialize] so the preference is restored on startup.
+  Future<void> loadInspectorPrefs() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      _panelCollapsed = prefs.getBool(_inspectorCollapsedKey) ?? false;
+      notifyListeners();
+    } catch (_) {
+      _panelCollapsed = false;
+    }
+  }
+
+  /// Set and persist the inspector panel collapse flag.
+  /// No-op when [collapsed] matches the current value.
+  Future<void> setPanelCollapsed(bool collapsed) async {
+    if (_panelCollapsed == collapsed) return;
+    _panelCollapsed = collapsed;
+    notifyListeners();
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(_inspectorCollapsedKey, collapsed);
+    } catch (_) {}
+  }
+
+  // --------------------------------------------------------------------------
   // Lifecycle
   // --------------------------------------------------------------------------
 
@@ -974,6 +1065,7 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
       _agentServerController.addListener(_onServerStateChanged);
       _serverListenerAttached = true;
     }
+    unawaited(loadInspectorPrefs());
     await _tryConnectWs();
   }
 
@@ -1067,6 +1159,20 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
       }
     }
     return null;
+  }
+
+  /// Human-readable model name for [session], looked up from the catalog by
+  /// matching provider + model id. Falls back to '`providerId`/`modelId`'
+  /// (with '?' for missing parts) when the catalog has no matching entry.
+  String modelDisplayName(AgentSession session) {
+    final providerId = session.providerId;
+    final modelId = session.modelId;
+    for (final e in _catalog) {
+      if (e.provider == providerId && e.modelId == modelId) {
+        return e.displayName;
+      }
+    }
+    return '${providerId ?? '?'}/${modelId ?? '?'}';
   }
 
   /// Injects a catalog for testing without going through [refreshCatalog].

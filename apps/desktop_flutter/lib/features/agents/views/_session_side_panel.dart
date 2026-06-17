@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
+import '../../../app/core/formatters/date_formatters.dart';
 import '../../../app/core/ui/tokens/rhythm_theme.dart';
 import '../controllers/agents_controller.dart';
 import '../models/agent_session.dart';
@@ -49,6 +50,7 @@ class _SessionSidePanelState extends State<SessionSidePanel> {
   @override
   Widget build(BuildContext context) {
     return Container(
+      key: const ValueKey('inspector-panel'),
       width: 320,
       decoration: BoxDecoration(
         color: context.rhythm.surfaceRaised,
@@ -133,6 +135,18 @@ class _Tabs extends StatelessWidget {
             trailing: ChangesTabBadge(sessionId: sessionId),
           ),
           _tab(context, _Tab.terminal, 'Terminal'),
+          IconButton(
+            key: const ValueKey('inspector-collapse-button'),
+            icon: const Icon(Icons.chevron_right, size: 18),
+            tooltip: 'Collapse',
+            onPressed: () =>
+                context.read<AgentsController>().setPanelCollapsed(true),
+            style: IconButton.styleFrom(
+              minimumSize: const Size(28, 28),
+              padding: EdgeInsets.zero,
+              foregroundColor: context.rhythm.textMuted,
+            ),
+          ),
         ],
       ),
     );
@@ -196,6 +210,8 @@ class _ContextTab extends StatelessWidget {
     final controller = context.watch<AgentsController>();
     final totalTokens = controller.sessionContextTokens(session.id);
     final contextWindow = controller.contextWindowForSession(session);
+    final messageCount = controller.chatMessagesFor(session.id).length;
+    final hasMessages = messageCount > 0;
     return ListView(
       padding: const EdgeInsets.all(12),
       children: [
@@ -205,7 +221,100 @@ class _ContextTab extends StatelessWidget {
         const SizedBox(height: 8),
         _ContextUsageGauge(
             tokensUsed: totalTokens, contextWindow: contextWindow),
+        // OPC: enriched Context-tab details (cost, token breakdown, session
+        // metadata). Only rendered once the session has at least one message;
+        // zero-message sessions keep the gauge's "No messages yet" empty state.
+        if (hasMessages) ..._buildDetails(context, controller, messageCount),
       ],
+    );
+  }
+
+  List<Widget> _buildDetails(
+    BuildContext context,
+    AgentsController controller,
+    int messageCount,
+  ) {
+    final cost = controller.sessionTotalCost(session.id) ?? 0;
+    final b = controller.sessionTokenBreakdown(session.id);
+    return [
+      const SizedBox(height: 12),
+      _rowChild(
+        context,
+        'Session cost',
+        Text(
+          '\$${cost.toStringAsFixed(4)}',
+          key: const ValueKey('context-cost'),
+          style: TextStyle(fontSize: 12, color: context.rhythm.textPrimary),
+        ),
+      ),
+      const SizedBox(height: 8),
+      _rowChild(
+        context,
+        'Input tokens',
+        _valueText(context, b.input.toString(),
+            key: const ValueKey('context-tokens-input')),
+      ),
+      _rowChild(
+        context,
+        'Output tokens',
+        _valueText(context, b.output.toString(),
+            key: const ValueKey('context-tokens-output')),
+      ),
+      _rowChild(
+          context, 'Cache read', _valueText(context, b.cacheRead.toString())),
+      _rowChild(
+          context, 'Cache write', _valueText(context, b.cacheWrite.toString())),
+      _rowChild(context, 'Reasoning tokens',
+          _valueText(context, b.reasoning.toString())),
+      const SizedBox(height: 8),
+      _rowChild(
+        context,
+        'Model',
+        _valueText(context, controller.modelDisplayName(session),
+            key: const ValueKey('context-model')),
+      ),
+      _row(context, 'Created',
+          DateFormatters.fullDateFromDateTime(session.createdAt)),
+      _row(context, 'Updated',
+          DateFormatters.fullDateFromDateTime(session.updatedAt)),
+      _rowChild(
+        context,
+        'Messages',
+        _valueText(context, messageCount.toString(),
+            key: const ValueKey('context-message-count')),
+      ),
+    ];
+  }
+
+  Text _valueText(BuildContext context, String v, {Key? key}) {
+    return Text(
+      v,
+      key: key,
+      style: TextStyle(fontSize: 12, color: context.rhythm.textPrimary),
+    );
+  }
+
+  /// Label/value row that reuses the [_row] label style but renders a custom
+  /// value widget (so a [ValueKey] can be attached to the value Text).
+  Widget _rowChild(BuildContext context, String k, Widget value) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            k,
+            style: TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.w600,
+              letterSpacing: 0.6,
+              color: context.rhythm.textMuted,
+            ),
+          ),
+          const SizedBox(height: 2),
+          value,
+        ],
+      ),
     );
   }
 
