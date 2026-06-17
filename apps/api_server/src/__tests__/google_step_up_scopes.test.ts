@@ -1,11 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { env } from '../config/env';
-import {
-  GoogleOAuthService,
-  GOOGLE_AGENT_SCOPES,
-  GOOGLE_SCOPES,
-  GEMINI_CLOUD_PLATFORM_SCOPE,
-} from '../services/google_oauth_service';
+import { GoogleOAuthService, GOOGLE_AGENT_SCOPES } from '../services/google_oauth_service';
 
 describe('Google step-up scopes', () => {
   let origClientId: string;
@@ -33,17 +28,6 @@ describe('Google step-up scopes', () => {
     expect(GOOGLE_AGENT_SCOPES).toContain('https://www.googleapis.com/auth/gmail.send');
   });
 
-  it('agent scope set includes the gemini cloud-platform scope (step-up only)', () => {
-    expect(GEMINI_CLOUD_PLATFORM_SCOPE).toBe(
-      'https://www.googleapis.com/auth/cloud-platform',
-    );
-    expect(GOOGLE_AGENT_SCOPES).toContain(GEMINI_CLOUD_PLATFORM_SCOPE);
-  });
-
-  it('login (base) scope set does NOT include cloud-platform — keeps login minimal', () => {
-    expect(GOOGLE_SCOPES).not.toContain(GEMINI_CLOUD_PLATFORM_SCOPE);
-  });
-
   it('getAuthorizationUrl(scopes) embeds the requested scope set and forces consent', () => {
     const svc = new GoogleOAuthService();
     const url = svc.getAuthorizationUrl({
@@ -55,24 +39,6 @@ describe('Google step-up scopes', () => {
     expect(url).toContain('prompt=consent');
     // must NOT include the readonly variant (we passed the full calendar scope)
     expect(url).not.toContain(encodeURIComponent('https://www.googleapis.com/auth/calendar.readonly'));
-  });
-
-  it('getAuthorizationUrl carries an explicit state override (used to round-trip intent=agent)', () => {
-    const svc = new GoogleOAuthService();
-    const url = svc.getAuthorizationUrl({
-      sessionToken: 'sess-tok',
-      state: 'agent:sess-tok',
-      scopes: GOOGLE_AGENT_SCOPES,
-    });
-    // Google echoes `state` verbatim on the callback — we encode the agent
-    // intent there because the fixed redirect_uri can't carry extra query.
-    expect(url).toContain('state=agent%3Asess-tok');
-  });
-
-  it('getAuthorizationUrl defaults state to the sessionToken when no override given', () => {
-    const svc = new GoogleOAuthService();
-    const url = svc.getAuthorizationUrl({ sessionToken: 'sess-tok' });
-    expect(url).toContain('state=sess-tok');
   });
 
   it('getAuthorizationUrl without scopes uses the base scopes (unchanged default)', () => {

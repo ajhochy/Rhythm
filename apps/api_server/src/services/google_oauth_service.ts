@@ -7,7 +7,7 @@ const GOOGLE_AUTH_BASE = 'https://accounts.google.com/o/oauth2/v2/auth';
 const GOOGLE_TOKEN_URL = 'https://oauth2.googleapis.com/token';
 const GOOGLE_USERINFO_URL = 'https://openidconnect.googleapis.com/v1/userinfo';
 
-export const GOOGLE_SCOPES = [
+const GOOGLE_SCOPES = [
   'openid',
   'email',
   'profile',
@@ -16,28 +16,6 @@ export const GOOGLE_SCOPES = [
 
 export const GOOGLE_DESKTOP_SCOPES = GOOGLE_SCOPES;
 
-/**
- * The restricted Google scope that lets opencode's `google` provider (which
- * uses the generic google-auth-library OAuth flow) mint Gemini calls. Option C
- * bridges the user's Google token — carrying THIS scope — into opencode so the
- * `gemini-cli` agent (provider `google`) runs Gemini from the user's account.
- *
- * IMPORTANT — Google Cloud console prerequisites for this scope to actually
- * work at runtime:
- *   1. The OAuth client's Google Cloud project must ENABLE the Generative
- *      Language API (and/or the Vertex AI API) — otherwise Gemini calls 403.
- *   2. `cloud-platform` is a RESTRICTED/sensitive scope: adding it to the OAuth
- *      consent screen triggers Google's OAuth app re-verification (and, until
- *      verified, an "unverified app" interstitial / test-user allowlist).
- *
- * It is intentionally added to the AGENT step-up scope set ONLY — never the
- * base login scopes — so a normal sign-in stays minimal and is not subject to
- * the heavier consent/verification. Moving it to base login is a one-line
- * change: add GEMINI_CLOUD_PLATFORM_SCOPE to GOOGLE_SCOPES above.
- */
-export const GEMINI_CLOUD_PLATFORM_SCOPE =
-  'https://www.googleapis.com/auth/cloud-platform';
-
 export const GOOGLE_AGENT_SCOPES = [
   'openid',
   'email',
@@ -45,8 +23,6 @@ export const GOOGLE_AGENT_SCOPES = [
   'https://www.googleapis.com/auth/calendar',
   'https://www.googleapis.com/auth/gmail.readonly',
   'https://www.googleapis.com/auth/gmail.send',
-  // Gemini (Option C): bridged into opencode's `google` provider. Step-up only.
-  GEMINI_CLOUD_PLATFORM_SCOPE,
 ];
 
 interface GoogleTokenResponse {
@@ -72,13 +48,6 @@ export class GoogleOAuthService {
     loginHint?: string | null;
     forceConsent?: boolean;
     scopes?: string[];
-    /**
-     * Overrides the OAuth `state` value. Google echoes `state` verbatim on the
-     * callback, so it's the only channel for round-tripping a flow marker (e.g.
-     * `agent:<sessionToken>`) when the registered redirect_uri is fixed and
-     * can't carry extra query params. Defaults to `sessionToken`.
-     */
-    state?: string;
   }): string {
     this.assertConfigured();
 
@@ -91,7 +60,7 @@ export class GoogleOAuthService {
       access_type: 'offline',
       include_granted_scopes: 'true',
       scope: scopeList.join(' '),
-      state: options.state ?? options.sessionToken,
+      state: options.sessionToken,
       ...(options.loginHint ? { login_hint: options.loginHint } : {}),
       ...(options.forceConsent ? { prompt: 'consent' } : {}),
     });
