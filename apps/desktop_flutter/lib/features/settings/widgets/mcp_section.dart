@@ -162,17 +162,34 @@ class _McpSectionState extends State<McpSection> {
   }
 }
 
-/// MCP-4: opens the Add/Edit secrets dialog pre-filled with [serverName] so the
-/// user can supply a missing credential without retyping the name.
+/// MCP-4: opens a FOCUSED credentials dialog that asks only for the curated
+/// server's required key(s) — one obscured field per [McpServerEntry.requiredEnv]
+/// entry, no command field. Submitting POSTs the keys via
+/// [McpController.setCredentials] and refreshes so the row flips to connected.
+///
+/// Guard: if the server reports no required keys (shouldn't happen for a
+/// key-based server), fall back to the generic Add dialog so we never present
+/// an empty form.
 Future<void> _showCredentialsDialog(
   BuildContext context,
   McpController ctrl,
-  String serverName,
+  McpServerEntry server,
 ) async {
+  if (server.requiredEnv.isEmpty) {
+    await showDialog<void>(
+      context: context,
+      builder: (dialogCtx) =>
+          _AddMcpServerDialog(ctrl: ctrl, initialName: server.name),
+    );
+    return;
+  }
   await showDialog<void>(
     context: context,
-    builder: (dialogCtx) =>
-        _AddMcpServerDialog(ctrl: ctrl, initialName: serverName),
+    builder: (dialogCtx) => _McpCredentialsDialog(
+      ctrl: ctrl,
+      serverName: server.name,
+      requiredEnv: server.requiredEnv,
+    ),
   );
 }
 
@@ -214,8 +231,7 @@ class _McpServerRow extends StatelessWidget {
               if (needsCredentials)
                 _NeedsCredentialsBadge(
                   key: Key('mcp-needs-credentials-${server.name}'),
-                  onTap: () =>
-                      _showCredentialsDialog(context, ctrl, server.name),
+                  onTap: () => _showCredentialsDialog(context, ctrl, server),
                 )
               else if (needsSignIn)
                 _SignInRequiredBadge(
@@ -673,5 +689,159 @@ class _EnvRow {
   void dispose() {
     keyController.dispose();
     valueController.dispose();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Focused credentials dialog (curated key-based servers — stripe/mailchimp)
+// ---------------------------------------------------------------------------
+
+/// MCP-4: a focused "Enter credentials" dialog that asks ONLY for the curated
+/// server's required key(s). One obscured field per [requiredEnv] entry — no
+/// command/URL field. On submit it POSTs the keys via
+/// [McpController.setCredentials] and pops on success; failures show inline.
+class _McpCredentialsDialog extends StatefulWidget {
+  const _McpCredentialsDialog({
+    required this.ctrl,
+    required this.serverName,
+    required this.requiredEnv,
+  });
+
+  final McpController ctrl;
+  final String serverName;
+  final List<String> requiredEnv;
+
+  @override
+  State<_McpCredentialsDialog> createState() => _McpCredentialsDialogState();
+}
+
+class _McpCredentialsDialogState extends State<_McpCredentialsDialog> {
+  /// One controller per required env key, keyed by the env-var name.
+  late final Map<String, TextEditingController> _controllers = {
+    for (final key in widget.requiredEnv) key: TextEditingController(),
+  };
+
+  bool _submitting = false;
+  String? _submitError;
+
+  @override
+  void dispose() {
+    for (final c in _controllers.values) {
+      c.dispose();
+    }
+    super.dispose();
+  }
+
+  /// Humanizes an env-var name into a friendly label, e.g.
+  /// `STRIPE_SECRET_KEY` → "Stripe secret key". Adds a `(sk_...)` hint for
+  /// obvious secret-key names without hardcoding per-provider strings.
+  String _humanize(String envKey) {
+    final words = envKey
+        .split('_')
+        .where((w) => w.isNotEmpty)
+        .map((w) => '${w[0].toUpperCase()}${w.substring(1).toLowerCase()}')
+        .toList();
+    if (words.isEmpty) return envKey;
+    return words.join(' ');
+  }
+
+  Future<void> _submit() async {
+    final env = <String, String>{};
+    var allFilled = true;
+    for (final key in widget.requiredEnv) {
+      final value = _controllers[key]!.text.trim();
+      if (value.isEmpty) {
+        allFilled = false;
+        break;
+      }
+      env[key] = value;
+    }
+    if (!allFilled) {
+      setState(() => _submitError = 'Enter a value for every field.');
+      return;
+    }
+
+    setState(() {
+      _submitting = true;
+      _submitError = null;
+    });
+
+    try {
+      await widget.ctrl.setCredentials(widget.serverName, env);
+      if (mounted) Navigator.of(context).pop();
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _submitting = false;
+          _submitError = e.toString();
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: Text('Connect ${widget.serverName}'),
+      content: SizedBox(
+        width: 400,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              'Enter the required credential${widget.requiredEnv.length > 1 ? 's' : ''} '
+              'to connect this server.',
+              style: TextStyle(
+                fontSize: 13,
+                color: context.rhythm.textSecondary,
+              ),
+            ),
+            for (var i = 0; i < widget.requiredEnv.length; i++) ...[
+              const SizedBox(height: 12),
+              TextField(
+                key: Key('mcp-cred-field-${widget.requiredEnv[i]}'),
+                controller: _controllers[widget.requiredEnv[i]],
+                autofocus: i == 0,
+                obscureText: true,
+                enabled: !_submitting,
+                decoration: InputDecoration(
+                  labelText: _humanize(widget.requiredEnv[i]),
+                  hintText: widget.requiredEnv[i],
+                  isDense: true,
+                ),
+              ),
+            ],
+            if (_submitError != null) ...[
+              const SizedBox(height: 12),
+              Text(
+                _submitError!,
+                style: TextStyle(fontSize: 12, color: context.rhythm.danger),
+              ),
+            ],
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: _submitting ? null : () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          key: const Key('mcp-cred-submit'),
+          onPressed: _submitting ? null : _submit,
+          child: _submitting
+              ? const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Colors.white,
+                  ),
+                )
+              : const Text('Connect'),
+        ),
+      ],
+    );
   }
 }

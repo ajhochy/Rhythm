@@ -179,6 +179,23 @@ class McpController extends ChangeNotifier {
     }
   }
 
+  // ── Credentials ─────────────────────────────────────────────────────────
+
+  /// MCP-4: submits credentials for a curated key-based server, then refreshes
+  /// so the row flips to connected (or shows the server's real error). Mirrors
+  /// [connectServer]'s catch — failures surface inline, never silently.
+  Future<void> setCredentials(String name, Map<String, String> env) async {
+    _serverErrors.remove(name);
+    notifyListeners();
+    try {
+      await _dataSource.setCredentials(name, env);
+      await refresh();
+    } catch (e) {
+      _serverErrors[name] = e.toString();
+      notifyListeners();
+    }
+  }
+
   // ── Disconnect ────────────────────────────────────────────────────────────
 
   Future<void> disconnectServer(String name) async {

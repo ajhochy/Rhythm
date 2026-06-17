@@ -119,6 +119,12 @@ class _FakeMcpDataSource implements McpDataSource {
     removeCallCount++;
     lastRemoveName = name;
   }
+
+  @override
+  Future<void> setCredentials(
+    String name,
+    Map<String, String> environment,
+  ) async {}
 }
 
 // ---------------------------------------------------------------------------

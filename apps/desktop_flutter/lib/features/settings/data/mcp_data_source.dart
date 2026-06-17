@@ -14,6 +14,7 @@ class McpServerEntry {
     this.needsCredentials = false,
     this.environment,
     this.url,
+    this.requiredEnv = const [],
   });
 
   final String name;
@@ -39,6 +40,12 @@ class McpServerEntry {
   /// command-based servers leave this null. Used to detect OAuth servers.
   final String? url;
 
+  /// MCP-4 (credentials dialog): the curated server's required env-var names
+  /// (e.g. `['STRIPE_SECRET_KEY']`). Empty when the server is not a curated
+  /// key-based server. Computed server-side; drives the focused credentials
+  /// dialog's fields (one obscured field per entry).
+  final List<String> requiredEnv;
+
   /// OA3: true when this is a remote (URL-backed) server with no required
   /// credentials — i.e. an OAuth server. Detection rule: remote URL present
   /// AND no env-based credentials. A `needs_auth` status is also a definite
@@ -53,6 +60,7 @@ class McpServerEntry {
 
   factory McpServerEntry.fromJson(Map<String, dynamic> json) {
     final rawEnv = json['environment'] as Map<String, dynamic>?;
+    final rawRequired = json['requiredEnv'] as List<dynamic>?;
     return McpServerEntry(
       name: json['name'] as String,
       status: json['status'] as String? ?? 'unknown',
@@ -60,6 +68,7 @@ class McpServerEntry {
       needsCredentials: json['needsCredentials'] as bool? ?? false,
       environment: rawEnv?.map((k, v) => MapEntry(k, v as String)),
       url: json['url'] as String?,
+      requiredEnv: rawRequired?.map((e) => e as String).toList() ?? const [],
     );
   }
 }
@@ -111,6 +120,15 @@ abstract class McpDataSource {
   Future<void> disconnectServer(String name);
 
   Future<void> removeServer(String name);
+
+  /// MCP-4: submits credentials for a curated key-based server.
+  ///
+  /// POSTs `…/opencode/mcp/$name/credentials` with body
+  /// `{ "environment": { … } }`. The backend merges the key into the curated
+  /// server's known command and reconnects. Throws with the parsed
+  /// `error.message` on a non-2xx response (404 NOT_CURATED,
+  /// 400 NOT_KEY_BASED, 400 MISSING_CREDENTIALS, …).
+  Future<void> setCredentials(String name, Map<String, String> environment);
 }
 
 /// Testing extension — exposes the underlying base URL for contract test c5.
@@ -277,6 +295,29 @@ class _McpDataSourceImpl implements McpDataSource {
         msg = err?['message'] as String? ?? msg;
       } catch (_) {}
       throw Exception('Failed to disconnect MCP server "$name": $msg');
+    }
+  }
+
+  // ── Credentials ─────────────────────────────────────────────────────────
+
+  @override
+  Future<void> setCredentials(
+    String name,
+    Map<String, String> environment,
+  ) async {
+    final response = await http.post(
+      Uri.parse('$_baseUrl/opencode/mcp/$name/credentials'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({'environment': environment}),
+    );
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      String msg = 'HTTP ${response.statusCode}';
+      try {
+        final b = jsonDecode(response.body) as Map<String, dynamic>;
+        final err = b['error'] as Map<String, dynamic>?;
+        msg = err?['message'] as String? ?? msg;
+      } catch (_) {}
+      throw Exception('Failed to set credentials for "$name": $msg');
     }
   }
 

@@ -55,6 +55,12 @@ class _FakeMcpDataSource implements McpDataSource {
 
   @override
   Future<void> removeServer(String name) async {}
+
+  @override
+  Future<void> setCredentials(
+    String name,
+    Map<String, String> environment,
+  ) async {}
 }
 
 Widget _wrap(Widget child, McpController ctrl) {
