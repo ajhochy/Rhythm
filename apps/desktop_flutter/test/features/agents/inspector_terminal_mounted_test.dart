@@ -181,14 +181,17 @@ class _StubAgentsRepository implements AgentsRepository {
   Future<String> runShellCommand(String sessionId, String command) async =>
       'msg-shell-default';
 
-  // closeSession / deleteSession are exercised by the teardown test; the
-  // _ReadyAgentServerController reports ready, so closeSession() awaits the
+  // closeSession / deleteSession / archiveSession are exercised by teardown
+  // tests; the _ReadyAgentServerController reports ready, so these await the
   // repository. Record nothing here — just resolve.
   @override
   Future<void> closeSession(String id) async {}
 
   @override
   Future<void> deleteSession(String id) async {}
+
+  @override
+  Future<AgentSession> archiveSession(String id) async => _makeSession(id);
 
   @override
   noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
@@ -492,6 +495,78 @@ void main() {
               'closing/deleting the session must kill the PTY exactly once');
       expect(fake.sinkClosed, isTrue,
           reason: 'the channel sink must be closed on session teardown');
+
+      await fake.close();
+    },
+  );
+
+  testWidgets(
+    'leak-fix: archiving a session tears down its terminal — killPty called',
+    (tester) async {
+      const sid = 's-archive';
+      final fake = _FakeChannel();
+      controller.ptyChannelFactoryForTest = (_) => fake.channel;
+
+      // Open the Terminal tab so a PTY is created and registered.
+      await tester.runAsync(() async {
+        await tester.pumpWidget(_wrap(
+          controller,
+          TerminalTab(sessionId: sid),
+        ));
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      });
+      await tester.pump();
+
+      expect(repo.createPtyCalls, equals([sid]));
+      expect(repo.killPtyCalls, isEmpty);
+
+      // Archive the session — PTY must be torn down.
+      await tester.runAsync(() async {
+        // Seed the session into the active list so archiveSession finds it.
+        controller.setActiveSessionForTest(sid, _makeSession(sid));
+        await controller.archiveSession(sid);
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      });
+      await tester.pump();
+
+      expect(repo.killPtyCalls, equals(['pty-123']),
+          reason: 'archiving a session must kill its PTY exactly once');
+
+      await fake.close();
+    },
+  );
+
+  testWidgets(
+    'leak-fix: online closeSession tears down terminal directly (belt-and-suspenders)',
+    (tester) async {
+      const sid = 's-online-close';
+      final fake = _FakeChannel();
+      controller.ptyChannelFactoryForTest = (_) => fake.channel;
+
+      // Open the Terminal tab so a PTY is created and registered.
+      await tester.runAsync(() async {
+        await tester.pumpWidget(_wrap(
+          controller,
+          TerminalTab(sessionId: sid),
+        ));
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      });
+      await tester.pump();
+
+      expect(repo.createPtyCalls, equals([sid]));
+      expect(repo.killPtyCalls, isEmpty);
+
+      // closeSession with server ready → online path. PTY must be torn down
+      // directly here (not only deferred to the WS SessionClosed echo).
+      await tester.runAsync(() async {
+        await controller.closeSession(sid);
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      });
+      await tester.pump();
+
+      expect(repo.killPtyCalls, equals(['pty-123']),
+          reason: 'online closeSession must kill the PTY directly; '
+              'a later WS echo calling _disposeTerminal again is a safe no-op');
 
       await fake.close();
     },

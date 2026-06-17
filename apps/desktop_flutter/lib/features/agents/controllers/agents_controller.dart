@@ -1475,7 +1475,10 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     }
     try {
       await _repository.closeSession(id);
-      // The `session.closed` WS message will update state.
+      // Belt-and-suspenders: dispose the PTY directly here so a dropped WS
+      // echo (SessionClosedMessage) cannot leave the PTY alive until app exit.
+      // _disposeTerminal is idempotent — the later WS echo's call is a no-op.
+      _disposeTerminal(id);
     } catch (e) {
       if (e is AppError) {
         _error = e.message;
@@ -1531,6 +1534,7 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     _sessions = _sessions.where((s) => s.id != id).toList();
     _resumable = _resumable.where((s) => s.id != id).toList();
     if (_selectedSessionId == id) _selectedSessionId = null;
+    _disposeTerminal(id);
     notifyListeners();
 
     if (!_agentServerController.isReady) return;
