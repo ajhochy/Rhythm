@@ -3,6 +3,7 @@ import { WebSocketServer, WebSocket } from 'ws';
 import { appEvents } from '../utils/app_events';
 import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
 import { opencodeClient, opencodeSessionMap } from './opencode_engine';
+import { bridgePty, ptyEngineUrl } from './pty_proxy';
 
 export interface WsMessage {
   v: 1;
@@ -20,7 +21,10 @@ export function attachWsGateway(server: http.Server): WebSocketServer {
   }
   attached = true;
 
-  const wss = new WebSocketServer({ server, path: '/ws/agents' });
+  // noServer mode: a single server.on('upgrade') handler (below) routes
+  // upgrade requests to the agents WSS (/ws/agents) or the PTY proxy WSS
+  // (/ws/pty/<id>). The agents `connection` behavior is unchanged.
+  const wss = new WebSocketServer({ noServer: true });
 
   wss.on('connection', (ws) => {
     clients.add(ws);
@@ -54,6 +58,29 @@ export function attachWsGateway(server: http.Server): WebSocketServer {
       taskTitle: payload.taskTitle,
       triggeredByUserId: payload.triggeredByUserId,
     });
+  });
+
+  // Dedicated WSS for PTY proxy connections (/ws/pty/<id>).
+  const ptyWss = new WebSocketServer({ noServer: true });
+
+  server.on('upgrade', (req, socket, head) => {
+    let pathname = '/';
+    try {
+      pathname = new URL(req.url ?? '/', 'http://localhost').pathname;
+    } catch {
+      /* default pathname */
+    }
+    if (pathname === '/ws/agents') {
+      wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req));
+      return;
+    }
+    const m = pathname.match(/^\/ws\/pty\/([^/]+)$/);
+    if (m) {
+      const ptyId = decodeURIComponent(m[1]);
+      ptyWss.handleUpgrade(req, socket, head, (ws) => bridgePty(ws, ptyEngineUrl(ptyId)));
+      return;
+    }
+    socket.destroy();
   });
 
   return wss;

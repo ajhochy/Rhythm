@@ -239,6 +239,18 @@ class _StubAgentsRepository implements AgentsRepository {
   @override
   Future<String> runShellCommand(String sessionId, String command) async =>
       'msg-shell-stub';
+
+  @override
+  Future<String> createPty(String sessionId) async => 'pty-stub';
+
+  @override
+  Future<void> resizePty(String ptyId, int cols, int rows) async {}
+
+  @override
+  Future<void> killPty(String ptyId) async {}
+
+  @override
+  String ptyWsUrl(String ptyId) => 'ws://localhost:4001/ws/pty/$ptyId';
 }
 
 // ---------------------------------------------------------------------------

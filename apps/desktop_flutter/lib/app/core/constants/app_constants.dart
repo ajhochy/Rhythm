@@ -15,5 +15,6 @@ class AppConstants {
   static const int navAgents = 9;
 
   static const String agentLocalBaseUrl = 'http://localhost:4001';
-  static const String agentLocalWsUrl = 'ws://localhost:4001/ws/agents';
+  static const String agentLocalWsBase = 'ws://localhost:4001';
+  static const String agentLocalWsUrl = '$agentLocalWsBase/ws/agents';
 }

@@ -544,4 +544,43 @@ class AgentsDataSource {
     final body = jsonDecode(response.body) as Map<String, dynamic>;
     return body['messageId'] as String;
   }
+
+  // --------------------------------------------------------------------------
+  // PTY
+  // --------------------------------------------------------------------------
+
+  /// POST /agent-sessions/:id/pty — create a new PTY for the session.
+  ///
+  /// Returns the ptyId assigned by the server.
+  Future<String> createPty(String sessionId) async {
+    final response = await _client.post(
+      Uri.parse('$_baseUrl/agent-sessions/$sessionId/pty'),
+      headers: AuthSessionStore.headers(json: true),
+    );
+    assertOk(response);
+    final body = jsonDecode(response.body) as Map<String, dynamic>;
+    return body['ptyId'] as String;
+  }
+
+  /// PATCH /pty/:id — resize the PTY to [cols] × [rows].
+  Future<void> resizePty(String ptyId, int cols, int rows) async {
+    final response = await _client.patch(
+      Uri.parse('$_baseUrl/pty/$ptyId'),
+      headers: AuthSessionStore.headers(json: true),
+      body: jsonEncode({'cols': cols, 'rows': rows}),
+    );
+    assertOk(response);
+  }
+
+  /// DELETE /pty/:id — kill the PTY process.
+  Future<void> killPty(String ptyId) async {
+    await _client.delete(
+      Uri.parse('$_baseUrl/pty/$ptyId'),
+      headers: AuthSessionStore.headers(),
+    );
+  }
+
+  /// Returns the WebSocket URL for the PTY with [ptyId].
+  String ptyWsUrl(String ptyId) =>
+      '${AppConstants.agentLocalWsBase}/ws/pty/$ptyId';
 }

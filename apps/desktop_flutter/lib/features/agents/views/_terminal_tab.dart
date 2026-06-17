@@ -1,274 +1,133 @@
-/// OPC-M1-6 / issue #709 — Terminal command-runner tab.
+/// issue #708 — interactive PTY terminal tab.
 ///
-/// Renders inside the Terminal tab of [SessionSidePanel]. It is a one-shot
-/// command-runner (no PTY, no interactive stdin): the user types a command,
-/// presses Enter, and the output streams in via the existing SSE→WS bridge
-/// (message.part.updated) once the SDK's session.shell call has created the
-/// message. PTY / interactive terminals are issue #708.
+/// Renders inside the Terminal tab of [SessionSidePanel]. A real interactive
+/// terminal: an xterm [Terminal] bound to the PTY proxy WebSocket exposed by
+/// the local agent server. Keystrokes flow out over the socket and process
+/// output flows back into the terminal buffer.
 ///
-/// Layout:
-///   - Scrollable log of entries at the top (command echo + TerminalOutputView)
-///   - Empty state text ("Run a command to get started.") when no entries.
-///   - Error line when the last shell call failed (criterion c5).
-///   - Fixed TextField at the bottom for command input.
+/// Smoke-fix: this widget is now a THIN VIEW. All terminal state (the xterm
+/// [Terminal], the PTY id, the channel, the subscription, status, the
+/// start/teardown/restart logic) lives in a session-keyed
+/// [PtyTerminalSession] owned by the long-lived [AgentsController]. The PTY's
+/// lifetime is tied to the SESSION, not to this widget — so collapsing the
+/// side panel or switching the panel's Context/Changes/Terminal tabs (both of
+/// which dispose this widget) NO LONGER kills the shell. Remounting reuses the
+/// same [PtyTerminalSession] (same buffer, same shell). The PTY is torn down
+/// only when the session is closed/deleted, or when the controller is disposed.
+///
+/// Status states: connecting (spinner), connected (TerminalView), exited
+/// ("[process exited]" + New terminal), error (message + Retry).
 library;
 
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:xterm/xterm.dart';
 
 import '../../../app/core/ui/tokens/rhythm_theme.dart';
 import '../controllers/agents_controller.dart';
-import '../models/chat_models.dart';
-import '_tool_renderers/_terminal_output_view.dart';
+import '../controllers/pty_terminal_session.dart';
 
-class TerminalTab extends StatefulWidget {
+class TerminalTab extends StatelessWidget {
   const TerminalTab({super.key, required this.sessionId});
 
   final String sessionId;
 
   @override
-  State<TerminalTab> createState() => _TerminalTabState();
+  Widget build(BuildContext context) {
+    // Get-or-create the session-scoped terminal. On first open this lazily
+    // creates the PTY exactly once; on remount (panel collapse / tab switch)
+    // it returns the SAME instance, preserving the live shell + buffer.
+    final term = context.read<AgentsController>().terminalSessionFor(sessionId);
+    // Rebuild this view on status changes without rebuilding on every unrelated
+    // AgentsController notification.
+    return ListenableBuilder(
+      listenable: term,
+      builder: (context, _) => _TerminalBody(term: term),
+    );
+  }
 }
 
-class _TerminalTabState extends State<TerminalTab> {
-  final _commandController = TextEditingController();
-  final _scrollController = ScrollController();
-  bool _submitting = false;
+class _TerminalBody extends StatelessWidget {
+  const _TerminalBody({required this.term});
+
+  final PtyTerminalSession term;
 
   @override
-  void dispose() {
-    _commandController.dispose();
-    _scrollController.dispose();
-    super.dispose();
-  }
-
-  Future<void> _submit(AgentsController controller) async {
-    final command = _commandController.text.trim();
-    if (command.isEmpty || _submitting) return;
-    setState(() => _submitting = true);
-    _commandController.clear();
-    try {
-      await controller.runShellCommand(widget.sessionId, command);
-      // Scroll to bottom after new entry is rendered.
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (_scrollController.hasClients) {
-          _scrollController.animateTo(
-            _scrollController.position.maxScrollExtent,
-            duration: const Duration(milliseconds: 200),
-            curve: Curves.easeOut,
-          );
-        }
-      });
-    } finally {
-      if (mounted) setState(() => _submitting = false);
+  Widget build(BuildContext context) {
+    switch (term.status) {
+      case PtyTerminalStatus.connecting:
+        return const Center(
+          child: SizedBox(
+            width: 20,
+            height: 20,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+        );
+      case PtyTerminalStatus.connected:
+        return TerminalView(term.terminal);
+      case PtyTerminalStatus.exited:
+        return _StatusMessage(
+          key: const Key('terminal-exited'),
+          icon: Icons.check_circle_outline,
+          message: '[process exited]',
+          actionLabel: 'New terminal',
+          onAction: term.restart,
+        );
+      case PtyTerminalStatus.error:
+        return _StatusMessage(
+          key: const Key('terminal-error'),
+          icon: Icons.error_outline,
+          message: 'Terminal connection failed.',
+          actionLabel: 'Retry',
+          isError: true,
+          onAction: term.restart,
+        );
     }
   }
-
-  @override
-  Widget build(BuildContext context) {
-    final controller = context.watch<AgentsController>();
-    final entries = controller.terminalEntriesFor(widget.sessionId);
-    final error = controller.terminalErrorFor(widget.sessionId);
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        // Scrollable output area.
-        Expanded(
-          child: entries.isEmpty && error == null
-              ? Center(
-                  child: Text(
-                    'Run a command to get started.',
-                    style: TextStyle(
-                      color: context.rhythm.textMuted,
-                      fontSize: 12,
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
-                )
-              : ListView.builder(
-                  controller: _scrollController,
-                  padding: const EdgeInsets.all(10),
-                  itemCount: entries.length + (error != null ? 1 : 0),
-                  itemBuilder: (context, index) {
-                    // Error line appended after the entries list.
-                    if (error != null && index == entries.length) {
-                      return _ErrorLine(
-                        key: const Key('terminal-error-line'),
-                        message: error,
-                      );
-                    }
-                    final entry = entries[index];
-                    final parts = controller.chatPartsFor(entry.messageId);
-                    // Filter to bash/tool parts only.
-                    final toolParts =
-                        parts.where((p) => p.type == 'tool').toList();
-                    return _CommandBlock(
-                      command: entry.command,
-                      toolParts: toolParts,
-                    );
-                  },
-                ),
-        ),
-        // Command input field.
-        _CommandInput(
-          controller: _commandController,
-          submitting: _submitting,
-          onSubmit: () => _submit(context.read<AgentsController>()),
-        ),
-      ],
-    );
-  }
 }
 
-/// One entry in the terminal log: command echo header + output parts.
-class _CommandBlock extends StatelessWidget {
-  const _CommandBlock({
-    required this.command,
-    required this.toolParts,
+/// Centered status message with an action button (exited / error states).
+class _StatusMessage extends StatelessWidget {
+  const _StatusMessage({
+    super.key,
+    required this.icon,
+    required this.message,
+    required this.actionLabel,
+    required this.onAction,
+    this.isError = false,
   });
 
-  final String command;
-  final List<ChatPart> toolParts;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Command echo — monospace header mimicking a shell prompt.
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-            decoration: BoxDecoration(
-              color: context.rhythm.canvas,
-              border: Border.all(color: context.rhythm.borderSubtle),
-              borderRadius: BorderRadius.circular(RhythmRadius.md),
-            ),
-            child: Text(
-              '\$ $command',
-              style: TextStyle(
-                fontFamily: 'JetBrainsMono',
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-                color: context.rhythm.textPrimary,
-              ),
-            ),
-          ),
-          // Output parts (each tool part → TerminalOutputView).
-          for (final part in toolParts)
-            Padding(
-              padding: const EdgeInsets.only(top: 4),
-              child: TerminalOutputView(part: part),
-            ),
-        ],
-      ),
-    );
-  }
-}
-
-/// Inline error line shown when the last shell call failed (criterion c5).
-class _ErrorLine extends StatelessWidget {
-  const _ErrorLine({super.key, required this.message});
-
+  final IconData icon;
   final String message;
+  final String actionLabel;
+  final VoidCallback onAction;
+  final bool isError;
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-        decoration: BoxDecoration(
-          color: context.rhythm.danger.withValues(alpha: 0.08),
-          border:
-              Border.all(color: context.rhythm.danger.withValues(alpha: 0.3)),
-          borderRadius: BorderRadius.circular(RhythmRadius.md),
-        ),
-        child: Row(
-          children: [
-            Icon(Icons.error_outline, size: 14, color: context.rhythm.danger),
-            const SizedBox(width: 6),
-            Expanded(
-              child: Text(
-                message,
-                style: TextStyle(
-                  fontFamily: 'JetBrainsMono',
-                  fontSize: 11,
-                  color: context.rhythm.danger,
-                ),
-              ),
+    final color =
+        isError ? context.rhythm.danger : context.rhythm.textSecondary;
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 20, color: color),
+          const SizedBox(height: 8),
+          Text(
+            message,
+            style: TextStyle(
+              fontFamily: 'JetBrainsMono',
+              fontSize: 12,
+              color: color,
             ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-/// Command input field at the bottom of the Terminal tab.
-class _CommandInput extends StatelessWidget {
-  const _CommandInput({
-    required this.controller,
-    required this.submitting,
-    required this.onSubmit,
-  });
-
-  final TextEditingController controller;
-  final bool submitting;
-  final VoidCallback onSubmit;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.fromLTRB(10, 8, 10, 10),
-      decoration: BoxDecoration(
-        border: Border(
-          top: BorderSide(color: context.rhythm.borderSubtle),
-        ),
-      ),
-      child: TextField(
-        key: const Key('terminal-command-input'),
-        controller: controller,
-        enabled: !submitting,
-        style: TextStyle(
-          fontFamily: 'JetBrainsMono',
-          fontSize: 12,
-          color: context.rhythm.textPrimary,
-        ),
-        decoration: InputDecoration(
-          hintText: 'Enter a command…',
-          hintStyle: TextStyle(
-            fontFamily: 'JetBrainsMono',
-            fontSize: 12,
-            color: context.rhythm.textMuted,
+            textAlign: TextAlign.center,
           ),
-          prefixText: '\$ ',
-          prefixStyle: TextStyle(
-            fontFamily: 'JetBrainsMono',
-            fontSize: 12,
-            fontWeight: FontWeight.w600,
-            color: context.rhythm.textSecondary,
+          const SizedBox(height: 12),
+          OutlinedButton(
+            onPressed: onAction,
+            child: Text(actionLabel),
           ),
-          isDense: true,
-          contentPadding:
-              const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-          border: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(RhythmRadius.sm),
-            borderSide: BorderSide(color: context.rhythm.border),
-          ),
-          enabledBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(RhythmRadius.sm),
-            borderSide: BorderSide(color: context.rhythm.border),
-          ),
-          focusedBorder: OutlineInputBorder(
-            borderRadius: BorderRadius.circular(RhythmRadius.sm),
-            borderSide: BorderSide(color: context.rhythm.accent, width: 1.5),
-          ),
-        ),
-        textInputAction: TextInputAction.done,
-        onSubmitted: (_) => onSubmit(),
+        ],
       ),
     );
   }
