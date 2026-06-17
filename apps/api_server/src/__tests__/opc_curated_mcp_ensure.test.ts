@@ -191,34 +191,30 @@ describe('POST /opencode/mcp/curated/ensure route (c5)', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// MCP-7 — the curated registry is complete (7 entries) and shapes are correct.
+// Verified catalog pin — the curated registry is pinned to the verified set
+// (5 entries) and shapes are correct. google-workspace + planning-center were
+// dropped (no installable npm package; the rhythm MCP already brokers
+// Gmail/Calendar + PCO). See docs/ai/decisions.md (2026-06-17).
 //
-// Acceptance criteria (issue MCP-7):
-//   c1 — exactly 7 entries with the expected id set.
+// Acceptance criteria:
+//   c1 — exactly 5 entries with the expected id set (no google/pco).
 //   c2 — canva + notion are remote with non-empty url, no command, requiredEnv:[].
-//   c3 — stripe/mailchimp/google-workspace/planning-center/pdf-tools are local
-//        with non-empty command argv, no url.
-//   c4 — every entry has requiredEnv: string[].
-//   c5 — ensuring the full set on an empty config writes all entries (minus the
-//        cleanly-skipped token-bridged servers with no connected account, per
-//        MCP-6); a second run is a byte-identical no-op (changed:false). Remote
-//        entries persist as {type:'remote',url}.
+//   c3 — stripe/mailchimp/pdf-tools are local with non-empty command argv, no url.
+//   c4 — every entry has requiredEnv: string[] with the verified keys.
+//   c5 — ensuring the full set on an empty config writes all entries; a second
+//        run is a byte-identical no-op (changed:false). Remote entries persist
+//        as {type:'remote',url}.
 // ─────────────────────────────────────────────────────────────────────────────
-describe('MCP-7 curated registry completeness + shape', () => {
-  it('c1: contains exactly 7 entries with the expected id set', () => {
-    expect(CURATED_MCP_SERVERS).toHaveLength(7);
+describe('Verified curated registry completeness + shape', () => {
+  it('c1: contains exactly 5 entries with the expected id set (no google/pco)', () => {
+    expect(CURATED_MCP_SERVERS).toHaveLength(5);
     const ids = CURATED_MCP_SERVERS.map((s) => s.id).sort();
     expect(ids).toEqual(
-      [
-        'canva',
-        'google-workspace',
-        'mailchimp',
-        'notion',
-        'pdf-tools',
-        'planning-center',
-        'stripe',
-      ].sort(),
+      ['canva', 'mailchimp', 'notion', 'pdf-tools', 'stripe'].sort(),
     );
+    // Dropped entries are gone.
+    expect(ids).not.toContain('google-workspace');
+    expect(ids).not.toContain('planning-center');
   });
 
   it('c2: canva + notion are remote with non-empty url, no command, requiredEnv:[]', () => {
@@ -232,20 +228,26 @@ describe('MCP-7 curated registry completeness + shape', () => {
     }
   });
 
-  it('c3: stripe/mailchimp/google/pco/pdf-tools are local with non-empty command argv, no url', () => {
-    for (const id of [
-      'stripe',
-      'mailchimp',
-      'google-workspace',
-      'planning-center',
-      'pdf-tools',
-    ]) {
+  it('c3: stripe/mailchimp/pdf-tools are local with non-empty command argv, no url', () => {
+    for (const id of ['stripe', 'mailchimp', 'pdf-tools']) {
       const s = CURATED_MCP_SERVERS.find((x) => x.id === id)!;
       expect(s.type).toBe('local');
       expect(Array.isArray(s.command)).toBe(true);
       expect(s.command!.length).toBeGreaterThan(0);
       expect(s.url).toBeUndefined();
     }
+    // pdf-tools must launch the stdio transport (the missing `--stdio` was the
+    // prior "Connection closed" cause).
+    const pdf = CURATED_MCP_SERVERS.find((s) => s.id === 'pdf-tools')!;
+    expect(pdf.command).toEqual([
+      'npx',
+      '-y',
+      '--silent',
+      '@modelcontextprotocol/server-pdf',
+      '--stdio',
+    ]);
+    // No curated entry is token-bridged anymore.
+    expect(CURATED_MCP_SERVERS.every((s) => s.tokenProvider == null)).toBe(true);
   });
 
   it('c4: every entry has a string[] requiredEnv with the expected keys', () => {
@@ -255,18 +257,16 @@ describe('MCP-7 curated registry completeness + shape', () => {
     }
     const byId = (id: string) =>
       CURATED_MCP_SERVERS.find((s) => s.id === id)!.requiredEnv;
+    // pdf-tools is zero-auth — must NOT be gated behind the needs-credentials UI.
     expect(byId('pdf-tools')).toEqual([]);
     expect(byId('canva')).toEqual([]);
     expect(byId('notion')).toEqual([]);
     expect(byId('stripe')).toEqual(['STRIPE_SECRET_KEY']);
     expect(byId('mailchimp')).toEqual(['MAILCHIMP_API_KEY']);
-    // token-bridged servers list their inject keys.
-    expect(byId('google-workspace')).toEqual(['GOOGLE_OAUTH_ACCESS_TOKEN']);
-    expect(byId('planning-center')).toEqual(['PCO_ACCESS_TOKEN']);
   });
 });
 
-describe('MCP-7 ensure writes the full set then no-ops (c5)', () => {
+describe('Verified ensure writes the full set then no-ops (c5)', () => {
   let dir: string;
   let configPath: string;
   let svc: OpencodeClientService;
@@ -303,7 +303,7 @@ describe('MCP-7 ensure writes the full set then no-ops (c5)', () => {
     const notion = CURATED_MCP_SERVERS.find((s) => s.id === 'notion')!;
     expect(parsed.mcp['notion']).toEqual({ type: 'remote', url: notion.url });
 
-    // Token-bridged servers with NO connected account + no resolver are skipped.
+    // Dropped servers (google-workspace, planning-center) are never written.
     expect(parsed.mcp['google-workspace']).toBeUndefined();
     expect(parsed.mcp['planning-center']).toBeUndefined();
     expect(result.servers.some((s) => s.id === 'google-workspace')).toBe(false);

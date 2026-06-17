@@ -25,11 +25,41 @@ import { tmpdir } from 'os';
 import type { AddressInfo } from 'node:net';
 import Database from 'better-sqlite3';
 import { OpencodeClientService } from '../services/opencode_client_service';
-import { CURATED_MCP_SERVERS } from '../config/curated_mcp_servers';
+import {
+  CURATED_MCP_SERVERS,
+  type CuratedMcpServer,
+} from '../config/curated_mcp_servers';
 
-const GOOGLE = CURATED_MCP_SERVERS.find((s) => s.id === 'google-workspace')!;
-const PCO = CURATED_MCP_SERVERS.find((s) => s.id === 'planning-center')!;
+// The verified curated catalog has NO token-bridged entry anymore
+// (google-workspace + planning-center were dropped — the rhythm MCP already
+// brokers Gmail/Calendar + PCO). To keep the token-bridge mechanism in
+// `ensureCuratedMcps()` covered we exercise it with SYNTHETIC curated fixtures
+// that declare `tokenProvider`/`tokenEnvKey`, passed via the `servers` override.
+// This proves the bridge (resolve fresh token → inject into env / skip when
+// absent) independently of any live curated entry.
+const GOOGLE: CuratedMcpServer = {
+  id: 'google-workspace',
+  name: 'Google Workspace (test fixture)',
+  type: 'local',
+  command: ['npx', '-y', '@example/google-mcp-fixture'],
+  tokenProvider: 'google',
+  tokenEnvKey: 'GOOGLE_OAUTH_ACCESS_TOKEN',
+  requiredEnv: ['GOOGLE_OAUTH_ACCESS_TOKEN'],
+};
+const PCO: CuratedMcpServer = {
+  id: 'planning-center',
+  name: 'Planning Center (test fixture)',
+  type: 'local',
+  command: ['npx', '-y', '@example/pco-mcp-fixture'],
+  tokenProvider: 'pco',
+  tokenEnvKey: 'PCO_ACCESS_TOKEN',
+  requiredEnv: ['PCO_ACCESS_TOKEN'],
+};
+// PDF Tools is a REAL zero-auth curated entry — used to prove zero-auth servers
+// install alongside the (synthetic) bridged ones.
 const PDF = CURATED_MCP_SERVERS.find((s) => s.id === 'pdf-tools')!;
+// Bridge-fixture list: synthetic bridged servers + the real zero-auth PDF entry.
+const BRIDGE_FIXTURE_SERVERS: CuratedMcpServer[] = [GOOGLE, PCO, PDF];
 
 // ─────────────────────────────────────────────────────────────────────────────
 // c1 — fresh tokens injected into the declared env keys (service-level, using
@@ -56,6 +86,7 @@ describe('ensureCuratedMcps token bridge — injection (c1)', () => {
       configPath,
       register: false,
       tokenResolver,
+      servers: BRIDGE_FIXTURE_SERVERS,
     });
 
     expect(result.changed).toBe(true);
@@ -187,6 +218,7 @@ describe('ensureCuratedMcps token bridge — real refresh path (c2)', () => {
       configPath,
       register: false,
       tokenResolver,
+      servers: BRIDGE_FIXTURE_SERVERS,
     });
 
     expect(result.changed).toBe(true);
@@ -270,10 +302,11 @@ describe('POST /opencode/mcp/curated/ensure token bridge (c3, c4)', () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it('c3: unauthenticated (no user) → token-bridged servers skipped, no throw, PDF Tools installs', async () => {
+  it('c3: real catalog has no google/pco entries; PDF Tools still installs, no throw', async () => {
     // Run the REAL ensureCuratedMcps against a temp config with NO resolver
-    // wired (route omits it when there is no authed user). The Google/PCO
-    // servers must be skipped; PDF Tools must still install.
+    // wired (route omits it when there is no authed user). google-workspace +
+    // planning-center were dropped from the verified catalog, so they must not
+    // appear; PDF Tools (zero-auth) must still install.
     const configPath = join(dir, 'opencode.json');
     const svc = new OpencodeClientService();
     const result = await svc.ensureCuratedMcps({ configPath, register: false });
@@ -281,7 +314,7 @@ describe('POST /opencode/mcp/curated/ensure token bridge (c3, c4)', () => {
     expect(result.changed).toBe(true);
     const parsed = JSON.parse(readFileSync(configPath, 'utf8'));
     expect(parsed.mcp['pdf-tools'].command).toEqual(PDF.command);
-    // Token-bridged servers NOT written (no empty placeholder token).
+    // Dropped servers never written.
     expect(parsed.mcp['google-workspace']).toBeUndefined();
     expect(parsed.mcp['planning-center']).toBeUndefined();
     expect(result.servers.some((s) => s.id === 'google-workspace')).toBe(false);

@@ -6,13 +6,28 @@
  * in opencode_client_service.ts idempotently merges this list into the
  * `mcp` block (add missing, refresh changed, no-op identical).
  *
- * MCP-2 ships the zero-auth PDF Tools entry as a first end-to-end proof.
- * MCP-6 adds the Google Workspace + Planning Center entries whose credentials
- * are bridged from Rhythm's stored OAuth tokens (see `tokenProvider` below).
- * MCP-7 completes the set to 7: adds Canva + Notion (remote, OAuth-on-first-use
- * via opencode), Stripe + Mailchimp (local, API key supplied via the secrets
- * UI). See docs/ai/decisions.md (2026-06-16) for per-server rationale, pins,
- * and credential approach. Pins marked TODO(verify-pin) must be confirmed at PR.
+ * Verified catalog (2026-06-17) — pinned to packages whose existence + env
+ * requirements were confirmed via npm + official docs:
+ *   - pdf-tools  (local, zero-auth)  @modelcontextprotocol/server-pdf@1.7.4
+ *   - canva      (remote, OAuth/DCR) https://mcp.canva.com/mcp        (official)
+ *   - notion     (remote, OAuth/DCR) https://mcp.notion.com/mcp       (official)
+ *   - stripe     (local, API key)    @stripe/mcp@0.3.3
+ *   - mailchimp  (local, API key)    @agentx-ai/mailchimp-mcp-server@1.1.1
+ *
+ * DROPPED (no installable npm package; already brokered by the rhythm MCP):
+ *   - google-workspace — @modelcontextprotocol/server-google-workspace does
+ *     not exist on npm; the rhythm MCP brokers Gmail + Calendar (F3).
+ *   - planning-center  — no installable PCO MCP package exists; the rhythm MCP
+ *     brokers PCO (F4).
+ *
+ * NOTE: with google/pco dropped, NO curated entry sets `tokenProvider`, so the
+ * OAuth token-bridge in `ensureCuratedMcps()` currently has no curated
+ * consumer. The bridge mechanism + its types are intentionally left in place
+ * (covered by a synthetic fixture in opc_curated_mcp_token_bridge.test.ts) for
+ * future bridged servers.
+ *
+ * See docs/ai/decisions.md for per-server rationale, pins, and credential
+ * approach.
  */
 
 /**
@@ -71,47 +86,26 @@ export const CURATED_MCP_SERVERS: CuratedMcpServer[] = [
     id: 'pdf-tools',
     name: 'PDF Tools',
     type: 'local',
-    // TODO(verify-pin): confirm package/url + env keys before release —
-    // the published PDF Tools package name + a pinned version are unconfirmed.
-    command: ['npx', '-y', '@modelcontextprotocol/server-pdf'],
+    // Verified: @modelcontextprotocol/server-pdf@1.7.4. The package DEFAULTS to
+    // an HTTP transport, so the MCP stdio handshake requires `--stdio` (its
+    // absence was the prior "Connection closed"). `--silent` keeps npx noise off
+    // the stdio channel. Zero-auth → requiredEnv: [] (never gated by the
+    // needs-credentials UI).
+    command: [
+      'npx',
+      '-y',
+      '--silent',
+      '@modelcontextprotocol/server-pdf',
+      '--stdio',
+    ],
     requiredEnv: [],
-  },
-  {
-    id: 'google-workspace',
-    name: 'Google Workspace',
-    type: 'local',
-    // TODO(verify-pin): confirm package/url + env keys before release —
-    // confirm the published package name + pin, and that the server reads its
-    // bearer from GOOGLE_OAUTH_ACCESS_TOKEN (rename tokenEnvKey/requiredEnv if not).
-    command: ['npx', '-y', '@modelcontextprotocol/server-google-workspace'],
-    // MCP-6 — credential bridged from Rhythm's stored Google OAuth tokens.
-    tokenProvider: 'google',
-    tokenEnvKey: 'GOOGLE_OAUTH_ACCESS_TOKEN',
-    requiredEnv: ['GOOGLE_OAUTH_ACCESS_TOKEN'],
-  },
-  {
-    id: 'planning-center',
-    name: 'Planning Center',
-    type: 'local',
-    // TODO(verify-pin): confirm package/url + env keys before release —
-    // @ajhochy/pco-mcp-server is the in-house server; pin a version, and confirm
-    // it reads its bearer from PCO_ACCESS_TOKEN (rename if not). Fallback to a
-    // PCO Personal Access Token via the secrets UI if the token bridge is
-    // unavailable (no connected PCO OAuth account).
-    command: ['npx', '-y', '@ajhochy/pco-mcp-server'],
-    // MCP-6 — credential bridged from Rhythm's stored Planning Center OAuth tokens.
-    tokenProvider: 'pco',
-    tokenEnvKey: 'PCO_ACCESS_TOKEN',
-    requiredEnv: ['PCO_ACCESS_TOKEN'],
   },
   {
     id: 'canva',
     name: 'Canva',
     type: 'remote',
-    // Official Canva hosted MCP. OAuth is initiated on first use by opencode —
-    // no API key required, hence requiredEnv: [].
-    // TODO(verify-pin): confirm package/url + env keys before release — confirm
-    // https://mcp.canva.com/mcp is the current official remote endpoint.
+    // Verified official Canva hosted MCP (OAuth/DCR on first use by opencode —
+    // no API key, hence requiredEnv: []).
     url: 'https://mcp.canva.com/mcp',
     requiredEnv: [],
   },
@@ -119,9 +113,7 @@ export const CURATED_MCP_SERVERS: CuratedMcpServer[] = [
     id: 'notion',
     name: 'Notion',
     type: 'remote',
-    // Official makenotion hosted MCP. OAuth on first use by opencode.
-    // TODO(verify-pin): confirm package/url + env keys before release — confirm
-    // https://mcp.notion.com/mcp is the current official remote endpoint.
+    // Verified official Notion hosted MCP (OAuth/DCR on first use by opencode).
     url: 'https://mcp.notion.com/mcp',
     requiredEnv: [],
   },
@@ -129,10 +121,9 @@ export const CURATED_MCP_SERVERS: CuratedMcpServer[] = [
     id: 'stripe',
     name: 'Stripe',
     type: 'local',
-    // Official Stripe MCP. Reads its restricted secret key from STRIPE_SECRET_KEY
-    // in the environment (alternatively `--api-key=`); supplied via the secrets UI.
-    // TODO(verify-pin): confirm package/url + env keys before release — pin a
-    // version of @stripe/mcp.
+    // Verified: @stripe/mcp@0.3.3. Reads its restricted secret key from
+    // STRIPE_SECRET_KEY in the environment (alternatively `--api-key=`);
+    // supplied via the needs-credentials secrets UI.
     command: ['npx', '-y', '@stripe/mcp', '--tools=all'],
     requiredEnv: ['STRIPE_SECRET_KEY'],
   },
@@ -140,11 +131,10 @@ export const CURATED_MCP_SERVERS: CuratedMcpServer[] = [
     id: 'mailchimp',
     name: 'Mailchimp',
     type: 'local',
-    // Maintained community Mailchimp Marketing MCP. Reads MAILCHIMP_API_KEY from
-    // the environment; the key embeds the data-center suffix (e.g. `...-us21`),
-    // so no separate server-prefix env var is required. Supplied via the secrets UI.
-    // TODO(verify-pin): confirm package/url + env keys before release — community
-    // (not official) package; pin a version of @agentx-ai/mailchimp-mcp-server.
+    // Verified: @agentx-ai/mailchimp-mcp-server@1.1.1. Reads MAILCHIMP_API_KEY
+    // from the environment; the key MUST include its data-center suffix
+    // (e.g. `<key>-us21`), so no separate server-prefix env var is needed.
+    // Supplied via the needs-credentials secrets UI.
     command: ['npx', '-y', '@agentx-ai/mailchimp-mcp-server'],
     requiredEnv: ['MAILCHIMP_API_KEY'],
   },

@@ -1258,6 +1258,14 @@ export class OpencodeClientService {
     configPath?: string;
     register?: boolean;
     tokenResolver?: CuratedTokenResolver;
+    /**
+     * Curated server list to ensure. Defaults to {@link CURATED_MCP_SERVERS}.
+     * Overridable so the token-bridge mechanism stays unit-covered with a
+     * synthetic `tokenProvider` fixture now that the verified catalog has no
+     * token-bridged curated entry (google/pco were dropped). Production callers
+     * never pass this.
+     */
+    servers?: CuratedMcpServer[];
   }): Promise<{
     changed: boolean;
     registered: boolean;
@@ -1337,8 +1345,9 @@ export class OpencodeClientService {
       return { [server.tokenEnvKey]: token };
     };
 
+    const curatedServers = opts?.servers ?? CURATED_MCP_SERVERS;
     const changedServers: CuratedMcpServer[] = [];
-    for (const server of CURATED_MCP_SERVERS) {
+    for (const server of curatedServers) {
       const bridgedEnv = await resolveBridgedEnv(server);
       // null → token-bridged server with no connected account: skip entirely.
       if (bridgedEnv === null) continue;
