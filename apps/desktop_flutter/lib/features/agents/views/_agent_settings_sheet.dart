@@ -30,10 +30,12 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../../app/core/ui/tokens/rhythm_theme.dart';
+import '../../settings/controllers/mcp_controller.dart';
 import '../../settings/services/destructive_modal_service.dart';
 import '../../settings/services/keybinds_service.dart';
 import '../../settings/services/opencode_server_service.dart';
 import '../../settings/widgets/ai_account_section.dart';
+import '../../settings/widgets/mcp_section.dart';
 
 /// Opens the "Agent settings" dialog.  Call from the gear IconButton's
 /// onPressed in _SessionListHeader.
@@ -49,6 +51,7 @@ void showAgentSettingsSheet(BuildContext context) {
         ChangeNotifierProvider.value(
           value: context.read<OpencodeServerService>(),
         ),
+        ChangeNotifierProvider.value(value: context.read<McpController>()),
       ],
       child: const _AgentSettingsDialog(),
     ),
@@ -113,6 +116,10 @@ class _AgentSettingsDialog extends StatelessWidget {
               _Divider(),
               SizedBox(height: 20),
               _OpencodeServerSection(),
+              SizedBox(height: 20),
+              _Divider(),
+              SizedBox(height: 20),
+              McpSection(),
             ],
           ),
         ),
