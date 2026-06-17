@@ -1418,24 +1418,11 @@ export class OpencodeClientService {
     name: string,
   ): Promise<{ connected: boolean; authorizationUrl?: string }> {
     const client = this.requireClient();
-    const raw = await client.mcp.connect({
-      path: { name },
-    });
-    if (raw.error) {
-      throw new AppError(
-        502,
-        'SDK_ERROR',
-        `connectMcp failed for ${name}: ${JSON.stringify(raw.error)}`,
-      );
-    }
-    if (raw.data === true) {
-      // Already connected / authenticated — no OAuth consent needed.
-      return { connected: true };
-    }
-
-    // Not connected: a remote OAuth server needs the user to authorize. Begin
-    // the OAuth flow to obtain the consent URL. Non-OAuth servers will error
-    // here; tolerate that and report not-connected without a URL.
+    // OAuth-needing servers (e.g. canva, notion) report connect:true while they
+    // still require interactive sign-in, so the consent URL — not connect's
+    // boolean — is the source of truth. Ask auth.start FIRST and surface its
+    // authorizationUrl when present. Only fall back to a plain connect when
+    // there's no auth URL (server doesn't support/need OAuth).
     try {
       const authRaw = await client.mcp.auth.start({ path: { name } });
       const authorizationUrl = authRaw.error
@@ -1447,7 +1434,18 @@ export class OpencodeClientService {
     } catch {
       // auth.start unsupported / failed for this server — fall through.
     }
-    return { connected: false };
+
+    const raw = await client.mcp.connect({
+      path: { name },
+    });
+    if (raw.error) {
+      throw new AppError(
+        502,
+        'SDK_ERROR',
+        `connectMcp failed for ${name}: ${JSON.stringify(raw.error)}`,
+      );
+    }
+    return { connected: raw.data === true };
   }
 
   /**

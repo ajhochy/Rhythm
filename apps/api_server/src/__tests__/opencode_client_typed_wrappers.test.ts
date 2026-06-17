@@ -431,21 +431,11 @@ describe('wrapper method shapes (M3/M4 readiness)', () => {
     expect(result).toEqual(mcpMap);
   });
 
-  it('connectMcp calls mcp.connect with path.name', async () => {
+  it('connectMcp asks auth.start FIRST and surfaces the OAuth url even when connect reports true', async () => {
+    // The bug: OAuth servers (canva/notion) report connect:true while still
+    // needing sign-in. auth.start returns the consent URL — it must WIN, and
+    // connect must not be reached when a URL is present.
     sdkClient.mcp.connect.mockResolvedValue({ data: true });
-    const result = await svc.connectMcp('my-mcp-server');
-    expect(sdkClient.mcp.connect).toHaveBeenCalledWith(
-      expect.objectContaining({ path: { name: 'my-mcp-server' } }),
-    );
-    // Already authenticated → connected, no OAuth url, auth.start not called.
-    expect(result).toEqual({ connected: true });
-    expect(sdkClient.mcp.auth.start).not.toHaveBeenCalled();
-  });
-
-  it('connectMcp returns authorizationUrl from mcp.auth.start when connect needs OAuth (connect → false)', async () => {
-    // Remote OAuth server: connect reports not-connected, auth.start returns
-    // the consent URL the user must visit (real shape: { authorizationUrl }).
-    sdkClient.mcp.connect.mockResolvedValue({ data: false });
     sdkClient.mcp.auth.start.mockResolvedValue({
       data: { authorizationUrl: 'https://provider/oauth?x' },
     });
@@ -457,15 +447,35 @@ describe('wrapper method shapes (M3/M4 readiness)', () => {
       connected: false,
       authorizationUrl: 'https://provider/oauth?x',
     });
+    // URL won — plain connect is not needed.
+    expect(sdkClient.mcp.connect).not.toHaveBeenCalled();
   });
 
-  it('connectMcp tolerates a server with no OAuth (connect → false, auth.start errors) by returning connected:false without url', async () => {
-    sdkClient.mcp.connect.mockResolvedValue({ data: false });
+  it('connectMcp returns connected:true with no url for a no-OAuth server (auth.start empty, connect → true)', async () => {
+    // No-OAuth server: auth.start yields no authorizationUrl, so we fall
+    // through to a plain connect, which reports connected.
+    sdkClient.mcp.auth.start.mockResolvedValue({ data: {} });
+    sdkClient.mcp.connect.mockResolvedValue({ data: true });
+    const result = await svc.connectMcp('local-server');
+    expect(sdkClient.mcp.connect).toHaveBeenCalledWith(
+      expect.objectContaining({ path: { name: 'local-server' } }),
+    );
+    expect(result).toEqual({ connected: true });
+  });
+
+  it('connectMcp tolerates auth.start throwing/erroring and falls back to connect', async () => {
     sdkClient.mcp.auth.start.mockResolvedValue({
       error: { code: 400, message: 'not an oauth server' },
     });
+    sdkClient.mcp.connect.mockResolvedValue({ data: true });
     const result = await svc.connectMcp('local-server');
-    expect(result).toEqual({ connected: false });
+    expect(result).toEqual({ connected: true });
+  });
+
+  it('connectMcp throws AppError(502) when connect errors and auth.start yields no url', async () => {
+    sdkClient.mcp.auth.start.mockResolvedValue({ data: {} });
+    sdkClient.mcp.connect.mockResolvedValue({ error: { code: 500 } });
+    await expect(svc.connectMcp('broken-server')).rejects.toThrow();
   });
 
   it('disconnectMcp calls mcp.disconnect with path.name', async () => {
