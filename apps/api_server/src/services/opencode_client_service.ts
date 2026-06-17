@@ -1499,6 +1499,70 @@ export class OpencodeClientService {
     }
   }
 
+  // ── PTY wrappers ──────────────────────────────────────────────────────────
+
+  /**
+   * POST /pty — create a new PTY session.
+   *
+   * `opts.cwd` is required; `opts.command` is optional (defaults to the
+   * user's shell). Throws AppError(502) on SDK error envelope.
+   */
+  async createPty(opts: {
+    cwd: string;
+    command?: string;
+  }): Promise<{ id: string; pid: number; status: string }> {
+    const client = this.requireClient();
+    const body: { cwd: string; command?: string } = { cwd: opts.cwd };
+    if (opts.command) body.command = opts.command;
+    const raw = await (client as any).pty.create({ body });
+    if (raw.error) {
+      throw new AppError(
+        502,
+        'SDK_ERROR',
+        `createPty failed: ${JSON.stringify(raw.error)}`,
+      );
+    }
+    const d = raw.data as { id: string; pid: number; status: string };
+    return { id: d.id, pid: d.pid, status: d.status };
+  }
+
+  /**
+   * PATCH /pty/{id} — resize a PTY session.
+   *
+   * Throws AppError(502) on SDK error envelope.
+   */
+  async resizePty(id: string, cols: number, rows: number): Promise<void> {
+    const client = this.requireClient();
+    const raw = await (client as any).pty.update({
+      path: { id },
+      body: { size: { rows, cols } },
+    });
+    if (raw.error) {
+      throw new AppError(
+        502,
+        'SDK_ERROR',
+        `resizePty failed for ${id}: ${JSON.stringify(raw.error)}`,
+      );
+    }
+  }
+
+  /**
+   * DELETE /pty/{id} — remove a PTY session (best-effort; swallows errors).
+   *
+   * The PTY may already be gone when the client disconnects — swallow all
+   * errors so callers do not need to handle cleanup failures.
+   */
+  async removePty(id: string): Promise<void> {
+    const client = this.requireClient();
+    try {
+      await (client as any).pty.remove({ path: { id } });
+    } catch {
+      /* best-effort: PTY may already be gone */
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+
   /**
    * POST /session/{id}/shell — run a one-shot shell command in the session.
    *

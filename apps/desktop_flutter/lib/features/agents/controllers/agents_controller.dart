@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../app/core/agents/agent_server_controller.dart';
 import '../../../app/core/errors/app_error.dart';
@@ -18,6 +19,7 @@ import '../models/agent_ws_message.dart';
 import '../models/chat_models.dart';
 // AgentInfo is defined in chat_models.dart (OPC-M4-4).
 import '../repositories/agents_repository.dart';
+import 'pty_terminal_session.dart';
 
 class PendingPermission {
   const PendingPermission({
@@ -53,6 +55,24 @@ class PendingTrigger {
   /// user opens the chat from the trigger bubble.
   final String? taskNotes;
   final DateTime arrivedAt;
+}
+
+/// Per-message token usage broken out for the inspector Context tab. `cache`
+/// in the raw tokens map is split into [cacheRead] / [cacheWrite] (it may also
+/// arrive as a single int read count — see [AgentsController.sessionTokenBreakdown]).
+class TokenBreakdown {
+  const TokenBreakdown({
+    this.input = 0,
+    this.output = 0,
+    this.reasoning = 0,
+    this.cacheRead = 0,
+    this.cacheWrite = 0,
+  });
+  final int input;
+  final int output;
+  final int reasoning;
+  final int cacheRead;
+  final int cacheWrite;
 }
 
 class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
@@ -239,6 +259,12 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   /// is fired for all messages in the working session that are armed.
   final Set<String> _notifyOnCompletion = {};
 
+  // --------------------------------------------------------------------------
+  // Inspector panel collapse state (persisted via shared_preferences)
+  // --------------------------------------------------------------------------
+  static const _inspectorCollapsedKey = 'agents.inspector.collapsed';
+  bool _panelCollapsed = false;
+
   AgentSessionConnectivity _connectivity = const AgentSessionConnectivity();
 
   /// OPC-M1-5 — The id of the local session whose SDK backing was reported
@@ -409,6 +435,37 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     return hasCost ? total : null;
   }
 
+  /// Inspector Context tab: token usage from the latest message in [sessionId]
+  /// that carries a tokens map. `cache` may be an int (read count) or a
+  /// `{read, write}` map. Returns an all-zero [TokenBreakdown] when no token
+  /// data exists for the session.
+  TokenBreakdown sessionTokenBreakdown(String sessionId) {
+    final messages = _chatMessagesBySession[sessionId];
+    if (messages == null) return const TokenBreakdown();
+    int asInt(Object? v) => v is num ? v.toInt() : 0;
+    for (final m in messages.reversed) {
+      final t = m.tokens;
+      if (t == null) continue;
+      final cacheRaw = t['cache'];
+      int cacheRead = 0;
+      int cacheWrite = 0;
+      if (cacheRaw is Map) {
+        cacheRead = asInt(cacheRaw['read']);
+        cacheWrite = asInt(cacheRaw['write']);
+      } else if (cacheRaw is num) {
+        cacheRead = cacheRaw.toInt();
+      }
+      return TokenBreakdown(
+        input: asInt(t['input']),
+        output: asInt(t['output']),
+        reasoning: asInt(t['reasoning']),
+        cacheRead: cacheRead,
+        cacheWrite: cacheWrite,
+      );
+    }
+    return const TokenBreakdown();
+  }
+
   /// OPC-M3-1 — FileDiff entries for [sessionId] in the order returned by the
   /// server. Returns an empty list when no diff has been fetched yet.
   List<Map<String, dynamic>> sessionDiffFor(String sessionId) =>
@@ -461,6 +518,9 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   /// revert point are dimmed + badged; "Restore reverted changes" banner shown).
   bool sessionIsReverted(String sessionId) =>
       _sessionReverted[sessionId] ?? false;
+
+  /// Alias of [sessionIsReverted] — true when [sessionId] has an active revert.
+  bool isSessionReverted(String sessionId) => sessionIsReverted(sessionId);
 
   /// OPC-M3-2 — Revert the session to the message identified by [messageId].
   ///
@@ -887,6 +947,75 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     }
   }
 
+  // --------------------------------------------------------------------------
+  // PTY
+  // --------------------------------------------------------------------------
+
+  /// POST /agent-sessions/:id/pty — create a new PTY for the session.
+  ///
+  /// Returns the ptyId assigned by the server. Throws on HTTP error.
+  Future<String> createPty(String sessionId) =>
+      _repository.createPty(sessionId);
+
+  /// PATCH /pty/:id — resize the PTY to [cols] × [rows].
+  ///
+  /// Throws on HTTP error.
+  Future<void> resizePty(String ptyId, int cols, int rows) =>
+      _repository.resizePty(ptyId, cols, rows);
+
+  /// DELETE /pty/:id — kill the PTY process.
+  ///
+  /// Throws on HTTP error.
+  Future<void> killPty(String ptyId) => _repository.killPty(ptyId);
+
+  /// Returns the WebSocket URL for the PTY with [ptyId].
+  String ptyWsUrl(String ptyId) => _repository.ptyWsUrl(ptyId);
+
+  // ── Session-scoped terminals ──────────────────────────────────────────────
+  //
+  // Smoke-fix: the interactive Terminal tab's PTY lifetime is tied to the
+  // SESSION, not to the TerminalTab widget. Collapsing the side panel or
+  // switching the panel's Context/Changes/Terminal tabs disposes the widget;
+  // previously that killed the PTY and lost the live shell. Now the terminal
+  // state lives here (keyed by session id) and survives widget remounts. The
+  // PTY is torn down only when the session is closed/deleted (see
+  // [_disposeTerminal]) or the controller is disposed.
+  final Map<String, PtyTerminalSession> _terminals = {};
+
+  /// Test seam: overrides the transport channel factory used when a new
+  /// [PtyTerminalSession] is created. Set before the Terminal tab first opens.
+  PtyChannelFactory? _ptyChannelFactoryForTest;
+
+  @visibleForTesting
+  set ptyChannelFactoryForTest(PtyChannelFactory? factory) =>
+      _ptyChannelFactoryForTest = factory;
+
+  /// Get-or-create the [PtyTerminalSession] for [sessionId]. Creating one
+  /// starts the PTY exactly once (lazily, on first Terminal-tab open). The same
+  /// instance — and therefore the same shell + scrollback buffer — is reused
+  /// across [TerminalTab] remounts (panel collapse, tab switch).
+  PtyTerminalSession terminalSessionFor(String sessionId) {
+    return _terminals.putIfAbsent(sessionId, () {
+      final session = PtyTerminalSession(
+        sessionId: sessionId,
+        createPty: createPty,
+        resizePty: resizePty,
+        killPty: killPty,
+        ptyWsUrl: ptyWsUrl,
+        channelFactory: _ptyChannelFactoryForTest,
+      );
+      unawaited(session.start());
+      return session;
+    });
+  }
+
+  /// Tear down and forget the terminal for [sessionId] (kills its PTY exactly
+  /// once). Called from every session close/delete path. No-op when the session
+  /// has no terminal.
+  void _disposeTerminal(String sessionId) {
+    _terminals.remove(sessionId)?.dispose();
+  }
+
   /// Test-only: seed a terminal message entry without a network round-trip.
   /// Registers [messageId] in the terminal set for [sessionId] and records
   /// the [command] echo header. Does NOT add a ChatMessage to the chat store.
@@ -957,6 +1086,38 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   // --------------------------------------------------------------------------
+  // Inspector panel collapse (persisted)
+  // --------------------------------------------------------------------------
+
+  /// Whether the inspector panel is collapsed. Persisted across app launches
+  /// via shared_preferences key [_inspectorCollapsedKey].
+  bool get panelCollapsed => _panelCollapsed;
+
+  /// Load the persisted inspector panel collapse state from shared_preferences.
+  /// Called from [initialize] so the preference is restored on startup.
+  Future<void> loadInspectorPrefs() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      _panelCollapsed = prefs.getBool(_inspectorCollapsedKey) ?? false;
+      notifyListeners();
+    } catch (_) {
+      _panelCollapsed = false;
+    }
+  }
+
+  /// Set and persist the inspector panel collapse flag.
+  /// No-op when [collapsed] matches the current value.
+  Future<void> setPanelCollapsed(bool collapsed) async {
+    if (_panelCollapsed == collapsed) return;
+    _panelCollapsed = collapsed;
+    notifyListeners();
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool(_inspectorCollapsedKey, collapsed);
+    } catch (_) {}
+  }
+
+  // --------------------------------------------------------------------------
   // Lifecycle
   // --------------------------------------------------------------------------
 
@@ -974,6 +1135,7 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
       _agentServerController.addListener(_onServerStateChanged);
       _serverListenerAttached = true;
     }
+    unawaited(loadInspectorPrefs());
     await _tryConnectWs();
   }
 
@@ -1067,6 +1229,20 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
       }
     }
     return null;
+  }
+
+  /// Human-readable model name for [session], looked up from the catalog by
+  /// matching provider + model id. Falls back to '`providerId`/`modelId`'
+  /// (with '?' for missing parts) when the catalog has no matching entry.
+  String modelDisplayName(AgentSession session) {
+    final providerId = session.providerId;
+    final modelId = session.modelId;
+    for (final e in _catalog) {
+      if (e.provider == providerId && e.modelId == modelId) {
+        return e.displayName;
+      }
+    }
+    return '${providerId ?? '?'}/${modelId ?? '?'}';
   }
 
   /// Injects a catalog for testing without going through [refreshCatalog].
@@ -1227,6 +1403,7 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
       _chatMessagesBySession.remove(id);
       _lastPartActivityAt.remove(id);
       sessionFirstSeenAt.remove(id);
+      _disposeTerminal(id);
     }
     notifyListeners();
 
@@ -1258,6 +1435,7 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     _chatMessagesBySession.remove(id);
     _lastPartActivityAt.remove(id);
     sessionFirstSeenAt.remove(id);
+    _disposeTerminal(id);
     notifyListeners();
 
     if (!_agentServerController.isReady) return;
@@ -1397,12 +1575,16 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
       if (_selectedSessionId == id) _selectedSessionId = null;
       sessionFirstSeenAt.remove(id);
       _lastPartActivityAt.remove(id);
+      _disposeTerminal(id);
       notifyListeners();
       return;
     }
     try {
       await _repository.closeSession(id);
-      // The `session.closed` WS message will update state.
+      // Belt-and-suspenders: dispose the PTY directly here so a dropped WS
+      // echo (SessionClosedMessage) cannot leave the PTY alive until app exit.
+      // _disposeTerminal is idempotent — the later WS echo's call is a no-op.
+      _disposeTerminal(id);
     } catch (e) {
       if (e is AppError) {
         _error = e.message;
@@ -1458,6 +1640,7 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     _sessions = _sessions.where((s) => s.id != id).toList();
     _resumable = _resumable.where((s) => s.id != id).toList();
     if (_selectedSessionId == id) _selectedSessionId = null;
+    _disposeTerminal(id);
     notifyListeners();
 
     if (!_agentServerController.isReady) return;
@@ -2073,6 +2256,7 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
       final closed = _sessions.firstWhereOrNull((s) => s.id == msg.id);
       _sessions = _sessions.where((s) => s.id != msg.id).toList();
       sessionFirstSeenAt.remove(msg.id);
+      _disposeTerminal(msg.id);
       if (closed != null && msg.resumable) {
         _resumable = [
           ..._resumable,
@@ -2199,6 +2383,7 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
       _chatMessagesBySession.remove(msg.id);
       _lastPartActivityAt.remove(msg.id);
       sessionFirstSeenAt.remove(msg.id);
+      _disposeTerminal(msg.id);
       if (_selectedSessionId == msg.id) _selectedSessionId = null;
     } else if (msg is PermissionAskedMessage) {
       final list = _pendingPermissions.putIfAbsent(msg.sessionId, () => []);
@@ -2470,6 +2655,12 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     if (_serverListenerAttached) {
       _agentServerController.removeListener(_onServerStateChanged);
     }
+    // Tear down every live terminal (kills its PTY exactly once) so no PTY is
+    // leaked when the controller goes away.
+    for (final term in _terminals.values) {
+      term.dispose();
+    }
+    _terminals.clear();
     _repository.dispose();
     super.dispose();
   }

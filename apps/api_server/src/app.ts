@@ -33,6 +33,7 @@ import { agentModelVisibilityRouter } from './routes/agent_model_visibility_rout
 import { opencodeModelsRouter } from './routes/opencode_models_routes';
 import { opencodeMcpRouter } from './routes/opencode_mcp_routes';
 import { syncRouter } from './routes/sync_routes';
+import { ptyRouter } from './routes/pty_routes';
 import { opencodeClient } from './services/opencode_engine';
 
 export function createApp() {
@@ -86,6 +87,7 @@ export function createApp() {
   app.use('/claude-triggers', claudeTriggersRouter);
   app.use('/agent-configs', agentConfigsRouter);
   app.use('/agent-sessions', agentSessionsRouter);
+  app.use(ptyRouter);
   app.use('/projects', projectsRouter);
   app.use('/sync', syncRouter);
 

@@ -158,4 +158,22 @@ class AgentsRepository {
   /// shell command. Returns the id of the created AssistantMessage.
   Future<String> runShellCommand(String sessionId, String command) =>
       _dataSource.runShellCommand(sessionId, command);
+
+  // --------------------------------------------------------------------------
+  // PTY
+  // --------------------------------------------------------------------------
+
+  /// POST /agent-sessions/:id/pty — create a new PTY. Returns the ptyId.
+  Future<String> createPty(String sessionId) =>
+      _dataSource.createPty(sessionId);
+
+  /// PATCH /pty/:id — resize the PTY to [cols] × [rows].
+  Future<void> resizePty(String ptyId, int cols, int rows) =>
+      _dataSource.resizePty(ptyId, cols, rows);
+
+  /// DELETE /pty/:id — kill the PTY process.
+  Future<void> killPty(String ptyId) => _dataSource.killPty(ptyId);
+
+  /// Returns the WebSocket URL for the PTY with [ptyId].
+  String ptyWsUrl(String ptyId) => _dataSource.ptyWsUrl(ptyId);
 }
