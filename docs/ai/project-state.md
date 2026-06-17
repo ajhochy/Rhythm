@@ -2,6 +2,16 @@
 
 ## Current focus
 
+**2026-06-17 update — #729 smoke + remote-OAuth workaround (DONE, awaiting merge sign-off):**
+PR [#729](https://github.com/ajhochy/Rhythm/pull/729) is OPEN/mergeable (not draft). During smoke:
+- Catalog pinned to 5 verified servers (dropped google-workspace + planning-center — no real npm package accepts an injected token; both are already brokered by the rhythm MCP F3/F4). Remaining: pdf-tools (works), stripe + mailchimp (API-key via secrets UI), canva + notion (remote OAuth).
+- **opencode remote-OAuth is broken** (engine 1.14.40): the SDK/HTTP `POST /mcp/:name/auth` path generates the consent URL + starts the loopback callback server but **never registers the `state`** in the validator → every callback fails `pendingStates=[] Invalid/expired state` (known unfixed bugs anomalyco/opencode#17822, #15546; working path is only the CLI `opencode mcp auth`).
+- **Workaround built + verified end-to-end** (canva tools listed by an OpenRouter agent): api_server now does the whole OAuth itself — `mcp_oauth_service.ts` (discover → own DCR → PKCE+state → own loopback callback on `:53682` → token exchange → write tokens to opencode's `~/.local/share/opencode/mcp-auth.json` exact schema → raw `reconnectMcp`). Routes `POST/GET /opencode/mcp/:name/oauth/{start,status}`. Flutter `connectServer` branches OAuth servers to start+poll-status. Spec: `docs/superpowers/specs/2026-06-17-mcp-remote-oauth-workaround.md`.
+- Also fixed earlier: `connectMcp` now calls `mcp.auth.start` first so a consent URL surfaces (the original "Connect doesn't open browser" report). Commits `2d096a1`, `2bc199a`, `20dbc1b`, `8a240b1`.
+- **Next:** human merges #729 on GitHub, then fold into the next desktop release. Secondary: stripe/mailchimp need API keys entered (secrets UI) before they connect.
+
+---
+
 **Branch:** `workflow/run-2026-06-16-mcp-autoinstall` (isolated git worktree at `~/Documents/Rhythm-mcp-autoinstall`, off `main` `20e9672`). Draft PR pending.
 **Status:** Curated MCP-server autoinstall feature — all 7 issues (MCP-1…MCP-7) implemented, verified, and committed on the run branch. Auto-installs 7 church-staff MCP servers into the embedded opencode engine: PDF Tools (zero-auth), Google Workspace + Planning Center (token-bridged from Rhythm's stored OAuth), Stripe + Mailchimp (API-key via the new secrets UI), Canva + Notion (remote, OAuth-on-first-use). See per-issue entries below + `docs/ai/decisions.md` (2026-06-16).
 **Worktree-isolation note:** this run was moved into a dedicated worktree mid-flight after a concurrent "inspector UI parity" session reset the shared checkout's branch/HEAD. The AgentFlow `implement_issue` engine writes to the main checkout, so MCP-2…7 were implemented via worktree-scoped coding subagents (skill-chain fallback) instead. node_modules symlinked + `flutter pub get` in the worktree.
