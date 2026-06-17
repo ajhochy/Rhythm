@@ -13,6 +13,7 @@ class McpServerEntry {
     this.error,
     this.needsCredentials = false,
     this.environment,
+    this.url,
   });
 
   final String name;
@@ -33,6 +34,23 @@ class McpServerEntry {
   /// Present only when the persisted config declares an environment map.
   final Map<String, String>? environment;
 
+  /// OA3: the remote server URL, present for `type: 'remote'` servers (the list
+  /// response spreads the persisted config, which carries `url`). Local
+  /// command-based servers leave this null. Used to detect OAuth servers.
+  final String? url;
+
+  /// OA3: true when this is a remote (URL-backed) server with no required
+  /// credentials — i.e. an OAuth server. Detection rule: remote URL present
+  /// AND no env-based credentials. A `needs_auth` status is also a definite
+  /// OAuth signal. Key-based servers (needsCredentials with an env map) are NOT
+  /// OAuth.
+  bool get isOAuth {
+    if (status == 'needs_auth') return true;
+    final hasUrl = url != null && url!.isNotEmpty;
+    final hasEnv = environment != null && environment!.isNotEmpty;
+    return hasUrl && !hasEnv;
+  }
+
   factory McpServerEntry.fromJson(Map<String, dynamic> json) {
     final rawEnv = json['environment'] as Map<String, dynamic>?;
     return McpServerEntry(
@@ -41,6 +59,7 @@ class McpServerEntry {
       error: json['error'] as String?,
       needsCredentials: json['needsCredentials'] as bool? ?? false,
       environment: rawEnv?.map((k, v) => MapEntry(k, v as String)),
+      url: json['url'] as String?,
     );
   }
 }
@@ -74,6 +93,20 @@ abstract class McpDataSource {
   /// the user to authorize in a browser (e.g. canva, notion). Returns `null`
   /// when the server is already authenticated / connected.
   Future<String?> connectServer(String name);
+
+  /// OA3: begins the backend-driven remote-OAuth flow for [name].
+  ///
+  /// POSTs to `…/opencode/mcp/$name/oauth/start`. Returns the consent
+  /// `authorizationUrl` the caller must open in a browser, or `null` if the
+  /// response carries no URL.
+  Future<String?> startOAuth(String name);
+
+  /// OA3: polls the backend OAuth status for [name].
+  ///
+  /// GETs `…/opencode/mcp/$name/oauth/status`. Returns the `status` string —
+  /// one of `pending` | `connected` | `failed:<msg>` | `unknown` (defaults to
+  /// `unknown` when the field is absent).
+  Future<String> oauthStatus(String name);
 
   Future<void> disconnectServer(String name);
 
@@ -178,6 +211,54 @@ class _McpDataSourceImpl implements McpDataSource {
       return b['authorizationUrl'] as String?;
     } catch (_) {
       return null;
+    }
+  }
+
+  // ── OAuth: start ────────────────────────────────────────────────────────
+
+  @override
+  Future<String?> startOAuth(String name) async {
+    final response = await http.post(
+      Uri.parse('$_baseUrl/opencode/mcp/$name/oauth/start'),
+    );
+    if (response.statusCode != 200) {
+      String msg = 'HTTP ${response.statusCode}';
+      try {
+        final b = jsonDecode(response.body) as Map<String, dynamic>;
+        final err = b['error'] as Map<String, dynamic>?;
+        msg = err?['message'] as String? ?? msg;
+      } catch (_) {}
+      throw Exception('Failed to start OAuth for MCP server "$name": $msg');
+    }
+    try {
+      final b = jsonDecode(response.body) as Map<String, dynamic>;
+      return b['authorizationUrl'] as String?;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  // ── OAuth: status ─────────────────────────────────────────────────────────
+
+  @override
+  Future<String> oauthStatus(String name) async {
+    final response = await http.get(
+      Uri.parse('$_baseUrl/opencode/mcp/$name/oauth/status'),
+    );
+    if (response.statusCode != 200) {
+      String msg = 'HTTP ${response.statusCode}';
+      try {
+        final b = jsonDecode(response.body) as Map<String, dynamic>;
+        final err = b['error'] as Map<String, dynamic>?;
+        msg = err?['message'] as String? ?? msg;
+      } catch (_) {}
+      throw Exception('Failed to read OAuth status for "$name": $msg');
+    }
+    try {
+      final b = jsonDecode(response.body) as Map<String, dynamic>;
+      return b['status'] as String? ?? 'unknown';
+    } catch (_) {
+      return 'unknown';
     }
   }
 

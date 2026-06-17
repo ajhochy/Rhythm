@@ -21,14 +21,28 @@ Future<bool> _defaultMcpUrlLauncher(Uri uri) =>
 /// The controller owns the list of MCP servers, per-server inline error state,
 /// and async operations (refresh, add, connect, disconnect, remove).
 class McpController extends ChangeNotifier {
-  McpController(this._dataSource, {McpUrlLauncher? urlLauncher})
-      : _urlLauncher = urlLauncher ?? _defaultMcpUrlLauncher;
+  McpController(
+    this._dataSource, {
+    McpUrlLauncher? urlLauncher,
+    Duration pollDelay = const Duration(seconds: 2),
+    int maxPollAttempts = 75,
+  })  : _urlLauncher = urlLauncher ?? _defaultMcpUrlLauncher,
+        _pollDelay = pollDelay,
+        _maxPollAttempts = maxPollAttempts;
 
   final McpDataSource _dataSource;
 
   /// Opens the OAuth consent URL returned by [connectServer]. Injectable for
   /// tests; defaults to launching the system browser.
   final McpUrlLauncher _urlLauncher;
+
+  /// OA3: delay between OAuth status polls. Defaults to ~2s in production;
+  /// tests inject [Duration.zero] so they don't actually wait.
+  final Duration _pollDelay;
+
+  /// OA3: maximum number of OAuth status polls before giving up. Default 75
+  /// at ~2s ≈ 2.5 min. Injectable so tests can use a tiny budget.
+  final int _maxPollAttempts;
 
   McpControllerStatus _status = McpControllerStatus.idle;
   List<McpServerEntry> _servers = const [];
@@ -90,10 +104,17 @@ class McpController extends ChangeNotifier {
   Future<void> connectServer(String name) async {
     _serverErrors.remove(name);
     notifyListeners();
+
+    if (_isOAuthServer(name)) {
+      await _connectViaOAuth(name);
+      return;
+    }
+
+    // Non-OAuth (local / key-based) servers keep the existing plain path.
     try {
       final authorizationUrl = await _dataSource.connectServer(name);
-      // Remote OAuth servers (e.g. canva, notion) return a consent URL — open
-      // it so the user can authorize. Already-authed servers return null.
+      // A remote server may still hand back a consent URL — open it so the
+      // user can authorize. Already-authed servers return null.
       if (authorizationUrl != null && authorizationUrl.isNotEmpty) {
         final uri = Uri.tryParse(authorizationUrl);
         if (uri != null) {
@@ -101,6 +122,56 @@ class McpController extends ChangeNotifier {
         }
       }
       // Refresh so the row's status updates after the user completes OAuth.
+      await refresh();
+    } catch (e) {
+      _serverErrors[name] = e.toString();
+      notifyListeners();
+    }
+  }
+
+  /// OA3: true when the named server is a remote OAuth server. Detection lives
+  /// on [McpServerEntry.isOAuth] (remote URL + no required env, or a
+  /// `needs_auth` status). Unknown names default to non-OAuth.
+  bool _isOAuthServer(String name) {
+    for (final s in _servers) {
+      if (s.name == name) return s.isOAuth;
+    }
+    return false;
+  }
+
+  /// OA3: backend-driven remote-OAuth flow — start, open the consent URL, then
+  /// poll status on a bounded schedule until connected / failed / budget
+  /// exhausted. The only engine `listServers` call is the final [refresh].
+  Future<void> _connectViaOAuth(String name) async {
+    try {
+      final authorizationUrl = await _dataSource.startOAuth(name);
+      if (authorizationUrl != null && authorizationUrl.isNotEmpty) {
+        final uri = Uri.tryParse(authorizationUrl);
+        if (uri != null) {
+          await _urlLauncher(uri);
+        }
+      }
+
+      for (var attempt = 0; attempt < _maxPollAttempts; attempt++) {
+        await Future<void>.delayed(_pollDelay);
+        final status = await _dataSource.oauthStatus(name);
+        if (status == 'connected') {
+          _serverErrors.remove(name);
+          await refresh();
+          return;
+        }
+        if (status.startsWith('failed:')) {
+          _serverErrors[name] = status.substring('failed:'.length);
+          notifyListeners();
+          return;
+        }
+        // 'pending' / 'unknown' → keep polling within budget.
+      }
+
+      // Budget exhausted: gentle inline note, then a final refresh.
+      _serverErrors[name] =
+          'Authorization still pending — refresh after completing sign-in.';
+      notifyListeners();
       await refresh();
     } catch (e) {
       _serverErrors[name] = e.toString();

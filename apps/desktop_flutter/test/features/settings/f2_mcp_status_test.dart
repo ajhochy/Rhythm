@@ -45,6 +45,12 @@ class _FakeMcpDataSource implements McpDataSource {
   Future<String?> connectServer(String name) async => null;
 
   @override
+  Future<String?> startOAuth(String name) async => null;
+
+  @override
+  Future<String> oauthStatus(String name) async => 'unknown';
+
+  @override
   Future<void> disconnectServer(String name) async {}
 
   @override
