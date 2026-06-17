@@ -1,185 +1,61 @@
 /// issue #708 — interactive PTY terminal tab.
 ///
-/// Renders inside the Terminal tab of [SessionSidePanel]. Replaces the old
-/// one-shot command-runner with a real interactive terminal: an xterm
-/// [Terminal] bound to the PTY proxy WebSocket exposed by the local agent
-/// server. The PTY is created (in the session's cwd) when the tab mounts and
-/// killed on dispose / session-switch. Keystrokes flow out over the socket and
-/// process output flows back into the terminal buffer.
+/// Renders inside the Terminal tab of [SessionSidePanel]. A real interactive
+/// terminal: an xterm [Terminal] bound to the PTY proxy WebSocket exposed by
+/// the local agent server. Keystrokes flow out over the socket and process
+/// output flows back into the terminal buffer.
 ///
-/// Lifecycle:
-///   - initState / sessionId change → [_start]: createPty → open WS → wire I/O.
-///   - dispose → cancel subscription, close socket, killPty (fire-and-forget).
+/// Smoke-fix: this widget is now a THIN VIEW. All terminal state (the xterm
+/// [Terminal], the PTY id, the channel, the subscription, status, the
+/// start/teardown/restart logic) lives in a session-keyed
+/// [PtyTerminalSession] owned by the long-lived [AgentsController]. The PTY's
+/// lifetime is tied to the SESSION, not to this widget — so collapsing the
+/// side panel or switching the panel's Context/Changes/Terminal tabs (both of
+/// which dispose this widget) NO LONGER kills the shell. Remounting reuses the
+/// same [PtyTerminalSession] (same buffer, same shell). The PTY is torn down
+/// only when the session is closed/deleted, or when the controller is disposed.
 ///
 /// Status states: connecting (spinner), connected (TerminalView), exited
 /// ("[process exited]" + New terminal), error (message + Retry).
 library;
 
-import 'dart:async';
-import 'dart:convert';
-
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:stream_channel/stream_channel.dart';
-import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:xterm/xterm.dart';
 
 import '../../../app/core/ui/tokens/rhythm_theme.dart';
 import '../controllers/agents_controller.dart';
+import '../controllers/pty_terminal_session.dart';
 
-/// Factory that opens the transport channel for a given ptyId. Injectable so
-/// tests can supply a fake channel without a real socket/engine.
-typedef PtyChannelFactory = StreamChannel<dynamic> Function(String ptyId);
-
-enum _TerminalStatus { connecting, connected, exited, error }
-
-class TerminalTab extends StatefulWidget {
-  const TerminalTab({
-    super.key,
-    required this.sessionId,
-    this.channelFactory,
-  });
+class TerminalTab extends StatelessWidget {
+  const TerminalTab({super.key, required this.sessionId});
 
   final String sessionId;
 
-  /// Test seam: overrides the default [WebSocketChannel.connect] transport.
-  @visibleForTesting
-  final PtyChannelFactory? channelFactory;
-
   @override
-  State<TerminalTab> createState() => _TerminalTabState();
+  Widget build(BuildContext context) {
+    // Get-or-create the session-scoped terminal. On first open this lazily
+    // creates the PTY exactly once; on remount (panel collapse / tab switch)
+    // it returns the SAME instance, preserving the live shell + buffer.
+    final term = context.read<AgentsController>().terminalSessionFor(sessionId);
+    // Rebuild this view on status changes without rebuilding on every unrelated
+    // AgentsController notification.
+    return ListenableBuilder(
+      listenable: term,
+      builder: (context, _) => _TerminalBody(term: term),
+    );
+  }
 }
 
-class _TerminalTabState extends State<TerminalTab> {
-  final Terminal _terminal = Terminal(maxLines: 10000);
+class _TerminalBody extends StatelessWidget {
+  const _TerminalBody({required this.term});
 
-  StreamChannel<dynamic>? _channel;
-  StreamSubscription<dynamic>? _sub;
-  String? _ptyId;
-  _TerminalStatus _status = _TerminalStatus.connecting;
-
-  /// Cached so it is safe to use in [dispose] (Provider.of is unsafe there).
-  AgentsController? _controllerRef;
-
-  /// Exposed for tests to read inbound bytes via the terminal buffer.
-  @visibleForTesting
-  Terminal get debugTerminal => _terminal;
-
-  AgentsController get _controller =>
-      _controllerRef ??= Provider.of<AgentsController>(context, listen: false);
-
-  @override
-  void initState() {
-    super.initState();
-    _terminal.onOutput = (data) {
-      _channel?.sink.add(data);
-    };
-    _terminal.onResize = (width, height, pixelWidth, pixelHeight) {
-      final id = _ptyId;
-      if (id != null) {
-        // xterm reports width=cols, height=rows.
-        _controller.resizePty(id, width, height);
-      }
-    };
-    _start();
-  }
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    _controllerRef = Provider.of<AgentsController>(context, listen: false);
-  }
-
-  @override
-  void didUpdateWidget(covariant TerminalTab oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (widget.sessionId != oldWidget.sessionId) {
-      _teardown();
-      _start();
-    }
-  }
-
-  Future<void> _start() async {
-    _setStatus(_TerminalStatus.connecting);
-    try {
-      final id = await _controller.createPty(widget.sessionId);
-      if (!mounted) {
-        // Widget was disposed mid-create; clean up the orphaned PTY.
-        unawaited(_controller.killPty(id));
-        return;
-      }
-      _ptyId = id;
-
-      final factory = widget.channelFactory ?? _defaultChannelFactory;
-      final channel = factory(id);
-      _channel = channel;
-
-      _sub = channel.stream.listen(
-        (event) {
-          _terminal.write(
-            event is String ? event : utf8.decode(event as List<int>),
-          );
-        },
-        onDone: () => _setStatus(_TerminalStatus.exited),
-        onError: (_) => _setStatus(_TerminalStatus.error),
-      );
-
-      _setStatus(_TerminalStatus.connected);
-    } catch (_) {
-      _setStatus(_TerminalStatus.error);
-    }
-  }
-
-  StreamChannel<dynamic> _defaultChannelFactory(String ptyId) =>
-      WebSocketChannel.connect(Uri.parse(_controller.ptyWsUrl(ptyId)));
-
-  /// Tear down the current PTY/socket without restarting. Safe to call when
-  /// already torn down.
-  void _teardown() {
-    _sub?.cancel();
-    _sub = null;
-    _channel?.sink.close();
-    _channel = null;
-    final id = _ptyId;
-    if (id != null) {
-      unawaited(_controller.killPty(id));
-    }
-    _ptyId = null;
-  }
-
-  /// Restart the terminal. Tears down any live PTY/socket first so neither the
-  /// error-state path (live channel that emitted an error) nor the exited-state
-  /// path (stream already done, pty already dead) leaks resources.
-  ///
-  /// [_teardown] is safe to call when nothing is live: cancelling a completed
-  /// subscription, closing an already-closed sink, and calling killPty on a
-  /// dead pty are all no-ops / fire-and-forget.
-  void _restart() {
-    _teardown();
-    _start();
-  }
-
-  void _setStatus(_TerminalStatus status) {
-    if (!mounted) return;
-    if (_status == status) return;
-    setState(() => _status = status);
-  }
-
-  @override
-  void dispose() {
-    _sub?.cancel();
-    _channel?.sink.close();
-    final id = _ptyId;
-    if (id != null) {
-      unawaited(_controller.killPty(id));
-    }
-    super.dispose();
-  }
+  final PtyTerminalSession term;
 
   @override
   Widget build(BuildContext context) {
-    switch (_status) {
-      case _TerminalStatus.connecting:
+    switch (term.status) {
+      case PtyTerminalStatus.connecting:
         return const Center(
           child: SizedBox(
             width: 20,
@@ -187,24 +63,24 @@ class _TerminalTabState extends State<TerminalTab> {
             child: CircularProgressIndicator(strokeWidth: 2),
           ),
         );
-      case _TerminalStatus.connected:
-        return TerminalView(_terminal);
-      case _TerminalStatus.exited:
+      case PtyTerminalStatus.connected:
+        return TerminalView(term.terminal);
+      case PtyTerminalStatus.exited:
         return _StatusMessage(
           key: const Key('terminal-exited'),
           icon: Icons.check_circle_outline,
           message: '[process exited]',
           actionLabel: 'New terminal',
-          onAction: _restart,
+          onAction: term.restart,
         );
-      case _TerminalStatus.error:
+      case PtyTerminalStatus.error:
         return _StatusMessage(
           key: const Key('terminal-error'),
           icon: Icons.error_outline,
           message: 'Terminal connection failed.',
           actionLabel: 'Retry',
           isError: true,
-          onAction: _restart,
+          onAction: term.restart,
         );
     }
   }
