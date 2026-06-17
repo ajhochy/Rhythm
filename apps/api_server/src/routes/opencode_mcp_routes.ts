@@ -17,8 +17,12 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { AppError } from '../errors/app_error';
 import { opencodeClient } from '../services/opencode_engine';
+import { mcpOAuthService } from '../services/mcp_oauth_engine';
 import type { CuratedTokenResolver } from '../services/opencode_client_service';
-import type { CuratedMcpServer } from '../config/curated_mcp_servers';
+import {
+  CURATED_MCP_SERVERS,
+  type CuratedMcpServer,
+} from '../config/curated_mcp_servers';
 import { IntegrationsService } from '../services/integrations_service';
 
 export const opencodeMcpRouter = Router();
@@ -204,6 +208,64 @@ opencodeMcpRouter.post(
     } catch (err) {
       next(err);
     }
+  },
+);
+
+// ── MCP remote-OAuth workaround (DCR + PKCE, bypassing the broken SDK auth) ──
+//
+// opencode's SDK auth path never registers the OAuth state, so we run the
+// whole flow ourselves and write tokens into mcp-auth.json. These two routes
+// drive that: start() returns the consent URL; the UI polls status().
+
+/**
+ * Resolve the remote serverUrl for a named MCP server. Prefers the curated
+ * catalog (the canonical source for canva/notion), then falls back to the
+ * persisted opencode.json `mcp` config (a remote `url`). Returns null when the
+ * name is unknown or is not a remote server (no OAuth flow applies).
+ */
+async function resolveRemoteServerUrl(name: string): Promise<string | null> {
+  const curated = CURATED_MCP_SERVERS.find((s) => s.id === name);
+  if (curated && curated.type === 'remote' && curated.url) {
+    return curated.url;
+  }
+  const persisted = await opencodeClient.getPersistedMcpConfigs();
+  const entry = persisted[name];
+  if (entry && entry.type === 'remote' && typeof entry.url === 'string') {
+    return entry.url;
+  }
+  return null;
+}
+
+// ── POST /:name/oauth/start ──────────────────────────────────────────────────
+opencodeMcpRouter.post(
+  '/:name/oauth/start',
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { name } = req.params;
+      const serverUrl = await resolveRemoteServerUrl(name);
+      if (!serverUrl) {
+        return next(
+          new AppError(
+            400,
+            'BAD_REQUEST',
+            `'${name}' is not a known remote OAuth MCP server`,
+          ),
+        );
+      }
+      const { authorizationUrl } = await mcpOAuthService.start(name, serverUrl);
+      res.json({ authorizationUrl });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// ── GET /:name/oauth/status ──────────────────────────────────────────────────
+opencodeMcpRouter.get(
+  '/:name/oauth/status',
+  (req: Request, res: Response) => {
+    const { name } = req.params;
+    res.json({ status: mcpOAuthService.status(name) });
   },
 );
 

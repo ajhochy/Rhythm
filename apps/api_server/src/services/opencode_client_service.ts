@@ -1449,6 +1449,32 @@ export class OpencodeClientService {
   }
 
   /**
+   * POST /mcp/{name}/connect — RAW reconnect (NO auth.start-first).
+   *
+   * Used by the self-contained MCP OAuth workaround (mcp_oauth_service.ts):
+   * after we write tokens into opencode's mcp-auth.json ourselves, the engine
+   * just needs to re-read them and establish an authenticated session. Calling
+   * the auth.start-first {@link connectMcp} here would re-enter opencode's
+   * broken auth path (which never registers the OAuth state) and surface a
+   * fresh consent URL instead of connecting. So this calls `client.mcp.connect`
+   * directly and returns the boolean.
+   *
+   * Throws AppError on the SDK error envelope.
+   */
+  async reconnectMcp(name: string): Promise<boolean> {
+    const client = this.requireClient();
+    const raw = await client.mcp.connect({ path: { name } });
+    if (raw.error) {
+      throw new AppError(
+        502,
+        'SDK_ERROR',
+        `reconnectMcp failed for ${name}: ${JSON.stringify(raw.error)}`,
+      );
+    }
+    return raw.data === true;
+  }
+
+  /**
    * POST /mcp/{name}/disconnect — disconnect a named MCP server.
    *
    * OPC-M4-3: throws AppError on SDK error envelope (never swallows to false).
