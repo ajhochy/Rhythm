@@ -8,7 +8,11 @@ PR [#729](https://github.com/ajhochy/Rhythm/pull/729) is OPEN/mergeable (not dra
 - **opencode remote-OAuth is broken** (engine 1.14.40): the SDK/HTTP `POST /mcp/:name/auth` path generates the consent URL + starts the loopback callback server but **never registers the `state`** in the validator → every callback fails `pendingStates=[] Invalid/expired state` (known unfixed bugs anomalyco/opencode#17822, #15546; working path is only the CLI `opencode mcp auth`).
 - **Workaround built + verified end-to-end** (canva tools listed by an OpenRouter agent): api_server now does the whole OAuth itself — `mcp_oauth_service.ts` (discover → own DCR → PKCE+state → own loopback callback on `:53682` → token exchange → write tokens to opencode's `~/.local/share/opencode/mcp-auth.json` exact schema → raw `reconnectMcp`). Routes `POST/GET /opencode/mcp/:name/oauth/{start,status}`. Flutter `connectServer` branches OAuth servers to start+poll-status. Spec: `docs/superpowers/specs/2026-06-17-mcp-remote-oauth-workaround.md`.
 - Also fixed earlier: `connectMcp` now calls `mcp.auth.start` first so a consent URL surfaces (the original "Connect doesn't open browser" report). Commits `2d096a1`, `2bc199a`, `20dbc1b`, `8a240b1`.
-- **Next:** human merges #729 on GitHub, then fold into the next desktop release. Secondary: stripe/mailchimp need API keys entered (secrets UI) before they connect.
+- **Next:** human merges #729 on GitHub, then fold into the next desktop release.
+
+**2026-06-17 follow-ups (DONE, same branch, pushed):**
+- Moved the **MCP Servers** section out of global Settings into the **Agent Settings** dialog (`_agent_settings_sheet.dart`); removed from `settings_view.dart`. Commit `14573df`. Smoked (renders in the right spot).
+- **Credentials entry for curated key-based servers** (stripe/mailchimp): GET `/opencode/mcp` now flags `needsCredentials` from the catalog's `requiredEnv` (was only checking empty env values, so key-less curated servers showed bare "failed") and surfaces `requiredEnv`; new `POST /opencode/mcp/:name/credentials` merges the entered key into the curated command and reconnects. Flutter: tappable "Needs credentials" badge → focused secure-field-per-key dialog → `setCredentials` → refresh. Commits `14ba922` (backend), `8095341` (flutter). Verified live: stripe/mailchimp now report `needsCredentials:true` + `requiredEnv`. User opted NOT to enter real keys (will troubleshoot if a real user hits it) — the connect itself is untested end-to-end, but the UX path is in place and the backend reconnect reuses the proven `addMcp`.
 
 ---
 
