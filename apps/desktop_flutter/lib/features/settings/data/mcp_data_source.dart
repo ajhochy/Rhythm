@@ -68,7 +68,12 @@ abstract class McpDataSource {
     Map<String, String>? environment,
   });
 
-  Future<void> connectServer(String name);
+  /// Connects (or begins OAuth for) the named MCP server.
+  ///
+  /// Returns the OAuth consent URL (`authorizationUrl`) when the server needs
+  /// the user to authorize in a browser (e.g. canva, notion). Returns `null`
+  /// when the server is already authenticated / connected.
+  Future<String?> connectServer(String name);
 
   Future<void> disconnectServer(String name);
 
@@ -153,7 +158,7 @@ class _McpDataSourceImpl implements McpDataSource {
   // ── Connect ───────────────────────────────────────────────────────────────
 
   @override
-  Future<void> connectServer(String name) async {
+  Future<String?> connectServer(String name) async {
     final response = await http.post(
       Uri.parse('$_baseUrl/opencode/mcp/$name/connect'),
     );
@@ -165,6 +170,14 @@ class _McpDataSourceImpl implements McpDataSource {
         msg = err?['message'] as String? ?? msg;
       } catch (_) {}
       throw Exception('Failed to connect MCP server "$name": $msg');
+    }
+    // Remote OAuth servers return a consent URL the caller must open; already
+    // authenticated servers return null here.
+    try {
+      final b = jsonDecode(response.body) as Map<String, dynamic>;
+      return b['authorizationUrl'] as String?;
+    } catch (_) {
+      return null;
     }
   }
 

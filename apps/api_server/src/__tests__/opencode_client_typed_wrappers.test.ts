@@ -46,6 +46,7 @@ function makeRealSdkClient() {
     status: vi.fn(),
     connect: vi.fn(),
     disconnect: vi.fn(),
+    auth: { start: vi.fn() },
   };
   const client = {
     session,
@@ -432,10 +433,39 @@ describe('wrapper method shapes (M3/M4 readiness)', () => {
 
   it('connectMcp calls mcp.connect with path.name', async () => {
     sdkClient.mcp.connect.mockResolvedValue({ data: true });
-    await svc.connectMcp('my-mcp-server');
+    const result = await svc.connectMcp('my-mcp-server');
     expect(sdkClient.mcp.connect).toHaveBeenCalledWith(
       expect.objectContaining({ path: { name: 'my-mcp-server' } }),
     );
+    // Already authenticated → connected, no OAuth url, auth.start not called.
+    expect(result).toEqual({ connected: true });
+    expect(sdkClient.mcp.auth.start).not.toHaveBeenCalled();
+  });
+
+  it('connectMcp returns authorizationUrl from mcp.auth.start when connect needs OAuth (connect → false)', async () => {
+    // Remote OAuth server: connect reports not-connected, auth.start returns
+    // the consent URL the user must visit (real shape: { authorizationUrl }).
+    sdkClient.mcp.connect.mockResolvedValue({ data: false });
+    sdkClient.mcp.auth.start.mockResolvedValue({
+      data: { authorizationUrl: 'https://provider/oauth?x' },
+    });
+    const result = await svc.connectMcp('canva');
+    expect(sdkClient.mcp.auth.start).toHaveBeenCalledWith(
+      expect.objectContaining({ path: { name: 'canva' } }),
+    );
+    expect(result).toEqual({
+      connected: false,
+      authorizationUrl: 'https://provider/oauth?x',
+    });
+  });
+
+  it('connectMcp tolerates a server with no OAuth (connect → false, auth.start errors) by returning connected:false without url', async () => {
+    sdkClient.mcp.connect.mockResolvedValue({ data: false });
+    sdkClient.mcp.auth.start.mockResolvedValue({
+      error: { code: 400, message: 'not an oauth server' },
+    });
+    const result = await svc.connectMcp('local-server');
+    expect(result).toEqual({ connected: false });
   });
 
   it('disconnectMcp calls mcp.disconnect with path.name', async () => {

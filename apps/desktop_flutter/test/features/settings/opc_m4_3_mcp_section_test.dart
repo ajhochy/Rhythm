@@ -51,11 +51,15 @@ class _FakeMcpDataSource implements McpDataSource {
     this.listResult = const [],
     this.connectShouldFail = false,
     this.disconnectShouldFail = false,
+    this.connectAuthorizationUrl,
   });
 
   final List<McpServerEntry> listResult;
   final bool connectShouldFail;
   final bool disconnectShouldFail;
+
+  /// When non-null, [connectServer] returns this OAuth consent URL.
+  final String? connectAuthorizationUrl;
 
   int addCallCount = 0;
   String? lastAddName;
@@ -90,10 +94,11 @@ class _FakeMcpDataSource implements McpDataSource {
   }
 
   @override
-  Future<void> connectServer(String name) async {
+  Future<String?> connectServer(String name) async {
     connectCallCount++;
     lastConnectName = name;
     if (connectShouldFail) throw Exception('connect failed');
+    return connectAuthorizationUrl;
   }
 
   @override
@@ -604,6 +609,112 @@ void main() {
       expect(ds.addCallCount, 1);
       expect(ds.lastAddEnvironment, isNull,
           reason: 'no secret rows → environment must be null (omitted)');
+    },
+  );
+
+  // ── mcp-oauth: Connect opens the OAuth consent URL ──────────────────────────
+
+  // Data source surfaces the authorizationUrl from the connect response body.
+  test(
+    'mcp-oauth-c1: McpDataSource.connectServer returns the authorizationUrl from the response',
+    () async {
+      final client = MockClient((req) async {
+        expect(req.url.path, '/opencode/mcp/canva/connect');
+        return http.Response(
+          jsonEncode({
+            'ok': false,
+            'authorizationUrl': 'https://provider/oauth?x',
+          }),
+          200,
+        );
+      });
+
+      String? returned;
+      await http.runWithClient(
+        () async {
+          final ds = McpDataSource();
+          returned = await ds.connectServer('canva');
+        },
+        () => client,
+      );
+
+      expect(returned, 'https://provider/oauth?x');
+    },
+  );
+
+  // Data source returns null when the server is already authed (no consent URL).
+  test(
+    'mcp-oauth-c2: McpDataSource.connectServer returns null when no authorizationUrl',
+    () async {
+      final client = MockClient((req) async {
+        return http.Response(
+          jsonEncode({'ok': true, 'authorizationUrl': null}),
+          200,
+        );
+      });
+
+      String? returned = 'sentinel';
+      await http.runWithClient(
+        () async {
+          final ds = McpDataSource();
+          returned = await ds.connectServer('rhythm-mcp');
+        },
+        () => client,
+      );
+
+      expect(returned, isNull);
+    },
+  );
+
+  // Controller opens the consent URL via the injected launcher when present.
+  test(
+    'mcp-oauth-c3: McpController.connectServer opens the authorizationUrl via the injected launcher',
+    () async {
+      final ds = _FakeMcpDataSource(
+        listResult: [
+          const McpServerEntry(name: 'canva', status: 'needs_auth'),
+        ],
+        connectAuthorizationUrl: 'https://provider/oauth?x',
+      );
+      final opened = <Uri>[];
+      final ctrl = McpController(
+        ds,
+        urlLauncher: (uri) async {
+          opened.add(uri);
+          return true;
+        },
+      );
+
+      await ctrl.connectServer('canva');
+
+      expect(ds.connectCallCount, 1);
+      expect(opened, hasLength(1));
+      expect(opened.single.toString(), 'https://provider/oauth?x');
+    },
+  );
+
+  // Controller does NOT open anything when the server is already authed.
+  test(
+    'mcp-oauth-c4: McpController.connectServer does not launch when no authorizationUrl',
+    () async {
+      final ds = _FakeMcpDataSource(
+        listResult: [
+          const McpServerEntry(name: 'rhythm-mcp', status: 'connected'),
+        ],
+      );
+      final opened = <Uri>[];
+      final ctrl = McpController(
+        ds,
+        urlLauncher: (uri) async {
+          opened.add(uri);
+          return true;
+        },
+      );
+
+      await ctrl.connectServer('rhythm-mcp');
+
+      expect(ds.connectCallCount, 1);
+      expect(opened, isEmpty);
     },
   );
 }

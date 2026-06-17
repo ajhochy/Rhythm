@@ -73,6 +73,9 @@ const CALL_SITES: string[] = [
   'mcp.add',
   'mcp.connect',
   'mcp.disconnect',
+  // mcp-oauth — connectMcp falls back to auth.start to obtain the OAuth
+  // consent URL for remote servers that need authorization.
+  'mcp.auth.start',
   // Top-level method (NOT under a namespace) — the permission responder.
   'postSessionIdPermissionsPermissionId',
 ];

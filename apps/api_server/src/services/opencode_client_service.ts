@@ -1393,9 +1393,21 @@ export class OpencodeClientService {
   /**
    * POST /mcp/{name}/connect — connect a named MCP server.
    *
-   * OPC-M4-3: throws AppError on SDK error envelope (never swallows to false).
+   * Returns `{ connected, authorizationUrl? }`.
+   *
+   * For remote OAuth servers (e.g. canva, notion) `client.mcp.connect` resolves
+   * to `false` because the server is not yet authenticated. In that case we
+   * begin the OAuth flow via `client.mcp.auth.start`, whose 200 body carries the
+   * consent URL (`{ authorizationUrl }`, verified against the real SDK's
+   * McpAuthStartResponses). We surface that URL so the caller can open it in a
+   * browser. Servers that don't use OAuth simply have no auth.start endpoint —
+   * that error is tolerated and we return `{ connected: false }`.
+   *
+   * OPC-M4-3: throws AppError on the connect SDK error envelope (never swallows).
    */
-  async connectMcp(name: string): Promise<boolean> {
+  async connectMcp(
+    name: string,
+  ): Promise<{ connected: boolean; authorizationUrl?: string }> {
     const client = this.requireClient();
     const raw = await client.mcp.connect({
       path: { name },
@@ -1407,7 +1419,26 @@ export class OpencodeClientService {
         `connectMcp failed for ${name}: ${JSON.stringify(raw.error)}`,
       );
     }
-    return raw.data === true;
+    if (raw.data === true) {
+      // Already connected / authenticated — no OAuth consent needed.
+      return { connected: true };
+    }
+
+    // Not connected: a remote OAuth server needs the user to authorize. Begin
+    // the OAuth flow to obtain the consent URL. Non-OAuth servers will error
+    // here; tolerate that and report not-connected without a URL.
+    try {
+      const authRaw = await client.mcp.auth.start({ path: { name } });
+      const authorizationUrl = authRaw.error
+        ? undefined
+        : authRaw.data?.authorizationUrl;
+      if (authorizationUrl) {
+        return { connected: false, authorizationUrl };
+      }
+    } catch {
+      // auth.start unsupported / failed for this server — fall through.
+    }
+    return { connected: false };
   }
 
   /**

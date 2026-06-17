@@ -214,8 +214,11 @@ opencodeMcpRouter.post(
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { name } = req.params;
-      const ok = await opencodeClient.connectMcp(name);
-      res.json({ ok });
+      const result = await opencodeClient.connectMcp(name);
+      res.json({
+        ok: result.connected,
+        authorizationUrl: result.authorizationUrl ?? null,
+      });
     } catch (err) {
       next(err);
     }

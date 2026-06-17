@@ -586,6 +586,21 @@ declare module '@opencode-ai/sdk' {
         path: { name: string };
         query?: { directory?: string };
       }): Promise<SdkEnvelope<boolean>>;
+      /**
+       * client.mcp.auth in sdk.gen.ts v1.14.49.
+       *
+       * For remote MCP servers that require OAuth, `start` begins the OAuth
+       * flow and returns the consent URL the user must open in a browser.
+       * Shape verified against node_modules/@opencode-ai/sdk/dist/gen/types.gen.d.ts
+       * (McpAuthStartResponses → 200: { authorizationUrl: string }).
+       */
+      auth: {
+        /** POST /mcp/{name}/auth/start — begin OAuth, return consent URL. */
+        start(options: {
+          path: { name: string };
+          query?: { directory?: string };
+        }): Promise<SdkEnvelope<{ authorizationUrl: string }>>;
+      };
     };
     /**
      * POST /session/{id}/permissions/{permissionID}

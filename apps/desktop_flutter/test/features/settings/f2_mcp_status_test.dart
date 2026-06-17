@@ -42,7 +42,7 @@ class _FakeMcpDataSource implements McpDataSource {
   }) async {}
 
   @override
-  Future<void> connectServer(String name) async {}
+  Future<String?> connectServer(String name) async => null;
 
   @override
   Future<void> disconnectServer(String name) async {}

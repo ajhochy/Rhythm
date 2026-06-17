@@ -200,7 +200,7 @@ describe('issue-702-c1: MCP route contracts', () => {
   // ── POST /opencode/mcp/:name/connect ────────────────────────────────────
 
   it('issue-702-c1g: POST /opencode/mcp/:name/connect invokes connectMcp with correct name', async () => {
-    connectMcpSpy.mockResolvedValueOnce(true);
+    connectMcpSpy.mockResolvedValueOnce({ connected: true });
 
     const res = await fetch(`${baseUrl}/opencode/mcp/rhythm-mcp/connect`, {
       method: 'POST',
@@ -209,6 +209,27 @@ describe('issue-702-c1: MCP route contracts', () => {
     expect(res.status).toBe(200);
     expect(connectMcpSpy).toHaveBeenCalledOnce();
     expect(connectMcpSpy).toHaveBeenCalledWith('rhythm-mcp');
+    const body = (await res.json()) as { ok: boolean; authorizationUrl: string | null };
+    expect(body.ok).toBe(true);
+    // Already authed → no consent URL.
+    expect(body.authorizationUrl).toBeNull();
+  });
+
+  it('mcp-oauth-c1: POST /opencode/mcp/:name/connect returns authorizationUrl when the server needs OAuth', async () => {
+    connectMcpSpy.mockResolvedValueOnce({
+      connected: false,
+      authorizationUrl: 'https://provider/oauth?x',
+    });
+
+    const res = await fetch(`${baseUrl}/opencode/mcp/canva/connect`, {
+      method: 'POST',
+    });
+
+    expect(res.status).toBe(200);
+    expect(connectMcpSpy).toHaveBeenCalledWith('canva');
+    const body = (await res.json()) as { ok: boolean; authorizationUrl: string | null };
+    expect(body.ok).toBe(false);
+    expect(body.authorizationUrl).toBe('https://provider/oauth?x');
   });
 
   it('issue-702-c1h: POST /opencode/mcp/:name/connect — SDK error → AppError', async () => {
