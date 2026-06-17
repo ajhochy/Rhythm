@@ -66,6 +66,15 @@ function redactServerEnv(server: CuratedMcpServer): CuratedMcpServer {
   };
 }
 
+/**
+ * MCP-7 — find the curated catalog entry for a server addressed by either its
+ * stable `id` (the opencode.json key) or its human-readable `name`. Returns
+ * undefined when the name matches no curated server.
+ */
+function findCuratedServer(name: string): CuratedMcpServer | undefined {
+  return CURATED_MCP_SERVERS.find((s) => s.id === name || s.name === name);
+}
+
 // ── GET / — list all MCP servers ────────────────────────────────────────────
 
 opencodeMcpRouter.get(
@@ -78,16 +87,28 @@ opencodeMcpRouter.get(
       const entries = Object.entries(statusMap).map(([name, entry]) => {
         const config = persistedConfigs[name];
         const envMap = config?.environment as Record<string, string> | undefined;
+        const curated = findCuratedServer(name);
+        const requiredEnv = curated?.requiredEnv ?? [];
 
         // Redact env values
         const environment = envMap
           ? Object.fromEntries(Object.keys(envMap).map((k) => [k, '***']))
           : undefined;
 
-        // needsCredentials: local → any env value empty; remote → SDK status needs_auth
+        // needsCredentials:
+        //   - remote → SDK status needs_auth.
+        //   - curated key-based server with requiredEnv → any required key
+        //     missing-or-empty in the persisted environment (MCP-7). This is
+        //     what flags stripe/mailchimp persisted WITHOUT their key.
+        //   - non-curated with an env map → preserve the existing empty-value
+        //     behavior (any env VALUE empty).
         let needsCredentials = false;
         if (entry.status === 'needs_auth') {
           needsCredentials = true;
+        } else if (requiredEnv.length > 0) {
+          needsCredentials = requiredEnv.some(
+            (k) => !envMap?.[k] || envMap[k].trim() === '',
+          );
         } else if (envMap) {
           needsCredentials = Object.values(envMap).some((v) => !v || v.trim() === '');
         }
@@ -96,6 +117,7 @@ opencodeMcpRouter.get(
           name,
           ...entry,
           ...(environment !== undefined ? { environment } : {}),
+          requiredEnv,
           needsCredentials,
         };
       });
@@ -205,6 +227,85 @@ opencodeMcpRouter.post(
         ...result,
         servers: result.servers.map(redactServerEnv),
       });
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// ── POST /:name/credentials — set typed credentials for a curated key-based server ──
+//
+// MCP-7 — curated LOCAL servers (stripe, mailchimp) declare `requiredEnv` but no
+// key is injected at install (the token bridge only handles Google/PCO). This
+// endpoint accepts the user-entered secret(s), validates them against the
+// curated `requiredEnv`, builds the opencode config from the curated def, and
+// persists+reconnects via `addMcp`. Only curated LOCAL servers take typed
+// credentials here — remote (OAuth) servers use the /:name/oauth/* flow.
+opencodeMcpRouter.post(
+  '/:name/credentials',
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { name } = req.params;
+      const curated = findCuratedServer(name);
+      if (!curated) {
+        return next(
+          new AppError(
+            404,
+            'NOT_CURATED',
+            `'${name}' is not a curated MCP server`,
+          ),
+        );
+      }
+      // Only local/key-based servers accept typed credentials. Remote servers
+      // have no `command` and authenticate via OAuth, not env keys.
+      if (curated.type !== 'local' || !curated.command) {
+        return next(
+          new AppError(
+            400,
+            'NOT_KEY_BASED',
+            `'${curated.id}' is not a key-based local MCP server`,
+          ),
+        );
+      }
+
+      const body = req.body as { environment?: Record<string, string> };
+      const provided =
+        body.environment && typeof body.environment === 'object'
+          ? body.environment
+          : {};
+
+      // Validate: every required key must have a non-empty value. Strip any
+      // keys not in requiredEnv (never let the client inject arbitrary env).
+      const validated: Record<string, string> = {};
+      const missing: string[] = [];
+      for (const key of curated.requiredEnv) {
+        const value = provided[key];
+        if (typeof value !== 'string' || value.trim() === '') {
+          missing.push(key);
+        } else {
+          validated[key] = value;
+        }
+      }
+      if (missing.length > 0) {
+        return next(
+          new AppError(
+            400,
+            'MISSING_CREDENTIALS',
+            `Missing required credential(s): ${missing.join(', ')}`,
+          ),
+        );
+      }
+
+      // Build the config from the curated def — merge user values over any base
+      // environment the curated def carries (stripe/mailchimp have none).
+      const config: import('@opencode-ai/sdk').McpLocalConfigInput = {
+        type: 'local',
+        command: curated.command,
+        environment: { ...(curated.environment ?? {}), ...validated },
+      };
+
+      const updated = await opencodeClient.addMcp(curated.id, config);
+      res.json(updated);
     } catch (err) {
       next(err);
     }
