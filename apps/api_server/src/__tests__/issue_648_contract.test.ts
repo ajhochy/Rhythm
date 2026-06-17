@@ -49,4 +49,21 @@ describe('issue-648: ROUTE_FALLBACKS_BY_AGENT does not contain invalid Gemini mo
       }
     }
   });
+
+  // The opencode engine does NOT register a `google` provider (the
+  // opencode-gemini-auth plugin supplies auth but no model catalog), so a direct
+  // `providerID: 'google'` route resolves to ProviderModelNotFoundError. Gemini
+  // must route via OpenRouter. This guards the fix where reporting google as
+  // authed made the resolver pick a dead direct-google route.
+  it('no agent uses a direct providerID:google route (opencode has no google provider)', () => {
+    for (const [agent, routes] of Object.entries(ROUTE_FALLBACKS_BY_AGENT)) {
+      for (const r of routes) {
+        if (r.providerID === 'google') {
+          throw new Error(
+            `Agent "${agent}" has a direct google route (${r.modelID}); opencode has no google provider, so route Gemini via OpenRouter instead.`,
+          );
+        }
+      }
+    }
+  });
 });

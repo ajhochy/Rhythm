@@ -68,9 +68,13 @@ export const ROUTE_FALLBACKS_BY_AGENT: Record<string, ModelRoute[]> = {
     { providerID: 'openrouter', modelID: 'openai/gpt-5.4' },
     { providerID: 'openrouter', modelID: 'openai/gpt-5.4-mini' },
   ],
+  // NOTE: no direct `providerID: 'google'` routes. The opencode engine does NOT
+  // register a `google` provider in `config.providers()` (the opencode-gemini-auth
+  // plugin supplies auth but no model catalog), so any direct google/* model id
+  // resolves to ProviderModelNotFoundError. Gemini therefore routes via OpenRouter,
+  // whose catalog includes valid `google/gemini-*` ids. (Re-add direct google
+  // routes only if a future opencode build registers a usable google provider.)
   'gemini-cli': [
-    { providerID: 'google', modelID: 'gemini-3-pro-preview' },
-    { providerID: 'google', modelID: 'gemini-3-flash' },
     {
       providerID: 'openrouter',
       modelID: 'google/gemini-3.1-pro-preview-customtools',
