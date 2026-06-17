@@ -11,6 +11,7 @@ import {
   type CuratedMcpServer,
   type CuratedTokenProvider,
 } from '../config/curated_mcp_servers';
+import { ensureGeminiProjectConfig } from './gemini_project_config';
 
 /**
  * MCP-6 — resolves a FRESH OAuth access token for a curated server's
@@ -301,6 +302,16 @@ export class OpencodeClientService {
           directory?: string;
         }) => OpencodeClient;
       };
+      // Ensure the Gemini Code Assist projectId is on disk in opencode.json
+      // BEFORE createOpencode() spawns the engine — the opencode-gemini-auth
+      // plugin reads provider.google.options.projectId at provider-registration
+      // time, so it must be persisted first or the google provider won't
+      // register for Workspace accounts. Never throws; logs and continues.
+      const geminiCfg = ensureGeminiProjectConfig();
+      logger.info(
+        `[OpencodeClientService] ensured Gemini Code Assist projectId=${geminiCfg.projectId} (changed=${geminiCfg.changed})`,
+      );
+
       // #655 — Before spawning, reclaim :4096 from a stale opencode orphan
       // (e.g. one reparented to launchd after a Force-Quit / SIGKILL). A bound
       // port makes the SDK's fresh spawn exit code 1 ("engine not ready"). A
