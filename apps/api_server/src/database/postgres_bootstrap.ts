@@ -348,6 +348,22 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
     ALTER TABLE automation_rules ADD COLUMN IF NOT EXISTS match_count_last_run INTEGER NOT NULL DEFAULT 0;
     ALTER TABLE automation_rules ADD COLUMN IF NOT EXISTS preview_sample TEXT;
     ALTER TABLE automation_rules ADD COLUMN IF NOT EXISTS conditions TEXT;
+
+    -- integration_accounts: backfill columns added after the table's original
+    -- release. These live in the CREATE TABLE block above, but CREATE TABLE IF
+    -- NOT EXISTS does NOT alter a pre-existing table — so production DBs created
+    -- before these columns existed were missing them, and the Google sign-in
+    -- upsert (which writes status/error_message/etc.) failed with a 500
+    -- ("column does not exist"). Idempotent ADD COLUMN IF NOT EXISTS backfills.
+    ALTER TABLE integration_accounts ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'connected';
+    ALTER TABLE integration_accounts ADD COLUMN IF NOT EXISTS error_message TEXT;
+    ALTER TABLE integration_accounts ADD COLUMN IF NOT EXISTS email TEXT;
+    ALTER TABLE integration_accounts ADD COLUMN IF NOT EXISTS display_name TEXT;
+    ALTER TABLE integration_accounts ADD COLUMN IF NOT EXISTS refresh_token TEXT;
+    ALTER TABLE integration_accounts ADD COLUMN IF NOT EXISTS scope TEXT;
+    ALTER TABLE integration_accounts ADD COLUMN IF NOT EXISTS token_type TEXT;
+    ALTER TABLE integration_accounts ADD COLUMN IF NOT EXISTS expires_at TEXT;
+    ALTER TABLE integration_accounts ADD COLUMN IF NOT EXISTS last_synced_at TEXT;
   `);
 
   await pool.query(`
