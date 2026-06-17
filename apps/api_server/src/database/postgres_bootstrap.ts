@@ -15,6 +15,7 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
       is_facilities_manager BOOLEAN NOT NULL DEFAULT FALSE,
       email_notifications_enabled BOOLEAN NOT NULL DEFAULT TRUE,
       password_hash TEXT,
+      timezone TEXT NOT NULL DEFAULT 'America/Los_Angeles',
       created_at TEXT NOT NULL DEFAULT (${UTC_TEXT_NOW}),
       updated_at TEXT NOT NULL DEFAULT (${UTC_TEXT_NOW})
     );
@@ -319,6 +320,7 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
     ALTER TABLE users ADD COLUMN IF NOT EXISTS is_facilities_manager BOOLEAN NOT NULL DEFAULT FALSE;
     ALTER TABLE users ADD COLUMN IF NOT EXISTS email_notifications_enabled BOOLEAN NOT NULL DEFAULT TRUE;
     ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash TEXT;
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS timezone TEXT NOT NULL DEFAULT 'America/Los_Angeles';
 
     ALTER TABLE facilities ADD COLUMN IF NOT EXISTS building TEXT;
 
