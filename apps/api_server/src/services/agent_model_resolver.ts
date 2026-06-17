@@ -68,13 +68,20 @@ export const ROUTE_FALLBACKS_BY_AGENT: Record<string, ModelRoute[]> = {
     { providerID: 'openrouter', modelID: 'openai/gpt-5.4' },
     { providerID: 'openrouter', modelID: 'openai/gpt-5.4-mini' },
   ],
-  // NOTE: no direct `providerID: 'google'` routes. The opencode engine does NOT
-  // register a `google` provider in `config.providers()` (the opencode-gemini-auth
-  // plugin supplies auth but no model catalog), so any direct google/* model id
-  // resolves to ProviderModelNotFoundError. Gemini therefore routes via OpenRouter,
-  // whose catalog includes valid `google/gemini-*` ids. (Re-add direct google
-  // routes only if a future opencode build registers a usable google provider.)
+  // Direct `google` routes come FIRST so the agent uses the user's own Google
+  // account (free Gemini Code Assist via the opencode-gemini-auth plugin) before
+  // spending OpenRouter credits. The plugin only registers the `google` provider
+  // when a Code Assist projectId is resolvable (set via
+  // provider.google.options.projectId in opencode.json — required for Workspace
+  // accounts); when it isn't, `google` is absent from the engine and the resolver
+  // falls through to the OpenRouter routes below. Model IDs MUST match the
+  // plugin's catalog (verify with `opencode models google`); the older
+  // `gemini-3-pro-preview`/`gemini-3-flash` ids do NOT exist.
   'gemini-cli': [
+    { providerID: 'google', modelID: 'gemini-2.5-pro' },
+    { providerID: 'google', modelID: 'gemini-2.5-flash' },
+    { providerID: 'google', modelID: 'gemini-3.1-pro-preview' },
+    // OpenRouter fallback when the google provider isn't registered.
     {
       providerID: 'openrouter',
       modelID: 'google/gemini-3.1-pro-preview-customtools',
