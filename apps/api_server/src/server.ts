@@ -79,6 +79,37 @@ async function main() {
       } catch (e) {
         logger.warn(`[server] Claude auto-bridge errored (non-fatal): ${String(e)}`);
       }
+
+      // Option C — re-bridge the user's Google token into opencode's `google`
+      // provider on boot so the gemini-cli agent survives a restart (opencode
+      // can't refresh our-minted token itself). Resolve the user from any
+      // stored Google account; skip cleanly when none/no gemini scope. The
+      // bridge's scope-guard ensures we never push a non-Gemini token. Starts
+      // the 15-min refresh loop on success.
+      try {
+        const { googleAgentBridge } = await import('./services/google_agent_bridge');
+        const { IntegrationAccountsRepository } = await import(
+          './repositories/integration_accounts_repository'
+        );
+        const accountsRepo = new IntegrationAccountsRepository();
+        const stored = await accountsRepo.findByProviderAsync('google_calendar');
+        const ownerId = stored?.ownerId ?? null;
+        if (ownerId == null) {
+          logger.info('[server] Google Gemini auto-bridge: no Google account — skipping');
+        } else {
+          const gResult = await googleAgentBridge.bridgeGoogle(ownerId, opencodeClient);
+          if (gResult.success) {
+            googleAgentBridge.startRefreshLoop(ownerId, opencodeClient);
+          }
+          logger.info(
+            `[server] Google Gemini auto-bridge: ${
+              gResult.success ? 'ok' : `skipped (${gResult.reason})`
+            }`,
+          );
+        }
+      } catch (e) {
+        logger.warn(`[server] Google Gemini auto-bridge errored (non-fatal): ${String(e)}`);
+      }
     })
     .catch((err) => {
       console.warn('[Opencode] SDK init failed (non-fatal):', err);
