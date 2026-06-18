@@ -1,18 +1,16 @@
 # Rhythm — Claude Working Agreement
 
-## Obsidian Project Log
+## Project logging (canonical: `docs/ai/`)
 
-After completing any significant work, append a session entry using the obsidian MCP tool:
+Logging lives in **`docs/ai/`** — the single source of truth, surfaced in Obsidian via the `ai-*` symlinks under `Projects/rhythm/`.
 
-Tool: obsidian_post_file
-- filename: Dev Projects/Rhythm.md
-- content: the entry below
+After significant work, log to `docs/ai/` (never to one growing file):
 
-Entry format:
-### YYYY-MM-DD - [one-line summary]
-- What was changed/built
-- Key decisions made and why
-- Anything blocked or left open
+- **Current state** → overwrite `docs/ai/project-state.md` (lean snapshot: focus · branch/PR · in progress · risks · test status · next step). No log accumulates here.
+- **This run/session** → create `docs/ai/runs/YYYY-MM-DD-<slug>.md` — frontmatter `date, repo, branch, pr, issues, status, tags: [run, <repo>]`; body = Files / Checks / Notes.
+- **Each durable decision** → create `docs/ai/decisions/YYYY-MM-DD-<slug>.md` — frontmatter `tags: [decision, <repo>]`; Context / Decision / Alternatives / Consequences.
+
+Do **not** write session logs to the Obsidian vault note via `obsidian_post_file` — that path is retired; it created a second, divergent log. The vault note is now a read-only index that links to these `docs/ai/` files.
 
 ---
 
