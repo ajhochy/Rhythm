@@ -1182,4 +1182,139 @@ export function runMigrations(db: Database.Database): void {
   if (!agentSessionCols689.includes('sdk_session_id')) {
     db.exec(`ALTER TABLE agent_sessions ADD COLUMN sdk_session_id TEXT`);
   }
+
+  // ── Agent Subsystem: Scheduler, Memory, Webhooks, Research ──────────────
+  //
+  // These tables extend the agent subsystem with:
+  //  • agent_scheduled_tasks — cron/recurring agent task definitions
+  //  • agent_memory           — persistent, searchable agent memory store (FTS5)
+  //  • agent_webhook_endpoints — inbound webhook → trigger drain (SSRF-safe)
+  //  • agent_research_jobs    — deep research pipeline queue
+  //
+  // All tables use TEXT PKs (UUIDs) and follow the existing dual-DB pattern.
+  // Changes to pending_claude_triggers are additive (nullable columns).
+
+  // agent_scheduled_tasks — one row per scheduled agent task definition.
+  // schedule_type: 'daily' | 'weekly' | 'monthly' | 'cron' | 'once'
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS agent_scheduled_tasks (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      description TEXT,
+      schedule_type TEXT NOT NULL DEFAULT 'daily',
+      scheduled_time TEXT,        -- HH:MM wall-clock in the timezone column
+      scheduled_day INTEGER,      -- 0-6 (Mon-Sun) for weekly; 1-31 for monthly
+      cron_expression TEXT,       -- used when schedule_type = 'cron'
+      run_at TEXT,                -- ISO datetime for schedule_type = 'once'
+      timezone TEXT NOT NULL DEFAULT 'America/Los_Angeles',
+      next_run_at TEXT,           -- ISO UTC; NULL = no future run
+      prompt TEXT NOT NULL,       -- instructions delivered to the agent
+      agent_kind TEXT NOT NULL DEFAULT 'opencode',
+      allowed_mcps_json TEXT,     -- JSON string[] — permitted MCP server IDs
+      allowed_skills_json TEXT,   -- JSON string[] — permitted skill names
+      enabled INTEGER NOT NULL DEFAULT 1,
+      last_run_at TEXT,
+      last_run_status TEXT,       -- 'success' | 'error' | 'running' | NULL
+      last_error TEXT,
+      created_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_agent_scheduled_tasks_next_run
+      ON agent_scheduled_tasks(next_run_at)
+      WHERE enabled = 1 AND next_run_at IS NOT NULL;
+  `);
+
+  // agent_memory — persistent facts extracted by the memory consolidation loop.
+  // SQLite FTS5 virtual table enables full-text search over content.
+  // The base row stores metadata; the FTS index stores the searchable text.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS agent_memory (
+      id TEXT PRIMARY KEY,
+      kind TEXT NOT NULL DEFAULT 'fact',  -- 'fact' | 'preference' | 'context'
+      content TEXT NOT NULL,
+      source TEXT,                        -- 'session' | 'scheduler' | 'manual'
+      source_id TEXT,                     -- e.g. session_id or scheduled_task_id
+      tags_json TEXT NOT NULL DEFAULT '[]',
+      owner_user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_agent_memory_owner ON agent_memory(owner_user_id);
+    CREATE INDEX IF NOT EXISTS idx_agent_memory_kind ON agent_memory(kind);
+  `);
+
+  // FTS5 virtual table for agent_memory full-text search.
+  // content='' means external-content mode — we manage sync ourselves.
+  // If FTS5 is unavailable (rare; all modern SQLite has it), the CREATE
+  // fails silently and searches fall back to LIKE.
+  try {
+    db.exec(`
+      CREATE VIRTUAL TABLE IF NOT EXISTS agent_memory_fts
+        USING fts5(content, kind, tags_json, content='agent_memory', content_rowid='rowid');
+    `);
+  } catch {
+    // FTS5 not available — full-text search will fall back to LIKE queries.
+  }
+
+  // agent_webhook_endpoints — inbound webhook registrations.
+  // The server verifies HMAC signatures on incoming requests.
+  // SSRF guard lives in agentWebhookService.ts (no outbound calls to private
+  // addresses — destination URLs are validated at registration time).
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS agent_webhook_endpoints (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      event_types_json TEXT NOT NULL DEFAULT '["*"]',  -- JSON string[]
+      secret TEXT NOT NULL,                             -- HMAC secret (SHA-256)
+      target_scheduled_task_id TEXT
+        REFERENCES agent_scheduled_tasks(id) ON DELETE SET NULL,
+      target_prompt TEXT,           -- override prompt on webhook fire
+      enabled INTEGER NOT NULL DEFAULT 1,
+      last_triggered_at TEXT,
+      trigger_count INTEGER NOT NULL DEFAULT 0,
+      created_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_agent_webhook_endpoints_enabled
+      ON agent_webhook_endpoints(enabled);
+  `);
+
+  // agent_research_jobs — deep research pipeline queue.
+  // status: 'pending' | 'gathering' | 'reading' | 'synthesizing' | 'done' | 'error'
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS agent_research_jobs (
+      id TEXT PRIMARY KEY,
+      query TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      sources_json TEXT NOT NULL DEFAULT '[]',   -- JSON array of URLs fetched
+      report TEXT,                               -- final synthesized report
+      error TEXT,
+      requested_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_agent_research_jobs_status
+      ON agent_research_jobs(status);
+  `);
+
+  // Extend pending_claude_triggers with scheduler context columns (additive).
+  // These are all nullable — existing human-triggered rows have NULL here.
+  const pctColsExt = (db.pragma('table_info(pending_claude_triggers)') as { name: string }[]).map((c) => c.name);
+  if (!pctColsExt.includes('scheduled_task_id')) {
+    db.exec(`ALTER TABLE pending_claude_triggers ADD COLUMN scheduled_task_id TEXT REFERENCES agent_scheduled_tasks(id) ON DELETE CASCADE`);
+  }
+  if (!pctColsExt.includes('prompt')) {
+    db.exec(`ALTER TABLE pending_claude_triggers ADD COLUMN prompt TEXT`);
+  }
+  if (!pctColsExt.includes('allowed_mcps_json')) {
+    db.exec(`ALTER TABLE pending_claude_triggers ADD COLUMN allowed_mcps_json TEXT`);
+  }
+  if (!pctColsExt.includes('allowed_skills_json')) {
+    db.exec(`ALTER TABLE pending_claude_triggers ADD COLUMN allowed_skills_json TEXT`);
+  }
+  if (!pctColsExt.includes('webhook_endpoint_id')) {
+    db.exec(`ALTER TABLE pending_claude_triggers ADD COLUMN webhook_endpoint_id TEXT`);
+  }
 }

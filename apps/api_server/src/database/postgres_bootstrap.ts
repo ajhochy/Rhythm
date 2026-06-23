@@ -476,4 +476,97 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
 
   // tasks.preferred_agent — dual-DB additive column (agent_sessions tables are SQLite-only)
   await pool.query(`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS preferred_agent TEXT`);
+
+  // ── Agent Subsystem: Scheduler, Memory, Webhooks, Research ──────────────
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS agent_scheduled_tasks (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      description TEXT,
+      schedule_type TEXT NOT NULL DEFAULT 'daily',
+      scheduled_time TEXT,
+      scheduled_day INTEGER,
+      cron_expression TEXT,
+      run_at TEXT,
+      timezone TEXT NOT NULL DEFAULT 'America/Los_Angeles',
+      next_run_at TIMESTAMPTZ,
+      prompt TEXT NOT NULL,
+      agent_kind TEXT NOT NULL DEFAULT 'opencode',
+      allowed_mcps_json TEXT,
+      allowed_skills_json TEXT,
+      enabled BOOLEAN NOT NULL DEFAULT TRUE,
+      last_run_at TIMESTAMPTZ,
+      last_run_status TEXT,
+      last_error TEXT,
+      created_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_agent_scheduled_tasks_next_run
+      ON agent_scheduled_tasks(next_run_at)
+      WHERE enabled = TRUE AND next_run_at IS NOT NULL
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS agent_memory (
+      id TEXT PRIMARY KEY,
+      kind TEXT NOT NULL DEFAULT 'fact',
+      content TEXT NOT NULL,
+      source TEXT,
+      source_id TEXT,
+      tags_json TEXT NOT NULL DEFAULT '[]',
+      search_vector TSVECTOR GENERATED ALWAYS AS (to_tsvector('english', content)) STORED,
+      owner_user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_agent_memory_fts ON agent_memory USING gin(search_vector);
+    CREATE INDEX IF NOT EXISTS idx_agent_memory_owner ON agent_memory(owner_user_id);
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS agent_webhook_endpoints (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      event_types_json TEXT NOT NULL DEFAULT '["*"]',
+      secret TEXT NOT NULL,
+      target_scheduled_task_id TEXT REFERENCES agent_scheduled_tasks(id) ON DELETE SET NULL,
+      target_prompt TEXT,
+      enabled BOOLEAN NOT NULL DEFAULT TRUE,
+      last_triggered_at TIMESTAMPTZ,
+      trigger_count INTEGER NOT NULL DEFAULT 0,
+      created_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS agent_research_jobs (
+      id TEXT PRIMARY KEY,
+      query TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending',
+      sources_json TEXT NOT NULL DEFAULT '[]',
+      report TEXT,
+      error TEXT,
+      requested_by_user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_agent_research_jobs_status ON agent_research_jobs(status)`);
+
+  // Extend pending_claude_triggers with scheduler context columns (additive, all nullable)
+  await pool.query(`
+    ALTER TABLE pending_claude_triggers ADD COLUMN IF NOT EXISTS scheduled_task_id TEXT REFERENCES agent_scheduled_tasks(id) ON DELETE CASCADE;
+    ALTER TABLE pending_claude_triggers ADD COLUMN IF NOT EXISTS prompt TEXT;
+    ALTER TABLE pending_claude_triggers ADD COLUMN IF NOT EXISTS allowed_mcps_json TEXT;
+    ALTER TABLE pending_claude_triggers ADD COLUMN IF NOT EXISTS allowed_skills_json TEXT;
+    ALTER TABLE pending_claude_triggers ADD COLUMN IF NOT EXISTS webhook_endpoint_id TEXT;
+  `);
 }
