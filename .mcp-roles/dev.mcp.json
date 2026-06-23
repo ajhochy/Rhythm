@@ -1,0 +1,17 @@
+{
+  "$schema": "https://rhythm.vcrcapps.com/schemas/mcp-role.json",
+  "role": "dev",
+  "description": "Development agent — full Rhythm + research + memory + scheduler management. Intended for dev/engineering tasks. Broader tool access than other roles.",
+  "mcpServers": {
+    "rhythm": {
+      "command": "node",
+      "args": ["apps/mcp_server/dist/index.js"],
+      "env": {
+        "RHYTHM_API_URL": "${RHYTHM_API_URL}",
+        "RHYTHM_API_TOKEN": "${RHYTHM_API_TOKEN}"
+      },
+      "allowedTools": ["*"]
+    }
+  },
+  "disabledMcpServers": []
+}
