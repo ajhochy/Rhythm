@@ -8,12 +8,13 @@
 import { Router } from 'express';
 import type { NextFunction, Request, Response } from 'express';
 import { requireAuth } from '../middleware/auth_middleware';
+import { env } from '../config/env';
 import { GmailSignalsRepository } from '../repositories/gmail_signals_repository';
 
 const router = Router();
 const repo = new GmailSignalsRepository();
 
-router.use(requireAuth);
+if (!env.agentLocal) router.use(requireAuth);
 
 router.get('/', async (req: Request, res: Response, next: NextFunction) => {
   try {

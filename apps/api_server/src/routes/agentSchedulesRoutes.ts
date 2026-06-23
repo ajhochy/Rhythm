@@ -1,11 +1,12 @@
 import { Router } from 'express';
 import { requireAuth } from '../middleware/auth_middleware';
+import { env } from '../config/env';
 import { AgentSchedulesController } from '../controllers/agentSchedulesController';
 
 const router = Router();
 const controller = new AgentSchedulesController();
 
-router.use(requireAuth);
+if (!env.agentLocal) router.use(requireAuth);
 
 router.get('/', (req, res, next) => controller.list(req, res, next));
 router.get('/:id', (req, res, next) => controller.get(req, res, next));
