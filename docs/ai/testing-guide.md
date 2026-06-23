@@ -17,7 +17,7 @@ All commands delegate to `scripts/run_ai_workflow.py` in this repo.
 ### api_server (Node.js/TypeScript)
 ```bash
 cd apps/api_server
-npm test                  # vitest run — 679 tests (as of OPC-M3-6 / issue #699)
+npm test                  # vitest run — 951 tests (as of #738/#739/#740, 2026-06-23)
 node_modules/.bin/tsc --noEmit   # TypeScript type check (no tsc in global PATH)
 ```
 
@@ -71,6 +71,9 @@ dart format . --set-exit-if-changed # CI fails on format violations
 | `test/features/agents/opc_m3_6_child_sessions_test.dart` | OPC-M3-6: TaskChip tap → ChildTranscriptView (c2a REAL-SURFACE), openChildSession fetches messages (c2b), closeChildSession no-refetch (c3), ChildTranscriptView read-only (c4), children not in sidebar lists (c5), ToolState regression (c6) |
 | `src/__tests__/opc_instant_new_session.test.ts` | #710: bridge session.updated → updateFields + broadcastSessionUpdated (c2a), empty title skipped (c2b), server accepts null/empty agentId (c4) |
 | `test/features/agents/opc_instant_new_session_test.dart` | #710: c1 REAL-SURFACE header tap → onNewSession no dialog; c1-controller empty name default; c3 handleWsMessageForTest → session name updated; c4 empty name → "New session" placeholder; c5 ⋯ button → onOptionsPressed |
+| `src/__tests__/issue_738_agent_runner.test.ts` | #738: AgentRunner.run() success, timeout+abort, slot released, createSession fail, promptAsync fail, concurrency cap (7 tests) |
+| `src/__tests__/issue_739_scheduler_agent_runner.test.ts` | #739: AGENT_LOCAL=true → AgentRunner called, no trigger insert; AGENT_LOCAL=false → trigger inserted, no AgentRunner; loop isolation (4 tests) |
+| `src/__tests__/issue_740_cookbook_run.test.ts` | #740: POST /agent-cookbook/:id/run returns 202+sessionId, 404 unknown, prompt compiled from steps, 401 unauth (4 tests) |
 
 ## Mocking the Opencode engine in tests
 

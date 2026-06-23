@@ -21,6 +21,7 @@ import { logger } from '../utils/logger';
 import { AgentScheduledTasksRepository } from '../repositories/agent_scheduled_tasks_repository';
 import { getDb, getPostgresPool } from '../database/db';
 import { env } from '../config/env';
+import * as AgentRunner from './agent_runner';
 
 // ── next_run computation ──────────────────────────────────────────────────
 
@@ -242,26 +243,67 @@ async function checkDueTasks(): Promise<void> {
     logger.info(`[AgentScheduler] Firing task "${task.name}" (${task.id})`);
 
     try {
-      await insertScheduledTrigger({
-        id: task.id,
-        prompt: task.prompt,
-        allowedMcpsJson: task.allowedMcpsJson,
-        allowedSkillsJson: task.allowedSkillsJson,
-      });
+      if (env.agentLocal) {
+        // ── Local path: run directly via AgentRunner ──────────────────────────
+        // Mark 'running' before the async call so the UI reflects progress.
+        const nextRun = computeNextRun({
+          scheduleType: task.scheduleType,
+          scheduledTime: task.scheduledTime,
+          scheduledDay: task.scheduledDay,
+          cronExpression: task.cronExpression,
+          runAt: task.runAt,
+          timezone: task.timezone,
+          after: new Date(),
+        });
+        await repo.updateNextRunAsync(task.id, nextRun, runStart, 'running');
 
-      // Compute next run time
-      const nextRun = computeNextRun({
-        scheduleType: task.scheduleType,
-        scheduledTime: task.scheduledTime,
-        scheduledDay: task.scheduledDay,
-        cronExpression: task.cronExpression,
-        runAt: task.runAt,
-        timezone: task.timezone,
-        after: new Date(),
-      });
+        // Run async — one failure must not block the rest of the loop.
+        AgentRunner.run({
+          prompt: task.prompt,
+          allowedMcpsJson: task.allowedMcpsJson,
+          taskId: null,
+          outputTarget: 'session',
+        }).then(async (result) => {
+          const status = result.status === 'done' ? 'success' : 'error';
+          const errMsg = result.error ?? undefined;
+          try {
+            await repo.updateNextRunAsync(task.id, nextRun, runStart, status, errMsg);
+          } catch (updateErr) {
+            logger.warn(`[AgentScheduler] Could not update last_run_status for "${task.name}": ${String(updateErr)}`);
+          }
+          if (status === 'success') {
+            logger.info(`[AgentScheduler] Task "${task.name}" completed. Session: ${result.sessionId}`);
+          } else {
+            logger.error(`[AgentScheduler] Task "${task.name}" failed: ${errMsg}`);
+          }
+        }).catch((err) => {
+          logger.error(`[AgentScheduler] AgentRunner.run threw for task "${task.name}": ${String(err)}`);
+        });
 
-      await repo.updateNextRunAsync(task.id, nextRun, runStart, 'running');
-      logger.info(`[AgentScheduler] Task "${task.name}" queued. Next run: ${nextRun ?? 'none'}`);
+        logger.info(`[AgentScheduler] Task "${task.name}" dispatched to AgentRunner. Next run: ${nextRun ?? 'none'}`);
+      } else {
+        // ── Production path: insert pending trigger ───────────────────────────
+        await insertScheduledTrigger({
+          id: task.id,
+          prompt: task.prompt,
+          allowedMcpsJson: task.allowedMcpsJson,
+          allowedSkillsJson: task.allowedSkillsJson,
+        });
+
+        // Compute next run time
+        const nextRun = computeNextRun({
+          scheduleType: task.scheduleType,
+          scheduledTime: task.scheduledTime,
+          scheduledDay: task.scheduledDay,
+          cronExpression: task.cronExpression,
+          runAt: task.runAt,
+          timezone: task.timezone,
+          after: new Date(),
+        });
+
+        await repo.updateNextRunAsync(task.id, nextRun, runStart, 'running');
+        logger.info(`[AgentScheduler] Task "${task.name}" queued. Next run: ${nextRun ?? 'none'}`);
+      }
     } catch (err) {
       const errMsg = String(err);
       logger.error(`[AgentScheduler] Failed to fire task "${task.name}" (${task.id}): ${errMsg}`);

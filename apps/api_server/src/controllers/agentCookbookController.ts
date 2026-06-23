@@ -1,6 +1,7 @@
 import type { NextFunction, Request, Response } from 'express';
 import { AppError } from '../errors/app_error';
 import { AgentCookbookRepository } from '../repositories/agent_cookbook_repository';
+import * as AgentRunner from '../services/agent_runner';
 
 const repo = new AgentCookbookRepository();
 
@@ -91,5 +92,58 @@ export class AgentCookbookController {
     } catch (err) {
       next(err);
     }
+  }
+
+  /** POST /agent-cookbook/:id/run — execute the recipe via AgentRunner */
+  async runRecipe(req: Request, res: Response, next: NextFunction) {
+    try {
+      const recipe = await repo.findByIdAsync(req.params.id);
+      if (!recipe) throw AppError.notFound('AgentCookbook');
+
+      // Compile description + steps_json into a prompt string
+      const stepsText = _compileStepsToPrompt(recipe.stepsJson);
+      const prompt = [
+        recipe.description ? `Goal: ${recipe.description}` : null,
+        stepsText,
+      ]
+        .filter(Boolean)
+        .join('\n\n');
+
+      const result = await AgentRunner.run({ prompt, outputTarget: 'session' });
+
+      res.status(202).json({ sessionId: result.sessionId, status: result.status });
+    } catch (err) {
+      next(err);
+    }
+  }
+}
+
+/**
+ * Convert steps_json (JSON string) into a plain-text prompt.
+ * Each step with an "action" + "text" or "description" is turned into a line.
+ */
+function _compileStepsToPrompt(stepsJson: string): string {
+  try {
+    const steps = JSON.parse(stepsJson) as unknown[];
+    if (!Array.isArray(steps) || steps.length === 0) return '';
+    return steps
+      .map((step, i) => {
+        if (typeof step === 'string') return `${i + 1}. ${step}`;
+        if (typeof step === 'object' && step !== null) {
+          const s = step as Record<string, unknown>;
+          const label = typeof s.text === 'string'
+            ? s.text
+            : typeof s.description === 'string'
+              ? s.description
+              : typeof s.action === 'string'
+                ? s.action
+                : JSON.stringify(s);
+          return `${i + 1}. ${label}`;
+        }
+        return `${i + 1}. ${String(step)}`;
+      })
+      .join('\n');
+  } catch {
+    return stepsJson;
   }
 }

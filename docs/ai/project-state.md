@@ -2,9 +2,9 @@
 
 ## Current focus
 
-**2026-06-23 — B2/C3/D2 Flutter features complete; nav column overflow fixed; ready for PR**
+**2026-06-23 — #738/#739/#740 backend complete; full feature/agent-scheduler branch ready for PR**
 
-Branch `feature/agent-scheduler`. All planned work items are headless-verified:
+Branch `feature/agent-scheduler`. All planned backend + Flutter work items are headless-verified:
 
 - **Phase A** — Odysseus-style nav column shell (`_agents_nav_column.dart`)
 - **Phase B** — Rich session row extraction (`_session_list_body.dart`); nav column wired
@@ -15,26 +15,28 @@ Branch `feature/agent-scheduler`. All planned work items are headless-verified:
 - **B2** — Flutter Cookbook feature (view/controller/repository/data source) + nav row
 - **C3** — Flutter Email feature + nav row
 - **D2** — Flutter Gallery feature + nav row
-- **Nav overflow fix** — nav column middle region now scrolls as one area; header/footer pinned; all 9 nav column tests pass
+- **Nav overflow fix** — nav column middle region now scrolls as one area; header/footer pinned
+- **#738** — `AgentRunner` service: `run()` with concurrency cap, timeout, promptAsync+poll loop
+- **#739** — Scheduler local path: AGENT_LOCAL=true routes due tasks through AgentRunner (no double-trigger)
+- **#740 backend** — `POST /agent-cookbook/:id/run` compiles prompt + calls AgentRunner
 
-Visual smoke (`flutter run -d macos`) is required before opening a PR.
+Visual smoke (`flutter run -d macos`) is required before merging.
 
 ---
 
 ## Active branch / PR
 
-- **Branch:** `feature/agent-scheduler` (pushed; HEAD `779cea2`)
-- **PR:** [#734](https://github.com/ajhochy/Rhythm/pull/734) — open, CI running on the new commits
+- **Branch:** `feature/agent-scheduler` (pushed; HEAD `4e6f203`)
+- **PR:** [#734](https://github.com/ajhochy/Rhythm/pull/734) — open, CI running
 - **Base:** `main`
-- **Commits this run:** `c58f1fa` (Phase A nav column + rich rows) · `1d8562e` (C1 mcpRole) · `227bbde` (B1/C2/D1 backends) · `779cea2` (B2/C3/D2 + scrollable-sidebar overflow fix)
 
 ---
 
 ## In progress
 
 Nothing actively in flight. Waiting on:
-1. User manual smoke (`flutter run -d macos` against `https://api.vcrcapps.com`) to confirm visual fidelity of the full nav column (CHATS body, TOOLS section, short-window scroll).
-2. PR open after smoke passes.
+1. User manual smoke (`flutter run -d macos`) to confirm visual fidelity of the full nav column (CHATS body, TOOLS section, short-window scroll).
+2. PR merge after smoke passes.
 
 ---
 
@@ -43,9 +45,9 @@ Nothing actively in flight. Waiting on:
 - **Visual gap:** `flutter run` was forbidden during all coding sessions. Run manual smoke before merging.
 - **Bundled api_server — MCP_ROLES_DIR:** In the Flutter `.app` bundle the api_server is embedded under `$resourcesDir/api_server/` without the full repo tree. The default `MCP_ROLES_DIR` path won't resolve `.mcp-roles/`. Operators must set `MCP_ROLES_DIR` env var for role-scoped sessions to work in production.
 - **SDK tool-gating limitation (C1):** The OpenCode SDK `session.create` has no per-session tool allowlist parameter. The C1 init-time gate stores the allowlist on the `agent_sessions` row; full enforcement requires the WS gateway to honour it (future work).
-- ~~2 pre-existing test failures in `new_session_dialog_error_test.dart`~~ — RESOLVED: the nav-column refactor had dropped the `Key('new-session-options-button')` from the real options button; restored it. Full Flutter suite now **632 pass / 0 fail**.
-- **C2 gmail catalog:** No third-party gmail MCP was added to `curated_mcp_servers.ts` (parent prompt override; rhythm MCP already has email tools). See `docs/ai/decisions/2026-06-23-c2-no-third-party-gmail-mcp.md`.
-- **`CrossAxisAlignment.stretch` on workspace Row** — all workspace row children now receive tight height. Visual smoke should confirm no regressions on `SessionSidePanel` / `_InspectorResizeHandle`. See `docs/ai/decisions/2026-06-23-nav-column-scroll-layout.md`.
+- **AgentRunner polling latency:** Up to 500 ms added to result detection vs. SSE (by design — see `docs/ai/decisions/2026-06-23-agent-runner-polling-vs-sse.md`).
+- **`notification` outputTarget is a TODO stub** in `agent_runner.ts` — no notification endpoint shape finalized yet.
+- **Flutter "Run" button for cookbook (#740 Flutter)** — not yet built. Only the backend endpoint is done.
 
 ---
 
@@ -53,18 +55,19 @@ Nothing actively in flight. Waiting on:
 
 | Suite | Status |
 |-------|--------|
-| `dart format .` | PASS — 0 changed |
-| `flutter analyze --no-fatal-infos` | PASS — 0 errors, 0 warnings |
-| `flutter test test/features/agents/` | 410 PASS, 2 FAIL (pre-existing) |
-| `api_server tsc --noEmit` | PASS — 0 errors (from prior run; unchanged) |
-| `api_server npm test` | 936/936 PASS (from prior run; api_server unchanged) |
+| `dart format .` | PASS — 0 changed (last verified 2026-06-23) |
+| `flutter analyze --no-fatal-infos` | PASS — 0 errors, 0 warnings (last verified 2026-06-23) |
+| `flutter test` (full) | 632 PASS, 0 FAIL (the 2 prior new_session_dialog failures fixed in 4e6f203) |
+| `api_server tsc --noEmit` | PASS — 0 errors |
+| `api_server npm test` | 951/951 PASS (111 test files; +15 new from #738/#739/#740) |
 
 ---
 
 ## Next step
 
 1. **Manual smoke** — `flutter run -d macos`: confirm nav column header/footer pinned, middle scrolls, all TOOLS rows reachable, search filter works, Cookbook/Email/Gallery views open.
-2. **Open PR** on `feature/agent-scheduler` → `main` after smoke passes.
+2. **Merge PR #734** after smoke passes.
+3. **#740 Flutter** — Run button in the Cookbook view (separate task).
 
 ---
 
