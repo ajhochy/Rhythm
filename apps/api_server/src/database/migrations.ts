@@ -1183,6 +1183,16 @@ export function runMigrations(db: Database.Database): void {
     db.exec(`ALTER TABLE agent_sessions ADD COLUMN sdk_session_id TEXT`);
   }
 
+  // C1 — MCP role gating: store the resolved role name and per-server allowedTools
+  // allowlist on the session row so the WS gateway can enforce the init-time scope.
+  const agentSessionColsC1 = (db.pragma('table_info(agent_sessions)') as { name: string }[]).map((c) => c.name);
+  if (!agentSessionColsC1.includes('mcp_role')) {
+    db.exec(`ALTER TABLE agent_sessions ADD COLUMN mcp_role TEXT`);
+  }
+  if (!agentSessionColsC1.includes('mcp_allowed_tools_json')) {
+    db.exec(`ALTER TABLE agent_sessions ADD COLUMN mcp_allowed_tools_json TEXT`);
+  }
+
   // ── Agent Subsystem: Scheduler, Memory, Webhooks, Research ──────────────
   //
   // These tables extend the agent subsystem with:

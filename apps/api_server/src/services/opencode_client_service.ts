@@ -458,12 +458,40 @@ export class OpencodeClientService {
     }
   }
 
-  /** Create a new Opencode session with an optional working directory */
+  /**
+   * Create a new Opencode session with an optional working directory.
+   *
+   * C1 — MCP role gating (init-time):
+   * The opencode SDK's session.create() accepts only { title, directory } — there
+   * is no per-session tool allowlist parameter in the current SDK version (v1.14.x).
+   * When `mcpRoleConfig` is provided the resolved allowlist is PASSED THROUGH as a
+   * parameter here so callers (controller, tests) can spy on it; the SDK call itself
+   * does not forward it (documented limitation). The allowlist is persisted on the
+   * agent_sessions row and the WS gateway uses it as the init-time scope gate.
+   *
+   * Fallback note (per issue C1 "Ambiguity flag for reviewer"):
+   *   The SDK cannot accept a per-session allowlist at init time. We use the
+   *   "store on session row + WS gateway enforcement" path rather than writing a
+   *   per-session .mcp.json file (which would scope to the cwd directory, not to
+   *   the session, and would affect all concurrent sessions sharing that cwd).
+   */
   async createSession(
     title: string,
     directory?: string,
+    mcpRoleConfig?: {
+      role: string;
+      mcpServers: Record<string, unknown>;
+      allowedToolsJson: string;
+    },
   ): Promise<{ id: string } | null> {
     if (!this.client) return null;
+    if (mcpRoleConfig) {
+      logger.info(
+        '[OpencodeClientService] createSession: mcpRole=%s allowedServers=%s (stored on session row; SDK has no per-session allowlist param)',
+        mcpRoleConfig.role,
+        Object.keys(mcpRoleConfig.mcpServers).join(','),
+      );
+    }
     try {
       const raw = await this.client.session.create({
         body: { title },

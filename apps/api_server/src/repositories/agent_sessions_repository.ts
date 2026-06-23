@@ -30,6 +30,10 @@ interface AgentSessionRow {
   archived_at: string | null;
   created_at: string;
   updated_at: string;
+  /** C1 — MCP role slug (e.g. "church-admin"). Null when no role was requested. */
+  mcp_role: string | null;
+  /** C1 — JSON Record<serverName, string[]> of resolved per-server allowedTools. */
+  mcp_allowed_tools_json: string | null;
 }
 
 function rowToModel(row: AgentSessionRow): AgentSession {
@@ -56,6 +60,8 @@ function rowToModel(row: AgentSessionRow): AgentSession {
     archivedAt: row.archived_at ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    mcpRole: row.mcp_role ?? null,
+    mcpAllowedToolsJson: row.mcp_allowed_tools_json ?? null,
   };
 }
 
@@ -65,8 +71,10 @@ export class AgentSessionsRepository {
     const now = new Date().toISOString();
     getDb()
       .prepare(
-        `INSERT INTO agent_sessions (id, task_id, task_title, agent_kind, status, cwd, name, project_id, created_at, updated_at)
-         VALUES (?, ?, ?, ?, 'starting', ?, ?, ?, ?, ?)`,
+        `INSERT INTO agent_sessions
+           (id, task_id, task_title, agent_kind, status, cwd, name, project_id,
+            mcp_role, mcp_allowed_tools_json, created_at, updated_at)
+         VALUES (?, ?, ?, ?, 'starting', ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         id,
@@ -76,6 +84,8 @@ export class AgentSessionsRepository {
         dto.cwd,
         dto.name,
         dto.projectId ?? null,
+        dto.mcpRole ?? null,
+        dto.mcpAllowedToolsJson ?? null,
         now,
         now,
       );

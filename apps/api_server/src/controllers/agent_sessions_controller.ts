@@ -1,4 +1,6 @@
 import os from 'os';
+import path from 'path';
+import { readFileSync, existsSync } from 'fs';
 import type { NextFunction, Request, Response } from 'express';
 import { AppError } from '../errors/app_error';
 import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
@@ -31,6 +33,81 @@ const repo = new AgentSessionsRepository();
 const messagesRepo = new AgentSessionMessagesRepository();
 
 import { gitCheckout, probeVcs } from '../services/vcs_probe';
+
+/**
+ * C1 — MCP role resolution helpers.
+ *
+ * `.mcp-roles/` lives at the repo root. The controller lives at:
+ *   apps/api_server/src/controllers/  (dev source)
+ *   apps/api_server/dist/controllers/  (compiled output, same depth)
+ *
+ * From src/controllers/ → ../../../../ = Rhythm/ (repo root).
+ * Override with MCP_ROLES_DIR env var for bundled/non-standard deployments
+ * (e.g. the Flutter .app bundle where the api_server is embedded without the
+ * full repo tree).
+ */
+const MCP_ROLES_DIR =
+  process.env.MCP_ROLES_DIR ??
+  path.join(__dirname, '..', '..', '..', '..', '.mcp-roles');
+
+/** Slug validation: only lowercase letters, digits, and hyphens. No `/`, no `..`. */
+const MCP_ROLE_SLUG_RE = /^[a-z0-9-]+$/;
+
+/** Shape of a resolved .mcp-roles/<role>.mcp.json file. */
+interface McpRoleFile {
+  mcpServers: Record<string, { allowedTools?: string[]; [k: string]: unknown }>;
+  disabledMcpServers?: string[];
+}
+
+/**
+ * Resolve and validate an mcpRole slug.
+ * Returns the parsed role file.
+ * Throws AppError 400 for:
+ *   - invalid slug characters (path traversal prevention)
+ *   - role file not found
+ *   - malformed role file (not valid JSON or missing mcpServers)
+ */
+function resolveMcpRole(role: string): McpRoleFile {
+  // Guard 1: slug must be [a-z0-9-]+ only — rejects `..`, `/`, etc.
+  if (!MCP_ROLE_SLUG_RE.test(role)) {
+    throw AppError.badRequest(
+      `Invalid mcpRole "${role}": must match [a-z0-9-]+ (no slashes, dots, or special characters)`,
+    );
+  }
+
+  // Guard 2: resolved path must stay within MCP_ROLES_DIR.
+  const resolved = path.resolve(MCP_ROLES_DIR, `${role}.mcp.json`);
+  if (!resolved.startsWith(path.resolve(MCP_ROLES_DIR) + path.sep) &&
+      resolved !== path.resolve(MCP_ROLES_DIR)) {
+    // Extra defense-in-depth; the slug guard above should already prevent this.
+    throw AppError.badRequest(
+      `Invalid mcpRole "${role}": resolved path escapes the .mcp-roles directory`,
+    );
+  }
+
+  // Guard 3: file must exist — no silent fallback to full tools.
+  if (!existsSync(resolved)) {
+    throw AppError.badRequest(`Unknown mcpRole: "${role}"`);
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(readFileSync(resolved, 'utf8'));
+  } catch {
+    throw AppError.badRequest(
+      `mcpRole "${role}": role file is not valid JSON`,
+    );
+  }
+
+  if (!parsed || typeof parsed !== 'object' || !('mcpServers' in parsed) ||
+      typeof (parsed as Record<string, unknown>).mcpServers !== 'object') {
+    throw AppError.badRequest(
+      `mcpRole "${role}": role file is missing required "mcpServers" field`,
+    );
+  }
+
+  return parsed as McpRoleFile;
+}
 
 /**
  * Expands '~' at the start of a path string to the current user's home directory.
@@ -217,6 +294,40 @@ export class AgentSessionsController {
         throw AppError.badRequest('taskTitle must be a string');
       }
 
+      // C1 — MCP role: optional slug that scopes the session to a subset of MCP tools.
+      // Resolved at create time (init-time gate); unknown/invalid role → 400, no session.
+      const mcpRoleRaw = body.mcpRole;
+      if (mcpRoleRaw !== undefined && mcpRoleRaw !== null && typeof mcpRoleRaw !== 'string') {
+        throw AppError.badRequest('mcpRole must be a string or null');
+      }
+
+      let resolvedMcpRole: string | null = null;
+      let mcpAllowedToolsJson: string | null = null;
+      let mcpRoleConfig:
+        | { role: string; mcpServers: Record<string, unknown>; allowedToolsJson: string }
+        | undefined;
+
+      if (typeof mcpRoleRaw === 'string' && mcpRoleRaw.trim() !== '') {
+        const roleSlug = mcpRoleRaw.trim();
+        // resolveMcpRole throws AppError 400 on invalid slug, missing file, or bad JSON.
+        const roleFile = resolveMcpRole(roleSlug);
+        resolvedMcpRole = roleSlug;
+
+        // Build a per-server allowedTools map for persistence and SDK passthrough.
+        const allowedToolsMap: Record<string, string[]> = {};
+        for (const [serverName, serverCfg] of Object.entries(roleFile.mcpServers)) {
+          if (Array.isArray(serverCfg?.allowedTools)) {
+            allowedToolsMap[serverName] = serverCfg.allowedTools as string[];
+          }
+        }
+        mcpAllowedToolsJson = JSON.stringify(allowedToolsMap);
+        mcpRoleConfig = {
+          role: roleSlug,
+          mcpServers: roleFile.mcpServers as Record<string, unknown>,
+          allowedToolsJson: mcpAllowedToolsJson,
+        };
+      }
+
       // projectId: optional in body. Explicit `null` is honored (intentional
       // "unassigned"). When the client omits the field entirely, fall back to
       // cwd-prefix lookup against the projects table (longest match wins,
@@ -278,6 +389,9 @@ export class AgentSessionsController {
         // OPC-#710: name defaults to '' for instant-create sessions.
         name: typeof name === 'string' ? name.trim() : '',
         projectId,
+        // C1 — MCP role (null when no role was requested).
+        mcpRole: resolvedMcpRole,
+        mcpAllowedToolsJson,
       };
 
       const session = repo.insert(dto);
@@ -307,9 +421,12 @@ export class AgentSessionsController {
       }
 
       // OPC-#710: name may be undefined/null for instant-create sessions.
+      // C1: pass mcpRoleConfig so callers/tests can spy on the init-time allowlist;
+      // the SDK itself doesn't have a per-session tool param (documented in service).
       const opencodeSession = await opencodeClient.createSession(
         typeof name === 'string' ? name.trim() : '',
         dto.cwd,
+        mcpRoleConfig,
       );
       if (!opencodeSession) {
         repo.markClosed(session.id);
