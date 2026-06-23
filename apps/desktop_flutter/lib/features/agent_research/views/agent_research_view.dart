@@ -16,6 +16,8 @@ class AgentResearchView extends StatefulWidget {
 }
 
 class _AgentResearchViewState extends State<AgentResearchView> {
+  AgentResearchController? _controller;
+
   @override
   void initState() {
     super.initState();
@@ -27,8 +29,14 @@ class _AgentResearchViewState extends State<AgentResearchView> {
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _controller = context.read<AgentResearchController>();
+  }
+
+  @override
   void dispose() {
-    context.read<AgentResearchController>().stopPolling();
+    _controller?.stopPolling();
     super.dispose();
   }
 
@@ -84,8 +92,7 @@ class _AgentResearchViewState extends State<AgentResearchView> {
     );
   }
 
-  Widget _buildBody(
-      BuildContext context, AgentResearchController controller) {
+  Widget _buildBody(BuildContext context, AgentResearchController controller) {
     if (controller.status == AgentResearchStatus.loading &&
         controller.jobs.isEmpty) {
       return Center(
@@ -351,7 +358,8 @@ class _DepthOption extends StatelessWidget {
         child: Text(
           label,
           style: TextStyle(
-            color: selected ? context.rhythm.accent : context.rhythm.textSecondary,
+            color:
+                selected ? context.rhythm.accent : context.rhythm.textSecondary,
             fontWeight: selected ? FontWeight.w600 : FontWeight.normal,
             fontSize: 13,
           ),
@@ -631,8 +639,7 @@ class _ReportBottomSheet extends StatelessWidget {
                   height: 4,
                   decoration: BoxDecoration(
                     color: context.rhythm.borderSubtle,
-                    borderRadius:
-                        BorderRadius.circular(RhythmRadius.pill),
+                    borderRadius: BorderRadius.circular(RhythmRadius.pill),
                   ),
                 ),
               ),
@@ -687,12 +694,11 @@ class _ReportBottomSheet extends StatelessWidget {
                     children: [
                       if (!isDone)
                         Container(
-                          margin: const EdgeInsets.only(
-                              bottom: RhythmSpacing.md),
+                          margin:
+                              const EdgeInsets.only(bottom: RhythmSpacing.md),
                           padding: const EdgeInsets.all(RhythmSpacing.sm),
                           decoration: BoxDecoration(
-                            color: context.rhythm.danger
-                                .withValues(alpha: 0.1),
+                            color: context.rhythm.danger.withValues(alpha: 0.1),
                             borderRadius:
                                 BorderRadius.circular(RhythmRadius.sm),
                           ),

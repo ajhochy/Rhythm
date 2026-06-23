@@ -6,7 +6,7 @@ import '../repositories/agent_webhooks_repository.dart';
 enum AgentWebhooksStatus { idle, loading, error }
 
 class AgentWebhooksController extends ChangeNotifier {
-  AgentWebhooksController() : _repository = AgentWebhooksRepository();
+  AgentWebhooksController(this._repository);
 
   final AgentWebhooksRepository _repository;
 

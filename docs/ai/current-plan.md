@@ -1,212 +1,155 @@
-# Current Plan — Curated MCP-server autoinstall for the embedded opencode engine (2026-06-16)
+# Current Plan — Odysseus-style Agents left panel
 
-## Status
+**Date:** 2026-06-23
+**Branch:** stack on `feature/agent-scheduler` (do NOT branch off `main`). Manual merge only.
+**Status:** Planned — alignment locked (3 prior rounds with user). Ready for `issue-writer`.
 
-**PLANNING COMPLETE (2026-06-16).** 7 atomic issues decomposed, dependency-ordered, on branch
-`workflow/run-2026-06-16-mcp-autoinstall` (one combined run branch per user decision). Issue
-creation is **local files only** (`docs/ai/generated-issues/`). Awaiting `acceptance-contract` +
-`coding-agent`.
+---
 
-## Goal (one sentence)
+## User request (one sentence)
 
-Auto-install (and idempotently refresh) a curated set of 7 MCP servers — Planning Center (PCO),
-Google Workspace, Canva, Stripe, Mailchimp, Notion, PDF Tools — into the opencode engine bundled
-in the Rhythm macOS app, reusing Rhythm's existing stored OAuth where a usable runtime token
-exists, collecting API-key secrets for local key-based servers, and using opencode's
-OAuth-on-first-use for remote servers — all idempotent, non-fatal on failure, and gated exactly
-like the existing `ensureRhythmMcp` installer.
+Rebuild the LEFT PANEL of Rhythm's Flutter desktop Agents screen into a single Odysseus-style nav column that surfaces the already-built agent features (Sessions, Brain, Deep Research, Tasks, Webhooks, Profiles) plus net-new MCP-backed features (Cookbook, Email, Gallery) — reaching UI + functional parity with Odysseus's single-column sidebar.
 
-## Credential model (locked — do NOT relitigate)
+## Goal
 
-Per the user decision: **reuse Rhythm's existing stored OAuth wherever possible.**
+One coherent left nav column inside the Agents screen. Everything the agent features need is already built but scattered across a 64px projects rail, toolbar icons, and Settings tiles. Consolidate into one Odysseus-style column. The chat transcript pane and the right-rail inspector/context pane are FINE — do not touch them.
 
-| Server | Type | Credential path (decided) |
-|---|---|---|
-| Planning Center (PCO) | local stdio | Reuse Rhythm-stored PCO token (token-bridge, MCP-6) or PAT fallback |
-| Google Workspace | local stdio | Reuse Rhythm-stored Google token (token-bridge, MCP-6) |
-| Canva | remote (`{type:'remote',url}`) | opencode OAuth-on-first-use — no install-time secret |
-| Stripe | local stdio | User-entered API key via extended Add-MCP secrets UI (MCP-3) |
-| Mailchimp | local stdio | User-entered API key via extended Add-MCP secrets UI (MCP-3) |
-| Notion | remote (`{type:'remote',url}`) | opencode OAuth-on-first-use — no install-time secret |
-| PDF Tools | local stdio | None — true zero-touch autoinstall |
+## Intent + Constraints
 
-## CENTRAL ARCHITECTURAL FINDING (verified during planning — read before MCP-6)
+1. **What the user is accomplishing:** Visual + functional parity with Odysseus's left sidebar, laid out in the Rhythm 2.0 light theme. Features exist; they're just hard to find.
+2. **In scope:** The left nav column only (header, New Session, Search, CHATS w/ project grouping, TOOLS group, footer); relocating 6 existing views into nav rows; folding the 64px projects rail into a "By Project" selector at the top of CHATS; 3 net-new features (Cookbook, Email, Gallery) each slotting into a TOOLS nav row.
+3. **Out of scope (NON-GOALS):** Chat transcript pane redesign; inspector/context (right-rail `SessionSidePanel`) redesign; the main app sidebar (`navigation_sidebar.dart`, Agents = index 9 — unchanged); Compare; Library; Calendar; a standalone Models section; Email-as-IMAP/SMTP client (Email is MCP-only).
+4. **Hard constraints:** Flutter Provider/ChangeNotifier layered pattern (view/controller/repository/data/model); Rhythm light theme tokens (sidebar `#F8F9FA`, border `#E5E7EB`, primary `#4F6AF5`, text `#111827`/`#6B7280`) — NOT Odysseus's dark CSS; api_server dual-DB (SQLite local migrations.ts + Postgres prod postgres_bootstrap.ts — both must be updated or prod 500s, per repo memory "Postgres/SQLite schema drift"); local agent server on :4001; new MCP tool access is gated ONLY by `.mcp-roles/*.mcp.json` init-time scoping, never a runtime dispatch check.
+5. **Design tensions:** Parity-fast (ship the look) vs. don't-break-working-chat/inspector. Resolved by: Phase A is pure layout/relocation with zero backend change; new backends (B/C/D) are isolated additive features that slot into a nav row each.
+6. **Cheapest version that proves the idea:** Phase A alone (single-column nav + relocate the 6 existing views + fold rail + search + footer). No new tables, no new MCP. This is the parity fix; everything else is a nav row that opens an existing or new panel.
 
-**Rhythm DOES persist reusable per-user Google + PCO access/refresh tokens, but they are not
-currently shaped for direct injection into a third-party MCP server.**
+## Security constraints (must be reflected in issues)
 
-Verified evidence:
-- `integration_accounts` SQLite table (`migrations.ts:72-90`) stores `access_token` /
-  `refresh_token` / `expires_at` / `scope` per `(owner_id, provider)`.
-- `google_oauth_service.ts:80-90,189-218` and `planning_center_oauth_service.ts:41-92` persist
-  AND actively refresh those tokens.
-- The local agent server (`AGENT_LOCAL=true`) reads them via
-  `integration_accounts_repository.ts:50-73` **only when it points at the same SQLite DB**.
-- Today these tokens are consumed via a **broker pattern**, NOT env injection:
-  `integrations_controller.ts:15-56` deliberately strips `accessToken`/`refreshToken` from the
-  DTO; `google_broker_controller.ts:31` calls `ensureFreshGoogleAccount(...)` server-side and
-  returns only results. The ONLY env block injected into any MCP server today is
-  `{RHYTHM_API_URL, RHYTHM_API_TOKEN}` in `ensureRhythmMcp` (`opencode_client_service.ts:~1070`).
-- `opencode_plugin_config.ts` is **not** a credential bridge — it only ensures provider *auth
-  plugins* are listed (`opencode-claude-auth`, etc.). It does not write `auth.json`.
+- **No per-request LLM base_url/endpoint_url override** (SF-2).
+- **No shell/run_script action types** (SF-1/SF-5).
+- **Result delivery is an enum, not a freeform MCP target** (SF-6).
+- **Tool gating is init-time via `.mcp.json` role scoping**, never a runtime dispatch check.
+- **Any user-supplied URL (webhooks) gets SSRF validation.**
+- **Agentic Email/Gallery get ONLY their scoped MCP tools** via the role file (`disabledMcpServers: bash/computer/editor/filesystem`).
 
-**Implication for MCP-6:** App-level OAuth *client* creds (`GOOGLE_CLIENT_ID/SECRET`,
-`PCO_APPLICATION_ID/SECRET`) are NOT directly usable; the per-user token IS persisted and
-refreshable, but two mismatches remain and are flagged in Open Questions: (1) the Rhythm-issued
-token is scoped to Rhythm's OAuth client/scopes — the chosen third-party MCP server must accept a
-raw bearer token via env rather than running its own OAuth; (2) the local agent server must be
-confirmed to read the same SQLite store the desktop app writes. MCP-6 plans the **smallest** token
-read→inject bridge and explicitly defers the scope/PAT decision to the Open Questions resolutions.
+## Clarification interview
 
-## Architecture decisions (locked)
+Skipped — explicit instruction that 3 rounds of alignment are complete and the spec is locked. Spec is reproduced verbatim under "Locked nav spec" below; acceptance criteria are derived from it.
 
-- Extend the existing `opencode.json` read-merge-write pattern; do NOT introduce a new config store.
-- New idempotent `ensureCuratedMcps()` modeled on `ensureRequiredPlugins()` (Set/JSON-compare
-  no-op detection) + `ensureRhythmMcp()` (persist-before-SDK-register, non-fatal live register).
-- Autoinstall gated like `shouldAutoInstallRhythmMcp` (engineReady && authenticated && isCloudServer)
-  and de-duped per the existing `_lastInstalledToken` style.
-- No third-party OAuth client apps are obtained and no third-party secrets are committed.
-- Exact package/URL choices are recorded in MCP-7 (the curated registry) and reviewed at PR.
+## Prior Art
 
-## Issues (dependency-ordered)
+No external research swarm run — the prior art is in-repo and authoritative:
+- `.mcp-roles/church-admin.mcp.json` is the exact shape to mirror for new role files (`mcpServers` + per-server `allowedTools` + `disabledMcpServers`).
+- `agent_scheduled_tasks` (repository + controller + routes + both DB bootstraps) is the template entity for the new `agent_designs` and `agent_cookbook` tables.
+- The 6 existing agent views already follow the layered pattern; relocation is wiring, not rebuild.
 
-| Order | Issue file | Title | Goal | Likely files | Tests | Depends on |
-|---|---|---|---|---|---|---|
-| 1 | `mcp-1-env-injection-plumbing.md` | Env-map plumbing through POST /opencode/mcp + entry surfacing | `POST /opencode/mcp` accepts and persists an optional `environment` map (and explicit `type`); `addMcp` already passes it to SDK; `listMcp`/`McpServerEntry` surface `environment` keys + a `needsCredentials` signal so the UI can flag uncredentialed servers | `apps/api_server/src/routes/opencode_mcp_routes.ts`, `apps/api_server/src/services/opencode_client_service.ts`, `apps/api_server/src/@types/opencode-ai-sdk.d.ts` | vitest (`opc_m4_3_mcp_routes.test.ts` extended) | — |
-| 2 | `mcp-2-ensure-curated-set.md` | Idempotent `ensureCuratedMcps()` + curated registry scaffold + route | New `ensureCuratedMcps(opts)` merges a `CURATED_MCP_SERVERS` array into `opencode.json` `mcp` block: adds missing, refreshes changed, no-ops identical (JSON-compare), persists `environment`, best-effort live-registers (non-fatal); proven end-to-end with PDF Tools (zero-auth local stdio) as the first registry entry; exposed via `POST /opencode/mcp/curated/ensure` returning `{changed, registered, servers}` | `apps/api_server/src/services/opencode_client_service.ts` (or new `services/curated_mcp.ts`), new `apps/api_server/src/config/curated_mcp_servers.ts`, `apps/api_server/src/routes/opencode_mcp_routes.ts` | vitest (new `opc_curated_mcp_ensure.test.ts`) | MCP-1 |
-| 3 | `mcp-3-flutter-secrets-field.md` | Per-server env-secrets field in Add-MCP dialog | `_AddMcpServerDialog` gains a key/value secrets editor; `McpController.addServer` and `McpDataSource.addServer` accept an `environment` map and send it in the POST body | `apps/desktop_flutter/lib/features/settings/widgets/mcp_section.dart`, `apps/desktop_flutter/lib/features/settings/controllers/mcp_controller.dart`, `apps/desktop_flutter/lib/features/settings/data/mcp_data_source.dart` | flutter test (extend `opc_m4_3_mcp_section_test.dart`) | MCP-1 |
-| 4 | `mcp-4-needs-credentials-ui.md` | Surface installed-but-uncredentialed servers | `McpSection` shows a distinct "Needs credentials" / "Sign-in required" badge for curated servers whose required env keys are absent (key-based) or whose status is `needs_auth` (remote OAuth), with an affordance to add a key | `apps/desktop_flutter/lib/features/settings/widgets/mcp_section.dart`, `apps/desktop_flutter/lib/features/settings/data/mcp_data_source.dart`, `apps/desktop_flutter/lib/features/settings/controllers/mcp_controller.dart` | flutter test (extend `f2_mcp_status_test.dart`) | MCP-1, MCP-3 |
-| 5 | `mcp-5-curated-autoinstall-trigger.md` | Curated autoinstall trigger wiring | New `CuratedMcpAutoInstaller.ensure()` POSTs `/opencode/mcp/curated/ensure`; `shouldAutoInstallCuratedMcp(...)` gate mirrors the rhythm installer; called from `agent_server_controller.dart`, de-duped, non-fatal | `apps/desktop_flutter/lib/app/core/agents/curated_mcp_auto_installer.dart` (new), `apps/desktop_flutter/lib/app/core/server/agent_server_controller.dart` | flutter test (new `curated_mcp_autoinstall_test.dart` mirroring `f2_rhythm_mcp_autoinstall_test.dart`) | MCP-2 |
-| 6 | `mcp-6-google-pco-token-bridge.md` | Google + PCO token bridge (reuse stored OAuth) | Smallest mechanism to make Rhythm's persisted per-user Google/PCO tokens usable by their MCP servers: read fresh token from `integration_accounts` (reuse `ensureFresh*Account`) and inject into the curated server's `environment` at ensure time (or document the PAT path for PCO); skip the server cleanly when no token is connected | `apps/api_server/src/services/curated_mcp.ts` (or `opencode_client_service.ts`), `apps/api_server/src/services/integrations_service.ts`, `apps/api_server/src/repositories/integration_accounts_repository.ts`, `apps/api_server/src/config/curated_mcp_servers.ts` | vitest (new `opc_curated_mcp_token_bridge.test.ts`) | MCP-2 |
-| 7 | `mcp-7-curated-server-entries.md` | Per-server curated config entries (remaining 6) | Add the remaining 6 entries to `CURATED_MCP_SERVERS` with exact package/URL, type, and required-env metadata: PCO (maintained people/services/giving server), Google Workspace (`taylorwilsdon/google_workspace_mcp`), Canva (official remote URL), Stripe (official `@stripe/mcp`), Mailchimp (maintained server), Notion (official makenotion hosted MCP); record every exact choice in this plan + decisions.md | `apps/api_server/src/config/curated_mcp_servers.ts`, `docs/ai/decisions.md` | vitest (extend `opc_curated_mcp_ensure.test.ts` — assert 7 entries, correct types, required-env metadata) | MCP-2, MCP-3, MCP-5, MCP-6 |
+## Key investigation findings (grounding)
 
-## Acceptance criteria (per issue — all testable)
+- **Current layout** (`lib/features/agents/views/agents_view.dart` `_buildWorkspace`, ~line 109): `Row[ ProjectsRail(64px) · _SessionListPanel(320px) · Expanded(_TranscriptPanel) · (inspector) ]`. The nav rebuild replaces the first two children with one column; transcript + inspector are untouched.
+- **Toolbar icons to relocate** live in `_SessionListHeader` (~lines 776–801): `Icons.schedule` → `AgentSchedulesView`, `Icons.travel_explore` → `AgentResearchView`. These become TOOLS nav rows.
+- **Settings tiles to remove/relocate** (`lib/features/settings/views/settings_view.dart` lines 1465–1517, `_OdysseusSection` / `_OdysseusNavTile`): push `AgentSchedulesView` (1487–1491), `AgentMemoryView` (1498–1502), `AgentWebhooksView` (1509–1513). Remove from Settings once surfaced in the Agents nav.
+- **All 6 view constructors are `const X({super.key})`** and **all controllers are already registered** in `main.dart` MultiProvider (lines 391–407 for schedules/memory/research/webhooks; 337 projects; 366 configs). No new provider wiring needed for relocation.
+- **Projects rail** (`_projects_rail.dart`, `ProjectsRail`, `railWidth = 64`): renders all-sessions pseudo-project, per-project icons, `+` add button, and a profiles section at the bottom. Selection via `AgentProjectsController.select(String? id)` / `selectedProjectId`. Profile sheet opened via `showAgentProfileSheet(context, {config})`.
+- **MCP role scoping is currently scheduler-only.** `agent_scheduled_tasks.allowed_mcps_json` is honored by the scheduler path; `.mcp-roles/*.mcp.json` files are documentation/templates (per `.mcp-roles/README.md`). **Interactive `POST /agent-sessions` has NO role/mcpConfig param** (`controllers/agent_sessions_controller.ts` `create()` takes `{agentId, cwd, name, taskId}`). Therefore "launch a role-scoped agent" (Email/Gallery) requires a foundational change: add `mcpRole?` to the session create DTO, resolve `.mcp-roles/<role>.mcp.json` at create time, and pass its `mcpServers`/`allowedTools` to the SDK session. This is Issue C1 (a dependency for both Email and Gallery).
+- **Curated MCP catalog** (`config/curated_mcp_servers.ts`): `CuratedMcpServer { id, name, type: 'local'|'remote', command?, url?, environment?, requiredEnv, tokenProvider?, tokenEnvKey? }`. Canva already present (`{ id:'canva', type:'remote', url:'https://mcp.canva.com/mcp', requiredEnv:[] }`). Gmail server must be added here.
+- **Gmail signals already ingested:** `repositories/gmail_signals_repository.ts` → `listRecentAsync(ownerId, limit=12)` returns `GmailSignal { id, fromName, fromEmail, subject, snippet, receivedAt, isUnread, ... }`. **No HTTP endpoint exposes it yet** — the Email panel needs a new `GET /integrations/gmail-signals` (or similar) route.
+- **Entity template** (`agent_scheduled_tasks`): repository `agent_scheduled_tasks_repository.ts`, controller `agentSchedulesController.ts`, routes `agentSchedulesRoutes.ts`, registered `app.use('/agent-schedules', …)` in `app.ts`; SQLite block in `migrations.ts` (`runMigrations`), Postgres mirror in `postgres_bootstrap.ts` (`runPostgresBootstrap`).
 
-**MCP-1**
-- c1: `POST /opencode/mcp` with body `{name, command, environment:{K:'v'}}` persists `environment`
-  into `opencode.json` `mcp[name].environment` (assert written file contents).
-- c2: `POST /opencode/mcp` with `{name, url, type:'remote'}` persists a `{type:'remote',url}` entry
-  with no `command`.
-- c3: `POST` with neither `command` nor `url` → 400.
-- c4: `GET /opencode/mcp` entries expose `environment` keys (values MAY be redacted) and a boolean
-  `needsCredentials` field; assert shape against a real-shape SDK status fixture.
-- c5: existing `opc_m4_3_mcp_routes.test.ts` assertions still pass (no regression).
+---
 
-**MCP-2**
-- c1: ensure on an `opencode.json` lacking PDF Tools → entry added (`changed:true`), file contains
-  the PDF Tools `{type:'local',command:[...]}` entry.
-- c2: ensure again with identical config → `changed:false`, file byte-identical (no-op).
-- c3: ensure when an entry's desired config differs (e.g. env changed) → that entry rewritten,
-  unrelated `mcp` entries (incl. `rhythm`) preserved.
-- c4: live-register failure (SDK throws) → function still returns `changed:true, registered:false`
-  and does not throw (non-fatal).
-- c5: `POST /opencode/mcp/curated/ensure` returns `{changed, registered, servers:[...]}` 200.
+## Locked nav spec (single Odysseus-style column, Rhythm light theme)
 
-**MCP-3**
-- c1: Add-MCP dialog renders a secrets editor (key `mcp-dialog-env-add`); adding a row + confirm
-  calls `addServer` with a non-empty `environment` map (assert fake data source captured it).
-- c2: `McpController.addServer(environment:{...})` forwards the map to the data source.
-- c3: `McpDataSource.addServer` includes `environment` in the POST JSON body (assert request body).
-- c4: dialog with no secret rows sends `environment` omitted/empty (back-compat with command/url-only).
+```
+┌──────────────────────────────┐
+│ ☰  Agents                     │  Header: collapse toggle + wordmark
+├──────────────────────────────┤
+│ ＋ New Session                 │  (exists — _instantCreateSession)
+│ 🔍 Search                      │  session search (NEW, small)
+│                               │
+│ CHATS                         │  section label
+│   [By Project ▾]              │  project grouping/selector (folds 64px rail)
+│   • session row (model badge) │  live session list w/ sort + project grouping
+│   • session row …             │
+│                               │
+│ TOOLS                         │  always-expanded group (Odysseus style)
+│   🧠 Brain        → AgentMemoryView      (relocate from Settings)
+│   🔬 Deep Research → AgentResearchView    (relocate from toolbar)
+│   ⏰ Tasks         → AgentSchedulesView   (relocate; AI jobs, not church tasks)
+│   📖 Cookbook     → NEW recipe/skill library
+│   🪝 Webhooks     → AgentWebhooksView     (relocate from Settings)
+│   🤖 Profiles     → showAgentProfileSheet (surface rail's profiles as a row)
+│   📧 Email        → NEW agentic email (MCP)
+│   🎨 Gallery      → NEW agentic design (Canva MCP)
+├──────────────────────────────┤
+│ 👤 Account     ⚙︎ Settings     │  footer (Settings exists)
+└──────────────────────────────┘
+```
 
-**MCP-4**
-- c1: a curated key-based server whose required env keys are absent renders a "Needs credentials"
-  badge (`mcp-needs-credentials-{name}`).
-- c2: a remote server with status `needs_auth` renders a "Sign-in required" badge.
-- c3: a fully-credentialed/connected server renders the normal connected badge (no false positive).
-- c4: tapping the "Needs credentials" affordance opens the secrets dialog pre-filled with the
-  server name.
+Notes:
+- The column lives INSIDE the Agents screen, replacing `ProjectsRail` + `_SessionListPanel`. The main app sidebar is unchanged.
+- TOOLS rows may open their target either inline (swap the right-hand work area) or as a pushed route — decided per-issue, but the column itself stays mounted. Phase A keeps the existing push-route behavior for the relocated views (lowest risk); inline embedding is a non-goal unless trivial.
+- "Tasks" = scheduled AI jobs (the scheduler/timer). "Cookbook" = the reusable recipes/skills the timer runs. Keep these conceptually distinct.
 
-**MCP-5**
-- c1: `CuratedMcpAutoInstaller.ensure()` POSTs to
-  `${agentLocalBaseUrl}/opencode/mcp/curated/ensure`; returns `true` on 2xx.
-- c2: returns `false` (non-fatal) on server error and on thrown exception.
-- c3: `shouldAutoInstallCuratedMcp(engineReady, authenticated, isCloudServer)` returns true only
-  when all three hold.
-- c4: `agent_server_controller` invokes `ensure()` once per distinct token (de-dupe assertion).
+---
 
-**MCP-6**
-- c1: when a Google `integration_account` row with a valid token exists, ensuring the Google
-  curated server injects the fresh access token into that server's `environment` (assert the env
-  key the chosen server expects is populated).
-- c2: token bridge calls the existing `ensureFresh*Account` refresh path (assert refresh invoked
-  when `expires_at` is past).
-- c3: when no Google/PCO account is connected, the corresponding curated server is skipped (not
-  written with an empty token) and ensure does not throw.
-- c4: injected token values are never returned verbatim in the route response (redaction).
+## Phase breakdown
 
-**MCP-7**
-- c1: `CURATED_MCP_SERVERS` contains exactly 7 entries with the IDs PCO, Google Workspace, Canva,
-  Stripe, Mailchimp, Notion, PDF Tools.
-- c2: Canva + Notion entries are `type:'remote'` with a non-empty `url` and no `command`.
-- c3: Stripe + Mailchimp + PCO + Google Workspace + PDF Tools entries are `type:'local'` with a
-  non-empty `command` argv.
-- c4: each entry carries `requiredEnv: string[]` metadata (empty for PDF Tools; the OAuth/remote
-  servers have `requiredEnv: []`) so MCP-4 can compute `needsCredentials`.
-- c5: ensuring the full set on an empty config writes all 7 (minus any cleanly-skipped
-  uncredentialed local servers per MCP-6 c3) and is idempotent on a second run.
+- **Phase A — Single-column nav shell + relocation (the parity fix).** No backend change. Build the Odysseus-style column; fold the projects rail into a "By Project" selector at the top of CHATS; relocate Brain/Deep Research/Tasks/Webhooks/Profiles into TOOLS nav rows and remove their Settings tiles / toolbar icons; add session Search; add the footer (Account + Settings). This is the bulk of the "looks like Odysseus" win and ships independently.
+- **Phase B — Cookbook.** New `agent_cookbook` table (both DBs) + repository/controller/routes + Flutter `agent_cookbook` feature dir + a Cookbook nav row. A recipe = a reusable multi-step agent recipe/skill (name, description, steps, optional bound profile/config). No MCP role needed.
+- **Phase C — Agentic Email (MCP).** Foundational: add `mcpRole` to interactive session creation (C1). Then: add gmail MCP server to the curated catalog + `.mcp-roles/email-assistant.mcp.json`; expose `GET …/gmail-signals`; Flutter `agent_email` feature dir = recent-signals list + "launch email-triage/compose agent" (creates a session scoped to `email-assistant`); Email nav row.
+- **Phase D — Agentic Gallery (Canva MCP).** Depends on C1. Add `.mcp-roles/graphic-designer.mcp.json` (scopes Canva); new `agent_designs` table (both DBs) + repository/controller/routes; Flutter `agent_gallery` feature dir = "launch designer agent" + grid of produced designs (thumbnail/title/Canva link); Gallery nav row.
+
+Order rationale: A first (parity fix, zero backend, every later feature is just a nav row that slots in). B is fully independent. C1 (session role scoping) is the shared dependency for C and D, so it lands before either's launch flow.
+
+---
 
 ## Validation plan
 
-1. Each issue gets a contract (`docs/ai/contracts/<issue>.json`) via `acceptance-contract`;
-   red-proven before, green after.
-2. Real-shape rule: route/service tests use real SDK `mcp.status()` / config shapes captured from
-   the embedded SDK (`needs_auth`/`connected`/`failed` enums, `{type,command,url,environment}`),
-   never invented values. Token-bridge tests use the real `integration_accounts` row shape.
-3. `ai-workflow checks --level pr` exits 0 per issue (flutter analyze, dart format, tsc --noEmit,
-   vitest); full `flutter test` green.
-4. At least one vitest per backend issue inspects `spy.mock.calls` for the expected SDK/config
-   shape; at least one Flutter widget test exercises the real mounted surface (`McpSection`),
-   matching the orphaned-widget regression guard from prior runs.
-5. Secrets must never be logged or echoed in API responses (MCP-6 c4); add an assertion.
-6. Manual smoke at the end: `flutter run -d macos`, open Settings → MCP, confirm the 7 servers
-   appear, uncredentialed ones flagged, a Stripe/Mailchimp key entry persists, and a remote
-   (Canva/Notion) first-use sign-in is reachable.
+**Per Flutter issue (every issue that touches `apps/desktop_flutter`):**
+```bash
+cd apps/desktop_flutter && dart format . && flutter analyze --no-fatal-infos && flutter test
+```
+Plus a widget test that pumps the REAL mounted Agents surface (per repo memory "Agents inspector was orphaned" — require a test that pumps the mounted nav column, not an isolated widget) asserting the relocated view/nav row is reachable.
 
-## Branch / PR strategy
+**Per api_server issue (every issue that touches `apps/api_server`):**
+```bash
+cd apps/api_server && node_modules/.bin/tsc --noEmit && npm test
+```
+New routes get a `src/__tests__/*.ts` test spinning up `createApp().listen(0)` with `server.maxRequestsPerSocket = 1` (per testing-guide undici-flake guidance) covering the happy path + the empty/unauthorized boundary.
 
-- One combined run branch (already created): `workflow/run-2026-06-16-mcp-autoinstall`.
-- Issues land sequentially in dependency order on that branch; single PR for the run (consistent
-  with the prior OPC run's stacked-PR decision). Manual merge only.
+**Schema-drift gate (B, C, D — any new table/column):** confirm the table is created in BOTH `migrations.ts` (SQLite) and `postgres_bootstrap.ts` (Postgres) with matching columns; a vitest asserts the route returns `[]` (not 500) on an empty DB.
 
-## Out of scope (with justification)
+**Manual smoke (pre-merge, per phase):** `flutter run -d macos` against `https://api.vcrcapps.com` — verify the single nav column renders in the light theme; New Session / Search work; every TOOLS row opens its target; By Project filters the session list; Email lists recent signals + launches a scoped session; Gallery launches a designer session + renders the design grid. Follow with `failure-postmortem`.
 
-| Item | Why excluded |
-|---|---|
-| Obtaining Canva/Notion OAuth client apps | Per request non-goal — remote `{type,url}` + opencode OAuth-on-first-use covers it; no committed third-party secrets. |
-| Broadening Rhythm's Google/PCO OAuth scopes | Scope expansion for third-party MCP servers is a credential-policy decision (Open Question 1), not in this autoinstall scope. |
-| Multi-user / shared MCP credentials | Auth model is per-user per-machine (architecture.md); no shared-credential path. |
-| Replacing the broker pattern | The broker stays for Rhythm's own tools; MCP-6 adds a minimal token-read bridge alongside it, not a rewrite. |
+---
 
-## Estimated effort
+## Known Ambiguities
 
-- Backend (MCP-1, MCP-2, MCP-6, MCP-7): ~3-4 sessions (MCP-6 token bridge is the risk).
-- Flutter (MCP-3, MCP-4, MCP-5): ~2-3 sessions.
-- Total: ~5-7 focused sessions, smoke at the end.
+- **A2 (project grouping UX):** "By Project" can be a dropdown selector OR collapsible group headers in the CHATS list. Spec says "grouping/selector" — issue should pick the dropdown selector (lowest-risk reuse of `AgentProjectsController.select`) unless a quick group-header variant is obviously better; flag for reviewer if the implementer diverges.
+- **C1 (role application depth):** whether `mcpRole` is enforced by passing `allowedTools` to the SDK at session create (init-time gate, preferred per security constraint) vs. stored-and-filtered. Issue C1 must specify init-time gating only; surface to reviewer if the SDK cannot accept a per-session tool allowlist (fallback: scope via a generated per-session `.mcp.json` passed as the session cwd config).
+- **Gmail MCP package pin:** the exact gmail MCP server package/command is unverified (cf. repo memory `TODO(verify-pin)` on community MCP packages). Issue C2 must version-pin and verify the package exists before merge; do not ship an unpinned `npx` spec.
 
-## Open questions (flagged for user resolution)
+---
 
-1. **Google/PCO token reuse is architecturally non-trivial (BLOCKS MCP-6 final form).** Rhythm's
-   stored token is scoped to *Rhythm's* OAuth client and scopes. The chosen Google/PCO MCP servers
-   typically run their *own* OAuth (their own client id/secret) rather than accepting a raw bearer
-   token via env. Resolution needed: (a) inject Rhythm's raw access token into an env var the
-   server accepts (requires a server that supports bearer-token env injection + Rhythm's scopes
-   covering the MCP's needs), OR (b) use a PCO Personal Access Token path and a separate Google
-   approach, OR (c) keep MCP-6 as a thin bridge and accept first-use OAuth for Google/PCO too. The
-   plan assumes (a) with (b) as PCO fallback; confirm before implementing MCP-6.
-2. **Does the local agent server read the SAME SQLite store the desktop app writes its Google/PCO
-   tokens to?** Verified the *capability* exists (`DB_CLIENT=sqlite`), but the runtime DB-path
-   wiring between the embedded server and the desktop app's `integration_accounts` must be
-   confirmed, or MCP-6 c1 cannot pass against real data.
-3. **Exact npm package / remote URL for each of the 7 servers (MCP-7).** Candidates are named in
-   the request (`taylorwilsdon/google_workspace_mcp`, official Canva/Notion/Stripe, a maintained
-   PCO + Mailchimp server, a maintained PDF MCP) but the precise package names, versions, and
-   remote OAuth URLs must be pinned and recorded in decisions.md at MCP-7 time; treat any
-   unverified package as a supply-chain risk to confirm before autoinstall ships.
-4. **Secret-at-rest posture.** API keys entered via MCP-3 are persisted in plaintext in
-   `~/.config/opencode/opencode.json` (same as opencode's own model). Confirm this is acceptable
-   for church-staff machines or whether keychain storage is required (would expand MCP-3 scope).
-5. **Vague-criteria flags pinned during planning:** "surface installed-but-uncredentialed servers
-   clearly" (MCP-4) was pinned to concrete badge keys + the absent-required-env / `needs_auth`
-   computation; "smallest mechanism to obtain tokens" (MCP-6) was pinned to read-fresh-token →
-   inject-into-environment with clean-skip. Re-confirm these concretizations at issue/PR read.
+## Issue table
+
+| Order | Title | Goal | Likely files | Tests / evaluation | Dependencies |
+|-------|-------|------|--------------|--------------------|--------------|
+| A1 | Agents left-nav: single Odysseus-style column shell | Replace `ProjectsRail` + `_SessionListPanel` in `_buildWorkspace` with one column: header (☰ collapse + "Agents"), ＋New Session, CHATS section hosting the existing session list, TOOLS group placeholder, footer (Account + ⚙︎Settings). Light theme tokens. Transcript + inspector untouched. | `apps/desktop_flutter/lib/features/agents/views/agents_view.dart` (`_buildWorkspace`, `_SessionListPanel`, `_SessionListHeader`); NEW `lib/features/agents/views/_agents_nav_column.dart`; `lib/app/core/ui/tokens/rhythm_theme.dart` (read only) | flutter analyze/format/test; REAL-SURFACE widget test pumping the mounted Agents view asserting the nav column + CHATS list render and a session row is selectable | — |
+| A2 | Fold projects rail into "By Project" selector at top of CHATS | Remove the 64px `ProjectsRail`; add a "By Project" selector (dropdown, default "All") at the top of CHATS that drives the existing `selectedProjectId` filter; keep the add-project action; move the rail's profiles entry out (handled by A5). | `agents_view.dart`; `lib/features/agents/views/_projects_rail.dart` (remove/retire); `lib/features/agent_projects/controllers/agent_projects_controller.dart` (reuse `select`/`selectedProjectId`); `_agents_nav_column.dart` | analyze/format/test; widget test: selecting a project filters the session list; "All" shows all | A1 |
+| A3 | Add session Search to the nav | 🔍 Search row/field that filters the CHATS session list by name/preview (client-side over `controller.sessions`). Empty query = no filter. | `_agents_nav_column.dart`; `agents_view.dart`; `lib/features/agents/controllers/agents_controller.dart` (read `sessions`; add a search-filter helper if needed) | analyze/format/test; widget test: typing filters rows, clearing restores | A1 |
+| A4 | Relocate Brain / Deep Research / Tasks / Webhooks into TOOLS nav rows; remove Settings tiles + toolbar icons | Add TOOLS rows opening `AgentMemoryView`, `AgentResearchView`, `AgentSchedulesView`, `AgentWebhooksView` (existing `const X({super.key})` views, controllers already in `main.dart`). Remove the Settings tiles and the toolbar icons that previously surfaced them. | `_agents_nav_column.dart`; `agents_view.dart` (remove `Icons.schedule`/`Icons.travel_explore` from `_SessionListHeader` ~776–801); `lib/features/settings/views/settings_view.dart` (remove tiles 1465–1517 for the 3 relocated views) | analyze/format/test; widget test: each TOOLS row navigates to its view; Settings no longer lists them | A1 |
+| A5 | Surface Profiles as a TOOLS nav row | 🤖 Profiles row opens `showAgentProfileSheet(context)`; remove the profiles section from the retired rail. | `_agents_nav_column.dart`; `lib/features/agents/views/_agent_profile_sheet.dart` (reuse `showAgentProfileSheet`); `_projects_rail.dart` (remove profiles section) | analyze/format/test; widget test: Profiles row opens the sheet | A1, A2 |
+| B1 | Cookbook backend: `agent_cookbook` table + CRUD routes | New table (id, title, description, steps_json, bound_config_id?, created_at, updated_at) in BOTH SQLite + Postgres; repository/controller/routes mirroring `agent_scheduled_tasks`; register in `app.ts`. | `apps/api_server/src/database/migrations.ts`; `…/postgres_bootstrap.ts`; NEW `…/repositories/agent_cookbook_repository.ts`, `…/controllers/agentCookbookController.ts`, `…/routes/agentCookbookRoutes.ts`; `…/src/app.ts` | tsc --noEmit; vitest: CRUD happy path + empty-DB returns `[]` (schema-drift gate, both engines) | — |
+| B2 | Cookbook Flutter feature + nav row | New `agent_cookbook` feature dir (view/controller/repository/data/model) listing + authoring recipes; register controller in `main.dart`; 📖 Cookbook TOOLS row. | NEW `apps/desktop_flutter/lib/features/agent_cookbook/**`; `apps/desktop_flutter/lib/main.dart` (provider); `_agents_nav_column.dart` | analyze/format/test; widget test: Cookbook row opens the view; list renders from data source | A1, B1 |
+| C1 | Interactive sessions: add `mcpRole` (init-time tool gating) | Add `mcpRole?` to the session-create DTO; at create, resolve `.mcp-roles/<role>.mcp.json` and pass its `mcpServers`/`allowedTools` to the SDK session (init-time gate ONLY — no runtime dispatch check). Unknown/missing role → 400 (no silent fallback to full tools). | `apps/api_server/src/models/agent_session.ts`; `…/controllers/agent_sessions_controller.ts` (`create`); `…/services/opencode_client_service.ts` / `opencode_engine.ts` (pass allowlist); read `.mcp-roles/*.mcp.json` | tsc; vitest: role resolves → allowlist passed to SDK mock; unknown role → 400; no role → unchanged behavior | — |
+| C2 | Gmail MCP server in catalog + `email-assistant` role + signals endpoint | Add a version-pinned gmail entry to `curated_mcp_servers.ts`; create `.mcp-roles/email-assistant.mcp.json` (mirror `church-admin`: gmail + rhythm in `mcpServers`, scoped `allowedTools`, `disabledMcpServers: [bash,computer,editor,filesystem]`); add `GET /integrations/gmail-signals` → `gmail_signals_repository.listRecentAsync(ownerId)`. | `apps/api_server/src/config/curated_mcp_servers.ts`; NEW `.mcp-roles/email-assistant.mcp.json`; NEW `…/routes/gmail_signals_routes.ts` + controller; `…/src/app.ts`; reuse `…/repositories/gmail_signals_repository.ts` | tsc; vitest: signals route returns recent list + `[]` on empty; role JSON validates against the shape. Safety: gmail pin verified (no unpinned npx); role scopes only gmail+rhythm | — (C1 for launch flow in C3) |
+| C3 | Email Flutter feature + nav row | New `agent_email` feature dir = recent-signals list (from C2 endpoint) + "Launch email assistant" button that creates a session with `mcpRole: 'email-assistant'` (via C1); 📧 Email TOOLS row. | NEW `apps/desktop_flutter/lib/features/agent_email/**`; `apps/desktop_flutter/lib/main.dart`; `_agents_nav_column.dart`; `lib/features/agents/controllers/agents_controller.dart` (pass `mcpRole` on create) | analyze/format/test; widget test: Email row opens view; signals render; launch button calls createSession with role | A1, C1, C2 |
+| D1 | Gallery backend: `graphic-designer` role + `agent_designs` table + routes | Create `.mcp-roles/graphic-designer.mcp.json` (scopes Canva tools: generate-design, create-design-from-brand-template, export-design, …; `disabledMcpServers` as above); new `agent_designs` table (id, title, canva_url, thumbnail_url, session_id, created_at) in BOTH DBs; repository/controller/routes; register in `app.ts`. | NEW `.mcp-roles/graphic-designer.mcp.json`; `migrations.ts`; `postgres_bootstrap.ts`; NEW `…/repositories/agent_designs_repository.ts`, `…/controllers/agentDesignsController.ts`, `…/routes/agentDesignsRoutes.ts`; `…/src/app.ts` | tsc; vitest: CRUD + `[]` on empty (both engines); role JSON validates. Safety: role scopes only Canva | — (C1 for launch flow in D2) |
+| D2 | Gallery Flutter feature + nav row | New `agent_gallery` feature dir = "Launch designer" button (creates session with `mcpRole: 'graphic-designer'`) + grid of designs (thumbnail/title/Canva link from D1 endpoint); 🎨 Gallery TOOLS row. | NEW `apps/desktop_flutter/lib/features/agent_gallery/**`; `apps/desktop_flutter/lib/main.dart`; `_agents_nav_column.dart` | analyze/format/test; widget test: Gallery row opens view; design grid renders; launch button calls createSession with role | A1, C1, D1 |
+
+---
+
+## Next in chain
+
+Hand off to `issue-writer` to convert this table into GitHub-ready issues (do not create remote issues until the user confirms). Then `acceptance-contract` per issue before `coding-agent`.

@@ -90,11 +90,10 @@ class AgentScheduledTask {
         return scheduledTime != null ? 'Daily at $scheduledTime' : 'Daily';
       case 'weekly':
         final days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-        final day = (scheduledDay != null &&
-                scheduledDay! >= 0 &&
-                scheduledDay! <= 6)
-            ? days[scheduledDay!]
-            : 'Weekly';
+        final day =
+            (scheduledDay != null && scheduledDay! >= 0 && scheduledDay! <= 6)
+                ? days[scheduledDay!]
+                : 'Weekly';
         return 'Weekly on $day${scheduledTime != null ? ' at $scheduledTime' : ''}';
       case 'monthly':
         return 'Monthly on day ${scheduledDay ?? '?'}${scheduledTime != null ? ' at $scheduledTime' : ''}';

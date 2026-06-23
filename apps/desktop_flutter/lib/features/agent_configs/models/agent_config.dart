@@ -35,8 +35,10 @@ class AgentConfig {
       sortOrder: asInt(json['sortOrder']) ?? 0,
       isManager: asBool(json['isManager']) ?? false,
       systemPrompt: asString(json['systemPrompt']),
-      allowedMcps: _parseStringList(json['allowedMcpsJson'] ?? json['allowedMcps']),
-      allowedSkills: _parseStringList(json['allowedSkillsJson'] ?? json['allowedSkills']),
+      allowedMcps:
+          _parseStringList(json['allowedMcpsJson'] ?? json['allowedMcps']),
+      allowedSkills:
+          _parseStringList(json['allowedSkillsJson'] ?? json['allowedSkills']),
     );
   }
 
@@ -93,7 +95,8 @@ class AgentConfig {
         'isManager': isManager,
         'systemPrompt': systemPrompt,
         'allowedMcpsJson': allowedMcps != null ? jsonEncode(allowedMcps) : null,
-        'allowedSkillsJson': allowedSkills != null ? jsonEncode(allowedSkills) : null,
+        'allowedSkillsJson':
+            allowedSkills != null ? jsonEncode(allowedSkills) : null,
       };
 
   AgentConfig copyWith({

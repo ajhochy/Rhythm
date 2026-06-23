@@ -1481,7 +1481,7 @@ class _OdysseusSection extends StatelessWidget {
         ),
         const SizedBox(height: 12),
         _OdysseusNavTile(
-          icon: Icons.calendar_clock,
+          icon: Icons.schedule,
           title: 'Scheduled Tasks',
           subtitle: 'Manage recurring and one-time agent runs',
           onTap: () => Navigator.of(context).push(

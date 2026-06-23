@@ -113,9 +113,8 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
     _systemPromptController =
         TextEditingController(text: cfg?.systemPrompt ?? '');
     _isManager = cfg?.isManager ?? false;
-    _selectedMcps = cfg?.allowedMcps != null
-        ? List<String>.from(cfg!.allowedMcps!)
-        : null;
+    _selectedMcps =
+        cfg?.allowedMcps != null ? List<String>.from(cfg!.allowedMcps!) : null;
     _selectedSkills = cfg?.allowedSkills != null
         ? List<String>.from(cfg!.allowedSkills!)
         : null;
@@ -403,8 +402,7 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
                       const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                 ),
                 onPressed: () => setState(() => _selectedMcps = null),
-                child:
-                    const Text('Allow all', style: TextStyle(fontSize: 13)),
+                child: const Text('Allow all', style: TextStyle(fontSize: 13)),
               ),
           ],
         ),
@@ -454,8 +452,7 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
                       const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                 ),
                 onPressed: () => setState(() => _selectedSkills = null),
-                child:
-                    const Text('Allow all', style: TextStyle(fontSize: 13)),
+                child: const Text('Allow all', style: TextStyle(fontSize: 13)),
               ),
           ],
         ),
@@ -566,8 +563,7 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
                 ? context.rhythm.accent
                 : context.rhythm.textSecondary,
             fontSize: 12,
-            fontWeight:
-                isSelected ? FontWeight.w600 : FontWeight.w400,
+            fontWeight: isSelected ? FontWeight.w600 : FontWeight.w400,
           ),
           backgroundColor: context.rhythm.surfaceMuted,
           side: BorderSide(
@@ -578,8 +574,7 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(RhythmRadius.pill),
           ),
-          padding:
-              const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
         );
       }).toList(),
     );
@@ -594,8 +589,7 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
       hintText: hint,
       alignLabelWithHint: alignLabelWithHint,
       hintStyle: TextStyle(color: context.rhythm.textMuted, fontSize: 13),
-      contentPadding:
-          const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
       enabledBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(RhythmRadius.sm),
         borderSide: BorderSide(color: context.rhythm.border),

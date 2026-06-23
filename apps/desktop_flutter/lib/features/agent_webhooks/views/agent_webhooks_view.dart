@@ -505,8 +505,7 @@ class _NewWebhookSheetState extends State<_NewWebhookSheet> {
             style: TextStyle(color: context.rhythm.textPrimary),
             decoration: InputDecoration(
               labelText: 'Target prompt (optional)',
-              hintText:
-                  'Instructions for the agent when this webhook fires…',
+              hintText: 'Instructions for the agent when this webhook fires…',
               alignLabelWithHint: true,
               labelStyle: TextStyle(color: context.rhythm.textSecondary),
               hintStyle: TextStyle(color: context.rhythm.textMuted),

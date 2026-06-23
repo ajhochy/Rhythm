@@ -2,7 +2,7 @@ import '../data/agent_webhooks_data_source.dart';
 import '../models/agent_webhook_endpoint.dart';
 
 class AgentWebhooksRepository {
-  AgentWebhooksRepository() : _dataSource = AgentWebhooksDataSource();
+  AgentWebhooksRepository(this._dataSource);
 
   final AgentWebhooksDataSource _dataSource;
 

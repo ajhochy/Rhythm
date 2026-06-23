@@ -139,9 +139,7 @@ class _ProfilesSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final configsController = context.watch<AgentConfigsController>();
-    final profiles = configsController.configs
-        .where((c) => c.isAgent)
-        .toList()
+    final profiles = configsController.configs.where((c) => c.isAgent).toList()
       ..sort((a, b) => a.sortOrder.compareTo(b.sortOrder));
 
     return Column(
@@ -149,8 +147,7 @@ class _ProfilesSection extends StatelessWidget {
       children: [
         for (final profile in profiles) ...[
           GestureDetector(
-            onLongPress: () =>
-                showAgentProfileSheet(context, config: profile),
+            onLongPress: () => showAgentProfileSheet(context, config: profile),
             onSecondaryTap: () =>
                 showAgentProfileSheet(context, config: profile),
             child: _ProfileRailItem(profile: profile),
@@ -180,12 +177,10 @@ class _ProfileRailItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final initial = profile.label.isNotEmpty
-        ? profile.label[0].toUpperCase()
-        : '?';
+    final initial =
+        profile.label.isNotEmpty ? profile.label[0].toUpperCase() : '?';
     return Tooltip(
-      message:
-          '${profile.label}${profile.isManager ? ' (Manager)' : ''}',
+      message: '${profile.label}${profile.isManager ? ' (Manager)' : ''}',
       child: Center(
         child: Stack(
           clipBehavior: Clip.none,
@@ -200,8 +195,7 @@ class _ProfileRailItem extends StatelessWidget {
                 borderRadius: BorderRadius.circular(10),
                 child: InkWell(
                   borderRadius: BorderRadius.circular(10),
-                  onTap: () =>
-                      showAgentProfileSheet(context, config: profile),
+                  onTap: () => showAgentProfileSheet(context, config: profile),
                   child: Center(
                     child: Text(
                       initial,

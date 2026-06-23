@@ -157,10 +157,9 @@ class _AgentMemoryViewState extends State<AgentMemoryView> {
                   style: TextStyle(color: context.rhythm.textPrimary),
                   decoration: InputDecoration(
                     hintText: 'Search memories…',
-                    hintStyle:
-                        TextStyle(color: context.rhythm.textMuted),
-                    prefixIcon: Icon(Icons.search,
-                        color: context.rhythm.textMuted),
+                    hintStyle: TextStyle(color: context.rhythm.textMuted),
+                    prefixIcon:
+                        Icon(Icons.search, color: context.rhythm.textMuted),
                     suffixIcon: _searchController.text.isNotEmpty
                         ? IconButton(
                             icon: Icon(Icons.clear,
@@ -172,11 +171,9 @@ class _AgentMemoryViewState extends State<AgentMemoryView> {
                           )
                         : null,
                     filled: true,
-                    fillColor:
-                        context.rhythm.canvas.withValues(alpha: 0.6),
+                    fillColor: context.rhythm.canvas.withValues(alpha: 0.6),
                     border: OutlineInputBorder(
-                      borderRadius:
-                          BorderRadius.circular(RhythmRadius.pill),
+                      borderRadius: BorderRadius.circular(RhythmRadius.pill),
                       borderSide: BorderSide.none,
                     ),
                     contentPadding: const EdgeInsets.symmetric(
@@ -195,8 +192,7 @@ class _AgentMemoryViewState extends State<AgentMemoryView> {
     );
   }
 
-  Widget _buildBody(
-      BuildContext context, AgentMemoryController controller) {
+  Widget _buildBody(BuildContext context, AgentMemoryController controller) {
     final isLoading = controller.status == AgentMemoryStatus.loading ||
         controller.status == AgentMemoryStatus.searching;
 
@@ -274,8 +270,7 @@ class _MemoryTileState extends State<_MemoryTile> {
       child: Container(
         margin: const EdgeInsets.only(bottom: RhythmSpacing.sm),
         decoration: BoxDecoration(
-          color:
-              context.rhythm.surfaceRaised.withValues(alpha: 0.92),
+          color: context.rhythm.surfaceRaised.withValues(alpha: 0.92),
           borderRadius: BorderRadius.circular(RhythmRadius.md),
           border: Border.all(color: context.rhythm.borderSubtle),
           boxShadow: RhythmElevation.panel,
@@ -291,9 +286,7 @@ class _MemoryTileState extends State<_MemoryTile> {
                   _KindBadge(kind: entry.kind),
                   const Spacer(),
                   Icon(
-                    _expanded
-                        ? Icons.expand_less
-                        : Icons.expand_more,
+                    _expanded ? Icons.expand_less : Icons.expand_more,
                     size: 18,
                     color: context.rhythm.textMuted,
                   ),
@@ -317,9 +310,8 @@ class _MemoryTileState extends State<_MemoryTile> {
                 Wrap(
                   spacing: RhythmSpacing.xs,
                   runSpacing: RhythmSpacing.xxs,
-                  children: entry.tags
-                      .map((tag) => _TagChip(tag: tag))
-                      .toList(),
+                  children:
+                      entry.tags.map((tag) => _TagChip(tag: tag)).toList(),
                 ),
               ],
               const SizedBox(height: RhythmSpacing.xs),

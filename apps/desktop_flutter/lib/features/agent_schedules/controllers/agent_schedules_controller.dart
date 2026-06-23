@@ -5,7 +5,7 @@ import '../repositories/agent_schedules_repository.dart';
 enum AgentSchedulesStatus { idle, loading, error }
 
 class AgentSchedulesController extends ChangeNotifier {
-  AgentSchedulesController() : _repository = AgentSchedulesRepository();
+  AgentSchedulesController(this._repository);
 
   final AgentSchedulesRepository _repository;
 

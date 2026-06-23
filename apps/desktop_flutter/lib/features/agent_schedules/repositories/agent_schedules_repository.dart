@@ -2,7 +2,7 @@ import '../data/agent_schedules_data_source.dart';
 import '../models/agent_scheduled_task.dart';
 
 class AgentSchedulesRepository {
-  AgentSchedulesRepository() : _dataSource = AgentSchedulesDataSource();
+  AgentSchedulesRepository(this._dataSource);
 
   final AgentSchedulesDataSource _dataSource;
 

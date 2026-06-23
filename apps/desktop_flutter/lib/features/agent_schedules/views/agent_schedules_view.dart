@@ -212,8 +212,7 @@ class _AgentSchedulesViewState extends State<AgentSchedulesView> {
     return ListView.separated(
       padding: const EdgeInsets.all(RhythmSpacing.md),
       itemCount: controller.tasks.length,
-      separatorBuilder: (_, __) =>
-          const SizedBox(height: RhythmSpacing.xs),
+      separatorBuilder: (_, __) => const SizedBox(height: RhythmSpacing.xs),
       itemBuilder: (context, index) {
         final task = controller.tasks[index];
         return _TaskTile(
@@ -607,11 +606,9 @@ class _TaskDetailSheetState extends State<_TaskDetailSheet> {
             _detailRow(rhythm, 'Agent', task.agentKind),
             _detailRow(rhythm, 'Timezone', task.timezone),
             if (task.nextRunAt != null)
-              _detailRow(
-                  rhythm, 'Next Run', _formatDateTime(task.nextRunAt!)),
+              _detailRow(rhythm, 'Next Run', _formatDateTime(task.nextRunAt!)),
             if (task.lastRunAt != null)
-              _detailRow(
-                  rhythm, 'Last Run', _formatDateTime(task.lastRunAt!)),
+              _detailRow(rhythm, 'Last Run', _formatDateTime(task.lastRunAt!)),
             if (task.lastError != null) ...[
               const SizedBox(height: RhythmSpacing.sm),
               Container(
@@ -619,7 +616,8 @@ class _TaskDetailSheetState extends State<_TaskDetailSheet> {
                 decoration: BoxDecoration(
                   color: rhythm.danger.withValues(alpha: 0.08),
                   borderRadius: BorderRadius.circular(RhythmRadius.sm),
-                  border: Border.all(color: rhythm.danger.withValues(alpha: 0.3)),
+                  border:
+                      Border.all(color: rhythm.danger.withValues(alpha: 0.3)),
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -636,7 +634,8 @@ class _TaskDetailSheetState extends State<_TaskDetailSheet> {
                     const SizedBox(height: 4),
                     Text(
                       task.lastError!,
-                      style: TextStyle(color: rhythm.textSecondary, fontSize: 12),
+                      style:
+                          TextStyle(color: rhythm.textSecondary, fontSize: 12),
                     ),
                   ],
                 ),
@@ -679,10 +678,11 @@ class _TaskDetailSheetState extends State<_TaskDetailSheet> {
                     onPressed: _delete,
                     icon: Icon(Icons.delete_outline_rounded,
                         color: rhythm.danger, size: 18),
-                    label: Text('Delete',
-                        style: TextStyle(color: rhythm.danger)),
+                    label:
+                        Text('Delete', style: TextStyle(color: rhythm.danger)),
                     style: OutlinedButton.styleFrom(
-                      side: BorderSide(color: rhythm.danger.withValues(alpha: 0.5)),
+                      side: BorderSide(
+                          color: rhythm.danger.withValues(alpha: 0.5)),
                       padding: const EdgeInsets.symmetric(
                           vertical: RhythmSpacing.sm),
                     ),
@@ -818,8 +818,8 @@ class _NewScheduleSheetState extends State<_NewScheduleSheet> {
       initialTime: TimeOfDay.fromDateTime(now),
     );
     if (time == null) return;
-    final combined = DateTime(
-        date.year, date.month, date.day, time.hour, time.minute);
+    final combined =
+        DateTime(date.year, date.month, date.day, time.hour, time.minute);
     setState(() {
       _runAtCtrl.text = combined.toIso8601String();
     });
@@ -950,9 +950,8 @@ class _NewScheduleSheetState extends State<_NewScheduleSheet> {
                   inputDecoration.copyWith(labelText: 'Instructions / Prompt'),
               minLines: 3,
               maxLines: 6,
-              validator: (v) => (v == null || v.trim().isEmpty)
-                  ? 'Prompt is required'
-                  : null,
+              validator: (v) =>
+                  (v == null || v.trim().isEmpty) ? 'Prompt is required' : null,
             ),
             const SizedBox(height: RhythmSpacing.sm),
 
@@ -961,8 +960,7 @@ class _NewScheduleSheetState extends State<_NewScheduleSheet> {
               value: _scheduleType,
               dropdownColor: rhythm.surface,
               style: TextStyle(color: rhythm.textPrimary),
-              decoration:
-                  inputDecoration.copyWith(labelText: 'Schedule Type'),
+              decoration: inputDecoration.copyWith(labelText: 'Schedule Type'),
               items: const [
                 DropdownMenuItem(value: 'daily', child: Text('Daily')),
                 DropdownMenuItem(value: 'weekly', child: Text('Weekly')),
@@ -1035,8 +1033,7 @@ class _NewScheduleSheetState extends State<_NewScheduleSheet> {
               onPressed: _creating ? null : _submit,
               style: FilledButton.styleFrom(
                 backgroundColor: rhythm.accent,
-                padding:
-                    const EdgeInsets.symmetric(vertical: RhythmSpacing.sm),
+                padding: const EdgeInsets.symmetric(vertical: RhythmSpacing.sm),
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(RhythmRadius.sm),
                 ),
@@ -1050,8 +1047,8 @@ class _NewScheduleSheetState extends State<_NewScheduleSheet> {
                     )
                   : const Text(
                       'Create Schedule',
-                      style: TextStyle(
-                          fontWeight: FontWeight.w600, fontSize: 15),
+                      style:
+                          TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
                     ),
             ),
             const SizedBox(height: RhythmSpacing.lg),
@@ -1084,14 +1081,13 @@ class _NewScheduleSheetState extends State<_NewScheduleSheet> {
         ];
 
       case 'cron':
-        final preview = _cronCtrl.text.isNotEmpty
-            ? _describeCron(_cronCtrl.text)
-            : null;
+        final preview =
+            _cronCtrl.text.isNotEmpty ? _describeCron(_cronCtrl.text) : null;
         return [
           TextFormField(
             controller: _cronCtrl,
-            style: TextStyle(
-                color: rhythm.textPrimary, fontFamily: 'monospace'),
+            style:
+                TextStyle(color: rhythm.textPrimary, fontFamily: 'monospace'),
             decoration:
                 base.copyWith(labelText: 'Cron Expression (e.g. 0 9 * * 1)'),
             onChanged: (_) => setState(() {}),
@@ -1156,8 +1152,7 @@ class _NewScheduleSheetState extends State<_NewScheduleSheet> {
         ),
         child: Row(
           children: [
-            Icon(Icons.access_time_rounded,
-                color: rhythm.textMuted, size: 18),
+            Icon(Icons.access_time_rounded, color: rhythm.textMuted, size: 18),
             const SizedBox(width: RhythmSpacing.xs),
             Text('Time: ', style: TextStyle(color: rhythm.textMuted)),
             Text(
@@ -1188,9 +1183,7 @@ class _NewScheduleSheetState extends State<_NewScheduleSheet> {
               margin: const EdgeInsets.symmetric(horizontal: 2),
               padding: const EdgeInsets.symmetric(vertical: 8),
               decoration: BoxDecoration(
-                color: selected
-                    ? rhythm.accent
-                    : rhythm.surfaceMuted,
+                color: selected ? rhythm.accent : rhythm.surfaceMuted,
                 borderRadius: BorderRadius.circular(RhythmRadius.xs),
                 border: Border.all(
                   color: selected ? rhythm.accent : rhythm.borderSubtle,
@@ -1227,9 +1220,7 @@ class _NewScheduleSheetState extends State<_NewScheduleSheet> {
           const Spacer(),
           IconButton(
             icon: Icon(Icons.remove_rounded, color: rhythm.textSecondary),
-            onPressed: _monthDay > 1
-                ? () => setState(() => _monthDay--)
-                : null,
+            onPressed: _monthDay > 1 ? () => setState(() => _monthDay--) : null,
             padding: EdgeInsets.zero,
             constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
           ),
@@ -1247,9 +1238,8 @@ class _NewScheduleSheetState extends State<_NewScheduleSheet> {
           ),
           IconButton(
             icon: Icon(Icons.add_rounded, color: rhythm.textSecondary),
-            onPressed: _monthDay < 31
-                ? () => setState(() => _monthDay++)
-                : null,
+            onPressed:
+                _monthDay < 31 ? () => setState(() => _monthDay++) : null,
             padding: EdgeInsets.zero,
             constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
           ),
