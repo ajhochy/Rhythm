@@ -2,9 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../../app/core/ui/tokens/rhythm_theme.dart';
+import '../../agent_configs/controllers/agent_configs_controller.dart';
+import '../../agent_configs/models/agent_config.dart';
 import '../../agent_projects/controllers/agent_projects_controller.dart';
 import '../../agent_projects/models/agent_project.dart';
 import '../../agent_projects/views/edit_project_dialog.dart';
+import '_agent_profile_sheet.dart';
 
 /// 64px sidebar rail listing agent projects.
 ///
@@ -109,6 +112,134 @@ class _ProjectsRailState extends State<ProjectsRail> {
                 color: context.rhythm.textMuted,
               ),
             ),
+            const SizedBox(height: 6),
+            Divider(
+              color: context.rhythm.borderSubtle,
+              indent: 12,
+              endIndent: 12,
+              height: 8,
+            ),
+            const SizedBox(height: 6),
+            // Agent Profiles section
+            const _ProfilesSection(),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Profiles section shown at the bottom of the rail.
+/// Displays enabled agent configs (isAgent=true) as small icon buttons.
+/// Manager profiles get a crown badge. Tap to open profile sheet to edit.
+/// The "+" button creates a new profile.
+class _ProfilesSection extends StatelessWidget {
+  const _ProfilesSection();
+
+  @override
+  Widget build(BuildContext context) {
+    final configsController = context.watch<AgentConfigsController>();
+    final profiles = configsController.configs
+        .where((c) => c.isAgent)
+        .toList()
+      ..sort((a, b) => a.sortOrder.compareTo(b.sortOrder));
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        for (final profile in profiles) ...[
+          GestureDetector(
+            onLongPress: () =>
+                showAgentProfileSheet(context, config: profile),
+            onSecondaryTap: () =>
+                showAgentProfileSheet(context, config: profile),
+            child: _ProfileRailItem(profile: profile),
+          ),
+          const SizedBox(height: 8),
+        ],
+        _RailItem(
+          tooltip: 'New agent profile',
+          selected: false,
+          onTap: () => showAgentProfileSheet(context),
+          child: Icon(
+            Icons.person_add_outlined,
+            size: 20,
+            color: context.rhythm.textMuted,
+          ),
+        ),
+        const SizedBox(height: 6),
+      ],
+    );
+  }
+}
+
+class _ProfileRailItem extends StatelessWidget {
+  const _ProfileRailItem({required this.profile});
+
+  final AgentConfig profile;
+
+  @override
+  Widget build(BuildContext context) {
+    final initial = profile.label.isNotEmpty
+        ? profile.label[0].toUpperCase()
+        : '?';
+    return Tooltip(
+      message:
+          '${profile.label}${profile.isManager ? ' (Manager)' : ''}',
+      child: Center(
+        child: Stack(
+          clipBehavior: Clip.none,
+          children: [
+            SizedBox(
+              width: 40,
+              height: 40,
+              child: Material(
+                color: profile.isManager
+                    ? context.rhythm.accentMuted
+                    : context.rhythm.surfaceMuted,
+                borderRadius: BorderRadius.circular(10),
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(10),
+                  onTap: () =>
+                      showAgentProfileSheet(context, config: profile),
+                  child: Center(
+                    child: Text(
+                      initial,
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
+                        color: profile.isManager
+                            ? context.rhythm.accent
+                            : context.rhythm.textSecondary,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            if (profile.isManager)
+              Positioned(
+                top: -4,
+                right: -4,
+                child: Container(
+                  width: 14,
+                  height: 14,
+                  decoration: BoxDecoration(
+                    color: context.rhythm.accent,
+                    shape: BoxShape.circle,
+                  ),
+                  child: const Center(
+                    child: Text(
+                      '★',
+                      style: TextStyle(
+                        fontSize: 8,
+                        color: Colors.white,
+                        height: 1,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
           ],
         ),
       ),
@@ -131,7 +262,7 @@ class _RailItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final selectedBg = const Color(0x144F6AF5);
+    const selectedBg = Color(0x144F6AF5);
     final button = SizedBox(
       width: 40,
       height: 40,

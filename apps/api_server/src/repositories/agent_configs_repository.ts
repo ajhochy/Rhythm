@@ -6,6 +6,10 @@ export interface AgentConfig {
   icon: string;
   enabled: boolean;
   isAgent: boolean;
+  isManager: boolean;
+  systemPrompt: string | null;
+  allowedMcpsJson: string | null;
+  allowedSkillsJson: string | null;
   presetId: string | null;
   sortOrder: number;
   createdAt: string;
@@ -26,6 +30,10 @@ export interface AgentConfigInput {
   icon: string;
   enabled?: boolean;
   isAgent?: boolean;
+  isManager?: boolean;
+  systemPrompt?: string | null;
+  allowedMcpsJson?: string | null;
+  allowedSkillsJson?: string | null;
   presetId?: string | null;
   sortOrder?: number;
   // Legacy fields — accepted on the input shape for back-compat with stale
@@ -44,6 +52,10 @@ interface AgentConfigRow {
   command: string;
   enabled: number;
   is_agent: number;
+  is_manager: number;
+  system_prompt: string | null;
+  allowed_mcps_json: string | null;
+  allowed_skills_json: string | null;
   can_resume: number;
   resume_command: string | null;
   session_id_pattern: string | null;
@@ -66,6 +78,10 @@ function rowToModel(row: AgentConfigRow): AgentConfig {
     icon: row.icon,
     enabled: row.enabled !== 0,
     isAgent: row.is_agent !== 0,
+    isManager: (row.is_manager ?? 0) !== 0,
+    systemPrompt: row.system_prompt ?? null,
+    allowedMcpsJson: row.allowed_mcps_json ?? null,
+    allowedSkillsJson: row.allowed_skills_json ?? null,
     presetId: row.preset_id,
     sortOrder: row.sort_order,
     createdAt: row.created_at,
@@ -110,10 +126,11 @@ export class AgentConfigsRepository {
     getDb()
       .prepare(
         `INSERT INTO agent_configs
-          (id, label, icon, command, enabled, is_agent, can_resume,
+          (id, label, icon, command, enabled, is_agent, is_manager, system_prompt,
+           allowed_mcps_json, allowed_skills_json, can_resume,
            resume_command, session_id_pattern, output_marker, preset_id, sort_order,
            created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         id,
@@ -122,6 +139,10 @@ export class AgentConfigsRepository {
         '', // command — legacy, no longer populated
         config.enabled !== false ? 1 : 0,
         config.isAgent !== false ? 1 : 0,
+        config.isManager ? 1 : 0,
+        config.systemPrompt ?? null,
+        config.allowedMcpsJson ?? null,
+        config.allowedSkillsJson ?? null,
         0, // can_resume — legacy
         null, // resume_command — legacy
         null, // session_id_pattern — legacy
@@ -156,6 +177,22 @@ export class AgentConfigsRepository {
     if (patch.isAgent !== undefined) {
       fields.push('is_agent = ?');
       values.push(patch.isAgent ? 1 : 0);
+    }
+    if (patch.isManager !== undefined) {
+      fields.push('is_manager = ?');
+      values.push(patch.isManager ? 1 : 0);
+    }
+    if (patch.systemPrompt !== undefined) {
+      fields.push('system_prompt = ?');
+      values.push(patch.systemPrompt ?? null);
+    }
+    if (patch.allowedMcpsJson !== undefined) {
+      fields.push('allowed_mcps_json = ?');
+      values.push(patch.allowedMcpsJson ?? null);
+    }
+    if (patch.allowedSkillsJson !== undefined) {
+      fields.push('allowed_skills_json = ?');
+      values.push(patch.allowedSkillsJson ?? null);
     }
     if (patch.sortOrder !== undefined) {
       fields.push('sort_order = ?');

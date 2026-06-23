@@ -1317,4 +1317,23 @@ export function runMigrations(db: Database.Database): void {
   if (!pctColsExt.includes('webhook_endpoint_id')) {
     db.exec(`ALTER TABLE pending_claude_triggers ADD COLUMN webhook_endpoint_id TEXT`);
   }
+
+  // ── Agent Config Profile Extensions ──────────────────────────────────────
+  // Add manager/specialist profile columns to agent_configs (additive).
+  // is_manager: exactly one manager agent; all others are specialists.
+  // system_prompt: custom system prompt for this profile.
+  // allowed_mcps_json / allowed_skills_json: capability scoping per profile.
+  const agentConfigCols = (db.pragma('table_info(agent_configs)') as { name: string }[]).map((c) => c.name);
+  if (!agentConfigCols.includes('is_manager')) {
+    db.exec(`ALTER TABLE agent_configs ADD COLUMN is_manager INTEGER NOT NULL DEFAULT 0`);
+  }
+  if (!agentConfigCols.includes('system_prompt')) {
+    db.exec(`ALTER TABLE agent_configs ADD COLUMN system_prompt TEXT`);
+  }
+  if (!agentConfigCols.includes('allowed_mcps_json')) {
+    db.exec(`ALTER TABLE agent_configs ADD COLUMN allowed_mcps_json TEXT`);
+  }
+  if (!agentConfigCols.includes('allowed_skills_json')) {
+    db.exec(`ALTER TABLE agent_configs ADD COLUMN allowed_skills_json TEXT`);
+  }
 }

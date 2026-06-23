@@ -71,6 +71,18 @@ import 'app/core/agents/agent_server_controller.dart';
 import 'app/core/agents/agent_trigger_watcher.dart';
 import 'features/settings/controllers/mcp_controller.dart';
 import 'features/settings/data/mcp_data_source.dart';
+import 'features/agent_schedules/controllers/agent_schedules_controller.dart';
+import 'features/agent_schedules/data/agent_schedules_data_source.dart';
+import 'features/agent_schedules/repositories/agent_schedules_repository.dart';
+import 'features/agent_memory/controllers/agent_memory_controller.dart';
+import 'features/agent_memory/data/agent_memory_data_source.dart';
+import 'features/agent_memory/repositories/agent_memory_repository.dart';
+import 'features/agent_research/controllers/agent_research_controller.dart';
+import 'features/agent_research/data/agent_research_data_source.dart';
+import 'features/agent_research/repositories/agent_research_repository.dart';
+import 'features/agent_webhooks/controllers/agent_webhooks_controller.dart';
+import 'features/agent_webhooks/data/agent_webhooks_data_source.dart';
+import 'features/agent_webhooks/repositories/agent_webhooks_repository.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -373,6 +385,27 @@ class _RhythmAppContent extends StatelessWidget {
         // OPC-M4-3: MCP server management (#702)
         ChangeNotifierProvider(
           create: (_) => McpController(McpDataSource()),
+        ),
+        // ── Odysseus: Agent Scheduler, Memory, Research, Webhooks ─────────
+        ChangeNotifierProvider(
+          create: (_) => AgentSchedulesController(
+            AgentSchedulesRepository(AgentSchedulesDataSource()),
+          ),
+        ),
+        ChangeNotifierProvider(
+          create: (_) => AgentMemoryController(
+            AgentMemoryRepository(AgentMemoryDataSource()),
+          ),
+        ),
+        ChangeNotifierProvider(
+          create: (_) => AgentResearchController(
+            AgentResearchRepository(AgentResearchDataSource()),
+          ),
+        ),
+        ChangeNotifierProvider(
+          create: (_) => AgentWebhooksController(
+            AgentWebhooksRepository(AgentWebhooksDataSource()),
+          ),
         ),
       ],
       child: Consumer<ThemeModeService>(

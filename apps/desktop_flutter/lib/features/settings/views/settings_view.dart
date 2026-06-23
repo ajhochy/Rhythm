@@ -13,6 +13,9 @@ import '../../../app/core/services/server_config_service.dart';
 import '../../../app/core/updates/update_controller.dart';
 import '../../../app/core/workspace/workspace_controller.dart';
 import '../../../app/core/workspace/workspace_models.dart';
+import '../../../features/agent_memory/views/agent_memory_view.dart';
+import '../../../features/agent_webhooks/views/agent_webhooks_view.dart';
+import '../../../features/agent_schedules/views/agent_schedules_view.dart';
 import '../../../app/core/services/theme_mode_service.dart';
 import '../../../app/core/ui/tokens/rhythm_theme.dart';
 import '../controllers/settings_controller.dart';
@@ -215,6 +218,8 @@ class _SettingsViewState extends State<SettingsView> {
           const _ClaudeIntegrationSection(),
           const SizedBox(height: 24),
           const _AgentServerSection(),
+          const SizedBox(height: 24),
+          const _OdysseusSection(),
           const SizedBox(height: 24),
           const _WorkspaceSectionWidget(),
           Text(
@@ -1454,6 +1459,130 @@ class _MemberTile extends StatelessWidget {
 }
 
 // ---------------------------------------------------------------------------
+// Odysseus Agent Tools
+// ---------------------------------------------------------------------------
+
+class _OdysseusSection extends StatelessWidget {
+  const _OdysseusSection();
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'AGENT TOOLS',
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+            color: context.rhythm.textSecondary,
+            letterSpacing: 0.8,
+          ),
+        ),
+        const SizedBox(height: 12),
+        _OdysseusNavTile(
+          icon: Icons.calendar_clock,
+          title: 'Scheduled Tasks',
+          subtitle: 'Manage recurring and one-time agent runs',
+          onTap: () => Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              builder: (_) => const AgentSchedulesView(),
+            ),
+          ),
+        ),
+        const SizedBox(height: 8),
+        _OdysseusNavTile(
+          icon: Icons.memory_outlined,
+          title: 'Agent Memory',
+          subtitle: 'Search and manage persistent agent memories',
+          onTap: () => Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              builder: (_) => const AgentMemoryView(),
+            ),
+          ),
+        ),
+        const SizedBox(height: 8),
+        _OdysseusNavTile(
+          icon: Icons.webhook,
+          title: 'Webhook Endpoints',
+          subtitle: 'Inbound webhooks that trigger agent runs',
+          onTap: () => Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              builder: (_) => const AgentWebhooksView(),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _OdysseusNavTile extends StatelessWidget {
+  const _OdysseusNavTile({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: context.rhythm.surfaceRaised,
+      borderRadius: BorderRadius.circular(RhythmRadius.lg),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(RhythmRadius.lg),
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(RhythmRadius.lg),
+            border: Border.all(color: context.rhythm.borderSubtle),
+          ),
+          child: Row(
+            children: [
+              Icon(icon, size: 20, color: context.rhythm.accent),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: TextStyle(
+                        color: context.rhythm.textPrimary,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitle,
+                      style: TextStyle(
+                        color: context.rhythm.textSecondary,
+                        fontSize: 12,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              Icon(
+                Icons.chevron_right,
+                size: 18,
+                color: context.rhythm.textMuted,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 // Appearance
 // ---------------------------------------------------------------------------
 

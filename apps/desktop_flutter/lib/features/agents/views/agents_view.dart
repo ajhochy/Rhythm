@@ -45,6 +45,8 @@ import '_tool_renderers/_terminal_output_view.dart';
 import '_tool_renderers/_todo_checklist_view.dart';
 import '_tool_renderers/_task_chip.dart';
 import '_unified_agent_model_picker.dart';
+import '../../agent_research/views/agent_research_view.dart';
+import '../../agent_schedules/views/agent_schedules_view.dart';
 
 class AgentsView extends StatefulWidget {
   const AgentsView({super.key});
@@ -766,6 +768,32 @@ class _SessionListHeader extends StatelessWidget {
                 icon: const Icon(Icons.refresh, size: 18),
                 tooltip: 'Refresh session list',
                 onPressed: () => context.read<AgentsController>().load(),
+                style: IconButton.styleFrom(
+                  minimumSize: const Size(34, 34),
+                  padding: EdgeInsets.zero,
+                ),
+              ),
+              IconButton(
+                icon: const Icon(Icons.schedule, size: 18),
+                tooltip: 'Scheduled Tasks',
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => const AgentSchedulesView(),
+                  ),
+                ),
+                style: IconButton.styleFrom(
+                  minimumSize: const Size(34, 34),
+                  padding: EdgeInsets.zero,
+                ),
+              ),
+              IconButton(
+                icon: const Icon(Icons.travel_explore, size: 18),
+                tooltip: 'Deep Research',
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(
+                    builder: (_) => const AgentResearchView(),
+                  ),
+                ),
                 style: IconButton.styleFrom(
                   minimumSize: const Size(34, 34),
                   padding: EdgeInsets.zero,

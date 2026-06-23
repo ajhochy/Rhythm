@@ -25,6 +25,19 @@ class AgentConfigsController extends ChangeNotifier {
       _configs.where((c) => c.enabled && c.isAgent).toList()
         ..sort((a, b) => a.sortOrder.compareTo(b.sortOrder));
 
+  /// The manager agent (is_manager = true). Returns null if none set.
+  AgentConfig? get managerAgent {
+    for (final c in _configs) {
+      if (c.isManager) return c;
+    }
+    return null;
+  }
+
+  /// All specialist configs (enabled + isAgent + not manager), sorted by sortOrder.
+  List<AgentConfig> get specialistAgents =>
+      _configs.where((c) => c.enabled && c.isAgent && !c.isManager).toList()
+        ..sort((a, b) => a.sortOrder.compareTo(b.sortOrder));
+
   /// Look up a config by its id. Returns null if not found.
   AgentConfig? byId(String id) {
     for (final c in _configs) {

@@ -62,6 +62,10 @@ export class AgentConfigsController {
         command: typeof body.command === 'string' ? body.command.trim() : '',
         enabled: body.enabled !== false,
         isAgent: body.isAgent !== false,
+        isManager: Boolean(body.isManager),
+        systemPrompt: typeof body.systemPrompt === 'string' ? body.systemPrompt : null,
+        allowedMcpsJson: typeof body.allowedMcpsJson === 'string' ? body.allowedMcpsJson : null,
+        allowedSkillsJson: typeof body.allowedSkillsJson === 'string' ? body.allowedSkillsJson : null,
         canResume: false,
         resumeCommand: null,
         sessionIdPattern: null,
@@ -102,6 +106,10 @@ export class AgentConfigsController {
       if (body.icon !== undefined) patch.icon = body.icon as string;
       if (body.enabled !== undefined) patch.enabled = Boolean(body.enabled);
       if (body.isAgent !== undefined) patch.isAgent = Boolean(body.isAgent);
+      if (body.isManager !== undefined) patch.isManager = Boolean(body.isManager);
+      if (body.systemPrompt !== undefined) patch.systemPrompt = typeof body.systemPrompt === 'string' ? body.systemPrompt : null;
+      if (body.allowedMcpsJson !== undefined) patch.allowedMcpsJson = typeof body.allowedMcpsJson === 'string' ? body.allowedMcpsJson : null;
+      if (body.allowedSkillsJson !== undefined) patch.allowedSkillsJson = typeof body.allowedSkillsJson === 'string' ? body.allowedSkillsJson : null;
       // Legacy CLI fields (#581) — accept on the wire for back-compat
       // with old payloads but never propagate to the repository layer.
 

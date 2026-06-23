@@ -58,3 +58,6 @@ pipeline-evidence/
 
 # Local planning scratch docs
 docs/superpowers/plans/
+
+# GitNexus local index
+.gitnexus/

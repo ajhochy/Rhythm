@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import '../../../app/core/utils/json_parsing.dart';
 
 /// Agent configuration as surfaced to the UI.
@@ -16,6 +18,10 @@ class AgentConfig {
     required this.isAgent,
     required this.sortOrder,
     this.presetId,
+    this.isManager = false,
+    this.systemPrompt,
+    this.allowedMcps,
+    this.allowedSkills,
   });
 
   factory AgentConfig.fromJson(Map<String, dynamic> json) {
@@ -27,6 +33,10 @@ class AgentConfig {
       isAgent: asBool(json['isAgent']) ?? false,
       presetId: asString(json['presetId']),
       sortOrder: asInt(json['sortOrder']) ?? 0,
+      isManager: asBool(json['isManager']) ?? false,
+      systemPrompt: asString(json['systemPrompt']),
+      allowedMcps: _parseStringList(json['allowedMcpsJson'] ?? json['allowedMcps']),
+      allowedSkills: _parseStringList(json['allowedSkillsJson'] ?? json['allowedSkills']),
     );
   }
 
@@ -44,8 +54,33 @@ class AgentConfig {
 
   final int sortOrder;
 
+  /// True when this config is designated as the manager agent.
+  /// Exactly one agent_config should have isManager = true.
+  final bool isManager;
+
+  /// Custom system prompt for this agent profile. Null means use the default.
+  final String? systemPrompt;
+
+  /// List of permitted MCP server IDs for this profile.
+  final List<String>? allowedMcps;
+
+  /// List of permitted skill names for this profile.
+  final List<String>? allowedSkills;
+
   /// Returns true when this config was created from a preset.
   bool get isPreset => presetId != null;
+
+  static List<String>? _parseStringList(dynamic value) {
+    if (value == null) return null;
+    if (value is List) return value.map((e) => e.toString()).toList();
+    if (value is String && value.isNotEmpty) {
+      try {
+        final decoded = jsonDecode(value);
+        if (decoded is List) return decoded.map((e) => e.toString()).toList();
+      } catch (_) {}
+    }
+    return null;
+  }
 
   Map<String, dynamic> toJson() => {
         'id': id,
@@ -55,6 +90,10 @@ class AgentConfig {
         'isAgent': isAgent,
         'presetId': presetId,
         'sortOrder': sortOrder,
+        'isManager': isManager,
+        'systemPrompt': systemPrompt,
+        'allowedMcpsJson': allowedMcps != null ? jsonEncode(allowedMcps) : null,
+        'allowedSkillsJson': allowedSkills != null ? jsonEncode(allowedSkills) : null,
       };
 
   AgentConfig copyWith({
@@ -64,6 +103,10 @@ class AgentConfig {
     bool? isAgent,
     Object? presetId = _sentinel,
     int? sortOrder,
+    bool? isManager,
+    Object? systemPrompt = _sentinel,
+    Object? allowedMcps = _sentinel,
+    Object? allowedSkills = _sentinel,
   }) {
     return AgentConfig(
       id: id,
@@ -74,6 +117,16 @@ class AgentConfig {
       presetId:
           identical(presetId, _sentinel) ? this.presetId : presetId as String?,
       sortOrder: sortOrder ?? this.sortOrder,
+      isManager: isManager ?? this.isManager,
+      systemPrompt: identical(systemPrompt, _sentinel)
+          ? this.systemPrompt
+          : systemPrompt as String?,
+      allowedMcps: identical(allowedMcps, _sentinel)
+          ? this.allowedMcps
+          : allowedMcps as List<String>?,
+      allowedSkills: identical(allowedSkills, _sentinel)
+          ? this.allowedSkills
+          : allowedSkills as List<String>?,
     );
   }
 }
