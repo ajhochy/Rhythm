@@ -15,4 +15,6 @@ class AgentCookbookRepository {
       _dataSource.update(id, patch);
 
   Future<void> delete(String id) => _dataSource.delete(id);
+
+  Future<String> runRecipe(String id) => _dataSource.runRecipe(id);
 }

@@ -68,4 +68,18 @@ class AgentCookbookController extends ChangeNotifier {
       rethrow;
     }
   }
+
+  /// Runs the recipe identified by [id] via POST /agent-cookbook/:id/run.
+  /// Returns the sessionId on success, or null on error (error stored in [error]).
+  Future<String?> runRecipe(String id) async {
+    try {
+      final sessionId = await _repository.runRecipe(id);
+      notifyListeners();
+      return sessionId;
+    } catch (e) {
+      _error = e.toString();
+      notifyListeners();
+      return null;
+    }
+  }
 }

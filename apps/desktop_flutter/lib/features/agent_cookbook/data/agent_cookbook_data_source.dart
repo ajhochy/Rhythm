@@ -51,4 +51,14 @@ class AgentCookbookDataSource {
       assertOk(response);
     }
   }
+
+  Future<String> runRecipe(String id) async {
+    final response = await http.post(
+      Uri.parse('$_baseUrl/agent-cookbook/$id/run'),
+      headers: {'Content-Type': 'application/json'},
+    );
+    assertOk(response);
+    final body = jsonDecode(response.body) as Map<String, dynamic>;
+    return body['sessionId'] as String;
+  }
 }

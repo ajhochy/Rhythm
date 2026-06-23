@@ -198,9 +198,33 @@ class _AgentCookbookViewState extends State<AgentCookbookView> {
         return _RecipeTile(
           recipe: recipe,
           onDelete: () => _confirmDelete(context, recipe),
+          onRun: () => _runRecipe(context, recipe),
         );
       },
     );
+  }
+
+  Future<void> _runRecipe(BuildContext context, CookbookRecipe recipe) async {
+    final sessionId =
+        await context.read<AgentCookbookController>().runRecipe(recipe.id);
+    if (!context.mounted) return;
+    if (sessionId != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Recipe started'),
+          backgroundColor: context.rhythm.success,
+        ),
+      );
+    } else {
+      final err =
+          context.read<AgentCookbookController>().error ?? 'Unknown error';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error: $err'),
+          backgroundColor: context.rhythm.danger,
+        ),
+      );
+    }
   }
 }
 
@@ -212,10 +236,12 @@ class _RecipeTile extends StatelessWidget {
   const _RecipeTile({
     required this.recipe,
     required this.onDelete,
+    required this.onRun,
   });
 
   final CookbookRecipe recipe;
   final VoidCallback onDelete;
+  final VoidCallback onRun;
 
   // Compute a step count from the stepsJson string.
   int get _stepCount {
@@ -295,6 +321,15 @@ class _RecipeTile extends StatelessWidget {
                 ],
               ],
             ),
+          ),
+          IconButton(
+            key: ValueKey('run-recipe-${recipe.id}'),
+            icon:
+                Icon(Icons.play_arrow_rounded, color: rhythm.accent, size: 20),
+            tooltip: 'Run recipe',
+            onPressed: onRun,
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
           ),
           IconButton(
             icon: Icon(Icons.delete_outline_rounded,
