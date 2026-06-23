@@ -23,9 +23,10 @@ Visual smoke (`flutter run -d macos`) is required before opening a PR.
 
 ## Active branch / PR
 
-- **Branch:** `feature/agent-scheduler` (local, not yet pushed for a PR)
-- **PR:** not yet opened
+- **Branch:** `feature/agent-scheduler` (pushed; HEAD `779cea2`)
+- **PR:** [#734](https://github.com/ajhochy/Rhythm/pull/734) — open, CI running on the new commits
 - **Base:** `main`
+- **Commits this run:** `c58f1fa` (Phase A nav column + rich rows) · `1d8562e` (C1 mcpRole) · `227bbde` (B1/C2/D1 backends) · `779cea2` (B2/C3/D2 + scrollable-sidebar overflow fix)
 
 ---
 
