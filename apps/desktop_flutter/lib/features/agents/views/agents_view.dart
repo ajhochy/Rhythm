@@ -10,10 +10,7 @@ import 'package:provider/provider.dart';
 import '../../../app/core/agents/agent_server_controller.dart';
 import '../../../app/core/ui/tokens/rhythm_theme.dart';
 import '../../agent_configs/controllers/agent_configs_controller.dart';
-import '../../agent_configs/models/agent_config.dart';
 import '../../settings/views/settings_view.dart';
-import '../../agent_configs/widgets/agent_icon.dart';
-import 'agent_badge_identity.dart';
 import '../../tasks/controllers/tasks_controller.dart';
 import '../../tasks/models/task.dart';
 import '../../agent_projects/controllers/agent_projects_controller.dart';
@@ -22,7 +19,6 @@ import '../controllers/agents_controller.dart';
 import '../models/agent_session.dart';
 import '../models/chat_models.dart';
 import '../../settings/services/destructive_modal_service.dart';
-import '_agent_settings_sheet.dart';
 import '_attachment_mime.dart';
 import '_chat_cost_footer.dart';
 import '_compaction_divider.dart';
@@ -35,8 +31,8 @@ import '_revert_restore_banner.dart';
 import '_session_side_panel.dart';
 import '_permission_card.dart';
 import '_permission_mode_picker.dart';
-import '_project_vcs_chip.dart';
-import '_projects_rail.dart';
+import '_agents_nav_column.dart';
+import '_session_list_body.dart';
 import '_slash_command_popover.dart';
 import '_question_tool_card.dart';
 import '_tool_call_part.dart';
@@ -45,8 +41,6 @@ import '_tool_renderers/_terminal_output_view.dart';
 import '_tool_renderers/_todo_checklist_view.dart';
 import '_tool_renderers/_task_chip.dart';
 import '_unified_agent_model_picker.dart';
-import '../../agent_research/views/agent_research_view.dart';
-import '../../agent_schedules/views/agent_schedules_view.dart';
 
 class AgentsView extends StatefulWidget {
   const AgentsView({super.key});
@@ -57,6 +51,7 @@ class AgentsView extends StatefulWidget {
 
 class _AgentsViewState extends State<AgentsView> {
   bool _resumableSectionExpanded = false;
+  bool _navCollapsed = false;
 
   @override
   Widget build(BuildContext context) {
@@ -112,17 +107,25 @@ class _AgentsViewState extends State<AgentsView> {
     final panelCollapsed = controller.panelCollapsed;
     final showCollapsedAffordance = selectedSession != null && panelCollapsed;
 
+    final agentServerController = context.watch<AgentServerController>();
+    final canStartSession =
+        agentServerController.isReady && agentServerController.hasAnyAgent;
+
     final row = Row(
       children: [
-        ProjectsRail(
-          onAddProject: () => _showNewProjectDialog(context),
-        ),
-        const SizedBox(width: 12),
-        _SessionListPanel(
+        AgentsNavColumn(
           resumableSectionExpanded: _resumableSectionExpanded,
           onToggleResumable: () => setState(
             () => _resumableSectionExpanded = !_resumableSectionExpanded,
           ),
+          onNewSession:
+              canStartSession ? () => _instantCreateSession(context) : null,
+          onShowNewProjectDialog: () => _showNewProjectDialog(context),
+          isCollapsed: _navCollapsed,
+          onToggleCollapse: () =>
+              setState(() => _navCollapsed = !_navCollapsed),
+          onShowSessionOptions:
+              canStartSession ? () => _showNewSessionDialog(context) : null,
         ),
         const SizedBox(width: 12),
         Expanded(child: _TranscriptPanel()),
@@ -177,6 +180,41 @@ class _AgentsViewState extends State<AgentsView> {
 
   void _showNewProjectDialog(BuildContext context) {
     showEditProjectDialog(context);
+  }
+
+  /// OPC-#710 — Instant create from the nav column header.
+  Future<void> _instantCreateSession(BuildContext context) async {
+    final projectsController = context.read<AgentProjectsController>();
+    final ctrl = context.read<AgentsController>();
+    final cwd = projectsController.selectedProject?.cwd ??
+        Platform.environment['HOME'] ??
+        '/tmp';
+    final session = await ctrl.createSession(cwd: cwd);
+    if (session != null) {
+      ctrl.selectSession(session.id);
+    }
+  }
+
+  void _showNewSessionDialog(BuildContext context) {
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) => ChangeNotifierProvider.value(
+        value: context.read<AgentsController>(),
+        child: ChangeNotifierProvider.value(
+          value: context.read<TasksController>(),
+          child: ChangeNotifierProvider.value(
+            value: context.read<AgentServerController>(),
+            child: ChangeNotifierProvider.value(
+              value: context.read<AgentConfigsController>(),
+              child: ChangeNotifierProvider.value(
+                value: context.read<AgentProjectsController>(),
+                child: const _NewSessionDialog(),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }
 
@@ -374,1017 +412,6 @@ class _NoAgentsAvailable extends StatelessWidget {
           ),
         ),
       ),
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Left panel — session list
-// ---------------------------------------------------------------------------
-
-class _SessionListPanel extends StatefulWidget {
-  const _SessionListPanel({
-    required this.resumableSectionExpanded,
-    required this.onToggleResumable,
-  });
-
-  final bool resumableSectionExpanded;
-  final VoidCallback onToggleResumable;
-
-  @override
-  State<_SessionListPanel> createState() => _SessionListPanelState();
-}
-
-class _SessionListPanelState extends State<_SessionListPanel> {
-  /// Sessions selected via Shift-click for bulk actions.
-  final Set<String> _multiSelected = {};
-
-  bool _archivedSectionExpanded = false;
-
-  bool get _hasMultiSelection => _multiSelected.isNotEmpty;
-
-  void _onRowTap(String id) {
-    final isShift = HardwareKeyboard.instance.isShiftPressed;
-    if (isShift) {
-      setState(() {
-        if (_multiSelected.contains(id)) {
-          _multiSelected.remove(id);
-        } else {
-          _multiSelected.add(id);
-        }
-      });
-      return;
-    }
-    if (_hasMultiSelection) {
-      setState(() => _multiSelected.clear());
-    }
-    context.read<AgentsController>().selectSession(id);
-  }
-
-  Future<void> _confirmBulkDelete() async {
-    final ids = _multiSelected.toList();
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text('Delete ${ids.length} sessions?'),
-        content: const Text(
-          'This permanently removes the selected sessions and all of their '
-          'messages. This cannot be undone.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            style: FilledButton.styleFrom(
-              backgroundColor: Theme.of(ctx).colorScheme.error,
-            ),
-            onPressed: () => Navigator.of(ctx).pop(true),
-            child: Text('Delete ${ids.length}'),
-          ),
-        ],
-      ),
-    );
-    if (confirmed != true) return;
-    if (!mounted) return;
-    await context.read<AgentsController>().deleteSessions(ids);
-    if (!mounted) return;
-    setState(() => _multiSelected.clear());
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final resumableSectionExpanded = widget.resumableSectionExpanded;
-    final onToggleResumable = widget.onToggleResumable;
-    final controller = context.watch<AgentsController>();
-    final agentServerController = context.watch<AgentServerController>();
-    final projectsController = context.watch<AgentProjectsController>();
-    final canStartSession =
-        agentServerController.isReady && agentServerController.hasAnyAgent;
-
-    final selectedProject = projectsController.selectedProject;
-    final selectedProjectId = projectsController.selectedProjectId;
-    // selectedProjectId == null → All sessions (no filter). Otherwise filter.
-    final filteredSessions = selectedProjectId == null
-        ? controller.sessions
-        : controller.sessions
-            .where((s) => s.projectId == selectedProjectId)
-            .toList();
-
-    return Container(
-      width: 320,
-      decoration: BoxDecoration(
-        color: context.rhythm.surfaceRaised,
-        borderRadius: BorderRadius.circular(RhythmRadius.xl),
-        border: Border.all(color: context.rhythm.border),
-        boxShadow: RhythmElevation.panel,
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _SessionListHeader(
-            // OPC-#710: primary button → instant-create (no dialog).
-            onNewSession:
-                canStartSession ? () => _instantCreateSession(context) : null,
-            // OPC-#710: secondary "⋯" → full options dialog.
-            onOptionsPressed:
-                canStartSession ? () => _showNewSessionDialog(context) : null,
-          ),
-          if (selectedProject != null && selectedProject.vcsRoot != null)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
-              child: Align(
-                alignment: Alignment.centerLeft,
-                child: ProjectVcsChip(
-                  project: selectedProject,
-                  onRefresh: () =>
-                      projectsController.refreshVcs(selectedProject.id),
-                ),
-              ),
-            ),
-          Divider(height: 1, color: context.rhythm.borderSubtle),
-          const _DisconnectedBanner(),
-          if (_hasMultiSelection)
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              color: context.rhythm.accentMuted,
-              child: Row(
-                children: [
-                  Text(
-                    '${_multiSelected.length} selected',
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      color: context.rhythm.accent,
-                    ),
-                  ),
-                  const Spacer(),
-                  TextButton(
-                    onPressed: () => setState(() => _multiSelected.clear()),
-                    style: TextButton.styleFrom(
-                      minimumSize: Size.zero,
-                      padding: const EdgeInsets.symmetric(horizontal: 8),
-                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                    ),
-                    child: const Text('Cancel'),
-                  ),
-                  const SizedBox(width: 6),
-                  FilledButton.tonal(
-                    onPressed: _confirmBulkDelete,
-                    style: FilledButton.styleFrom(
-                      backgroundColor:
-                          Theme.of(context).colorScheme.error.withValues(
-                                alpha: 0.18,
-                              ),
-                      foregroundColor: Theme.of(context).colorScheme.error,
-                      minimumSize: const Size(0, 30),
-                      padding: const EdgeInsets.symmetric(horizontal: 12),
-                    ),
-                    child: const Text('Delete'),
-                  ),
-                ],
-              ),
-            ),
-          Expanded(
-            child: controller.status == AgentsLoadStatus.loading &&
-                    filteredSessions.isEmpty
-                ? Center(
-                    child: CircularProgressIndicator(
-                      color: context.rhythm.accent,
-                    ),
-                  )
-                : filteredSessions.isEmpty &&
-                        controller.resumable.isEmpty &&
-                        !controller.isCreating
-                    ? const _EmptySessionsState()
-                    : ListView(
-                        padding: const EdgeInsets.fromLTRB(12, 12, 12, 14),
-                        children: [
-                          // OPC-#713: optimistic loading row shown while a new
-                          // session is being created (instant-create path).
-                          if (controller.isCreating) ...[
-                            _CreatingSessionRow(),
-                            const SizedBox(height: 8),
-                          ],
-                          // Active sessions (filtered by selected project).
-                          for (final session in filteredSessions) ...[
-                            _SessionRow(
-                              session: session,
-                              isSelected:
-                                  controller.selectedSessionId == session.id,
-                              isMultiSelected:
-                                  _multiSelected.contains(session.id),
-                              isWorking: controller.isWorking(session.id),
-                              isStuck:
-                                  controller.connectivity.isStuck(session.id),
-                              onTap: () => _onRowTap(session.id),
-                            ),
-                            const SizedBox(height: 8),
-                          ],
-                          // Resumable section
-                          if (controller.resumable.isNotEmpty) ...[
-                            GestureDetector(
-                              onTap: onToggleResumable,
-                              child: Padding(
-                                padding:
-                                    const EdgeInsets.symmetric(vertical: 6),
-                                child: Row(
-                                  children: [
-                                    Icon(
-                                      resumableSectionExpanded
-                                          ? Icons.expand_less
-                                          : Icons.expand_more,
-                                      size: 16,
-                                      color: context.rhythm.textMuted,
-                                    ),
-                                    const SizedBox(width: 6),
-                                    Text(
-                                      'Resumable '
-                                      '(${controller.resumable.length})',
-                                      style: TextStyle(
-                                        fontSize: 11,
-                                        fontWeight: FontWeight.w700,
-                                        color: context.rhythm.textMuted,
-                                        letterSpacing: 0.6,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                            if (resumableSectionExpanded)
-                              for (final session in controller.resumable) ...[
-                                _ResumableSessionRow(
-                                  session: session,
-                                  onResume: () => context
-                                      .read<AgentsController>()
-                                      .resumeSession(session.id),
-                                ),
-                                const SizedBox(height: 8),
-                              ],
-                          ],
-                          // Archived section — collapsible, fetched on expand.
-                          GestureDetector(
-                            onTap: () async {
-                              setState(() => _archivedSectionExpanded =
-                                  !_archivedSectionExpanded);
-                              if (_archivedSectionExpanded) {
-                                await context
-                                    .read<AgentsController>()
-                                    .loadArchivedSessions();
-                              }
-                            },
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(vertical: 6),
-                              child: Row(
-                                children: [
-                                  Icon(
-                                    _archivedSectionExpanded
-                                        ? Icons.expand_less
-                                        : Icons.expand_more,
-                                    size: 16,
-                                    color: context.rhythm.textMuted,
-                                  ),
-                                  const SizedBox(width: 6),
-                                  Text(
-                                    'Archived'
-                                    ' (${controller.archived.length})',
-                                    style: TextStyle(
-                                      fontSize: 11,
-                                      fontWeight: FontWeight.w700,
-                                      color: context.rhythm.textMuted,
-                                      letterSpacing: 0.6,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                          if (_archivedSectionExpanded)
-                            for (final session in controller.archived) ...[
-                              _ArchivedSessionRow(
-                                session: session,
-                                onUnarchive: () => context
-                                    .read<AgentsController>()
-                                    .unarchiveSession(session.id),
-                              ),
-                              const SizedBox(height: 8),
-                            ],
-                        ],
-                      ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  /// OPC-#710 — Instant create: one click, no dialog.
-  ///
-  /// Creates an agent-less session in the selected project's cwd ($HOME
-  /// fallback), immediately selects it, and focuses the composer. The session
-  /// name starts empty; OpenCode auto-titles it after the first exchange via a
-  /// `session.updated` event which the bridge maps to a WS SessionUpdatedMessage.
-  Future<void> _instantCreateSession(BuildContext context) async {
-    final projectsController = context.read<AgentProjectsController>();
-    final controller = context.read<AgentsController>();
-    final cwd = projectsController.selectedProject?.cwd ??
-        Platform.environment['HOME'] ??
-        '/tmp';
-    final session = await controller.createSession(cwd: cwd);
-    if (session != null) {
-      controller.selectSession(session.id);
-    }
-  }
-
-  void _showNewSessionDialog(BuildContext context) {
-    showDialog<void>(
-      context: context,
-      builder: (dialogContext) => ChangeNotifierProvider.value(
-        value: context.read<AgentsController>(),
-        child: ChangeNotifierProvider.value(
-          value: context.read<TasksController>(),
-          child: ChangeNotifierProvider.value(
-            value: context.read<AgentServerController>(),
-            child: ChangeNotifierProvider.value(
-              value: context.read<AgentConfigsController>(),
-              child: ChangeNotifierProvider.value(
-                value: context.read<AgentProjectsController>(),
-                child: const _NewSessionDialog(),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _SessionListHeader extends StatelessWidget {
-  const _SessionListHeader({
-    required this.onNewSession,
-    this.onOptionsPressed,
-  });
-
-  final VoidCallback? onNewSession;
-
-  /// OPC-#710 — callback for the secondary "⋯" options button that opens the
-  /// full _NewSessionDialog (cwd / branch / task / name).
-  final VoidCallback? onOptionsPressed;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Agent Sessions',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w700,
-                        color: context.rhythm.textPrimary,
-                      ),
-                    ),
-                    const SizedBox(height: 3),
-                    Text(
-                      'Claude Code and Codex terminal sessions',
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: context.rhythm.textMuted,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              IconButton(
-                icon: const Icon(Icons.refresh, size: 18),
-                tooltip: 'Refresh session list',
-                onPressed: () => context.read<AgentsController>().load(),
-                style: IconButton.styleFrom(
-                  minimumSize: const Size(34, 34),
-                  padding: EdgeInsets.zero,
-                ),
-              ),
-              IconButton(
-                icon: const Icon(Icons.schedule, size: 18),
-                tooltip: 'Scheduled Tasks',
-                onPressed: () => Navigator.of(context).push(
-                  MaterialPageRoute<void>(
-                    builder: (_) => const AgentSchedulesView(),
-                  ),
-                ),
-                style: IconButton.styleFrom(
-                  minimumSize: const Size(34, 34),
-                  padding: EdgeInsets.zero,
-                ),
-              ),
-              IconButton(
-                icon: const Icon(Icons.travel_explore, size: 18),
-                tooltip: 'Deep Research',
-                onPressed: () => Navigator.of(context).push(
-                  MaterialPageRoute<void>(
-                    builder: (_) => const AgentResearchView(),
-                  ),
-                ),
-                style: IconButton.styleFrom(
-                  minimumSize: const Size(34, 34),
-                  padding: EdgeInsets.zero,
-                ),
-              ),
-              IconButton(
-                icon: const Icon(Icons.settings_outlined, size: 18),
-                tooltip: 'Agent settings',
-                onPressed: () => showAgentSettingsSheet(context),
-                style: IconButton.styleFrom(
-                  minimumSize: const Size(34, 34),
-                  padding: EdgeInsets.zero,
-                ),
-              ),
-              const SizedBox(width: 6),
-              if (onNewSession != null)
-                FilledButton.tonal(
-                  onPressed: onNewSession,
-                  style: FilledButton.styleFrom(
-                    backgroundColor: context.rhythm.accentMuted,
-                    foregroundColor: context.rhythm.accent,
-                    elevation: 0,
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 14,
-                      vertical: 10,
-                    ),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(RhythmRadius.md),
-                    ),
-                  ),
-                  child: const Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(Icons.add, size: 16),
-                      SizedBox(width: 4),
-                      Text(
-                        'New',
-                        style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              // OPC-#710 — secondary "⋯" options button opens the full
-              // _NewSessionDialog (explicit cwd / branch / task / name).
-              if (onOptionsPressed != null)
-                IconButton(
-                  key: const Key('new-session-options-button'),
-                  icon: const Icon(Icons.more_horiz, size: 18),
-                  tooltip: 'Session options',
-                  onPressed: onOptionsPressed,
-                  style: IconButton.styleFrom(
-                    minimumSize: const Size(30, 34),
-                    padding: EdgeInsets.zero,
-                    foregroundColor: context.rhythm.textMuted,
-                  ),
-                ),
-            ],
-          ),
-          const SizedBox(height: 10),
-          Row(
-            children: [
-              const _AgentServerStatusDot(),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _EmptySessionsState extends StatelessWidget {
-  const _EmptySessionsState();
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              Icons.smart_toy_outlined,
-              size: 34,
-              color: context.rhythm.textMuted,
-            ),
-            const SizedBox(height: 10),
-            Text(
-              'No active agent sessions',
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w600,
-                color: context.rhythm.textPrimary,
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              'Start a new session to run Claude Code or Codex.',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 12,
-                color: context.rhythm.textMuted,
-                height: 1.35,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// OPC-#713: Optimistic loading row shown while a session create is in-flight.
-// ---------------------------------------------------------------------------
-
-/// A ghosted, non-interactive row shown in the session list while the
-/// instant-create SDK call is in-flight. Gives the user immediate visual
-/// feedback that their click registered.
-class _CreatingSessionRow extends StatelessWidget {
-  const _CreatingSessionRow();
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 160),
-      curve: Curves.easeOut,
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: context.rhythm.accentMuted,
-        borderRadius: BorderRadius.circular(RhythmRadius.lg),
-        border: Border.all(
-          color: context.rhythm.accent.withValues(alpha: 0.28),
-        ),
-      ),
-      child: Row(
-        children: [
-          SizedBox(
-            width: 14,
-            height: 14,
-            child: CircularProgressIndicator(
-              strokeWidth: 2,
-              color: context.rhythm.accent,
-            ),
-          ),
-          const SizedBox(width: 10),
-          Text(
-            'Starting session…',
-            style: TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
-              color: context.rhythm.accent,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _SessionRow extends StatelessWidget {
-  const _SessionRow({
-    required this.session,
-    required this.isSelected,
-    required this.isWorking,
-    required this.isStuck,
-    required this.onTap,
-    this.isMultiSelected = false,
-  });
-
-  final AgentSession session;
-  final bool isSelected;
-  final bool isMultiSelected;
-  final bool isWorking;
-  final bool isStuck;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final highlighted = isSelected || isMultiSelected;
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(RhythmRadius.lg),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 160),
-        curve: Curves.easeOut,
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: highlighted
-              ? context.rhythm.accentMuted
-              : context.rhythm.surfaceMuted,
-          borderRadius: BorderRadius.circular(RhythmRadius.lg),
-          border: Border.all(
-            color: isMultiSelected
-                ? context.rhythm.accent
-                : isSelected
-                    ? context.rhythm.accent.withValues(alpha: 0.28)
-                    : context.rhythm.border,
-            width: isMultiSelected ? 2 : 1,
-          ),
-          boxShadow: highlighted
-              ? [
-                  BoxShadow(
-                    color: context.rhythm.accent.withValues(alpha: 0.08),
-                    blurRadius: 18,
-                    offset: const Offset(0, 6),
-                  ),
-                ]
-              : const [],
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                _AgentKindBadge(
-                  agentId: session.agentId,
-                  providerId: session.providerId,
-                  modelId: session.modelId,
-                ),
-                const Spacer(),
-                _StatusDot(status: session.status, isWorking: isWorking),
-                const SizedBox(width: 4),
-                _SessionRowMenu(session: session),
-              ],
-            ),
-            const SizedBox(height: 6),
-            // OPC-#710: empty name renders as "New session" placeholder
-            // until the auto-title arrives via SessionUpdatedMessage.
-            Text(
-              session.name.isNotEmpty ? session.name : 'New session',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                fontSize: 13.5,
-                fontWeight: FontWeight.w700,
-                color: session.name.isNotEmpty
-                    ? context.rhythm.textPrimary
-                    : context.rhythm.textMuted,
-              ),
-            ),
-            if (session.lastPreview != null &&
-                session.lastPreview!.isNotEmpty) ...[
-              const SizedBox(height: 3),
-              Text(
-                session.lastPreview!,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontSize: 11,
-                  color: context.rhythm.textMuted,
-                  fontFamily: 'Menlo',
-                ),
-              ),
-            ],
-            if (isStuck)
-              Padding(
-                padding: const EdgeInsets.only(top: 4),
-                child: Text(
-                  'No output yet — the agent may be stuck',
-                  style: TextStyle(
-                    fontSize: 10,
-                    color: context.rhythm.warning,
-                    fontStyle: FontStyle.italic,
-                  ),
-                ),
-              ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _ResumableSessionRow extends StatelessWidget {
-  const _ResumableSessionRow({required this.session, required this.onResume});
-
-  final AgentSession session;
-  final VoidCallback onResume;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(
-        color: context.rhythm.surfaceMuted,
-        borderRadius: BorderRadius.circular(RhythmRadius.lg),
-        border: Border.all(color: context.rhythm.borderSubtle),
-      ),
-      child: Row(
-        children: [
-          _AgentKindBadge(
-            agentId: session.agentId,
-            providerId: session.providerId,
-            modelId: session.modelId,
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              session.name,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                fontSize: 12.5,
-                fontWeight: FontWeight.w600,
-                color: context.rhythm.textSecondary,
-              ),
-            ),
-          ),
-          TextButton(
-            onPressed: onResume,
-            style: TextButton.styleFrom(
-              foregroundColor: context.rhythm.accent,
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-              minimumSize: Size.zero,
-              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-            ),
-            child: const Text('Resume', style: TextStyle(fontSize: 12)),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/// Row for an archived session. Has "Restore" and "Delete permanently" actions.
-class _ArchivedSessionRow extends StatelessWidget {
-  const _ArchivedSessionRow({
-    required this.session,
-    required this.onUnarchive,
-  });
-
-  final AgentSession session;
-  final VoidCallback onUnarchive;
-
-  Future<void> _confirmDelete(BuildContext context) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Delete session permanently?'),
-        content: Text(
-          'This permanently removes "${session.name}" and all of its messages. '
-          'This cannot be undone.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            style: FilledButton.styleFrom(
-              backgroundColor: Theme.of(ctx).colorScheme.error,
-            ),
-            onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('Delete'),
-          ),
-        ],
-      ),
-    );
-    if (confirmed != true) return;
-    if (!context.mounted) return;
-    await context.read<AgentsController>().deleteSession(session.id);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(10),
-      decoration: BoxDecoration(
-        color: context.rhythm.surfaceMuted.withValues(alpha: 0.6),
-        borderRadius: BorderRadius.circular(RhythmRadius.lg),
-        border: Border.all(color: context.rhythm.borderSubtle),
-      ),
-      child: Row(
-        children: [
-          Icon(
-            Icons.archive_outlined,
-            size: 14,
-            color: context.rhythm.textMuted,
-          ),
-          const SizedBox(width: 6),
-          Expanded(
-            child: Text(
-              session.name,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                fontSize: 12.5,
-                fontWeight: FontWeight.w500,
-                color: context.rhythm.textMuted,
-              ),
-            ),
-          ),
-          TextButton(
-            onPressed: onUnarchive,
-            style: TextButton.styleFrom(
-              foregroundColor: context.rhythm.accent,
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-              minimumSize: Size.zero,
-              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-            ),
-            child: const Text('Restore', style: TextStyle(fontSize: 12)),
-          ),
-          PopupMenuButton<String>(
-            tooltip: 'More actions',
-            icon: Icon(
-              Icons.more_horiz,
-              size: 15,
-              color: context.rhythm.textMuted,
-            ),
-            padding: EdgeInsets.zero,
-            iconSize: 15,
-            splashRadius: 14,
-            itemBuilder: (_) => [
-              PopupMenuItem<String>(
-                value: 'delete',
-                child: Row(
-                  children: [
-                    Icon(
-                      Icons.delete_outline,
-                      size: 16,
-                      color: Theme.of(context).colorScheme.error,
-                    ),
-                    const SizedBox(width: 8),
-                    Text(
-                      'Delete permanently',
-                      style: TextStyle(
-                        color: Theme.of(context).colorScheme.error,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-            onSelected: (v) {
-              if (v == 'delete') _confirmDelete(context);
-            },
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/// Maps a session-level provider ID (as stored in [AgentSession.providerId])
-/// to the canonical agent config ID (as used in [AgentConfig.id] and the
-/// agent_configs table seed).
-///
-/// This mirrors the PROVIDER_TO_AGENT map in the server's ws_gateway.ts:
-///   anthropic      → claude-code
-///   github-copilot → claude-code
-///   openai         → codex
-///   google         → gemini-cli
-///
-/// When a user picks a model via the unified picker, [_applyPick] stores
-/// [CatalogModelEntry.provider] (e.g. 'openai') as the session's providerId —
-/// NOT the agent config id ('codex'). The badge must map provider → config id
-/// before calling [AgentConfigsController.byId]. (Issue #645.)
-///
-/// OPC-M1-3: The mapping is now fetched from [AgentServerController.providerToAgentKind]
-/// (which reads it from the GET /agents/capabilities response) instead of a
-/// hard-coded local constant. The controller provides an offline fallback.
-
-class _AgentKindBadge extends StatelessWidget {
-  const _AgentKindBadge({
-    required this.agentId,
-    this.providerId,
-    this.modelId,
-  });
-
-  final String agentId;
-
-  /// Optional session-level provider ID (e.g. 'openai', 'google', 'anthropic',
-  /// 'openrouter'). Stored by [setSessionModel] via [_applyPick] which passes
-  /// [CatalogModelEntry.provider]. Direct providers map to a canonical agent
-  /// config via [AgentServerController.providerToAgentKind]; aggregators
-  /// (openrouter/together/groq) are intentionally absent from that map and are
-  /// resolved from [modelId] instead. (Issue #645 / OPC-M1-3.)
-  final String? providerId;
-
-  /// Optional session-level model ID (e.g. 'anthropic/claude-opus-4.7',
-  /// 'meta-llama/llama-3.1-70b'). Used to derive identity when [providerId] is
-  /// an aggregator with no 1:1 agent mapping, so a Llama/DeepSeek model via
-  /// OpenRouter reads "OpenRouter" instead of falling back to the default
-  /// claude-code agentId and mislabeling as "Claude Code".
-  final String? modelId;
-
-  @override
-  Widget build(BuildContext context) {
-    // Issue #645 fix: use context.watch so the badge subscribes to
-    // AgentConfigsController changes and rebuilds when configs are refreshed.
-    final configsCtrl = context.watch<AgentConfigsController>();
-
-    // OPC-M1-3: get providerToAgentKind from AgentServerController (populated
-    // from capabilities endpoint; has offline fallback defaults).
-    final providerToAgentKind =
-        context.watch<AgentServerController>().providerToAgentKind;
-
-    final identity = resolveAgentBadgeIdentity(
-      agentId: agentId,
-      providerId: providerId,
-      modelId: modelId,
-      providerToAgentKind: providerToAgentKind,
-      configById: configsCtrl.byId,
-    );
-    return _AgentConfigBadge(identity: identity);
-  }
-}
-
-/// Renders an agent badge pill from a resolved [AgentBadgeIdentity]:
-///   - config present → agent icon asset + config label (accent style)
-///   - config null but [AgentBadgeIdentity.materialIcon] present → neutral
-///     Material icon + label (accent style — e.g. the OpenRouter identity)
-///   - neither → label only (muted — a truly-unknown / deleted agent)
-class _AgentConfigBadge extends StatelessWidget {
-  const _AgentConfigBadge({required this.identity});
-
-  final AgentBadgeIdentity identity;
-
-  @override
-  Widget build(BuildContext context) {
-    final config = identity.config;
-    final badgeColor = identity.isRecognised
-        ? context.rhythm.accent
-        : context.rhythm.textMuted;
-    final bgColor = badgeColor.withValues(alpha: 0.12);
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-      decoration: BoxDecoration(
-        color: bgColor,
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (config != null) ...[
-            AgentIcon(config.icon, size: 12, fallbackLabel: config.label),
-            const SizedBox(width: 4),
-          ] else if (identity.materialIcon != null) ...[
-            Icon(identity.materialIcon, size: 12, color: badgeColor),
-            const SizedBox(width: 4),
-          ],
-          Text(
-            identity.label,
-            style: TextStyle(
-              fontSize: 10,
-              fontWeight: FontWeight.w700,
-              color: badgeColor,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _StatusDot extends StatelessWidget {
-  const _StatusDot({required this.status, required this.isWorking});
-
-  final AgentSessionStatus status;
-  final bool isWorking;
-
-  @override
-  Widget build(BuildContext context) {
-    if (isWorking) {
-      return SizedBox(
-        width: 10,
-        height: 10,
-        child: CircularProgressIndicator(
-          strokeWidth: 2,
-          color: context.rhythm.accent,
-        ),
-      );
-    }
-    final color = switch (status) {
-      AgentSessionStatus.starting => context.rhythm.warning,
-      AgentSessionStatus.working => context.rhythm.accent,
-      AgentSessionStatus.idle => context.rhythm.success,
-      AgentSessionStatus.resumable => context.rhythm.textMuted,
-      AgentSessionStatus.closed => context.rhythm.borderSubtle,
-      // OPC-M1-4: error state shown as a red dot.
-      AgentSessionStatus.error => context.rhythm.danger,
-    };
-    return Container(
-      width: 10,
-      height: 10,
-      decoration: BoxDecoration(color: color, shape: BoxShape.circle),
     );
   }
 }
@@ -1706,7 +733,7 @@ class _TranscriptHeader extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
       child: Row(
         children: [
-          _AgentKindBadge(
+          AgentKindBadge(
             agentId: session.agentId,
             providerId: session.providerId,
             modelId: session.modelId,
@@ -3744,211 +2771,11 @@ class _NewSessionDialogState extends State<_NewSessionDialog> {
 }
 
 // ---------------------------------------------------------------------------
-// Disconnected banner (inline, inside session list panel)
-// ---------------------------------------------------------------------------
-
-class _DisconnectedBanner extends StatelessWidget {
-  const _DisconnectedBanner();
-
-  @override
-  Widget build(BuildContext context) {
-    final agentServerController = context.watch<AgentServerController>();
-    final agentsController = context.watch<AgentsController>();
-
-    final serverReady = agentServerController.status == AgentServerStatus.ready;
-    final wsDisconnected = agentsController.connectivity.isWsDisconnected;
-
-    if (serverReady && !wsDisconnected) {
-      return const SizedBox.shrink();
-    }
-
-    final String message;
-    if (agentServerController.status != AgentServerStatus.ready) {
-      message =
-          agentServerController.errorMessage ?? 'Agent server unavailable';
-    } else {
-      message = 'Connection lost — reconnecting…';
-    }
-
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-      decoration: BoxDecoration(
-        color: context.rhythm.danger.withValues(alpha: 0.10),
-        border: Border(
-          bottom: BorderSide(
-            color: context.rhythm.danger.withValues(alpha: 0.25),
-          ),
-        ),
-      ),
-      child: Row(
-        children: [
-          Icon(Icons.error_outline, size: 15, color: context.rhythm.danger),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              message,
-              style: TextStyle(
-                fontSize: 11.5,
-                fontWeight: FontWeight.w500,
-                color: context.rhythm.danger,
-                height: 1.35,
-              ),
-            ),
-          ),
-          const SizedBox(width: 8),
-          TextButton(
-            onPressed: () => context.read<AgentServerController>().retry(),
-            style: TextButton.styleFrom(
-              foregroundColor: context.rhythm.danger,
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-              minimumSize: Size.zero,
-              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-              textStyle: const TextStyle(
-                fontSize: 11.5,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            child: const Text('Restart agent server'),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Agent server status dot
-// ---------------------------------------------------------------------------
-
-class _AgentServerStatusDot extends StatelessWidget {
-  const _AgentServerStatusDot();
-
-  @override
-  Widget build(BuildContext context) {
-    final status = context.watch<AgentServerController>().status;
-    final (color, label) = switch (status) {
-      AgentServerStatus.ready => (context.rhythm.success, 'Agent server ready'),
-      AgentServerStatus.starting => (
-          context.rhythm.warning,
-          'Agent server starting',
-        ),
-      AgentServerStatus.failed => (
-          context.rhythm.danger,
-          'Agent server failed',
-        ),
-    };
-    return Tooltip(
-      message: label,
-      child: Container(
-        width: 8,
-        height: 8,
-        decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-      ),
-    );
-  }
-}
-
-/// Three-dot trailing menu on each session row. For now the only action is
-/// hard-delete (#598 follow-up); archive lives in #601.
-class _SessionRowMenu extends StatelessWidget {
-  const _SessionRowMenu({required this.session});
-
-  final AgentSession session;
-
-  Future<void> _confirmDelete(BuildContext context) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Delete session?'),
-        content: Text(
-          'This permanently removes "${session.name}" and all of its messages. '
-          'This cannot be undone.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            style: FilledButton.styleFrom(
-              backgroundColor: Theme.of(ctx).colorScheme.error,
-            ),
-            onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('Delete'),
-          ),
-        ],
-      ),
-    );
-    if (confirmed != true) return;
-    if (!context.mounted) return;
-    await context.read<AgentsController>().deleteSession(session.id);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return PopupMenuButton<String>(
-      tooltip: 'Session actions',
-      icon: Icon(
-        Icons.more_horiz,
-        size: 16,
-        color: context.rhythm.textMuted,
-      ),
-      padding: EdgeInsets.zero,
-      iconSize: 16,
-      splashRadius: 16,
-      itemBuilder: (_) => [
-        PopupMenuItem<String>(
-          value: 'archive',
-          child: Row(
-            children: [
-              Icon(
-                Icons.archive_outlined,
-                size: 16,
-                color: context.rhythm.textSecondary,
-              ),
-              const SizedBox(width: 8),
-              const Text('Archive'),
-            ],
-          ),
-        ),
-        PopupMenuItem<String>(
-          value: 'delete',
-          child: Row(
-            children: [
-              Icon(
-                Icons.delete_outline,
-                size: 16,
-                color: Theme.of(context).colorScheme.error,
-              ),
-              const SizedBox(width: 8),
-              Text(
-                'Delete session',
-                style: TextStyle(
-                  color: Theme.of(context).colorScheme.error,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
-      onSelected: (v) {
-        if (v == 'archive') {
-          context.read<AgentsController>().archiveSession(session.id);
-        } else if (v == 'delete') {
-          _confirmDelete(context);
-        }
-      },
-    );
-  }
-}
-
-// ---------------------------------------------------------------------------
 // Test harnesses — expose private badge widgets for widget tests.
 // Issue #645: all four badge render sites must be exercised individually.
 // ---------------------------------------------------------------------------
 
-/// A thin public wrapper around [_AgentKindBadge] for use in widget tests.
+/// A thin public wrapper around [AgentKindBadge] for use in widget tests.
 ///
 /// Allows tests to pump and assert on the agent pill without needing the full
 /// [AgentsView] widget tree. Requires [AgentConfigsController] in the Provider
@@ -3968,7 +2795,7 @@ class AgentKindBadgeTestHarness extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return _AgentKindBadge(
+    return AgentKindBadge(
       agentId: agentId,
       providerId: providerId,
       modelId: modelId,
@@ -3976,7 +2803,7 @@ class AgentKindBadgeTestHarness extends StatelessWidget {
   }
 }
 
-/// Public wrapper around [_ResumableSessionRow] for use in widget tests.
+/// Public wrapper around [ResumableSessionRow] for use in widget tests.
 ///
 /// Requires [AgentConfigsController] in the Provider tree above it.
 /// Issue #645 site #2 — the resumable row must pass session.providerId to the
@@ -3994,7 +2821,7 @@ class ResumableSessionRowTestHarness extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return _ResumableSessionRow(
+    return ResumableSessionRow(
       session: session,
       onResume: onResume ?? () {},
     );
@@ -4399,14 +3226,15 @@ class TranscriptHeaderTestHarness extends StatelessWidget {
 // OPC-#710 test harnesses
 // ---------------------------------------------------------------------------
 
-/// Public wrapper around [_SessionListHeader] for use in widget tests.
+/// A minimal stand-alone header for use in widget tests that exercise the
+/// OPC-#710 instant-create / options button paths.
 ///
-/// Exposes both the [onNewSession] (instant-create) and [onOptionsPressed]
-/// (advanced dialog) callbacks so tests can assert the correct path is taken
-/// without having to mount the full [AgentsView] Provider tree.
+/// Renders a "New" [FilledButton.tonal] that calls [onNewSession], and
+/// optionally an icon button with [Key('new-session-options-button')] that
+/// calls [onOptionsPressed]. This is the minimal surface the test needs —
+/// it no longer delegates to the dead [_SessionListHeader] class.
 ///
-/// Requires [AgentsController] in the Provider tree (the header's refresh
-/// button and settings sheet use context.read<AgentsController>).
+/// Requires [AgentsController] in the Provider tree for the refresh button.
 @visibleForTesting
 class SessionListHeaderTestHarness extends StatelessWidget {
   const SessionListHeaderTestHarness({
@@ -4420,14 +3248,32 @@ class SessionListHeaderTestHarness extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return _SessionListHeader(
-      onNewSession: onNewSession,
-      onOptionsPressed: onOptionsPressed,
+    return Padding(
+      padding: const EdgeInsets.all(16),
+      child: Row(
+        children: [
+          const Expanded(child: SizedBox()),
+          if (onNewSession != null)
+            FilledButton.tonal(
+              onPressed: onNewSession,
+              child: const Text('New'),
+            ),
+          if (onOptionsPressed != null) ...[
+            const SizedBox(width: 6),
+            IconButton(
+              key: const Key('new-session-options-button'),
+              icon: const Icon(Icons.more_horiz, size: 18),
+              tooltip: 'Session options',
+              onPressed: onOptionsPressed,
+            ),
+          ],
+        ],
+      ),
     );
   }
 }
 
-/// Public wrapper around [_SessionRow] for use in widget tests.
+/// Public wrapper around [SessionRow] for use in widget tests.
 ///
 /// Renders a single session row without the full session-list scaffold.
 /// Used by OPC-#710 tests to assert the "New session" placeholder renders
@@ -4440,7 +3286,7 @@ class SessionRowTestHarness extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return _SessionRow(
+    return SessionRow(
       session: session,
       isSelected: false,
       isWorking: false,
