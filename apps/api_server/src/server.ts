@@ -15,6 +15,8 @@ async function main() {
     { startSyncOrchestratorJob },
     { logger },
     { attachWsGateway },
+    { startAgentSchedulerJob },
+    { agentMemoryService },
   ] = await Promise.all([
     import('./app'),
     import('./database/db'),
@@ -22,6 +24,8 @@ async function main() {
     import('./jobs/sync_orchestrator_job'),
     import('./utils/logger'),
     import('./services/ws_gateway'),
+    import('./services/agentSchedulerService'),
+    import('./services/agentMemoryService'),
   ]);
 
   const port = Number(process.env.PORT ?? 4000);
@@ -31,6 +35,12 @@ async function main() {
 
   const recurrenceJob = startRecurrenceGenerationJob();
   const syncJob = startSyncOrchestratorJob();
+
+  // Agent subsystem: scheduler + memory consolidation seed
+  const agentSchedulerJob = startAgentSchedulerJob();
+  agentMemoryService.seedConsolidationTask().catch((err) => {
+    logger.warn(`[server] Memory consolidation seed failed (non-fatal): ${String(err)}`);
+  });
 
   const app = createApp();
 
@@ -105,6 +115,7 @@ async function main() {
     // 1. Stop cron jobs so no new work is kicked off.
     try { recurrenceJob?.stop(); } catch (_) { /* ignore */ }
     try { syncJob?.stop(); } catch (_) { /* ignore */ }
+    try { agentSchedulerJob?.stop(); } catch (_) { /* ignore */ }
 
     // 2. Dispose the Opencode SDK subprocess.
     try { opencodeClient.dispose(); } catch (_) { /* ignore */ }
