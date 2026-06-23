@@ -87,7 +87,10 @@ class _AgentSchedulesViewState extends State<AgentSchedulesView> {
           top: Radius.circular(RhythmRadius.lg),
         ),
       ),
-      builder: (ctx) => _TaskDetailSheet(task: task),
+      builder: (ctx) => _TaskDetailSheet(
+        task: task,
+        onEdit: () => _showEditScheduleSheet(context, task),
+      ),
     );
   }
 
@@ -101,7 +104,21 @@ class _AgentSchedulesViewState extends State<AgentSchedulesView> {
           top: Radius.circular(RhythmRadius.lg),
         ),
       ),
-      builder: (ctx) => const _NewScheduleSheet(),
+      builder: (ctx) => const _ScheduleFormSheet(),
+    );
+  }
+
+  void _showEditScheduleSheet(BuildContext context, AgentScheduledTask task) {
+    showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: context.rhythm.surface,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(
+          top: Radius.circular(RhythmRadius.lg),
+        ),
+      ),
+      builder: (ctx) => _ScheduleFormSheet(existing: task),
     );
   }
 
@@ -478,9 +495,10 @@ class _EnableToggleSheet extends StatelessWidget {
 // ---------------------------------------------------------------------------
 
 class _TaskDetailSheet extends StatefulWidget {
-  const _TaskDetailSheet({required this.task});
+  const _TaskDetailSheet({required this.task, required this.onEdit});
 
   final AgentScheduledTask task;
+  final VoidCallback onEdit;
 
   @override
   State<_TaskDetailSheet> createState() => _TaskDetailSheetState();
@@ -690,6 +708,25 @@ class _TaskDetailSheetState extends State<_TaskDetailSheet> {
                 ),
                 const SizedBox(width: RhythmSpacing.sm),
                 Expanded(
+                  child: OutlinedButton.icon(
+                    key: const ValueKey('edit-schedule-button'),
+                    onPressed: () {
+                      Navigator.pop(context);
+                      widget.onEdit();
+                    },
+                    icon: Icon(Icons.edit_outlined,
+                        color: rhythm.accent, size: 18),
+                    label: Text('Edit', style: TextStyle(color: rhythm.accent)),
+                    style: OutlinedButton.styleFrom(
+                      side: BorderSide(
+                          color: rhythm.accent.withValues(alpha: 0.5)),
+                      padding: const EdgeInsets.symmetric(
+                          vertical: RhythmSpacing.sm),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: RhythmSpacing.sm),
+                Expanded(
                   child: FilledButton.icon(
                     onPressed: _triggering ? null : _triggerNow,
                     icon: _triggering
@@ -753,17 +790,21 @@ class _TaskDetailSheetState extends State<_TaskDetailSheet> {
 }
 
 // ---------------------------------------------------------------------------
-// New Schedule bottom sheet
+// Schedule form sheet (create + edit)
 // ---------------------------------------------------------------------------
 
-class _NewScheduleSheet extends StatefulWidget {
-  const _NewScheduleSheet();
+class _ScheduleFormSheet extends StatefulWidget {
+  const _ScheduleFormSheet({this.existing});
+
+  /// When non-null the sheet is in edit mode; pre-fills all fields and calls
+  /// [AgentSchedulesController.update] on submit instead of [create].
+  final AgentScheduledTask? existing;
 
   @override
-  State<_NewScheduleSheet> createState() => _NewScheduleSheetState();
+  State<_ScheduleFormSheet> createState() => _ScheduleFormSheetState();
 }
 
-class _NewScheduleSheetState extends State<_NewScheduleSheet> {
+class _ScheduleFormSheetState extends State<_ScheduleFormSheet> {
   final _formKey = GlobalKey<FormState>();
   final _nameCtrl = TextEditingController();
   final _promptCtrl = TextEditingController();
@@ -779,6 +820,27 @@ class _NewScheduleSheetState extends State<_NewScheduleSheet> {
 
   // For monthly day
   int _monthDay = 1;
+
+  bool get _isEdit => widget.existing != null;
+
+  @override
+  void initState() {
+    super.initState();
+    final t = widget.existing;
+    if (t != null) {
+      _nameCtrl.text = t.name;
+      _promptCtrl.text = t.prompt;
+      _scheduleType = t.scheduleType;
+      _scheduledTime = t.scheduledTime ?? '09:00';
+      _scheduledDay = t.scheduledDay ?? 0;
+      _cronCtrl.text = t.cronExpression ?? '';
+      _runAtCtrl.text = t.runAt ?? '';
+      _enabled = t.enabled;
+      _selectedAgentKind = t.agentKind;
+      // For monthly the day field is stored in scheduledDay
+      _monthDay = (t.scheduleType == 'monthly') ? (t.scheduledDay ?? 1) : 1;
+    }
+  }
 
   @override
   void dispose() {
@@ -854,7 +916,12 @@ class _NewScheduleSheetState extends State<_NewScheduleSheet> {
           payload['runAt'] = _runAtCtrl.text.trim();
       }
 
-      await context.read<AgentSchedulesController>().create(payload);
+      final controller = context.read<AgentSchedulesController>();
+      if (_isEdit) {
+        await controller.update(widget.existing!.id, payload);
+      } else {
+        await controller.create(payload);
+      }
       if (mounted) Navigator.pop(context);
     } catch (e) {
       if (mounted) {
@@ -923,7 +990,7 @@ class _NewScheduleSheetState extends State<_NewScheduleSheet> {
             ),
             const SizedBox(height: RhythmSpacing.lg),
             Text(
-              'New Scheduled Task',
+              _isEdit ? 'Edit Scheduled Task' : 'New Scheduled Task',
               style: TextStyle(
                 color: rhythm.textPrimary,
                 fontWeight: FontWeight.w700,
@@ -1045,10 +1112,10 @@ class _NewScheduleSheetState extends State<_NewScheduleSheet> {
                       child: CircularProgressIndicator(
                           strokeWidth: 2, color: Colors.white),
                     )
-                  : const Text(
-                      'Create Schedule',
-                      style:
-                          TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
+                  : Text(
+                      _isEdit ? 'Save' : 'Create Schedule',
+                      style: const TextStyle(
+                          fontWeight: FontWeight.w600, fontSize: 15),
                     ),
             ),
             const SizedBox(height: RhythmSpacing.lg),

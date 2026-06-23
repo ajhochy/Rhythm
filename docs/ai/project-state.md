@@ -2,7 +2,7 @@
 
 ## Current focus
 
-**2026-06-23 — #738/#739/#740 backend complete; full feature/agent-scheduler branch ready for PR**
+**2026-06-23 — feature/agent-scheduler: all Flutter work headless-verified, manual smoke pending**
 
 Branch `feature/agent-scheduler`. All planned backend + Flutter work items are headless-verified:
 
@@ -19,6 +19,8 @@ Branch `feature/agent-scheduler`. All planned backend + Flutter work items are h
 - **#738** — `AgentRunner` service: `run()` with concurrency cap, timeout, promptAsync+poll loop
 - **#739** — Scheduler local path: AGENT_LOCAL=true routes due tasks through AgentRunner (no double-trigger)
 - **#740 backend** — `POST /agent-cookbook/:id/run` compiles prompt + calls AgentRunner
+- **#740 Flutter** — Run button added to Cookbook view
+- **Scheduled task edit** — `_ScheduleFormSheet` now supports create + edit; Edit button added to detail sheet
 
 Visual smoke (`flutter run -d macos`) is required before merging.
 
@@ -26,8 +28,8 @@ Visual smoke (`flutter run -d macos`) is required before merging.
 
 ## Active branch / PR
 
-- **Branch:** `feature/agent-scheduler` (pushed; HEAD `4e6f203`)
-- **PR:** [#734](https://github.com/ajhochy/Rhythm/pull/734) — open, CI running
+- **Branch:** `feature/agent-scheduler` (pushed; HEAD `463f2a3`)
+- **PR:** [#734](https://github.com/ajhochy/Rhythm/pull/734) — open
 - **Base:** `main`
 
 ---
@@ -35,7 +37,7 @@ Visual smoke (`flutter run -d macos`) is required before merging.
 ## In progress
 
 Nothing actively in flight. Waiting on:
-1. User manual smoke (`flutter run -d macos`) to confirm visual fidelity of the full nav column (CHATS body, TOOLS section, short-window scroll).
+1. User manual smoke (`flutter run -d macos`) — confirm nav column, Cookbook/Email/Gallery views, Edit button on scheduled task detail sheet, and form pre-fill.
 2. PR merge after smoke passes.
 
 ---
@@ -47,7 +49,6 @@ Nothing actively in flight. Waiting on:
 - **SDK tool-gating limitation (C1):** The OpenCode SDK `session.create` has no per-session tool allowlist parameter. The C1 init-time gate stores the allowlist on the `agent_sessions` row; full enforcement requires the WS gateway to honour it (future work).
 - **AgentRunner polling latency:** Up to 500 ms added to result detection vs. SSE (by design — see `docs/ai/decisions/2026-06-23-agent-runner-polling-vs-sse.md`).
 - **`notification` outputTarget is a TODO stub** in `agent_runner.ts` — no notification endpoint shape finalized yet.
-- **Flutter "Run" button for cookbook (#740 Flutter)** — DONE (headless-verified 2026-06-23). Visual smoke still needed before merge.
 
 ---
 
@@ -57,7 +58,7 @@ Nothing actively in flight. Waiting on:
 |-------|--------|
 | `dart format .` | PASS — 0 changed (last verified 2026-06-23) |
 | `flutter analyze --no-fatal-infos` | PASS — 0 errors, 0 warnings (last verified 2026-06-23) |
-| `flutter test` (full) | 633 PASS, 0 FAIL (+1 new cookbook run test, last verified 2026-06-23) |
+| `flutter test` (full) | **635 PASS, 0 FAIL** (+2 new edit-mode tests, last verified 2026-06-23) |
 | `api_server tsc --noEmit` | PASS — 0 errors |
 | `api_server npm test` | 951/951 PASS (111 test files; +15 new from #738/#739/#740) |
 
@@ -65,29 +66,14 @@ Nothing actively in flight. Waiting on:
 
 ## Next step
 
-1. **Manual smoke** — `flutter run -d macos`: confirm nav column header/footer pinned, middle scrolls, all TOOLS rows reachable, search filter works, Cookbook/Email/Gallery views open.
+1. **Manual smoke** — `flutter run -d macos`:
+   - Confirm nav column header/footer pinned, middle scrolls, all TOOLS rows reachable.
+   - Confirm Cookbook/Email/Gallery views open.
+   - Confirm Edit button appears in scheduled task detail sheet.
+   - Confirm form pre-fills name/prompt/schedule when editing an existing task.
+   - Confirm Save calls PATCH (not POST) — check server log or network tab.
 2. **Merge PR #734** after smoke passes.
-3. **#740 Flutter** — DONE. Run button added to Cookbook view.
 
 ---
 
 **Run history:** one file per run under `docs/ai/runs/` (surfaced as `ai-runs/`); prior log in `runs/_migrated-2026-06-18.md`. Snapshot overwritten in place.
-
----
-
-## Recent coding-agent runs
-
-### 2026-06-23 — #740-flutter-cookbook-run-button
-- Files modified:
-  - `lib/features/agent_cookbook/data/agent_cookbook_data_source.dart` — added `runRecipe(id)` → POST `/agent-cookbook/$id/run`, parses `sessionId`
-  - `lib/features/agent_cookbook/repositories/agent_cookbook_repository.dart` — exposed `runRecipe(id)` pass-through
-  - `lib/features/agent_cookbook/controllers/agent_cookbook_controller.dart` — added `runRecipe(id)` returning `String?` (null on error), stores error state
-  - `lib/features/agent_cookbook/views/agent_cookbook_view.dart` — added `_runRecipe` helper + Run `IconButton` on `_RecipeTile` (key `run-recipe-<id>`); SnackBar success/failure
-  - `test/features/agent_cookbook/agent_cookbook_view_test.dart` — added `_FakeRunCookbookDataSource` + widget test "tapping Run calls runRecipe on data source and shows success SnackBar"
-- Checks run:
-  - `dart format .` — PASS (2 files reformatted, 0 errors)
-  - `flutter analyze --no-fatal-infos` — PASS (0 errors, 0 warnings; 260 pre-existing infos)
-  - `flutter test` — PASS (633/633, 0 fail; +1 new test)
-- Decisions made: Run button returns `String?` from controller rather than throwing, matching the controller's existing `_error`-state pattern. SnackBar reads `controller.error` on null return.
-- Deviations from spec: none
-- Concerns: Visual smoke still needed before merging PR #734.
