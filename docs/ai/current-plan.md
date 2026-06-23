@@ -2,7 +2,7 @@
 
 **Date:** 2026-06-23
 **Branch:** stack on `feature/agent-scheduler` (do NOT branch off `main`). Manual merge only.
-**Status:** Planned — alignment locked (3 prior rounds with user). Ready for `issue-writer`.
+**Status:** ALL ITEMS COMPLETE (headless-verified 2026-06-23) — manual smoke pending before PR open.
 
 ---
 

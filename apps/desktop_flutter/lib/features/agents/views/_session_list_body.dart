@@ -52,6 +52,9 @@ class SessionListBody extends StatelessWidget {
     required this.onRowTap,
     this.searchQuery = '',
     this.listPadding = const EdgeInsets.fromLTRB(12, 4, 12, 12),
+    // When true the inner ListView uses shrinkWrap + NeverScrollableScrollPhysics
+    // so it can sit inside an outer scrollable without creating a competing scroll.
+    this.shrinkWrap = false,
   });
 
   final List<AgentSession> filteredSessions;
@@ -63,6 +66,7 @@ class SessionListBody extends StatelessWidget {
   final void Function(String id) onRowTap;
   final String searchQuery;
   final EdgeInsets listPadding;
+  final bool shrinkWrap;
 
   @override
   Widget build(BuildContext context) {
@@ -70,19 +74,31 @@ class SessionListBody extends StatelessWidget {
 
     if (controller.status == AgentsLoadStatus.loading &&
         filteredSessions.isEmpty) {
-      return Center(
-        child: CircularProgressIndicator(color: context.rhythm.accent),
-      );
+      final indicator = CircularProgressIndicator(color: context.rhythm.accent);
+      return shrinkWrap
+          ? Padding(
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              child: Center(child: indicator),
+            )
+          : Center(child: indicator);
     }
 
     if (filteredSessions.isEmpty &&
         controller.resumable.isEmpty &&
         !controller.isCreating) {
-      return _EmptyChatsState(hasQuery: searchQuery.isNotEmpty);
+      final emptyState = _EmptyChatsState(hasQuery: searchQuery.isNotEmpty);
+      return shrinkWrap
+          ? Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              child: emptyState,
+            )
+          : emptyState;
     }
 
     return ListView(
       padding: listPadding,
+      shrinkWrap: shrinkWrap,
+      physics: shrinkWrap ? const NeverScrollableScrollPhysics() : null,
       children: [
         if (controller.isCreating) ...[
           const _CreatingSessionRow(),

@@ -145,6 +145,7 @@ class _FakeAgentsRepository implements AgentsRepository {
     String? branch,
     String? stash,
     bool createBranch = false,
+    String? mcpRole,
   }) async {
     final session = AgentSession(
       id: 'sid-${_store.length + 1}',

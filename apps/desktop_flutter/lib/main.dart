@@ -83,6 +83,15 @@ import 'features/agent_research/repositories/agent_research_repository.dart';
 import 'features/agent_webhooks/controllers/agent_webhooks_controller.dart';
 import 'features/agent_webhooks/data/agent_webhooks_data_source.dart';
 import 'features/agent_webhooks/repositories/agent_webhooks_repository.dart';
+import 'features/agent_cookbook/controllers/agent_cookbook_controller.dart';
+import 'features/agent_cookbook/data/agent_cookbook_data_source.dart';
+import 'features/agent_cookbook/repositories/agent_cookbook_repository.dart';
+import 'features/agent_email/controllers/agent_email_controller.dart';
+import 'features/agent_email/data/agent_email_data_source.dart';
+import 'features/agent_email/repositories/agent_email_repository.dart';
+import 'features/agent_gallery/controllers/agent_gallery_controller.dart';
+import 'features/agent_gallery/data/agent_gallery_data_source.dart';
+import 'features/agent_gallery/repositories/agent_gallery_repository.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -405,6 +414,22 @@ class _RhythmAppContent extends StatelessWidget {
         ChangeNotifierProvider(
           create: (_) => AgentWebhooksController(
             AgentWebhooksRepository(AgentWebhooksDataSource()),
+          ),
+        ),
+        // ── Odysseus Phase B2/C3/D2: Cookbook, Email, Gallery ────────────────
+        ChangeNotifierProvider(
+          create: (_) => AgentCookbookController(
+            AgentCookbookRepository(AgentCookbookDataSource()),
+          ),
+        ),
+        ChangeNotifierProvider(
+          create: (_) => AgentEmailController(
+            AgentEmailRepository(AgentEmailDataSource(baseUrl: baseUrl)),
+          ),
+        ),
+        ChangeNotifierProvider(
+          create: (_) => AgentGalleryController(
+            AgentGalleryRepository(AgentGalleryDataSource()),
           ),
         ),
       ],

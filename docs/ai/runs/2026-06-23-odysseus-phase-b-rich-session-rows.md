@@ -1,4 +1,5 @@
 ---
+index: "[[Rhythm]]"
 date: 2026-06-23
 repo: desktop_flutter
 branch: feature/agent-scheduler

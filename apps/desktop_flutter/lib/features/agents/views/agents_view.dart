@@ -112,6 +112,7 @@ class _AgentsViewState extends State<AgentsView> {
         agentServerController.isReady && agentServerController.hasAnyAgent;
 
     final row = Row(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         AgentsNavColumn(
           resumableSectionExpanded: _resumableSectionExpanded,

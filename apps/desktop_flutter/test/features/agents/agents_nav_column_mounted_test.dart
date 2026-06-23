@@ -1,4 +1,4 @@
-/// Mounted-surface test for the Odysseus-style AgentsNavColumn (Phase A + B).
+/// Mounted-surface test for the Odysseus-style AgentsNavColumn (Phase A + B + B2/C3/D2).
 ///
 /// Pumps the REAL AgentsView with a real provider tree and asserts:
 ///   1. The nav column renders (key: 'agents-nav-column').
@@ -6,8 +6,8 @@
 ///   3. A session row renders when the controller has sessions.
 ///   4. The "By Project" selector is present (key: 'by-project-selector').
 ///   5. The Search field filters rows — a non-matching query hides a session.
-///   6. Each TOOLS row (Brain, Deep Research, Tasks, Webhooks, Profiles) is
-///      found by its text label.
+///   6. Each TOOLS row (Brain, Deep Research, Tasks, Webhooks, Profiles,
+///      Cookbook, Email, Gallery) is found by its key.
 ///   7. The footer Settings affordance is present (key: 'nav-col-settings').
 ///   8. [RICH ROW CONTRACT] Session rows show a MODEL BADGE (agent kind pill)
 ///      — locks rich SessionRow rendering so it cannot silently regress to
@@ -50,6 +50,18 @@ import 'package:rhythm_desktop/features/tasks/controllers/tasks_controller.dart'
 import 'package:rhythm_desktop/features/tasks/data/tasks_local_data_source.dart';
 import 'package:rhythm_desktop/features/tasks/models/task.dart';
 import 'package:rhythm_desktop/features/tasks/repositories/tasks_repository.dart';
+import 'package:rhythm_desktop/features/agent_cookbook/controllers/agent_cookbook_controller.dart';
+import 'package:rhythm_desktop/features/agent_cookbook/data/agent_cookbook_data_source.dart';
+import 'package:rhythm_desktop/features/agent_cookbook/models/cookbook_recipe.dart';
+import 'package:rhythm_desktop/features/agent_cookbook/repositories/agent_cookbook_repository.dart';
+import 'package:rhythm_desktop/features/agent_email/controllers/agent_email_controller.dart';
+import 'package:rhythm_desktop/features/agent_email/data/agent_email_data_source.dart';
+import 'package:rhythm_desktop/features/agent_email/models/gmail_signal.dart';
+import 'package:rhythm_desktop/features/agent_email/repositories/agent_email_repository.dart';
+import 'package:rhythm_desktop/features/agent_gallery/controllers/agent_gallery_controller.dart';
+import 'package:rhythm_desktop/features/agent_gallery/data/agent_gallery_data_source.dart';
+import 'package:rhythm_desktop/features/agent_gallery/models/agent_design.dart';
+import 'package:rhythm_desktop/features/agent_gallery/repositories/agent_gallery_repository.dart';
 
 // ---------------------------------------------------------------------------
 // Stubs / fakes (mirrored from inspector_collapse_mounted_test.dart)
@@ -184,6 +196,23 @@ class _EmptyTasksLocalDataSource extends TasksLocalDataSource {
   Future<List<Task>> fetchAll() async => [];
 }
 
+class _EmptyCookbookDataSource extends AgentCookbookDataSource {
+  @override
+  Future<List<CookbookRecipe>> list() async => [];
+}
+
+class _EmptyEmailDataSource extends AgentEmailDataSource {
+  _EmptyEmailDataSource() : super(baseUrl: 'http://localhost');
+
+  @override
+  Future<List<AgentEmailGmailSignal>> listSignals() async => [];
+}
+
+class _EmptyGalleryDataSource extends AgentGalleryDataSource {
+  @override
+  Future<List<AgentDesign>> list() async => [];
+}
+
 // ---------------------------------------------------------------------------
 // Test helpers
 // ---------------------------------------------------------------------------
@@ -240,6 +269,21 @@ Future<Widget> _buildTestApp(AgentsController agentsController) async {
       ),
       ChangeNotifierProvider<DestructiveModalService>(
         create: (_) => DestructiveModalService(),
+      ),
+      ChangeNotifierProvider<AgentCookbookController>(
+        create: (_) => AgentCookbookController(
+          AgentCookbookRepository(_EmptyCookbookDataSource()),
+        ),
+      ),
+      ChangeNotifierProvider<AgentEmailController>(
+        create: (_) => AgentEmailController(
+          AgentEmailRepository(_EmptyEmailDataSource()),
+        ),
+      ),
+      ChangeNotifierProvider<AgentGalleryController>(
+        create: (_) => AgentGalleryController(
+          AgentGalleryRepository(_EmptyGalleryDataSource()),
+        ),
       ),
     ],
     child: const MaterialApp(home: Scaffold(body: AgentsView())),
@@ -528,6 +572,98 @@ void main() {
         findsOneWidget,
         reason:
             'SessionListBody must be mounted (archived-section-header must render)',
+      );
+
+      await tester.pumpWidget(const MaterialApp(home: SizedBox()));
+      controller.dispose();
+    });
+
+    // ── (10) B2/C3/D2: Cookbook, Email, Gallery TOOLS rows present ───────────
+
+    testWidgets('Cookbook, Email, Gallery TOOLS rows are present',
+        (tester) async {
+      // Use extra height to accommodate the full TOOLS section (8 rows).
+      await tester.binding.setSurfaceSize(const Size(1600, 1100));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      final controller = _makeControllerWithSessions([]);
+
+      await tester.pumpWidget(await _buildTestApp(controller));
+      await tester.pump();
+
+      expect(
+        find.byKey(const ValueKey('tools-row-cookbook')),
+        findsOneWidget,
+        reason: 'Cookbook TOOLS row should be present',
+      );
+      expect(
+        find.byKey(const ValueKey('tools-row-email')),
+        findsOneWidget,
+        reason: 'Email TOOLS row should be present',
+      );
+      expect(
+        find.byKey(const ValueKey('tools-row-gallery')),
+        findsOneWidget,
+        reason: 'Gallery TOOLS row should be present',
+      );
+
+      await tester.pumpWidget(const MaterialApp(home: SizedBox()));
+      controller.dispose();
+    });
+
+    // ── (11) Short-surface: no overflow, footer and TOOLS reachable ──────────
+
+    testWidgets(
+        'no overflow at short surface (680px); footer and TOOLS rows reachable',
+        (tester) async {
+      // This is the regression test for the layout fix: at 680px height the
+      // non-flexible chrome (header + 8 TOOLS rows + footer) previously
+      // exceeded available space and caused a ~52px RenderFlex overflow.
+      await tester.binding.setSurfaceSize(const Size(1200, 680));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      final controller = _makeControllerWithSessions([]);
+
+      // The test itself acts as the overflow assertion — flutter_test fails
+      // on uncaught RenderFlex overflow exceptions when they cross the
+      // FlutterError handler threshold.
+      await tester.pumpWidget(await _buildTestApp(controller));
+      await tester.pump();
+
+      // Nav column still renders.
+      expect(
+        find.byKey(const ValueKey('agents-nav-column')),
+        findsOneWidget,
+        reason: 'Nav column must render at 680px height',
+      );
+
+      // Footer Settings affordance is directly visible (pinned).
+      expect(
+        find.byKey(const ValueKey('nav-col-settings')),
+        findsOneWidget,
+        reason:
+            'Footer Settings must be visible without scrolling (pinned footer)',
+      );
+
+      // Scroll the middle region to reach a TOOLS row.
+      // The outer CustomScrollView is the primary scrollable inside the nav
+      // column. Use the first Scrollable descendant which corresponds to it.
+      final navScrollable = find
+          .descendant(
+            of: find.byKey(const ValueKey('agents-nav-column')),
+            matching: find.byType(Scrollable),
+          )
+          .first;
+
+      await tester.scrollUntilVisible(
+        find.byKey(const ValueKey('tools-row-brain')),
+        50,
+        scrollable: navScrollable,
+      );
+      expect(
+        find.byKey(const ValueKey('tools-row-brain')),
+        findsOneWidget,
+        reason: 'Brain TOOLS row must be reachable by scrolling at 680px',
       );
 
       await tester.pumpWidget(const MaterialApp(home: SizedBox()));

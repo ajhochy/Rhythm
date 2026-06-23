@@ -121,6 +121,7 @@ class _FakeAgentsRepository implements AgentsRepository {
     String? branch,
     String? stash,
     bool createBranch = false,
+    String? mcpRole,
   }) async {
     final now = DateTime.now();
     return AgentSession(

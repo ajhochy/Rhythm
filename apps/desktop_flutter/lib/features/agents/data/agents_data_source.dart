@@ -186,6 +186,7 @@ class AgentsDataSource {
     String? branch,
     String? stash,
     bool createBranch = false,
+    String? mcpRole,
   }) async {
     final response = await _client.post(
       Uri.parse('$_baseUrl/agent-sessions'),
@@ -201,6 +202,7 @@ class AgentsDataSource {
         if (branch != null) 'branch': branch,
         if (stash != null) 'stash': stash,
         if (createBranch) 'createBranch': true,
+        if (mcpRole != null) 'mcpRole': mcpRole,
       }),
     );
     assertOk(response);

@@ -1,4 +1,5 @@
 ---
+index: "[[Rhythm]]"
 date: 2026-05-26
 repo: rhythm
 tags: [decision, rhythm]

@@ -1,4 +1,5 @@
 ---
+index: "[[Rhythm]]"
 date: 2026-06-22
 repo: rhythm
 branch: null

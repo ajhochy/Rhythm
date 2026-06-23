@@ -6,8 +6,8 @@
 ///   2. "+ New Session" action row.
 ///   3. Search field (client-side filter over CHATS).
 ///   4. CHATS section: "By Project" dropdown selector + filtered session list.
-///   5. TOOLS section: Brain, Deep Research, Tasks, Webhooks, Profiles.
-///      (Cookbook / Email / Gallery rows will slot in here in later phases.)
+///   5. TOOLS section: Brain, Deep Research, Tasks, Webhooks, Profiles,
+///      Cookbook, Email, Gallery.
 ///   6. Footer: Account label + ⚙ Settings icon.
 library;
 
@@ -18,6 +18,9 @@ import 'package:provider/provider.dart';
 import '../../../app/core/agents/agent_server_controller.dart';
 import '../../../app/core/ui/tokens/rhythm_theme.dart';
 import '../../agent_projects/controllers/agent_projects_controller.dart';
+import '../../agent_cookbook/views/agent_cookbook_view.dart';
+import '../../agent_email/views/agent_email_view.dart';
+import '../../agent_gallery/views/agent_gallery_view.dart';
 import '../../agent_memory/views/agent_memory_view.dart';
 import '../../agent_research/views/agent_research_view.dart';
 import '../../agent_schedules/views/agent_schedules_view.dart';
@@ -203,7 +206,7 @@ class _AgentsNavColumnState extends State<AgentsNavColumn> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // ── Header ──────────────────────────────────────────────────────
+          // ── Header — pinned ──────────────────────────────────────────────
           _NavHeader(
             onToggleCollapse: widget.onToggleCollapse,
             onNewSession: canStartSession ? widget.onNewSession : null,
@@ -365,28 +368,47 @@ class _AgentsNavColumnState extends State<AgentsNavColumn> {
               ),
             ),
 
-          // Session list — CHATS body (rich rows from SessionListBody).
+          // ── Scrollable middle region ─────────────────────────────────────
+          //
+          // Everything between the pinned header above and the pinned footer
+          // below lives inside a single SingleChildScrollView. This makes the
+          // CHATS controls, session list, AND TOOLS section scroll together as
+          // one area when the window is short — eliminating the layout overflow
+          // that occurred when the 8-row TOOLS section exceeded the available
+          // flex space.
+          //
+          // SessionListBody uses shrinkWrap:true so it does not try to fill an
+          // unbounded height; it competes for natural column height instead.
           Expanded(
-            child: SessionListBody(
-              filteredSessions: filteredSessions,
-              resumableSectionExpanded: widget.resumableSectionExpanded,
-              onToggleResumable: widget.onToggleResumable,
-              archivedSectionExpanded: _archivedSectionExpanded,
-              onToggleArchived: _onToggleArchived,
-              multiSelected: _multiSelected,
-              onRowTap: _onRowTap,
-              searchQuery: _searchQuery,
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Session list — CHATS body (rich rows from SessionListBody).
+                  SessionListBody(
+                    filteredSessions: filteredSessions,
+                    resumableSectionExpanded: widget.resumableSectionExpanded,
+                    onToggleResumable: widget.onToggleResumable,
+                    archivedSectionExpanded: _archivedSectionExpanded,
+                    onToggleArchived: _onToggleArchived,
+                    multiSelected: _multiSelected,
+                    onRowTap: _onRowTap,
+                    searchQuery: _searchQuery,
+                    shrinkWrap: true,
+                  ),
+
+                  Divider(height: 1, color: context.rhythm.borderSubtle),
+
+                  // ── TOOLS section ──────────────────────────────────────
+                  const _ToolsSection(),
+                ],
+              ),
             ),
           ),
 
           Divider(height: 1, color: context.rhythm.borderSubtle),
 
-          // ── TOOLS section ───────────────────────────────────────────────
-          const _ToolsSection(),
-
-          Divider(height: 1, color: context.rhythm.borderSubtle),
-
-          // ── Footer ──────────────────────────────────────────────────────
+          // ── Footer — pinned ──────────────────────────────────────────────
           const _NavFooter(),
         ],
       ),
@@ -677,10 +699,42 @@ class _ToolsSection extends StatelessWidget {
             subtitle: 'Agent identity & permissions',
             onTap: () => showAgentProfileSheet(context),
           ),
-          // ── Future phase placeholders ─────────────────────────────────
-          // TODO(phase-b): add 📖 Cookbook row here
-          // TODO(phase-c): add 📧 Email row here
-          // TODO(phase-d): add 🎨 Gallery row here
+          const SizedBox(height: 2),
+          _ToolsRow(
+            key: const ValueKey('tools-row-cookbook'),
+            icon: '📖',
+            label: 'Cookbook',
+            subtitle: 'Agent prompt recipes',
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => const AgentCookbookView(),
+              ),
+            ),
+          ),
+          const SizedBox(height: 2),
+          _ToolsRow(
+            key: const ValueKey('tools-row-email'),
+            icon: '📧',
+            label: 'Email',
+            subtitle: 'Gmail signals & assistant',
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => const AgentEmailView(),
+              ),
+            ),
+          ),
+          const SizedBox(height: 2),
+          _ToolsRow(
+            key: const ValueKey('tools-row-gallery'),
+            icon: '🎨',
+            label: 'Gallery',
+            subtitle: 'Canva design workspace',
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => const AgentGalleryView(),
+              ),
+            ),
+          ),
         ],
       ),
     );

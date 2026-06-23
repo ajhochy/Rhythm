@@ -1,4 +1,5 @@
 ---
+index: "[[Rhythm]]"
 date: 2026-06-23
 repo: Rhythm
 tags: [decision, rhythm, api_server, opencode-sdk, security]

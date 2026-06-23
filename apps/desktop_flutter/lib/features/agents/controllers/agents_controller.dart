@@ -1326,6 +1326,7 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     String? branch,
     String? stash,
     bool createBranch = false,
+    String? mcpRole,
   }) async {
     _error = null;
     _lastErrorStatus = null;
@@ -1348,6 +1349,7 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
         branch: branch,
         stash: stash,
         createBranch: createBranch,
+        mcpRole: mcpRole,
       );
       _sessions = [..._sessions, session];
       sessionFirstSeenAt[session.id] = DateTime.now();
