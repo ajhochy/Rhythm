@@ -35,6 +35,10 @@ import { opencodeMcpRouter } from './routes/opencode_mcp_routes';
 import { syncRouter } from './routes/sync_routes';
 import { ptyRouter } from './routes/pty_routes';
 import { opencodeClient } from './services/opencode_engine';
+import agentSchedulesRouter from './routes/agentSchedulesRoutes';
+import agentMemoryRouter from './routes/agentMemoryRoutes';
+import agentWebhookRouter from './routes/agentWebhookRoutes';
+import agentResearchRouter from './routes/agentResearchRoutes';
 
 export function createApp() {
   const app = express();
@@ -86,6 +90,10 @@ export function createApp() {
   app.use('/notifications', notificationsRouter);
   app.use('/claude-triggers', claudeTriggersRouter);
   app.use('/agent-configs', agentConfigsRouter);
+  app.use('/agent-schedules', agentSchedulesRouter);
+  app.use('/agent-memory', agentMemoryRouter);
+  app.use('/agent-webhooks', agentWebhookRouter);
+  app.use('/agent-research', agentResearchRouter);
   app.use('/agent-sessions', agentSessionsRouter);
   app.use(ptyRouter);
   app.use('/projects', projectsRouter);
