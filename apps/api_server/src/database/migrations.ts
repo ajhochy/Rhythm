@@ -1328,6 +1328,36 @@ export function runMigrations(db: Database.Database): void {
     db.exec(`ALTER TABLE pending_claude_triggers ADD COLUMN webhook_endpoint_id TEXT`);
   }
 
+  // B1 — agent_cookbook: reusable recipe/skill library for the agent scheduler.
+  // steps_json is an opaque JSON array; the scheduler enforces action-type enum at execution time.
+  // bound_config_id is a nullable logical FK to agent_configs.id (not enforced at SQLite level).
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS agent_cookbook (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      description TEXT,
+      steps_json TEXT NOT NULL DEFAULT '[]',
+      bound_config_id TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_agent_cookbook_created_at ON agent_cookbook(created_at);
+  `);
+
+  // D1 — agent_designs: records of Canva designs produced by Gallery agent sessions.
+  // session_id is a nullable logical FK to agent_sessions.id (not enforced at SQLite level).
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS agent_designs (
+      id TEXT PRIMARY KEY,
+      title TEXT,
+      canva_url TEXT,
+      thumbnail_url TEXT,
+      session_id TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_agent_designs_created_at ON agent_designs(created_at);
+  `);
+
   // ── Agent Config Profile Extensions ──────────────────────────────────────
   // Add manager/specialist profile columns to agent_configs (additive).
   // is_manager: exactly one manager agent; all others are specialists.

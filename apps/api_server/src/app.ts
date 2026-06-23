@@ -39,6 +39,9 @@ import agentSchedulesRouter from './routes/agentSchedulesRoutes';
 import agentMemoryRouter from './routes/agentMemoryRoutes';
 import agentWebhookRouter from './routes/agentWebhookRoutes';
 import agentResearchRouter from './routes/agentResearchRoutes';
+import agentCookbookRouter from './routes/agentCookbookRoutes';
+import agentDesignsRouter from './routes/agentDesignsRoutes';
+import gmailSignalsRouter from './routes/gmail_signals_routes';
 
 export function createApp() {
   const app = express();
@@ -94,6 +97,9 @@ export function createApp() {
   app.use('/agent-memory', agentMemoryRouter);
   app.use('/agent-webhooks', agentWebhookRouter);
   app.use('/agent-research', agentResearchRouter);
+  app.use('/agent-cookbook', agentCookbookRouter);
+  app.use('/agent-designs', agentDesignsRouter);
+  app.use('/integrations/gmail-signals', gmailSignalsRouter);
   app.use('/agent-sessions', agentSessionsRouter);
   app.use(ptyRouter);
   app.use('/projects', projectsRouter);

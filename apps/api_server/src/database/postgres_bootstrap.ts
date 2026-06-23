@@ -569,4 +569,35 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
     ALTER TABLE pending_claude_triggers ADD COLUMN IF NOT EXISTS allowed_skills_json TEXT;
     ALTER TABLE pending_claude_triggers ADD COLUMN IF NOT EXISTS webhook_endpoint_id TEXT;
   `);
+
+  // B1 — agent_cookbook: reusable recipe/skill library for the agent scheduler.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS agent_cookbook (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      description TEXT,
+      steps_json TEXT NOT NULL DEFAULT '[]',
+      bound_config_id TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_agent_cookbook_created_at ON agent_cookbook(created_at)`,
+  );
+
+  // D1 — agent_designs: records of Canva designs produced by Gallery agent sessions.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS agent_designs (
+      id TEXT PRIMARY KEY,
+      title TEXT,
+      canva_url TEXT,
+      thumbnail_url TEXT,
+      session_id TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_agent_designs_created_at ON agent_designs(created_at)`,
+  );
 }
