@@ -14,6 +14,9 @@ import { registerAutomationTools } from './tools/automations.js';
 import { registerNotificationTools } from './tools/notifications.js';
 import { registerGoogleTools } from './tools/google.js';
 import { registerPcoTools } from './tools/pco.js';
+import { registerAgentScheduleTools } from './tools/agentSchedule.js';
+import { registerAgentMemoryTools } from './tools/agentMemory.js';
+import { registerAgentResearchTools } from './tools/agentResearch.js';
 
 const RHYTHM_API_URL = process.env.RHYTHM_API_URL ?? 'https://api.vcrcapps.com';
 const RHYTHM_API_TOKEN = process.env.RHYTHM_API_TOKEN ?? '';
@@ -45,6 +48,9 @@ registerAutomationTools(server, RHYTHM_API_URL, RHYTHM_API_TOKEN);
 registerNotificationTools(server, RHYTHM_AGENT_URL);
 registerGoogleTools(server, RHYTHM_API_URL, RHYTHM_API_TOKEN);
 registerPcoTools(server, RHYTHM_API_URL, RHYTHM_API_TOKEN);
+registerAgentScheduleTools(server, RHYTHM_API_URL, RHYTHM_API_TOKEN);
+registerAgentMemoryTools(server, RHYTHM_API_URL, RHYTHM_API_TOKEN);
+registerAgentResearchTools(server, RHYTHM_API_URL, RHYTHM_API_TOKEN);
 
 // Connect over stdio (Claude Desktop / Claude Code MCP transport)
 const transport = new StdioServerTransport();

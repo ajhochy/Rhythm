@@ -5,7 +5,20 @@ import { registerTool } from './_tool.js';
 
 export function registerClaudeTriggerTools(server: McpServer, apiUrl: string, apiToken: string) {
   registerTool(server, 'rhythm_list_pending_triggers',
-    'List Rhythm tasks newly assigned to the Claude service account, awaiting pickup. Returns an array of {id, taskId, taskTitle, taskNotes, taskOwnerId, triggeredByUserId, createdAt}.',
+    `List pending agent triggers — both human-assigned tasks and scheduler/webhook-originated jobs.
+Returns an array of objects with:
+  id              — trigger row ID (use with rhythm_clear_pending_trigger)
+  taskId          — task UUID when triggered from the Agents tab; null for scheduled/webhook/research jobs
+  taskTitle       — task title (null for non-task triggers)
+  taskNotes       — task notes (null for non-task triggers)
+  taskOwnerId     — owner user ID (null for non-task triggers)
+  prompt          — structured prompt for scheduled/webhook/research triggers; null for task triggers
+  scheduledTaskId — ID of the agent_scheduled_tasks row that fired this trigger (if scheduled)
+  webhookEndpointId — ID of the agent_webhook_endpoints row (if webhook-triggered)
+  allowedMcps     — array of MCP server names this run may use, or null = unrestricted
+  allowedSkills   — array of skill names this run may use, or null = unrestricted
+  triggeredByUserId
+  createdAt`,
     {},
     async () => {
       try {
@@ -16,7 +29,7 @@ export function registerClaudeTriggerTools(server: McpServer, apiUrl: string, ap
   );
 
   registerTool(server, 'rhythm_clear_pending_trigger',
-    'Remove a pending trigger from the queue (call after picking up the task).',
+    'Remove a pending trigger from the queue (call after completing the task or job).',
     { id: z.number().describe('The trigger row ID returned by rhythm_list_pending_triggers.') },
     async ({ id }: { id: number }) => {
       try {
