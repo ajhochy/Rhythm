@@ -495,6 +495,7 @@ class _NavHeader extends StatelessWidget {
           if (onOptionsPressed != null) ...[
             const SizedBox(width: 2),
             IconButton(
+              key: const Key('new-session-options-button'),
               icon: const Icon(Icons.more_horiz, size: 16),
               tooltip: 'Session options',
               onPressed: onOptionsPressed,

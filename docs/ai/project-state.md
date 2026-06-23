@@ -43,7 +43,7 @@ Nothing actively in flight. Waiting on:
 - **Visual gap:** `flutter run` was forbidden during all coding sessions. Run manual smoke before merging.
 - **Bundled api_server — MCP_ROLES_DIR:** In the Flutter `.app` bundle the api_server is embedded under `$resourcesDir/api_server/` without the full repo tree. The default `MCP_ROLES_DIR` path won't resolve `.mcp-roles/`. Operators must set `MCP_ROLES_DIR` env var for role-scoped sessions to work in production.
 - **SDK tool-gating limitation (C1):** The OpenCode SDK `session.create` has no per-session tool allowlist parameter. The C1 init-time gate stores the allowlist on the `agent_sessions` row; full enforcement requires the WS gateway to honour it (future work).
-- **2 pre-existing test failures** in `new_session_dialog_error_test.dart` — not caused by this branch.
+- ~~2 pre-existing test failures in `new_session_dialog_error_test.dart`~~ — RESOLVED: the nav-column refactor had dropped the `Key('new-session-options-button')` from the real options button; restored it. Full Flutter suite now **632 pass / 0 fail**.
 - **C2 gmail catalog:** No third-party gmail MCP was added to `curated_mcp_servers.ts` (parent prompt override; rhythm MCP already has email tools). See `docs/ai/decisions/2026-06-23-c2-no-third-party-gmail-mcp.md`.
 - **`CrossAxisAlignment.stretch` on workspace Row** — all workspace row children now receive tight height. Visual smoke should confirm no regressions on `SessionSidePanel` / `_InspectorResizeHandle`. See `docs/ai/decisions/2026-06-23-nav-column-scroll-layout.md`.
 
