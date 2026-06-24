@@ -24,6 +24,7 @@ import '../../agent_gallery/views/agent_gallery_view.dart';
 import '../../agent_memory/views/agent_memory_view.dart';
 import '../../agent_research/views/agent_research_view.dart';
 import '../../agent_schedules/views/agent_schedules_view.dart';
+import '../../agent_skills/views/agent_skills_view.dart';
 import '../../agent_webhooks/views/agent_webhooks_view.dart';
 import '../../settings/views/settings_view.dart';
 import '../controllers/agents_controller.dart';
@@ -699,6 +700,18 @@ class _ToolsSection extends StatelessWidget {
             label: 'Profiles',
             subtitle: 'Agent identity & permissions',
             onTap: () => showAgentProfilesManagerSheet(context),
+          ),
+          const SizedBox(height: 2),
+          _ToolsRow(
+            key: const ValueKey('tools-row-skills'),
+            icon: '✨',
+            label: 'Skills',
+            subtitle: 'Self-improving skill library',
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => const AgentSkillsView(),
+              ),
+            ),
           ),
           const SizedBox(height: 2),
           _ToolsRow(

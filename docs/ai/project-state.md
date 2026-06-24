@@ -112,6 +112,26 @@ Visual smoke (`flutter run -d macos`) is required before merging scheduler branc
 
 ## Recent coding-agent runs
 
+### 2026-06-24 — P4-2 Flutter agent_skills surface (list + DRAFT badge + publish/delete)
+- Files created:
+  - `apps/desktop_flutter/lib/features/agent_skills/models/agent_skill.dart` — `AgentSkill` model. fromJson MATCHES the api_server camelCase response keys (`whenToUse`, `stepsJson`/`tagsJson` + parsed `steps`/`tags`, `confidence`, `status`, `source`, `uses`, `createdAt`, `updatedAt`) confirmed against `agent_skills_repository.ts` `rowToModel`. Uses `asString/asInt/asDouble` helpers + `_parseStringList` (mirrors AgentConfig). Convenience getters `isDraft`, `isTeacherEscalation`.
+  - `apps/desktop_flutter/lib/features/agent_skills/data/agent_skills_data_source.dart` — `getSkills()`, `updateSkill(id, {status})`, `deleteSkill(id)` against `AppConstants.agentLocalBaseUrl + '/agent-skills'` (:4001, NOT serverConfigService.url). Mirrors agent_configs_data_source (assertOk, 204 handling on delete).
+  - `apps/desktop_flutter/lib/features/agent_skills/repositories/agent_skills_repository.dart` — getAll/update/delete wrapper.
+  - `apps/desktop_flutter/lib/features/agent_skills/controllers/agent_skills_controller.dart` — ChangeNotifier mirroring AgentConfigsController: `skills`, `AgentSkillsStatus {idle,loading,error}`, `error`, `loadSkills()`, `publishSkill(id)` (PATCH status='published'), `deleteSkill(id)`.
+  - `apps/desktop_flutter/lib/features/agent_skills/views/agent_skills_view.dart` — Scaffold/ListView mirroring agent_cookbook_view. Per-row: title, description/whenToUse snippet, `source · confidence`, amber DRAFT pill when status=='draft', "⭐ learned from failure" when source=='teacher-escalation', Publish (drafts only) + Delete buttons (keyed `publish-skill-<id>` / `delete-skill-<id>`). loading→spinner, error→message+Retry, empty→"No skills yet". Uses context.rhythm.* + RhythmSpacing/RhythmRadius.
+  - `apps/desktop_flutter/test/features/agent_skills/agent_skills_view_test.dart` (NEW) — 7 REAL-SURFACE tests pumping the mounted AgentSkillsView with a fake data source injected via the repo.
+- Files modified:
+  - `apps/desktop_flutter/lib/main.dart` — added 3 agent_skills imports + `AgentSkillsController` ChangeNotifierProvider after the AgentCookbookController provider (mirror construction).
+  - `apps/desktop_flutter/lib/features/agents/views/_agents_nav_column.dart` — import + a 'Skills' `_ToolsRow` (key `tools-row-skills`, ✨) right after the 'Profiles' row; pushes `AgentSkillsView` via MaterialPageRoute.
+- Checks run:
+  - `dart format . --set-exit-if-changed` — PASS after formatting the 2 new files (exit 0; 0 changed on re-run).
+  - `flutter analyze --no-fatal-infos` — PASS, 0 errors / 0 warnings (262 pre-existing infos, none in agent_skills).
+  - `flutter test test/features/agent_skills/` — 7/7 PASS.
+  - `flutter test` (full) — **652 PASS, 0 FAIL** (baseline 645 + 7 new), single clean run.
+- Decisions made: API JSON shape confirmed camelCase by reading `agent_skills_repository.ts` `rowToModel` (returns `whenToUse`, `stepsJson`, `tagsJson`, `createdAt`, `updatedAt`, plus parsed `steps`/`tags`). fromJson prefers parsed `steps`/`tags` and falls back to the raw `*Json` strings. DRAFT badge + escalation annotation use the `rhythm.warning` (amber) token. Skills view navigated via MaterialPageRoute (like Cookbook/Email/Gallery), not a manager sheet.
+- Deviations from spec: none material. Chose the Scaffold/list (cookbook) form over a manager sheet — the issue allowed either; list form best matches the Tools rows that push full views.
+- Concerns: Publish/Delete hit the live :4001 agent server only at runtime; wiring proven by the fake-repo real-surface tests. The data source has no constructor seam for the baseUrl — fakes override the public methods (`getSkills`/`updateSkill`/`deleteSkill`) directly, same pattern as agent_schedules tests.
+
 ### 2026-06-24 — P4-1 teacher-escalation → draft skill capture
 - Files modified:
   - `apps/api_server/src/config/env.ts` — added `agentTeacherModel` (env `AGENT_TEACHER_MODEL`, default `'anthropic/claude-opus-4-8'`, format 'provider/modelId') and `agentTeacherEscalationEnabled` (env `AGENT_TEACHER_ESCALATION_ENABLED`, default ON; only literal `'false'`/`'0'` disable; instance-wide). Inline cost note: escalation ~doubles cost of FAILED runs only.

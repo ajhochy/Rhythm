@@ -86,6 +86,9 @@ import 'features/agent_webhooks/repositories/agent_webhooks_repository.dart';
 import 'features/agent_cookbook/controllers/agent_cookbook_controller.dart';
 import 'features/agent_cookbook/data/agent_cookbook_data_source.dart';
 import 'features/agent_cookbook/repositories/agent_cookbook_repository.dart';
+import 'features/agent_skills/controllers/agent_skills_controller.dart';
+import 'features/agent_skills/data/agent_skills_data_source.dart';
+import 'features/agent_skills/repositories/agent_skills_repository.dart';
 import 'features/agent_email/controllers/agent_email_controller.dart';
 import 'features/agent_email/data/agent_email_data_source.dart';
 import 'features/agent_email/repositories/agent_email_repository.dart';
@@ -420,6 +423,11 @@ class _RhythmAppContent extends StatelessWidget {
         ChangeNotifierProvider(
           create: (_) => AgentCookbookController(
             AgentCookbookRepository(AgentCookbookDataSource()),
+          ),
+        ),
+        ChangeNotifierProvider(
+          create: (_) => AgentSkillsController(
+            AgentSkillsRepository(AgentSkillsDataSource()),
           ),
         ),
         ChangeNotifierProvider(
