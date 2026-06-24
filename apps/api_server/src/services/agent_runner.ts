@@ -32,6 +32,16 @@ function getRunTimeoutMs(): number {
   return Number(process.env.AGENT_RUN_TIMEOUT_MS ?? 600_000);
 }
 
+/**
+ * Grace window after promptAsync before we declare "no progress".
+ * If listMessages returns zero messages within this window, the run is
+ * aborted with a fast error rather than hanging to the full 600s timeout.
+ * Default 20 000 ms; override with AGENT_RUN_NOPROGRESS_MS env var.
+ */
+function getNoProgressMs(): number {
+  return Number(process.env.AGENT_RUN_NOPROGRESS_MS ?? 20_000);
+}
+
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 export interface AgentRunOptions {
@@ -346,6 +356,42 @@ export async function run(opts: AgentRunOptions): Promise<AgentRunResult> {
         result: '',
         status: 'error',
         error: 'AgentRunner: promptAsync returned false (prompt not accepted)',
+      };
+    }
+
+    // ── No-progress fast-fail ─────────────────────────────────────────────────
+    // If the model produces zero messages within the grace window, abort
+    // immediately instead of hanging for the full 600s timeout.  This catches
+    // the common failure mode where the model ID is wrong / provider is not
+    // authenticated and opencode silently drops the prompt.
+    const noProgressDeadline = promptSentAt + getNoProgressMs();
+    const progressCheckInterval = 500;
+    let hasProgress = false;
+    const noProgressCheckEnd = Math.min(noProgressDeadline, deadline);
+    {
+      let t = Date.now();
+      while (t < noProgressCheckEnd && !hasProgress) {
+        await new Promise<void>((resolve) => setTimeout(resolve, progressCheckInterval));
+        try {
+          const msgs = await opencodeClient.listMessages(sessionId);
+          if (msgs.length > 0) {
+            hasProgress = true;
+          }
+        } catch {
+          // swallow transient errors during the grace window
+        }
+        t = Date.now();
+      }
+    }
+
+    if (!hasProgress) {
+      await opencodeClient.abortSession(sessionId, cwd);
+      return {
+        sessionId: rhythmSessionId ?? sessionId,
+        result: '',
+        status: 'error',
+        error:
+          'AgentRunner: model produced no output — check the agent profile\'s model (provider/modelId) is valid and the provider is authenticated',
       };
     }
 

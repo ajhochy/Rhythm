@@ -1052,8 +1052,11 @@ class _ScheduleFormSheetState extends State<_ScheduleFormSheet> {
                 value: _selectedAgentKind,
                 dropdownColor: rhythm.surface,
                 style: TextStyle(color: rhythm.textPrimary),
-                decoration:
-                    inputDecoration.copyWith(labelText: 'Agent Profile'),
+                decoration: inputDecoration.copyWith(
+                  labelText: 'Agent Profile',
+                  helperText: 'Model is set on the profile',
+                  helperStyle: TextStyle(color: rhythm.textMuted, fontSize: 11),
+                ),
                 hint:
                     Text('Default', style: TextStyle(color: rhythm.textMuted)),
                 items: agents

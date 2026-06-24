@@ -2,9 +2,9 @@
 
 ## Current focus
 
-**2026-06-23 — feature/agent-scheduler: #738-fix landed; manual smoke still pending**
+**2026-06-23 — feature/agent-scheduler: model picker + fast-fail landed; manual smoke still pending**
 
-Branch `feature/agent-scheduler`. All planned backend + Flutter work items are headless-verified, including the #738-fix that makes autonomous agent runs actually execute:
+Branch `feature/agent-scheduler`. All planned backend + Flutter work items are headless-verified:
 
 - **Phase A** — Odysseus-style nav column shell (`_agents_nav_column.dart`)
 - **Phase B** — Rich session row extraction (`_session_list_body.dart`); nav column wired
@@ -23,6 +23,7 @@ Branch `feature/agent-scheduler`. All planned backend + Flutter work items are h
 - **Scheduled task edit** — `_ScheduleFormSheet` now supports create + edit; Edit button added to detail sheet
 - **AGENT_LOCAL auth bypass** — all agent-local routers gate `requireAuth` behind `if (!env.agentLocal)`, fixing local 401s
 - **#738-fix** — `AgentRunner.run()` now resolves a model (3-step cascade) and passes it to `promptAsync`; records session in `agent_sessions`; scheduler passes `agentKind`/`scheduledTaskId`/`sessionName`; boot resets stale 'running' sessions to 'error'
+- **Model picker + fast-fail** — Agent profile sheet gains a Model dropdown (reuses `AgentModelsDataSource`/`CatalogModelEntry`); `AgentRunner` adds no-progress fast-fail (default 20s grace window, env `AGENT_RUN_NOPROGRESS_MS`); schedule form shows "Model is set on the profile" helper text
 
 Visual smoke (`flutter run -d macos`) is required before merging.
 
@@ -30,7 +31,7 @@ Visual smoke (`flutter run -d macos`) is required before merging.
 
 ## Active branch / PR
 
-- **Branch:** `feature/agent-scheduler` (pushed; HEAD `ba6443a`; #738-fix changes uncommitted)
+- **Branch:** `feature/agent-scheduler` (local HEAD `d087448`; model-picker changes uncommitted)
 - **PR:** [#734](https://github.com/ajhochy/Rhythm/pull/734) — open
 - **Base:** `main`
 
@@ -39,8 +40,8 @@ Visual smoke (`flutter run -d macos`) is required before merging.
 ## In progress
 
 Nothing actively in flight. Waiting on:
-1. Commit + push the #738-fix changes (11 files modified).
-2. User manual smoke (`flutter run -d macos`) — confirm nav column, Cookbook/Email/Gallery views, Edit button on scheduled task detail sheet, and form pre-fill; also verify a scheduled task actually fires and produces a session row in CHATS.
+1. Commit all pending changes (agent_runner.ts fast-fail + Flutter model picker, ~7 files).
+2. User manual smoke (`flutter run -d macos`) — confirm nav column, Cookbook/Email/Gallery views, Edit button on scheduled task detail sheet, form pre-fill, profile sheet Model picker, and that a scheduled task fires + produces a session row in CHATS.
 3. PR merge after smoke passes.
 
 ---
@@ -52,7 +53,8 @@ Nothing actively in flight. Waiting on:
 - **SDK tool-gating limitation (C1):** The OpenCode SDK `session.create` has no per-session tool allowlist parameter. The C1 init-time gate stores the allowlist on the `agent_sessions` row; full enforcement requires the WS gateway to honour it (future work).
 - **AgentRunner polling latency:** Up to 500 ms added to result detection vs. SSE (by design — see `docs/ai/decisions/2026-06-23-agent-runner-polling-vs-sse.md`).
 - **`notification` outputTarget is a TODO stub** in `agent_runner.ts` — no notification endpoint shape finalized yet.
-- **#738-fix model default:** `resolveRunModel` falls back to `anthropic/claude-sonnet-4-5` when no agent config model and no MRU session exists. If the user's opencode instance has no anthropic provider configured, the run will fail at promptAsync time (fast fail, not silent hang). User should set `model_provider`/`model_id` on their agent config profile via PATCH `/agent-configs/:id`.
+- **No-progress loop poll interval:** The fast-fail loop uses a fixed 500ms poll interval. If `AGENT_RUN_NOPROGRESS_MS` < 500ms the loop exits after one sleep without calling `listMessages`. Minimum meaningful value is ~600ms. The default 20s and the test-override 100–200ms both behave correctly (loop exits at deadline, not before).
+- **issue_653_contract.test.ts flaky:** one port-binding race observed on a single run; passed on all subsequent runs. Pre-existing, unrelated to this work.
 
 ---
 
@@ -62,21 +64,23 @@ Nothing actively in flight. Waiting on:
 |-------|--------|
 | `dart format .` | PASS — 0 changed (last verified 2026-06-23) |
 | `flutter analyze --no-fatal-infos` | PASS — 0 errors, 0 warnings (last verified 2026-06-23) |
-| `flutter test` (full) | **635 PASS, 0 FAIL** (+2 new edit-mode tests, last verified 2026-06-23) |
+| `flutter test` (full) | **639 PASS, 0 FAIL** (+4 new model picker widget tests, last verified 2026-06-23) |
 | `api_server tsc --noEmit` | PASS — 0 errors (last verified 2026-06-23) |
-| `api_server npm test` | **965/965 PASS** (+12 from #738-fix, last verified 2026-06-23) |
+| `api_server npm test` | **966/966 PASS** (+1 from no-progress fast-fail test G, last verified 2026-06-23) |
 
 ---
 
 ## Next step
 
-1. **Commit #738-fix changes** — 11 files in `apps/api_server/`.
+1. **Commit pending changes** — `apps/api_server/src/services/agent_runner.ts`, both test files, `AgentConfig` model, `_agent_profile_sheet.dart`, `agent_schedules_view.dart`, and the new test file.
 2. **Manual smoke** — `flutter run -d macos`:
    - Confirm nav column header/footer pinned, middle scrolls, all TOOLS rows reachable.
    - Confirm Cookbook/Email/Gallery views open.
    - Confirm Edit button appears in scheduled task detail sheet; form pre-fills correctly.
    - Confirm Save calls PATCH (not POST).
-   - **NEW:** Trigger a scheduled task and confirm a session row appears in CHATS list (verifies #738-fix end-to-end).
+   - **Open an agent profile sheet** — confirm a Model dropdown appears, populated with catalog models; select one, save, confirm it persists.
+   - **Check schedule form** — confirm "Model is set on the profile" helper text appears under the Agent Profile dropdown.
+   - **Trigger a scheduled task** — confirm a session row appears in CHATS list (verifies #738-fix end-to-end).
 3. **Merge PR #734** after smoke passes.
 
 ---

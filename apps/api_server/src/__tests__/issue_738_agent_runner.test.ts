@@ -67,12 +67,14 @@ describe('#738 — AgentRunner', () => {
   it('returns done status and result text when assistant replies', async () => {
     const promptSentBefore = Date.now();
 
-    // listMessages returns the assistant reply on the second poll call
+    // The no-progress check consumes listMessages calls first (checking for any
+    // message), then _waitForAssistantReply polls for an assistant text message.
+    // We provide the message on every call after the first empty poll so both
+    // phases see it.
+    const replyMessage = makeAssistantMessage('Hello from agent', promptSentBefore + 100);
     mockListMessages
-      .mockResolvedValueOnce([]) // first poll: no reply yet
-      .mockResolvedValueOnce([
-        makeAssistantMessage('Hello from agent', promptSentBefore + 100),
-      ]);
+      .mockResolvedValueOnce([]) // first poll (no-progress check): no reply yet
+      .mockResolvedValue([replyMessage]); // all subsequent calls: reply available
 
     const result = await run({ prompt: 'Say hello' });
 
@@ -93,11 +95,17 @@ describe('#738 — AgentRunner', () => {
     );
   });
 
-  // ── B. Timeout path ───────────────────────────────────────────────────────
+  // ── B. Short-timeout + no messages ───────────────────────────────────────
+  //
+  // When both AGENT_RUN_TIMEOUT_MS and AGENT_RUN_NOPROGRESS_MS are very short,
+  // the no-progress fast-fail fires first (the overall timeout window caps the
+  // grace window: noProgressCheckEnd = min(noprogressDeadline, deadline)).
+  // The run returns an error and abortSession is called.
 
-  it('calls abortSession and returns error on timeout', async () => {
-    // Use a very short timeout
+  it('calls abortSession and returns error when timeout expires with no messages', async () => {
+    // Both windows are short so the no-progress check terminates quickly.
     process.env.AGENT_RUN_TIMEOUT_MS = '100';
+    process.env.AGENT_RUN_NOPROGRESS_MS = '200'; // longer than timeout → timeout wins
 
     // listMessages always returns empty (no reply ever)
     mockListMessages.mockResolvedValue([]);
@@ -105,10 +113,12 @@ describe('#738 — AgentRunner', () => {
     const result = await run({ prompt: 'Timeout test' });
 
     expect(result.status).toBe('error');
-    expect(result.error).toMatch(/timed out/i);
+    // No-progress fast-fail fires (timeout caps the grace window).
+    expect(result.error).toMatch(/no output/i);
     expect(mockAbortSession).toHaveBeenCalledWith('sdk-session-1', undefined);
 
     delete process.env.AGENT_RUN_TIMEOUT_MS;
+    delete process.env.AGENT_RUN_NOPROGRESS_MS;
   });
 
   // ── C. Slot released after successful run ─────────────────────────────────
@@ -161,6 +171,29 @@ describe('#738 — AgentRunner', () => {
     expect(result.status).toBe('error');
     expect(result.error).toMatch(/promptAsync returned false/i);
   });
+
+  // ── G. No-progress fast-fail ─────────────────────────────────────────────
+
+  it('errors fast when model produces no messages within the grace window', async () => {
+    // Use a very short no-progress window so the test finishes quickly.
+    process.env.AGENT_RUN_NOPROGRESS_MS = '100';
+    // Give the overall timeout plenty of room so it does not race with the
+    // no-progress check.
+    process.env.AGENT_RUN_TIMEOUT_MS = '10000';
+
+    // listMessages always returns [] — model produced nothing.
+    mockListMessages.mockResolvedValue([]);
+
+    const result = await run({ prompt: 'No output test' });
+
+    expect(result.status).toBe('error');
+    expect(result.error).toMatch(/no output/i);
+    // abortSession should have been called to clean up the opencode session
+    expect(mockAbortSession).toHaveBeenCalled();
+
+    delete process.env.AGENT_RUN_NOPROGRESS_MS;
+    delete process.env.AGENT_RUN_TIMEOUT_MS;
+  }, 5_000);
 
   // ── F. Concurrency cap rejects (N+1)th run ────────────────────────────────
 

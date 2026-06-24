@@ -95,9 +95,14 @@ describe('#738-fix — AgentRunner model resolution + session recording', () => 
 
   it('calls promptAsync with hardcoded default model when no config or MRU', async () => {
     const promptSentBefore = Date.now();
+    // The no-progress check consumes listMessages calls before
+    // _waitForAssistantReply does. Use mockResolvedValueOnce for the first
+    // empty poll, then mockResolvedValue (no "Once") so all subsequent calls
+    // (both the no-progress check and the reply poll) return the message.
+    const replyMessage = makeAssistantMessage('Done', promptSentBefore + 100);
     mockListMessages
       .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([makeAssistantMessage('Done', promptSentBefore + 100)]);
+      .mockResolvedValue([replyMessage]);
 
     await run({ prompt: 'Hello' });
 

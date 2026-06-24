@@ -6,6 +6,8 @@ import 'package:provider/provider.dart';
 import '../../../app/core/ui/tokens/rhythm_theme.dart';
 import '../../agent_configs/controllers/agent_configs_controller.dart';
 import '../../agent_configs/models/agent_config.dart';
+import '../data/agent_models_data_source.dart';
+import '../models/catalog_model_entry.dart';
 
 // ---------------------------------------------------------------------------
 // Available MCPs & Skills
@@ -56,6 +58,7 @@ const _kAvailableSkills = [
 Future<AgentConfig?> showAgentProfileSheet(
   BuildContext context, {
   AgentConfig? config,
+  AgentModelsDataSource? modelsDataSource,
 }) {
   return showModalBottomSheet<AgentConfig>(
     context: context,
@@ -69,7 +72,10 @@ Future<AgentConfig?> showAgentProfileSheet(
     ),
     builder: (sheetCtx) => ChangeNotifierProvider.value(
       value: context.read<AgentConfigsController>(),
-      child: AgentProfileSheet(config: config),
+      child: AgentProfileSheet(
+        config: config,
+        modelsDataSource: modelsDataSource,
+      ),
     ),
   );
 }
@@ -79,10 +85,18 @@ Future<AgentConfig?> showAgentProfileSheet(
 // ---------------------------------------------------------------------------
 
 class AgentProfileSheet extends StatefulWidget {
-  const AgentProfileSheet({super.key, this.config});
+  const AgentProfileSheet({
+    super.key,
+    this.config,
+    AgentModelsDataSource? modelsDataSource,
+  }) : _modelsDataSource = modelsDataSource;
 
   /// Non-null = edit mode; null = create mode.
   final AgentConfig? config;
+
+  /// Optional override — inject a fake data source in tests so the catalog
+  /// load does not require a running agent server.
+  final AgentModelsDataSource? _modelsDataSource;
 
   @override
   State<AgentProfileSheet> createState() => _AgentProfileSheetState();
@@ -98,6 +112,11 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
   // null means "all allowed" (no restriction); non-null means restricted set.
   List<String>? _selectedMcps;
   List<String>? _selectedSkills;
+
+  // Model picker state — null means "no preference" (AgentRunner falls back
+  // to most-recently-used or hardcoded default).
+  List<CatalogModelEntry> _catalogModels = [];
+  CatalogModelEntry? _selectedModel;
 
   bool _loading = false;
   String? _error;
@@ -118,6 +137,29 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
     _selectedSkills = cfg?.allowedSkills != null
         ? List<String>.from(cfg!.allowedSkills!)
         : null;
+    // Load model catalog asynchronously — do not block render.
+    _loadCatalog();
+  }
+
+  Future<void> _loadCatalog() async {
+    final entries = await (widget._modelsDataSource ?? AgentModelsDataSource())
+        .fetchCatalog();
+    if (!mounted) return;
+    final cfg = widget.config;
+    // Pre-select the profile's current model if one is set.
+    CatalogModelEntry? preSelected;
+    if (cfg?.modelProvider != null && cfg?.modelId != null) {
+      for (final e in entries) {
+        if (e.provider == cfg!.modelProvider && e.modelId == cfg.modelId) {
+          preSelected = e;
+          break;
+        }
+      }
+    }
+    setState(() {
+      _catalogModels = entries;
+      _selectedModel = preSelected;
+    });
   }
 
   @override
@@ -162,6 +204,8 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
             _selectedMcps != null ? jsonEncode(_selectedMcps) : null,
         'allowedSkillsJson':
             _selectedSkills != null ? jsonEncode(_selectedSkills) : null,
+        'modelProvider': _selectedModel?.provider,
+        'modelId': _selectedModel?.modelId,
       };
       final ok = await controller.update(widget.config!.id, patch);
       if (ok) {
@@ -183,6 +227,8 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
             _selectedMcps != null ? jsonEncode(_selectedMcps) : null,
         'allowedSkillsJson':
             _selectedSkills != null ? jsonEncode(_selectedSkills) : null,
+        'modelProvider': _selectedModel?.provider,
+        'modelId': _selectedModel?.modelId,
       };
       result = await controller.create(input);
     }
@@ -231,6 +277,8 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
                 _buildSystemPromptSection(),
                 const SizedBox(height: 16),
                 _buildManagerToggle(),
+                const SizedBox(height: 24),
+                _buildModelSection(),
                 const SizedBox(height: 24),
                 _buildMcpsSection(),
                 const SizedBox(height: 24),
@@ -373,6 +421,99 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
         ),
         controlAffinity: ListTileControlAffinity.leading,
       ),
+    );
+  }
+
+  Widget _buildModelSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _sectionLabel('Model'),
+        const SizedBox(height: 10),
+        if (_catalogModels.isEmpty)
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              color: context.rhythm.surfaceMuted,
+              borderRadius: BorderRadius.circular(RhythmRadius.sm),
+              border: Border.all(color: context.rhythm.borderSubtle),
+            ),
+            child: Row(
+              children: [
+                Icon(
+                  Icons.sync,
+                  size: 16,
+                  color: context.rhythm.textMuted,
+                ),
+                const SizedBox(width: 8),
+                Text(
+                  'Loading models…',
+                  style: TextStyle(
+                    color: context.rhythm.textSecondary,
+                    fontSize: 13,
+                  ),
+                ),
+              ],
+            ),
+          )
+        else
+          DropdownButtonFormField<CatalogModelEntry>(
+            value: _selectedModel,
+            dropdownColor: context.rhythm.surface,
+            style: TextStyle(color: context.rhythm.textPrimary, fontSize: 13),
+            decoration: InputDecoration(
+              hintText: 'No preference (use default)',
+              hintStyle:
+                  TextStyle(color: context.rhythm.textMuted, fontSize: 13),
+              contentPadding:
+                  const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(RhythmRadius.sm),
+                borderSide: BorderSide(color: context.rhythm.border),
+              ),
+              focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(RhythmRadius.sm),
+                borderSide:
+                    BorderSide(color: context.rhythm.accent, width: 1.5),
+              ),
+              filled: true,
+              fillColor: context.rhythm.surfaceMuted,
+            ),
+            items: [
+              DropdownMenuItem<CatalogModelEntry>(
+                value: null,
+                child: Text(
+                  'No preference',
+                  style: TextStyle(
+                    color: context.rhythm.textMuted,
+                    fontSize: 13,
+                  ),
+                ),
+              ),
+              ..._catalogModels.map(
+                (e) => DropdownMenuItem<CatalogModelEntry>(
+                  value: e,
+                  child: Text(
+                    '${e.provider} / ${e.modelId}',
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: e.authorized
+                          ? context.rhythm.textPrimary
+                          : context.rhythm.textMuted,
+                      fontSize: 13,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+            onChanged: (v) => setState(() => _selectedModel = v),
+          ),
+        const SizedBox(height: 4),
+        Text(
+          'Used by the autonomous agent runner for scheduled and cookbook runs.',
+          style: TextStyle(color: context.rhythm.textMuted, fontSize: 11),
+        ),
+      ],
     );
   }
 

@@ -22,6 +22,8 @@ class AgentConfig {
     this.systemPrompt,
     this.allowedMcps,
     this.allowedSkills,
+    this.modelProvider,
+    this.modelId,
   });
 
   factory AgentConfig.fromJson(Map<String, dynamic> json) {
@@ -39,6 +41,8 @@ class AgentConfig {
           _parseStringList(json['allowedMcpsJson'] ?? json['allowedMcps']),
       allowedSkills:
           _parseStringList(json['allowedSkillsJson'] ?? json['allowedSkills']),
+      modelProvider: asString(json['modelProvider']),
+      modelId: asString(json['modelId']),
     );
   }
 
@@ -69,6 +73,15 @@ class AgentConfig {
   /// List of permitted skill names for this profile.
   final List<String>? allowedSkills;
 
+  /// Preferred provider for AgentRunner model resolution (e.g. "anthropic").
+  /// Null means fall back to the most-recently-used session model or the
+  /// AgentRunner hardcoded default.
+  final String? modelProvider;
+
+  /// Preferred model id for AgentRunner model resolution
+  /// (e.g. "claude-sonnet-4-6"). Null when no preference is set.
+  final String? modelId;
+
   /// Returns true when this config was created from a preset.
   bool get isPreset => presetId != null;
 
@@ -97,6 +110,8 @@ class AgentConfig {
         'allowedMcpsJson': allowedMcps != null ? jsonEncode(allowedMcps) : null,
         'allowedSkillsJson':
             allowedSkills != null ? jsonEncode(allowedSkills) : null,
+        'modelProvider': modelProvider,
+        'modelId': modelId,
       };
 
   AgentConfig copyWith({
@@ -110,6 +125,8 @@ class AgentConfig {
     Object? systemPrompt = _sentinel,
     Object? allowedMcps = _sentinel,
     Object? allowedSkills = _sentinel,
+    Object? modelProvider = _sentinel,
+    Object? modelId = _sentinel,
   }) {
     return AgentConfig(
       id: id,
@@ -130,6 +147,11 @@ class AgentConfig {
       allowedSkills: identical(allowedSkills, _sentinel)
           ? this.allowedSkills
           : allowedSkills as List<String>?,
+      modelProvider: identical(modelProvider, _sentinel)
+          ? this.modelProvider
+          : modelProvider as String?,
+      modelId:
+          identical(modelId, _sentinel) ? this.modelId : modelId as String?,
     );
   }
 }
