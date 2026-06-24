@@ -4,6 +4,7 @@ import { opencodeSessionMap } from './opencode_engine';
 import { logger } from '../utils/logger';
 import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
 import { AgentSessionMessagesRepository } from '../repositories/agent_session_messages_repository';
+import { queueSkillExtraction } from './skill_extractor';
 import type { PermissionMode } from '../models/agent_session';
 
 /**
@@ -594,6 +595,12 @@ export class OpencodeStreamBridge {
             this.pendingText.delete(localSessionId);
             // Clear per-part delta accumulators — turn boundary reached.
             this.pendingPartDeltas.clear();
+
+            // P2-2: fire-and-forget background skill extraction now that the
+            // assistant turn has been persisted. This is the WS/interactive
+            // turn-completion point (the >= 2 rounds gate is enforced inside
+            // queueSkillExtraction). Must NOT block or reject the turn.
+            queueSkillExtraction(localSessionId);
           } else {
             // Zero tokens streamed this turn — surface as user-visible error (#636)
             broadcast({

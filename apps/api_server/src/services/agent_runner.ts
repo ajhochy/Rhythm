@@ -22,6 +22,7 @@ import { logger } from '../utils/logger';
 import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
 import { AgentSessionMessagesRepository } from '../repositories/agent_session_messages_repository';
 import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
+import { queueSkillExtraction } from './skill_extractor';
 
 // ── Environment caps (read per-call so tests can override via process.env) ────
 
@@ -492,6 +493,14 @@ export async function run(opts: AgentRunOptions): Promise<AgentRunResult> {
     // 'session' path: nothing extra to do — result lives in the opencode session
 
     logger.info(`[AgentRunner] session ${sessionId} completed (outputTarget=${outputTarget})`);
+
+    // P2-2: fire-and-forget background skill extraction on the SUCCESS path only
+    // (>= 2 rounds gate is enforced inside queueSkillExtraction). Must NOT be
+    // awaited and must not change this return value or its timing.
+    if (rhythmSessionId) {
+      queueSkillExtraction(rhythmSessionId);
+    }
+
     return {
       sessionId: rhythmSessionId ?? sessionId,
       result: resultText,

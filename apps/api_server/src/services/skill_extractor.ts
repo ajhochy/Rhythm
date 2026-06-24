@@ -327,3 +327,63 @@ export async function distillFromSession(
     return null;
   }
 }
+
+/** Minimum assistant ('output') rounds before a session is worth distilling. */
+const MIN_ROUNDS = 2;
+
+/**
+ * Injectable distill function for {@link queueSkillExtraction}. Defaults to the
+ * real {@link distillFromSession}. Tests can override via the second arg to
+ * observe calls / inject a slow or throwing implementation without a real LLM.
+ */
+export type DistillFn = (sessionId: string) => Promise<AgentSkill | null>;
+
+/**
+ * P2-2 — Fire-and-forget queue for background skill extraction.
+ *
+ * Call this AFTER a successful agent turn has been persisted. It:
+ *  1. Counts the session's assistant ('output') message rounds. If fewer than
+ *     {@link MIN_ROUNDS}, returns immediately without touching the LLM.
+ *  2. Otherwise kicks off {@link distillFromSession} WITHOUT awaiting it, so the
+ *     caller's turn/run resolves before the (potentially slow) distill does.
+ *
+ * Contract — this function:
+ *  • NEVER throws (the round-count query is wrapped in try/catch).
+ *  • NEVER awaits the distill — it is genuinely fire-and-forget.
+ *  • NEVER rejects the caller — a distill that throws/rejects is swallowed here.
+ *
+ * Inert under test: {@link distillFromSession} itself no-ops under VITEST /
+ * Postgres, so wiring this into real run/turn paths stays a no-op in CI unless a
+ * test injects a fake `distill`.
+ */
+export function queueSkillExtraction(sessionId: string, distill: DistillFn = distillFromSession): void {
+  let rounds = 0;
+  try {
+    const msgRepo = new AgentSessionMessagesRepository();
+    const all = msgRepo.listBySession(sessionId, 200);
+    rounds = all.filter((m) => m.role === 'output').length;
+  } catch (err) {
+    // Never throw — the caller is fire-and-forget.
+    logger.warn(`[skill-extract] queue: round-count failed (non-fatal): ${String(err)}`);
+    return;
+  }
+
+  if (rounds < MIN_ROUNDS) {
+    logger.info(`[skill-extract] queue: below threshold (rounds=${rounds} < ${MIN_ROUNDS}) for ${sessionId} — skipping`);
+    return;
+  }
+
+  logger.info(`[skill-extract] queued for ${sessionId}`);
+  // Fire-and-forget — do NOT await. Swallow any rejection so the caller's
+  // promise can never be affected by the distill outcome.
+  try {
+    Promise.resolve(distill(sessionId))
+      .then((skill) => {
+        if (skill) logger.info(`[skill-extract] drafted ${skill.title}`);
+      })
+      .catch((e) => logger.error(`[skill-extract] failed: ${String(e)}`));
+  } catch (e) {
+    // Guards a distill that throws SYNCHRONOUSLY (before returning a promise).
+    logger.error(`[skill-extract] failed: ${String(e)}`);
+  }
+}
