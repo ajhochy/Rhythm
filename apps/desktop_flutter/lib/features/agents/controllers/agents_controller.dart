@@ -153,6 +153,15 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   // Keyed by sessionId → list of pending permissions.
   final Map<String, List<PendingPermission>> _pendingPermissions = {};
 
+  // -- Question state (AskUserQuestion handshake) ----------------------------
+  // Authoritative question payload from the `question.asked` frame, keyed by
+  // `${sessionId}:${callId}`. Lets QuestionToolCard render options even if the
+  // tool-part input lagged (fixes the stuck "Waiting for question…" card).
+  final Map<String, List<dynamic>> _questionsByCallId = {};
+  // callIds whose question has been resolved (answered/dismissed), so the card
+  // can stop offering an answer even when resolved by another client/agent.
+  final Set<String> _resolvedQuestionCallIds = {};
+
   // OPC-M3-1: Per-session working-tree diff (FileDiff entries from the server).
   // Populated by fetchSessionDiff() and invalidated by session.diff WS events.
   final Map<String, List<Map<String, dynamic>>> _sessionDiffBySession = {};
@@ -1574,6 +1583,52 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   // --------------------------------------------------------------------------
+  // Question (AskUserQuestion) handshake
+  // --------------------------------------------------------------------------
+
+  /// Authoritative questions for a tool [callId] from the `question.asked`
+  /// frame, or null if none were broadcast (card falls back to the tool input).
+  List<dynamic>? questionsForCallId(String sessionId, String callId) =>
+      _questionsByCallId['$sessionId:$callId'];
+
+  /// True once the question for [callId] has been answered or dismissed.
+  bool isQuestionResolved(String sessionId, String callId) =>
+      _resolvedQuestionCallIds.contains('$sessionId:$callId');
+
+  /// Answer a pending `question` (AskUserQuestion) tool call. [answers] is one
+  /// `List<String>` per question (the selected option labels). This is the path
+  /// that actually unblocks the agent — a plain `session.input` does NOT.
+  Future<void> replyQuestion(
+    String sessionId,
+    String callId,
+    List<List<String>> answers,
+  ) async {
+    _resolvedQuestionCallIds.add('$sessionId:$callId');
+    _questionsByCallId.remove('$sessionId:$callId');
+    notifyListeners();
+    try {
+      await _repository.replyQuestion(sessionId, callId, answers);
+    } catch (e) {
+      _error = e is AppError ? e.message : e.toString();
+      notifyListeners();
+    }
+  }
+
+  /// Dismiss a pending question without answering (the user declines). This
+  /// also unblocks the agent so the session never hangs.
+  Future<void> rejectQuestion(String sessionId, String callId) async {
+    _resolvedQuestionCallIds.add('$sessionId:$callId');
+    _questionsByCallId.remove('$sessionId:$callId');
+    notifyListeners();
+    try {
+      await _repository.rejectQuestion(sessionId, callId);
+    } catch (e) {
+      _error = e is AppError ? e.message : e.toString();
+      notifyListeners();
+    }
+  }
+
+  // --------------------------------------------------------------------------
   // Permission mode (#611)
   // --------------------------------------------------------------------------
 
@@ -2433,6 +2488,24 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
       }
     } else if (msg is PermissionResolvedMessage) {
       _removePendingPermission(msg.sessionId, msg.permissionId);
+    } else if (msg is QuestionAskedMessage) {
+      // Store the authoritative question payload so the card can render even if
+      // the tool-part input streamed in slowly (or not at all).
+      if (msg.callId.isNotEmpty) {
+        _questionsByCallId['${msg.sessionId}:${msg.callId}'] = msg.questions;
+        _resolvedQuestionCallIds.remove('${msg.sessionId}:${msg.callId}');
+      }
+    } else if (msg is QuestionResolvedMessage) {
+      // Resolved by us, another client, or the agent. Mark every tracked
+      // callId for this session as resolved (we key local state by callId; the
+      // resolved frame only carries requestId, so clear conservatively).
+      _questionsByCallId.removeWhere((key, _) {
+        if (key.startsWith('${msg.sessionId}:')) {
+          _resolvedQuestionCallIds.add(key);
+          return true;
+        }
+        return false;
+      });
     } else if (msg is TriggerFiredMessage) {
       _pendingTriggers.add(
         PendingTrigger(

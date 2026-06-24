@@ -86,6 +86,26 @@ export interface PendingPermission {
   sdkSessionId: string;
 }
 
+/**
+ * Shape of a pending `question` (AskUserQuestion) tool call stored in-memory.
+ *
+ * opencode answers questions via a dedicated Question API keyed by `requestId`
+ * (the `que_…` id from the `question.asked` event), but the Flutter client only
+ * knows the tool `callId` it rendered the card from. We store both so the
+ * controller can resolve callId → requestId when the user answers, without the
+ * `que_…` id ever needing to leave the server.
+ */
+export interface PendingQuestion {
+  /** opencode QuestionID (the `que_…` id) — needed to POST /question/{id}/reply. */
+  requestId: string;
+  /** Tool callID (`toolu_…`/`chatcmpl-tool-…`) — what the rendered card carries. */
+  callId: string;
+  /** SDK session ID. */
+  sdkSessionId: string;
+  /** The question array (mirrors the tool input) for resume/fallback rendering. */
+  questions: unknown[];
+}
+
 export class OpencodeStreamBridge {
   // One SSE subscription per directory, because opencode's /event endpoint
   // filters by ?directory= — sessions whose cwd is outside the subscribed
@@ -136,6 +156,38 @@ export class OpencodeStreamBridge {
   /** Remove a pending permission after it is resolved. */
   clearPendingPermission(localSessionId: string, permissionId: string): void {
     this.pendingPermissions.delete(`${localSessionId}:${permissionId}`);
+  }
+
+  // In-memory map of pending questions. Key = `${localSessionId}:${requestId}`.
+  // Cleared when opencode emits question.replied/rejected (or on explicit reply).
+  private pendingQuestions = new Map<string, PendingQuestion>();
+
+  /** Return the pending question for a session+requestId, or undefined. */
+  getPendingQuestion(
+    localSessionId: string,
+    requestId: string,
+  ): PendingQuestion | undefined {
+    return this.pendingQuestions.get(`${localSessionId}:${requestId}`);
+  }
+
+  /**
+   * Resolve a pending question by the tool callId the Flutter card carries.
+   * Returns the pending entry (with its `requestId`) or undefined.
+   */
+  getPendingQuestionByCallId(
+    localSessionId: string,
+    callId: string,
+  ): PendingQuestion | undefined {
+    const prefix = `${localSessionId}:`;
+    for (const [key, q] of this.pendingQuestions) {
+      if (key.startsWith(prefix) && q.callId === callId) return q;
+    }
+    return undefined;
+  }
+
+  /** Remove a pending question after it is resolved. */
+  clearPendingQuestion(localSessionId: string, requestId: string): void {
+    this.pendingQuestions.delete(`${localSessionId}:${requestId}`);
   }
 
   /**
@@ -832,6 +884,68 @@ export class OpencodeStreamBridge {
         break;
       }
 
+      // opencode answers its `question` (AskUserQuestion) tool through a
+      // dedicated Question API, separate from permissions and session.input.
+      // The agent calls `question` → opencode emits `question.asked` with a
+      // QuestionRequest { id, sessionID, questions, tool:{callID} } and blocks
+      // the tool at status:running until POST /question/{id}/reply arrives.
+      // Without capturing the requestID here (and replying via the controller),
+      // the tool hangs forever and the whole session stalls — for every model,
+      // since they all run through the same opencode `build` agent.
+      case 'question.asked': {
+        const q = event.properties as {
+          id?: string;
+          requestID?: string;
+          sessionID?: string;
+          questions?: unknown[];
+          tool?: { callID?: string; messageID?: string };
+        };
+        const requestId = q.id ?? q.requestID;
+        if (!requestId || !localSessionId) break;
+        const sdkSessionId = opencodeSessionId ?? '';
+        const callId = q.tool?.callID ?? '';
+        const questions = Array.isArray(q.questions) ? q.questions : [];
+
+        this.pendingQuestions.set(`${localSessionId}:${requestId}`, {
+          requestId,
+          callId,
+          sdkSessionId,
+          questions,
+        });
+        broadcast({
+          v: 1,
+          type: 'question.asked',
+          sessionId: localSessionId,
+          requestId,
+          callId,
+          questions,
+        });
+        break;
+      }
+
+      // opencode resolved the question (we replied, or another client did, or
+      // it was rejected). Clear our pending entry and tell the client so the
+      // card can stop showing the answer affordance.
+      case 'question.replied':
+      case 'question.rejected': {
+        const q = event.properties as {
+          requestID?: string;
+          id?: string;
+          answers?: unknown;
+        };
+        const requestId = q.requestID ?? q.id;
+        if (!requestId || !localSessionId) break;
+        this.clearPendingQuestion(localSessionId, requestId);
+        broadcast({
+          v: 1,
+          type: 'question.resolved',
+          sessionId: localSessionId,
+          requestId,
+          rejected: event.type === 'question.rejected',
+        });
+        break;
+      }
+
       default: {
         // Relay any unrecognized event as a generic event
         broadcast({
@@ -889,6 +1003,8 @@ export class OpencodeStreamBridge {
     this.streamsByDirectory.clear();
     this.stoppedSessions.clear();
     this.pendingText.clear();
+    this.pendingPermissions.clear();
+    this.pendingQuestions.clear();
   }
 }
 

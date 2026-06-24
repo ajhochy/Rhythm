@@ -887,6 +887,94 @@ export class OpencodeClientService {
     });
   }
 
+  // ── Question API (AskUserQuestion handshake) ──────────────────────────────
+  //
+  // opencode answers its `question` tool through POST /question/{id}/reply.
+  // The v1 OpencodeClient we hold does NOT expose this route (the Question API
+  // lives in the SDK's v2 namespace), so we call the spawned server's HTTP
+  // endpoint directly — the same routes confirmed live on the running binary.
+  // Without this, a question tool stays status:running forever and the session
+  // hangs. Mirrors respondToPermission: pass `directory` to scope the reply.
+
+  /** Base URL of the spawned opencode server (falls back to the default port). */
+  private get serverUrl(): string {
+    return this.server?.url ?? 'http://127.0.0.1:4096';
+  }
+
+  /**
+   * POST /question/{requestID}/reply — answer a pending question.
+   * `answers` is one `string[]` per question (selected option labels);
+   * opencode's QuestionAnswer = string[]. Returns true on 2xx, false otherwise
+   * (never throws — the caller still clears local UI state).
+   */
+  async replyToQuestion(
+    requestId: string,
+    answers: string[][],
+    directory?: string,
+  ): Promise<boolean> {
+    return this.questionAction('reply', requestId, { answers }, directory);
+  }
+
+  /** POST /question/{requestID}/reject — dismiss a pending question. */
+  async rejectQuestion(requestId: string, directory?: string): Promise<boolean> {
+    return this.questionAction('reject', requestId, undefined, directory);
+  }
+
+  private async questionAction(
+    action: 'reply' | 'reject',
+    requestId: string,
+    body: Record<string, unknown> | undefined,
+    directory?: string,
+  ): Promise<boolean> {
+    const qs = directory ? `?directory=${encodeURIComponent(directory)}` : '';
+    const url = `${this.serverUrl}/question/${encodeURIComponent(requestId)}/${action}${qs}`;
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body ?? {}),
+      });
+      if (!res.ok) {
+        logger.error(
+          `[OpencodeClientService] question ${action} failed (${res.status}) for ${requestId}`,
+        );
+        return false;
+      }
+      return true;
+    } catch (err) {
+      logger.error(
+        `[OpencodeClientService] question ${action} threw for ${requestId}:`,
+        err,
+      );
+      return false;
+    }
+  }
+
+  /**
+   * GET /question — list pending question requests across all sessions.
+   * Fallback for resolving a tool callID → requestID when the bridge's
+   * in-memory map was lost (e.g. server restart with a question still pending).
+   */
+  async listQuestions(
+    directory?: string,
+  ): Promise<
+    Array<{ id: string; sessionID: string; tool?: { callID?: string } }>
+  > {
+    const qs = directory ? `?directory=${encodeURIComponent(directory)}` : '';
+    try {
+      const res = await fetch(`${this.serverUrl}/question${qs}`);
+      if (!res.ok) return [];
+      return (await res.json()) as Array<{
+        id: string;
+        sessionID: string;
+        tool?: { callID?: string };
+      }>;
+    } catch (err) {
+      logger.error('[OpencodeClientService] listQuestions failed:', err);
+      return [];
+    }
+  }
+
   /**
    * POST /session/{id}/command — dispatch a slash-command in the session.
    *

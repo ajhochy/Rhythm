@@ -41,6 +41,10 @@ abstract class AgentWsMessage {
         return PermissionAskedMessage.fromJson(json);
       case 'permission.resolved':
         return PermissionResolvedMessage.fromJson(json);
+      case 'question.asked':
+        return QuestionAskedMessage.fromJson(json);
+      case 'question.resolved':
+        return QuestionResolvedMessage.fromJson(json);
       case 'session.diff':
         return SessionDiffMessage.fromJson(json);
       case 'todo.updated':
@@ -419,6 +423,55 @@ class PermissionResolvedMessage extends AgentWsMessage {
       sessionId: asString(json['sessionId']) ?? '',
       permissionId: asString(json['permissionId']) ?? '',
       decision: asString(json['decision']) ?? 'deny',
+    );
+  }
+}
+
+/// Server broadcast when opencode emits `question.asked` (the agent called its
+/// `question`/AskUserQuestion tool). Carries the opencode requestId, the tool
+/// [callId] (correlates to the rendered tool part), and the authoritative
+/// question list. The client answers via the question-reply REST path.
+class QuestionAskedMessage extends AgentWsMessage {
+  const QuestionAskedMessage({
+    required this.sessionId,
+    required this.requestId,
+    required this.callId,
+    required this.questions,
+  });
+
+  final String sessionId;
+  final String requestId;
+  final String callId;
+  final List<dynamic> questions;
+
+  factory QuestionAskedMessage.fromJson(Map<String, dynamic> json) {
+    return QuestionAskedMessage(
+      sessionId: asString(json['sessionId']) ?? '',
+      requestId: asString(json['requestId']) ?? '',
+      callId: asString(json['callId']) ?? '',
+      questions: (json['questions'] as List<dynamic>?) ?? const [],
+    );
+  }
+}
+
+/// Server broadcast when a pending question is resolved (answered, dismissed,
+/// or resolved by another client). The card should stop offering an answer.
+class QuestionResolvedMessage extends AgentWsMessage {
+  const QuestionResolvedMessage({
+    required this.sessionId,
+    required this.requestId,
+    required this.rejected,
+  });
+
+  final String sessionId;
+  final String requestId;
+  final bool rejected;
+
+  factory QuestionResolvedMessage.fromJson(Map<String, dynamic> json) {
+    return QuestionResolvedMessage(
+      sessionId: asString(json['sessionId']) ?? '',
+      requestId: asString(json['requestId']) ?? '',
+      rejected: json['rejected'] == true,
     );
   }
 }

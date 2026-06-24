@@ -30,6 +30,10 @@ agentSessionsRouter.post(
   '/:id/permission/:permissionId/:decision',
   controller.respondPermission.bind(controller),
 );
+agentSessionsRouter.post(
+  '/:id/question/:callId/:action',
+  controller.respondQuestion.bind(controller),
+);
 agentSessionsRouter.delete('/:id', controller.remove.bind(controller));
 agentSessionsRouter.delete('/:id/hard', controller.destroy.bind(controller));
 agentSessionsRouter.get('/:id/messages', controller.listMessages.bind(controller));

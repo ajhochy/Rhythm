@@ -214,6 +214,16 @@ class _FakeAgentsRepository implements AgentsRepository {
   ) async {}
 
   @override
+  Future<void> replyQuestion(
+    String sessionId,
+    String callId,
+    List<List<String>> answers,
+  ) async {}
+
+  @override
+  Future<void> rejectQuestion(String sessionId, String callId) async {}
+
+  @override
   Future<AgentSession> resumeSession(String id) async {
     return _store.firstWhere((s) => s.id == id);
   }

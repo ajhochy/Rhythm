@@ -168,6 +168,16 @@ class _SlowStubAgentsRepository implements AgentsRepository {
   ) async {}
 
   @override
+  Future<void> replyQuestion(
+    String sessionId,
+    String callId,
+    List<List<String>> answers,
+  ) async {}
+
+  @override
+  Future<void> rejectQuestion(String sessionId, String callId) async {}
+
+  @override
   Future<List<AgentSessionMessage>> getMessages(String id,
           {int? limit}) async =>
       const [];
@@ -470,6 +480,18 @@ class _ThrowingStubRepo implements AgentsRepository {
     String decision,
   ) =>
       inner.respondPermission(sessionId, permissionId, decision);
+
+  @override
+  Future<void> replyQuestion(
+    String sessionId,
+    String callId,
+    List<List<String>> answers,
+  ) =>
+      inner.replyQuestion(sessionId, callId, answers);
+
+  @override
+  Future<void> rejectQuestion(String sessionId, String callId) =>
+      inner.rejectQuestion(sessionId, callId);
 
   @override
   Future<List<AgentSessionMessage>> getMessages(String id, {int? limit}) =>

@@ -622,6 +622,91 @@ export class AgentSessionsController {
     }
   }
 
+  /**
+   * Answer (or dismiss) a pending `question` (AskUserQuestion) tool call.
+   *
+   * POST /agent-sessions/:id/question/:callId/:action  (action = reply | reject)
+   *   reply body: { answers: string[][] }  — one string[] per question.
+   *
+   * The client only knows the tool `callId` it rendered; we resolve it to the
+   * opencode `requestId` (the `que_…` id) via the stream bridge's pending-question
+   * map, falling back to GET /question if the map was lost (server restart).
+   * Then we POST to opencode's /question/{requestId}/{action}. Without this the
+   * question tool stays status:running forever and the session hangs.
+   */
+  async respondQuestion(req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const session = repo.findById(req.params.id);
+      if (!session) throw AppError.notFound('AgentSession');
+      const action = req.params.action;
+      if (action !== 'reply' && action !== 'reject') {
+        throw AppError.badRequest('action must be reply or reject');
+      }
+      const callId = req.params.callId;
+
+      // Resolve the tool callId → opencode requestId.
+      let pending = streamBridge.getPendingQuestionByCallId(session.id, callId);
+      if (!pending) {
+        // Fallback: the bridge map was lost (e.g. restart). Ask opencode.
+        const list = await opencodeClient.listQuestions(session.cwd);
+        const match = list.find((q) => q.tool?.callID === callId);
+        if (match) {
+          pending = {
+            requestId: match.id,
+            callId,
+            sdkSessionId: match.sessionID,
+            questions: [],
+          };
+        }
+      }
+      if (!pending) {
+        throw AppError.notFound('No pending question for that callId');
+      }
+
+      let ok: boolean;
+      if (action === 'reply') {
+        const body = (req.body ?? {}) as Record<string, unknown>;
+        const answers = body.answers;
+        if (
+          !Array.isArray(answers) ||
+          !answers.every(
+            (a) => Array.isArray(a) && a.every((s) => typeof s === 'string'),
+          )
+        ) {
+          throw AppError.badRequest('answers must be a string[][]');
+        }
+        ok = await opencodeClient.replyToQuestion(
+          pending.requestId,
+          answers as string[][],
+          session.cwd,
+        );
+      } else {
+        ok = await opencodeClient.rejectQuestion(pending.requestId, session.cwd);
+      }
+
+      // Clear locally + broadcast resolution (the question.replied/rejected
+      // event will also fire, but this keeps every client snappy and idempotent).
+      streamBridge.clearPendingQuestion(session.id, pending.requestId);
+      const { broadcast } = await import('../services/ws_gateway');
+      broadcast({
+        v: 1,
+        type: 'question.resolved',
+        sessionId: session.id,
+        requestId: pending.requestId,
+        rejected: action === 'reject',
+      });
+
+      if (!ok) {
+        console.warn(
+          `[AgentSessionsController] respondQuestion: opencode returned false for session ${session.id}`,
+        );
+      }
+      res.status(204).end();
+    } catch (err) {
+      next(err);
+    }
+  }
+
   // M2-4: cancel an in-flight turn for a session.
   async cancel(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {

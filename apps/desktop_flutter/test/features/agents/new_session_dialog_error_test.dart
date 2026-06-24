@@ -171,6 +171,20 @@ class _ErrorAgentsRepository implements AgentsRepository {
   }
 
   @override
+  Future<void> replyQuestion(
+    String sessionId,
+    String callId,
+    List<List<String>> answers,
+  ) async {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<void> rejectQuestion(String sessionId, String callId) async {
+    throw UnimplementedError();
+  }
+
+  @override
   Future<AgentSession> resumeSession(String id) async {
     throw UnimplementedError();
   }

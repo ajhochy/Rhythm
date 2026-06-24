@@ -91,6 +91,16 @@ class AgentsRepository {
   ) =>
       _dataSource.respondPermission(sessionId, permissionId, decision);
 
+  Future<void> replyQuestion(
+    String sessionId,
+    String callId,
+    List<List<String>> answers,
+  ) =>
+      _dataSource.replyQuestion(sessionId, callId, answers);
+
+  Future<void> rejectQuestion(String sessionId, String callId) =>
+      _dataSource.rejectQuestion(sessionId, callId);
+
   Future<void> cancelSession(String id) => _dataSource.cancelSession(id);
 
   Future<AgentSession> archiveSession(String id) =>
