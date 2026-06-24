@@ -19,6 +19,7 @@
 
 import { opencodeClient } from './opencode_engine';
 import { logger } from '../utils/logger';
+import { env } from '../config/env';
 import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
 import { AgentSessionMessagesRepository } from '../repositories/agent_session_messages_repository';
 import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
@@ -81,6 +82,19 @@ export interface AgentRunOptions {
    * Null for ad-hoc/cookbook runs.
    */
   scheduledTaskId?: string | null;
+  /**
+   * P4-1 (internal) — marks this run as the escalated (teacher) re-run so its
+   * OWN error path does NOT escalate again. This is the recursion guard: the
+   * escalated run carries `_isEscalation: true`, so {@link shouldEscalate}
+   * returns false for it. Never set by external callers.
+   */
+  _isEscalation?: boolean;
+  /**
+   * P4-1 (internal) — when set, bypasses resolveRunModel() and forces this run
+   * to use the given model. The teacher-escalation path uses this to force the
+   * stronger teacher model on the re-run. Never set by external callers.
+   */
+  modelOverride?: { providerID: string; modelID: string };
 }
 
 export interface AgentRunResult {
@@ -253,9 +267,173 @@ function _recordSession(opts: {
   }
 }
 
+// ── Teacher escalation (P4-1) ───────────────────────────────────────────────
+//
+// When a weaker-model run fails (observable status==='error' — this covers both
+// an SDK/LLM failure AND the no-progress fast-fail, which already resolves to
+// status:'error'), escalate to a stronger "teacher" model, re-run the SAME
+// prompt, and on success capture the teacher's approach as a DRAFT skill with
+// source='teacher-escalation'. This is the quality multiplier on top of the
+// self-improvement loop (P2/P3).
+//
+// COST NOTE: escalation re-runs a FAILED run on a stronger (pricier) model, so
+// it roughly DOUBLES the cost of failed runs. It fires at most once per run
+// (recursion-guarded via _isEscalation). Successful runs never escalate.
+
+/** Never auto-escalate from inside a test run. Mirrors skill_extractor.isTestEnv(). */
+function isTestEnv(): boolean {
+  return process.env.VITEST === 'true' || process.env.NODE_ENV === 'test';
+}
+
+/**
+ * P4-1: parse env.agentTeacherModel ('provider/modelId') into a model pair.
+ * Splits on the FIRST '/', so model ids containing slashes are preserved.
+ * Returns undefined when malformed (no '/' or an empty half) so the caller
+ * can decline to escalate rather than re-run against a broken model id.
+ */
+export function resolveTeacherModel(
+  raw?: string,
+): { providerID: string; modelID: string } | undefined {
+  const value = (raw ?? '').trim();
+  const slash = value.indexOf('/');
+  if (slash <= 0 || slash >= value.length - 1) return undefined;
+  const providerID = value.slice(0, slash).trim();
+  const modelID = value.slice(slash + 1).trim();
+  if (!providerID || !modelID) return undefined;
+  return { providerID, modelID };
+}
+
+/**
+ * P4-1 (PURE — unit-tested directly): should this run be escalated to the
+ * teacher model? True only when ALL hold:
+ *  • the original result is an observable failure (status === 'error'), AND
+ *  • teacher escalation is enabled, AND
+ *  • this run is NOT itself an escalation (recursion guard).
+ *
+ * `enabled` is injected (defaults to env.agentTeacherEscalationEnabled) so the
+ * toggle is testable without a process restart.
+ */
+export function shouldEscalate(
+  result: Pick<AgentRunResult, 'status'>,
+  opts: Pick<AgentRunOptions, '_isEscalation'>,
+  enabled: boolean = env.agentTeacherEscalationEnabled,
+): boolean {
+  if (!enabled) return false;
+  if (opts._isEscalation) return false; // recursion guard — escalate at most once
+  return result.status === 'error';
+}
+
+/** Injectable deps for {@link escalateAndCapture} so tests hit no real model/LLM. */
+export interface EscalateDeps {
+  /** Re-run function (defaults to {@link run}). */
+  runFn: (opts: AgentRunOptions) => Promise<AgentRunResult>;
+  /** Skill-capture function (defaults to skill_extractor.distillFromSession). */
+  distillFn: (sessionId: string, opts?: { source?: string }) => Promise<unknown>;
+  /** Teacher model pair (defaults to env.agentTeacherModel parsed). */
+  teacherModel?: { providerID: string; modelID: string };
+}
+
+/**
+ * P4-1 (unit-tested directly with injected deps): re-run `opts` on the teacher
+ * model and, on success, capture the teacher's approach as a DRAFT skill.
+ *
+ * Control flow:
+ *  1. Re-run via `runFn` with the SAME opts, model forced to the teacher model
+ *     (modelOverride), `_isEscalation: true` (so its own error path can't
+ *     escalate again), and the session name suffixed '(teacher escalation)'.
+ *  2. If the escalated run is 'done': fire-and-forget `distillFn(sessionId,
+ *     { source: 'teacher-escalation' })` (capture is non-fatal — a throwing
+ *     distill never rejects this function) and RETURN the successful result.
+ *  3. If the escalated run is also 'error': do NOT escalate again (the
+ *     _isEscalation guard ensures runFn won't), and return the ORIGINAL error
+ *     result (the caller sees the original failure, not the teacher's).
+ *
+ * NEVER throws into run()'s caller: a runFn rejection falls back to the original
+ * result; a distillFn throw/rejection is swallowed.
+ */
+export async function escalateAndCapture(
+  opts: AgentRunOptions,
+  originalResult: AgentRunResult,
+  deps: EscalateDeps,
+): Promise<AgentRunResult> {
+  const teacherModel = deps.teacherModel ?? resolveTeacherModel(env.agentTeacherModel);
+  if (!teacherModel) {
+    logger.warn(
+      `[teacher-escalation] no valid teacher model ('${env.agentTeacherModel}') — skipping escalation`,
+    );
+    return originalResult;
+  }
+
+  const fromModel = opts.modelOverride
+    ? `${opts.modelOverride.providerID}/${opts.modelOverride.modelID}`
+    : (resolveRunModelLabel(opts.agentConfigId ?? opts.agentKind));
+  logger.info(
+    `[teacher-escalation] escalating ${fromModel} → ${teacherModel.providerID}/${teacherModel.modelID} after error`,
+  );
+
+  let escalated: AgentRunResult;
+  try {
+    escalated = await deps.runFn({
+      ...opts,
+      _isEscalation: true,
+      modelOverride: teacherModel,
+      sessionName: `${opts.sessionName ?? 'AgentRunner run'} (teacher escalation)`,
+    });
+  } catch (err) {
+    // Re-run itself blew up — never throw into run()'s caller; keep the original.
+    logger.error(`[teacher-escalation] re-run threw (non-fatal): ${String(err)}`);
+    return originalResult;
+  }
+
+  if (escalated.status === 'done') {
+    // Fire-and-forget, non-fatal capture of the teacher's approach as a DRAFT.
+    try {
+      Promise.resolve(deps.distillFn(escalated.sessionId, { source: 'teacher-escalation' }))
+        .then(() => logger.info('[teacher-escalation] skill captured'))
+        .catch((e) => logger.warn(`[teacher-escalation] skill capture failed (non-fatal): ${String(e)}`));
+    } catch (e) {
+      // Guards a distillFn that throws SYNCHRONOUSLY before returning a promise.
+      logger.warn(`[teacher-escalation] skill capture failed (non-fatal): ${String(e)}`);
+    }
+    return escalated;
+  }
+
+  // Escalated run also failed — do NOT escalate again (guard ensures it won't).
+  logger.warn('[teacher-escalation] teacher run also errored — returning original error');
+  return originalResult;
+}
+
+/** Best-effort label of the model resolveRunModel() would pick (logging only). */
+function resolveRunModelLabel(configId?: string | null): string {
+  try {
+    const m = resolveRunModel(configId);
+    return `${m.providerID}/${m.modelID}`;
+  } catch {
+    return 'unknown';
+  }
+}
+
 // ── Main run function ─────────────────────────────────────────────────────────
 
 export async function run(opts: AgentRunOptions): Promise<AgentRunResult> {
+  const result = await _runOnce(opts);
+
+  // P4-1: guarded auto-escalation. Under test this NEVER fires automatically
+  // (tests drive escalateAndCapture/shouldEscalate explicitly with injected
+  // deps). The Postgres path is unaffected — escalation is a local-agent
+  // concern and distill no-ops under Postgres anyway.
+  if (!isTestEnv() && shouldEscalate(result, opts)) {
+    const { distillFromSession } = await import('./skill_extractor');
+    return escalateAndCapture(opts, result, {
+      runFn: run,
+      distillFn: distillFromSession,
+    });
+  }
+
+  return result;
+}
+
+async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
   const {
     prompt,
     allowedMcpsJson,
@@ -267,6 +445,7 @@ export async function run(opts: AgentRunOptions): Promise<AgentRunResult> {
     agentKind,
     sessionName,
     scheduledTaskId,
+    modelOverride,
   } = opts;
 
   // Unique slot key for concurrency tracking
@@ -288,7 +467,8 @@ export async function run(opts: AgentRunOptions): Promise<AgentRunResult> {
   // agentKind IS the agent_configs id (e.g. 'claude-code') — treat it as the
   // config id so the profile's model is used instead of dropping to MRU/default.
   const effectiveConfigId = agentConfigId ?? agentKind;
-  const resolvedModel = resolveRunModel(effectiveConfigId);
+  // P4-1: a forced modelOverride (teacher escalation) bypasses resolveRunModel.
+  const resolvedModel = modelOverride ?? resolveRunModel(effectiveConfigId);
 
   // Load the full profile to derive systemPrompt + ocAgent.
   // ocAgent is the OpenCode built-in agent mode ('build', 'plan', etc.).
@@ -603,8 +783,6 @@ function _parseMcpServersFromJson(allowedMcpsJson: string): Record<string, unkno
  * Uses the production API URL from env (if configured) or falls back to localhost.
  */
 async function _deliverToTaskNotes(taskId: string, text: string): Promise<void> {
-  // Import lazily to avoid circular deps; env is a plain object
-  const { env } = await import('../config/env');
   const baseUrl = env.prodApiUrl ?? `http://localhost:${env.port}`;
   const authToken = env.prodAuthToken;
 

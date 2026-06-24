@@ -2,7 +2,19 @@
 
 ## Current focus
 
-**2026-06-24 — P1-1 agent_skills table verified; feature/agent-scheduler awaiting manual smoke**
+**2026-06-24 — P4-1 teacher-escalation verified (headless); feature/agent-scheduler awaiting manual smoke**
+
+**P4-1 Complete (headless-verified, uncommitted):** weaker-model run failure
+(`status==='error'`) → escalate to a stronger teacher model → re-run same prompt →
+on success capture the approach as a DRAFT skill (`source='teacher-escalation'`).
+Auto-escalation is `isTestEnv`-guarded; pure helpers `shouldEscalate` /
+`escalateAndCapture` are unit-tested with injected deps (no real model). Env:
+`AGENT_TEACHER_MODEL` (default `anthropic/claude-opus-4-8`),
+`AGENT_TEACHER_ESCALATION_ENABLED` (default ON). See
+`docs/ai/runs/2026-06-24-p4-1-teacher-escalation.md` +
+`docs/ai/decisions/2026-06-24-teacher-escalation-trigger-and-testability.md`.
+
+
 
 **P1-1 Complete (verified):**
 - `agent_skills` table (SQLite + Postgres) with 12-column schema (id, title, when_to_use, description, steps_json, tags_json, confidence, status, source, uses, created_at, updated_at)
@@ -64,6 +76,8 @@ Visual smoke (`flutter run -d macos`) is required before merging scheduler branc
 - **`notification` outputTarget is a TODO stub** in `agent_runner.ts` — no notification endpoint shape finalized yet.
 - **No-progress loop poll interval:** The fast-fail loop uses a fixed 500ms poll interval. If `AGENT_RUN_NOPROGRESS_MS` < 500ms the loop exits after one sleep without calling `listMessages`. Minimum meaningful value is ~600ms. The default 20s and the test-override 100–200ms both behave correctly (loop exits at deadline, not before).
 - **issue_653_contract.test.ts flaky:** one port-binding race observed on a single run; passed on all subsequent runs. Pre-existing, unrelated to this work.
+- **P4-1 teacher-escalation cost:** when `AGENT_TEACHER_ESCALATION_ENABLED` is ON (default), every run that ends in `status==='error'` triggers a second stronger-model re-run — roughly DOUBLES the cost of FAILED runs (successful runs unaffected). Escalates at most once per run (recursion-guarded). Disable with `AGENT_TEACHER_ESCALATION_ENABLED=false`.
+- **P4-1 escalation path not exercised in CI:** the live run→escalate→distill path is `isTestEnv`-guarded; only the injected-dep pure helpers are unit-tested. Real re-run + capture is runtime-only (same posture as P2/P3).
 
 ---
 
@@ -75,7 +89,7 @@ Visual smoke (`flutter run -d macos`) is required before merging scheduler branc
 | `flutter analyze --no-fatal-infos` | PASS — 0 errors, 0 warnings (last verified 2026-06-23) |
 | `flutter test` (full) | **645 PASS, 0 FAIL** (+6 new launch-button widget tests, last verified 2026-06-23) |
 | `api_server tsc --noEmit` | PASS — 0 errors (last verified 2026-06-24) |
-| `api_server npm test` | **997/997 PASS** (last verified 2026-06-24; +20 P1-1 agent_skills contract tests; all verification gates passed) |
+| `api_server npm test` | **1070/1070 PASS** (last verified 2026-06-24; +13 P4-1 teacher_escalation tests; verification gate passed) |
 
 ---
 
@@ -97,6 +111,20 @@ Visual smoke (`flutter run -d macos`) is required before merging scheduler branc
 ---
 
 ## Recent coding-agent runs
+
+### 2026-06-24 — P4-1 teacher-escalation → draft skill capture
+- Files modified:
+  - `apps/api_server/src/config/env.ts` — added `agentTeacherModel` (env `AGENT_TEACHER_MODEL`, default `'anthropic/claude-opus-4-8'`, format 'provider/modelId') and `agentTeacherEscalationEnabled` (env `AGENT_TEACHER_ESCALATION_ENABLED`, default ON; only literal `'false'`/`'0'` disable; instance-wide). Inline cost note: escalation ~doubles cost of FAILED runs only.
+  - `apps/api_server/src/services/skill_extractor.ts` — `DistillOptions` gains optional `source` (default `'auto-extract'`); threaded into the `repo.create({ ... source })` call so callers can pass `'teacher-escalation'`. All existing guards/behavior unchanged.
+  - `apps/api_server/src/services/agent_runner.ts` — top-level `import { env }`; `AgentRunOptions` gains internal `_isEscalation?` (recursion guard) + `modelOverride?: {providerID,modelID}` (bypasses resolveRunModel). Renamed the old `run` body to `_runOnce`; new `run` wrapper calls `_runOnce`, then if `!isTestEnv() && shouldEscalate(result, opts)` it lazy-imports `distillFromSession` and calls `escalateAndCapture`. Added PURE/testable `shouldEscalate(result, opts, enabled?)`, `escalateAndCapture(opts, original, deps)` with injectable `runFn`/`distillFn`/`teacherModel`, `resolveTeacherModel(raw)` (splits on first '/'), and `isTestEnv()`. `resolvedModel = modelOverride ?? resolveRunModel(...)`. Removed the now-redundant lazy `await import('../config/env')` in `_deliverToTaskNotes`.
+  - `apps/api_server/src/__tests__/teacher_escalation.test.ts` (NEW) — 13 tests over the pure helpers (no real model): shouldEscalate truth table (error+enabled+not-escalation→true; done→false; toggle OFF→false; _isEscalation→false); escalateAndCapture (forces teacher modelOverride+_isEscalation+suffixed name on re-run; on done captures via distillFn with source='teacher-escalation'; escalated-also-error → no distill + runFn called ONCE + returns original; throwing distill async/sync swallowed; rejecting runFn falls back to original; captured source asserted); resolveTeacherModel parse/slash-preserve/malformed.
+- Checks run:
+  - `npx tsc --noEmit` — PASS (exit 0)
+  - `npx vitest run teacher_escalation` — 13/13 PASS
+  - `npx vitest run` (full) — **1070/1070 PASS** (baseline 1057 + 13 new), 0 failures, single clean run (no flake)
+- Decisions made: OQ-5 trigger = observable `run().status === 'error'` (Option A — covers SDK/LLM failure AND the no-progress fast-fail, both already status:'error'); no un-emitted "low confidence" trigger. Auto-escalation is `isTestEnv()`-guarded (never fires under VITEST) — tests drive the extracted pure helpers with injected deps instead. Recursion guard: escalated re-run carries `_isEscalation:true`, so its own error path → `shouldEscalate` false → no second escalation (escalate at most once). Escalation is local-agent; Postgres path unaffected (distill no-ops under Postgres). distill capture is fire-and-forget + try/catch (sync + async) so it never rejects the escalation path into run()'s caller.
+- Deviations from spec: none material. Implemented `escalateAndCapture`/`shouldEscalate` as exported pure helpers per the issue; the public `run()` return shape is unchanged (additive opts only); the two external callers (`agentCookbookController`, `agentSchedulerService`) are unaffected.
+- Concerns: COST — when enabled, every failed run triggers a second stronger-model re-run (~2x cost of failed runs); flagged in code + env comment. The real auto-escalation path (run→_runOnce→escalateAndCapture with the real distill) is never exercised in CI (isTestEnv short-circuit by design); wiring is proven by the pure-helper tests with injected runFn/distillFn, not an end-to-end re-run. `resolveTeacherModel` splits on the FIRST '/' so multi-segment model ids (e.g. openrouter/anthropic/claude) keep their slashes.
 
 ### 2026-06-24 — P3-2 inject matched skills into prompt preface + enable toggle
 - Files modified:

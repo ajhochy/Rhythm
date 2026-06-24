@@ -102,6 +102,27 @@ export const env = {
     const raw = (process.env.AGENT_SKILLS_ENABLED ?? '').trim().toLowerCase();
     return !(raw === 'false' || raw === '0');
   })(),
+  /**
+   * P4-1: stronger "teacher" model used when a weaker-model run fails and the
+   * teacher-escalation path re-runs it. Format 'provider/modelId'
+   * (e.g. 'anthropic/claude-opus-4-8'). Override with AGENT_TEACHER_MODEL.
+   * Parsed lazily by AgentRunner (split on the FIRST '/').
+   */
+  agentTeacherModel: process.env.AGENT_TEACHER_MODEL ?? 'anthropic/claude-opus-4-8',
+  /**
+   * P4-1: instance-wide toggle for the teacher-escalation path. Default ON.
+   * Only the explicit strings 'false' or '0' disable it (any other value,
+   * including unset, leaves it enabled). Instance-wide, NOT per-user.
+   *
+   * COST NOTE: when ON, every run that resolves with status==='error' triggers
+   * a second (stronger-model) re-run — this roughly DOUBLES the cost of FAILED
+   * runs. Successful runs are unaffected (no escalation). Escalation happens at
+   * most once per run (recursion-guarded).
+   */
+  agentTeacherEscalationEnabled: (() => {
+    const raw = (process.env.AGENT_TEACHER_ESCALATION_ENABLED ?? '').trim().toLowerCase();
+    return !(raw === 'false' || raw === '0');
+  })(),
   /** URL of the production Rhythm API to mirror tasks from (agent-local mode only).
    *  Set via PROD_API_URL env var.  When absent, production task mirroring is skipped. */
   prodApiUrl: process.env.PROD_API_URL ?? null,

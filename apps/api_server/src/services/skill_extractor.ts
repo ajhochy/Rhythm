@@ -197,6 +197,13 @@ const defaultLlmCall: LlmCall = async (systemPrompt, userContent) => {
 export interface DistillOptions {
   /** Injectable LLM call for tests; defaults to the real opencode-backed impl. */
   llmCall?: LlmCall;
+  /**
+   * P4-1: provenance label written to the drafted skill's `source` column.
+   * Defaults to 'auto-extract' (the self-improvement loop). The
+   * teacher-escalation path passes 'teacher-escalation' so a stronger model's
+   * captured approach is distinguishable from ordinary auto-extraction.
+   */
+  source?: string;
 }
 
 /**
@@ -220,6 +227,7 @@ export async function distillFromSession(
   }
 
   const llmCall = opts?.llmCall ?? defaultLlmCall;
+  const source = opts?.source ?? 'auto-extract';
 
   try {
     const msgRepo = new AgentSessionMessagesRepository();
@@ -317,7 +325,7 @@ export async function distillFromSession(
       tags,
       confidence,
       status: 'draft',
-      source: 'auto-extract',
+      source,
     });
     logger.info(`[skill-extract] drafted skill '${title}' (id=${created.id})`);
     return created;
