@@ -22,6 +22,7 @@ class AgentSkill {
     required this.status,
     this.source,
     required this.uses,
+    this.version = 1,
     required this.createdAt,
     required this.updatedAt,
   });
@@ -38,6 +39,7 @@ class AgentSkill {
       status: asString(json['status']) ?? 'draft',
       source: asString(json['source']),
       uses: asInt(json['uses']) ?? 0,
+      version: asInt(json['version']) ?? 1,
       createdAt: asString(json['createdAt']) ?? '',
       updatedAt: asString(json['updatedAt']) ?? '',
     );
@@ -70,6 +72,9 @@ class AgentSkill {
 
   /// How many times this skill has been injected into a run.
   final int uses;
+
+  /// Current version number of this live skill (bumped by refinement/rollback).
+  final int version;
 
   final String createdAt;
   final String updatedAt;
@@ -104,6 +109,7 @@ class AgentSkill {
         'status': status,
         'source': source,
         'uses': uses,
+        'version': version,
         'createdAt': createdAt,
         'updatedAt': updatedAt,
       };

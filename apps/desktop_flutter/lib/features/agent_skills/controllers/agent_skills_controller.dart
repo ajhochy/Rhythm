@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 
 import '../models/agent_skill.dart';
+import '../models/agent_skill_version.dart';
 import '../repositories/agent_skills_repository.dart';
 
 enum AgentSkillsStatus { idle, loading, error }
@@ -58,6 +59,36 @@ class AgentSkillsController extends ChangeNotifier {
     try {
       await _repository.delete(id);
       _skills = _skills.where((s) => s.id != id).toList();
+      _error = null;
+      notifyListeners();
+      return true;
+    } catch (e) {
+      _error = e.toString();
+      notifyListeners();
+      return false;
+    }
+  }
+
+  /// P5-3: fetch the version history for a skill. Returns null on error (and
+  /// records [error]); callers surface the failure to the user.
+  Future<List<AgentSkillVersion>?> loadVersions(String id) async {
+    try {
+      final versions = await _repository.getVersions(id);
+      _error = null;
+      return versions;
+    } catch (e) {
+      _error = e.toString();
+      notifyListeners();
+      return null;
+    }
+  }
+
+  /// P5-3: roll back a skill to [versionNo]. On success the restored live skill
+  /// replaces the in-memory row (so the version number updates immediately).
+  Future<bool> rollbackSkill(String id, int versionNo) async {
+    try {
+      final restored = await _repository.rollback(id, versionNo);
+      _skills = _skills.map((s) => s.id == id ? restored : s).toList();
       _error = null;
       notifyListeners();
       return true;

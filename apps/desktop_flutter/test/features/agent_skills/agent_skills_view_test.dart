@@ -25,6 +25,7 @@ import 'package:provider/provider.dart';
 import 'package:rhythm_desktop/features/agent_skills/controllers/agent_skills_controller.dart';
 import 'package:rhythm_desktop/features/agent_skills/data/agent_skills_data_source.dart';
 import 'package:rhythm_desktop/features/agent_skills/models/agent_skill.dart';
+import 'package:rhythm_desktop/features/agent_skills/models/agent_skill_version.dart';
 import 'package:rhythm_desktop/features/agent_skills/repositories/agent_skills_repository.dart';
 import 'package:rhythm_desktop/features/agent_skills/views/agent_skills_view.dart';
 
@@ -43,10 +44,16 @@ class _FakeSkillsDataSource extends AgentSkillsDataSource {
   String? lastUpdatedId;
   String? lastUpdatedStatus;
   String? lastDeletedId;
+  String? lastVersionsId;
+  String? lastRollbackId;
+  int? lastRollbackVersionNo;
 
   // Behaviour switches.
   bool throwOnGet = false;
   bool hangOnGet = false;
+
+  // History the fake returns from getVersions().
+  List<AgentSkillVersion> versions = const [];
 
   @override
   Future<List<AgentSkill>> getSkills() async {
@@ -85,7 +92,55 @@ class _FakeSkillsDataSource extends AgentSkillsDataSource {
   Future<void> deleteSkill(String id) async {
     lastDeletedId = id;
   }
+
+  @override
+  Future<List<AgentSkillVersion>> getVersions(String id) async {
+    lastVersionsId = id;
+    return List.of(versions);
+  }
+
+  @override
+  Future<AgentSkill> rollback(String id, int versionNo) async {
+    lastRollbackId = id;
+    lastRollbackVersionNo = versionNo;
+    final existing = _skills.firstWhere((s) => s.id == id);
+    return AgentSkill(
+      id: existing.id,
+      title: existing.title,
+      whenToUse: existing.whenToUse,
+      description: existing.description,
+      steps: existing.steps,
+      tags: existing.tags,
+      confidence: existing.confidence,
+      status: existing.status,
+      source: existing.source,
+      uses: existing.uses,
+      version: existing.version + 1,
+      createdAt: existing.createdAt,
+      updatedAt: existing.updatedAt,
+    );
+  }
 }
+
+AgentSkillVersion _version({
+  int versionNo = 1,
+  String source = 'auto-refined',
+  String description = 'a prior version',
+}) =>
+    AgentSkillVersion(
+      id: 'ver-$versionNo',
+      skillId: 'skill-draft-1',
+      versionNo: versionNo,
+      title: 'Draft Skill',
+      whenToUse: 'When testing',
+      description: description,
+      steps: const ['old step'],
+      tags: const ['test'],
+      body: null,
+      confidence: 0.6,
+      source: source,
+      createdAt: '2026-06-24T00:00:00.000Z',
+    );
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -240,6 +295,54 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('No skills yet'), findsOneWidget);
+    });
+
+    testWidgets('tapping History renders the version list (P5-3)',
+        (tester) async {
+      final ds = _FakeSkillsDataSource([_draftSkill()])
+        ..versions = [
+          _version(versionNo: 2, description: 'second'),
+          _version(versionNo: 1, description: 'first'),
+        ];
+      final controller = _controller([], dataSource: ds);
+      addTearDown(controller.dispose);
+
+      await tester.pumpWidget(_buildApp(controller));
+      await tester.pumpAndSettle();
+
+      await tester
+          .tap(find.byKey(const ValueKey('history-skill-skill-draft-1')));
+      await tester.pumpAndSettle();
+
+      expect(ds.lastVersionsId, equals('skill-draft-1'));
+      expect(find.textContaining('Version history'), findsOneWidget);
+      expect(find.textContaining('v2 ·'), findsOneWidget);
+      expect(find.textContaining('v1 ·'), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('rollback-version-1')),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('tapping Rollback fires the repo/route with the version (P5-3)',
+        (tester) async {
+      final ds = _FakeSkillsDataSource([_draftSkill()])
+        ..versions = [_version(versionNo: 1, description: 'first')];
+      final controller = _controller([], dataSource: ds);
+      addTearDown(controller.dispose);
+
+      await tester.pumpWidget(_buildApp(controller));
+      await tester.pumpAndSettle();
+
+      await tester
+          .tap(find.byKey(const ValueKey('history-skill-skill-draft-1')));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const ValueKey('rollback-version-1')));
+      await tester.pumpAndSettle();
+
+      expect(ds.lastRollbackId, equals('skill-draft-1'));
+      expect(ds.lastRollbackVersionNo, equals(1));
     });
   });
 }
