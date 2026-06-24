@@ -17,7 +17,7 @@ All commands delegate to `scripts/run_ai_workflow.py` in this repo.
 ### api_server (Node.js/TypeScript)
 ```bash
 cd apps/api_server
-npm test                  # vitest run — 951 tests (as of #738/#739/#740, 2026-06-23)
+npm test                  # vitest run — 965 tests (as of #738-fix, 2026-06-23)
 node_modules/.bin/tsc --noEmit   # TypeScript type check (no tsc in global PATH)
 ```
 
@@ -74,6 +74,8 @@ dart format . --set-exit-if-changed # CI fails on format violations
 | `src/__tests__/issue_738_agent_runner.test.ts` | #738: AgentRunner.run() success, timeout+abort, slot released, createSession fail, promptAsync fail, concurrency cap (7 tests) |
 | `src/__tests__/issue_739_scheduler_agent_runner.test.ts` | #739: AGENT_LOCAL=true → AgentRunner called, no trigger insert; AGENT_LOCAL=false → trigger inserted, no AgentRunner; loop isolation (4 tests) |
 | `src/__tests__/issue_740_cookbook_run.test.ts` | #740: POST /agent-cookbook/:id/run returns 202+sessionId, 404 unknown, prompt compiled from steps, 401 unauth (4 tests) |
+| `src/__tests__/issue_738_fix_model_and_session.test.ts` | #738-fix: resolveRunModel 3-step cascade (config/MRU/default), promptAsync gets model arg, session recorded, schema columns present (10 tests) |
+| `src/__tests__/issue_738_fix_stale_run_recovery.test.ts` | #738-fix: scheduler boot calls resetStaleRunning on SQLite, skips on Postgres (2 tests) |
 
 ## Mocking the Opencode engine in tests
 

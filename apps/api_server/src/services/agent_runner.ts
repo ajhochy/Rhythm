@@ -19,6 +19,8 @@
 
 import { opencodeClient } from './opencode_engine';
 import { logger } from '../utils/logger';
+import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
+import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
 
 // ── Environment caps (read per-call so tests can override via process.env) ────
 
@@ -44,6 +46,27 @@ export interface AgentRunOptions {
   taskId?: string | null;
   /** Where to deliver the agent result (default: 'session') */
   outputTarget?: 'session' | 'notification' | 'task_notes';
+  /**
+   * #738-fix — agent_configs.id to look up a preferred model for this run.
+   * When provided, resolveRunModel() checks agent_configs.model_provider +
+   * model_id first before falling back to the most-recently-used session model.
+   */
+  agentConfigId?: string | null;
+  /**
+   * #738-fix — agent kind label (e.g. 'claude-code') used as the agent_kind
+   * on the recorded agent_sessions row. Defaults to 'claude-code' when absent.
+   */
+  agentKind?: string | null;
+  /**
+   * #738-fix — Human-readable session name shown in the CHATS list.
+   * Falls back to "AgentRunner run" when omitted.
+   */
+  sessionName?: string | null;
+  /**
+   * #738-fix — FK to agent_scheduled_tasks.id for scheduler-originated runs.
+   * Null for ad-hoc/cookbook runs.
+   */
+  scheduledTaskId?: string | null;
 }
 
 export interface AgentRunResult {
@@ -124,6 +147,98 @@ async function _waitForAssistantReply(
   return null; // timeout
 }
 
+// ── Model resolution ──────────────────────────────────────────────────────────
+
+/**
+ * #738-fix: Resolve a {providerID, modelID} pair for an agent run.
+ *
+ * Resolution order:
+ *  1. agent_configs row with matching id → use model_provider + model_id if set.
+ *  2. Most-recently-used model from agent_sessions (any session with provider_id
+ *     + model_id populated, ordered by created_at DESC).
+ *  3. Hardcoded sensible default: anthropic / claude-sonnet-4-5.
+ *
+ * The function never throws. Returns undefined only if the DB call itself
+ * fails — in that case the caller should use the hardcoded default instead
+ * (handled by the fallthrough to step 3).
+ */
+export function resolveRunModel(
+  agentConfigId?: string | null,
+): { providerID: string; modelID: string } {
+  // Step 1 — agent config preference
+  if (agentConfigId) {
+    try {
+      const config = new AgentConfigsRepository().getById(agentConfigId);
+      if (config?.modelProvider && config?.modelId) {
+        logger.info(
+          `[AgentRunner] resolveRunModel: using agent config ${agentConfigId} model (${config.modelProvider}/${config.modelId})`,
+        );
+        return { providerID: config.modelProvider, modelID: config.modelId };
+      }
+    } catch (err) {
+      logger.warn(`[AgentRunner] resolveRunModel: agent config lookup failed: ${String(err)}`);
+    }
+  }
+
+  // Step 2 — most-recently-used from any session
+  try {
+    const mru = new AgentSessionsRepository().findMostRecentlyUsedModel();
+    if (mru) {
+      logger.info(
+        `[AgentRunner] resolveRunModel: using most-recently-used model (${mru.providerID}/${mru.modelID})`,
+      );
+      return mru;
+    }
+  } catch (err) {
+    logger.warn(`[AgentRunner] resolveRunModel: MRU lookup failed: ${String(err)}`);
+  }
+
+  // Step 3 — hardcoded default so a run never silently hangs on undefined
+  const DEFAULT_PROVIDER = 'anthropic';
+  const DEFAULT_MODEL = 'claude-sonnet-4-5';
+  logger.info(
+    `[AgentRunner] resolveRunModel: no agent config or MRU model found — using default (${DEFAULT_PROVIDER}/${DEFAULT_MODEL})`,
+  );
+  return { providerID: DEFAULT_PROVIDER, modelID: DEFAULT_MODEL };
+}
+
+// ── Session recording ─────────────────────────────────────────────────────────
+
+/**
+ * #738-fix: Record this AgentRunner run in agent_sessions so the CHATS list
+ * surfaces scheduler-originated runs.
+ *
+ * Returns the created session id, or null if the insert fails (non-fatal —
+ * the run can still proceed without a DB record).
+ */
+function _recordSession(opts: {
+  name: string;
+  agentKind: string;
+  cwd: string;
+  scheduledTaskId?: string | null;
+  mcpRole?: string | null;
+  mcpAllowedToolsJson?: string | null;
+}): string | null {
+  try {
+    const repo = new AgentSessionsRepository();
+    const session = repo.insert({
+      agentKind: opts.agentKind as import('../models/agent_session').AgentKind,
+      taskId: null,
+      taskTitle: null,
+      cwd: opts.cwd,
+      name: opts.name,
+      projectId: null,
+      mcpRole: opts.mcpRole ?? null,
+      mcpAllowedToolsJson: opts.mcpAllowedToolsJson ?? null,
+      scheduledTaskId: opts.scheduledTaskId ?? null,
+    });
+    return session.id;
+  } catch (err) {
+    logger.warn(`[AgentRunner] _recordSession failed (non-fatal): ${String(err)}`);
+    return null;
+  }
+}
+
 // ── Main run function ─────────────────────────────────────────────────────────
 
 export async function run(opts: AgentRunOptions): Promise<AgentRunResult> {
@@ -134,6 +249,10 @@ export async function run(opts: AgentRunOptions): Promise<AgentRunResult> {
     cwd,
     taskId,
     outputTarget = 'session',
+    agentConfigId,
+    agentKind,
+    sessionName,
+    scheduledTaskId,
   } = opts;
 
   // Unique slot key for concurrency tracking
@@ -149,6 +268,28 @@ export async function run(opts: AgentRunOptions): Promise<AgentRunResult> {
       error: msg,
     };
   }
+
+  // #738-fix: Resolve the model BEFORE entering the 600s poll so a missing
+  // model is a fast fail rather than a silent timeout.
+  const resolvedModel = resolveRunModel(agentConfigId);
+
+  // #738-fix: Record a session row so this run appears in the CHATS list.
+  const effectiveAgentKind = agentKind ?? 'claude-code';
+  const effectiveName = sessionName
+    ? sessionName
+    : scheduledTaskId
+      ? `Scheduled run`
+      : `AgentRunner run`;
+  const effectiveCwd = cwd ?? process.cwd();
+
+  const rhythmSessionId = _recordSession({
+    name: effectiveName,
+    agentKind: effectiveAgentKind,
+    cwd: effectiveCwd,
+    scheduledTaskId: scheduledTaskId ?? null,
+    mcpRole: mcpRole ?? null,
+    mcpAllowedToolsJson: allowedMcpsJson ?? null,
+  });
 
   const deadline = Date.now() + getRunTimeoutMs();
 
@@ -178,14 +319,14 @@ export async function run(opts: AgentRunOptions): Promise<AgentRunResult> {
 
     // ── Create session ────────────────────────────────────────────────────────
     const sessionResult = await opencodeClient.createSession(
-      'agent-runner',
-      cwd,
+      effectiveName,
+      effectiveCwd,
       mcpRoleConfig,
     );
 
     if (!sessionResult?.id) {
       return {
-        sessionId: '',
+        sessionId: rhythmSessionId ?? '',
         result: '',
         status: 'error',
         error: 'AgentRunner: failed to create opencode session',
@@ -195,11 +336,13 @@ export async function run(opts: AgentRunOptions): Promise<AgentRunResult> {
     const sessionId = sessionResult.id;
     const promptSentAt = Date.now();
 
-    // ── Fire prompt ───────────────────────────────────────────────────────────
-    const enqueued = await opencodeClient.promptAsync(sessionId, prompt, undefined, cwd);
+    // ── Fire prompt — pass resolved model so opencode generates a response ────
+    // #738-fix: the root cause was passing undefined here; opencode never
+    // generates without a model → the 600s poll always timed out.
+    const enqueued = await opencodeClient.promptAsync(sessionId, prompt, resolvedModel, cwd);
     if (!enqueued) {
       return {
-        sessionId,
+        sessionId: rhythmSessionId ?? sessionId,
         result: '',
         status: 'error',
         error: 'AgentRunner: promptAsync returned false (prompt not accepted)',
@@ -224,7 +367,7 @@ export async function run(opts: AgentRunOptions): Promise<AgentRunResult> {
       const errMsg = 'AgentRunner: run timed out';
       logger.warn(`[AgentRunner] session ${sessionId} timed out`);
       return {
-        sessionId,
+        sessionId: rhythmSessionId ?? sessionId,
         result: '',
         status: 'error',
         error: errMsg,
@@ -244,7 +387,7 @@ export async function run(opts: AgentRunOptions): Promise<AgentRunResult> {
 
     logger.info(`[AgentRunner] session ${sessionId} completed (outputTarget=${outputTarget})`);
     return {
-      sessionId,
+      sessionId: rhythmSessionId ?? sessionId,
       result: resultText,
       status: 'done',
     };
@@ -252,7 +395,7 @@ export async function run(opts: AgentRunOptions): Promise<AgentRunResult> {
     const errMsg = String(err);
     logger.error(`[AgentRunner] unexpected error: ${errMsg}`);
     return {
-      sessionId: '',
+      sessionId: rhythmSessionId ?? '',
       result: '',
       status: 'error',
       error: errMsg,

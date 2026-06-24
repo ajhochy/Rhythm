@@ -14,6 +14,16 @@ export interface AgentConfig {
   sortOrder: number;
   createdAt: string;
   updatedAt: string;
+  /**
+   * Preferred provider for AgentRunner model resolution (e.g. "anthropic").
+   * Null means "fall back to most-recently-used session model or hardcoded default".
+   */
+  modelProvider: string | null;
+  /**
+   * Preferred model id for AgentRunner model resolution
+   * (e.g. "claude-sonnet-4-5"). Null when no preference is set.
+   */
+  modelId: string | null;
   // Legacy CLI fields — retained on the row but no longer used by the
   // Opencode-based client. Marked optional so consumers do not depend on
   // them. New writes set these to NULL / empty defaults (issue #581).
@@ -36,6 +46,10 @@ export interface AgentConfigInput {
   allowedSkillsJson?: string | null;
   presetId?: string | null;
   sortOrder?: number;
+  /** Preferred provider for AgentRunner model resolution (e.g. "anthropic"). */
+  modelProvider?: string | null;
+  /** Preferred model id for AgentRunner model resolution (e.g. "claude-sonnet-4-5"). */
+  modelId?: string | null;
   // Legacy fields — accepted on the input shape for back-compat with stale
   // clients, but silently ignored by insert()/update() (issue #581).
   command?: string;
@@ -64,6 +78,8 @@ interface AgentConfigRow {
   sort_order: number;
   created_at: string;
   updated_at: string;
+  model_provider: string | null;
+  model_id: string | null;
 }
 
 function rowToModel(row: AgentConfigRow): AgentConfig {
@@ -86,6 +102,8 @@ function rowToModel(row: AgentConfigRow): AgentConfig {
     sortOrder: row.sort_order,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    modelProvider: row.model_provider ?? null,
+    modelId: row.model_id ?? null,
   };
 }
 
@@ -129,8 +147,9 @@ export class AgentConfigsRepository {
           (id, label, icon, command, enabled, is_agent, is_manager, system_prompt,
            allowed_mcps_json, allowed_skills_json, can_resume,
            resume_command, session_id_pattern, output_marker, preset_id, sort_order,
+           model_provider, model_id,
            created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         id,
@@ -149,6 +168,8 @@ export class AgentConfigsRepository {
         null, // output_marker — legacy
         config.presetId ?? null,
         config.sortOrder ?? 0,
+        config.modelProvider ?? null,
+        config.modelId ?? null,
         now,
         now,
       );
@@ -197,6 +218,14 @@ export class AgentConfigsRepository {
     if (patch.sortOrder !== undefined) {
       fields.push('sort_order = ?');
       values.push(patch.sortOrder);
+    }
+    if (patch.modelProvider !== undefined) {
+      fields.push('model_provider = ?');
+      values.push(patch.modelProvider ?? null);
+    }
+    if (patch.modelId !== undefined) {
+      fields.push('model_id = ?');
+      values.push(patch.modelId ?? null);
     }
     // Legacy CLI fields (command, canResume, resumeCommand, sessionIdPattern,
     // outputMarker) are silently ignored on update so stale clients can't

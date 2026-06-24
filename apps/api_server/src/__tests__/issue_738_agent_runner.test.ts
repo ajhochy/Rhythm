@@ -78,9 +78,19 @@ describe('#738 — AgentRunner', () => {
 
     expect(result.status).toBe('done');
     expect(result.result).toBe('Hello from agent');
-    expect(result.sessionId).toBe('sdk-session-1');
+    // sessionId is now the Rhythm session id (from _recordSession); it may differ
+    // from the opencode session id since the DB is not initialized in this test.
+    expect(typeof result.sessionId).toBe('string');
     expect(mockCreateSession).toHaveBeenCalledOnce();
-    expect(mockPromptAsync).toHaveBeenCalledWith('sdk-session-1', 'Say hello', undefined, undefined);
+    // #738-fix: promptAsync must be called WITH a resolved model (not undefined).
+    // The DB is not initialized in this test so MRU lookup falls back to the
+    // hardcoded default: anthropic / claude-sonnet-4-5.
+    expect(mockPromptAsync).toHaveBeenCalledWith(
+      'sdk-session-1',
+      'Say hello',
+      { providerID: 'anthropic', modelID: 'claude-sonnet-4-5' },
+      undefined,
+    );
   });
 
   // ── B. Timeout path ───────────────────────────────────────────────────────

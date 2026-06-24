@@ -54,7 +54,7 @@ an optional `existing` task, pre-fills all fields, shows "Edit Scheduled Task"
 | Stale-symbol grep (`_NewScheduleSheet`) | 0 live code references (only docs mention) |
 
 Branch: `feature/agent-scheduler`
-Commit: `463f2a373787ed508f5b611ebad86d4a3e8e0a94`
+Commit: `ba6443a` (edit-mode feature)
 
 ## Decisions
 

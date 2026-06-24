@@ -53,6 +53,11 @@ export interface AgentSession {
   archivedAt: string | null;
   createdAt: string;
   updatedAt: string;
+  /**
+   * Agent-loop tracking: the `agent_scheduled_tasks.id` that triggered this
+   * session. Null for interactive sessions.
+   */
+  scheduledTaskId: string | null;
 }
 
 export interface UpdateAgentSessionDto {
@@ -104,4 +109,10 @@ export interface CreateAgentSessionDto {
    * Shape: Record<serverName, string[]>. Null when no role was requested.
    */
   mcpAllowedToolsJson?: string | null;
+  /**
+   * Agent-loop tracking: the `agent_scheduled_tasks` row that triggered this
+   * session. Null for interactive sessions. Persisted so the CHATS list can
+   * surface scheduler-originated runs with their source task.
+   */
+  scheduledTaskId?: string | null;
 }

@@ -600,4 +600,15 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
   await pool.query(
     `CREATE INDEX IF NOT EXISTS idx_agent_designs_created_at ON agent_designs(created_at)`,
   );
+
+  // Agent-runner model selection: store preferred provider/model on agent_configs.
+  await pool.query(`
+    ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS model_provider TEXT;
+    ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS model_id TEXT;
+  `);
+
+  // #738-fix — agent_sessions.scheduled_task_id: FK to agent_scheduled_tasks.id.
+  await pool.query(`
+    ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS scheduled_task_id TEXT REFERENCES agent_scheduled_tasks(id) ON DELETE SET NULL;
+  `);
 }

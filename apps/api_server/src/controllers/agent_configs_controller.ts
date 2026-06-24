@@ -66,6 +66,8 @@ export class AgentConfigsController {
         systemPrompt: typeof body.systemPrompt === 'string' ? body.systemPrompt : null,
         allowedMcpsJson: typeof body.allowedMcpsJson === 'string' ? body.allowedMcpsJson : null,
         allowedSkillsJson: typeof body.allowedSkillsJson === 'string' ? body.allowedSkillsJson : null,
+        modelProvider: typeof body.modelProvider === 'string' ? body.modelProvider : null,
+        modelId: typeof body.modelId === 'string' ? body.modelId : null,
         canResume: false,
         resumeCommand: null,
         sessionIdPattern: null,
@@ -110,6 +112,8 @@ export class AgentConfigsController {
       if (body.systemPrompt !== undefined) patch.systemPrompt = typeof body.systemPrompt === 'string' ? body.systemPrompt : null;
       if (body.allowedMcpsJson !== undefined) patch.allowedMcpsJson = typeof body.allowedMcpsJson === 'string' ? body.allowedMcpsJson : null;
       if (body.allowedSkillsJson !== undefined) patch.allowedSkillsJson = typeof body.allowedSkillsJson === 'string' ? body.allowedSkillsJson : null;
+      if (body.modelProvider !== undefined) patch.modelProvider = typeof body.modelProvider === 'string' ? body.modelProvider : null;
+      if (body.modelId !== undefined) patch.modelId = typeof body.modelId === 'string' ? body.modelId : null;
       // Legacy CLI fields (#581) — accept on the wire for back-compat
       // with old payloads but never propagate to the repository layer.
 

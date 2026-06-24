@@ -34,6 +34,8 @@ interface AgentSessionRow {
   mcp_role: string | null;
   /** C1 — JSON Record<serverName, string[]> of resolved per-server allowedTools. */
   mcp_allowed_tools_json: string | null;
+  /** Agent-loop tracking: FK to agent_scheduled_tasks.id. Null for interactive sessions. */
+  scheduled_task_id: string | null;
 }
 
 function rowToModel(row: AgentSessionRow): AgentSession {
@@ -62,6 +64,7 @@ function rowToModel(row: AgentSessionRow): AgentSession {
     updatedAt: row.updated_at,
     mcpRole: row.mcp_role ?? null,
     mcpAllowedToolsJson: row.mcp_allowed_tools_json ?? null,
+    scheduledTaskId: row.scheduled_task_id ?? null,
   };
 }
 
@@ -73,8 +76,8 @@ export class AgentSessionsRepository {
       .prepare(
         `INSERT INTO agent_sessions
            (id, task_id, task_title, agent_kind, status, cwd, name, project_id,
-            mcp_role, mcp_allowed_tools_json, created_at, updated_at)
-         VALUES (?, ?, ?, ?, 'starting', ?, ?, ?, ?, ?, ?, ?)`,
+            mcp_role, mcp_allowed_tools_json, scheduled_task_id, created_at, updated_at)
+         VALUES (?, ?, ?, ?, 'starting', ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         id,
@@ -86,6 +89,7 @@ export class AgentSessionsRepository {
         dto.projectId ?? null,
         dto.mcpRole ?? null,
         dto.mcpAllowedToolsJson ?? null,
+        dto.scheduledTaskId ?? null,
         now,
         now,
       );
@@ -327,6 +331,43 @@ export class AgentSessionsRepository {
     const result = getDb()
       .prepare(`DELETE FROM agent_sessions WHERE status = 'closed' AND created_at < ?`)
       .run(cutoffIso);
+    return result.changes;
+  }
+
+  /**
+   * #738-fix — Return the most-recently-used {providerID, modelID} pair from
+   * any agent session that has both columns populated.
+   *
+   * Source: agent_sessions.provider_id + model_id, ordered by created_at DESC.
+   * Used by AgentRunner.resolveRunModel() when the agent config has no preferred
+   * model set and no hardcoded default has been provided by the caller.
+   */
+  findMostRecentlyUsedModel(): { providerID: string; modelID: string } | null {
+    const row = getDb()
+      .prepare(
+        `SELECT provider_id, model_id FROM agent_sessions
+         WHERE provider_id IS NOT NULL AND model_id IS NOT NULL
+         ORDER BY created_at DESC LIMIT 1`,
+      )
+      .get() as { provider_id: string; model_id: string } | undefined;
+    if (!row) return null;
+    return { providerID: row.provider_id, modelID: row.model_id };
+  }
+
+  /**
+   * #738-fix — Reset orphaned 'running' sessions to 'error' on server restart.
+   * Sessions left in status='running' from a previous crash would stay stuck
+   * forever. Called by the scheduler on boot.
+   */
+  resetStaleRunning(message = 'Server restarted — run interrupted'): number {
+    const now = new Date().toISOString();
+    const result = getDb()
+      .prepare(
+        `UPDATE agent_sessions
+         SET status = 'error', status_message = ?, updated_at = ?
+         WHERE status = 'running'`,
+      )
+      .run(message, now);
     return result.changes;
   }
 }

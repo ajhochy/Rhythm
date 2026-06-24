@@ -19,6 +19,7 @@ import cron, { type ScheduledTask as CronTask } from 'node-cron';
 import { randomUUID } from 'node:crypto';
 import { logger } from '../utils/logger';
 import { AgentScheduledTasksRepository } from '../repositories/agent_scheduled_tasks_repository';
+import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
 import { getDb, getPostgresPool } from '../database/db';
 import { env } from '../config/env';
 import * as AgentRunner from './agent_runner';
@@ -258,11 +259,16 @@ async function checkDueTasks(): Promise<void> {
         await repo.updateNextRunAsync(task.id, nextRun, runStart, 'running');
 
         // Run async — one failure must not block the rest of the loop.
+        // #738-fix: pass agentKind + scheduledTaskId so the runner can
+        // resolve a model and record a session row visible in CHATS.
         AgentRunner.run({
           prompt: task.prompt,
           allowedMcpsJson: task.allowedMcpsJson,
           taskId: null,
           outputTarget: 'session',
+          agentKind: task.agentKind ?? 'claude-code',
+          scheduledTaskId: task.id,
+          sessionName: `Scheduled: ${task.name}`,
         }).then(async (result) => {
           const status = result.status === 'done' ? 'success' : 'error';
           const errMsg = result.error ?? undefined;
@@ -317,6 +323,23 @@ async function checkDueTasks(): Promise<void> {
 }
 
 export function startAgentSchedulerJob(): CronTask {
+  // #738-fix: Reset any agent_sessions left in status='running' from a prior
+  // crash so they don't appear stuck in the CHATS list forever.
+  // SQLite-only: agent_sessions lives on the local server; Postgres path is
+  // production and does not have this table.
+  if (env.dbClient !== 'postgres') {
+    try {
+      const staleCount = new AgentSessionsRepository().resetStaleRunning(
+        'Server restarted — run interrupted',
+      );
+      if (staleCount > 0) {
+        logger.info(`[AgentScheduler] Reset ${staleCount} stale running session(s) to error on boot`);
+      }
+    } catch (err) {
+      logger.warn(`[AgentScheduler] Could not reset stale running sessions: ${String(err)}`);
+    }
+  }
+
   // Run once immediately on startup to catch any tasks that fired while the
   // server was down (Odysseus does the same with the "pushed next_run forward"
   // pattern on startup — here we simply let them fire immediately).

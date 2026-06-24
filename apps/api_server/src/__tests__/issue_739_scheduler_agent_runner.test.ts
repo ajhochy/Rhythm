@@ -17,11 +17,13 @@ const {
   mockFindDueAsync,
   mockUpdateNextRunAsync,
   mockDbRun,
+  mockResetStaleRunning,
 } = vi.hoisted(() => ({
   mockRun: vi.fn(),
   mockFindDueAsync: vi.fn(),
   mockUpdateNextRunAsync: vi.fn().mockResolvedValue(undefined),
   mockDbRun: vi.fn(),
+  mockResetStaleRunning: vi.fn().mockReturnValue(0),
 }));
 
 // ── Mock modules ──────────────────────────────────────────────────────────────
@@ -53,6 +55,15 @@ vi.mock('../repositories/agent_scheduled_tasks_repository', () => ({
   AgentScheduledTasksRepository: class {
     findDueAsync = mockFindDueAsync;
     updateNextRunAsync = mockUpdateNextRunAsync;
+  },
+}));
+
+// #738-fix: mock AgentSessionsRepository so the stale-run reset on boot
+// does not touch mockDbRun, keeping the trigger-INSERT assertions clean.
+vi.mock('../repositories/agent_sessions_repository', () => ({
+  AgentSessionsRepository: class {
+    resetStaleRunning = mockResetStaleRunning;
+    findMostRecentlyUsedModel = vi.fn().mockReturnValue(null);
   },
 }));
 

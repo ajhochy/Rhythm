@@ -1376,4 +1376,23 @@ export function runMigrations(db: Database.Database): void {
   if (!agentConfigCols.includes('allowed_skills_json')) {
     db.exec(`ALTER TABLE agent_configs ADD COLUMN allowed_skills_json TEXT`);
   }
+
+  // Agent-runner model selection: store the preferred provider/model on an
+  // agent config profile so AgentRunner can resolve a model without user input.
+  // Both columns are nullable — existing rows need no backfill (resolveRunModel
+  // falls back to most-recently-used or a hardcoded default).
+  if (!agentConfigCols.includes('model_provider')) {
+    db.exec(`ALTER TABLE agent_configs ADD COLUMN model_provider TEXT`);
+  }
+  if (!agentConfigCols.includes('model_id')) {
+    db.exec(`ALTER TABLE agent_configs ADD COLUMN model_id TEXT`);
+  }
+
+  // #738-fix — agent_sessions.scheduled_task_id: FK to agent_scheduled_tasks.id.
+  // AgentRunner records a session row on every run; this column ties the row to
+  // the scheduler task that triggered it (null for interactive sessions).
+  const agentSessionColsScheduled = (db.pragma('table_info(agent_sessions)') as { name: string }[]).map((c) => c.name);
+  if (!agentSessionColsScheduled.includes('scheduled_task_id')) {
+    db.exec(`ALTER TABLE agent_sessions ADD COLUMN scheduled_task_id TEXT REFERENCES agent_scheduled_tasks(id) ON DELETE SET NULL`);
+  }
 }
