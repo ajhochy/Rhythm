@@ -2,7 +2,17 @@
 
 ## Current focus
 
-**2026-06-24 — Odysseus self-improving skill library: 9/10 issues COMPLETE on feature/agent-scheduler (PR #734), all CI-green; awaiting manual smoke + the cross-repo P0-1 follow-up**
+**2026-06-24 — Odysseus self-improving skill library COMPLETE + two follow-ups (P5 self-refinement, memory injection) INTEGRATED on feature/agent-scheduler (PR #734), all CI-green; awaiting manual smoke + the cross-repo P0-1 follow-up**
+
+Both follow-ups were implemented in parallel git worktrees (Stream A =
+self-refinement, Stream B = memory injection) and integrated sequentially onto
+`feature/agent-scheduler` (HEAD `1412614`). Only `env.ts` + `project-state.md`
+conflicted (both reconciled — both toggles + both run entries kept);
+`agent_runner.ts` send site composes `memory \n\n skills \n\n prompt`, each
+preface independently toggle-guarded. CI green (Server + Desktop + MCP). See
+`docs/ai/runs/2026-06-24-p5-memory-injection-integration.md`.
+- **P5 self-refinement** — `agent_skill_versions` table (both DBs) + `version` col; `reviseInPlace`/`listVersions`/`rollback` (non-destructive); injectable fail-closed LLM judge (revise only on clear "better" AND candidate.conf ≥ existing.conf), wired at the shared `distillFromSession` seam (covers auto-extract + teacher path); Flutter History dialog + one-click rollback. Toggle `AGENT_SKILL_REFINEMENT_ENABLED`; routes `GET /agent-skills/:id/versions`, `POST /agent-skills/:id/rollback`. Seed-invariant preserved (UPDATE keeps id; non-seed source).
+- **Memory injection** — `memory_retrieval.ts` (`getRelevantMemories`/`buildMemoryPreface`, owner-scoped via FTS5 `searchAsync`, per-token probe). OWNER-SCOPED fail-closed: scheduler threads `created_by_user_id`; WS/interactive has no per-session owner → null → global-only memory (never cross-user leak). Transient preface, never persisted. Toggle `AGENT_MEMORY_INJECTION_ENABLED`.
 
 The full Rhythm-native, instance-shared skill library loop is implemented,
 committed, and CI-green (Server + Desktop + MCP):
@@ -56,9 +66,10 @@ Visual smoke (`flutter run -d macos`) is required before merging scheduler branc
 
 ## Active branch / PR
 
-- **Branch:** `feature/agent-scheduler` (HEAD `db97f8b` — question-hang fix + dark-mode card, pushed; manual smoke PASS)
+- **Branch:** `feature/agent-scheduler` (HEAD `1412614` — P5 self-refinement + memory injection integrated, pushed; CI green Server+Desktop+MCP; manual smoke of new surfaces pending)
 - **PR:** [#734](https://github.com/ajhochy/Rhythm/pull/734) — open
 - **Base:** `main`
+- **Worktrees:** `../rhythm-p5-refine` (feat/skill-self-refinement) + `../rhythm-mem-inject` (feat/memory-injection) — merged in; safe to `git worktree remove`.
 
 ---
 
@@ -84,6 +95,8 @@ Visual smoke (`flutter run -d macos`) is required before merging scheduler branc
 - **issue_653_contract.test.ts flaky:** one port-binding race observed on a single run; passed on all subsequent runs. Pre-existing, unrelated to this work.
 - **P4-1 teacher-escalation cost:** when `AGENT_TEACHER_ESCALATION_ENABLED` is ON (default), every run that ends in `status==='error'` triggers a second stronger-model re-run — roughly DOUBLES the cost of FAILED runs (successful runs unaffected). Escalates at most once per run (recursion-guarded). Disable with `AGENT_TEACHER_ESCALATION_ENABLED=false`.
 - **P4-1 escalation path not exercised in CI:** the live run→escalate→distill path is `isTestEnv`-guarded; only the injected-dep pure helpers are unit-tested. Real re-run + capture is runtime-only (same posture as P2/P3).
+- **P5 refine judge cost:** one cheap LLM judge call per refinement candidate (only when a distilled candidate matches an EXISTING skill). Live judge/refine path is `isTestEnv`-guarded — proven by injected-judge unit tests, not end-to-end. Disable with `AGENT_SKILL_REFINEMENT_ENABLED=false`.
+- **Memory injection WS scope:** interactive WS sessions have no owner column on `agent_sessions`, so memory injection there is permanently **global-only** (null-owner facts) until an owner column is added — a deliberate fail-closed choice (never cross-user leak), not a bug. Per-token FTS probe issues up to 12 owner-scoped queries per send (cheap at this scale). Live model path is `isTestEnv`-inert; wiring proven by forwarded-prompt capture.
 
 ---
 
@@ -93,15 +106,18 @@ Visual smoke (`flutter run -d macos`) is required before merging scheduler branc
 |-------|--------|
 | `dart format .` | PASS — 0 changed (last verified 2026-06-23) |
 | `flutter analyze --no-fatal-infos` | PASS — 0 errors, 0 warnings (last verified 2026-06-23) |
-| `flutter test` (full) | **645 PASS, 0 FAIL** (+6 new launch-button widget tests, last verified 2026-06-23) |
-| `api_server tsc --noEmit` | PASS — 0 errors (last verified 2026-06-24) |
-| `api_server npm test` | **1073/1073 PASS** (last verified 2026-06-24; +3 agent_skills.body tests; opc_curated_mcp_token_bridge c4 now hermetic; both follow-ups Server-CI-green) |
+| `flutter test` (full) | **656 PASS, 0 FAIL** (last verified 2026-06-24 on HEAD 1412614; +2 agent_skills history/rollback real-surface tests) |
+| `api_server tsc --noEmit` | PASS — 0 errors (last verified 2026-06-24 on HEAD 1412614) |
+| `api_server npm test` | **1123/1123 PASS** (last verified 2026-06-24 on HEAD 1412614; baseline 1078 + 30 P5 self-refinement + 15 memory injection; CI green Server+Desktop+MCP) |
 
 ---
 
 ## Next step
 
-1. **Commit pending changes** — all ~11 modified/new files on feature/agent-scheduler branch (see "In progress" above).
+0. **Manual smoke of the two new follow-ups** (`flutter run -d macos`, fully quit + relaunch so the embedded api_server restarts with the new schema/routes):
+   - **Skills → History/Rollback** — open the Skills screen, tap a skill's History button, confirm the version list renders (source + timestamp + current `v<n>`), tap "Rollback to this version", confirm the skill reverts and a new version is recorded.
+   - **Memory injection (optional, runtime-only)** — with `AGENT_MEMORY_INJECTION_ENABLED` ON (default), confirm a scheduled run owned by a user surfaces that user's stored facts; verify nothing leaks across users (owner-scoped). Toggle off → prompt unchanged.
+1. **Commit pending changes** — (prior scheduler items already committed).
 2. **Manual smoke** — `flutter run -d macos`:
    - Confirm nav column header/footer pinned, middle scrolls, all TOOLS rows reachable.
    - Confirm Cookbook/Email/Gallery views open.
