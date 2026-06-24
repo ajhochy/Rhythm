@@ -103,6 +103,18 @@ export const env = {
     return !(raw === 'false' || raw === '0');
   })(),
   /**
+   * P5-2: instance-wide toggle for the self-refinement loop (improving EXISTING
+   * skills in place). Default ON. Only the explicit strings 'false' or '0'
+   * disable it. When OFF the loop still drafts NEW skills but never revises an
+   * existing one. The live gate in skill_refiner.ts uses
+   * `isSkillRefinementEnabled()` (re-reads process.env per call) for
+   * test/per-call toggling; this is the documented config surface.
+   */
+  agentSkillRefinementEnabled: (() => {
+    const raw = (process.env.AGENT_SKILL_REFINEMENT_ENABLED ?? '').trim().toLowerCase();
+    return !(raw === 'false' || raw === '0');
+  })(),
+  /**
    * P4-1: stronger "teacher" model used when a weaker-model run fails and the
    * teacher-escalation path re-runs it. Format 'provider/modelId'
    * (e.g. 'anthropic/claude-opus-4-8'). Override with AGENT_TEACHER_MODEL.

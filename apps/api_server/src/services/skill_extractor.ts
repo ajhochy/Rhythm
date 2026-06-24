@@ -34,6 +34,7 @@ import { logger } from '../utils/logger';
 import { env } from '../config/env';
 import { AgentSkillsRepository } from '../repositories/agent_skills_repository';
 import { AgentSessionMessagesRepository } from '../repositories/agent_session_messages_repository';
+import { refineExistingSkill } from './skill_refiner';
 import type { AgentSkill } from '../models/agent_skill';
 
 /**
@@ -302,10 +303,6 @@ export async function distillFromSession(
     }
 
     const repo = new AgentSkillsRepository();
-    if (repo.findByTitle(title)) {
-      logger.info(`[skill-extract] '${title}' already exists — dup skipped`);
-      return null;
-    }
 
     const problem = typeof data.problem === 'string' ? data.problem.trim() : '';
     const solution = typeof data.solution === 'string' ? data.solution.trim() : '';
@@ -317,6 +314,29 @@ export async function distillFromSession(
     const tags = Array.isArray(data.tags)
       ? (data.tags.filter((t) => typeof t === 'string') as string[])
       : null;
+
+    // P5-2 — self-refinement: if this candidate matches an EXISTING skill, try
+    // to improve it IN PLACE (quality-bar gated, auto-applied, non-destructive)
+    // rather than skipping the dup or creating a parallel draft. The refiner
+    // maps the distill `source` to the corresponding refinement provenance.
+    const refineSource = source === 'teacher-escalation' ? 'teacher-refined' : 'auto-refined';
+    const outcome = await refineExistingSkill(
+      { title, description, steps, tags, confidence },
+      { repo, source: refineSource },
+    );
+    if (outcome === 'revised') {
+      // Existing skill improved in place — do NOT also create a new draft.
+      return null;
+    }
+    if (outcome === 'kept' || outcome === 'skipped') {
+      // A match exists but the quality bar failed (or refinement is off). Keep
+      // the legacy dup behavior: if the TITLE already exists, do not duplicate.
+      if (repo.findByTitle(title)) {
+        logger.info(`[skill-extract] '${title}' already exists — dup skipped`);
+        return null;
+      }
+    }
+    // 'no-match' (or kept/skipped with no title clash) → fall through to draft.
 
     const created = repo.create({
       title,

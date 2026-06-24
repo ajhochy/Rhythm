@@ -3,7 +3,15 @@ import { AppError } from '../errors/app_error';
 import { AgentSkillsRepository } from '../repositories/agent_skills_repository';
 import type { AgentSkillInput } from '../models/agent_skill';
 
-const repo = new AgentSkillsRepository();
+/**
+ * Resolve the repository at REQUEST time so it binds to the current global DB.
+ * (Constructing it at module load captures whatever DB existed at import — which
+ * in tests is before `setDb`, yielding a throwaway in-memory DB. Resolving per
+ * request honors the live DB in both prod and tests.)
+ */
+function getRepo(): AgentSkillsRepository {
+  return new AgentSkillsRepository();
+}
 
 const VALID_STATUSES = ['draft', 'published'];
 
@@ -41,6 +49,7 @@ function validateBody(body: Record<string, unknown>, requireTitle: boolean): voi
 export class AgentSkillsController {
   list(_req: Request, res: Response, next: NextFunction): void {
     try {
+      const repo = getRepo();
       const skills = repo.list();
       res.json(skills);
     } catch (err) {
@@ -50,6 +59,7 @@ export class AgentSkillsController {
 
   getOne(req: Request, res: Response, next: NextFunction): void {
     try {
+      const repo = getRepo();
       const skill = repo.getById(req.params.id);
       if (!skill) throw AppError.notFound('AgentSkill');
       res.json(skill);
@@ -60,6 +70,7 @@ export class AgentSkillsController {
 
   create(req: Request, res: Response, next: NextFunction): void {
     try {
+      const repo = getRepo();
       const body = req.body as Record<string, unknown>;
       validateBody(body, true);
 
@@ -83,6 +94,7 @@ export class AgentSkillsController {
 
   patch(req: Request, res: Response, next: NextFunction): void {
     try {
+      const repo = getRepo();
       const existing = repo.getById(req.params.id);
       if (!existing) throw AppError.notFound('AgentSkill');
 
@@ -109,12 +121,49 @@ export class AgentSkillsController {
 
   remove(req: Request, res: Response, next: NextFunction): void {
     try {
+      const repo = getRepo();
       const existing = repo.getById(req.params.id);
       if (!existing) throw AppError.notFound('AgentSkill');
 
       const deleted = repo.remove(req.params.id);
       if (!deleted) throw AppError.notFound('AgentSkill');
       res.status(204).end();
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /** P5-3: GET /agent-skills/:id/versions — version history, newest first. */
+  listVersions(req: Request, res: Response, next: NextFunction): void {
+    try {
+      const repo = getRepo();
+      const existing = repo.getById(req.params.id);
+      if (!existing) throw AppError.notFound('AgentSkill');
+      res.json(repo.listVersions(req.params.id));
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * P5-3: POST /agent-skills/:id/rollback — restore a prior version as the new
+   * current row (non-destructive — recorded as a new version). Body: { versionNo }.
+   */
+  rollback(req: Request, res: Response, next: NextFunction): void {
+    try {
+      const repo = getRepo();
+      const existing = repo.getById(req.params.id);
+      if (!existing) throw AppError.notFound('AgentSkill');
+
+      const body = req.body as Record<string, unknown>;
+      const versionNo = body.versionNo;
+      if (typeof versionNo !== 'number' || !Number.isInteger(versionNo) || versionNo < 1) {
+        throw AppError.badRequest('versionNo must be a positive integer');
+      }
+
+      const restored = repo.rollback(req.params.id, versionNo);
+      if (!restored) throw AppError.notFound('AgentSkillVersion');
+      res.json(restored);
     } catch (err) {
       next(err);
     }

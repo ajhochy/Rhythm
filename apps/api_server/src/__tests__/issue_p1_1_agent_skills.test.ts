@@ -73,7 +73,8 @@ describe('issue-P1-1-c3: Both SQLite and Postgres have identical agent_skills sc
     // Expected columns (must match postgres_bootstrap.ts exactly)
     const expectedCols = [
       'id', 'title', 'when_to_use', 'description', 'steps_json', 'tags_json',
-      'body', 'confidence', 'status', 'source', 'uses', 'created_at', 'updated_at'
+      'body', 'confidence', 'status', 'source', 'uses', 'version',
+      'created_at', 'updated_at'
     ].sort();
 
     expect(sqliteCols).toEqual(expectedCols);

@@ -13,3 +13,6 @@ agentSkillsRouter.post('/', controller.create.bind(controller));
 agentSkillsRouter.get('/:id', controller.getOne.bind(controller));
 agentSkillsRouter.patch('/:id', controller.patch.bind(controller));
 agentSkillsRouter.delete('/:id', controller.remove.bind(controller));
+// P5-3 — version history + one-click rollback.
+agentSkillsRouter.get('/:id/versions', controller.listVersions.bind(controller));
+agentSkillsRouter.post('/:id/rollback', controller.rollback.bind(controller));
