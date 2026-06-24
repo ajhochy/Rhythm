@@ -20,6 +20,7 @@
 import { opencodeClient } from './opencode_engine';
 import { logger } from '../utils/logger';
 import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
+import { AgentSessionMessagesRepository } from '../repositories/agent_session_messages_repository';
 import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
 
 // ── Environment caps (read per-call so tests can override via process.env) ────
@@ -376,6 +377,7 @@ export async function run(opts: AgentRunOptions): Promise<AgentRunResult> {
     if (timedOut) {
       await opencodeClient.abortSession(sessionId, cwd).catch(() => {});
       logger.warn(`[AgentRunner] session ${sessionId} timed out after ${timeoutMs}ms`);
+      _markSessionError(rhythmSessionId);
       return {
         sessionId: rhythmSessionId ?? sessionId,
         result: '',
@@ -388,6 +390,7 @@ export async function run(opts: AgentRunOptions): Promise<AgentRunResult> {
       logger.error(
         `[AgentRunner] session ${sessionId}: prompt returned no response (model ${resolvedModel.providerID}/${resolvedModel.modelID} may be invalid or the provider unauthenticated)`,
       );
+      _markSessionError(rhythmSessionId);
       return {
         sessionId: rhythmSessionId ?? sessionId,
         result: '',
@@ -398,13 +401,57 @@ export async function run(opts: AgentRunOptions): Promise<AgentRunResult> {
     }
 
     // Extract assistant text from the returned parts.
-    const resultText = (response.parts ?? [])
-      .filter(
-        (p): p is import('@opencode-ai/sdk').TextPart => p.type === 'text',
-      )
-      .map((p) => p.text)
-      .join('\n')
-      .trim();
+    const _extractText = (parts: ReadonlyArray<{ type: string }> | undefined) =>
+      (parts ?? [])
+        .filter(
+          (p): p is import('@opencode-ai/sdk').TextPart => p.type === 'text',
+        )
+        .map((p) => p.text)
+        .join('\n')
+        .trim();
+
+    let resultText = _extractText(response.parts);
+    logger.info(
+      `[AgentRunner] prompt() response parts=[${(response.parts ?? []).map((p) => p.type).join(',')}] textLen=${resultText.length}`,
+    );
+
+    // Fallback: session.prompt's returned parts can be empty for agent turns;
+    // read the session's final assistant message (same source the interactive
+    // transcript uses) and extract its text.
+    if (!resultText) {
+      try {
+        const msgs = await opencodeClient.listMessages(sessionId);
+        const lastAssistant = msgs
+          .filter((m) => m.role === 'assistant')
+          .pop();
+        resultText = _extractText(
+          lastAssistant?.parts as ReadonlyArray<{ type: string }> | undefined,
+        );
+        logger.info(
+          `[AgentRunner] fallback listMessages: assistantMsgs=${msgs.filter((m) => m.role === 'assistant').length} textLen=${resultText.length}`,
+        );
+      } catch (err) {
+        logger.warn(`[AgentRunner] listMessages fallback failed: ${String(err)}`);
+      }
+    }
+
+    // ── Persist to Rhythm's message store + flip status ───────────────────────
+    // AgentRunner bypasses the WS stream bridge (which normally persists turns +
+    // flips status for interactive chats), so without this the run's session
+    // stays stuck on 'starting'/"Waiting for output…" in the UI even though it
+    // succeeded. Write the prompt + assistant result and mark the session idle.
+    if (rhythmSessionId) {
+      try {
+        const msgRepo = new AgentSessionMessagesRepository();
+        msgRepo.append(rhythmSessionId, 'input', prompt, prompt);
+        if (resultText) {
+          msgRepo.append(rhythmSessionId, 'output', resultText, resultText);
+        }
+        new AgentSessionsRepository().updateStatus(rhythmSessionId, 'idle');
+      } catch (err) {
+        logger.warn(`[AgentRunner] persist result failed (non-fatal): ${String(err)}`);
+      }
+    }
 
     // ── Output delivery ───────────────────────────────────────────────────────
     if (outputTarget === 'task_notes' && taskId) {
@@ -426,6 +473,7 @@ export async function run(opts: AgentRunOptions): Promise<AgentRunResult> {
   } catch (err) {
     const errMsg = String(err);
     logger.error(`[AgentRunner] unexpected error: ${errMsg}`);
+    _markSessionError(rhythmSessionId);
     return {
       sessionId: rhythmSessionId ?? '',
       result: '',
@@ -434,6 +482,16 @@ export async function run(opts: AgentRunOptions): Promise<AgentRunResult> {
     };
   } finally {
     _releaseSlot(slotKey);
+  }
+}
+
+/** Mark a recorded run session as errored (non-fatal best-effort). */
+function _markSessionError(rhythmSessionId: string | null): void {
+  if (!rhythmSessionId) return;
+  try {
+    new AgentSessionsRepository().updateStatus(rhythmSessionId, 'error');
+  } catch {
+    /* non-fatal */
   }
 }
 
