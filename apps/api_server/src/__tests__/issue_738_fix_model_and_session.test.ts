@@ -2,10 +2,10 @@
  * #738-fix — AgentRunner model resolution + session recording
  *
  * Tests that:
- * 1. promptAsync is called WITH a resolved model (never undefined).
+ * 1. prompt() is called WITH a resolved model (never undefined).
  * 2. run() records an agent_sessions row (spy the repository insert).
  * 3. resolveRunModel falls back to hardcoded default when DB is unavailable.
- * 4. run() with promptAsync returning false returns error status quickly.
+ * 4. run() with prompt() returning null returns error status quickly.
  * 5. New agent_configs model columns present in SQLite schema.
  * 6. agent_sessions.scheduled_task_id column present in SQLite schema.
  */
@@ -16,17 +16,15 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 
 const {
   mockCreateSession,
-  mockPromptAsync,
+  mockPrompt,
   mockAbortSession,
-  mockListMessages,
   mockInsertSession,
   mockGetById,
   mockFindMostRecentlyUsedModel,
 } = vi.hoisted(() => ({
   mockCreateSession: vi.fn(),
-  mockPromptAsync: vi.fn(),
+  mockPrompt: vi.fn(),
   mockAbortSession: vi.fn(),
-  mockListMessages: vi.fn(),
   mockInsertSession: vi.fn(),
   mockGetById: vi.fn(),
   mockFindMostRecentlyUsedModel: vi.fn(),
@@ -36,9 +34,8 @@ vi.mock('../services/opencode_engine', () => ({
   opencodeClient: {
     get isReady() { return true; },
     createSession: mockCreateSession,
-    promptAsync: mockPromptAsync,
+    prompt: mockPrompt,
     abortSession: mockAbortSession,
-    listMessages: mockListMessages,
   },
   opencodeSessionMap: new Map<string, string>(),
 }));
@@ -63,13 +60,11 @@ import { runMigrations } from '../database/migrations';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function makeAssistantMessage(text: string, createdAt: number): Record<string, unknown> {
+/** A minimal prompt() response with one text part. */
+function makePromptResponse(text: string): { info: Record<string, unknown>; parts: { type: string; text: string }[] } {
   return {
-    id: 'msg-1',
-    sessionID: 'sess-1',
-    role: 'assistant',
-    time: { created: createdAt },
-    parts: [{ type: 'text', text, id: 'p-1', sessionID: 'sess-1', messageID: 'msg-1' }],
+    info: { sessionID: 'sess-1' },
+    parts: [{ type: 'text', text }],
   };
 }
 
@@ -77,7 +72,7 @@ describe('#738-fix — AgentRunner model resolution + session recording', () => 
   beforeEach(() => {
     vi.clearAllMocks();
     mockCreateSession.mockResolvedValue({ id: 'sdk-session-1' });
-    mockPromptAsync.mockResolvedValue(true);
+    mockPrompt.mockResolvedValue(makePromptResponse('Done'));
     mockAbortSession.mockResolvedValue(true);
     mockInsertSession.mockReturnValue({ id: 'rhythm-session-abc', status: 'starting' });
     mockGetById.mockReturnValue(null);
@@ -93,27 +88,19 @@ describe('#738-fix — AgentRunner model resolution + session recording', () => 
 
   // ── 1a. Hardcoded default model when no config/MRU ────────────────────────
 
-  it('calls promptAsync with hardcoded default model when no config or MRU', async () => {
-    const promptSentBefore = Date.now();
-    // The no-progress check consumes listMessages calls before
-    // _waitForAssistantReply does. Use mockResolvedValueOnce for the first
-    // empty poll, then mockResolvedValue (no "Once") so all subsequent calls
-    // (both the no-progress check and the reply poll) return the message.
-    const replyMessage = makeAssistantMessage('Done', promptSentBefore + 100);
-    mockListMessages
-      .mockResolvedValueOnce([])
-      .mockResolvedValue([replyMessage]);
+  it('calls prompt with hardcoded default model when no config or MRU', async () => {
+    mockPrompt.mockResolvedValue(makePromptResponse('Done'));
 
     await run({ prompt: 'Hello' });
 
-    expect(mockPromptAsync).toHaveBeenCalledOnce();
-    const [, , modelArg] = mockPromptAsync.mock.calls[0];
+    expect(mockPrompt).toHaveBeenCalledOnce();
+    const [, , modelArg] = mockPrompt.mock.calls[0];
     expect(modelArg).toMatchObject({ providerID: 'anthropic', modelID: 'claude-sonnet-4-5' });
   });
 
   // ── 1b. Agent config model takes priority ─────────────────────────────────
 
-  it('calls promptAsync with agent config model when config has model_provider + model_id', async () => {
+  it('calls prompt with agent config model when config has model_provider + model_id', async () => {
     mockGetById.mockReturnValue({
       id: 'claude-code', label: 'Claude Code', icon: '🤖', enabled: true, isAgent: true,
       isManager: false, systemPrompt: null, allowedMcpsJson: null, allowedSkillsJson: null,
@@ -122,18 +109,17 @@ describe('#738-fix — AgentRunner model resolution + session recording', () => 
       modelId: 'claude-opus-4-5',
     });
 
-    const promptSentBefore = Date.now();
-    mockListMessages.mockResolvedValue([makeAssistantMessage('Done', promptSentBefore + 100)]);
+    mockPrompt.mockResolvedValue(makePromptResponse('Done'));
 
     await run({ prompt: 'Hello', agentConfigId: 'claude-code' });
 
-    const [, , modelArg] = mockPromptAsync.mock.calls[0];
+    const [, , modelArg] = mockPrompt.mock.calls[0];
     expect(modelArg).toMatchObject({ providerID: 'anthropic', modelID: 'claude-opus-4-5' });
   });
 
   // ── 1c. MRU model fallback ────────────────────────────────────────────────
 
-  it('calls promptAsync with MRU model when config has no model but sessions do', async () => {
+  it('calls prompt with MRU model when config has no model but sessions do', async () => {
     mockGetById.mockReturnValue({
       id: 'claude-code', label: 'Claude Code', icon: '🤖', enabled: true, isAgent: true,
       isManager: false, systemPrompt: null, allowedMcpsJson: null, allowedSkillsJson: null,
@@ -146,20 +132,18 @@ describe('#738-fix — AgentRunner model resolution + session recording', () => 
       modelID: 'meta-llama/llama-3.1-8b',
     });
 
-    const promptSentBefore = Date.now();
-    mockListMessages.mockResolvedValue([makeAssistantMessage('Done', promptSentBefore + 100)]);
+    mockPrompt.mockResolvedValue(makePromptResponse('Done'));
 
     await run({ prompt: 'Hello', agentConfigId: 'claude-code' });
 
-    const [, , modelArg] = mockPromptAsync.mock.calls[0];
+    const [, , modelArg] = mockPrompt.mock.calls[0];
     expect(modelArg).toMatchObject({ providerID: 'openrouter', modelID: 'meta-llama/llama-3.1-8b' });
   });
 
   // ── 2. Session is recorded ────────────────────────────────────────────────
 
   it('records an agent_sessions row on every run', async () => {
-    const promptSentBefore = Date.now();
-    mockListMessages.mockResolvedValue([makeAssistantMessage('Done', promptSentBefore + 100)]);
+    mockPrompt.mockResolvedValue(makePromptResponse('Done'));
 
     await run({ prompt: 'Hello', agentKind: 'claude-code', sessionName: 'Test run' });
 
@@ -172,8 +156,7 @@ describe('#738-fix — AgentRunner model resolution + session recording', () => 
   });
 
   it('passes scheduledTaskId to the recorded session', async () => {
-    const promptSentBefore = Date.now();
-    mockListMessages.mockResolvedValue([makeAssistantMessage('Done', promptSentBefore + 100)]);
+    mockPrompt.mockResolvedValue(makePromptResponse('Done'));
 
     await run({
       prompt: 'Hello',
@@ -191,8 +174,7 @@ describe('#738-fix — AgentRunner model resolution + session recording', () => 
 
   it('result.sessionId is the Rhythm session id from the repository', async () => {
     mockInsertSession.mockReturnValue({ id: 'rhythm-session-xyz', status: 'starting' });
-    const promptSentBefore = Date.now();
-    mockListMessages.mockResolvedValue([makeAssistantMessage('Done', promptSentBefore + 100)]);
+    mockPrompt.mockResolvedValue(makePromptResponse('Done'));
 
     const result = await run({ prompt: 'Hello' });
 
@@ -211,19 +193,19 @@ describe('#738-fix — AgentRunner model resolution + session recording', () => 
     expect(model).toMatchObject({ providerID: 'anthropic', modelID: 'claude-sonnet-4-5' });
   });
 
-  // ── 4. promptAsync false → fast error, not 600s hang ─────────────────────
+  // ── 4. prompt returns null → fast error, not 600s hang ───────────────────
 
-  it('returns error immediately when promptAsync returns false (no long poll)', async () => {
+  it('returns error immediately when prompt returns null (model produced no output)', async () => {
     process.env.AGENT_RUN_TIMEOUT_MS = '60000'; // 60s — we should never reach it
-    mockPromptAsync.mockResolvedValue(false);
+    mockPrompt.mockResolvedValue(null);
 
     const start = Date.now();
     const result = await run({ prompt: 'Hello' });
     const elapsed = Date.now() - start;
 
     expect(result.status).toBe('error');
-    expect(result.error).toMatch(/promptAsync returned false/i);
-    // Must finish well within the 60s timeout
+    expect(result.error).toMatch(/no output/i);
+    // Must finish well within the 60s timeout — prompt resolves immediately with null
     expect(elapsed).toBeLessThan(2000);
     delete process.env.AGENT_RUN_TIMEOUT_MS;
   });

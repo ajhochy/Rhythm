@@ -347,88 +347,64 @@ export async function run(opts: AgentRunOptions): Promise<AgentRunResult> {
     }
 
     const sessionId = sessionResult.id;
-    const promptSentAt = Date.now();
 
-    // ── Fire prompt — pass resolved model so opencode generates a response ────
-    // #738-fix: the root cause was passing undefined here; opencode never
-    // generates without a model → the 600s poll always timed out.
-    const enqueued = await opencodeClient.promptAsync(sessionId, prompt, resolvedModel, cwd);
-    if (!enqueued) {
+    // ── Send the prompt SYNCHRONOUSLY and get the full response ───────────────
+    // #738-fix (root cause): the runner used promptAsync() — fire-and-forget,
+    // whose results only arrive via the opencode SSE /event stream. The WS
+    // gateway consumes that stream (driving generation); a headless runner has
+    // NO consumer, so the prompt enqueued but was never driven → 0 messages →
+    // timeout. session.prompt() blocks server-side until the model finishes and
+    // RETURNS { info, parts }, so it works without a live event subscriber.
+    // Pass the resolved model + bypassPermissions (no UI to approve tool perms,
+    // else claude/anthropic stalls — ws_gateway.ts #711) + the agent kind.
+    const timeoutMs = Math.max(1, deadline - Date.now());
+    let timedOut = false;
+    const timeoutPromise = new Promise<null>((resolve) => {
+      setTimeout(() => {
+        timedOut = true;
+        resolve(null);
+      }, timeoutMs);
+    });
+    const response = await Promise.race([
+      opencodeClient.prompt(sessionId, prompt, resolvedModel, cwd, {
+        permissionMode: 'bypassPermissions',
+        agent: effectiveAgentKind,
+      }),
+      timeoutPromise,
+    ]);
+
+    if (timedOut) {
+      await opencodeClient.abortSession(sessionId, cwd).catch(() => {});
+      logger.warn(`[AgentRunner] session ${sessionId} timed out after ${timeoutMs}ms`);
       return {
         sessionId: rhythmSessionId ?? sessionId,
         result: '',
         status: 'error',
-        error: 'AgentRunner: promptAsync returned false (prompt not accepted)',
+        error: 'AgentRunner: run timed out',
       };
     }
 
-    // ── No-progress fast-fail ─────────────────────────────────────────────────
-    // If the model produces zero messages within the grace window, abort
-    // immediately instead of hanging for the full 600s timeout.  This catches
-    // the common failure mode where the model ID is wrong / provider is not
-    // authenticated and opencode silently drops the prompt.
-    const noProgressDeadline = promptSentAt + getNoProgressMs();
-    const progressCheckInterval = 500;
-    let hasProgress = false;
-    const noProgressCheckEnd = Math.min(noProgressDeadline, deadline);
-    {
-      let t = Date.now();
-      while (t < noProgressCheckEnd && !hasProgress) {
-        await new Promise<void>((resolve) => setTimeout(resolve, progressCheckInterval));
-        try {
-          const msgs = await opencodeClient.listMessages(sessionId);
-          // Progress = an ASSISTANT turn started (even a tool-only turn). The
-          // echoed user prompt does NOT count — otherwise a broken/invalid model
-          // (which records the user msg but never generates) would look like
-          // progress and we'd hang for the full timeout instead of fast-failing.
-          const assistantStarted = msgs.some(
-            (m) => m.role === 'assistant' && (m.time?.created ?? 0) >= promptSentAt,
-          );
-          if (assistantStarted) {
-            hasProgress = true;
-          }
-        } catch {
-          // swallow transient errors during the grace window
-        }
-        t = Date.now();
-      }
-    }
-
-    if (!hasProgress) {
-      await opencodeClient.abortSession(sessionId, cwd);
+    if (!response) {
+      logger.error(
+        `[AgentRunner] session ${sessionId}: prompt returned no response (model ${resolvedModel.providerID}/${resolvedModel.modelID} may be invalid or the provider unauthenticated)`,
+      );
       return {
         sessionId: rhythmSessionId ?? sessionId,
         result: '',
         status: 'error',
         error:
-          'AgentRunner: model produced no output — check the agent profile\'s model (provider/modelId) is valid and the provider is authenticated',
+          'AgentRunner: model produced no output — check the agent profile model (provider/modelId) is valid and the provider is authenticated',
       };
     }
 
-    // ── Wait for completion with timeout ──────────────────────────────────────
-    let aborted = false;
-    const timeoutHandle = setTimeout(async () => {
-      aborted = true;
-      await opencodeClient.abortSession(sessionId, cwd);
-    }, Math.max(0, deadline - Date.now()));
-
-    let resultText: string | null = null;
-    try {
-      resultText = await _waitForAssistantReply(sessionId, promptSentAt, deadline);
-    } finally {
-      clearTimeout(timeoutHandle);
-    }
-
-    if (aborted || resultText === null) {
-      const errMsg = 'AgentRunner: run timed out';
-      logger.warn(`[AgentRunner] session ${sessionId} timed out`);
-      return {
-        sessionId: rhythmSessionId ?? sessionId,
-        result: '',
-        status: 'error',
-        error: errMsg,
-      };
-    }
+    // Extract assistant text from the returned parts.
+    const resultText = (response.parts ?? [])
+      .filter(
+        (p): p is import('@opencode-ai/sdk').TextPart => p.type === 'text',
+      )
+      .map((p) => p.text)
+      .join('\n')
+      .trim();
 
     // ── Output delivery ───────────────────────────────────────────────────────
     if (outputTarget === 'task_notes' && taskId) {

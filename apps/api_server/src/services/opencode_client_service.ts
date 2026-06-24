@@ -521,6 +521,7 @@ export class OpencodeClientService {
     text: string,
     model?: { providerID: string; modelID: string },
     directory?: string,
+    opts?: Record<string, unknown>,
   ): Promise<{ info: import('@opencode-ai/sdk').Message; parts: Array<import('@opencode-ai/sdk').Part> } | null> {
     if (!this.client) return null;
     try {
@@ -529,6 +530,7 @@ export class OpencodeClientService {
         body: {
           model,
           parts: [{ type: 'text', text }],
+          ...(opts ?? {}),
         },
         ...(directory ? { query: { directory } } : {}),
       });
