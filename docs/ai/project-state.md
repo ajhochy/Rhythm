@@ -118,6 +118,29 @@ Visual smoke (`flutter run -d macos`) is required before merging scheduler branc
 
 ## Recent coding-agent runs
 
+### 2026-06-24 — P5 self-refinement (version history + auto-apply judge-gated refinement + rollback)
+Worktree `/Users/ajhochhalter/Documents/rhythm-p5-refine`, branch `feat/skill-self-refinement` (NOT pushed). Three commits: cd36231 (P5-1), 6ecc4a0 (P5-2/P5-3 backend), 094b3c3 (P5-3 Flutter).
+- Files modified/created (api_server):
+  - `database/migrations.ts` + `database/postgres_bootstrap.ts` — NEW `agent_skill_versions` table (both DBs, additive guarded CREATE/ALTER) + `version INTEGER DEFAULT 1` column on `agent_skills` (both DBs).
+  - `models/agent_skill.ts` — added `version` to `AgentSkill`; NEW `AgentSkillVersion` interface.
+  - `repositories/agent_skills_repository.ts` — `reviseInPlace(skillId,newContent,source)` (snapshot current→history, UPDATE with new content + version+1, status/uses preserved), `listVersions`, `rollback(skillId,versionNo)` (snapshot current, restore chosen version as new current, itself versioned — non-destructive). create() now writes version=1.
+  - `services/skill_refiner.ts` (NEW) — quality-bar-gated in-place refinement: injectable LLM judge (better|equal|worse), FAIL-CLOSED on equal/worse/throw/uncertain; requires candidate.confidence >= existing.confidence; matches by title OR getRelevantSkills + isSameSkill; on 'better' calls reviseInPlace (source 'auto-refined'/'teacher-refined'). isTestEnv + Postgres guarded, never-throws, injectable judge/repo/getRelevant. `isSkillRefinementEnabled()` live env read.
+  - `services/skill_extractor.ts` — distillFromSession now routes a matched candidate through refineExistingSkill (revised→no new draft; kept/skipped→legacy dup-skip if title clash; no-match→draft). Teacher path reaches refinement through the shared distill call (source→'teacher-refined').
+  - `config/env.ts` — `agentSkillRefinementEnabled` (env `AGENT_SKILL_REFINEMENT_ENABLED`, default ON; IIFE pattern).
+  - `controllers/agentSkillsController.ts` — `listVersions` + `rollback` handlers; repo now resolved per-request via getRepo() so it binds the live DB (fixes a latent module-load DB-capture issue).
+  - `routes/agentSkillsRoutes.ts` — GET `/agent-skills/:id/versions`, POST `/agent-skills/:id/rollback`.
+  - Tests (NEW): `agent_skills_versions_repository.test.ts` (8), `skill_refiner.test.ts` (15), `agent_skills_versions_routes.test.ts` (7). Updated `issue_p1_1_agent_skills.test.ts` (added `version` to the SQLite/Postgres column-parity expected list — column genuinely added to both), plus `version` added to AgentSkill fixtures in skill_injection/skill_retrieval tests (tsc).
+- Files modified/created (Flutter `features/agent_skills/`):
+  - `models/agent_skill_version.dart` (NEW); `models/agent_skill.dart` (added `version`); `data/agent_skills_data_source.dart` (+getVersions/+rollback); `repositories/agent_skills_repository.dart` (+getVersions/+rollback); `controllers/agent_skills_controller.dart` (+loadVersions/+rollbackSkill); `views/agent_skills_view.dart` (History button per tile → `_HistoryDialog` listing versions with per-row Rollback; current `v<n>` in meta line); test `agent_skills_view_test.dart` (+2 real-surface tests: history renders, rollback fires route).
+- Checks run:
+  - api_server `npx tsc --noEmit` — PASS (0 errors).
+  - api_server `npx vitest run` — **1108/1108 PASS** (baseline 1078 + 30 new), 0 fail (one issue_653 socket-race flake cleared on first re-run — pre-existing).
+  - Flutter `dart format --set-exit-if-changed .` — CLEAN; `flutter analyze --no-fatal-infos` — 0 errors (pre-existing infos only, none in agent_skills); `flutter test` — **656 PASS, 0 FAIL**.
+- New env toggle: `AGENT_SKILL_REFINEMENT_ENABLED` (default ON). New routes: `GET /agent-skills/:id/versions`, `POST /agent-skills/:id/rollback` (body `{versionNo}`).
+- Decisions made: refinement wired at the single shared `distillFromSession` integration point so BOTH auto-extract and teacher-escalation get it (smallest correct change; teacher source maps to 'teacher-refined'). Quality bar is judge-AND-confidence (fail-closed). Rollback is non-destructive (snapshots current first). Controller repo made per-request to honor the live DB in tests/prod.
+- Deviations from spec: none material. The teacher path uses the existing escalateAndCapture→distillFn seam rather than adding a second refiner call site (refinement is reached via distill). isSameSkill is a conservative title-overlap gate layered on top of getRelevantSkills since the score isn't returned by that API.
+- Concerns: real judge LLM path is isTestEnv-guarded so exercised only at runtime — proven by injected-judge unit tests, not end-to-end. SEED INVARIANT preserved: refinement uses reviseInPlace (UPDATE, keeps id) with non-seed source, and server.ts seed guard (zero-count on source='agent-stack-seed') is untouched, so refined seed skills survive relaunch and never re-trigger/clobber the seed.
+
 ### 2026-06-24 — P4-2 Flutter agent_skills surface (list + DRAFT badge + publish/delete)
 - Files created:
   - `apps/desktop_flutter/lib/features/agent_skills/models/agent_skill.dart` — `AgentSkill` model. fromJson MATCHES the api_server camelCase response keys (`whenToUse`, `stepsJson`/`tagsJson` + parsed `steps`/`tags`, `confidence`, `status`, `source`, `uses`, `createdAt`, `updatedAt`) confirmed against `agent_skills_repository.ts` `rowToModel`. Uses `asString/asInt/asDouble` helpers + `_parseStringList` (mirrors AgentConfig). Convenience getters `isDraft`, `isTeacherEscalation`.
