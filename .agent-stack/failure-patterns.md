@@ -69,3 +69,11 @@
 - **Criteria affected**: issue-677-c1/c3 closed live (production /health returned commit 3313c97 + builtAt after NAS pull); watchtower-rhythm-api-c4 (auto-update without SSH) is the one open criterion, observable on the next api_server merge.
 - **Root cause**: n/a — clean run.
 - **Suggested fix**: n/a.
+
+## 2026-06-24 — agent-question-hang (bug) — ask-question handshake + dark-mode card
+
+- **Result**: smoke PASS (both the hang fix and the in-session dark-mode follow-up)
+- **Category**: none (correctness). Process: P4 (issue_638 SharedPreferences async-after-completion flake, unrelated, de-flaked in 4b66c3f) + a noted local-verification-scope gap (Flutter verify scoped to test/features/agents/ vs full CI run).
+- **Criteria affected**: agent resumes after answering (PASS); dark-mode rendering (caught by smoke, fixed in-session via context.rhythm tokens, re-smoked PASS).
+- **Root cause**: opencode answers its `question` tool via a dedicated Question API (question.asked + POST /question/{id}/reply), not session.input — Rhythm replied via session.input so the tool hung at status:running forever. Card was also hardcoded to light-theme colors.
+- **Suggested fix**: smoke handoffs for mid-agent-session UI changes (un-screenshot-able by verification-gate) should explicitly request light+dark verification so theming defects surface on the first smoke.

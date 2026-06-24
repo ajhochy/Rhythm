@@ -14,8 +14,8 @@ committed, and CI-green (Server + Desktop + MCP):
 
 **Branch/PR:** `feature/agent-scheduler` / PR #734 (open, never auto-merge).
 **Test status:** api_server vitest 1078/1078; desktop flutter agents-suite 418/418; tsc 0; dart format clean; flutter analyze 0 err/warn. (Known flaky port/socket tests — notifications_agent, UND_ERR_SOCKET — clear on re-run. FIXED flakes: opc_curated_mcp_token_bridge c4 — hermetic via spy-on-singleton, commit e5194d5; issue_638_contract — registered `SharedPreferences.setMockInitialValues({})` in setUp so the unawaited `loadInspectorPrefs()` → `getInstance()` channel resolves in tests instead of rejecting after the c2 unit-test body completes.)
-**In progress / next:** manual smoke of (a) the agent question-hang fix — answer/dismiss a `question` card and confirm the agent resumes; (b) the Skills surface + the loop. **P0-1** (sever agent-stack `sync-globals` from writing opencode agents) is a **separate agent-stack-repo PR** — see `docs/ai/decisions/2026-06-24-rhythm-owns-skills.md`.
-**Recently landed (2026-06-24):** (0) **Agent "ask question" hang FIXED** — opencode answers its `question` tool via a dedicated Question API (`question.asked` event + `POST /question/{id}/reply`), which Rhythm never called (it replied via `session.input`, so the tool hung at `status:running` forever — for every model). Added the full reply/reject handshake mirroring #711 across bridge + client + controller/route + Flutter card (+ Dismiss escape). Verified local (uncommitted). See `docs/ai/runs/2026-06-24-agent-question-hang-fix.md` + `docs/ai/decisions/2026-06-24-opencode-question-api.md`. (A) `agent_skills.body` TEXT column (commit a06de6e). (B) hermetic c4 token-redaction test (commit e5194d5).
+**In progress / next:** manual smoke of the Skills surface + the loop. **P0-1** (sever agent-stack `sync-globals` from writing opencode agents) is a **separate agent-stack-repo PR** — see `docs/ai/decisions/2026-06-24-rhythm-owns-skills.md`.
+**Recently landed (2026-06-24):** (0) **Agent "ask question" hang FIXED & manual-smoke PASS** — opencode answers its `question` tool via a dedicated Question API (`question.asked` event + `POST /question/{id}/reply`), which Rhythm never called (it replied via `session.input`, so the tool hung at `status:running` forever — for every model). Full reply/reject handshake mirroring #711 across bridge + client + controller/route + Flutter card (+ Dismiss escape), commit `858d47b`. Manual smoke confirmed the agent resumes after answering. Follow-up: the card was hardcoded to light colors → re-themed to `context.rhythm` tokens for dark mode, commit `db97f8b`, re-smoked PASS. Postmortem: `.agent-stack/postmortems/2026-06-24-agent-question-hang.json`. See `docs/ai/runs/2026-06-24-agent-question-hang-fix.md` + `docs/ai/decisions/2026-06-24-opencode-question-api.md`. (A) `agent_skills.body` TEXT column (commit a06de6e). (B) hermetic c4 token-redaction test (commit e5194d5).
 **Risks:** teacher-escalation ~2× cost on FAILED runs only (toggle); injection adds tokens per matched turn (top-5 + 0.3 threshold); live model/run paths are isTestEnv-guarded so proven by injected-dep unit tests, not end-to-end.
 
 Plan + issues: `docs/ai/current-plan.md` + `docs/ai/generated-issues/0X-pY-*.md`.
@@ -56,7 +56,7 @@ Visual smoke (`flutter run -d macos`) is required before merging scheduler branc
 
 ## Active branch / PR
 
-- **Branch:** `feature/agent-scheduler` (local HEAD `8901637`; question-hang fix uncommitted in working tree)
+- **Branch:** `feature/agent-scheduler` (HEAD `db97f8b` — question-hang fix + dark-mode card, pushed; manual smoke PASS)
 - **PR:** [#734](https://github.com/ajhochy/Rhythm/pull/734) — open
 - **Base:** `main`
 
