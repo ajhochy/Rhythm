@@ -73,7 +73,7 @@ describe('issue-P1-1-c3: Both SQLite and Postgres have identical agent_skills sc
     // Expected columns (must match postgres_bootstrap.ts exactly)
     const expectedCols = [
       'id', 'title', 'when_to_use', 'description', 'steps_json', 'tags_json',
-      'confidence', 'status', 'source', 'uses', 'created_at', 'updated_at'
+      'body', 'confidence', 'status', 'source', 'uses', 'created_at', 'updated_at'
     ].sort();
 
     expect(sqliteCols).toEqual(expectedCols);
@@ -91,6 +91,7 @@ describe('issue-P1-1-c4: AgentSkill TypeScript model exists with all required pr
       description: 'A test skill',
       stepsJson: null,
       tagsJson: null,
+      body: null,
       confidence: 0.5,
       status: 'draft',
       source: 'agent-stack-seed',

@@ -623,6 +623,9 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
   await pool.query(
     `CREATE INDEX IF NOT EXISTS idx_agent_skills_title ON agent_skills(title)`,
   );
+  // body TEXT (additive) — full markdown procedure body for prose/seed skills.
+  // Nullable; extracted skills using steps_json leave it null.
+  await pool.query(`ALTER TABLE agent_skills ADD COLUMN IF NOT EXISTS body TEXT`);
 
   // Agent-runner model selection: store preferred provider/model on agent_configs.
   await pool.query(`

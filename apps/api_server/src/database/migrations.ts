@@ -1288,6 +1288,17 @@ export function runMigrations(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_agent_skills_title ON agent_skills(title);
   `);
 
+  // body TEXT (additive) — the full markdown procedure body for prose/seed
+  // skills (everything after the frontmatter block). Nullable; extracted (P2)
+  // skills that use steps_json leave this null. Guarded ALTER because the table
+  // already exists on dev DBs (same pattern as the agent_configs columns below).
+  const agentSkillsCols = (db.pragma('table_info(agent_skills)') as { name: string }[]).map(
+    (c) => c.name,
+  );
+  if (!agentSkillsCols.includes('body')) {
+    db.exec(`ALTER TABLE agent_skills ADD COLUMN body TEXT`);
+  }
+
   // agent_webhook_endpoints — inbound webhook registrations.
   // The server verifies HMAC signatures on incoming requests.
   // SSRF guard lives in agentWebhookService.ts (no outbound calls to private

@@ -35,6 +35,7 @@ describe('AgentSkillsRepository', () => {
       description: 'Compose and send the weekly staff update',
       steps: ['gather updates', 'draft email', 'send'],
       tags: ['email', 'weekly'],
+      body: '# Draft a weekly email\n\nGather updates, then compose and send.',
       confidence: 0.5,
       status: 'active',
       source: 'session',
@@ -50,6 +51,9 @@ describe('AgentSkillsRepository', () => {
     expect(fetched?.description).toBe('Compose and send the weekly staff update');
     expect(fetched?.steps).toEqual(['gather updates', 'draft email', 'send']);
     expect(fetched?.tags).toEqual(['email', 'weekly']);
+    expect(fetched?.body).toBe(
+      '# Draft a weekly email\n\nGather updates, then compose and send.',
+    );
     expect(fetched?.confidence).toBe(0.5);
     expect(fetched?.status).toBe('active');
     expect(fetched?.source).toBe('session');
@@ -59,6 +63,7 @@ describe('AgentSkillsRepository', () => {
     const created = repo.create({ title: 'Minimal skill' });
     expect(created.steps).toBeNull();
     expect(created.tags).toBeNull();
+    expect(created.body).toBeNull();
     expect(created.confidence).toBe(0);
     expect(created.status).toBe('draft');
     expect(created.source).toBeNull();
@@ -101,6 +106,15 @@ describe('AgentSkillsRepository', () => {
     const created = repo.create({ title: 'Has steps', steps: ['a', 'b'] });
     const updated = repo.update(created.id, { steps: null });
     expect(updated?.steps).toBeNull();
+  });
+
+  it('update patches the body column and can clear it back to null', () => {
+    const created = repo.create({ title: 'Has body', body: 'original body' });
+    expect(created.body).toBe('original body');
+    const patched = repo.update(created.id, { body: 'revised body' });
+    expect(patched?.body).toBe('revised body');
+    const cleared = repo.update(created.id, { body: null });
+    expect(cleared?.body).toBeNull();
   });
 
   it('remove deletes a skill and returns true; false for unknown id', () => {

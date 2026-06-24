@@ -17,13 +17,14 @@
  *   whenToUse   ← frontmatter `when_to_use`/`whenToUse` if present, else description
  *   tags        ← frontmatter `tags` (CSV or YAML inline list) if present, else null
  *   steps       ← null (these are prose skills, not step arrays — never fabricated)
+ *   body        ← markdown body after the frontmatter block (the real procedure)
  *   status      ← 'published'
  *   source      ← 'agent-stack-seed'
  *   confidence  ← 1.0 (vetted seed)
  *
- * NOTE: the markdown *body* (the skill's real procedure) has no dedicated
- * column. We store the frontmatter description in `description`; the full body
- * is intentionally NOT persisted here — see the run-log follow-up note.
+ * The full markdown *body* (the skill's real procedure) is persisted in the
+ * `body` column so the store is self-contained — Rhythm owns the procedure text
+ * rather than relying on opencode's on-disk agent files at runtime.
  *
  * Local SQLite only. No-op under test env (must never read/write the user's
  * real ~/.config or ~/.claude dirs from vitest) and no-op under Postgres.
@@ -100,6 +101,18 @@ export function parseFrontmatter(text: string): ParsedFrontmatter {
   return result;
 }
 
+/**
+ * Extract the markdown body — everything after the closing frontmatter `---`.
+ * Returns null when there is no frontmatter block or the body is empty/whitespace.
+ * Pure (no filesystem) so it is unit-testable under VITEST.
+ */
+export function extractBody(text: string): string | null {
+  const m = text.match(/^---\n[\s\S]*?\n---[ \t]*\r?\n?/);
+  if (!m) return null;
+  const body = text.slice(m[0].length).trim();
+  return body.length > 0 ? body : null;
+}
+
 function stripQuotes(value: string): string {
   if (
     value.length >= 2 &&
@@ -136,6 +149,7 @@ function fileNameWithoutExt(path: string): string {
 export function frontmatterToSkillInput(
   fm: ParsedFrontmatter,
   fallbackTitle: string,
+  body: string | null = null,
 ): AgentSkillInput {
   const title = (fm.name ?? fallbackTitle).trim();
   return {
@@ -144,6 +158,7 @@ export function frontmatterToSkillInput(
     whenToUse: fm.whenToUse ?? fm.description ?? null,
     steps: null,
     tags: fm.tags,
+    body: body ?? null,
     status: 'published',
     source: SEED_SOURCE,
     confidence: 1.0,
@@ -162,8 +177,11 @@ function discoverSeedInputs(): AgentSkillInput[] {
       const path = join(ocDir, entry);
       try {
         if (!statSync(path).isFile()) continue;
-        const fm = parseFrontmatter(readFileSync(path, 'utf8'));
-        inputs.push(frontmatterToSkillInput(fm, fileNameWithoutExt(entry)));
+        const content = readFileSync(path, 'utf8');
+        const fm = parseFrontmatter(content);
+        inputs.push(
+          frontmatterToSkillInput(fm, fileNameWithoutExt(entry), extractBody(content)),
+        );
       } catch {
         // Unreadable file — skip silently.
       }
@@ -177,8 +195,9 @@ function discoverSeedInputs(): AgentSkillInput[] {
       const skillFile = join(skillsDir, entry, 'SKILL.md');
       try {
         if (!existsSync(skillFile) || !statSync(skillFile).isFile()) continue;
-        const fm = parseFrontmatter(readFileSync(skillFile, 'utf8'));
-        inputs.push(frontmatterToSkillInput(fm, entry));
+        const content = readFileSync(skillFile, 'utf8');
+        const fm = parseFrontmatter(content);
+        inputs.push(frontmatterToSkillInput(fm, entry, extractBody(content)));
       } catch {
         // Unreadable file — skip silently.
       }

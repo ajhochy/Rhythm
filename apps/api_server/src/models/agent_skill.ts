@@ -22,6 +22,11 @@ export interface AgentSkill {
   stepsJson: string | null;
   /** Raw tags_json column value (JSON-encoded string[] or null). */
   tagsJson: string | null;
+  /**
+   * Full markdown procedure body for prose/seed skills (everything after the
+   * frontmatter block). Null for extracted skills that use `steps` instead.
+   */
+  body: string | null;
   confidence: number;
   status: string;
   source: string | null;
@@ -37,6 +42,7 @@ export interface AgentSkillInput {
   description?: string | null;
   steps?: string[] | null;
   tags?: string[] | null;
+  body?: string | null;
   confidence?: number;
   status?: string;
   source?: string | null;

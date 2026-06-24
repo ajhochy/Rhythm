@@ -20,6 +20,7 @@ import {
   seedAgentStackSkills,
   parseFrontmatter,
   frontmatterToSkillInput,
+  extractBody,
   dedupByTitle,
   SEED_SOURCE,
 } from '../services/skill_seed_importer';
@@ -63,6 +64,8 @@ describe('skill_seed_importer — pure frontmatter → input mapping', () => {
       '---',
       '',
       '# Body prose that is NOT a step array',
+      '',
+      'Step one. Step two.',
     ].join('\n');
 
     const fm = parseFrontmatter(md);
@@ -71,15 +74,33 @@ describe('skill_seed_importer — pure frontmatter → input mapping', () => {
     // Indented (nested) keys must be ignored, not parsed as top-level.
     expect(fm.tags).toBeNull();
 
-    const input = frontmatterToSkillInput(fm, 'fallback-name');
+    // The markdown body after the frontmatter block is extracted verbatim.
+    const body = extractBody(md);
+    expect(body).toBe('# Body prose that is NOT a step array\n\nStep one. Step two.');
+
+    const input = frontmatterToSkillInput(fm, 'fallback-name', body);
     expect(input.title).toBe('coding-agent');
     expect(input.description).toBe('Implements exactly one focused request.');
     expect(input.whenToUse).toBe('Implements exactly one focused request.');
     expect(input.steps).toBeNull();
     expect(input.tags).toBeNull();
+    expect(input.body).toBe(
+      '# Body prose that is NOT a step array\n\nStep one. Step two.',
+    );
     expect(input.status).toBe('published');
     expect(input.source).toBe(SEED_SOURCE);
     expect(input.confidence).toBe(1.0);
+  });
+
+  it('extractBody returns null when there is no body or no frontmatter', () => {
+    expect(extractBody('---\nname: x\ndescription: y\n---\n')).toBeNull();
+    expect(extractBody('---\nname: x\n---\n   \n')).toBeNull();
+    expect(extractBody('no frontmatter at all')).toBeNull();
+  });
+
+  it('frontmatterToSkillInput defaults body to null when omitted', () => {
+    const fm = parseFrontmatter('---\nname: x\ndescription: y\n---\nbody');
+    expect(frontmatterToSkillInput(fm, 'x').body).toBeNull();
   });
 
   it('falls back to the filename title when name is absent', () => {

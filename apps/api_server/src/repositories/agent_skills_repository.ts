@@ -10,6 +10,7 @@ interface AgentSkillRow {
   description: string | null;
   steps_json: string | null;
   tags_json: string | null;
+  body: string | null;
   confidence: number;
   status: string;
   source: string | null;
@@ -38,6 +39,7 @@ function rowToModel(row: AgentSkillRow): AgentSkill {
     tags: parseJsonArray(row.tags_json),
     stepsJson: row.steps_json ?? null,
     tagsJson: row.tags_json ?? null,
+    body: row.body ?? null,
     confidence: row.confidence ?? 0,
     status: row.status ?? 'draft',
     source: row.source ?? null,
@@ -98,9 +100,9 @@ export class AgentSkillsRepository {
     this.db
       .prepare(
         `INSERT INTO agent_skills
-          (id, title, when_to_use, description, steps_json, tags_json,
+          (id, title, when_to_use, description, steps_json, tags_json, body,
            confidence, status, source, uses, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         id,
@@ -109,6 +111,7 @@ export class AgentSkillsRepository {
         input.description ?? null,
         input.steps != null ? JSON.stringify(input.steps) : null,
         input.tags != null ? JSON.stringify(input.tags) : null,
+        input.body ?? null,
         input.confidence ?? 0,
         input.status ?? 'draft',
         input.source ?? null,
@@ -145,6 +148,10 @@ export class AgentSkillsRepository {
     if (patch.tags !== undefined) {
       fields.push('tags_json = ?');
       values.push(patch.tags != null ? JSON.stringify(patch.tags) : null);
+    }
+    if (patch.body !== undefined) {
+      fields.push('body = ?');
+      values.push(patch.body ?? null);
     }
     if (patch.confidence !== undefined) {
       fields.push('confidence = ?');
