@@ -148,24 +148,61 @@ export function scoreSkill(query: string, skill: AgentSkill): number {
 }
 
 /**
+ * Parse an allowedSkillsJson string into a Set of allowed skill ids/titles.
+ * Returns null when the list is null/undefined/empty-array (meaning "all allowed").
+ * Returns a non-null Set when a non-empty allowlist is present.
+ *
+ * P1b: when non-null, only skills whose id OR title appears in the set are eligible.
+ * Fail-open: null → all skills eligible (backward compatible).
+ */
+function parseAllowlist(allowedSkillsJson: string | null | undefined): Set<string> | null {
+  if (!allowedSkillsJson) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(allowedSkillsJson);
+  } catch {
+    // Malformed JSON — treat as "all allowed" so a broken profile doesn't silence skills.
+    return null;
+  }
+  if (!Array.isArray(parsed) || parsed.length === 0) return null;
+  const s = new Set<string>();
+  for (const entry of parsed) {
+    if (typeof entry === 'string' && entry.trim()) {
+      s.add(entry.trim());
+    }
+  }
+  return s.size > 0 ? s : null;
+}
+
+/**
  * Rank all stored skills against `query` and return the top-N eligible matches
  * scoring at or above the 0.3 threshold (descending by score).
  *
  * - Empty store or empty/whitespace-only query → [].
  * - Loads every skill via AgentSkillsRepository.list() (no owner scoping).
  * - Pure scoring; does NOT mutate `uses` (P3-2 increments on actual injection).
+ * - P1b: when `allowedSkillsJson` is a non-empty JSON array, only skills whose
+ *   id or title is in the allowlist are eligible. null/undefined/"[]" = all allowed.
  */
 export function getRelevantSkills(
   query: string,
   topN: number = DEFAULT_TOP_N,
   repo: AgentSkillsRepository = new AgentSkillsRepository(),
+  allowedSkillsJson?: string | null,
 ): AgentSkill[] {
   if (!query || query.trim().length === 0) return [];
 
   const all = repo.list();
   if (all.length === 0) return [];
 
-  const eligible = all.filter(isEligible);
+  // P1b: apply allowlist filter before scoring so disallowed skills can never
+  // appear in results regardless of their relevance score.
+  const allowlist = parseAllowlist(allowedSkillsJson);
+  const eligible = all.filter((s) => {
+    if (!isEligible(s)) return false;
+    if (allowlist === null) return true;                  // null = all allowed
+    return allowlist.has(s.id) || allowlist.has(s.title ?? '');
+  });
 
   const scored: Array<{ score: number; skill: AgentSkill }> = [];
   for (const skill of eligible) {
@@ -208,6 +245,17 @@ export interface BuildSkillsPrefaceOptions {
   topN?: number;
   /** Injectable retrieval fn (defaults to getRelevantSkills) for testing. */
   getRelevant?: (query: string, topN?: number) => AgentSkill[];
+  /**
+   * P1b — Profile-level skill allowlist (raw JSON string of id/title array).
+   * When provided (non-null, non-empty array), only skills whose id or title
+   * appears in the list are eligible — even if they score higher than any
+   * allowlisted skill. null / undefined / "[]" = all skills eligible (fail-open).
+   * Forwarded to getRelevantSkills when getRelevant is not overridden.
+   * When a custom getRelevant is injected (e.g. in tests), the allowlist is
+   * applied as a POST-filter on the returned skills (so tests can assert the
+   * same exclusion behaviour without reimplementing the DB scan).
+   */
+  allowedSkillsJson?: string | null;
 }
 
 /**
@@ -227,8 +275,21 @@ export function buildSkillsPreface(
   const enabled = opts.enabled ?? isSkillInjectionEnabled();
   if (!enabled) return { text: '', skillIds: [] };
 
-  const retrieve = opts.getRelevant ?? getRelevantSkills;
-  const matches = retrieve(query, opts.topN ?? DEFAULT_TOP_N);
+  // P1b: when a custom getRelevant is injected (test path), retrieve first then
+  // apply the allowlist as a post-filter so test doubles don't need to know about
+  // the allowlist logic. When using the default getRelevantSkills, pass the
+  // allowlist directly so the filter runs before scoring (avoids loading skipped
+  // skills into the scored array, though with a small library it's trivially fast).
+  let matches: AgentSkill[];
+  if (opts.getRelevant) {
+    const raw = opts.getRelevant(query, opts.topN ?? DEFAULT_TOP_N);
+    const allowlist = parseAllowlist(opts.allowedSkillsJson);
+    matches = allowlist === null
+      ? raw
+      : raw.filter((s) => allowlist.has(s.id) || allowlist.has(s.title ?? ''));
+  } else {
+    matches = getRelevantSkills(query, opts.topN ?? DEFAULT_TOP_N, undefined, opts.allowedSkillsJson);
+  }
   if (!matches || matches.length === 0) return { text: '', skillIds: [] };
 
   const lines = ['## Available skills (retrieved)'];

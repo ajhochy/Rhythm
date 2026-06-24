@@ -27,6 +27,7 @@ import { queueSkillExtraction } from './skill_extractor';
 import { buildSkillsPreface, isSkillInjectionEnabled } from './skill_retrieval';
 import { buildMemoryPreface, isMemoryInjectionEnabled } from './memory_retrieval';
 import { AgentSkillsRepository } from '../repositories/agent_skills_repository';
+import { resolveProfileScope } from './agent_profile_scope';
 
 // ── Environment caps (read per-call so tests can override via process.env) ────
 
@@ -479,26 +480,19 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
   // config id so the profile's model is used instead of dropping to MRU/default.
   const effectiveConfigId = agentConfigId ?? agentKind;
   // P4-1: a forced modelOverride (teacher escalation) bypasses resolveRunModel.
-  const resolvedModel = modelOverride ?? resolveRunModel(effectiveConfigId);
-
-  // Load the full profile to derive systemPrompt + ocAgent.
-  // ocAgent is the OpenCode built-in agent mode ('build', 'plan', etc.).
-  // The SDK currently only supports per-turn agent overrides (not session-level),
-  // so effectiveOcAgent is available here for future use but not yet forwarded.
-  let effectiveSystemPrompt: string | null = null;
-  let effectiveOcAgent: string | null = null;
-  if (effectiveConfigId) {
-    try {
-      const config = new AgentConfigsRepository().getById(effectiveConfigId);
-      effectiveSystemPrompt = config?.systemPrompt ?? null;
-      effectiveOcAgent = config?.ocAgent ?? null;
-      logger.info(
-        `[AgentRunner] profile ${effectiveConfigId}: systemPrompt=${effectiveSystemPrompt ? 'set' : 'none'} ocAgent=${effectiveOcAgent ?? 'default'}`,
-      );
-    } catch (err) {
-      logger.warn(`[AgentRunner] profile lookup failed (non-fatal): ${String(err)}`);
-    }
-  }
+  // P1a: resolve model + MCP scope + profile metadata via the shared helper.
+  // Pass allowedMcpsJson (from the scheduled-task row) as an override when it
+  // was explicitly provided by the caller — this preserves the byte-for-byte
+  // behavior of the scheduled path. When it is undefined (ad-hoc / cookbook runs
+  // with no explicit scope), the helper derives MCP scope from the profile's own
+  // allowed_mcps_json column (new interactive-parity behavior).
+  const profileScope = await resolveProfileScope(effectiveConfigId, {
+    allowedMcpsJsonOverride: allowedMcpsJson !== undefined ? allowedMcpsJson : undefined,
+  });
+  // P4-1: a forced modelOverride (teacher escalation) bypasses the profile model.
+  const resolvedModel = modelOverride ?? profileScope.model;
+  const effectiveSystemPrompt: string | null = profileScope.systemPrompt;
+  const effectiveOcAgent: string | null = profileScope.ocAgent;
   // TODO: pass effectiveSystemPrompt to createSession once the SDK supports a
   // per-session system prompt parameter (currently session-level is not exposed).
   // TODO: forward effectiveOcAgent per-turn once there's a profile-level override
@@ -513,7 +507,8 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
   let injectedSkillIds: string[] = [];
   if (isSkillInjectionEnabled()) {
     try {
-      const preface = buildSkillsPreface(prompt);
+      // P1b: pass the profile's allowedSkillsJson so only permitted skills are injected.
+      const preface = buildSkillsPreface(prompt, { allowedSkillsJson: profileScope.allowedSkillsJson });
       if (preface.text) {
         effectivePrompt = `${preface.text}\n\n${prompt}`;
         injectedSkillIds = preface.skillIds;
@@ -572,27 +567,27 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
   const deadline = Date.now() + getRunTimeoutMs();
 
   try {
-    // ── Build mcpRoleConfig if allowedMcpsJson is provided without a role slug ──
-    let mcpRoleConfig:
-      | { role: string; mcpServers: Record<string, unknown>; allowedToolsJson: string }
-      | undefined;
+    // ── Build mcpRoleConfig via the shared profile scope helper ──────────────
+    // P1a: use the resolved profileScope.mcpRoleConfig directly. For the
+    // scheduled path allowedMcpsJson was passed as the override, so behavior
+    // is byte-for-byte identical to the previous inline construction. For
+    // ad-hoc/cookbook runs the profile's own allowed_mcps_json is now honored.
+    // If a role slug was explicitly provided, wrap it as a named config on top
+    // of what resolveProfileScope returned (legacy mcpRole path).
+    let mcpRoleConfig: import('./agent_profile_scope').McpRoleConfig | undefined =
+      profileScope.mcpRoleConfig ?? undefined;
 
-    if (mcpRole) {
-      // Role slug provided — build a minimal config object; the sessions
-      // controller does the full file-system resolution; here we trust the
-      // caller already has the allowedMcpsJson from the scheduled task row.
-      mcpRoleConfig = {
-        role: mcpRole,
-        mcpServers: allowedMcpsJson ? _parseMcpServersFromJson(allowedMcpsJson) : {},
-        allowedToolsJson: allowedMcpsJson ?? '{}',
-      };
-    } else if (allowedMcpsJson) {
-      // No explicit role slug but explicit allowed tools — create an anonymous config
-      mcpRoleConfig = {
-        role: 'scheduled-task',
-        mcpServers: _parseMcpServersFromJson(allowedMcpsJson),
-        allowedToolsJson: allowedMcpsJson,
-      };
+    if (mcpRole && !mcpRoleConfig) {
+      // Legacy role-slug path: build a minimal config when profileScope didn't
+      // produce one (the slug provides naming context; allowedMcpsJson provides
+      // the tools map — keep the original constructor logic for this path).
+      if (allowedMcpsJson) {
+        mcpRoleConfig = {
+          role: mcpRole,
+          mcpServers: _parseMcpServersFromJson(allowedMcpsJson),
+          allowedToolsJson: allowedMcpsJson,
+        };
+      }
     }
 
     // ── Create session ────────────────────────────────────────────────────────
@@ -641,10 +636,19 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
         resolve(null);
       }, timeoutMs);
     });
+    // P2: Forward the profile's system_prompt and ocAgent via the per-prompt body.
+    // Per docs/ai/decisions/2026-06-24-sdk-per-session-system-prompt.md:
+    // SDK 1.14.49 has no per-session system param; use SessionPromptData.body fields.
+    // GUARDRAIL (#738): do NOT pass `agentKind` (provider kind) as `agent`.
+    // Only the profile's ocAgent (an opencode *mode* e.g. 'build'/'plan') is forwarded.
+    // When ocAgent is null, omit the field to preserve the existing #738 behavior.
+    const promptOpts: Record<string, unknown> = {
+      permissionMode: 'bypassPermissions',
+      ...(effectiveSystemPrompt !== null ? { system: effectiveSystemPrompt } : {}),
+      ...(effectiveOcAgent !== null ? { agent: effectiveOcAgent } : {}),
+    };
     const response = await Promise.race([
-      opencodeClient.prompt(sessionId, effectivePrompt, resolvedModel, cwd, {
-        permissionMode: 'bypassPermissions',
-      }),
+      opencodeClient.prompt(sessionId, effectivePrompt, resolvedModel, cwd, promptOpts),
       timeoutPromise,
     ]);
 

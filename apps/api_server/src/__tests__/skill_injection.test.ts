@@ -138,6 +138,119 @@ describe('P3-2 buildSkillsPreface', () => {
   });
 });
 
+// ── Layer 1c: P1b allowlist filter ─────────────────────────────────────────────
+
+describe('skill allowlist filter (P1b)', () => {
+  beforeEach(() => {
+    delete process.env.AGENT_SKILLS_ENABLED;
+  });
+
+  it('skill outside allowlist excluded even when highest-scoring', () => {
+    const highScorer: AgentSkill = {
+      id: 'skill-b',
+      title: 'Weekly report builder',
+      whenToUse: 'When assembling the weekly staff report',
+      description: 'Builds the weekly report',
+      stepsJson: null,
+      tagsJson: null,
+      body: null,
+      steps: null,
+      tags: ['weekly', 'report'],
+      confidence: 0.99,
+      status: 'published',
+      source: null,
+      uses: 100,
+      version: 1,
+      createdAt: 'x',
+      updatedAt: 'x',
+    };
+    const allowlisted: AgentSkill = {
+      ...highScorer,
+      id: 'skill-a',
+      title: 'Email triage',
+      whenToUse: 'Sort incoming emails',
+      description: 'Sorts the inbox',
+      tags: [],
+      confidence: 0.5,
+      uses: 0,
+    };
+
+    // skill-b scores higher but is NOT in the allowlist — only skill-a is allowed.
+    const fakeGetRelevant = vi.fn().mockReturnValue([highScorer, allowlisted]);
+    const preface = buildSkillsPreface('weekly report', {
+      getRelevant: fakeGetRelevant,
+      allowedSkillsJson: '["skill-a"]',
+    });
+
+    expect(preface.text).not.toContain('Weekly report builder');
+    expect(preface.text).toContain('Email triage');
+    expect(preface.skillIds).toEqual(['skill-a']);
+    expect(preface.skillIds).not.toContain('skill-b');
+  });
+
+  it('null allowedSkillsJson → all skills eligible (backward compat)', () => {
+    const a: AgentSkill = {
+      id: 'skill-a',
+      title: 'Skill A',
+      whenToUse: 'use a',
+      description: 'desc a',
+      stepsJson: null,
+      tagsJson: null,
+      body: null,
+      steps: null,
+      tags: [],
+      confidence: 0.8,
+      status: 'published',
+      source: null,
+      uses: 0,
+      version: 1,
+      createdAt: 'x',
+      updatedAt: 'x',
+    };
+    const b: AgentSkill = { ...a, id: 'skill-b', title: 'Skill B', whenToUse: 'use b' };
+
+    const fakeGetRelevant = vi.fn().mockReturnValue([a, b]);
+    const preface = buildSkillsPreface('query', {
+      getRelevant: fakeGetRelevant,
+      allowedSkillsJson: null,
+    });
+
+    expect(preface.text).toContain('Skill A');
+    expect(preface.text).toContain('Skill B');
+    expect(preface.skillIds).toEqual(['skill-a', 'skill-b']);
+  });
+
+  it('empty array allowedSkillsJson → all skills eligible', () => {
+    const a: AgentSkill = {
+      id: 'skill-a',
+      title: 'Skill A',
+      whenToUse: 'use a',
+      description: 'desc a',
+      stepsJson: null,
+      tagsJson: null,
+      body: null,
+      steps: null,
+      tags: [],
+      confidence: 0.8,
+      status: 'published',
+      source: null,
+      uses: 0,
+      version: 1,
+      createdAt: 'x',
+      updatedAt: 'x',
+    };
+
+    const fakeGetRelevant = vi.fn().mockReturnValue([a]);
+    const preface = buildSkillsPreface('query', {
+      getRelevant: fakeGetRelevant,
+      allowedSkillsJson: '[]',
+    });
+
+    expect(preface.text).toContain('Skill A');
+    expect(preface.skillIds).toEqual(['skill-a']);
+  });
+});
+
 // ── Layer 1b: real DB transient/never-persist safeguard ─────────────────────────
 
 describe('P3-2 buildSkillsPreface is transient (never persists)', () => {

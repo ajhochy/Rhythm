@@ -176,3 +176,71 @@ describe('P3-2 — AgentRunner injects the skills preface (env-toggled)', () => 
     expect(repo.getById(idB)!.uses).toBe(1);
   });
 });
+
+// ── P1b: runner path allowlist filter ──────────────────────────────────────────
+
+describe('runner path allowlist (P1b)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    delete process.env.AGENT_SKILLS_ENABLED;
+    makeDb();
+    mockCreateSession.mockResolvedValue({ id: 'sdk-session-1' });
+    mockPrompt.mockResolvedValue({
+      info: { sessionID: 'sdk-session-1' },
+      parts: [{ type: 'text', text: 'Done' }],
+    });
+    mockAbortSession.mockResolvedValue(true);
+  });
+
+  afterEach(() => {
+    teardownDb();
+    vi.restoreAllMocks();
+    delete process.env.AGENT_SKILLS_ENABLED;
+  });
+
+  async function freshRun() {
+    const { run } = await import('../services/agent_runner');
+    return run;
+  }
+
+  it('runner passes allowedSkillsJson from profile scope to buildSkillsPreface — out-of-allowlist skill excluded', async () => {
+    const repo = new AgentSkillsRepository();
+    // Seed TWO skills — idA is the high-scorer for PROMPT; idB is the non-scorer
+    // The allowlist only includes idB, so idA must NOT appear in the forwarded prompt.
+    const idA = seed(repo, {
+      title: 'Weekly report builder',
+      whenToUse: 'When assembling the weekly staff report',
+      description: 'Builds the weekly report',
+      tags: ['weekly', 'report'],
+    });
+    const idB = seed(repo, {
+      title: 'Email triage',
+      whenToUse: 'Sort incoming emails quickly',
+      description: 'Sorts the inbox',
+      tags: ['email'],
+    });
+
+    // Mock resolveProfileScope so the runner receives an allowlist for only idB.
+    const scopeModule = await import('../services/agent_profile_scope');
+    vi.spyOn(scopeModule, 'resolveProfileScope').mockResolvedValue({
+      model: { providerID: 'anthropic', modelID: 'claude-sonnet-4-5' },
+      mcpRoleConfig: null,
+      allowedSkillsJson: JSON.stringify([idB]),
+      systemPrompt: null,
+      ocAgent: null,
+    });
+
+    const run = await freshRun();
+    const result = await run({ prompt: PROMPT });
+
+    expect(result.status).toBe('done');
+    expect(mockPrompt).toHaveBeenCalledOnce();
+    const forwarded = mockPrompt.mock.calls[0][1] as string;
+    // idA (Weekly report builder) would normally score highly but is NOT in the allowlist.
+    expect(forwarded).not.toContain('Weekly report builder');
+    // The forwarded prompt must still contain the original user prompt.
+    expect(forwarded).toContain(PROMPT);
+
+    void idA; // idA is used by the DB seed; suppress unused warning
+  });
+});

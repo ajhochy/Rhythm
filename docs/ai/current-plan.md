@@ -1,133 +1,124 @@
-# Current Plan — Rhythm-native self-improving skill library (Odysseus port)
+# Current Plan — Agent-profile scoping parity across all run paths
 
 **Date:** 2026-06-24
-**Branch:** stack on `feature/agent-scheduler` (PR #734) — do NOT branch off `main` (main is ~540 commits behind and lacks the Agent Profile foundation this depends on). Manual merge only.
-**Status:** PLANNED — ready for issue-writer → acceptance-contract → coding-agent. Scope policy: plan AND implement all 5 phases (0–4) this run; file follow-up issues for out-of-scope discoveries, never silently expand.
+**Branch:** stack on `feature/agent-scheduler` (PR #734) — do NOT branch off `main` (main is far behind and lacks the Agent Profile + skill-library foundation this builds on). Manual merge only; never auto-merge.
+**Status:** PLANNED — ready for issue-writer → acceptance-contract → coding-agent. Scope policy: plan AND implement P0–P3 this run; P4 is a separate epic (issues + design note ONLY, no code). File follow-ups for out-of-scope discoveries; never silently expand.
 
 ---
 
 ## User request (one sentence)
 
-Port Odysseus's self-improvement model into Rhythm's opencode agent layer: a Rhythm-native, SHARED (instance-wide, not per-user) self-improving skill library that replaces the agent-stack→opencode skill sync — Rhythm owns and evolves the skills; agent PROMPTS stay stable while the skill library is the evolving layer.
+Make every agent run path (interactive chat/WebSocket, scheduled, cookbook/ad-hoc) enforce the SAME agent-profile scope — MCP allowlist, skill allowlist, system prompt, ocAgent, and model — by extracting one shared scope-builder helper that today only the scheduled path effectively uses.
 
 ## Goal
 
-A shared (instance-wide) skill store on the local SQLite agent DB that (1) is seeded once from the current agent-stack skills, then owned and grown by Rhythm; (2) a background extractor distills DRAFT skills from non-trivial agent runs; (3) relevance retrieval injects top-N matched skills into the agent prompt preface; (4) teacher-escalation captures a DRAFT skill on weaker-model failure. Mirrors Odysseus `skill_extractor.py` / `skills.py` / `chat_helpers.py` while reusing Rhythm's existing scaffolding (AgentRunner, ws_gateway, agent_memory FTS pattern, scheduled-task seeding, dual-DB).
+A single shared "profile scope" seam — one helper that, given an `agentConfigId`, resolves `{ model, mcpRoleConfig, allowedSkillsJson, systemPrompt, ocAgent }` — called by BOTH `agent_runner.ts` (reference/scheduled path) and `ws_gateway.ts` (interactive path). After this work an interactive session scoped to `allowed_mcps=["rhythm"]` cannot invoke gmail/pco tools; skills outside `allowed_skills_json` are never injected on either path; a profile `system_prompt` demonstrably influences the session; and the 18 imported AI-Workflow profiles carry sensible models + scoping so they no longer run unscoped on a fallback model.
 
-## Intent + Constraints
+## Non-goals
 
-1. **What the user is accomplishing:** Rhythm becomes the source of truth for opencode agent skills and improves them at runtime; agent-stack is divorced from opencode and used only as a one-time seed. The skill library is the evolving layer; agent prompts are stable.
-2. **In scope:** Phase 0 divorce + seed; Phase 1 shared skills store (table + repository + CRUD routes + opencode exposure); Phase 2 background extractor; Phase 3 retrieval + prompt-preface injection + enable toggle; Phase 4 teacher-escalation (draft skill on failure + Flutter badge/demote/delete).
-3. **Out of scope (NON-GOALS):** Memory Consolidation (facts/preferences) — already exists as `agentMemoryService` + `agent_memory` table + the scheduled "Memory Consolidation" task; do NOT rebuild it. Per-user/owner scoping of skill rows (skills are SHARED instance-wide). Changing agent prompts/profiles themselves. Launching the app via osascript/Computer Use.
-4. **Hard constraints:**
-   - **Dual-DB:** every schema change lands in BOTH `apps/api_server/src/database/migrations.ts` (SQLite) AND `apps/api_server/src/database/postgres_bootstrap.ts` (Postgres) with matching columns (per repo memory "Postgres/SQLite schema drift").
-   - **Shared, not owner-scoped:** skill rows carry NO `owner_user_id`. (Contrast Odysseus owner-scoped + `agent_memory.owner_user_id`.)
-   - **Test-env guard:** any service that writes files OR runs background LLM jobs must be guarded against the test env (`VITEST==='true' || NODE_ENV==='test'`) — mirror `opencode_agent_writer.ts::isTestEnv()` (lines 53–54). A prior bug let vitest pollute `~/.config/opencode/agents`; the extractor must never run, and Phase 0 import must never write, under test.
-   - **Non-blocking extraction:** background distill must never block the user-facing turn (fire-and-forget after the turn completes; failures swallowed + logged).
-   - **Conservative gating:** confidence ≥ 0.6, dedup by title, draft vs published; one-offs/failures/Q&A → null (no skill).
-   - **Verification:** `cd apps/api_server && npx tsc --noEmit && npx vitest run` (baseline 966 passing); `cd apps/desktop_flutter && dart format . --set-exit-if-changed && flutter analyze --no-fatal-infos && flutter test`. Verify via HTTP + tsc + vitest only — never launch the app.
-   - Feature branch + PR; never auto-merge.
-5. **Design tensions:** "Rhythm owns skills" vs. "don't lose the agent-stack seed" → resolved by Phase 0 importing the seed ONCE into the store and then severing the opencode sync write. "Inject skills into prompt" vs. "agent prompts stay stable" → resolved by injecting a transient "Available skills" PREFACE at prompt time (Phase 3), never mutating the profile `systemPrompt` or the opencode `.md` files.
-6. **Cheapest version that proves the idea:** Phases 1+2+3 (store + extractor + injection) form the self-improving loop end-to-end. Phase 0 (divorce/seed) is prerequisite housekeeping; Phase 4 (teacher-escalation) is the quality multiplier layered on top.
+- NOT hand-creating the three `agent_skills` / `agent_scheduled_tasks` / `agent_cookbook` tables (P0 is a regression test + documentation only — the tables already migrate correctly; the failure report queried a stale, gitignored repo-local `rhythm.db`).
+- NOT committing the stale `apps/api_server/rhythm.db` (untracked, gitignored dev artifact).
+- NOT changing model PRECEDENCE semantics — preserve: per-turn override > session selection > profile default > catalog fallback.
+- NOT building the manager/delegation runtime (P4 is design + issues only).
+- NOT touching the production Postgres path for the agent-only scoping logic (agent runs are local-SQLite; Postgres no-ops, same posture as the skill library).
+- NOT changing the agent-stack `sync-globals` behavior in THIS repo (that's the separate agent-stack PR P0-1 already tracked in decisions).
 
-## Security / safety constraints (must be reflected in issues)
+## Hard constraints (from AGENTS.md / project memory)
 
-- Extractor + Phase 0 import are **test-env guarded** — zero filesystem/LLM side effects under vitest.
-- Background extraction is **fire-and-forget**; an extractor failure must never surface to or block the user turn.
-- Injected skill preface is **transient** (built per-prompt); never persisted into profile `systemPrompt` or opencode agent `.md` files.
-- Draft skills from teacher-escalation are **confidence-gated** before injection (fail-closed) and **flagged in the UI** for human demote/delete.
-- No new owner scoping; skills are shared — but CRUD routes still run behind the existing `AGENT_LOCAL` auth posture (local-only :4001).
+- **Agent traffic is hard-pinned to `localhost:4001`** — never couple scope resolution to `serverConfigService.url`.
+- **Dual-DB / schema drift:** any new column needs a guarded `CREATE/ALTER` in BOTH `migrations.ts` (SQLite) and `postgres_bootstrap.ts`; tests are SQLite-only, so Postgres columns are mirrored by hand and asserted in a column-parity test.
+- **Transient injection invariant:** prefaces (skills/memory) and any scope-derived prompt text must remain in-memory for the send only — NEVER persisted to `config.systemPrompt`, the message store, or an opencode agent `.md`.
+- **Test-env guards:** the live opencode/model path is `isTestEnv()`-inert; wiring is proven by injected-dep unit tests + forwarded-prompt capture, not end-to-end (same pattern as P2–P5 of the skill library).
+- **`dart format` / `flutter analyze --no-fatal-infos` / `tsc --noEmit` / vitest** must all pass before PR.
+- **SDK limitation (known):** `session.create()` accepts only `{ title, directory }` — there is NO per-session tool-allowlist param. `createSession`'s `mcpRoleConfig` arg is a passthrough that callers/tests spy on; enforcement is "store allowlist on the session row + gate at the WS/runner send seam." The same limitation governs per-session system prompt (P2 must investigate whether the current SDK has changed this).
 
-## Clarification interview
+## Design tensions
 
-Skipped — alignment was collected up front and supplied as the align-gate outputs (branch_strategy: stack on `feature/agent-scheduler`; scope_policy: plan AND implement all 5 phases, file follow-ups for out-of-scope; alignment_summary reproduced under Goal). Acceptance criteria below are derived from the Odysseus reference + Rhythm's existing patterns.
+- **One shared helper vs. two divergent call sites.** The whole point is to converge them; but the two paths differ (runner uses synchronous `prompt()` and has no live SSE consumer; WS uses fire-and-forget `promptAsync()` driven by the stream bridge). The helper must return DATA (a resolved scope object), not perform the send — each path keeps its own send mechanics.
+- **Profile scope vs. per-call scope.** Scheduled runs already carry `allowedMcpsJson` from the SCHEDULED-TASK row (not the profile). Interactive sessions have no such per-call field — their scope must come from the PROFILE (`agentConfigId` = `agentKind`). The helper resolves profile scope; a caller may still pass an explicit per-call `allowedMcpsJson` that takes precedence (scheduled-task case). This keeps the scheduled path byte-for-byte unchanged.
+- **MCP enforcement reality.** Because the SDK can't gate per session, the "scope" for MCP on the interactive path = building `mcpRoleConfig` from the profile's `allowed_mcps_json` and passing it through `createSession` (init-time, same as the controller's `mcpRole` path) PLUS not surfacing disallowed tools. Acceptance must be framed against the same observable seam the scheduled path uses (mirror `issue_738_agent_runner.test.ts`), not against a guarantee the SDK doesn't provide.
 
-## Prior Art
+## Cheapest version that proves the idea
 
-Verified in `/Users/ajhochhalter/Documents/odysseus`:
-- `services/memory/skill_extractor.py` — background LLM distillation after runs with ≥2 rounds OR ≥2 tool calls; extracts `{title, problem, solution, steps[], tags[], confidence}` from last ~12 msgs (media stripped); confidence ≥0.6, dedup by title; conservative null for one-offs/failures/Q&A.
-- `services/memory/skills.py::get_relevant_skills(query)` — Jaccard token overlap + whole-token tag match + description substring hit + confidence/usage multipliers; threshold 0.3, top 5; published + draft eligible, drafts confidence-gated.
-- `routes/chat_helpers.py` — matched skills injected as an "Available skills" prompt preface, gated by `skills_enabled` pref, skipped for incognito/casual turns.
-- Teacher-escalation — weaker-model failure → stronger model's approach captured as DRAFT (`source=teacher-escalation`), auto-injected next time (confidence-gated), UI badge to demote/delete.
-- `memory_extractor.py` (facts/preferences) — Rhythm equivalent already exists ("Memory Consolidation"); explicitly out of scope.
-
-## Key investigation findings (grounding)
-
-- **Entity template:** `agent_memory` (FTS5 + `AgentMemoryRepository`, `migrations.ts:1242–1254`) and `agent_scheduled_tasks` (`migrations.ts:1210–1235`) are the closest templates for the new `agent_skills` table + repository. Skills want FTS-style matching like `agent_memory`, but Odysseus scoring (Jaccard + tag + substring + multipliers) is richer than FTS — implement scoring in the repository/service layer over loaded rows (Phase 3), keeping the table simple. NO `owner_user_id` column (shared).
-- **Dual-DB seam:** SQLite block in `migrations.ts::runMigrations`; Postgres mirror in `postgres_bootstrap.ts::runPostgresBootstrap`. Repo memory "Postgres/SQLite schema drift" + the existing B1 cookbook issue confirm the exact pattern (and the empty-DB-returns-`[]` regression test).
-- **Test-env guard pattern:** `opencode_agent_writer.ts` lines 53–54 (`isTestEnv()`), 71 and 147 (early returns). Reuse verbatim for the extractor and the Phase 0 importer.
-- **Extractor hook points:** (a) `agent_runner.ts` — after `run()` completes (it already records the session in `agent_sessions`, resolves model, and has the session id); the runner builds `effectiveSystemPrompt` from `config.systemPrompt` (lines 290–309). (b) `ws_gateway.ts` — the `session.input` turn path (`handleSessionInput`, ~line 207; `promptAsync`/`prompt` forwarding ~line 573–583). Both must count rounds-or-tools (≥2) over the session's `agent_session_messages` before queuing a distill.
-- **Prompt-preface injection point (Phase 3):** the system prompt is assembled in `agent_runner.ts` (`effectiveSystemPrompt`, lines 290–309) and forwarded via `opencodeClient.prompt(...)` (line 404); ws turns forward via `promptAsync` (line 573–583). Injection augments the system/preface string at send time — it does NOT persist to the profile or opencode `.md`.
-- **Skill source today:** `~/.config/opencode/agents/` disk files seeded one-time from agent-stack; `opencode_agent_writer.ts` projects profiles → opencode `.md`. The agent-stack `sync-globals` step currently also writes opencode agents; Phase 0 severs that write and re-homes the skills into the new store. `~/.claude/skills` + `~/.config/opencode/agents` are the seed sources.
-- **Capture data already present:** `agent_sessions` + `agent_session_messages` (role/text/created_at, index on `(session_id, created_at)`, `migrations.ts:758–784`) give the extractor its conversation window (last ~12 msgs).
-- **Scheduled-task seeding pattern:** `agentMemoryService.seedScheduledTask`-style guard (`alreadySeeded` by name, line 55) is the template if Phase 2 ever runs extraction as a scheduled sweep rather than per-turn (default is per-turn fire-and-forget; a scheduled batch variant is a flagged follow-up, not in scope).
+Extract `resolveProfileScope(agentConfigId, overrides?)` returning `{ model, mcpRoleConfig, allowedSkillsJson, systemPrompt, ocAgent }`; have `agent_runner._runOnce` call it (replacing its inline `resolveRunModel` + profile load + `mcpRoleConfig` build) with ZERO behavior change (regression-locked by existing #738 tests); then have `ws_gateway.handleInputFrame` call the same helper and (a) build+pass `mcpRoleConfig` on the resume/create seam and (b) pass `allowedSkillsJson` into `buildSkillsPreface`. That single seam is where P2 (system_prompt/ocAgent forwarding) and P4 (delegation re-scope) later slot in.
 
 ---
 
-## Phase breakdown
+## Prior Art
 
-- **Phase 0 — Divorce + seed.** Stop `ai-workflow sync-globals` (agent-stack) from writing opencode agents/skills; one-time import the current agent-stack skills (`~/.config/opencode/agents` + `~/.claude/skills`) into the new store as `status='published', source='agent-stack-seed'`. Idempotent (skip already-imported by title), test-env guarded. Rhythm owns them after.
-- **Phase 1 — Shared skills store.** `agent_skills` table on the LOCAL SQLite agent DB (both DBs per dual-DB rule); `AgentSkillsRepository` + CRUD routes; expose to opencode (a `skill` lookup the agent layer can read + the surface Phase 3 injects). NO owner scoping.
-- **Phase 2 — Extractor.** After `AgentRunner.run()` AND after interactive WS turns that hit ≥2 rounds-or-tools, background-distill a DRAFT skill (mirror Odysseus prompt + schema, ≥0.6 confidence gate, dedup by title). Non-blocking, test-env guarded.
-- **Phase 3 — Retrieval + injection.** Rhythm `getRelevantSkills(query)` equivalent (Jaccard + tag + substring + multipliers, threshold 0.3, top-N); inject matched skills into the prompt preface in `agent_runner.ts` + `ws_gateway.ts`; respect a `skills_enabled` toggle (default on); drafts confidence-gated.
-- **Phase 4 — Teacher-escalation.** On run failure/low-confidence, escalate model tier, capture the stronger model's approach as a DRAFT skill (`source='teacher-escalation'`), confidence-gated injection; Flutter UI surfaces draft skills with a badge + demote (→ delete) / publish actions.
+Swarm not dispatched: this is an internal refactor over already-understood Rhythm code (no new dependency, no third-party API, no known-hard external pattern). The authoritative "prior art" is the in-repo reference path itself — `agent_runner.ts` `_runOnce` (model resolution `resolveRunModel` ~203–241; profile load ~488–506; `mcpRoleConfig` build ~575–603) and the scheduled-path scope test `src/__tests__/issue_738_agent_runner.test.ts`. The interactive path (`ws_gateway.ts handleInputFrame` ~226–690) and `agent_sessions_controller.ts create()` (~216–471, MCP role resolution ~303–335) are the divergent sites to converge. `skill_retrieval.ts buildSkillsPreface/getRelevantSkills` (~158–245) is the skill-injection seam that needs an allowlist filter parameter.
 
-Order rationale: Phase 0 frees the namespace and seeds data; Phase 1 is the store everything else reads/writes; Phase 2 fills it; Phase 3 closes the loop (read → inject); Phase 4 is the quality layer on top. 1→2→3 are strictly sequential; 0 is independent prerequisite; 4 depends on 1+3.
+---
+
+## Phased issues
+
+### P0 — Migration regression test + finding documentation (NOT a bug)
+The three tables (`agent_skills`, `agent_scheduled_tasks`, `agent_cookbook`) already migrate cleanly on fresh AND existing runtime DBs; `runMigrations` runs every boot (`db.ts:62`); the runtime DB at `~/Library/Application Support/Rhythm/rhythm.db` HAS all three. The failure report queried the STALE, untracked, gitignored repo-local `apps/api_server/rhythm.db` that is never re-migrated. Deliverable: a regression test that asserts migrations are self-healing, plus a decision note documenting the stale-file trap. Do NOT hand-create tables; do NOT commit the stale file.
+
+### P1 — Scoping parity on interactive (chat/WebSocket) sessions (the real work)
+Split into P1a (shared helper + MCP scope on interactive) and P1b (skill allowlist filter on both paths).
+
+- **P1a** — Extract `resolveProfileScope(agentConfigId, { allowedMcpsJsonOverride? })` → `{ model, mcpRoleConfig, allowedSkillsJson, systemPrompt, ocAgent }`. Refactor `agent_runner._runOnce` to consume it (no behavior change, regression-locked). Wire it into `ws_gateway.handleInputFrame`: build `mcpRoleConfig` from the PROFILE's `allowed_mcps_json` and pass it to the `createSession`/resume seam so interactive sessions are MCP-scoped exactly as scheduled runs are.
+- **P1b** — Add an `allowedSkillsJson` filter parameter to `getRelevantSkills`/`buildSkillsPreface`; thread the profile's `allowed_skills_json` through the helper on BOTH paths so skills outside the allowlist are never injected (null/absent allowlist = current behavior, all skills eligible — backward compatible).
+
+### P2 — Profile fidelity (system_prompt + ocAgent) forwarded on both paths
+`agent_runner` loads `systemPrompt`+`ocAgent` but TODO-drops them (~503–505). Investigate whether the current `@opencode-ai/sdk` supports a per-session system prompt (read `node_modules/@opencode-ai/sdk` types). If yes: forward it via the helper on both paths. If no: implement a documented fallback (first-turn system injection OR per-turn agent override) applied consistently through the P1 helper. Forward profile `ocAgent` to both paths (today only per-turn via `ws_gateway` ~290–292). Record the SDK capability finding in `docs/ai/decisions/`.
+
+### P3 — Profile config hygiene (18 imported AI-Workflow agents)
+The importer is `services/agent_profile_sync.ts` `syncOpencodeAgentProfiles` (inserts at `sortOrder: 100`). It backfills `systemPrompt`/`model` ONLY from the opencode registry entry (`agent.prompt` / `agent.model`) and never sets `allowed_mcps_json`/`allowed_skills_json`; agents without a registry model fall through to `ROUTE_FALLBACKS_BY_AGENT` and run unscoped. These rows are SYNC TARGETS — direct DB edits get clobbered on re-sync, so the FIX must live in the importer. Make the importer (a) map Tier 1/2/3 mentions in the agent's prompt/metadata to concrete models when `agent.model` is absent; (b) populate sensible `allowed_mcps_json`/`allowed_skills_json` defaults; (c) de-dup dev front-doors (superpowers / workflow-orchestrator / plan are all `sessionSelectable` — pick ONE primary, set the others `sessionSelectable=false`), importer-driven.
+
+### P4 — Manager delegation (SEPARATE EPIC — issues + design note ONLY, no code)
+`is_manager` exists but is unused. Desired: a delegation tool for manager profiles that invokes a target Rhythm profile as a sub-run RE-SCOPED via the P1 `resolveProfileScope` helper and returns the result; an allowed-delegates list on `agent_configs`; `is_manager` activated for authorization. Deliverable NOW: a planning issue set + a design note in `docs/ai/decisions/` describing the delegation seam riding on the P1 helper. No implementation.
+
+---
+
+## Dependency order
+
+```
+P0  (independent — migration regression test + doc)
+P1a (shared helper + interactive MCP scope)  ──→ P1b (skill allowlist filter, both paths)
+                                              ──→ P2  (system_prompt + ocAgent via the helper)
+                                              ──→ P4  (design note references the helper seam)
+P3  (independent — importer hygiene; touches agent_profile_sync.ts only)
+```
+
+- P0 and P3 are independent of everything and of each other.
+- P1a is the keystone: P1b, P2, and the P4 design all build on `resolveProfileScope`.
+- P1b can land in the same PR as P1a or immediately after.
+- P2 must consume the P1a helper (do not re-load the profile separately).
+- P4 produces no code; its design note must cite the P1a helper signature.
 
 ---
 
 ## Validation plan
 
-**Per api_server issue:**
-```bash
-cd apps/api_server && npx tsc --noEmit && npx vitest run
-```
-Baseline 966 passing must not regress. New routes/services get `src/__tests__/*.ts` spinning up `createApp().listen(0)` with `server.maxRequestsPerSocket = 1` (per testing-guide undici-flake guidance), covering happy path + empty/unauthorized boundary. Opencode engine mocked at module level (testing-guide pattern).
-
-**Per Flutter issue:**
-```bash
-cd apps/desktop_flutter && dart format . --set-exit-if-changed && flutter analyze --no-fatal-infos && flutter test
-```
-Phase 4 UI gets a REAL-SURFACE widget test pumping the mounted skills surface (per repo memory "Agents inspector was orphaned" — pump the mounted surface, not an isolated widget) asserting a draft badge renders and demote/delete fire.
-
-**Schema-drift gate (Phase 1 + any new column):** confirm `agent_skills` is created in BOTH `migrations.ts` and `postgres_bootstrap.ts` with matching columns; a vitest asserts `GET /agent-skills` returns `[]` (not 500) on an empty DB.
-
-**Test-env-guard gate (Phase 0 + Phase 2):** a vitest asserts that with `VITEST==='true'` the importer/extractor performs ZERO writes (no DB row inserted, no LLM call, no file written) — proving the pollution guard.
-
-**Non-blocking gate (Phase 2):** a vitest asserts the turn-completion path returns/resolves without awaiting the distill (e.g. distill is queued, not awaited; an injected throwing distill does not reject the turn).
-
-**Manual smoke (pre-merge):** verify via HTTP only — `POST/GET /agent-skills` round-trips; run an agent turn with ≥2 tools and confirm (after the turn) a draft skill row appears; confirm a second similar turn injects the skill into the prompt preface (log assertion); confirm a draft skill shows the badge in Flutter and demote/delete works. Do NOT launch via osascript/Computer Use. Follow with `failure-postmortem`.
+| Phase | Required validation |
+|---|---|
+| P0 | New vitest: run `runMigrations` on (a) a fresh `:memory:` DB and (b) a DB pre-seeded with an OLD schema lacking the 3 tables; assert all three exist afterward with their intended columns. `tsc --noEmit`. |
+| P1a | New vitest mirroring `issue_738_agent_runner.test.ts`: interactive turn for a profile with `allowed_mcps_json=["rhythm"]` builds an `mcpRoleConfig` that excludes gmail/pco; a gmail-scoped profile includes gmail. Regression: existing #738 runner tests still green (helper extraction is behavior-preserving). |
+| P1b | New vitest: `buildSkillsPreface(query, { allowedSkillsJson })` excludes a high-scoring skill that is outside the allowlist; null allowlist keeps current behavior. Assert on both the runner and WS forwarded-prompt capture. |
+| P2 | If SDK supports per-session system prompt: test that the resolved scope forwards it. If not: test the documented fallback (first-turn injection / per-turn agent) fires on both paths. SDK finding recorded in decisions (auditable). |
+| P3 | Importer unit test: after `syncOpencodeAgentProfiles` over a fixture registry, imported rows carry a concrete model + non-null `allowed_mcps_json`/`allowed_skills_json`; exactly one of the dev front-doors is `sessionSelectable=true`. `GET /agent-configs` reflects it. |
+| P4 | None (no code). Design note exists in `docs/ai/decisions/`; issues filed. |
+| All | `cd apps/api_server && npx tsc --noEmit && npx vitest run` green; Flutter unaffected (no Dart changes expected — verify with `flutter analyze`). |
 
 ---
 
-## Known Ambiguities / Open questions (flagged for reviewer — testability gaps)
+## Clarification interview
 
-- **OQ-1 (Phase 0 seed write target):** "import the current agent-stack skills" — the exact on-disk shape under `~/.config/opencode/agents` vs `~/.claude/skills` (frontmatter fields → store columns mapping) is unverified. Issue P0-2 must read a real sample and pin the field mapping (title/when_to_use/description/tags); flag to reviewer if a field has no column. Acceptance "all agent-stack skills imported" is only testable once the source count is pinned — issue must assert imported_count == discovered_count.
-- **OQ-2 (Phase 0 sync sever mechanism):** stopping `sync-globals` from writing opencode agents lives in agent-stack (`~/Documents/agent-stack`, a DIFFERENT repo) not Rhythm. Per repo memory, agent-stack skills are edited there then `ai-workflow sync-globals`. Decide: does Phase 0 edit agent-stack (out-of-tree change, separate PR) or add a Rhythm-side guard/ownership marker that makes the opencode-agents dir Rhythm-owned? Reviewer must confirm scope boundary — flagged because it may cross repos (out-of-scope → follow-up issue if so).
-- **OQ-3 (rounds-or-tools counting source):** "≥2 rounds OR ≥2 tool calls" — whether tool-call count is derivable from `agent_session_messages` rows alone or needs the SDK message parts (tool parts) is unverified. Issue P2-1 must specify the exact signal; if message rows lack tool-part granularity, fall back to round count (≥2 assistant turns) and flag the degraded signal.
-- **OQ-4 (extractor LLM + model):** which model/provider distills the skill (a fixed cheap tier? the session's model? a configured extractor model like Memory Consolidation's prompt?) is unspecified. Default to reusing AgentRunner's model-resolution cascade with a cheap-tier preference; flag for reviewer to confirm cost posture.
-- **OQ-5 (teacher-escalation trigger definition):** "weaker-model failure / low-confidence" needs a concrete, testable trigger (run status='error'? no-progress fast-fail? a confidence score the SDK does not emit?). Issue P4-1 must define the trigger as an observable signal (e.g. `AgentRunner` run status='error' OR no-progress timeout) — a "low-confidence" trigger with no emitted score is NOT testable and must be dropped or redefined.
-- **OQ-6 (`skills_enabled` toggle home):** whether the enable toggle is an instance-wide setting (a new `agent_settings` row / env) or per-session is unspecified. Default to instance-wide (matches shared model), default ON; flag if per-user is desired (would reintroduce scoping the constraints forbid).
+Skipped the full AskUserQuestion round: the dispatch brief already pins each phase's observable outcome, boundary, and non-goals concretely (P0 verified-not-a-bug; P1 acceptance mirrors `issue_738_agent_runner.test.ts`; P3 names the importer file). The two genuine unknowns are technical, not preference-based, and are recorded under Open Questions for the implementing agent to resolve by reading code (SDK types / agent-stack definitions) rather than by asking the user.
 
----
+## Known Ambiguities / Open Questions
 
-## Issue table
-
-| Order | Title | Goal | Likely files | Tests / evaluation | Dependencies |
-|-------|-------|------|--------------|--------------------|--------------|
-| P0-1 | Sever agent-stack → opencode skill sync write | Stop `sync-globals` (agent-stack) from writing opencode agents/skills so Rhythm owns the namespace; add a Rhythm-side ownership marker / guard so the opencode-agents dir is no longer overwritten by the sync. Document the seam. (If the change must land in the agent-stack repo, scope a follow-up per OQ-2.) | `~/Documents/agent-stack` sync script (out-of-tree — confirm scope) OR Rhythm-side guard in `apps/api_server/src/services/opencode_agent_writer.ts`; `docs/ai/decisions/2026-06-24-rhythm-owns-skills.md` (NEW) | Manual: confirm `sync-globals` no longer overwrites opencode agents; vitest if a Rhythm-side guard is added | — |
-| P0-2 | One-time seed import of agent-stack skills into the store | Idempotent importer reads `~/.config/opencode/agents` + `~/.claude/skills`, maps each to an `agent_skills` row (`status='published'`, `source='agent-stack-seed'`), skips already-imported by title. Test-env guarded (zero writes under VITEST). Pin the frontmatter→column mapping (OQ-1). | NEW `apps/api_server/src/services/skill_seed_importer.ts`; `apps/api_server/src/server.ts` or boot path (invoke once on startup, guarded) | tsc; vitest: import maps sample skills → rows; re-run is idempotent (no dup by title); `VITEST` → zero writes; `imported_count == discovered_count` | P1-1 |
-| P1-1 | `agent_skills` table (both DBs) + repository | Create `agent_skills` (`id`, `title`, `when_to_use`/`description`, `steps_json`, `tags_json`, `confidence REAL`, `status` [draft\|published], `source`, `uses INTEGER DEFAULT 0`, `created_at`, `updated_at`) in BOTH `migrations.ts` (SQLite) and `postgres_bootstrap.ts` (Postgres). NO `owner_user_id`. `AgentSkillsRepository` with type-safe CRUD + `incrementUses`. | `apps/api_server/src/database/migrations.ts`; `apps/api_server/src/database/postgres_bootstrap.ts`; NEW `apps/api_server/src/repositories/agent_skills_repository.ts`; NEW `apps/api_server/src/models/agent_skill.ts` | tsc; vitest: CRUD happy path; identical columns in both DDLs; dedup-by-title helper | — |
-| P1-2 | `agent_skills` CRUD routes + opencode exposure | `GET/POST /agent-skills`, `GET/PATCH/DELETE /agent-skills/:id`; register in `app.ts`. Expose a typed read the agent layer uses (lookup by relevance in P3). Empty DB → `[]` not 500. | NEW `apps/api_server/src/routes/agentSkillsRoutes.ts`; NEW `apps/api_server/src/controllers/agentSkillsController.ts`; `apps/api_server/src/app.ts` | tsc; vitest (`createApp().listen(0)`, `maxRequestsPerSocket=1`): list-empty `[]`, create, get, patch, delete, 404; schema-drift gate (empty-DB not 500) | P1-1 |
-| P2-1 | Background skill extractor service | Distill a DRAFT skill from the last ~12 msgs (media stripped) of a session that hit ≥2 rounds-or-tools; mirror Odysseus prompt → `{title, problem, solution, steps[], tags[], confidence}`; gate confidence ≥0.6; dedup by title; conservative null for one-offs/failures/Q&A. Test-env guarded; fire-and-forget. | NEW `apps/api_server/src/services/skill_extractor.ts`; reuse `agent_session_messages` read; uses `AgentSkillsRepository` (P1-1) | tsc; vitest: ≥2-tools convo → draft created; one-off → null; confidence<0.6 → skipped; dup title → skipped; `VITEST` → zero LLM/DB writes | P1-1 |
-| P2-2 | Wire extractor into AgentRunner + WS turn (non-blocking) | After `AgentRunner.run()` completes and after `ws_gateway` `session.input` turns, count rounds-or-tools and queue the extractor without awaiting it (never blocks the turn; failures swallowed+logged). | `apps/api_server/src/services/agent_runner.ts` (post-run hook); `apps/api_server/src/services/ws_gateway.ts` (`handleSessionInput` completion) | tsc; vitest: turn resolves without awaiting distill; injected throwing distill does NOT reject the turn; extractor called only when ≥2 rounds-or-tools | P2-1 |
-| P3-1 | `getRelevantSkills` retrieval scorer | Score stored skills vs an incoming message: Jaccard token overlap + whole-token tag match + description substring hit + confidence/usage multipliers; threshold 0.3, top-N (default 5); published + draft eligible, drafts must clear the confidence gate (fail-closed). | `apps/api_server/src/repositories/agent_skills_repository.ts` (or NEW `skill_retrieval.ts`) | tsc; vitest: known query matches expected skill above 0.3; below-threshold excluded; low-confidence draft excluded; top-N cap honored | P1-1 |
-| P3-2 | Inject matched skills into prompt preface + enable toggle | Build a transient "Available skills" preface from P3-1 matches and prepend to the system/preface string at send time in `agent_runner.ts` and `ws_gateway.ts`; NEVER persist to profile `systemPrompt` or opencode `.md`. Gate on a `skills_enabled` toggle (default ON, instance-wide per OQ-6); `incrementUses` on injected skills. | `apps/api_server/src/services/agent_runner.ts` (preface near line 290–309/404); `apps/api_server/src/services/ws_gateway.ts` (~573–583); enable-toggle source (env or `agent_settings`) | tsc; vitest: matched skills appear in forwarded prompt; toggle OFF → no preface; injection does not mutate stored profile/`.md`; `uses` incremented | P3-1, P2-2 |
-| P4-1 | Teacher-escalation → draft skill capture | On an observable failure signal (run status='error' / no-progress fast-fail — see OQ-5), escalate model tier, re-run, and on success capture the stronger model's approach as a DRAFT skill (`source='teacher-escalation'`). Confidence-gated before later injection. | `apps/api_server/src/services/agent_runner.ts` (failure path + escalation); `skill_extractor.ts` (capture variant); `AgentSkillsRepository` | tsc; vitest: error-trigger → escalation runs → draft with `source='teacher-escalation'`; non-failure → no escalation; draft confidence-gated for injection | P2-1, P3-1 |
-| P4-2 | Flutter skills surface: draft badge + demote/delete | Flutter `agent_skills` feature (view/controller/repository/data/model) listing skills with a DRAFT badge (esp. `source='teacher-escalation'`); demote (→ delete) and publish actions calling P1-2 routes; register controller in `main.dart`; reachable from a TOOLS-style nav row. | NEW `apps/desktop_flutter/lib/features/agent_skills/**`; `apps/desktop_flutter/lib/main.dart` (provider); nav row in `lib/features/agents/views/_agents_nav_column.dart` | dart format; flutter analyze; flutter test incl. REAL-SURFACE test: draft badge renders, demote/delete + publish fire against the data source | P1-2, P4-1 |
+1. **P2 — does the current `@opencode-ai/sdk` support a per-session system prompt?** The 2026-05/06 code says no (TODO at `agent_runner.ts` ~503–505; `createSession` only forwards `{title,directory}`). The implementing agent MUST re-check `node_modules/@opencode-ai/sdk` types before choosing forward-vs-fallback. Resolve by reading the SDK, then record in decisions. (W4 risk if guessed.)
+2. **P3 — Tier→model mapping source.** The importer can read `agent.model` from the opencode registry, but agents synced WITHOUT a model need a Tier 1/2/3 → concrete-model map. Where does the canonical tier→model mapping live (agent-stack agent definition frontmatter? a Rhythm constant? the `tier1` alias remap to `opus-4-8` noted in memory)? The implementing agent must locate the authoritative source; if none exists, propose a small mapping constant in the importer and flag it for review.
+3. **P3 — which dev front-door is the single primary?** superpowers vs. workflow-orchestrator vs. plan. Default recommendation: `workflow-orchestrator` (it is the documented global entry point in CLAUDE.md). Confirm during issue-writing.
+4. **P1 MCP "cannot invoke" acceptance wording.** The SDK provides no hard per-session tool gate, so acceptance is "the `mcpRoleConfig` passed to `createSession` excludes the disallowed servers" (the same seam the scheduled path is tested against), NOT a runtime tool-call rejection. issue-writer should phrase the criterion against the spy-able seam to avoid an untestable contract.
 
 ---
 
-## Next in chain
+## Data-safety notes
 
-Hand off to `issue-writer` to convert this table into issue files under `docs/ai/generated-issues/` (P0-1 … P4-2; do not create remote issues until the user confirms). Then `acceptance-contract` per issue (resolve OQ-1…OQ-6 into testable criteria before coding) → `coding-agent` → `verification-gate` → `project-state-updater`.
+- The stale `apps/api_server/rhythm.db` is gitignored — confirm it is NEVER staged/committed during P0.
+- Memory injection owner-scoping is unchanged here; the interactive path remains global-only (no owner column on `agent_sessions`). The skill ALLOWLIST (P1b) is profile-scoped, not user-scoped — no cross-user concern, but the allowlist must fail OPEN to "all skills" on null (backward compatible), distinct from memory's fail-CLOSED-to-global posture.
+- All scope-derived prompt text stays transient (the transient-injection invariant above).
