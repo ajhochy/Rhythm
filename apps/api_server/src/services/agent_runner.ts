@@ -25,6 +25,7 @@ import { AgentSessionMessagesRepository } from '../repositories/agent_session_me
 import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
 import { queueSkillExtraction } from './skill_extractor';
 import { buildSkillsPreface, isSkillInjectionEnabled } from './skill_retrieval';
+import { buildMemoryPreface, isMemoryInjectionEnabled } from './memory_retrieval';
 import { AgentSkillsRepository } from '../repositories/agent_skills_repository';
 
 // ── Environment caps (read per-call so tests can override via process.env) ────
@@ -82,6 +83,15 @@ export interface AgentRunOptions {
    * Null for ad-hoc/cookbook runs.
    */
   scheduledTaskId?: string | null;
+  /**
+   * FOLLOW-UP (memory injection) — the owning user for this run, used to
+   * OWNER-SCOPE memory retrieval so user A's facts never leak into user B's
+   * prompt. For scheduler-originated runs this is
+   * `agent_scheduled_tasks.created_by_user_id`. When null/undefined the run is
+   * treated as having NO known owner → only instance-global (null-owner) memory
+   * is injected (fail-safe; never cross-user). Skills are unaffected (shared).
+   */
+  ownerUserId?: number | null;
   /**
    * P4-1 (internal) — marks this run as the escalated (teacher) re-run so its
    * OWN error path does NOT escalate again. This is the recursion guard: the
@@ -445,6 +455,7 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
     agentKind,
     sessionName,
     scheduledTaskId,
+    ownerUserId,
     modelOverride,
   } = opts;
 
@@ -513,6 +524,30 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
     } catch (err) {
       // Non-fatal: a retrieval failure must never block the run.
       logger.warn(`[AgentRunner] skill preface build failed (non-fatal): ${String(err)}`);
+    }
+  }
+
+  // FOLLOW-UP (memory injection): retrieve OWNER-SCOPED relevant memories and
+  // prepend a TRANSIENT "## Known context" block. This ADDS to the skills
+  // preface (does not replace it) — final layout is:
+  //   <memory preface>\n\n<skills preface>\n\n<original prompt>
+  // Each preface is independently toggle-guarded so disabling one leaves the
+  // other working. Like the skills preface it is in-memory only for this send:
+  // never written to config.systemPrompt, never persisted, never passed to the
+  // agent writer. FAIL-SAFE: ownerUserId is threaded straight to owner-scoped
+  // retrieval; a null/undefined owner retrieves ONLY instance-global memory.
+  if (isMemoryInjectionEnabled()) {
+    try {
+      const memPreface = await buildMemoryPreface(prompt, ownerUserId ?? null);
+      if (memPreface.text) {
+        effectivePrompt = `${memPreface.text}\n\n${effectivePrompt}`;
+        logger.info(
+          `[AgentRunner] injected ${memPreface.memoryIds.length} relevant memory item(s) into prompt preface (owner=${ownerUserId ?? 'global'})`,
+        );
+      }
+    } catch (err) {
+      // Non-fatal: a retrieval failure must never block the run.
+      logger.warn(`[AgentRunner] memory preface build failed (non-fatal): ${String(err)}`);
     }
   }
 

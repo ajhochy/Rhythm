@@ -118,6 +118,23 @@ Visual smoke (`flutter run -d macos`) is required before merging scheduler branc
 
 ## Recent coding-agent runs
 
+### 2026-06-24 — FOLLOW-UP: auto-inject relevant memory into agent prompts (owner-scoped)
+- Branch: `feat/memory-injection` (worktree `/Users/ajhochhalter/Documents/rhythm-mem-inject`). Do NOT push/PR (per dispatch).
+- Files created:
+  - `apps/api_server/src/services/memory_retrieval.ts` — mirrors skill_retrieval. `isMemoryInjectionEnabled()` (live env read), `getRelevantMemories(query, ownerUserId?, topN=5, repo?)` (async; OWNER-SCOPED via `AgentMemoryRepository.searchAsync`), `buildMemoryPreface(query, ownerUserId?, opts?)` → `{text, memoryIds}` building `## Known context (facts & preferences)`. NEW `extractQueryTokens()` — token-probe over the prompt (FTS5 MATCH/plainto_tsquery AND all bare tokens, so a full prompt almost never matches a short fact; we probe each significant non-stopword token and union owner-scoped hits). Defense-in-depth: drops any row whose ownerUserId !== requested owner (null-owner-only when no owner known).
+  - `apps/api_server/src/__tests__/memory_injection.test.ts` (9 tests) + `memory_injection_runner.test.ts` (6 tests) — incl. THE cross-user-leak test (owner B's memory NOT in owner A's run), null-owner→global-only, toggle off, empty store, transient (writeAgentProfileFile spy NOT called), skills+memory coexistence.
+- Files modified:
+  - `apps/api_server/src/config/env.ts` — added `agentMemoryInjectionEnabled` (env `AGENT_MEMORY_INJECTION_ENABLED`, default ON; only 'false'/'0' disable). Did NOT touch agentSkillsEnabled.
+  - `apps/api_server/src/services/agent_runner.ts` — import buildMemoryPreface/isMemoryInjectionEnabled; `AgentRunOptions.ownerUserId?: number|null`; in `_runOnce`, AFTER the skills block, prepend the memory preface to `effectivePrompt` → final `${memoryPreface}\n\n${skillsPreface}\n\n${prompt}`. Each preface independently toggle-guarded + try/catch (never-throws). Transient only (never persisted).
+  - `apps/api_server/src/services/ws_gateway.ts` — same imports; in `handleInputFrame` AFTER the skills block, prepend memory preface to BOTH `forwardData` and the leading text part. WS `agent_sessions` has NO owner column → owner UNRESOLVABLE → pass `null` (fail-safe: only instance-global memory). Never-throws.
+  - `apps/api_server/src/services/agentSchedulerService.ts` — local-path `AgentRunner.run(...)` now passes `ownerUserId: task.createdByUserId ?? null` (the only real owner-bearing call site).
+- Owner threading resolution: Scheduler = `agent_scheduled_tasks.created_by_user_id` → AgentRunOptions.ownerUserId. Cookbook/ad-hoc runs leave it undefined → null → global-only. WS interactive = no per-session owner exists → null → global-only (fail-closed; documented inline). FAIL-SAFE everywhere: null owner can never pull a user-owned fact.
+- Composition order at send sites: `memoryPreface \n\n skillsPreface \n\n prompt`.
+- Toggle: `AGENT_MEMORY_INJECTION_ENABLED` (default ON).
+- Checks: `npx tsc --noEmit` PASS (0); `npx vitest run` **1093/1093 PASS** (baseline 1078 + 15 new), single clean run.
+- Deviations: added `extractQueryTokens` token-probe (NOT in spec) — without it the reused FTS5 AND-semantics make full-prompt retrieval near-useless; reuses searchAsync per-token so owner-scoping + the shared FTS path are preserved and the on-demand `rhythm_search_memory` tool is untouched.
+- Concerns: token-probe issues up to MAX_QUERY_TOKENS (12) FTS queries per send (cheap at this scale; capped). WS path is permanently global-only until agent_sessions gains an owner column. Live opencode/model path isTestEnv-inert (engine mocked) — wiring proven by forwarded-prompt capture, not end-to-end.
+
 ### 2026-06-24 — P4-2 Flutter agent_skills surface (list + DRAFT badge + publish/delete)
 - Files created:
   - `apps/desktop_flutter/lib/features/agent_skills/models/agent_skill.dart` — `AgentSkill` model. fromJson MATCHES the api_server camelCase response keys (`whenToUse`, `stepsJson`/`tagsJson` + parsed `steps`/`tags`, `confidence`, `status`, `source`, `uses`, `createdAt`, `updatedAt`) confirmed against `agent_skills_repository.ts` `rowToModel`. Uses `asString/asInt/asDouble` helpers + `_parseStringList` (mirrors AgentConfig). Convenience getters `isDraft`, `isTeacherEscalation`.

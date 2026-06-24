@@ -270,6 +270,10 @@ async function checkDueTasks(): Promise<void> {
           agentConfigId: task.agentConfigId ?? task.agentKind,
           scheduledTaskId: task.id,
           sessionName: `Scheduled: ${task.name}`,
+          // FOLLOW-UP (memory injection): thread the task owner so memory
+          // retrieval is OWNER-SCOPED to whoever created this scheduled task.
+          // Null owner → only instance-global memory is injected (fail-safe).
+          ownerUserId: task.createdByUserId ?? null,
         }).then(async (result) => {
           const status = result.status === 'done' ? 'success' : 'error';
           const errMsg = result.error ?? undefined;
