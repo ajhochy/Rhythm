@@ -98,6 +98,18 @@ Visual smoke (`flutter run -d macos`) is required before merging scheduler branc
 
 ## Recent coding-agent runs
 
+### 2026-06-24 — P2-1 background skill extractor service
+- Files modified:
+  - `apps/api_server/src/services/skill_extractor.ts` (NEW) — `distillFromSession(sessionId, opts?)`. Mirrors Odysseus `skill_extractor.py`: builds the same distill system prompt, tolerant JSON-object extraction (`extractJsonObject` w/ balanced-brace `matchingBrace`, code-fence + prose stripping, multi-object ambiguity → null), MIN_CONFIDENCE 0.6, CONTEXT_WINDOW 12, dedup via `repo.findByTitle`. `isTestEnv()` mirrored VERBATIM from `opencode_agent_writer.ts`; also no-ops under Postgres. Maps to `AgentSkillInput`: description←problem+solution, steps_json←steps[], tags_json←tags[], status='draft', source='auto-extract'. NEVER throws (wrapped). LLM call is injectable (`LlmCall` type param); default impl lazily imports opencode_engine + `resolveRunModel()` and runs one synchronous `prompt()` against a throwaway session.
+  - `apps/api_server/src/__tests__/skill_extractor.test.ts` (NEW) — 7 tests with injected fake llmCall (no model/network): ≥2 rounds+valid high-conf JSON → draft inserted (status/source/steps/tags round-trip); 1 round → null + llmCall never called; confidence 0.4 → skipped; dup title → skipped; bare `'null'` → null no-insert; garbage prose → null no-insert; and the KEY VITEST-guard test — default real llmCall + ≥2 rounds seeded → null + ZERO rows (isTestEnv short-circuit). Injected-logic suite lifts the VITEST/NODE_ENV guard in beforeEach (restored in afterEach) so real branch logic runs while the injected llmCall guarantees no model is hit.
+- Checks run:
+  - `npx tsc --noEmit` — PASS (exit 0) [fixed initial `logger.debug` → `logger.info`; logger has no debug level]
+  - `npx vitest run` (full) — **1024/1024 PASS** (baseline 1017 + 7 new), 0 failures
+  - `npx vitest run skill_extractor.test.ts` — 7/7 PASS
+- Decisions made: OQ-3 — `agent_session_messages` base schema is role+text only (role ∈ input/output/system), no structured tool-call parts, so "non-trivial" = ROUND COUNT (number of `role='output'` rows in the recent window) >= 2. Tool-call granularity is NOT available → signal degraded to round-count-only (acceptable per issue, FLAGGED). OQ-4 — default LLM call reuses `resolveRunModel()` with no agentConfigId so the cheap background distill rides the MRU/default model tier; no vendor model id hardcoded beyond what resolveRunModel returns.
+- Deviations from spec: none. (Not wired into AgentRunner/WS — that is P2-2, intentionally out of scope.)
+- Concerns: Default real llmCall path (create throwaway opencode session + one-shot prompt) is exercised only at runtime, never in CI (isTestEnv short-circuit by design); only the injectable-logic path is unit-tested. Round-count signal cannot distinguish a genuinely complex run from a chatty 2-turn Q&A — the MIN_CONFIDENCE 0.6 gate + null-for-non-reusable prompt are the only quality backstops.
+
 ### 2026-06-24 — P0-2 one-time seed import of agent-stack skills
 - Files modified:
   - `apps/api_server/src/services/skill_seed_importer.ts` (NEW) — discovers skills from `~/.config/opencode/agents/*.md` and `~/.claude/skills/<name>/SKILL.md`, parses YAML frontmatter (minimal line-parser, no yaml dep), maps to `AgentSkillInput`, dedups by case-insensitive title, inserts via `AgentSkillsRepository`. `isTestEnv()` guard mirrored VERBATIM from `opencode_agent_writer.ts`; also no-ops under Postgres. Idempotent via `repo.findByTitle`. Exports pure helpers (`parseFrontmatter`, `frontmatterToSkillInput`, `dedupByTitle`) and `SEED_SOURCE = 'agent-stack-seed'`.
