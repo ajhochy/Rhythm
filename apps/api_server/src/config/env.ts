@@ -115,6 +115,21 @@ export const env = {
     return !(raw === 'false' || raw === '0');
   })(),
   /**
+   * FOLLOW-UP (memory injection): instance-wide toggle for injecting relevant
+   * stored memories (facts & preferences) into the agent prompt preface as a
+   * transient "Known context" block. Default ON. Only the explicit strings
+   * 'false' or '0' disable it (any other value, including unset, leaves it
+   * enabled). Instance-wide, NOT per-user — but RETRIEVAL is owner-scoped at the
+   * call site (memory is per-user; see memory_retrieval.ts). The live gate in
+   * callers uses `isMemoryInjectionEnabled()` (re-reads process.env per call) so
+   * the toggle is testable without a process restart; this remains the
+   * documented config surface (mirrors agentSkillsEnabled).
+   */
+  agentMemoryInjectionEnabled: (() => {
+    const raw = (process.env.AGENT_MEMORY_INJECTION_ENABLED ?? '').trim().toLowerCase();
+    return !(raw === 'false' || raw === '0');
+  })(),
+  /**
    * P4-1: stronger "teacher" model used when a weaker-model run fails and the
    * teacher-escalation path re-runs it. Format 'provider/modelId'
    * (e.g. 'anthropic/claude-opus-4-8'). Override with AGENT_TEACHER_MODEL.

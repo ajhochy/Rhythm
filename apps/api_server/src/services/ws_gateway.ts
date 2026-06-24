@@ -5,6 +5,7 @@ import { AgentSessionsRepository } from '../repositories/agent_sessions_reposito
 import { opencodeClient, opencodeSessionMap } from './opencode_engine';
 import { bridgePty, ptyEngineUrl } from './pty_proxy';
 import { buildSkillsPreface, isSkillInjectionEnabled } from './skill_retrieval';
+import { buildMemoryPreface, isMemoryInjectionEnabled } from './memory_retrieval';
 import { AgentSkillsRepository } from '../repositories/agent_skills_repository';
 
 export interface WsMessage {
@@ -616,6 +617,45 @@ export async function handleInputFrame(
       } catch (err) {
         // Non-fatal — never block a turn on retrieval failure.
         console.error(`[ws_gateway] skill preface build failed (non-fatal):`, err);
+      }
+    }
+
+    // FOLLOW-UP (memory injection): prepend an OWNER-SCOPED, TRANSIENT
+    // "## Known context" block ALONGSIDE the skills preface (additive, not a
+    // replacement) — final forwarded text is:
+    //   <memory preface>\n\n<skills preface>\n\n<original user text>
+    // matching the AgentRunner composition order. Independently toggle-guarded.
+    //
+    // FAIL-SAFE OWNER RESOLUTION: the interactive `agent_sessions` row has NO
+    // owner/user column (sessions are not user-scoped on the local agent
+    // server), so the owning user CANNOT be determined here. Per the issue's
+    // fail-closed rule we pass ownerUserId=null → ONLY instance-global
+    // (null-owner) memory is retrieved; a user-owned fact can never leak into
+    // another user's interactive turn. As with skills, this is in-memory only:
+    // nothing is persisted to the session, profile systemPrompt, or any
+    // opencode .md.
+    if (isMemoryInjectionEnabled()) {
+      try {
+        const memPreface = await buildMemoryPreface(data, null);
+        if (memPreface.text) {
+          forwardData = `${memPreface.text}\n\n${forwardData}`;
+          if (forwardParts) {
+            const idx = forwardParts.findIndex(
+              (p) => p.type === 'text' && typeof p.text === 'string',
+            );
+            forwardParts = forwardParts.map((p, i) =>
+              i === idx
+                ? { ...p, text: `${memPreface.text}\n\n${p.text as string}` }
+                : p,
+            );
+          }
+          console.log(
+            `[ws_gateway] session ${id}: injected ${memPreface.memoryIds.length} relevant memory item(s) into prompt preface (owner=global)`,
+          );
+        }
+      } catch (err) {
+        // Non-fatal — never block a turn on retrieval failure.
+        console.error(`[ws_gateway] memory preface build failed (non-fatal):`, err);
       }
     }
 
