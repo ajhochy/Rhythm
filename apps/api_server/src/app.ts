@@ -24,6 +24,7 @@ import { workspaceRouter } from './routes/workspace_routes';
 import { notificationsRouter } from './routes/notifications_routes';
 import claudeTriggersRouter from './routes/claude_triggers_routes';
 import { agentConfigsRouter } from './routes/agent_configs_routes';
+import { agentSkillsRouter } from './routes/agentSkillsRoutes';
 import { agentSessionsRouter } from './routes/agent_sessions_routes';
 import { agentsCapabilitiesRouter } from './routes/agents_capabilities_routes';
 import { agentsModelsRouter } from './routes/agents_models_routes';
@@ -93,6 +94,7 @@ export function createApp() {
   app.use('/notifications', notificationsRouter);
   app.use('/claude-triggers', claudeTriggersRouter);
   app.use('/agent-configs', agentConfigsRouter);
+  app.use('/agent-skills', agentSkillsRouter);
   app.use('/agent-schedules', agentSchedulesRouter);
   app.use('/agent-memory', agentMemoryRouter);
   app.use('/agent-webhooks', agentWebhookRouter);

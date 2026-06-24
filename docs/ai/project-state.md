@@ -2,9 +2,15 @@
 
 ## Current focus
 
-**2026-06-23 — feature/agent-scheduler: launch-button fix landed; manual smoke still pending**
+**2026-06-24 — P1-1 agent_skills table verified; feature/agent-scheduler awaiting manual smoke**
 
-Branch `feature/agent-scheduler`. All planned backend + Flutter work items are headless-verified:
+**P1-1 Complete (verified):**
+- `agent_skills` table (SQLite + Postgres) with 12-column schema (id, title, when_to_use, description, steps_json, tags_json, confidence, status, source, uses, created_at, updated_at)
+- `AgentSkillsRepository` with full CRUD: create, getById, list, update, remove, incrementUses, findByTitle (case-insensitive)
+- All 20 contract tests passing; 997/997 total tests passing
+- Commit: e6056fc163273d120f0ce1c4f4d84d0de8eb4b48
+
+**Branch `feature/agent-scheduler`:** All planned backend + Flutter work items are headless-verified:
 
 - **Phase A** — Odysseus-style nav column shell (`_agents_nav_column.dart`)
 - **Phase B** — Rich session row extraction (`_session_list_body.dart`); nav column wired
@@ -26,7 +32,7 @@ Branch `feature/agent-scheduler`. All planned backend + Flutter work items are h
 - **Model picker + fast-fail** — Agent profile sheet gains a Model dropdown (reuses `AgentModelsDataSource`/`CatalogModelEntry`); `AgentRunner` adds no-progress fast-fail (default 20s grace window, env `AGENT_RUN_NOPROGRESS_MS`); schedule form shows "Model is set on the profile" helper text
 - **Launch button fix** — Email "Launch email assistant" + Gallery "Launch designer" now call `selectSession` + `setComposerDraft` after creating the session; show SnackBar on error; 6 new widget tests added
 
-Visual smoke (`flutter run -d macos`) is required before merging.
+Visual smoke (`flutter run -d macos`) is required before merging scheduler branch.
 
 ---
 
@@ -40,7 +46,9 @@ Visual smoke (`flutter run -d macos`) is required before merging.
 
 ## In progress
 
-Nothing actively in flight. Waiting on:
+**P1-1 agent_skills:** Complete and verified (commit e6056fc).
+
+**feature/agent-scheduler branch:** Waiting on:
 1. Commit all pending changes (~11 files: api_server agent_runner.ts + test files, AgentConfig model, Flutter model-picker + schedule form, agent_email_view, agent_gallery_view, both test files).
 2. User manual smoke (`flutter run -d macos`) — confirm nav column, Cookbook/Email/Gallery views open, Email/Gallery launch buttons navigate to CHATS with the new session selected and composer prefilled, Edit button on scheduled task detail sheet, form pre-fill, profile sheet Model picker, and that a scheduled task fires + produces a session row in CHATS.
 3. PR merge after smoke passes.
@@ -66,14 +74,14 @@ Nothing actively in flight. Waiting on:
 | `dart format .` | PASS — 0 changed (last verified 2026-06-23) |
 | `flutter analyze --no-fatal-infos` | PASS — 0 errors, 0 warnings (last verified 2026-06-23) |
 | `flutter test` (full) | **645 PASS, 0 FAIL** (+6 new launch-button widget tests, last verified 2026-06-23) |
-| `api_server tsc --noEmit` | PASS — 0 errors (last verified 2026-06-23) |
-| `api_server npm test` | **997/997 PASS** (last verified 2026-06-24; +20 P1-1 agent_skills contract tests) |
+| `api_server tsc --noEmit` | PASS — 0 errors (last verified 2026-06-24) |
+| `api_server npm test` | **997/997 PASS** (last verified 2026-06-24; +20 P1-1 agent_skills contract tests; all verification gates passed) |
 
 ---
 
 ## Next step
 
-1. **Commit pending changes** — all ~11 modified/new files on this branch (see "In progress" above).
+1. **Commit pending changes** — all ~11 modified/new files on feature/agent-scheduler branch (see "In progress" above).
 2. **Manual smoke** — `flutter run -d macos`:
    - Confirm nav column header/footer pinned, middle scrolls, all TOOLS rows reachable.
    - Confirm Cookbook/Email/Gallery views open.
@@ -89,6 +97,19 @@ Nothing actively in flight. Waiting on:
 ---
 
 ## Recent coding-agent runs
+
+### 2026-06-24 — P1-2 agent_skills CRUD routes + exposure
+- Files modified:
+  - `apps/api_server/src/controllers/agentSkillsController.ts` (NEW) — list/getOne/create/patch/remove over `AgentSkillsRepository`. Mirrors `agent_configs_controller.ts` conventions (AppError, `next(err)`, `validateBody`). Validation: title required non-empty string (400 via `validateBody(body, true)`); status must be `'draft'|'published'` if present (400); confidence must be a number 0..1 if present (400). 404 via `AppError.notFound('AgentSkill')` when id missing.
+  - `apps/api_server/src/routes/agentSkillsRoutes.ts` (NEW) — GET '/', POST '/', GET '/:id', PATCH '/:id', DELETE '/:id'. Includes `if (!env.agentLocal) router.use(requireAuth)` posture, matching `agent_configs_routes.ts`.
+  - `apps/api_server/src/app.ts` — imported `agentSkillsRouter`, mounted at `/agent-skills` immediately after the `/agent-configs` mount.
+  - `apps/api_server/src/__tests__/agent_skills_routes.test.ts` (NEW) — 13 integration tests (createApp().listen(0), maxRequestsPerSocket=1, in-memory DB via setDb): GET empty → [] + 200; GET/:id round-trip; GET missing → 404; POST valid → 201; POST minimal (title only) defaults; POST missing/empty title → 400; POST bad status → 400; POST confidence out of range → 400; PATCH → 200; PATCH unknown → 404; PATCH bad status → 400; DELETE → 204; DELETE unknown → 404.
+- Checks run:
+  - `npx tsc --noEmit` — PASS (exit 0)
+  - `npx vitest run` (full) — first run 1010/1011 with one `UND_ERR_SOCKET` flake in `issue_677_contract.test.ts` (known socket-recycle flake, unrelated); re-run **1011/1011 PASS** (baseline 997 + 13 new route tests + 1 prior delta).
+- Decisions made: DELETE returns **204 No Content** (hard delete via `repo.remove`), matching `agent_configs` DELETE semantics. Used authHeaders in tests (mirroring agent_configs test) so the suite passes regardless of `env.agentLocal`.
+- Deviations from spec: none. No owner scoping, no retrieval/scoring, no pagination (all per spec).
+- Concerns: none. Empty-table GET returns [] not 500 (schema-drift gate satisfied).
 
 ### 2026-06-24 — P1-1 agent_skills table (both DBs) + repository
 - Files modified:
