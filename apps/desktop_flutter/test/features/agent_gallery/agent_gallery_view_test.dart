@@ -5,6 +5,9 @@
 ///   2. Empty-state widget renders when designs list is empty.
 ///   3. "Launch designer" button is present.
 ///   4. "Open in Canva" link is present for a design with a canvaUrl.
+///   5. Tapping the button calls createSession with mcpRole 'graphic-designer'.
+///   6. Tapping the button calls selectSession on the returned session.
+///   7. Tapping the button stages a composer draft for the new session.
 library;
 
 import 'dart:async';
@@ -98,7 +101,21 @@ class _StubAgentsRepository implements AgentsRepository {
 
   @override
   Future<({AgentSession session, List<AgentSessionMessage> messages})>
-      getSession(String id) async => throw UnimplementedError();
+      getSession(String id) async {
+    final now = DateTime.now();
+    return (
+      session: AgentSession(
+        id: id,
+        agentId: '',
+        name: '',
+        cwd: '',
+        status: AgentSessionStatus.idle,
+        createdAt: now,
+        updatedAt: now,
+      ),
+      messages: const <AgentSessionMessage>[],
+    );
+  }
 
   @override
   Future<AgentSession> createSession({
@@ -320,6 +337,90 @@ void main() {
         find.text('Open in Canva'),
         findsOneWidget,
         reason: '"Open in Canva" link should render for design with canvaUrl',
+      );
+
+      galleryController.dispose();
+    });
+
+    testWidgets(
+        'tapping launch button calls createSession with mcpRole graphic-designer',
+        (tester) async {
+      final dataSource = _FakeGalleryDataSource([]);
+      final galleryController = AgentGalleryController(
+        AgentGalleryRepository(dataSource),
+      );
+
+      await tester.pumpWidget(
+        await _buildApp(
+          galleryController: galleryController,
+          agentsController: agentsController,
+        ),
+      );
+      await tester.pump();
+
+      await tester.tap(find.byKey(const ValueKey('launch-designer-btn')));
+      await tester.pumpAndSettle();
+
+      expect(
+        stubRepo.lastMcpRole,
+        equals('graphic-designer'),
+        reason: 'createSession must be called with mcpRole graphic-designer',
+      );
+
+      galleryController.dispose();
+    });
+
+    testWidgets(
+        'tapping launch button selects the new session via selectSession',
+        (tester) async {
+      final dataSource = _FakeGalleryDataSource([]);
+      final galleryController = AgentGalleryController(
+        AgentGalleryRepository(dataSource),
+      );
+
+      await tester.pumpWidget(
+        await _buildApp(
+          galleryController: galleryController,
+          agentsController: agentsController,
+        ),
+      );
+      await tester.pump();
+
+      await tester.tap(find.byKey(const ValueKey('launch-designer-btn')));
+      await tester.pumpAndSettle();
+
+      expect(
+        agentsController.selectedSessionId,
+        equals('test-session-id'),
+        reason: 'selectSession must be called with the new session id',
+      );
+
+      galleryController.dispose();
+    });
+
+    testWidgets(
+        'tapping launch button stages a composer draft for the new session',
+        (tester) async {
+      final dataSource = _FakeGalleryDataSource([]);
+      final galleryController = AgentGalleryController(
+        AgentGalleryRepository(dataSource),
+      );
+
+      await tester.pumpWidget(
+        await _buildApp(
+          galleryController: galleryController,
+          agentsController: agentsController,
+        ),
+      );
+      await tester.pump();
+
+      await tester.tap(find.byKey(const ValueKey('launch-designer-btn')));
+      await tester.pumpAndSettle();
+
+      expect(
+        agentsController.hasComposerDraft('test-session-id'),
+        isTrue,
+        reason: 'setComposerDraft must be called for the new session',
       );
 
       galleryController.dispose();

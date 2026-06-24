@@ -2,7 +2,7 @@
 
 ## Current focus
 
-**2026-06-23 — feature/agent-scheduler: model picker + fast-fail landed; manual smoke still pending**
+**2026-06-23 — feature/agent-scheduler: launch-button fix landed; manual smoke still pending**
 
 Branch `feature/agent-scheduler`. All planned backend + Flutter work items are headless-verified:
 
@@ -24,6 +24,7 @@ Branch `feature/agent-scheduler`. All planned backend + Flutter work items are h
 - **AGENT_LOCAL auth bypass** — all agent-local routers gate `requireAuth` behind `if (!env.agentLocal)`, fixing local 401s
 - **#738-fix** — `AgentRunner.run()` now resolves a model (3-step cascade) and passes it to `promptAsync`; records session in `agent_sessions`; scheduler passes `agentKind`/`scheduledTaskId`/`sessionName`; boot resets stale 'running' sessions to 'error'
 - **Model picker + fast-fail** — Agent profile sheet gains a Model dropdown (reuses `AgentModelsDataSource`/`CatalogModelEntry`); `AgentRunner` adds no-progress fast-fail (default 20s grace window, env `AGENT_RUN_NOPROGRESS_MS`); schedule form shows "Model is set on the profile" helper text
+- **Launch button fix** — Email "Launch email assistant" + Gallery "Launch designer" now call `selectSession` + `setComposerDraft` after creating the session; show SnackBar on error; 6 new widget tests added
 
 Visual smoke (`flutter run -d macos`) is required before merging.
 
@@ -31,7 +32,7 @@ Visual smoke (`flutter run -d macos`) is required before merging.
 
 ## Active branch / PR
 
-- **Branch:** `feature/agent-scheduler` (local HEAD `d087448`; model-picker changes uncommitted)
+- **Branch:** `feature/agent-scheduler` (local HEAD `4b30cf5`; all changes uncommitted)
 - **PR:** [#734](https://github.com/ajhochy/Rhythm/pull/734) — open
 - **Base:** `main`
 
@@ -40,8 +41,8 @@ Visual smoke (`flutter run -d macos`) is required before merging.
 ## In progress
 
 Nothing actively in flight. Waiting on:
-1. Commit all pending changes (agent_runner.ts fast-fail + Flutter model picker, ~7 files).
-2. User manual smoke (`flutter run -d macos`) — confirm nav column, Cookbook/Email/Gallery views, Edit button on scheduled task detail sheet, form pre-fill, profile sheet Model picker, and that a scheduled task fires + produces a session row in CHATS.
+1. Commit all pending changes (~11 files: api_server agent_runner.ts + test files, AgentConfig model, Flutter model-picker + schedule form, agent_email_view, agent_gallery_view, both test files).
+2. User manual smoke (`flutter run -d macos`) — confirm nav column, Cookbook/Email/Gallery views open, Email/Gallery launch buttons navigate to CHATS with the new session selected and composer prefilled, Edit button on scheduled task detail sheet, form pre-fill, profile sheet Model picker, and that a scheduled task fires + produces a session row in CHATS.
 3. PR merge after smoke passes.
 
 ---
@@ -64,18 +65,20 @@ Nothing actively in flight. Waiting on:
 |-------|--------|
 | `dart format .` | PASS — 0 changed (last verified 2026-06-23) |
 | `flutter analyze --no-fatal-infos` | PASS — 0 errors, 0 warnings (last verified 2026-06-23) |
-| `flutter test` (full) | **639 PASS, 0 FAIL** (+4 new model picker widget tests, last verified 2026-06-23) |
+| `flutter test` (full) | **645 PASS, 0 FAIL** (+6 new launch-button widget tests, last verified 2026-06-23) |
 | `api_server tsc --noEmit` | PASS — 0 errors (last verified 2026-06-23) |
-| `api_server npm test` | **966/966 PASS** (+1 from no-progress fast-fail test G, last verified 2026-06-23) |
+| `api_server npm test` | **966/966 PASS** (last verified 2026-06-23) |
 
 ---
 
 ## Next step
 
-1. **Commit pending changes** — `apps/api_server/src/services/agent_runner.ts`, both test files, `AgentConfig` model, `_agent_profile_sheet.dart`, `agent_schedules_view.dart`, and the new test file.
+1. **Commit pending changes** — all ~11 modified/new files on this branch (see "In progress" above).
 2. **Manual smoke** — `flutter run -d macos`:
    - Confirm nav column header/footer pinned, middle scrolls, all TOOLS rows reachable.
    - Confirm Cookbook/Email/Gallery views open.
+   - **Tap "Launch email assistant"** — confirm CHATS opens with new session selected + composer prefilled with email opener text.
+   - **Tap "Launch designer"** — confirm CHATS opens with new session selected + composer prefilled with designer opener text.
    - Confirm Edit button appears in scheduled task detail sheet; form pre-fills correctly.
    - Confirm Save calls PATCH (not POST).
    - **Open an agent profile sheet** — confirm a Model dropdown appears, populated with catalog models; select one, save, confirm it persists.

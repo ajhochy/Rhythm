@@ -29,10 +29,23 @@ class _AgentEmailViewState extends State<AgentEmailView> {
       name: 'Email Assistant',
       mcpRole: 'email-assistant',
     );
-    if (session != null && context.mounted) {
-      agentsController.selectSession(session.id);
-      Navigator.of(context).pop();
+    if (!context.mounted) return;
+    if (session == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            agentsController.error ?? 'Failed to create session.',
+          ),
+        ),
+      );
+      return;
     }
+    agentsController.selectSession(session.id);
+    agentsController.setComposerDraft(
+      session.id,
+      'Review my recent unread email and summarize what needs a reply.',
+    );
+    Navigator.of(context).pop();
   }
 
   @override

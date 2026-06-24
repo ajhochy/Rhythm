@@ -30,10 +30,23 @@ class _AgentGalleryViewState extends State<AgentGalleryView> {
       name: 'Graphic Designer',
       mcpRole: 'graphic-designer',
     );
-    if (session != null && context.mounted) {
-      agentsController.selectSession(session.id);
-      Navigator.of(context).pop();
+    if (!context.mounted) return;
+    if (session == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            agentsController.error ?? 'Failed to create session.',
+          ),
+        ),
+      );
+      return;
     }
+    agentsController.selectSession(session.id);
+    agentsController.setComposerDraft(
+      session.id,
+      'Help me create a church graphic — ask me what I need (event, size, style).',
+    );
+    Navigator.of(context).pop();
   }
 
   @override

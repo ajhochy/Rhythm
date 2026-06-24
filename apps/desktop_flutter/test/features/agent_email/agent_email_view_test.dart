@@ -4,6 +4,9 @@
 ///   1. Signal list renders subject lines from a fake controller.
 ///   2. Empty-state widget renders when signals list is empty.
 ///   3. "Launch email assistant" button is present.
+///   4. Tapping the button calls createSession with mcpRole 'email-assistant'.
+///   5. Tapping the button calls selectSession on the returned session.
+///   6. Tapping the button stages a composer draft for the new session.
 library;
 
 import 'dart:async';
@@ -99,7 +102,19 @@ class _StubAgentsRepository implements AgentsRepository {
   @override
   Future<({AgentSession session, List<AgentSessionMessage> messages})>
       getSession(String id) async {
-    throw UnimplementedError();
+    final now = DateTime.now();
+    return (
+      session: AgentSession(
+        id: id,
+        agentId: '',
+        name: '',
+        cwd: '',
+        status: AgentSessionStatus.idle,
+        createdAt: now,
+        updatedAt: now,
+      ),
+      messages: const <AgentSessionMessage>[],
+    );
   }
 
   @override
@@ -289,6 +304,96 @@ void main() {
         find.byKey(const ValueKey('launch-email-assistant-btn')),
         findsOneWidget,
         reason: '"Launch email assistant" button should be present',
+      );
+
+      emailController.dispose();
+    });
+
+    testWidgets(
+        'tapping launch button calls createSession with mcpRole email-assistant',
+        (tester) async {
+      final dataSource = _FakeEmailDataSource([]);
+      final emailController = AgentEmailController(
+        AgentEmailRepository(dataSource),
+      );
+
+      await tester.pumpWidget(
+        await _buildApp(
+          emailController: emailController,
+          agentsController: agentsController,
+        ),
+      );
+      await tester.pump();
+
+      await tester.tap(
+        find.byKey(const ValueKey('launch-email-assistant-btn')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        stubRepo.lastMcpRole,
+        equals('email-assistant'),
+        reason: 'createSession must be called with mcpRole email-assistant',
+      );
+
+      emailController.dispose();
+    });
+
+    testWidgets(
+        'tapping launch button selects the new session via selectSession',
+        (tester) async {
+      final dataSource = _FakeEmailDataSource([]);
+      final emailController = AgentEmailController(
+        AgentEmailRepository(dataSource),
+      );
+
+      await tester.pumpWidget(
+        await _buildApp(
+          emailController: emailController,
+          agentsController: agentsController,
+        ),
+      );
+      await tester.pump();
+
+      await tester.tap(
+        find.byKey(const ValueKey('launch-email-assistant-btn')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        agentsController.selectedSessionId,
+        equals('test-session-id'),
+        reason: 'selectSession must be called with the new session id',
+      );
+
+      emailController.dispose();
+    });
+
+    testWidgets(
+        'tapping launch button stages a composer draft for the new session',
+        (tester) async {
+      final dataSource = _FakeEmailDataSource([]);
+      final emailController = AgentEmailController(
+        AgentEmailRepository(dataSource),
+      );
+
+      await tester.pumpWidget(
+        await _buildApp(
+          emailController: emailController,
+          agentsController: agentsController,
+        ),
+      );
+      await tester.pump();
+
+      await tester.tap(
+        find.byKey(const ValueKey('launch-email-assistant-btn')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        agentsController.hasComposerDraft('test-session-id'),
+        isTrue,
+        reason: 'setComposerDraft must be called for the new session',
       );
 
       emailController.dispose();
