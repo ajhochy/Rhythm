@@ -23,6 +23,8 @@ import { AgentSessionsRepository } from '../repositories/agent_sessions_reposito
 import { AgentSessionMessagesRepository } from '../repositories/agent_session_messages_repository';
 import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
 import { queueSkillExtraction } from './skill_extractor';
+import { buildSkillsPreface, isSkillInjectionEnabled } from './skill_retrieval';
+import { AgentSkillsRepository } from '../repositories/agent_skills_repository';
 
 // ── Environment caps (read per-call so tests can override via process.env) ────
 
@@ -311,6 +313,29 @@ export async function run(opts: AgentRunOptions): Promise<AgentRunResult> {
   // TODO: forward effectiveOcAgent per-turn once there's a profile-level override
   // mechanism (currently only ws_gateway.ts supports per-turn `agent:` overrides).
 
+  // P3-2: retrieve relevant skills and build a TRANSIENT preface. This is
+  // prepended to the in-memory prompt ONLY for this send — it is never written
+  // to config.systemPrompt, never persisted, and never passed to the agent
+  // writer. When the instance-wide toggle is off, no retrieval happens and the
+  // prompt is unchanged. uses are incremented post-send (success path only).
+  let effectivePrompt = prompt;
+  let injectedSkillIds: string[] = [];
+  if (isSkillInjectionEnabled()) {
+    try {
+      const preface = buildSkillsPreface(prompt);
+      if (preface.text) {
+        effectivePrompt = `${preface.text}\n\n${prompt}`;
+        injectedSkillIds = preface.skillIds;
+        logger.info(
+          `[AgentRunner] injected ${injectedSkillIds.length} retrieved skill(s) into prompt preface`,
+        );
+      }
+    } catch (err) {
+      // Non-fatal: a retrieval failure must never block the run.
+      logger.warn(`[AgentRunner] skill preface build failed (non-fatal): ${String(err)}`);
+    }
+  }
+
   // #738-fix: Record a session row so this run appears in the CHATS list.
   const effectiveAgentKind = agentKind ?? 'claude-code';
   const effectiveName = sessionName
@@ -402,7 +427,7 @@ export async function run(opts: AgentRunOptions): Promise<AgentRunResult> {
       }, timeoutMs);
     });
     const response = await Promise.race([
-      opencodeClient.prompt(sessionId, prompt, resolvedModel, cwd, {
+      opencodeClient.prompt(sessionId, effectivePrompt, resolvedModel, cwd, {
         permissionMode: 'bypassPermissions',
       }),
       timeoutPromise,
@@ -499,6 +524,20 @@ export async function run(opts: AgentRunOptions): Promise<AgentRunResult> {
     // awaited and must not change this return value or its timing.
     if (rhythmSessionId) {
       queueSkillExtraction(rhythmSessionId);
+    }
+
+    // P3-2: bump `uses` for each injected skill (non-fatal, success path only).
+    // This is the only persisted side-effect of injection — the preface text
+    // itself is never stored.
+    if (injectedSkillIds.length > 0) {
+      try {
+        const skillsRepo = new AgentSkillsRepository();
+        for (const skillId of injectedSkillIds) {
+          skillsRepo.incrementUses(skillId);
+        }
+      } catch (err) {
+        logger.warn(`[AgentRunner] incrementUses failed (non-fatal): ${String(err)}`);
+      }
     }
 
     return {

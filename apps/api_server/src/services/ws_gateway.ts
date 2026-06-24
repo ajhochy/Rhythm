@@ -4,6 +4,8 @@ import { appEvents } from '../utils/app_events';
 import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
 import { opencodeClient, opencodeSessionMap } from './opencode_engine';
 import { bridgePty, ptyEngineUrl } from './pty_proxy';
+import { buildSkillsPreface, isSkillInjectionEnabled } from './skill_retrieval';
+import { AgentSkillsRepository } from '../repositories/agent_skills_repository';
 
 export interface WsMessage {
   v: 1;
@@ -580,7 +582,57 @@ export async function handleInputFrame(
       opts?: Record<string, unknown>,
       parts?: Array<Record<string, unknown>>,
     ) => Promise<unknown>;
-    await promptFn(opencodeId, data, model, cwd, sdkOpts, partsToForward);
+
+    // P3-2: inject retrieved skills as a TRANSIENT preface. The WS prompt body
+    // has no system-prompt seam (sdkOpts only carries reasoning/fastMode/agent/
+    // permission fields), so the preface is prepended to the forwarded user
+    // text — both the `data` string and the leading text part (whichever the
+    // SDK uses). This is in-memory only for this turn: nothing is persisted to
+    // the session, profile systemPrompt, or any opencode .md. uses are bumped
+    // after a successful enqueue.
+    let forwardData = data;
+    let forwardParts = partsToForward;
+    let wsInjectedSkillIds: string[] = [];
+    if (isSkillInjectionEnabled()) {
+      try {
+        const preface = buildSkillsPreface(data);
+        if (preface.text) {
+          forwardData = `${preface.text}\n\n${data}`;
+          wsInjectedSkillIds = preface.skillIds;
+          if (partsToForward) {
+            // Prepend to the first text part so the parts payload (which the
+            // SDK prefers over `data` when present) also carries the preface.
+            const idx = partsToForward.findIndex(
+              (p) => p.type === 'text' && typeof p.text === 'string',
+            );
+            forwardParts = partsToForward.map((p, i) =>
+              i === idx ? { ...p, text: `${preface.text}\n\n${p.text as string}` } : p,
+            );
+          }
+          console.log(
+            `[ws_gateway] session ${id}: injected ${wsInjectedSkillIds.length} retrieved skill(s) into prompt preface`,
+          );
+        }
+      } catch (err) {
+        // Non-fatal — never block a turn on retrieval failure.
+        console.error(`[ws_gateway] skill preface build failed (non-fatal):`, err);
+      }
+    }
+
+    await promptFn(opencodeId, forwardData, model, cwd, sdkOpts, forwardParts);
+
+    // P3-2: bump `uses` for each injected skill (non-fatal). Done after a
+    // successful enqueue; the preface text itself is never persisted.
+    if (wsInjectedSkillIds.length > 0) {
+      try {
+        const skillsRepo = new AgentSkillsRepository();
+        for (const skillId of wsInjectedSkillIds) {
+          skillsRepo.incrementUses(skillId);
+        }
+      } catch (err) {
+        console.error(`[ws_gateway] incrementUses failed (non-fatal):`, err);
+      }
+    }
   } catch (err) {
     console.error(
       `[ws_gateway] SDK prompt error for session ${id}:`,

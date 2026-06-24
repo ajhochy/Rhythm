@@ -178,3 +178,68 @@ export function getRelevantSkills(
   scored.sort((a, b) => b.score - a.score);
   return scored.slice(0, topN).map((s) => s.skill);
 }
+
+// ── P3-2: prompt-preface builder ────────────────────────────────────────────
+
+/**
+ * Read the instance-wide skills toggle at call time.
+ *
+ * `env.agentSkillsEnabled` is evaluated once at module load; reading the raw
+ * env var here lets the toggle be flipped per-call (and in tests) without a
+ * process restart. Only the explicit strings 'false'/'0' disable it; anything
+ * else (including unset) is enabled. Default ON (OQ-6).
+ */
+export function isSkillInjectionEnabled(): boolean {
+  const raw = (process.env.AGENT_SKILLS_ENABLED ?? '').trim().toLowerCase();
+  return !(raw === 'false' || raw === '0');
+}
+
+export interface SkillsPreface {
+  /** Transient preface text to prepend to the prompt. Empty when disabled / no matches. */
+  text: string;
+  /** Ids of the matched skills, for a post-send `incrementUses` bump. */
+  skillIds: string[];
+}
+
+export interface BuildSkillsPrefaceOptions {
+  /** Override the instance-wide toggle (defaults to the live env read). */
+  enabled?: boolean;
+  /** Max skills to retrieve (forwarded to getRelevantSkills). */
+  topN?: number;
+  /** Injectable retrieval fn (defaults to getRelevantSkills) for testing. */
+  getRelevant?: (query: string, topN?: number) => AgentSkill[];
+}
+
+/**
+ * Build a transient "Available skills (retrieved)" preface for `query`.
+ *
+ * Returns `{ text: '', skillIds: [] }` when the toggle is off OR no skills
+ * match — callers then skip injection entirely (no preface, no uses bump).
+ *
+ * The returned text is INTENDED to be prepended to the prompt in memory only.
+ * It must NEVER be persisted to a profile systemPrompt, session memory, or an
+ * opencode agent .md file (P3-2 core safeguard).
+ */
+export function buildSkillsPreface(
+  query: string,
+  opts: BuildSkillsPrefaceOptions = {},
+): SkillsPreface {
+  const enabled = opts.enabled ?? isSkillInjectionEnabled();
+  if (!enabled) return { text: '', skillIds: [] };
+
+  const retrieve = opts.getRelevant ?? getRelevantSkills;
+  const matches = retrieve(query, opts.topN ?? DEFAULT_TOP_N);
+  if (!matches || matches.length === 0) return { text: '', skillIds: [] };
+
+  const lines = ['## Available skills (retrieved)'];
+  for (const s of matches) {
+    const detail = (s.whenToUse ?? s.description ?? '').trim();
+    const conf = toFloat(s.confidence, 0).toFixed(2);
+    lines.push(`- ${s.title}: ${detail} (confidence ${conf})`);
+  }
+
+  return {
+    text: lines.join('\n'),
+    skillIds: matches.map((s) => s.id),
+  };
+}

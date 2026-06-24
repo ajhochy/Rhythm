@@ -92,6 +92,16 @@ export const env = {
   resendApiKey: process.env.RESEND_API_KEY ?? '',
   emailFromAddress: process.env.EMAIL_FROM_ADDRESS ?? 'Rhythm <onboarding@resend.dev>',
   agentLocal: process.env.AGENT_LOCAL === 'true',
+  /**
+   * P3-2: instance-wide toggle for injecting retrieved skills into the agent
+   * prompt preface. Default ON. Only the explicit strings 'false' or '0'
+   * disable it (any other value, including unset, leaves it enabled). This is
+   * instance-wide, NOT per-user — skills are a shared library (OQ-6).
+   */
+  agentSkillsEnabled: (() => {
+    const raw = (process.env.AGENT_SKILLS_ENABLED ?? '').trim().toLowerCase();
+    return !(raw === 'false' || raw === '0');
+  })(),
   /** URL of the production Rhythm API to mirror tasks from (agent-local mode only).
    *  Set via PROD_API_URL env var.  When absent, production task mirroring is skipped. */
   prodApiUrl: process.env.PROD_API_URL ?? null,
