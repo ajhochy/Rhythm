@@ -2,17 +2,22 @@
 
 ## Current focus
 
-**2026-06-24 — P4-1 teacher-escalation verified (headless); feature/agent-scheduler awaiting manual smoke**
+**2026-06-24 — Odysseus self-improving skill library: 9/10 issues COMPLETE on feature/agent-scheduler (PR #734), all CI-green; awaiting manual smoke + the cross-repo P0-1 follow-up**
 
-**P4-1 Complete (headless-verified, uncommitted):** weaker-model run failure
-(`status==='error'`) → escalate to a stronger teacher model → re-run same prompt →
-on success capture the approach as a DRAFT skill (`source='teacher-escalation'`).
-Auto-escalation is `isTestEnv`-guarded; pure helpers `shouldEscalate` /
-`escalateAndCapture` are unit-tested with injected deps (no real model). Env:
-`AGENT_TEACHER_MODEL` (default `anthropic/claude-opus-4-8`),
-`AGENT_TEACHER_ESCALATION_ENABLED` (default ON). See
-`docs/ai/runs/2026-06-24-p4-1-teacher-escalation.md` +
-`docs/ai/decisions/2026-06-24-teacher-escalation-trigger-and-testability.md`.
+The full Rhythm-native, instance-shared skill library loop is implemented,
+committed, and CI-green (Server + Desktop + MCP):
+- **P1-1** `agent_skills` store (table both DBs + repository) · **P1-2** CRUD routes
+- **P0-2** one-time agent-stack seed import (idempotent, boot-guarded, test-guarded)
+- **P2-1** background skill extractor (≥2 rounds, ≥0.6 conf, dedup, never-throws) · **P2-2** wired fire-and-forget into AgentRunner + interactive (stream-bridge idle)
+- **P3-1** `getRelevantSkills` scorer (Jaccard+tag+substring+conf/uses) · **P3-2** transient "Available skills" preface injection + `AGENT_SKILLS_ENABLED` toggle (never persists to profile/.md; increments uses)
+- **P4-1** teacher-escalation: run error → stronger model re-run → capture `teacher-escalation` draft (`AGENT_TEACHER_MODEL`, recursion-guarded) · **P4-2** Flutter skills surface (DRAFT badge, ⭐ escalation annotation, publish/delete; "Skills" nav row)
+
+**Branch/PR:** `feature/agent-scheduler` / PR #734 (open, never auto-merge).
+**Test status:** api_server vitest 1070/1070; desktop flutter 652/652; tsc 0; dart format clean; flutter analyze 0 err/warn. (Known flaky port/socket tests — opc_curated_mcp_token_bridge c4, issue_638_contract, notifications_agent — clear on re-run; hardening flagged as a background task.)
+**In progress / next:** manual smoke of the Skills surface + the loop; **P0-1** (sever agent-stack `sync-globals` from writing opencode agents) is a **separate agent-stack-repo PR** — see `docs/ai/decisions/2026-06-24-rhythm-owns-skills.md`. Follow-up: `docs/ai/generated-issues/11-followup-skill-body-column.md` (prose-skill `body` column).
+**Risks:** teacher-escalation ~2× cost on FAILED runs only (toggle); injection adds tokens per matched turn (top-5 + 0.3 threshold); live model/run paths are isTestEnv-guarded so proven by injected-dep unit tests, not end-to-end.
+
+Plan + issues: `docs/ai/current-plan.md` + `docs/ai/generated-issues/0X-pY-*.md`.
 
 
 
