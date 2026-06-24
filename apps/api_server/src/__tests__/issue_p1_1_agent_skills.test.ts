@@ -96,6 +96,7 @@ describe('issue-P1-1-c4: AgentSkill TypeScript model exists with all required pr
       status: 'draft',
       source: 'agent-stack-seed',
       uses: 0,
+      version: 1,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };

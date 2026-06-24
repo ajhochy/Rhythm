@@ -626,6 +626,34 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
   // body TEXT (additive) — full markdown procedure body for prose/seed skills.
   // Nullable; extracted skills using steps_json leave it null.
   await pool.query(`ALTER TABLE agent_skills ADD COLUMN IF NOT EXISTS body TEXT`);
+  // P5-1 — version INTEGER (additive). Current version of the live row; bumped
+  // by reviseInPlace/rollback. Default 1 so existing rows start versioned.
+  await pool.query(
+    `ALTER TABLE agent_skills ADD COLUMN IF NOT EXISTS version INTEGER DEFAULT 1`,
+  );
+
+  // P5-1 — agent_skill_versions: append-only version history for self-refinement.
+  // Each row snapshots a prior (or restored) state of an agent_skills row so the
+  // auto-apply refinement loop is non-destructive with one-click rollback.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS agent_skill_versions (
+      id TEXT PRIMARY KEY,
+      skill_id TEXT NOT NULL REFERENCES agent_skills(id) ON DELETE CASCADE,
+      version_no INTEGER NOT NULL,
+      title TEXT NOT NULL,
+      when_to_use TEXT,
+      description TEXT,
+      steps_json TEXT,
+      tags_json TEXT,
+      body TEXT,
+      confidence REAL DEFAULT 0,
+      source TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_agent_skill_versions_skill_id ON agent_skill_versions(skill_id)`,
+  );
 
   // Agent-runner model selection: store preferred provider/model on agent_configs.
   await pool.query(`

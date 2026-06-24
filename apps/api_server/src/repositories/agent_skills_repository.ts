@@ -1,7 +1,11 @@
 import Database from 'better-sqlite3';
 import { getDb } from '../database/db';
 import { runMigrations } from '../database/migrations';
-import type { AgentSkill, AgentSkillInput } from '../models/agent_skill';
+import type {
+  AgentSkill,
+  AgentSkillInput,
+  AgentSkillVersion,
+} from '../models/agent_skill';
 
 interface AgentSkillRow {
   id: string;
@@ -15,8 +19,24 @@ interface AgentSkillRow {
   status: string;
   source: string | null;
   uses: number;
+  version: number | null;
   created_at: string;
   updated_at: string;
+}
+
+interface AgentSkillVersionRow {
+  id: string;
+  skill_id: string;
+  version_no: number;
+  title: string;
+  when_to_use: string | null;
+  description: string | null;
+  steps_json: string | null;
+  tags_json: string | null;
+  body: string | null;
+  confidence: number;
+  source: string | null;
+  created_at: string;
 }
 
 function parseJsonArray(raw: string | null): string[] | null {
@@ -44,8 +64,28 @@ function rowToModel(row: AgentSkillRow): AgentSkill {
     status: row.status ?? 'draft',
     source: row.source ?? null,
     uses: row.uses ?? 0,
+    version: row.version ?? 1,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+  };
+}
+
+function versionRowToModel(row: AgentSkillVersionRow): AgentSkillVersion {
+  return {
+    id: row.id,
+    skillId: row.skill_id,
+    versionNo: row.version_no,
+    title: row.title,
+    whenToUse: row.when_to_use ?? null,
+    description: row.description ?? null,
+    steps: parseJsonArray(row.steps_json),
+    tags: parseJsonArray(row.tags_json),
+    stepsJson: row.steps_json ?? null,
+    tagsJson: row.tags_json ?? null,
+    body: row.body ?? null,
+    confidence: row.confidence ?? 0,
+    source: row.source ?? null,
+    createdAt: row.created_at,
   };
 }
 
@@ -101,8 +141,8 @@ export class AgentSkillsRepository {
       .prepare(
         `INSERT INTO agent_skills
           (id, title, when_to_use, description, steps_json, tags_json, body,
-           confidence, status, source, uses, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           confidence, status, source, uses, version, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         id,
@@ -116,6 +156,7 @@ export class AgentSkillsRepository {
         input.status ?? 'draft',
         input.source ?? null,
         input.uses ?? 0,
+        1,
         now,
         now,
       );
@@ -190,5 +231,157 @@ export class AgentSkillsRepository {
     this.db
       .prepare(`UPDATE agent_skills SET uses = uses + 1, updated_at = ? WHERE id = ?`)
       .run(new Date().toISOString(), id);
+  }
+
+  // ── P5-1: version history + non-destructive in-place revision ──────────────
+
+  /**
+   * Snapshot the CURRENT state of `id` into agent_skill_versions (recorded under
+   * its current version_no), then UPDATE the live row with `newContent` and
+   * version+1. Returns the updated skill, or null if `id` does not exist (in
+   * which case nothing is written).
+   *
+   * Only CONTENT columns are revised (title, whenToUse, description, steps,
+   * tags, body, confidence, source). Lifecycle (`status`) and `uses` are
+   * preserved — a revision improves a skill in place, it does not re-draft it.
+   *
+   * `source` labels the provenance of the NEW current row (e.g. 'auto-refined',
+   * 'teacher-refined'). The snapshot keeps the PRIOR row's source.
+   */
+  reviseInPlace(
+    skillId: string,
+    newContent: Partial<AgentSkillInput>,
+    source: string,
+  ): AgentSkill | null {
+    const existing = this.getById(skillId);
+    if (!existing) return null;
+
+    const tx = this.db.transaction(() => {
+      this.snapshotCurrent(existing);
+
+      const next: AgentSkillInput = {
+        title: newContent.title ?? existing.title,
+        whenToUse:
+          newContent.whenToUse !== undefined ? newContent.whenToUse : existing.whenToUse,
+        description:
+          newContent.description !== undefined
+            ? newContent.description
+            : existing.description,
+        steps: newContent.steps !== undefined ? newContent.steps : existing.steps ?? null,
+        tags: newContent.tags !== undefined ? newContent.tags : existing.tags ?? null,
+        body: newContent.body !== undefined ? newContent.body : existing.body,
+        confidence:
+          newContent.confidence !== undefined ? newContent.confidence : existing.confidence,
+        source,
+      };
+
+      this.applyContent(skillId, next, existing.version + 1);
+    });
+    tx();
+
+    return this.getById(skillId);
+  }
+
+  /** All recorded versions for a skill, newest version_no first. */
+  listVersions(skillId: string): AgentSkillVersion[] {
+    const rows = this.db
+      .prepare(
+        `SELECT * FROM agent_skill_versions WHERE skill_id = ? ORDER BY version_no DESC`,
+      )
+      .all(skillId) as AgentSkillVersionRow[];
+    return rows.map(versionRowToModel);
+  }
+
+  /**
+   * Restore a prior version's content as the new current row. Non-destructive:
+   * the CURRENT row is first snapshotted into history (so the rollback can
+   * itself be undone), then the chosen version's content is applied with
+   * version+1. Returns the restored skill, or null if the skill or the target
+   * version is unknown (nothing written in that case).
+   */
+  rollback(skillId: string, versionNo: number): AgentSkill | null {
+    const existing = this.getById(skillId);
+    if (!existing) return null;
+
+    const target = this.db
+      .prepare(
+        `SELECT * FROM agent_skill_versions WHERE skill_id = ? AND version_no = ?`,
+      )
+      .get(skillId, versionNo) as AgentSkillVersionRow | undefined;
+    if (!target) return null;
+
+    const tx = this.db.transaction(() => {
+      this.snapshotCurrent(existing);
+
+      const restored: AgentSkillInput = {
+        title: target.title,
+        whenToUse: target.when_to_use,
+        description: target.description,
+        steps: parseJsonArray(target.steps_json),
+        tags: parseJsonArray(target.tags_json),
+        body: target.body,
+        confidence: target.confidence,
+        source: target.source,
+      };
+
+      this.applyContent(skillId, restored, existing.version + 1);
+    });
+    tx();
+
+    return this.getById(skillId);
+  }
+
+  /** Write a snapshot of `skill`'s current content into agent_skill_versions. */
+  private snapshotCurrent(skill: AgentSkill): void {
+    this.db
+      .prepare(
+        `INSERT INTO agent_skill_versions
+          (id, skill_id, version_no, title, when_to_use, description,
+           steps_json, tags_json, body, confidence, source, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        crypto.randomUUID(),
+        skill.id,
+        skill.version,
+        skill.title,
+        skill.whenToUse ?? null,
+        skill.description ?? null,
+        skill.steps != null ? JSON.stringify(skill.steps) : null,
+        skill.tags != null ? JSON.stringify(skill.tags) : null,
+        skill.body ?? null,
+        skill.confidence ?? 0,
+        skill.source ?? null,
+        new Date().toISOString(),
+      );
+  }
+
+  /** Apply revised content + an explicit version number to the live row. */
+  private applyContent(
+    skillId: string,
+    content: AgentSkillInput,
+    version: number,
+  ): void {
+    this.db
+      .prepare(
+        `UPDATE agent_skills
+            SET title = ?, when_to_use = ?, description = ?, steps_json = ?,
+                tags_json = ?, body = ?, confidence = ?, source = ?,
+                version = ?, updated_at = ?
+          WHERE id = ?`,
+      )
+      .run(
+        content.title,
+        content.whenToUse ?? null,
+        content.description ?? null,
+        content.steps != null ? JSON.stringify(content.steps) : null,
+        content.tags != null ? JSON.stringify(content.tags) : null,
+        content.body ?? null,
+        content.confidence ?? 0,
+        content.source ?? null,
+        version,
+        new Date().toISOString(),
+        skillId,
+      );
   }
 }

@@ -1299,6 +1299,35 @@ export function runMigrations(db: Database.Database): void {
     db.exec(`ALTER TABLE agent_skills ADD COLUMN body TEXT`);
   }
 
+  // P5-1 — version INTEGER (additive). Current version number of the live
+  // agent_skills row; bumped by reviseInPlace/rollback. Guarded ALTER because
+  // the table already exists on dev DBs.
+  if (!agentSkillsCols.includes('version')) {
+    db.exec(`ALTER TABLE agent_skills ADD COLUMN version INTEGER DEFAULT 1`);
+  }
+
+  // P5-1 — agent_skill_versions: append-only version history for self-refinement.
+  // Each row snapshots a prior (or restored) state of an agent_skills row so the
+  // auto-apply refinement loop is non-destructive with one-click rollback.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS agent_skill_versions (
+      id TEXT PRIMARY KEY,
+      skill_id TEXT NOT NULL REFERENCES agent_skills(id) ON DELETE CASCADE,
+      version_no INTEGER NOT NULL,
+      title TEXT NOT NULL,
+      when_to_use TEXT,
+      description TEXT,
+      steps_json TEXT,
+      tags_json TEXT,
+      body TEXT,
+      confidence REAL DEFAULT 0,
+      source TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_agent_skill_versions_skill_id
+      ON agent_skill_versions(skill_id);
+  `);
+
   // agent_webhook_endpoints — inbound webhook registrations.
   // The server verifies HMAC signatures on incoming requests.
   // SSRF guard lives in agentWebhookService.ts (no outbound calls to private

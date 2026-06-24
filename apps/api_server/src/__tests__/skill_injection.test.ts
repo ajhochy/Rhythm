@@ -72,6 +72,7 @@ describe('P3-2 buildSkillsPreface', () => {
       status: 'published',
       source: null,
       uses: 0,
+      version: 1,
       createdAt: 'x',
       updatedAt: 'x',
     };
@@ -123,6 +124,7 @@ describe('P3-2 buildSkillsPreface', () => {
       status: 'published',
       source: null,
       uses: 0,
+      version: 1,
       createdAt: 'x',
       updatedAt: 'x',
     };
