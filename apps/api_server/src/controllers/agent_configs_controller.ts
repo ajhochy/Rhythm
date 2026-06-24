@@ -3,6 +3,10 @@ import { AppError } from '../errors/app_error';
 import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
 import type { AgentConfigInput } from '../repositories/agent_configs_repository';
 import { syncOpencodeAgentProfiles } from '../services/agent_profile_sync';
+import {
+  writeAgentProfileFile,
+  deleteAgentProfileFile,
+} from '../services/opencode_agent_writer';
 
 const repo = new AgentConfigsRepository();
 
@@ -79,6 +83,9 @@ export class AgentConfigsController {
       };
 
       const config = repo.insert(input);
+      // Project the profile out to an opencode agent file (profile = source of
+      // truth). No-op for CLI presets / opencode built-ins. Non-fatal.
+      writeAgentProfileFile(config);
       res.status(201).json(config);
     } catch (err) {
       next(err);
@@ -124,6 +131,8 @@ export class AgentConfigsController {
 
       const updated = repo.update(req.params.id, patch);
       if (!updated) throw AppError.notFound('AgentConfig');
+      // Re-project the updated profile to its opencode agent file. Non-fatal.
+      writeAgentProfileFile(updated);
       res.json(updated);
     } catch (err) {
       next(err);
@@ -154,6 +163,8 @@ export class AgentConfigsController {
 
       const deleted = repo.remove(req.params.id);
       if (!deleted) throw AppError.notFound('AgentConfig');
+      // Remove the projected opencode agent file. Non-fatal.
+      deleteAgentProfileFile(req.params.id);
       res.status(204).end();
     } catch (err) {
       next(err);

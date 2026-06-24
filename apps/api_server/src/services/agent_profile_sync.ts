@@ -32,6 +32,15 @@ import { env } from '../config/env';
  */
 const INTERNAL_PRIMARY = new Set(['compaction', 'summary', 'title']);
 
+/** Split an opencode 'provider/model-id' string into [provider, modelId]. */
+function parseModel(model?: string | null): [string | null, string | null] {
+  if (!model || typeof model !== 'string' || !model.includes('/')) {
+    return [null, null];
+  }
+  const idx = model.indexOf('/');
+  return [model.slice(0, idx), model.slice(idx + 1)];
+}
+
 /** 'workflow-orchestrator' → 'Workflow Orchestrator'. */
 function titleCase(name: string): string {
   return name
@@ -76,10 +85,29 @@ export async function syncOpencodeAgentProfiles(
     const selectable = agent.mode === 'primary' && !INTERNAL_PRIMARY.has(name);
 
     try {
+      // opencode exposes the agent's prompt body + model on the registry entry.
+      const a = agent as unknown as {
+        prompt?: string | null;
+        model?: string | null;
+      };
+      const prompt = typeof a.prompt === 'string' && a.prompt.trim() !== '' ? a.prompt : null;
+      const [modelProvider, modelId] = parseModel(a.model);
+
       const existing = repo.getById(name);
       if (existing) {
-        // Refresh routing + selectability only; preserve user-owned fields.
-        repo.update(name, { ocAgent: name, sessionSelectable: selectable });
+        // Refresh routing + selectability. Backfill prompt/model ONLY when the
+        // profile has none yet — never clobber values the user edited in the
+        // designer (which is now the source of truth).
+        const patch: Parameters<typeof repo.update>[1] = {
+          ocAgent: name,
+          sessionSelectable: selectable,
+        };
+        if (!existing.systemPrompt && prompt) patch.systemPrompt = prompt;
+        if (!existing.modelProvider && !existing.modelId && modelProvider && modelId) {
+          patch.modelProvider = modelProvider;
+          patch.modelId = modelId;
+        }
+        repo.update(name, patch);
       } else {
         repo.insert({
           id: name,
@@ -89,6 +117,9 @@ export async function syncOpencodeAgentProfiles(
           enabled: true,
           ocAgent: name,
           sessionSelectable: selectable,
+          systemPrompt: prompt,
+          modelProvider,
+          modelId,
           sortOrder: 100,
         });
       }
