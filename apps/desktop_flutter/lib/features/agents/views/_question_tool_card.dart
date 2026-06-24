@@ -183,6 +183,7 @@ class _QuestionToolCardState extends State<QuestionToolCard> {
 
   @override
   Widget build(BuildContext context) {
+    final r = context.rhythm;
     // Already answered locally — show compact stub.
     if (_answers != null) {
       return _AnsweredStub(answers: _answers!);
@@ -220,23 +221,22 @@ class _QuestionToolCardState extends State<QuestionToolCard> {
         margin: const EdgeInsets.symmetric(vertical: 6),
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
         decoration: BoxDecoration(
-          border:
-              Border.all(color: const Color(0xFF4F6AF5).withValues(alpha: 0.4)),
+          border: Border.all(color: r.accent.withValues(alpha: 0.4)),
           borderRadius: BorderRadius.circular(6),
-          color: Colors.white,
+          color: r.surface,
         ),
         child: Row(
           children: [
             Expanded(
               child: Text(
                 'Waiting for question…',
-                style: TextStyle(fontSize: 12, color: context.rhythm.textMuted),
+                style: TextStyle(fontSize: 12, color: r.textMuted),
               ),
             ),
             TextButton(
               onPressed: _dismiss,
               style: TextButton.styleFrom(
-                foregroundColor: context.rhythm.textMuted,
+                foregroundColor: r.textMuted,
                 padding: const EdgeInsets.symmetric(horizontal: 8),
                 textStyle: const TextStyle(fontSize: 11),
                 minimumSize: const Size(0, 28),
@@ -251,10 +251,9 @@ class _QuestionToolCardState extends State<QuestionToolCard> {
     return Container(
       margin: const EdgeInsets.symmetric(vertical: 6),
       decoration: BoxDecoration(
-        border:
-            Border.all(color: const Color(0xFF4F6AF5).withValues(alpha: 0.4)),
+        border: Border.all(color: r.accent.withValues(alpha: 0.4)),
         borderRadius: BorderRadius.circular(8),
-        color: Colors.white,
+        color: r.surface,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -262,24 +261,25 @@ class _QuestionToolCardState extends State<QuestionToolCard> {
           // Header bar
           Container(
             padding: const EdgeInsets.fromLTRB(10, 6, 10, 6),
-            decoration: const BoxDecoration(
-              color: Color(0x144F6AF5), // primary tint
-              borderRadius: BorderRadius.vertical(top: Radius.circular(7)),
+            decoration: BoxDecoration(
+              color: r.accentMuted, // primary tint
+              borderRadius:
+                  const BorderRadius.vertical(top: Radius.circular(7)),
             ),
             child: Row(
               children: [
-                const Icon(
+                Icon(
                   Icons.help_outline,
                   size: 14,
-                  color: Color(0xFF4F6AF5),
+                  color: r.accent,
                 ),
                 const SizedBox(width: 6),
                 Text(
                   'Question',
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.w700,
-                    color: Color(0xFF4F6AF5),
+                    color: r.accent,
                   ),
                 ),
               ],
@@ -323,8 +323,8 @@ class _QuestionToolCardState extends State<QuestionToolCard> {
                             ? _submitFromPending
                             : null,
                         style: FilledButton.styleFrom(
-                          backgroundColor: const Color(0xFF4F6AF5),
-                          foregroundColor: Colors.white,
+                          backgroundColor: r.accent,
+                          foregroundColor: r.surface,
                           padding: const EdgeInsets.symmetric(
                               horizontal: 14, vertical: 6),
                           textStyle: const TextStyle(fontSize: 12),
@@ -362,16 +362,17 @@ class _QuestionSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final r = context.rhythm;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         if (question.header.isNotEmpty) ...[
           Text(
             question.header,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 10,
               fontWeight: FontWeight.w700,
-              color: Color(0xFF9CA3AF), // textMuted
+              color: r.textMuted,
               letterSpacing: 0.5,
             ),
           ),
@@ -379,10 +380,10 @@ class _QuestionSection extends StatelessWidget {
         ],
         Text(
           question.question,
-          style: const TextStyle(
+          style: TextStyle(
             fontSize: 13,
             fontWeight: FontWeight.w500,
-            color: Color(0xFF111827), // textPrimary
+            color: r.textPrimary,
             height: 1.4,
           ),
         ),
@@ -417,12 +418,13 @@ class _OptionButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final r = context.rhythm;
     if (selected) {
       return FilledButton(
         onPressed: onTap,
         style: FilledButton.styleFrom(
-          backgroundColor: const Color(0xFF4F6AF5),
-          foregroundColor: Colors.white,
+          backgroundColor: r.accent,
+          foregroundColor: r.surface,
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
           textStyle: const TextStyle(fontSize: 12),
           shape: RoundedRectangleBorder(
@@ -435,14 +437,14 @@ class _OptionButton extends StatelessWidget {
     return OutlinedButton(
       onPressed: onTap,
       style: OutlinedButton.styleFrom(
-        foregroundColor: const Color(0xFF4F6AF5),
-        side: const BorderSide(color: Color(0xFFE5E7EB)),
+        foregroundColor: r.accent,
+        side: BorderSide(color: r.border),
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
         textStyle: const TextStyle(fontSize: 12),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(6),
         ),
-        backgroundColor: Colors.white,
+        backgroundColor: r.surface,
       ),
       child: Text(label),
     );
@@ -456,31 +458,31 @@ class _AnsweredStub extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final r = context.rhythm;
     final display = answers.join(', ');
     return Container(
       margin: const EdgeInsets.symmetric(vertical: 4),
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
-        color: const Color(0x144F6AF5),
+        color: r.accentMuted,
         borderRadius: BorderRadius.circular(6),
-        border:
-            Border.all(color: const Color(0xFF4F6AF5).withValues(alpha: 0.3)),
+        border: Border.all(color: r.accent.withValues(alpha: 0.3)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Icon(
+          Icon(
             Icons.check_circle_outline,
             size: 13,
-            color: Color(0xFF4F6AF5),
+            color: r.accent,
           ),
           const SizedBox(width: 6),
           Expanded(
             child: Text(
               'Answered: $display',
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 12,
-                color: Color(0xFF4F6AF5),
+                color: r.accent,
               ),
             ),
           ),
