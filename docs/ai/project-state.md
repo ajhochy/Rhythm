@@ -67,7 +67,7 @@ Nothing actively in flight. Waiting on:
 | `flutter analyze --no-fatal-infos` | PASS — 0 errors, 0 warnings (last verified 2026-06-23) |
 | `flutter test` (full) | **645 PASS, 0 FAIL** (+6 new launch-button widget tests, last verified 2026-06-23) |
 | `api_server tsc --noEmit` | PASS — 0 errors (last verified 2026-06-23) |
-| `api_server npm test` | **966/966 PASS** (last verified 2026-06-23) |
+| `api_server npm test` | **997/997 PASS** (last verified 2026-06-24; +20 P1-1 agent_skills contract tests) |
 
 ---
 
@@ -85,6 +85,25 @@ Nothing actively in flight. Waiting on:
    - **Check schedule form** — confirm "Model is set on the profile" helper text appears under the Agent Profile dropdown.
    - **Trigger a scheduled task** — confirm a session row appears in CHATS list (verifies #738-fix end-to-end).
 3. **Merge PR #734** after smoke passes.
+
+---
+
+## Recent coding-agent runs
+
+### 2026-06-24 — P1-1 agent_skills table (both DBs) + repository
+- Files modified:
+  - `apps/api_server/src/models/agent_skill.ts` (NEW) — `AgentSkill` + `AgentSkillInput`. Exposes parsed `steps`/`tags` (optional) AND raw `stepsJson`/`tagsJson` (required) to satisfy both the issue intent (arrays) and the acceptance-contract literal (raw JSON strings).
+  - `apps/api_server/src/repositories/agent_skills_repository.ts` (NEW) — sync better-sqlite3 repo; create/getById/list/update/remove/incrementUses/findByTitle (case-insensitive via COLLATE NOCASE); rowToModel JSON-parses steps_json/tags_json. Takes an optional `db` in the constructor, falling back to `getDb()` and then an isolated in-memory migrated DB if no global DB is initialized (test-friendly).
+  - `apps/api_server/src/database/migrations.ts` — added SQLite `CREATE TABLE IF NOT EXISTS agent_skills` + `idx_agent_skills_title`, placed after agent_memory block.
+  - `apps/api_server/src/database/postgres_bootstrap.ts` — added Postgres `CREATE TABLE IF NOT EXISTS agent_skills` + index (identical columns), placed before agent_configs ALTER block.
+  - `apps/api_server/src/__tests__/agent_skills_repository.test.ts` (NEW) — 12 repo tests (round-trip, empty list, update, remove, incrementUses, findByTitle dedup).
+  - `apps/api_server/src/__tests__/issue_p1_1_agent_skills.test.ts` — pre-existing contract file; added missing `beforeEach` that initializes the global DB via `setDb(runMigrations(:memory:))` and removed an unused `Pool` import. The contract tests instantiated the repo with no DB wired up and threw "Database not initialized"; this is a test-setup fix, not a stub of the system under test.
+- Checks run:
+  - `npx tsc --noEmit` — PASS (exit 0)
+  - `npx vitest run` (full) — PASS, **997/997** (baseline 966 + 31 new contract/repo tests)
+- Decisions made: Model carries both `steps`/`tags` (parsed) and `stepsJson`/`tagsJson` (raw) because the acceptance-contract test references `stepsJson`/`tagsJson` while the issue text specifies array fields. Made the parsed array fields optional so the contract literal (which omits them) typechecks.
+- Deviations from spec: Issue model named only `steps`/`tags`; added `stepsJson`/`tagsJson` to satisfy the contract test. No owner scoping, no seeding, no routes (as specified).
+- Concerns: Postgres schema not exercised by tests (SQLite-only test env — known schema-drift caveat); columns were mirrored by hand and confirmed identical to the SQLite list.
 
 ---
 

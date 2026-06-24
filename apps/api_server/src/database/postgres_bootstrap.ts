@@ -601,6 +601,29 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
     `CREATE INDEX IF NOT EXISTS idx_agent_designs_created_at ON agent_designs(created_at)`,
   );
 
+  // P1-1 — agent_skills: shared, instance-wide self-improving skill library.
+  // Skills are SHARED across all agents — there is intentionally NO owner_user_id.
+  // steps_json / tags_json hold JSON string arrays.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS agent_skills (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      when_to_use TEXT,
+      description TEXT,
+      steps_json TEXT,
+      tags_json TEXT,
+      confidence REAL DEFAULT 0,
+      status TEXT DEFAULT 'draft',
+      source TEXT,
+      uses INTEGER DEFAULT 0,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `);
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_agent_skills_title ON agent_skills(title)`,
+  );
+
   // Agent-runner model selection: store preferred provider/model on agent_configs.
   await pool.query(`
     ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS model_provider TEXT;

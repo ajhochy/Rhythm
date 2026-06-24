@@ -1267,6 +1267,27 @@ export function runMigrations(db: Database.Database): void {
     // FTS5 not available — full-text search will fall back to LIKE queries.
   }
 
+  // agent_skills — shared, instance-wide self-improving skill library (P1-1).
+  // Skills are SHARED across all agents — there is intentionally NO owner_user_id.
+  // steps_json / tags_json hold JSON string arrays.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS agent_skills (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      when_to_use TEXT,
+      description TEXT,
+      steps_json TEXT,
+      tags_json TEXT,
+      confidence REAL DEFAULT 0,
+      status TEXT DEFAULT 'draft',
+      source TEXT,
+      uses INTEGER DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_agent_skills_title ON agent_skills(title);
+  `);
+
   // agent_webhook_endpoints — inbound webhook registrations.
   // The server verifies HMAC signatures on incoming requests.
   // SSRF guard lives in agentWebhookService.ts (no outbound calls to private
