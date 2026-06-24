@@ -1,16 +1,16 @@
 /**
- * CONTRACT TESTS — scheduler dispatch wiring for issue-740 (model override) and
- * issue-741 (scope inheritance). Mirrors issue_739_scheduler_agent_runner.test.ts:
+ * CONTRACT TESTS — scheduler dispatch wiring for model-override (model override) and
+ * scope-inherit (scope inheritance). Mirrors issue_739_scheduler_agent_runner.test.ts:
  * mock AgentRunner.run + the repository, drive the cron tick, and assert on the
  * options object the scheduler passes to AgentRunner.run.
  *
  * This is the load-bearing seam for BOTH issues:
- *   - 740-c1: a task with model_provider+model_id → run() gets a matching modelOverride
- *   - 740-c2: a task without them → run() gets NO modelOverride (runner falls back to profile)
- *   - 741-c1: a task with null allowed_mcps_json → run() gets allowedMcpsJson: undefined
+ *   - model-c1: a task with model_provider+model_id → run() gets a matching modelOverride
+ *   - model-c2: a task without them → run() gets NO modelOverride (runner falls back to profile)
+ *   - scope-c1: a task with null allowed_mcps_json → run() gets allowedMcpsJson: undefined
  *             (so the runner INHERITS the profile; passing null would force "unrestricted")
- *   - 741-c3: a task with an explicit allowed_mcps_json → run() gets that value (override)
- *   - 741-c6: a task with allowed_skills_json → run() gets that value (skills override)
+ *   - scope-c3: a task with an explicit allowed_mcps_json → run() gets that value (override)
+ *   - scope-c6: a task with allowed_skills_json → run() gets that value (skills override)
  */
 
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
@@ -107,7 +107,7 @@ async function dispatchAndCaptureRunArg(task: Record<string, unknown>): Promise<
   return mockRun.mock.calls[0][0] as Record<string, unknown>;
 }
 
-describe('scheduler dispatch — model override (issue-740) + scope inheritance (issue-741)', () => {
+describe('scheduler dispatch — per-task model override + profile scope inheritance', () => {
   let envSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
@@ -124,7 +124,7 @@ describe('scheduler dispatch — model override (issue-740) + scope inheritance 
 
   // Regression: scheduler ignores the task's model columns → the per-task
   // override never reaches the runner and the task is locked to the profile model.
-  it('740-c1: task with model_provider+model_id → run() receives a matching modelOverride', async () => {
+  it('model-c1: task with model_provider+model_id → run() receives a matching modelOverride', async () => {
     const arg = await dispatchAndCaptureRunArg(
       makeDueTask({ modelProvider: 'anthropic', modelId: 'claude-opus-4-1' }),
     );
@@ -133,7 +133,7 @@ describe('scheduler dispatch — model override (issue-740) + scope inheritance 
 
   // Regression: scheduler invents a modelOverride for a task with no model
   // columns → the profile's resolveRunModel cascade is bypassed.
-  it('740-c2: task without model columns → run() receives NO modelOverride', async () => {
+  it('model-c2: task without model columns → run() receives NO modelOverride', async () => {
     const arg = await dispatchAndCaptureRunArg(makeDueTask());
     expect(arg.modelOverride).toBeUndefined();
   });
@@ -141,30 +141,30 @@ describe('scheduler dispatch — model override (issue-740) + scope inheritance 
   // Regression: scheduler passes null instead of undefined for an unscoped task
   // → resolveProfileScope reads null as an explicit "unrestricted" override and
   // the profile scope is NOT inherited.
-  it('741-c1: task with null allowed_mcps_json → run() receives allowedMcpsJson: undefined (inherit)', async () => {
+  it('scope-c1: task with null allowed_mcps_json → run() receives allowedMcpsJson: undefined (inherit)', async () => {
     const arg = await dispatchAndCaptureRunArg(makeDueTask({ allowedMcpsJson: null }));
     expect(arg.allowedMcpsJson).toBeUndefined();
   });
 
-  it('741-c1b: task with an empty allowed_mcps_json array → run() receives undefined (inherit)', async () => {
+  it('scope-c1b: task with an empty allowed_mcps_json array → run() receives undefined (inherit)', async () => {
     const arg = await dispatchAndCaptureRunArg(makeDueTask({ allowedMcpsJson: '[]' }));
     expect(arg.allowedMcpsJson).toBeUndefined();
   });
 
   // Regression: an explicit task allowlist stops overriding the profile.
-  it('741-c3: task with explicit allowed_mcps_json → run() receives that value (override)', async () => {
+  it('scope-c3: task with explicit allowed_mcps_json → run() receives that value (override)', async () => {
     const arg = await dispatchAndCaptureRunArg(makeDueTask({ allowedMcpsJson: JSON.stringify(['rhythm']) }));
     expect(arg.allowedMcpsJson).toBe(JSON.stringify(['rhythm']));
   });
 
   // Regression: the task's skill allowlist is never forwarded → a task can
   // never override the profile's skills.
-  it('741-c6: task with explicit allowed_skills_json → run() receives that value', async () => {
+  it('scope-c6: task with explicit allowed_skills_json → run() receives that value', async () => {
     const arg = await dispatchAndCaptureRunArg(makeDueTask({ allowedSkillsJson: JSON.stringify(['skill-a']) }));
     expect(arg.allowedSkillsJson).toBe(JSON.stringify(['skill-a']));
   });
 
-  it('741-c6b: task with null allowed_skills_json → run() receives allowedSkillsJson: undefined (inherit)', async () => {
+  it('scope-c6b: task with null allowed_skills_json → run() receives allowedSkillsJson: undefined (inherit)', async () => {
     const arg = await dispatchAndCaptureRunArg(makeDueTask({ allowedSkillsJson: null }));
     expect(arg.allowedSkillsJson).toBeUndefined();
   });

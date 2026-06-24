@@ -33,7 +33,7 @@ export class AgentSchedulesController {
       if (!scheduleType || typeof scheduleType !== 'string') throw AppError.badRequest('scheduleType is required');
       if (!prompt || typeof prompt !== 'string') throw AppError.badRequest('prompt is required');
 
-      // #740 — per-task model override. Both must be strings when present, and
+      // model-override — per-task model override. Both must be strings when present, and
       // they go together (a provider without a model id, or vice versa, can't
       // resolve a model). Omitting both means "inherit the profile model".
       if (modelProvider != null && typeof modelProvider !== 'string') throw AppError.badRequest('modelProvider must be a string');

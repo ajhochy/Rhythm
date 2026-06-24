@@ -1,46 +1,46 @@
 {
-  "issue": 740,
+  "issue": "sched-model-override",
   "generated": "2026-06-24",
   "stack": "typescript",
   "criteria": [
     {
-      "criterion_id": "issue-740-c1",
+      "criterion_id": "sched-model-override-c1",
       "text": "A scheduled task with model_provider+model_id set runs on that model (the model override is passed to the runner/SDK).",
       "mode": "unit",
       "test_file": "apps/api_server/src/__tests__/scheduler_dispatch_contract.test.ts",
-      "test_id": "740-c1: task with model_provider+model_id \u2192 run() receives a matching modelOverride",
+      "test_id": "model-c1: task with model_provider+model_id → run() receives a matching modelOverride",
       "status": "pass"
     },
     {
-      "criterion_id": "issue-740-c2",
-      "text": "A scheduled task without model_provider/model_id falls back to the profile's model (resolveRunModel) \u2014 no override is forced.",
+      "criterion_id": "sched-model-override-c2",
+      "text": "A scheduled task without model_provider/model_id falls back to the profile's model (resolveRunModel) — no override is forced.",
       "mode": "unit",
       "test_file": "apps/api_server/src/__tests__/scheduler_dispatch_contract.test.ts",
-      "test_id": "740-c2: task without model columns \u2192 run() receives NO modelOverride",
+      "test_id": "model-c2: task without model columns → run() receives NO modelOverride",
       "status": "pass"
     },
     {
-      "criterion_id": "issue-740-c3",
+      "criterion_id": "sched-model-override-c3",
       "text": "Migration adds nullable model_provider + model_id columns to agent_scheduled_tasks; applies cleanly to existing and fresh DBs with no data loss.",
       "mode": "unit",
       "test_file": "apps/api_server/src/__tests__/scheduled_task_columns_contract.test.ts",
-      "test_id": "issue-740-c3: migration adds nullable model columns to agent_scheduled_tasks",
+      "test_id": "model-c3: migration adds nullable model columns to agent_scheduled_tasks",
       "status": "pass"
     },
     {
-      "criterion_id": "issue-740-c4",
+      "criterion_id": "sched-model-override-c4",
       "text": "The repository persists and returns modelProvider/modelId on create and read.",
       "mode": "integration",
       "test_file": "apps/api_server/src/__tests__/scheduled_task_columns_contract.test.ts",
-      "test_id": "issue-740-c4: repository round-trips modelProvider/modelId",
+      "test_id": "model-c4: repository round-trips modelProvider/modelId",
       "status": "pass"
     },
     {
-      "criterion_id": "issue-740-c5",
+      "criterion_id": "sched-model-override-c5",
       "text": "The create scheduled-task REST route (and MCP tool) expose model_provider/model_id, optional + validated.",
       "mode": "integration",
       "test_file": "apps/api_server/src/__tests__/scheduled_task_columns_contract.test.ts",
-      "test_id": "issue-740-c5 / issue-741-c5: REST POST /agent-schedules \u203a 740-c5: accepts optional modelProvider/modelId and persists them",
+      "test_id": "model-c5: accepts optional modelProvider/modelId and persists them",
       "status": "pass"
     }
   ],

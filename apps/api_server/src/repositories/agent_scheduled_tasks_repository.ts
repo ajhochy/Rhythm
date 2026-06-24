@@ -16,7 +16,7 @@ export interface AgentScheduledTask {
   prompt: string;
   agentKind: string;
   agentConfigId: string | null;
-  /** Per-task model override (issue #740). null = use the bound profile's model. */
+  /** Per-task model override (the model-override change). null = use the bound profile's model. */
   modelProvider: string | null;
   modelId: string | null;
   allowedMcpsJson: string | null;

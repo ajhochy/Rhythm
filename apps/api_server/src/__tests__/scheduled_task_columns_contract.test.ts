@@ -1,13 +1,13 @@
 /**
- * CONTRACT TESTS — issue-740 (per-task model override) schema + persistence,
- * and issue-741 (scope inheritance) create-without-allowlist.
+ * CONTRACT TESTS — model-override (per-task model override) schema + persistence,
+ * and scope-inherit (scope inheritance) create-without-allowlist.
  *
  * Real in-memory SQLite + real repository + real Express app. No module mocks.
  * These prove the *storage and transport* half of the two issues:
- *   - the migration adds the model columns (740-c3)
- *   - the repository round-trips them (740-c4)
- *   - REST create accepts them (740-c5)
- *   - REST create does NOT require an allowlist (741-c5)
+ *   - the migration adds the model columns (model-c3)
+ *   - the repository round-trips them (model-c4)
+ *   - REST create accepts them (model-c5)
+ *   - REST create does NOT require an allowlist (scope-c5)
  *
  * Each test names the regression it guards in a leading comment.
  */
@@ -29,9 +29,9 @@ function makeDb() {
   return db;
 }
 
-// ── 740-c3: migration adds model_provider + model_id columns ─────────────────
+// ── model-c3: migration adds model_provider + model_id columns ─────────────────
 
-describe('issue-740-c3: migration adds nullable model columns to agent_scheduled_tasks', () => {
+describe('model-c3: migration adds nullable model columns to agent_scheduled_tasks', () => {
   // Regression: a future migration edit drops/forgets the model columns →
   // scheduled tasks can never carry a per-task model override.
   it('adds model_provider and model_id on a fresh DB', () => {
@@ -64,9 +64,9 @@ describe('issue-740-c3: migration adds nullable model columns to agent_scheduled
   });
 });
 
-// ── 740-c4: repository persists + returns modelProvider/modelId ──────────────
+// ── model-c4: repository persists + returns modelProvider/modelId ──────────────
 
-describe('issue-740-c4: repository round-trips modelProvider/modelId', () => {
+describe('model-c4: repository round-trips modelProvider/modelId', () => {
   beforeEach(() => setDb(makeDb()));
 
   // Regression: repo INSERT/rowToModel forgets the model columns → a stored
@@ -100,9 +100,9 @@ describe('issue-740-c4: repository round-trips modelProvider/modelId', () => {
   });
 });
 
-// ── REST surface (740-c5 + 741-c5) ───────────────────────────────────────────
+// ── REST surface (model-c5 + scope-c5) ───────────────────────────────────────────
 
-describe('issue-740-c5 / issue-741-c5: REST POST /agent-schedules', () => {
+describe('model-c5 / scope-c5: REST POST /agent-schedules', () => {
   let baseUrl: string;
   let closeServer: () => Promise<void>;
   let authHeaders: Record<string, string>;
@@ -129,7 +129,7 @@ describe('issue-740-c5 / issue-741-c5: REST POST /agent-schedules', () => {
 
   // Regression: controller ignores modelProvider/modelId in the body → an
   // operator can never set a per-task model via the API.
-  it('740-c5: accepts optional modelProvider/modelId and persists them', async () => {
+  it('model-c5: accepts optional modelProvider/modelId and persists them', async () => {
     const res = await fetch(`${baseUrl}/agent-schedules`, {
       method: 'POST',
       headers: authHeaders,
@@ -150,7 +150,7 @@ describe('issue-740-c5 / issue-741-c5: REST POST /agent-schedules', () => {
 
   // Regression: create starts REQUIRING an allowlist → "inherit from profile"
   // becomes impossible and every task must duplicate the profile's scope.
-  it('741-c5: does NOT require allowedMcps/allowedSkills (omitting = inherit)', async () => {
+  it('scope-c5: does NOT require allowedMcps/allowedSkills (omitting = inherit)', async () => {
     const res = await fetch(`${baseUrl}/agent-schedules`, {
       method: 'POST',
       headers: authHeaders,

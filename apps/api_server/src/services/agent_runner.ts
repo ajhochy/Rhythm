@@ -56,7 +56,7 @@ export interface AgentRunOptions {
   /** Raw JSON string of allowed MCP tools (same shape as agent_sessions.allowed_mcps_json) */
   allowedMcpsJson?: string | null;
   /**
-   * Raw JSON string of allowed skill ids/titles (issue #741 task-level override).
+   * Raw JSON string of allowed skill ids/titles (the scope-inheritance change task-level override).
    * When provided it overrides the bound profile's allowed_skills_json for skill
    * injection; when undefined the profile's own allowlist is inherited. Mirrors
    * allowedMcpsJson's override-or-inherit semantics.
@@ -110,7 +110,7 @@ export interface AgentRunOptions {
   /**
    * When set, bypasses resolveRunModel() and forces this run to use the given
    * model. Two callers set it: (1) P4-1 teacher-escalation forces the stronger
-   * teacher model on a re-run; (2) the scheduler (issue #740) forwards a task's
+   * teacher model on a re-run; (2) the scheduler (the model-override change) forwards a task's
    * per-task model_provider/model_id override. Precedence in _runOnce:
    * modelOverride > profile model (resolveRunModel) > hardcoded default.
    */
@@ -498,7 +498,7 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
   // allowed_mcps_json column (new interactive-parity behavior).
   const profileScope = await resolveProfileScope(effectiveConfigId, {
     allowedMcpsJsonOverride: allowedMcpsJson !== undefined ? allowedMcpsJson : undefined,
-    // #741: a task-level skill allowlist overrides the profile's; undefined inherits.
+    // scope-inheritance: a task-level skill allowlist overrides the profile's; undefined inherits.
     allowedSkillsJsonOverride: allowedSkillsJson !== undefined ? allowedSkillsJson : undefined,
   });
   // P4-1: a forced modelOverride (teacher escalation) bypasses the profile model.

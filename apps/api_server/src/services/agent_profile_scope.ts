@@ -69,7 +69,7 @@ export interface ResolveProfileScopeOptions {
   allowedMcpsJsonOverride?: string | null;
   /**
    * When provided, overrides the profile's own allowed_skills_json for the
-   * returned `allowedSkillsJson` (issue #741 — task-level skill allowlist
+   * returned `allowedSkillsJson` (the scope-inheritance change — task-level skill allowlist
    * override). Same precedence semantics as allowedMcpsJsonOverride: an
    * explicit value (or explicit null) wins over the profile; undefined
    * (default) inherits the profile's own allowed_skills_json.

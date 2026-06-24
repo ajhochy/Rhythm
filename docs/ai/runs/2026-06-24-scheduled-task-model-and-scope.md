@@ -3,13 +3,13 @@ date: 2026-06-24
 repo: Rhythm
 branch: feature/agent-scheduler
 pr: 734
-issues: [740, 741]
+issues: [sched-model-override, sched-scope-inherit]
 status: verified-uncommitted
 tags: [run, rhythm]
 index: "[[Rhythm]]"
 ---
 
-# Scheduled-task per-task model override (#740) + profile scope inheritance (#741)
+# Scheduled-task per-task model override (model-override) + profile scope inheritance (scope-inherit)
 
 TDD via the workflow chain (acceptance-contract → coding-agent → verification-gate).
 Builds on the P0–P3 scoping-parity work landed in `a7baf45` (the P1a
@@ -26,7 +26,7 @@ Builds on the P0–P3 scoping-parity work landed in `a7baf45` (the P1a
 - `apps/api_server/src/controllers/agentSchedulesController.ts` — create accepts/validates paired `modelProvider`/`modelId`; update auto-handled via repo map.
 - `apps/mcp_server/src/tools/agentSchedule.ts` — `modelProvider`/`modelId` create inputs; clarified allowlist = inherit.
 - Tests: `scheduled_task_columns_contract.test.ts`, `scheduled_task_scope_helper_contract.test.ts`, `scheduler_dispatch_contract.test.ts` (15 cases).
-- Contracts: `docs/ai/contracts/issue-740.json`, `issue-741.json` (all criteria `pass`, `not_tested=[]`).
+- Contracts: `docs/ai/contracts/issue-sched-model-override.json`, `issue-sched-scope-inherit.json` (all criteria `pass`, `not_tested=[]`).
 
 ## Checks run
 

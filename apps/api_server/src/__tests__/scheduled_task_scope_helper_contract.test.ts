@@ -1,10 +1,10 @@
 /**
- * CONTRACT TESTS — issue-741 (scope inheritance) at the resolveProfileScope
+ * CONTRACT TESTS — scope-inherit (scope inheritance) at the resolveProfileScope
  * helper level. Mirrors interactive_scope_parity.test.ts: real in-memory DB +
  * mocked opencode_engine, asserting on the helper's resolved scope.
  *
- *   - 741-c4: skill scope follows task-override > profile precedence (NEW seam)
- *   - 741-c2: profile scope is resolved LIVE — editing the profile changes the
+ *   - scope-c4: skill scope follows task-override > profile precedence (NEW seam)
+ *   - scope-c2: profile scope is resolved LIVE — editing the profile changes the
  *             resolved scope on the next call with no task/override change.
  */
 
@@ -16,7 +16,7 @@ import { setDb } from '../database/db';
 vi.mock('../services/opencode_engine', () => ({
   opencodeClient: {
     get isReady() { return true; },
-    createSession: vi.fn().mockResolvedValue({ id: 'sdk-session-741' }),
+    createSession: vi.fn().mockResolvedValue({ id: 'sdk-session-scope-inherit' }),
     listAuthedProviders: vi.fn().mockResolvedValue([]),
   },
   opencodeSessionMap: new Map<string, string>(),
@@ -32,7 +32,7 @@ function makeDb() {
   return db;
 }
 
-describe('issue-741: scope inheritance via resolveProfileScope', () => {
+describe('scope-inherit: scope inheritance via resolveProfileScope', () => {
   beforeEach(() => {
     setDb(makeDb());
     vi.clearAllMocks();
@@ -40,7 +40,7 @@ describe('issue-741: scope inheritance via resolveProfileScope', () => {
 
   // Regression: the skills allowlist has no override seam → a task can never
   // narrow its skills below the profile's, breaking the "task override" rule.
-  it('741-c4: allowedSkillsJsonOverride takes precedence over the profile allowed_skills_json', async () => {
+  it('scope-c4: allowedSkillsJsonOverride takes precedence over the profile allowed_skills_json', async () => {
     new AgentConfigsRepository().insert({
       id: 'skills-profile',
       label: 'Skills profile',
@@ -62,7 +62,7 @@ describe('issue-741: scope inheritance via resolveProfileScope', () => {
 
   // Regression: scope is snapshotted at task-create time instead of resolved
   // live → editing the profile no longer affects existing scheduled tasks.
-  it('741-c2: editing the profile changes the resolved MCP scope on the next call (no override)', async () => {
+  it('scope-c2: editing the profile changes the resolved MCP scope on the next call (no override)', async () => {
     const repo = new AgentConfigsRepository();
     repo.insert({
       id: 'live-profile',

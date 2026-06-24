@@ -1470,7 +1470,7 @@ export function runMigrations(db: Database.Database): void {
     db.exec(`ALTER TABLE agent_scheduled_tasks ADD COLUMN agent_config_id TEXT`);
   }
 
-  // model_provider / model_id: optional per-task model override (issue #740).
+  // model_provider / model_id: optional per-task model override (the model-override change).
   // When both are set, a scheduled run uses this model instead of the bound
   // profile's resolveRunModel() default — so e.g. a Sonnet-default profile's
   // monthly report can run on Opus without splitting profiles. Nullable; null

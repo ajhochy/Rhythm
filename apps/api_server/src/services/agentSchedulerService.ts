@@ -24,7 +24,7 @@ import { getDb, getPostgresPool } from '../database/db';
 import { env } from '../config/env';
 import * as AgentRunner from './agent_runner';
 
-// ── scope inheritance (issue #741) ─────────────────────────────────────────
+// ── scope inheritance (scheduled tasks inherit profile scope) ──────────────
 //
 // A scheduled task INHERITS its bound profile's MCP/skill scope at run time.
 // The task's own allowlist is only an explicit OVERRIDE. AgentRunner passes
@@ -288,11 +288,11 @@ async function checkDueTasks(): Promise<void> {
         // resolve a model and record a session row visible in CHATS.
         AgentRunner.run({
           prompt: task.prompt,
-          // #741: inherit the profile scope when the task has no own allowlist
+          // scope-inheritance: inherit the profile scope when the task has no own allowlist
           // (null/empty → undefined); a concrete value overrides the profile.
           allowedMcpsJson: resolveTaskScopeOverride(task.allowedMcpsJson),
           allowedSkillsJson: resolveTaskScopeOverride(task.allowedSkillsJson),
-          // #740: per-task model override — only when BOTH columns are set;
+          // model-override: per-task model override — only when BOTH columns are set;
           // otherwise undefined so the runner falls back to the profile model.
           modelOverride:
             task.modelProvider && task.modelId
