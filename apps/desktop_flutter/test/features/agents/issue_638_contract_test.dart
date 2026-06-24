@@ -50,6 +50,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:rhythm_desktop/app/core/agents/agent_server_controller.dart';
 import 'package:rhythm_desktop/app/core/notifications/local_notification_service.dart';
 import 'package:rhythm_desktop/app/core/server/api_server_service.dart';
@@ -281,6 +282,13 @@ Future<Widget> _buildTestApp(
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  // AgentsController.initialize() fires unawaited loadInspectorPrefs(), which
+  // calls SharedPreferences.getInstance(). Without a registered mock the
+  // plugin channel rejects AFTER the test body completes, failing the test on
+  // a timing race ("test failed after it had already completed"). Registering
+  // the mock makes getInstance() resolve synchronously in tests.
+  setUp(() => SharedPreferences.setMockInitialValues(<String, Object>{}));
 
   // -------------------------------------------------------------------------
   // c1 — UI widget test (STRICT: FAILS today, PASSES after the line-1197 fix)
