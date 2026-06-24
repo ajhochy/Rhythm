@@ -98,6 +98,19 @@ Visual smoke (`flutter run -d macos`) is required before merging scheduler branc
 
 ## Recent coding-agent runs
 
+### 2026-06-24 — P0-2 one-time seed import of agent-stack skills
+- Files modified:
+  - `apps/api_server/src/services/skill_seed_importer.ts` (NEW) — discovers skills from `~/.config/opencode/agents/*.md` and `~/.claude/skills/<name>/SKILL.md`, parses YAML frontmatter (minimal line-parser, no yaml dep), maps to `AgentSkillInput`, dedups by case-insensitive title, inserts via `AgentSkillsRepository`. `isTestEnv()` guard mirrored VERBATIM from `opencode_agent_writer.ts`; also no-ops under Postgres. Idempotent via `repo.findByTitle`. Exports pure helpers (`parseFrontmatter`, `frontmatterToSkillInput`, `dedupByTitle`) and `SEED_SOURCE = 'agent-stack-seed'`.
+  - `apps/api_server/src/server.ts` — boot invocation after `seedConsolidationTask()`. Guarded: `skillsRepo.list().some(s => s.source === SEED_SOURCE)` zero-count check so it never re-imports; wrapped in try/catch + `logger.warn` (non-fatal). The `isTestEnv()` guard inside the importer keeps it inert under test.
+  - `apps/api_server/src/__tests__/skill_seed_importer.test.ts` (NEW) — 6 tests: (1) KEY test — under VITEST, `seedAgentStackSkills()` returns `{discovered:0,imported:0,skipped:0}` and `repo.list()` stays empty (zero fs/db writes); (2-4) pure frontmatter→input mapping (name/description, filename fallback, tags CSV/inline-list, nested keys ignored); (5-6) pure dedup + repo idempotency.
+- Checks run:
+  - `npx tsc --noEmit` — PASS (exit 0)
+  - `npx vitest run` (full) — **1017/1017 PASS** (baseline 1011 + 6 new), 0 failures
+  - `npx vitest run skill_seed_importer.test.ts` — 6/6 PASS (key zero-writes guard confirmed)
+- Decisions made: OQ-1 resolved by reading real samples — both sources use `---`-delimited YAML frontmatter with `name`+`description`; neither carries `tags` or `when_to_use` in practice (handled defensively). Mapping: title←name (fallback filename), description←description, whenToUse←when_to_use|whenToUse else description, tags←tags else null, steps←null (prose skills, never fabricated), status←'published', source←'agent-stack-seed', confidence←1.0. Used a minimal frontmatter line-parser (no yaml dependency). Top-level-only key parsing so opencode `permission:`/`options:` nested blocks are ignored.
+- Deviations from spec: none.
+- Concerns: **No column for the markdown body** — the skill's full procedure prose has nowhere clean to land (schema has `description` + `steps_json` only; steps_json is JSON array, not prose). Per spec we store frontmatter `description` and do NOT fabricate steps or invent a column. The full body is not persisted. FLAGGED as follow-up: if retrieval needs the procedure text, add a `body`/`content` TEXT column in a future migration. Boot seeding is local-SQLite-only and untested in CI (test env short-circuits by design), so the live discovery/insert path is exercised only at runtime — the pure parse/map/dedup logic is unit-tested.
+
 ### 2026-06-24 — P1-2 agent_skills CRUD routes + exposure
 - Files modified:
   - `apps/api_server/src/controllers/agentSkillsController.ts` (NEW) — list/getOne/create/patch/remove over `AgentSkillsRepository`. Mirrors `agent_configs_controller.ts` conventions (AppError, `next(err)`, `validateBody`). Validation: title required non-empty string (400 via `validateBody(body, true)`); status must be `'draft'|'published'` if present (400); confidence must be a number 0..1 if present (400). 404 via `AppError.notFound('AgentSkill')` when id missing.

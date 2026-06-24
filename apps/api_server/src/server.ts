@@ -42,6 +42,30 @@ async function main() {
     logger.warn(`[server] Memory consolidation seed failed (non-fatal): ${String(err)}`);
   });
 
+  // One-time seed of vetted agent-stack skills into agent_skills (local SQLite
+  // only). Guarded by a zero-count check on source='agent-stack-seed' so it
+  // never re-imports. Non-fatal — a seed failure must never block startup.
+  try {
+    const { AgentSkillsRepository } = await import(
+      './repositories/agent_skills_repository'
+    );
+    const { seedAgentStackSkills, SEED_SOURCE } = await import(
+      './services/skill_seed_importer'
+    );
+    const skillsRepo = new AgentSkillsRepository();
+    const alreadySeeded = skillsRepo
+      .list()
+      .some((s) => s.source === SEED_SOURCE);
+    if (!alreadySeeded) {
+      const result = seedAgentStackSkills(skillsRepo);
+      logger.info(
+        `[server] agent-stack skill seed: discovered=${result.discovered} imported=${result.imported} skipped=${result.skipped}`,
+      );
+    }
+  } catch (err) {
+    logger.warn(`[server] agent-stack skill seed failed (non-fatal): ${String(err)}`);
+  }
+
   const app = createApp();
 
   const httpServer = http.createServer(app);
