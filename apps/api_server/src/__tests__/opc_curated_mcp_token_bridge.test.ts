@@ -287,6 +287,9 @@ describe('POST /opencode/mcp/curated/ensure token bridge (c3, c4)', () => {
 
     const { createApp } = await import('../app');
     const server = createApp().listen(0);
+    // Force a fresh connection per request — undici keep-alive socket reuse
+    // intermittently fails these fetch()-based route tests (testing-guide).
+    server.maxRequestsPerSocket = 1;
     await new Promise<void>((r) => server.once('listening', () => r()));
     baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
     close = () =>

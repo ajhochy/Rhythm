@@ -404,22 +404,29 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
         borderRadius: BorderRadius.circular(RhythmRadius.sm),
         border: Border.all(color: context.rhythm.border),
       ),
-      child: CheckboxListTile(
-        value: _isManager,
-        onChanged: (v) => setState(() => _isManager = v ?? false),
-        activeColor: context.rhythm.accent,
-        title: Text(
-          'Manager agent',
-          style: TextStyle(
-            color: context.rhythm.textPrimary,
-            fontWeight: FontWeight.w600,
+      // CheckboxListTile (a ListTile) paints ink/selection on its nearest
+      // Material ancestor; inside this colored Container with none, Flutter
+      // asserts ("background or ink splashes may be invisible"). A transparent
+      // Material satisfies it while keeping the Container's background/border.
+      child: Material(
+        type: MaterialType.transparency,
+        child: CheckboxListTile(
+          value: _isManager,
+          onChanged: (v) => setState(() => _isManager = v ?? false),
+          activeColor: context.rhythm.accent,
+          title: Text(
+            'Manager agent',
+            style: TextStyle(
+              color: context.rhythm.textPrimary,
+              fontWeight: FontWeight.w600,
+            ),
           ),
+          subtitle: Text(
+            'This agent orchestrates specialist agents',
+            style: TextStyle(color: context.rhythm.textMuted, fontSize: 12),
+          ),
+          controlAffinity: ListTileControlAffinity.leading,
         ),
-        subtitle: Text(
-          'This agent orchestrates specialist agents',
-          style: TextStyle(color: context.rhythm.textMuted, fontSize: 12),
-        ),
-        controlAffinity: ListTileControlAffinity.leading,
       ),
     );
   }
