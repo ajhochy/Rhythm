@@ -698,7 +698,7 @@ class _ToolsSection extends StatelessWidget {
             icon: '🤖',
             label: 'Profiles',
             subtitle: 'Agent identity & permissions',
-            onTap: () => showAgentProfileSheet(context),
+            onTap: () => showAgentProfilesManagerSheet(context),
           ),
           const SizedBox(height: 2),
           _ToolsRow(

@@ -80,6 +80,220 @@ Future<AgentConfig?> showAgentProfileSheet(
   );
 }
 
+/// Shows the [AgentProfilesManagerSheet] — the list of existing Agent Profiles
+/// with a "New Profile" action. Tapping a profile opens it in edit mode.
+Future<void> showAgentProfilesManagerSheet(
+  BuildContext context, {
+  AgentModelsDataSource? modelsDataSource,
+}) {
+  return showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    backgroundColor: context.rhythm.surface,
+    shape: RoundedRectangleBorder(
+      borderRadius: const BorderRadius.vertical(
+        top: Radius.circular(RhythmRadius.xl),
+      ),
+      side: BorderSide(color: context.rhythm.border),
+    ),
+    builder: (sheetCtx) => ChangeNotifierProvider.value(
+      value: context.read<AgentConfigsController>(),
+      child: AgentProfilesManagerSheet(modelsDataSource: modelsDataSource),
+    ),
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Profiles manager (list) sheet
+// ---------------------------------------------------------------------------
+
+/// Lists all Agent Profiles. Tap a row to edit; the header button creates a new
+/// one. Refreshes the controller on open so the list reflects the latest state
+/// (including profiles seeded from opencode agents).
+class AgentProfilesManagerSheet extends StatefulWidget {
+  const AgentProfilesManagerSheet(
+      {super.key, AgentModelsDataSource? modelsDataSource})
+      : _modelsDataSource = modelsDataSource;
+
+  final AgentModelsDataSource? _modelsDataSource;
+
+  @override
+  State<AgentProfilesManagerSheet> createState() =>
+      _AgentProfilesManagerSheetState();
+}
+
+class _AgentProfilesManagerSheetState extends State<AgentProfilesManagerSheet> {
+  @override
+  void initState() {
+    super.initState();
+    // Pull the latest profiles when the manager opens.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) context.read<AgentConfigsController>().refresh();
+    });
+  }
+
+  String _subtitle(AgentConfig c) {
+    final parts = <String>[];
+    if ((c.ocAgent ?? '').isNotEmpty) parts.add('opencode: ${c.ocAgent}');
+    if ((c.modelProvider ?? '').isNotEmpty && (c.modelId ?? '').isNotEmpty) {
+      parts.add('${c.modelProvider}/${c.modelId}');
+    }
+    if (c.sessionSelectable && (c.ocAgent ?? '').isNotEmpty)
+      parts.add('in picker');
+    return parts.isEmpty ? c.id : parts.join('  ·  ');
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final rhythm = context.rhythm;
+    final controller = context.watch<AgentConfigsController>();
+    final profiles = controller.configs;
+
+    return SafeArea(
+      child: Padding(
+        padding: const EdgeInsets.all(RhythmSpacing.md),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // Header
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Agent Profiles',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w600,
+                      color: rhythm.textPrimary,
+                    ),
+                  ),
+                ),
+                TextButton.icon(
+                  onPressed: () => showAgentProfileSheet(
+                    context,
+                    modelsDataSource: widget._modelsDataSource,
+                  ),
+                  icon: const Icon(Icons.add, size: 18),
+                  label: const Text('New Profile'),
+                  style: TextButton.styleFrom(foregroundColor: rhythm.accent),
+                ),
+              ],
+            ),
+            const SizedBox(height: RhythmSpacing.sm),
+            if (profiles.isEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: RhythmSpacing.xl),
+                child: Text(
+                  'No profiles yet.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: rhythm.textMuted),
+                ),
+              )
+            else
+              Flexible(
+                child: ListView.separated(
+                  shrinkWrap: true,
+                  itemCount: profiles.length,
+                  separatorBuilder: (_, __) =>
+                      const SizedBox(height: RhythmSpacing.xxs),
+                  itemBuilder: (_, i) {
+                    final c = profiles[i];
+                    return Material(
+                      color: rhythm.surfaceMuted,
+                      borderRadius: BorderRadius.circular(RhythmRadius.md),
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(RhythmRadius.md),
+                        onTap: () => showAgentProfileSheet(
+                          context,
+                          config: c,
+                          modelsDataSource: widget._modelsDataSource,
+                        ),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: RhythmSpacing.sm,
+                            vertical: RhythmSpacing.sm,
+                          ),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Row(
+                                      children: [
+                                        Flexible(
+                                          child: Text(
+                                            c.label,
+                                            style: TextStyle(
+                                              fontSize: 14,
+                                              fontWeight: FontWeight.w500,
+                                              color: rhythm.textPrimary,
+                                            ),
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                        ),
+                                        if (c.isPreset) ...[
+                                          const SizedBox(width: 6),
+                                          _Tag(text: 'preset', rhythm: rhythm),
+                                        ],
+                                      ],
+                                    ),
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      _subtitle(c),
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        color: rhythm.textMuted,
+                                      ),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              Icon(Icons.chevron_right,
+                                  size: 18, color: rhythm.textMuted),
+                            ],
+                          ),
+                        ),
+                      ),
+                    );
+                  },
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Small pill tag used in the profiles list (e.g. "preset").
+class _Tag extends StatelessWidget {
+  const _Tag({required this.text, required this.rhythm});
+
+  final String text;
+  final RhythmColorRoles rhythm;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+      decoration: BoxDecoration(
+        color: rhythm.surface,
+        borderRadius: BorderRadius.circular(RhythmRadius.xs),
+        border: Border.all(color: rhythm.border),
+      ),
+      child: Text(
+        text,
+        style: TextStyle(fontSize: 10, color: rhythm.textMuted),
+      ),
+    );
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Widget
 // ---------------------------------------------------------------------------
