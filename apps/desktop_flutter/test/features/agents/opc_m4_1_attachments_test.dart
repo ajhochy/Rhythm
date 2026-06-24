@@ -35,6 +35,9 @@ import 'package:rhythm_desktop/app/core/notifications/local_notification_service
 import 'package:rhythm_desktop/app/core/server/api_server_service.dart';
 import 'package:rhythm_desktop/app/theme/app_theme.dart';
 import 'package:rhythm_desktop/features/agents/controllers/agents_controller.dart';
+import 'package:rhythm_desktop/features/agent_configs/controllers/agent_configs_controller.dart';
+import 'package:rhythm_desktop/features/agent_configs/data/agent_configs_data_source.dart';
+import 'package:rhythm_desktop/features/agent_configs/repositories/agent_configs_repository.dart';
 import 'package:rhythm_desktop/features/agents/models/agent_session.dart';
 import 'package:rhythm_desktop/features/agents/models/agent_session_message.dart';
 import 'package:rhythm_desktop/features/agents/models/agent_ws_message.dart';
@@ -196,6 +199,13 @@ AgentsController _buildController(_StubAgentsRepository repo) =>
       ),
     );
 
+/// Empty AgentConfigsController for the composer's provider tree. The real
+/// _InputArea contains AgentSelectorPill, which reads this controller; with no
+/// profiles loaded it falls back to the opencode agent list.
+AgentConfigsController _buildConfigsController() => AgentConfigsController(
+      AgentConfigsRepository(AgentConfigsDataSource()),
+    );
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -277,6 +287,9 @@ void main() {
           home: MultiProvider(
             providers: [
               ChangeNotifierProvider<AgentsController>.value(value: ctrl),
+              ChangeNotifierProvider<AgentConfigsController>.value(
+                value: _buildConfigsController(),
+              ),
             ],
             child: const Scaffold(
               body: InputAreaTestHarness(),
