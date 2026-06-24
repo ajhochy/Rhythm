@@ -64,6 +64,40 @@ describe('model-c3: migration adds nullable model columns to agent_scheduled_tas
   });
 });
 
+// ── prod-trigger-c5: pending trigger carries effective model columns ──────────
+
+describe('prod-trigger-c5: migration adds nullable model columns to pending_claude_triggers', () => {
+  // Regression: production-trigger rows cannot carry the effective model when
+  // migrations forget the columns on pending_claude_triggers.
+  it('adds model_provider and model_id on a fresh DB', () => {
+    const db = makeDb();
+    const cols = (db.pragma('table_info(pending_claude_triggers)') as { name: string }[]).map((c) => c.name);
+    expect(cols).toContain('model_provider');
+    expect(cols).toContain('model_id');
+  });
+
+  it('adds model_provider and model_id without dropping pre-existing rows', () => {
+    const db = new Database(':memory:');
+    db.pragma('foreign_keys = ON');
+    runMigrations(db);
+    db.prepare(`INSERT INTO tasks (id, title) VALUES (?, ?)`).run('legacy-task', 'Legacy task');
+    db.prepare(
+      `INSERT INTO pending_claude_triggers (task_id, triggered_by_user_id) VALUES (?, ?)`,
+    ).run('legacy-task', null);
+
+    runMigrations(db);
+
+    const cols = (db.pragma('table_info(pending_claude_triggers)') as { name: string }[]).map((c) => c.name);
+    expect(cols).toContain('model_provider');
+    expect(cols).toContain('model_id');
+    const row = db.prepare(`SELECT task_id, model_provider FROM pending_claude_triggers WHERE task_id = ?`).get('legacy-task') as
+      | { task_id: string; model_provider: string | null }
+      | undefined;
+    expect(row?.task_id).toBe('legacy-task');
+    expect(row?.model_provider ?? null).toBeNull();
+  });
+});
+
 // ── model-c4: repository persists + returns modelProvider/modelId ──────────────
 
 describe('model-c4: repository round-trips modelProvider/modelId', () => {

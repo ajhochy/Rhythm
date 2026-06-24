@@ -1385,6 +1385,12 @@ export function runMigrations(db: Database.Database): void {
   if (!pctColsExt.includes('allowed_skills_json')) {
     db.exec(`ALTER TABLE pending_claude_triggers ADD COLUMN allowed_skills_json TEXT`);
   }
+  if (!pctColsExt.includes('model_provider')) {
+    db.exec(`ALTER TABLE pending_claude_triggers ADD COLUMN model_provider TEXT`);
+  }
+  if (!pctColsExt.includes('model_id')) {
+    db.exec(`ALTER TABLE pending_claude_triggers ADD COLUMN model_id TEXT`);
+  }
   if (!pctColsExt.includes('webhook_endpoint_id')) {
     db.exec(`ALTER TABLE pending_claude_triggers ADD COLUMN webhook_endpoint_id TEXT`);
   }

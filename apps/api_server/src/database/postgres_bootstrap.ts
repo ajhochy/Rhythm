@@ -567,6 +567,8 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
     ALTER TABLE pending_claude_triggers ADD COLUMN IF NOT EXISTS prompt TEXT;
     ALTER TABLE pending_claude_triggers ADD COLUMN IF NOT EXISTS allowed_mcps_json TEXT;
     ALTER TABLE pending_claude_triggers ADD COLUMN IF NOT EXISTS allowed_skills_json TEXT;
+    ALTER TABLE pending_claude_triggers ADD COLUMN IF NOT EXISTS model_provider TEXT;
+    ALTER TABLE pending_claude_triggers ADD COLUMN IF NOT EXISTS model_id TEXT;
     ALTER TABLE pending_claude_triggers ADD COLUMN IF NOT EXISTS webhook_endpoint_id TEXT;
   `);
 

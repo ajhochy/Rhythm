@@ -23,6 +23,7 @@ import { AgentSessionsRepository } from '../repositories/agent_sessions_reposito
 import { getDb, getPostgresPool } from '../database/db';
 import { env } from '../config/env';
 import * as AgentRunner from './agent_runner';
+import { resolveProfileScope } from './agent_profile_scope';
 
 // ── scope inheritance (scheduled tasks inherit profile scope) ──────────────
 //
@@ -225,10 +226,23 @@ function _computeNextCron(expression: string, after: Date): string | null {
 async function insertScheduledTrigger(task: {
   id: string;
   prompt: string;
+  agentConfigId: string | null;
   allowedMcpsJson: string | null;
   allowedSkillsJson: string | null;
+  modelProvider: string | null;
+  modelId: string | null;
 }): Promise<void> {
   const now = new Date().toISOString();
+  const scope = await resolveProfileScope(task.agentConfigId, {
+    allowedMcpsJsonOverride: resolveTaskScopeOverride(task.allowedMcpsJson),
+    allowedSkillsJsonOverride: resolveTaskScopeOverride(task.allowedSkillsJson),
+  });
+  const effectiveModel =
+    task.modelProvider && task.modelId
+      ? { providerID: task.modelProvider, modelID: task.modelId }
+      : scope.model;
+  const effectiveAllowedMcpsJson = scope.mcpRoleConfig?.allowedToolsJson ?? null;
+  const effectiveAllowedSkillsJson = scope.allowedSkillsJson ?? null;
 
   if (env.dbClient === 'postgres') {
     // ON CONFLICT on (task_id) only applies when task_id IS NOT NULL.
@@ -236,9 +250,17 @@ async function insertScheduledTrigger(task: {
     await getPostgresPool().query(
       `INSERT INTO pending_claude_triggers
          (task_id, triggered_by_user_id, scheduled_task_id, prompt,
-          allowed_mcps_json, allowed_skills_json, created_at)
-       VALUES (NULL, NULL, $1, $2, $3, $4, $5)`,
-      [task.id, task.prompt, task.allowedMcpsJson, task.allowedSkillsJson, now],
+          allowed_mcps_json, allowed_skills_json, model_provider, model_id, created_at)
+       VALUES (NULL, NULL, $1, $2, $3, $4, $5, $6, $7)`,
+      [
+        task.id,
+        task.prompt,
+        effectiveAllowedMcpsJson,
+        effectiveAllowedSkillsJson,
+        effectiveModel.providerID,
+        effectiveModel.modelID,
+        now,
+      ],
     );
     return;
   }
@@ -246,9 +268,17 @@ async function insertScheduledTrigger(task: {
   getDb().prepare(`
     INSERT INTO pending_claude_triggers
       (task_id, triggered_by_user_id, scheduled_task_id, prompt,
-       allowed_mcps_json, allowed_skills_json, created_at)
-    VALUES (NULL, NULL, ?, ?, ?, ?, ?)
-  `).run(task.id, task.prompt, task.allowedMcpsJson, task.allowedSkillsJson, now);
+       allowed_mcps_json, allowed_skills_json, model_provider, model_id, created_at)
+    VALUES (NULL, NULL, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    task.id,
+    task.prompt,
+    effectiveAllowedMcpsJson,
+    effectiveAllowedSkillsJson,
+    effectiveModel.providerID,
+    effectiveModel.modelID,
+    now,
+  );
 }
 
 // ── Scheduler loop ────────────────────────────────────────────────────────
@@ -331,8 +361,11 @@ async function checkDueTasks(): Promise<void> {
         await insertScheduledTrigger({
           id: task.id,
           prompt: task.prompt,
+          agentConfigId: task.agentConfigId ?? task.agentKind,
           allowedMcpsJson: task.allowedMcpsJson,
           allowedSkillsJson: task.allowedSkillsJson,
+          modelProvider: task.modelProvider,
+          modelId: task.modelId,
         });
 
         // Compute next run time

@@ -31,6 +31,7 @@ const {
 vi.mock('../services/agent_runner', () => ({
   run: mockRun,
   _activeRunCount: () => 0,
+  resolveRunModel: () => ({ providerID: 'openrouter', modelID: 'anthropic/claude-sonnet-4.6' }),
 }));
 
 vi.mock('../services/opencode_engine', () => ({

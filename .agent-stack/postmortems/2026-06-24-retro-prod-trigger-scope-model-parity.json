@@ -1,0 +1,122 @@
+{
+  "run_id": "2026-06-24-prod-trigger-scope-model-parity",
+  "issue": "A-prod-trigger-scope-model-parity",
+  "date": "2026-06-24",
+  "smoke_result": "unknown",
+  "verification_claimed": "PASS",
+  "divergence": false,
+  "criteria_results": [
+    {
+      "criterion_id": "issue-A-c1",
+      "text": "Production path with null/empty allowed_mcps_json writes the profile's effective MCP/skill allowlists into the trigger row.",
+      "contract_status": "pass",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Covered by prod_trigger_parity_contract.test.ts. Manual smoke not run."
+    },
+    {
+      "criterion_id": "issue-A-c2",
+      "text": "Production path with explicit allowed_mcps_json writes the task override into the trigger row.",
+      "contract_status": "pass",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Covered by prod_trigger_parity_contract.test.ts. Manual smoke not run."
+    },
+    {
+      "criterion_id": "issue-A-c3",
+      "text": "Production path with task model_provider/model_id writes those exact values into the trigger row.",
+      "contract_status": "pass",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Covered by prod_trigger_parity_contract.test.ts. Manual smoke not run."
+    },
+    {
+      "criterion_id": "issue-A-c4",
+      "text": "Production path without task model override writes the profile-resolved model into the trigger row.",
+      "contract_status": "pass",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Covered by prod_trigger_parity_contract.test.ts. Manual smoke not run."
+    },
+    {
+      "criterion_id": "issue-A-c5",
+      "text": "pending_claude_triggers gains nullable model_provider/model_id in SQLite and Postgres bootstrap.",
+      "contract_status": "pass",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Covered by scheduled_task_columns_contract.test.ts. Manual smoke not applicable."
+    },
+    {
+      "criterion_id": "issue-A-c6",
+      "text": "Claude trigger repository exposes modelProvider/modelId in GET responses.",
+      "contract_status": "pass",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Covered by claude_triggers.test.ts. Manual smoke not run."
+    },
+    {
+      "criterion_id": "issue-A-c7",
+      "text": "Local AgentRunner path and existing scheduler/scope contract tests stay green.",
+      "contract_status": "pass",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "Covered by scheduler_dispatch_contract.test.ts and full API Vitest."
+    }
+  ],
+  "process_issues": [
+    {
+      "process_category": "P4",
+      "description": "The first full API Vitest run failed after the production change because issue_739_scheduler_agent_runner.test.ts fully mocked agent_runner without the resolveRunModel export required by the new resolveProfileScope import path.",
+      "detected_by": "npx vitest run failed with Vitest mock error: No resolveRunModel export is defined on the ../services/agent_runner mock."
+    },
+    {
+      "process_category": "manual-smoke-gap",
+      "description": "ai-workflow checks --level smoke is manual-only. The available smoke-launch script was not run because ports 4001 and 4096 were already occupied and the script kills existing listeners.",
+      "detected_by": "ai-workflow checks --level smoke output and lsof checks for ports 4001/4096."
+    }
+  ],
+  "workflow_adherence": {
+    "overall_score": "partial",
+    "expected_chain": [
+      "workflow-orchestrator",
+      "acceptance-contract",
+      "coding-agent",
+      "failure-triage",
+      "verification-gate",
+      "project-state-updater",
+      "workflow-retrospective"
+    ],
+    "observed_chain": [
+      "workflow-orchestrator",
+      "acceptance-contract",
+      "coding-agent",
+      "failure-triage",
+      "systematic-debugging",
+      "verification-gate",
+      "project-state-updater",
+      "workflow-retrospective"
+    ],
+    "skipped_skills": [],
+    "issues": [
+      {
+        "workflow_category": "W1",
+        "affected_skill": "workflow-orchestrator",
+        "description": "The run started from a partially written test/issue after token exhaustion, so acceptance-contract had to reconstruct the contract artifact in-process rather than from a clean issue-number dispatch.",
+        "detected_by": "Working tree had an untracked prod_trigger_parity_contract.test.ts and generated issue file at session start."
+      }
+    ]
+  },
+  "implementation_files": [
+    "apps/api_server/src/services/agentSchedulerService.ts",
+    "apps/api_server/src/database/migrations.ts",
+    "apps/api_server/src/database/postgres_bootstrap.ts",
+    "apps/api_server/src/repositories/claude_triggers_repository.ts",
+    "apps/api_server/src/__tests__/prod_trigger_parity_contract.test.ts",
+    "apps/api_server/src/__tests__/scheduled_task_columns_contract.test.ts",
+    "apps/api_server/src/__tests__/claude_triggers.test.ts",
+    "apps/api_server/src/__tests__/issue_739_scheduler_agent_runner.test.ts"
+  ],
+  "failure_output": "Vitest mock error in issue_739_scheduler_agent_runner.test.ts: No resolveRunModel export is defined on the ../services/agent_runner mock.",
+  "overall_category": "none",
+  "suggested_follow_up": "When a production module gains an import through a helper, re-run existing module-mock tests early so missing mock exports are found before the full-suite pass."
+}

@@ -172,15 +172,35 @@
         "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-20-pr-617-fifth-round-batch.json",
         "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-26-issue-645.json"
       ]
+    },
+    {
+      "id": "p4-async-timing-assumption",
+      "category": "P4",
+      "description": "Async timing assumption failures: 2 occurrence(s) across issues ['A-prod-trigger-scope-model-parity', 'agent-question-hang (bug, no issue-writer ticket)']",
+      "occurrences": 2,
+      "affected_issues": [
+        "A-prod-trigger-scope-model-parity",
+        "agent-question-hang (bug, no issue-writer ticket)"
+      ],
+      "affected_skills": [
+        "acceptance-contract"
+      ],
+      "reason": "A test asserted on async state immediately after triggering an async operation, passing locally but failing in CI due to timing differences.",
+      "suggested_prompt_addition": "When generating contract tests for criteria involving state changes after POST/event triggers, require explicit async waiting (waitFor, polling, or settled promise) rather than immediate assertion. Flag any test that reads count/state within one tick of a write operation.",
+      "evidence_files": [
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-06-24-agent-question-hang.json",
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-06-24-retro-prod-trigger-scope-model-parity.json"
+      ]
     }
   ],
   "workflow_patterns": [
     {
       "id": "w1-required-skill-skipped",
       "category": "W1",
-      "description": "Required skill skipped failures: 12 occurrence(s) across issues ['batch:599,600,601,605,606,610,611,614,615,620,622,623,624,625', 'batch:627,628,632,633', 'batch:627,628,632,633,634,636,637,638,639']",
-      "occurrences": 12,
+      "description": "Required skill skipped failures: 13 occurrence(s) across issues ['A-prod-trigger-scope-model-parity', 'batch:599,600,601,605,606,610,611,614,615,620,622,623,624,625', 'batch:627,628,632,633', 'batch:627,628,632,633,634,636,637,638,639']",
+      "occurrences": 13,
       "affected_issues": [
+        "A-prod-trigger-scope-model-parity",
         "batch:599,600,601,605,606,610,611,614,615,620,622,623,624,625",
         "batch:627,628,632,633",
         "batch:627,628,632,633,634,636,637,638,639"
@@ -202,7 +222,8 @@
         "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-06-10-retro-issues-674-675-pr-676.json",
         "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-06-11-retro-server-shutdown-signal-contract.json",
         "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-06-11-retro-server-shutdown-signal-contract.json",
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-06-11-retro-server-shutdown-signal-contract.json"
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-06-11-retro-server-shutdown-signal-contract.json",
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-06-24-retro-prod-trigger-scope-model-parity.json"
       ]
     },
     {
@@ -234,6 +255,24 @@
       ]
     },
     {
+      "id": "w3-todowrite-checklist-not-expanded",
+      "category": "W3",
+      "description": "TodoWrite checklist not expanded failures: 2 occurrence(s) across issues ['agent-question-hang (bug, no issue-writer ticket)']",
+      "occurrences": 2,
+      "affected_issues": [
+        "agent-question-hang (bug, no issue-writer ticket)"
+      ],
+      "affected_skills": [
+        "workflow-orchestrator"
+      ],
+      "reason": "A skill said 'expand Completion Checklist into TodoWrite items at start' and the agent did not. The skills themselves should make this harder to skip, but the orchestrator can also verify.",
+      "suggested_prompt_addition": "When dispatching any skill whose SKILL.md contains the phrase 'expand the Completion Checklist into TodoWrite items at start', include in the dispatch prompt: 'Your FIRST tool call must be TodoWrite, expanding the Completion Checklist verbatim. No other tool calls are permitted before this.'",
+      "evidence_files": [
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-30-staff-guide.json",
+        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-06-24-agent-question-hang.json"
+      ]
+    },
+    {
       "id": "w4-source-of-truth-violation",
       "category": "W4",
       "description": "Source-of-truth violation failures: 1 occurrence(s) across issues ['batch:627,628,632,633']",
@@ -248,21 +287,6 @@
       "suggested_prompt_addition": "Add a Source-of-Truth Guard to dispatch prompts for any skill that edits SKILL.md or workflow scripts: '$AGENT_STACK_PATH is the only writeable canonical path. Any Edit/Write whose path starts with ~/.claude/skills/, ~/.codex/skills/, or ~/.config/opencode/skills/ must STOP. Verify origin remote before commit/push.' For coding-agent dispatches, inline the issue body verbatim and add: 'Do NOT call gh issue view \u2014 the body is above.'",
       "evidence_files": [
         "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-20-pr-617-633-batch.json"
-      ]
-    },
-    {
-      "id": "w3-todowrite-checklist-not-expanded",
-      "category": "W3",
-      "description": "TodoWrite checklist not expanded failures: 1 occurrence(s) across issues []",
-      "occurrences": 1,
-      "affected_issues": [],
-      "affected_skills": [
-        "workflow-orchestrator"
-      ],
-      "reason": "A skill said 'expand Completion Checklist into TodoWrite items at start' and the agent did not. The skills themselves should make this harder to skip, but the orchestrator can also verify.",
-      "suggested_prompt_addition": "When dispatching any skill whose SKILL.md contains the phrase 'expand the Completion Checklist into TodoWrite items at start', include in the dispatch prompt: 'Your FIRST tool call must be TodoWrite, expanding the Completion Checklist verbatim. No other tool calls are permitted before this.'",
-      "evidence_files": [
-        "/Users/ajhochhalter/Documents/Rhythm/.agent-stack/postmortems/2026-05-30-staff-guide.json"
       ]
     },
     {
@@ -281,8 +305,8 @@
       ]
     }
   ],
-  "last_updated": "2026-06-12",
-  "total_runs_analyzed": 19,
+  "last_updated": "2026-06-24",
+  "total_runs_analyzed": 25,
   "min_occurrences_threshold": 2,
   "process_min_occurrences_threshold": 1,
   "workflow_min_occurrences_threshold": 1

@@ -17,6 +17,8 @@ export interface PendingClaudeTrigger {
   webhookEndpointId: string | null;
   allowedMcps: string[] | null;
   allowedSkills: string[] | null;
+  modelProvider: string | null;
+  modelId: string | null;
 }
 
 /** SELECT clause used by all queries — LEFT JOIN so NULL task_id rows are included */
@@ -30,6 +32,8 @@ const SELECT_SQL = `
          pct.webhook_endpoint_id,
          pct.allowed_mcps_json,
          pct.allowed_skills_json,
+         pct.model_provider,
+         pct.model_id,
          t.title    AS task_title,
          t.notes    AS task_notes,
          t.owner_id AS task_owner_id
@@ -134,6 +138,8 @@ export class ClaudeTriggersRepository {
       webhookEndpointId: row.webhook_endpoint_id ?? null,
       allowedMcps,
       allowedSkills,
+      modelProvider: row.model_provider ?? null,
+      modelId: row.model_id ?? null,
     };
   }
 }

@@ -1,0 +1,64 @@
+{
+  "issue": "A-prod-trigger-scope-model-parity",
+  "generated": "2026-06-24",
+  "criteria": [
+    {
+      "criterion_id": "issue-A-c1",
+      "text": "AC1 (scope inherit): a due task on the production path (`env.agentLocal === false`) with **null/empty** `allowed_mcps_json` writes the **profile's** effective MCP allowlist into the trigger row's `allowed_mcps_json` (not raw null). Same for `allowed_skills_json`.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/prod_trigger_parity_contract.test.ts",
+      "test_id": "AC1: task with null allowed_mcps_json \u2192 helper called with override=undefined (inherit) and row carries profile MCP allowlist",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-A-c2",
+      "text": "AC2 (scope override): a due task with an **explicit** `allowed_mcps_json` (e.g. `[\"rhythm\"]`) writes **that** value into the row (override wins over profile). Same for skills.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/prod_trigger_parity_contract.test.ts",
+      "test_id": "AC2: task with explicit allowed_mcps_json \u2192 helper called with that override and row carries it",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-A-c3",
+      "text": "AC3 (model carry \u2014 task override): a due task with both `model_provider` + `model_id` writes those exact values into the row's new `model_provider`/`model_id` columns.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/prod_trigger_parity_contract.test.ts",
+      "test_id": "AC3: task with model_provider+model_id \u2192 row carries that exact model",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-A-c4",
+      "text": "AC4 (model carry \u2014 profile fallback): a due task **without** a model override writes the **profile's** resolved model (`resolveProfileScope(...).model`) into the row's model columns.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/prod_trigger_parity_contract.test.ts",
+      "test_id": "AC4: task without model columns \u2192 row carries the profile-resolved model",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-A-c5",
+      "text": "AC5 (schema): `pending_claude_triggers` gains nullable `model_provider` / `model_id` columns \u2014 pragma-guarded `ALTER` on SQLite (`migrations.ts`) + `ADD COLUMN IF NOT EXISTS` on Postgres (`postgres_bootstrap.ts`). Additive, no behavior change to existing columns.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/scheduled_task_columns_contract.test.ts",
+      "test_id": "prod-trigger-c5: adds model_provider and model_id to pending_claude_triggers",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-A-c6",
+      "text": "AC6 (exposure): `claude_triggers_repository` `SELECT_SQL` + `PendingClaudeTrigger` interface + `rowToModel` expose `modelProvider` / `modelId` so the GET response carries them to the drain.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/claude_triggers.test.ts",
+      "test_id": "returns trigger modelProvider/modelId in the GET response",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-A-c7",
+      "text": "AC7 (no regression): the local `AgentRunner` path and the chat path are unchanged; existing scheduler/scope contract tests stay green.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/scheduler_dispatch_contract.test.ts",
+      "test_id": "existing scheduler/scope contract tests stay green",
+      "status": "pass"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}

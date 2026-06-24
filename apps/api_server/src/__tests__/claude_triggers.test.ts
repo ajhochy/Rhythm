@@ -75,6 +75,25 @@ describe('Claude triggers endpoints', () => {
     expect(triggers[0].taskTitle).toBe('Test task');
   });
 
+  it('returns trigger modelProvider/modelId in the GET response', async () => {
+    const owner = usersRepo.create({ name: 'O', email: 'model@x.com' });
+    const task = tasksRepo.create({ title: 'Model trigger', ownerId: owner.id });
+    getDb().prepare(
+      `INSERT INTO pending_claude_triggers
+         (task_id, triggered_by_user_id, model_provider, model_id)
+       VALUES (?, ?, ?, ?)`,
+    ).run(task.id, owner.id, 'anthropic', 'claude-opus-4-1');
+
+    const headers = await authHeaderFor(owner.id);
+    const res = await fetch(`${baseUrl}/claude-triggers`, { headers });
+    expect(res.status).toBe(200);
+    const triggers = await res.json() as Array<{ taskId: string; modelProvider: string | null; modelId: string | null }>;
+    expect(triggers).toHaveLength(1);
+    expect(triggers[0].taskId).toBe(task.id);
+    expect(triggers[0].modelProvider).toBe('anthropic');
+    expect(triggers[0].modelId).toBe('claude-opus-4-1');
+  });
+
   it('deletes a trigger', async () => {
     const owner = usersRepo.create({ name: 'O', email: 'o2@x.com' });
     const task = tasksRepo.create({ title: 'T', ownerId: owner.id });
