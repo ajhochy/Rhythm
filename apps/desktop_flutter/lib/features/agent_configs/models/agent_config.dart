@@ -24,6 +24,7 @@ class AgentConfig {
     this.allowedSkills,
     this.modelProvider,
     this.modelId,
+    this.ocAgent,
   });
 
   factory AgentConfig.fromJson(Map<String, dynamic> json) {
@@ -43,6 +44,7 @@ class AgentConfig {
           _parseStringList(json['allowedSkillsJson'] ?? json['allowedSkills']),
       modelProvider: asString(json['modelProvider']),
       modelId: asString(json['modelId']),
+      ocAgent: asString(json['ocAgent']),
     );
   }
 
@@ -82,6 +84,9 @@ class AgentConfig {
   /// (e.g. "claude-sonnet-4-6"). Null when no preference is set.
   final String? modelId;
 
+  /// OpenCode built-in agent mode (e.g. 'build', 'plan'). Null = default.
+  final String? ocAgent;
+
   /// Returns true when this config was created from a preset.
   bool get isPreset => presetId != null;
 
@@ -112,6 +117,7 @@ class AgentConfig {
             allowedSkills != null ? jsonEncode(allowedSkills) : null,
         'modelProvider': modelProvider,
         'modelId': modelId,
+        'ocAgent': ocAgent,
       };
 
   AgentConfig copyWith({
@@ -127,6 +133,7 @@ class AgentConfig {
     Object? allowedSkills = _sentinel,
     Object? modelProvider = _sentinel,
     Object? modelId = _sentinel,
+    Object? ocAgent = _sentinel,
   }) {
     return AgentConfig(
       id: id,
@@ -152,6 +159,8 @@ class AgentConfig {
           : modelProvider as String?,
       modelId:
           identical(modelId, _sentinel) ? this.modelId : modelId as String?,
+      ocAgent:
+          identical(ocAgent, _sentinel) ? this.ocAgent : ocAgent as String?,
     );
   }
 }

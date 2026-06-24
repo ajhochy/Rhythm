@@ -25,7 +25,7 @@ export class AgentSchedulesController {
     try {
       const {
         name, description, scheduleType, scheduledTime, scheduledDay,
-        cronExpression, runAt, timezone, prompt, agentKind,
+        cronExpression, runAt, timezone, prompt, agentKind, agentConfigId,
         allowedMcps, allowedSkills,
       } = req.body as Record<string, unknown>;
 
@@ -61,7 +61,8 @@ export class AgentSchedulesController {
         timezone: tz,
         nextRunAt: nextRunAt ?? undefined,
         prompt,
-        agentKind: typeof agentKind === 'string' ? agentKind : 'opencode',
+        agentKind: typeof agentKind === 'string' ? agentKind : (typeof agentConfigId === 'string' ? agentConfigId : 'opencode'),
+        agentConfigId: typeof agentConfigId === 'string' ? agentConfigId : (typeof agentKind === 'string' ? agentKind : null),
         allowedMcpsJson: allowedMcps != null ? JSON.stringify(allowedMcps) : undefined,
         allowedSkillsJson: allowedSkills != null ? JSON.stringify(allowedSkills) : undefined,
         createdByUserId: req.auth?.user.id,

@@ -815,7 +815,7 @@ class _ScheduleFormSheetState extends State<_ScheduleFormSheet> {
   String _scheduledTime = '09:00';
   int _scheduledDay = 0;
   bool _enabled = true;
-  String? _selectedAgentKind;
+  String? _selectedAgentConfigId;
   bool _creating = false;
 
   // For monthly day
@@ -836,7 +836,7 @@ class _ScheduleFormSheetState extends State<_ScheduleFormSheet> {
       _cronCtrl.text = t.cronExpression ?? '';
       _runAtCtrl.text = t.runAt ?? '';
       _enabled = t.enabled;
-      _selectedAgentKind = t.agentKind;
+      _selectedAgentConfigId = t.agentConfigId ?? t.agentKind;
       // For monthly the day field is stored in scheduledDay
       _monthDay = (t.scheduleType == 'monthly') ? (t.scheduledDay ?? 1) : 1;
     }
@@ -898,7 +898,9 @@ class _ScheduleFormSheetState extends State<_ScheduleFormSheet> {
         'scheduleType': _scheduleType,
         'timezone': 'America/Los_Angeles',
         'enabled': _enabled,
-        if (_selectedAgentKind != null) 'agentKind': _selectedAgentKind,
+        if (_selectedAgentConfigId != null) 'agentKind': _selectedAgentConfigId,
+        if (_selectedAgentConfigId != null)
+          'agentConfigId': _selectedAgentConfigId,
       };
 
       switch (_scheduleType) {
@@ -1049,7 +1051,7 @@ class _ScheduleFormSheetState extends State<_ScheduleFormSheet> {
             // Agent profile
             if (agents.isNotEmpty)
               DropdownButtonFormField<String>(
-                value: _selectedAgentKind,
+                value: _selectedAgentConfigId,
                 dropdownColor: rhythm.surface,
                 style: TextStyle(color: rhythm.textPrimary),
                 decoration: inputDecoration.copyWith(
@@ -1067,7 +1069,7 @@ class _ScheduleFormSheetState extends State<_ScheduleFormSheet> {
                       ),
                     )
                     .toList(),
-                onChanged: (v) => setState(() => _selectedAgentKind = v),
+                onChanged: (v) => setState(() => _selectedAgentConfigId = v),
               ),
             if (agents.isNotEmpty) const SizedBox(height: RhythmSpacing.sm),
 

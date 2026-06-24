@@ -605,6 +605,12 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
   await pool.query(`
     ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS model_provider TEXT;
     ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS model_id TEXT;
+    ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS oc_agent TEXT;
+  `);
+
+  // agent_config_id: logical FK from scheduled tasks to agent_configs.id.
+  await pool.query(`
+    ALTER TABLE agent_scheduled_tasks ADD COLUMN IF NOT EXISTS agent_config_id TEXT;
   `);
 
   // #738-fix — agent_sessions.scheduled_task_id: FK to agent_scheduled_tasks.id.

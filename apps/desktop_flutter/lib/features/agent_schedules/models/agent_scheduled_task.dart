@@ -15,6 +15,7 @@ class AgentScheduledTask {
     this.nextRunAt,
     required this.prompt,
     required this.agentKind,
+    this.agentConfigId,
     this.allowedMcps,
     this.allowedSkills,
     required this.enabled,
@@ -39,6 +40,8 @@ class AgentScheduledTask {
       nextRunAt: asString(json['nextRunAt']),
       prompt: asString(json['prompt']) ?? '',
       agentKind: asString(json['agentKind']) ?? 'opencode',
+      agentConfigId:
+          asString(json['agentConfigId']) ?? asString(json['agentKind']),
       allowedMcps: _parseStringList(json['allowedMcpsJson']),
       allowedSkills: _parseStringList(json['allowedSkillsJson']),
       enabled: asBool(json['enabled']) ?? true,
@@ -74,6 +77,7 @@ class AgentScheduledTask {
   final String? nextRunAt;
   final String prompt;
   final String agentKind;
+  final String? agentConfigId;
   final List<String>? allowedMcps;
   final List<String>? allowedSkills;
   final bool enabled;

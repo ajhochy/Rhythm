@@ -282,10 +282,33 @@ export async function run(opts: AgentRunOptions): Promise<AgentRunResult> {
 
   // #738-fix: Resolve the model BEFORE entering the 600s poll so a missing
   // model is a fast fail rather than a silent timeout.
-  // For built-in agents the agentKind IS the agent_configs id (e.g. 'claude-code'),
-  // and the scheduler passes agentKind (not agentConfigId) — fall back to it so the
-  // profile's model is actually used instead of dropping to MRU/default.
-  const resolvedModel = resolveRunModel(agentConfigId ?? agentKind);
+  // agentKind IS the agent_configs id (e.g. 'claude-code') — treat it as the
+  // config id so the profile's model is used instead of dropping to MRU/default.
+  const effectiveConfigId = agentConfigId ?? agentKind;
+  const resolvedModel = resolveRunModel(effectiveConfigId);
+
+  // Load the full profile to derive systemPrompt + ocAgent.
+  // ocAgent is the OpenCode built-in agent mode ('build', 'plan', etc.).
+  // The SDK currently only supports per-turn agent overrides (not session-level),
+  // so effectiveOcAgent is available here for future use but not yet forwarded.
+  let effectiveSystemPrompt: string | null = null;
+  let effectiveOcAgent: string | null = null;
+  if (effectiveConfigId) {
+    try {
+      const config = new AgentConfigsRepository().getById(effectiveConfigId);
+      effectiveSystemPrompt = config?.systemPrompt ?? null;
+      effectiveOcAgent = config?.ocAgent ?? null;
+      logger.info(
+        `[AgentRunner] profile ${effectiveConfigId}: systemPrompt=${effectiveSystemPrompt ? 'set' : 'none'} ocAgent=${effectiveOcAgent ?? 'default'}`,
+      );
+    } catch (err) {
+      logger.warn(`[AgentRunner] profile lookup failed (non-fatal): ${String(err)}`);
+    }
+  }
+  // TODO: pass effectiveSystemPrompt to createSession once the SDK supports a
+  // per-session system prompt parameter (currently session-level is not exposed).
+  // TODO: forward effectiveOcAgent per-turn once there's a profile-level override
+  // mechanism (currently only ws_gateway.ts supports per-turn `agent:` overrides).
 
   // #738-fix: Record a session row so this run appears in the CHATS list.
   const effectiveAgentKind = agentKind ?? 'claude-code';
@@ -357,7 +380,18 @@ export async function run(opts: AgentRunOptions): Promise<AgentRunResult> {
     // timeout. session.prompt() blocks server-side until the model finishes and
     // RETURNS { info, parts }, so it works without a live event subscriber.
     // Pass the resolved model + bypassPermissions (no UI to approve tool perms,
-    // else claude/anthropic stalls — ws_gateway.ts #711) + the agent kind.
+    // else claude/anthropic stalls — ws_gateway.ts #711).
+    //
+    // #738-fix (root cause #2): do NOT pass `agent: agentKind` here. The Rhythm
+    // agentKind ('claude-code' / 'codex') is a MODEL selector — it is fed to
+    // resolveRunModel() above — and is NOT an opencode agent name. opencode's
+    // registered agents are 'build' (default), 'general', 'coding-agent', etc.
+    // Passing an unknown agent makes the opencode server return HTTP 200 with an
+    // EMPTY body and NEVER run an LLM turn (0 assistant messages) — the exact
+    // silent-success symptom this fix removes. The interactive WS path only
+    // sends `agent` for an explicit per-turn override (ws_gateway.ts ~560),
+    // otherwise omitting it so opencode uses its default 'build' agent. We mirror
+    // that: omit `agent` so the prompt is driven by the default agent.
     const timeoutMs = Math.max(1, deadline - Date.now());
     let timedOut = false;
     const timeoutPromise = new Promise<null>((resolve) => {
@@ -369,7 +403,6 @@ export async function run(opts: AgentRunOptions): Promise<AgentRunResult> {
     const response = await Promise.race([
       opencodeClient.prompt(sessionId, prompt, resolvedModel, cwd, {
         permissionMode: 'bypassPermissions',
-        agent: effectiveAgentKind,
       }),
       timeoutPromise,
     ]);
@@ -411,9 +444,6 @@ export async function run(opts: AgentRunOptions): Promise<AgentRunResult> {
         .trim();
 
     let resultText = _extractText(response.parts);
-    logger.info(
-      `[AgentRunner] prompt() response parts=[${(response.parts ?? []).map((p) => p.type).join(',')}] textLen=${resultText.length}`,
-    );
 
     // Fallback: session.prompt's returned parts can be empty for agent turns;
     // read the session's final assistant message (same source the interactive
@@ -426,9 +456,6 @@ export async function run(opts: AgentRunOptions): Promise<AgentRunResult> {
           .pop();
         resultText = _extractText(
           lastAssistant?.parts as ReadonlyArray<{ type: string }> | undefined,
-        );
-        logger.info(
-          `[AgentRunner] fallback listMessages: assistantMsgs=${msgs.filter((m) => m.role === 'assistant').length} textLen=${resultText.length}`,
         );
       } catch (err) {
         logger.warn(`[AgentRunner] listMessages fallback failed: ${String(err)}`);

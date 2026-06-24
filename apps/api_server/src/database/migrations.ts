@@ -1387,6 +1387,19 @@ export function runMigrations(db: Database.Database): void {
   if (!agentConfigCols.includes('model_id')) {
     db.exec(`ALTER TABLE agent_configs ADD COLUMN model_id TEXT`);
   }
+  // oc_agent: the OpenCode built-in agent mode ('build', 'plan', etc.) that
+  // this profile should use. Null means the default 'build' agent.
+  if (!agentConfigCols.includes('oc_agent')) {
+    db.exec(`ALTER TABLE agent_configs ADD COLUMN oc_agent TEXT`);
+  }
+
+  // agent_config_id: logical FK from scheduled tasks to agent_configs.id.
+  // Decouples the profile reference from the raw agentKind string so the
+  // scheduler can pass a real profile id to AgentRunner.
+  const agentScheduledTasksCols = (db.pragma('table_info(agent_scheduled_tasks)') as { name: string }[]).map((c) => c.name);
+  if (!agentScheduledTasksCols.includes('agent_config_id')) {
+    db.exec(`ALTER TABLE agent_scheduled_tasks ADD COLUMN agent_config_id TEXT`);
+  }
 
   // #738-fix — agent_sessions.scheduled_task_id: FK to agent_scheduled_tasks.id.
   // AgentRunner records a session row on every run; this column ties the row to

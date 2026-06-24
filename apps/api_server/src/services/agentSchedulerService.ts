@@ -266,7 +266,8 @@ async function checkDueTasks(): Promise<void> {
           allowedMcpsJson: task.allowedMcpsJson,
           taskId: null,
           outputTarget: 'session',
-          agentKind: task.agentKind ?? 'claude-code',
+          agentKind: task.agentKind ?? task.agentConfigId ?? 'claude-code',
+          agentConfigId: task.agentConfigId ?? task.agentKind,
           scheduledTaskId: task.id,
           sessionName: `Scheduled: ${task.name}`,
         }).then(async (result) => {
