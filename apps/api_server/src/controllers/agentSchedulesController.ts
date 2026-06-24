@@ -26,12 +26,21 @@ export class AgentSchedulesController {
       const {
         name, description, scheduleType, scheduledTime, scheduledDay,
         cronExpression, runAt, timezone, prompt, agentKind, agentConfigId,
-        allowedMcps, allowedSkills,
+        allowedMcps, allowedSkills, modelProvider, modelId,
       } = req.body as Record<string, unknown>;
 
       if (!name || typeof name !== 'string') throw AppError.badRequest('name is required');
       if (!scheduleType || typeof scheduleType !== 'string') throw AppError.badRequest('scheduleType is required');
       if (!prompt || typeof prompt !== 'string') throw AppError.badRequest('prompt is required');
+
+      // #740 — per-task model override. Both must be strings when present, and
+      // they go together (a provider without a model id, or vice versa, can't
+      // resolve a model). Omitting both means "inherit the profile model".
+      if (modelProvider != null && typeof modelProvider !== 'string') throw AppError.badRequest('modelProvider must be a string');
+      if (modelId != null && typeof modelId !== 'string') throw AppError.badRequest('modelId must be a string');
+      if ((modelProvider == null) !== (modelId == null)) {
+        throw AppError.badRequest('modelProvider and modelId must be set together');
+      }
 
       // Validate schedule type
       const validTypes = ['daily', 'weekly', 'monthly', 'cron', 'once'];
@@ -65,6 +74,8 @@ export class AgentSchedulesController {
         agentConfigId: typeof agentConfigId === 'string' ? agentConfigId : (typeof agentKind === 'string' ? agentKind : null),
         allowedMcpsJson: allowedMcps != null ? JSON.stringify(allowedMcps) : undefined,
         allowedSkillsJson: allowedSkills != null ? JSON.stringify(allowedSkills) : undefined,
+        modelProvider: typeof modelProvider === 'string' ? modelProvider : undefined,
+        modelId: typeof modelId === 'string' ? modelId : undefined,
         createdByUserId: req.auth?.user.id,
       });
 

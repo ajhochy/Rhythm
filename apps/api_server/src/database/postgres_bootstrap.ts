@@ -668,6 +668,13 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
     ALTER TABLE agent_scheduled_tasks ADD COLUMN IF NOT EXISTS agent_config_id TEXT;
   `);
 
+  // Per-task model override (issue #740): nullable provider/model that, when
+  // both set, override the bound profile's model for that scheduled run.
+  await pool.query(`
+    ALTER TABLE agent_scheduled_tasks ADD COLUMN IF NOT EXISTS model_provider TEXT;
+    ALTER TABLE agent_scheduled_tasks ADD COLUMN IF NOT EXISTS model_id TEXT;
+  `);
+
   // #738-fix — agent_sessions.scheduled_task_id: FK to agent_scheduled_tasks.id.
   await pool.query(`
     ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS scheduled_task_id TEXT REFERENCES agent_scheduled_tasks(id) ON DELETE SET NULL;

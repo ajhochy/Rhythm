@@ -22,7 +22,9 @@ scheduleType options:
   "cron"    — runs on a standard 5-field cron expression
   "once"    — runs once at the ISO datetime in runAt
 
-allowedMcps / allowedSkills narrow what the agent may use for this run (leave null for no restrictions).`,
+allowedMcps / allowedSkills narrow what the agent may use for this run. Omit them to INHERIT the bound agent profile's scope at run time (recommended) — set them only to override the profile for this task.
+
+modelProvider + modelId optionally override the bound profile's model for this task (e.g. run a monthly report on a stronger model). Set them together or omit both to use the profile's model.`,
     {
       name: z.string().describe('Human-readable name for this task.'),
       prompt: z.string().describe('The prompt the agent receives when this task fires.'),
@@ -32,8 +34,10 @@ allowedMcps / allowedSkills narrow what the agent may use for this run (leave nu
       cronExpression: z.string().optional().describe('5-field cron expression e.g. "0 8 * * 1-5"'),
       runAt: z.string().optional().describe('ISO 8601 datetime for once-off tasks.'),
       timezone: z.string().optional().describe('IANA timezone, default America/Los_Angeles.'),
-      allowedMcps: z.array(z.string()).optional().describe('MCP server names allowed for this run.'),
-      allowedSkills: z.array(z.string()).optional().describe('Skill names allowed for this run.'),
+      allowedMcps: z.array(z.string()).optional().describe('MCP server names allowed for this run. Omit to inherit the profile scope.'),
+      allowedSkills: z.array(z.string()).optional().describe('Skill names allowed for this run. Omit to inherit the profile scope.'),
+      modelProvider: z.string().optional().describe('Override the profile model provider for this task (e.g. "anthropic"). Set together with modelId.'),
+      modelId: z.string().optional().describe('Override the profile model id for this task (e.g. "claude-opus-4-1"). Set together with modelProvider.'),
     },
     async (args: Record<string, unknown>) => {
       try {

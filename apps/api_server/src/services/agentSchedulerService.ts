@@ -24,6 +24,31 @@ import { getDb, getPostgresPool } from '../database/db';
 import { env } from '../config/env';
 import * as AgentRunner from './agent_runner';
 
+// ── scope inheritance (issue #741) ─────────────────────────────────────────
+//
+// A scheduled task INHERITS its bound profile's MCP/skill scope at run time.
+// The task's own allowlist is only an explicit OVERRIDE. AgentRunner passes
+// these straight to resolveProfileScope, where `undefined` means "inherit the
+// profile" and a concrete value means "override". So a task with no own
+// allowlist (null) — OR an empty `[]`/`{}` — must resolve to `undefined`, NOT
+// null: null is read by the helper as an explicit "unrestricted" override,
+// which would silently drop the profile scope. Normalize here, once.
+function resolveTaskScopeOverride(json: string | null | undefined): string | undefined {
+  if (json == null || json.trim() === '') return undefined;
+  try {
+    const parsed = JSON.parse(json);
+    const isEmpty = Array.isArray(parsed)
+      ? parsed.length === 0
+      : parsed !== null && typeof parsed === 'object'
+        ? Object.keys(parsed).length === 0
+        : true; // a non-array/object scalar is not a usable allowlist → inherit
+    return isEmpty ? undefined : json;
+  } catch {
+    // Malformed JSON: pass through; resolveProfileScope treats it as no scope.
+    return json;
+  }
+}
+
 // ── next_run computation ──────────────────────────────────────────────────
 
 /**
@@ -263,7 +288,16 @@ async function checkDueTasks(): Promise<void> {
         // resolve a model and record a session row visible in CHATS.
         AgentRunner.run({
           prompt: task.prompt,
-          allowedMcpsJson: task.allowedMcpsJson,
+          // #741: inherit the profile scope when the task has no own allowlist
+          // (null/empty → undefined); a concrete value overrides the profile.
+          allowedMcpsJson: resolveTaskScopeOverride(task.allowedMcpsJson),
+          allowedSkillsJson: resolveTaskScopeOverride(task.allowedSkillsJson),
+          // #740: per-task model override — only when BOTH columns are set;
+          // otherwise undefined so the runner falls back to the profile model.
+          modelOverride:
+            task.modelProvider && task.modelId
+              ? { providerID: task.modelProvider, modelID: task.modelId }
+              : undefined,
           taskId: null,
           outputTarget: 'session',
           agentKind: task.agentKind ?? task.agentConfigId ?? 'claude-code',

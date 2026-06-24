@@ -1470,6 +1470,19 @@ export function runMigrations(db: Database.Database): void {
     db.exec(`ALTER TABLE agent_scheduled_tasks ADD COLUMN agent_config_id TEXT`);
   }
 
+  // model_provider / model_id: optional per-task model override (issue #740).
+  // When both are set, a scheduled run uses this model instead of the bound
+  // profile's resolveRunModel() default — so e.g. a Sonnet-default profile's
+  // monthly report can run on Opus without splitting profiles. Nullable; null
+  // means "use the profile model". SQLite has no ADD COLUMN IF NOT EXISTS, so
+  // guard on the pragma column list (same pattern as agent_config_id above).
+  if (!agentScheduledTasksCols.includes('model_provider')) {
+    db.exec(`ALTER TABLE agent_scheduled_tasks ADD COLUMN model_provider TEXT`);
+  }
+  if (!agentScheduledTasksCols.includes('model_id')) {
+    db.exec(`ALTER TABLE agent_scheduled_tasks ADD COLUMN model_id TEXT`);
+  }
+
   // #738-fix — agent_sessions.scheduled_task_id: FK to agent_scheduled_tasks.id.
   // AgentRunner records a session row on every run; this column ties the row to
   // the scheduler task that triggered it (null for interactive sessions).

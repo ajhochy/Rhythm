@@ -67,6 +67,14 @@ export interface ResolveProfileScopeOptions {
    * When undefined (default), the profile's own allowed_mcps_json is used.
    */
   allowedMcpsJsonOverride?: string | null;
+  /**
+   * When provided, overrides the profile's own allowed_skills_json for the
+   * returned `allowedSkillsJson` (issue #741 — task-level skill allowlist
+   * override). Same precedence semantics as allowedMcpsJsonOverride: an
+   * explicit value (or explicit null) wins over the profile; undefined
+   * (default) inherits the profile's own allowed_skills_json.
+   */
+  allowedSkillsJsonOverride?: string | null;
 }
 
 // ── Main export ───────────────────────────────────────────────────────────────
@@ -130,10 +138,18 @@ export async function resolveProfileScope(
     ? _buildMcpRoleConfig(effectiveAllowedMcpsJson, agentConfigId ?? 'profile')
     : null;
 
+  // Step 5 — resolve allowedSkillsJson with the same override-or-inherit rule.
+  //   opts.allowedSkillsJsonOverride !== undefined → explicit override (may be null)
+  //   otherwise → profile's own column (may be null)
+  const effectiveAllowedSkillsJson: string | null =
+    opts.allowedSkillsJsonOverride !== undefined
+      ? opts.allowedSkillsJsonOverride
+      : (profile?.allowedSkillsJson ?? null);
+
   return {
     model,
     mcpRoleConfig,
-    allowedSkillsJson: profile?.allowedSkillsJson ?? null,
+    allowedSkillsJson: effectiveAllowedSkillsJson,
     systemPrompt: profile?.systemPrompt ?? null,
     ocAgent: profile?.ocAgent ?? null,
   };

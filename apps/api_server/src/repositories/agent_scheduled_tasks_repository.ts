@@ -16,6 +16,9 @@ export interface AgentScheduledTask {
   prompt: string;
   agentKind: string;
   agentConfigId: string | null;
+  /** Per-task model override (issue #740). null = use the bound profile's model. */
+  modelProvider: string | null;
+  modelId: string | null;
   allowedMcpsJson: string | null;
   allowedSkillsJson: string | null;
   enabled: boolean;
@@ -40,6 +43,8 @@ export interface CreateAgentScheduledTaskInput {
   prompt: string;
   agentKind?: string;
   agentConfigId?: string | null;
+  modelProvider?: string | null;
+  modelId?: string | null;
   allowedMcpsJson?: string;
   allowedSkillsJson?: string;
   createdByUserId?: number;
@@ -65,6 +70,8 @@ function rowToModel(row: Record<string, unknown>): AgentScheduledTask {
     prompt: row.prompt as string,
     agentKind: (row.agent_kind as string) ?? 'opencode',
     agentConfigId: (row.agent_config_id as string | null) ?? null,
+    modelProvider: (row.model_provider as string | null) ?? null,
+    modelId: (row.model_id as string | null) ?? null,
     allowedMcpsJson: (row.allowed_mcps_json as string | null) ?? null,
     allowedSkillsJson: (row.allowed_skills_json as string | null) ?? null,
     enabled: typeof row.enabled === 'boolean' ? row.enabled : row.enabled !== 0,
@@ -98,9 +105,9 @@ export class AgentScheduledTasksRepository {
         `INSERT INTO agent_scheduled_tasks
            (id, name, description, schedule_type, scheduled_time, scheduled_day,
             cron_expression, run_at, timezone, next_run_at, prompt, agent_kind,
-            agent_config_id,
+            agent_config_id, model_provider, model_id,
             allowed_mcps_json, allowed_skills_json, created_by_user_id, created_at, updated_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
          RETURNING *`,
         [
           id, input.name, input.description ?? null,
@@ -110,6 +117,7 @@ export class AgentScheduledTasksRepository {
           input.nextRunAt ?? null, input.prompt,
           input.agentKind ?? 'opencode',
           input.agentConfigId ?? null,
+          input.modelProvider ?? null, input.modelId ?? null,
           input.allowedMcpsJson ?? null, input.allowedSkillsJson ?? null,
           input.createdByUserId ?? null, now, now,
         ],
@@ -121,9 +129,9 @@ export class AgentScheduledTasksRepository {
       INSERT INTO agent_scheduled_tasks
         (id, name, description, schedule_type, scheduled_time, scheduled_day,
          cron_expression, run_at, timezone, next_run_at, prompt, agent_kind,
-         agent_config_id,
+         agent_config_id, model_provider, model_id,
          allowed_mcps_json, allowed_skills_json, created_by_user_id, created_at, updated_at)
-      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
     `).run(
       id, input.name, input.description ?? null,
       input.scheduleType, input.scheduledTime ?? null,
@@ -132,6 +140,7 @@ export class AgentScheduledTasksRepository {
       input.nextRunAt ?? null, input.prompt,
       input.agentKind ?? 'opencode',
       input.agentConfigId ?? null,
+      input.modelProvider ?? null, input.modelId ?? null,
       input.allowedMcpsJson ?? null, input.allowedSkillsJson ?? null,
       input.createdByUserId ?? null, now, now,
     );
@@ -213,6 +222,7 @@ export class AgentScheduledTasksRepository {
       cronExpression: 'cron_expression', runAt: 'run_at', timezone: 'timezone',
       nextRunAt: 'next_run_at', prompt: 'prompt', agentKind: 'agent_kind',
       agentConfigId: 'agent_config_id',
+      modelProvider: 'model_provider', modelId: 'model_id',
       allowedMcpsJson: 'allowed_mcps_json', allowedSkillsJson: 'allowed_skills_json',
       enabled: 'enabled',
     };
