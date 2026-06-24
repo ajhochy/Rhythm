@@ -98,6 +98,18 @@ Visual smoke (`flutter run -d macos`) is required before merging scheduler branc
 
 ## Recent coding-agent runs
 
+### 2026-06-24 — P3-1 getRelevantSkills retrieval scorer
+- Files modified:
+  - `apps/api_server/src/services/skill_retrieval.ts` (NEW) — pure relevance scorer mirroring Odysseus `get_relevant_skills`. Exports `getRelevantSkills(query, topN=5, repo?)`, `scoreSkill(query, skill)`, `isEligible(skill)`. Loads all skills via `AgentSkillsRepository.list()`; empty store / empty-or-whitespace query → []. Eligibility: published always; draft only if `confidence >= 0.6` (fail-closed on null/NaN/unparseable). Score (Odysseus order): jaccard over (title+description+whenToUse+tags+steps) tokens → tag boost `score=max(score,0.3)*1.3` when any tag's tokens are a whole-token subset of query → description substring `score=max(score,0.6)` when raw lowercased query ∈ description → `*= 1+(confidence??0.5)*0.1` → `*=1.05` if uses>0. Keep score>=0.3, sort desc, slice topN. Does NOT mutate uses (P3-2). `repo` is an injectable default param for testability.
+  - `apps/api_server/src/__tests__/skill_retrieval.test.ts` (NEW) — 16 tests over in-memory migrated DB + real repo. Covers: title/desc match ranked first; no-overlap excluded (<0.3); draft@0.4 high-overlap EXCLUDED (fail-closed); draft@0.7 included; published@low-conf still eligible; tag 'api' boost; usage tiebreak (0 vs 12 → higher first); topN cap (default<=5 returns 5; topN=3 returns 3); empty store → []; empty/whitespace query → []. Plus unit specs for `isEligible` (NaN/undefined draft fails closed, archived excluded) and `scoreSkill` (description-substring floor, ~5% usage multiplier).
+- Checks run:
+  - `npx tsc --noEmit` — PASS (exit 0)
+  - `npx vitest run skill_retrieval.test.ts` — 16/16 PASS
+  - `npx vitest run` (full) — **1048/1048 PASS** (baseline 1032 + 16 new), 0 failures, single clean run (no flake)
+- Decisions made: Tokenizer mirrors Odysseus `_tokenize` (lowercase, split on whitespace, strip edge punctuation `.,!?";:()[]`, drop tokens length<=1, dedupe to Set) rather than the issue's literal "split on non-alphanumeric" — the reference is authoritative and keeps interior hyphens/underscores intact (e.g. "weekly-report" stays one token). Documented inline. `getRelevantSkills` takes an optional injected `repo` so tests pass a seeded in-memory repo without a global DB.
+- Deviations from spec: tokenizer split rule follows the Odysseus reference, not the issue's "non-alphanumeric" wording (see Decisions). No injection wiring (P3-2), no uses mutation (P3-2).
+- Concerns: No FTS — linear scan over `repo.list()` rows; fine at <100 skills, FLAGGED as future perf work if the library grows. Other statuses (e.g. 'active' used by some repo tests, 'archived') are excluded by eligibility — only 'published'/'draft' are retrieved, matching Odysseus.
+
 ### 2026-06-24 — P2-2 wire skill extractor into AgentRunner + WS turn (fire-and-forget)
 - Files modified:
   - `apps/api_server/src/services/skill_extractor.ts` — added `queueSkillExtraction(sessionId, distill = distillFromSession)` + `DistillFn` type + `MIN_ROUNDS=2`. Counts `role='output'` rows (wrapped in try/catch → never throws); < 2 rounds returns immediately (no LLM); >= 2 fires `distill(sessionId)` WITHOUT await, `.then(skill && logger.info('drafted '+title)).catch(logger.error('failed: '+e))`, logs `[skill-extract] queued for <id>`. Extra try/catch guards a synchronously-throwing distill.
