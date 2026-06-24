@@ -39,7 +39,7 @@ function getRunTimeoutMs(): number {
  * Default 20 000 ms; override with AGENT_RUN_NOPROGRESS_MS env var.
  */
 function getNoProgressMs(): number {
-  return Number(process.env.AGENT_RUN_NOPROGRESS_MS ?? 20_000);
+  return Number(process.env.AGENT_RUN_NOPROGRESS_MS ?? 30_000);
 }
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -281,7 +281,10 @@ export async function run(opts: AgentRunOptions): Promise<AgentRunResult> {
 
   // #738-fix: Resolve the model BEFORE entering the 600s poll so a missing
   // model is a fast fail rather than a silent timeout.
-  const resolvedModel = resolveRunModel(agentConfigId);
+  // For built-in agents the agentKind IS the agent_configs id (e.g. 'claude-code'),
+  // and the scheduler passes agentKind (not agentConfigId) — fall back to it so the
+  // profile's model is actually used instead of dropping to MRU/default.
+  const resolvedModel = resolveRunModel(agentConfigId ?? agentKind);
 
   // #738-fix: Record a session row so this run appears in the CHATS list.
   const effectiveAgentKind = agentKind ?? 'claude-code';
@@ -374,7 +377,14 @@ export async function run(opts: AgentRunOptions): Promise<AgentRunResult> {
         await new Promise<void>((resolve) => setTimeout(resolve, progressCheckInterval));
         try {
           const msgs = await opencodeClient.listMessages(sessionId);
-          if (msgs.length > 0) {
+          // Progress = an ASSISTANT turn started (even a tool-only turn). The
+          // echoed user prompt does NOT count — otherwise a broken/invalid model
+          // (which records the user msg but never generates) would look like
+          // progress and we'd hang for the full timeout instead of fast-failing.
+          const assistantStarted = msgs.some(
+            (m) => m.role === 'assistant' && (m.time?.created ?? 0) >= promptSentAt,
+          );
+          if (assistantStarted) {
             hasProgress = true;
           }
         } catch {
