@@ -13,8 +13,9 @@ committed, and CI-green (Server + Desktop + MCP):
 - **P4-1** teacher-escalation: run error → stronger model re-run → capture `teacher-escalation` draft (`AGENT_TEACHER_MODEL`, recursion-guarded) · **P4-2** Flutter skills surface (DRAFT badge, ⭐ escalation annotation, publish/delete; "Skills" nav row)
 
 **Branch/PR:** `feature/agent-scheduler` / PR #734 (open, never auto-merge).
-**Test status:** api_server vitest 1070/1070; desktop flutter 652/652; tsc 0; dart format clean; flutter analyze 0 err/warn. (Known flaky port/socket tests — opc_curated_mcp_token_bridge c4, issue_638_contract, notifications_agent — clear on re-run; hardening flagged as a background task.)
-**In progress / next:** manual smoke of the Skills surface + the loop; **P0-1** (sever agent-stack `sync-globals` from writing opencode agents) is a **separate agent-stack-repo PR** — see `docs/ai/decisions/2026-06-24-rhythm-owns-skills.md`. Follow-up: `docs/ai/generated-issues/11-followup-skill-body-column.md` (prose-skill `body` column).
+**Test status:** api_server vitest 1073/1073; desktop flutter 652/652; tsc 0; dart format clean; flutter analyze 0 err/warn. (Known flaky port/socket tests — issue_638_contract, notifications_agent, UND_ERR_SOCKET — clear on re-run. The opc_curated_mcp_token_bridge c4 flake is now FIXED — made hermetic via spy-on-singleton, commit e5194d5.)
+**In progress / next:** manual smoke of the Skills surface + the loop; **P0-1** (sever agent-stack `sync-globals` from writing opencode agents) is a **separate agent-stack-repo PR** — see `docs/ai/decisions/2026-06-24-rhythm-owns-skills.md`.
+**Recently landed (2026-06-24, both Server-CI-green):** (A) `agent_skills.body` TEXT column — dual-DB migration + model + repo + seed importer (`extractBody`) + tests; seed importer now stores the full prose body (commit a06de6e; closes `11-followup-skill-body-column`). (B) hermetic c4 token-redaction test (commit e5194d5). See `docs/ai/runs/2026-06-24-skill-body-column-and-hermetic-c4.md`. Possible further follow-up: wire `body` into the P3-2 injected preface (still metadata-only).
 **Risks:** teacher-escalation ~2× cost on FAILED runs only (toggle); injection adds tokens per matched turn (top-5 + 0.3 threshold); live model/run paths are isTestEnv-guarded so proven by injected-dep unit tests, not end-to-end.
 
 Plan + issues: `docs/ai/current-plan.md` + `docs/ai/generated-issues/0X-pY-*.md`.
@@ -22,7 +23,7 @@ Plan + issues: `docs/ai/current-plan.md` + `docs/ai/generated-issues/0X-pY-*.md`
 
 
 **P1-1 Complete (verified):**
-- `agent_skills` table (SQLite + Postgres) with 12-column schema (id, title, when_to_use, description, steps_json, tags_json, confidence, status, source, uses, created_at, updated_at)
+- `agent_skills` table (SQLite + Postgres) with 13-column schema (id, title, when_to_use, description, steps_json, tags_json, body, confidence, status, source, uses, created_at, updated_at) — `body` added 2026-06-24 (commit a06de6e)
 - `AgentSkillsRepository` with full CRUD: create, getById, list, update, remove, incrementUses, findByTitle (case-insensitive)
 - All 20 contract tests passing; 997/997 total tests passing
 - Commit: e6056fc163273d120f0ce1c4f4d84d0de8eb4b48
@@ -94,7 +95,7 @@ Visual smoke (`flutter run -d macos`) is required before merging scheduler branc
 | `flutter analyze --no-fatal-infos` | PASS — 0 errors, 0 warnings (last verified 2026-06-23) |
 | `flutter test` (full) | **645 PASS, 0 FAIL** (+6 new launch-button widget tests, last verified 2026-06-23) |
 | `api_server tsc --noEmit` | PASS — 0 errors (last verified 2026-06-24) |
-| `api_server npm test` | **1070/1070 PASS** (last verified 2026-06-24; +13 P4-1 teacher_escalation tests; verification gate passed) |
+| `api_server npm test` | **1073/1073 PASS** (last verified 2026-06-24; +3 agent_skills.body tests; opc_curated_mcp_token_bridge c4 now hermetic; both follow-ups Server-CI-green) |
 
 ---
 
