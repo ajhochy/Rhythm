@@ -1392,6 +1392,14 @@ export function runMigrations(db: Database.Database): void {
   if (!agentConfigCols.includes('oc_agent')) {
     db.exec(`ALTER TABLE agent_configs ADD COLUMN oc_agent TEXT`);
   }
+  // session_selectable: 1 when this profile should appear in session-level
+  // agent pickers (the composer AgentSelectorPill). Subagents and opencode
+  // internal primaries (compaction/summary/title) are seeded with 0 so they
+  // exist as profiles but don't clutter the picker. Defaults to 1 so existing
+  // user-created profiles remain visible.
+  if (!agentConfigCols.includes('session_selectable')) {
+    db.exec(`ALTER TABLE agent_configs ADD COLUMN session_selectable INTEGER NOT NULL DEFAULT 1`);
+  }
 
   // agent_config_id: logical FK from scheduled tasks to agent_configs.id.
   // Decouples the profile reference from the raw agentKind string so the

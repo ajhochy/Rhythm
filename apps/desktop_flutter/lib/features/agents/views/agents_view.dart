@@ -3002,6 +3002,25 @@ class ChildTranscriptView extends StatelessWidget {
 // OPC-M4-4: Agent selector pill + agent-part marker
 // ---------------------------------------------------------------------------
 
+/// A single row in the agent picker — unifies the two possible sources (Agent
+/// Profiles, or the raw opencode agent list as a fallback) into one shape.
+class _AgentPickerItem {
+  const _AgentPickerItem({
+    required this.value,
+    required this.label,
+    this.description,
+  });
+
+  /// The opencode agent name sent to [AgentsController.setSelectedAgent].
+  final String value;
+
+  /// Display label (profile label, or the agent name in fallback mode).
+  final String label;
+
+  /// Optional one-line description shown under the label.
+  final String? description;
+}
+
 /// A pill-shaped button that shows the currently selected agent for the active
 /// session and opens a dropdown to switch between available agents.
 ///
@@ -3021,9 +3040,45 @@ class AgentSelectorPill extends StatelessWidget {
     if (sid == null) return const SizedBox.shrink();
 
     final ctrl = context.watch<AgentsController>();
-    final agents = ctrl.availableAgentsFor(sid);
+    final cfgCtrl = context.watch<AgentConfigsController>();
     final selected = ctrl.selectedAgentFor(sid);
-    final label = selected ?? 'build';
+
+    // Source the picker from Agent Profiles (the consolidated concept). Each
+    // session-selectable profile is backed by an opencode agent (ocAgent), so
+    // selecting one drives the turn via that agent. Fall back to the raw
+    // opencode agent list only when no profiles are available yet (engine still
+    // syncing) so the picker never goes empty.
+    final profiles = cfgCtrl.sessionSelectableAgents;
+    final List<_AgentPickerItem> items = profiles.isNotEmpty
+        ? [
+            for (final p in profiles)
+              _AgentPickerItem(
+                value: p.ocAgent ?? p.id,
+                label: p.label,
+                description: null,
+              ),
+          ]
+        : [
+            for (final a in ctrl.availableAgentsFor(sid))
+              _AgentPickerItem(
+                value: a.name,
+                label: a.name,
+                description: a.description,
+              ),
+          ];
+
+    // Display label: map the selected opencode-agent value back to its profile
+    // label when possible; otherwise show the raw value or the 'build' default.
+    String label = 'build';
+    if (selected != null) {
+      label = selected;
+      for (final i in items) {
+        if (i.value == selected) {
+          label = i.label;
+          break;
+        }
+      }
+    }
 
     return PopupMenuButton<String>(
       tooltip: 'Switch agent',
@@ -3041,15 +3096,15 @@ class AgentSelectorPill extends StatelessWidget {
             ),
           ),
         ),
-        for (final a in agents)
+        for (final a in items)
           PopupMenuItem<String>(
-            value: a.name,
+            value: a.value,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
                 Text(
-                  a.name,
+                  a.label,
                   style: const TextStyle(fontSize: 13),
                 ),
                 if (a.description != null)

@@ -25,6 +25,7 @@ class AgentConfig {
     this.modelProvider,
     this.modelId,
     this.ocAgent,
+    this.sessionSelectable = true,
   });
 
   factory AgentConfig.fromJson(Map<String, dynamic> json) {
@@ -45,6 +46,7 @@ class AgentConfig {
       modelProvider: asString(json['modelProvider']),
       modelId: asString(json['modelId']),
       ocAgent: asString(json['ocAgent']),
+      sessionSelectable: asBool(json['sessionSelectable']) ?? true,
     );
   }
 
@@ -87,6 +89,10 @@ class AgentConfig {
   /// OpenCode built-in agent mode (e.g. 'build', 'plan'). Null = default.
   final String? ocAgent;
 
+  /// Whether this profile appears in session-level agent pickers (the composer
+  /// AgentSelectorPill). Subagents / opencode internal primaries are false.
+  final bool sessionSelectable;
+
   /// Returns true when this config was created from a preset.
   bool get isPreset => presetId != null;
 
@@ -118,6 +124,7 @@ class AgentConfig {
         'modelProvider': modelProvider,
         'modelId': modelId,
         'ocAgent': ocAgent,
+        'sessionSelectable': sessionSelectable,
       };
 
   AgentConfig copyWith({
@@ -134,6 +141,7 @@ class AgentConfig {
     Object? modelProvider = _sentinel,
     Object? modelId = _sentinel,
     Object? ocAgent = _sentinel,
+    bool? sessionSelectable,
   }) {
     return AgentConfig(
       id: id,
@@ -161,6 +169,7 @@ class AgentConfig {
           identical(modelId, _sentinel) ? this.modelId : modelId as String?,
       ocAgent:
           identical(ocAgent, _sentinel) ? this.ocAgent : ocAgent as String?,
+      sessionSelectable: sessionSelectable ?? this.sessionSelectable,
     );
   }
 }

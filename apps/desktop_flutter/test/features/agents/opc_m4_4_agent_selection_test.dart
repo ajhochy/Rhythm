@@ -46,6 +46,9 @@ import 'package:rhythm_desktop/features/agents/models/agent_ws_message.dart';
 import 'package:rhythm_desktop/features/agents/models/chat_models.dart';
 import 'package:rhythm_desktop/features/agents/repositories/agents_repository.dart';
 import 'package:rhythm_desktop/features/agents/views/agents_view.dart';
+import 'package:rhythm_desktop/features/agent_configs/controllers/agent_configs_controller.dart';
+import 'package:rhythm_desktop/features/agent_configs/data/agent_configs_data_source.dart';
+import 'package:rhythm_desktop/features/agent_configs/repositories/agent_configs_repository.dart';
 import 'package:rhythm_desktop/features/notifications/controllers/notifications_controller.dart';
 import 'package:rhythm_desktop/features/notifications/data/notifications_data_source.dart';
 import 'package:rhythm_desktop/features/notifications/repositories/notifications_repository.dart';
@@ -188,6 +191,13 @@ AgentsController _buildController(_StubAgentsRepository repo) =>
       ),
     );
 
+/// An empty AgentConfigsController for the widget tree. With no profiles
+/// loaded, [AgentSelectorPill] falls back to the opencode agent list the
+/// stub repository serves — preserving these tests' assertions.
+AgentConfigsController _buildConfigsController() => AgentConfigsController(
+      AgentConfigsRepository(AgentConfigsDataSource()),
+    );
+
 /// Wrap a widget under test with the theme and providers it needs.
 Widget _withProviders({
   required AgentsController controller,
@@ -195,8 +205,13 @@ Widget _withProviders({
 }) {
   return MaterialApp(
     theme: AppTheme.light(),
-    home: ChangeNotifierProvider<AgentsController>.value(
-      value: controller,
+    home: MultiProvider(
+      providers: [
+        ChangeNotifierProvider<AgentsController>.value(value: controller),
+        ChangeNotifierProvider<AgentConfigsController>.value(
+          value: _buildConfigsController(),
+        ),
+      ],
       child: Scaffold(body: child),
     ),
   );
@@ -385,8 +400,13 @@ void main() {
 
       await tester.pumpWidget(MaterialApp(
         theme: AppTheme.light(),
-        home: ChangeNotifierProvider<AgentsController>.value(
-          value: ctrl,
+        home: MultiProvider(
+          providers: [
+            ChangeNotifierProvider<AgentsController>.value(value: ctrl),
+            ChangeNotifierProvider<AgentConfigsController>.value(
+              value: _buildConfigsController(),
+            ),
+          ],
           child: const Scaffold(
             body: InputAreaTestHarness(),
           ),

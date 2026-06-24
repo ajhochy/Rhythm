@@ -2,6 +2,7 @@ import type { NextFunction, Request, Response } from 'express';
 import { AppError } from '../errors/app_error';
 import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
 import type { AgentConfigInput } from '../repositories/agent_configs_repository';
+import { syncOpencodeAgentProfiles } from '../services/agent_profile_sync';
 
 const repo = new AgentConfigsRepository();
 
@@ -68,6 +69,8 @@ export class AgentConfigsController {
         allowedSkillsJson: typeof body.allowedSkillsJson === 'string' ? body.allowedSkillsJson : null,
         modelProvider: typeof body.modelProvider === 'string' ? body.modelProvider : null,
         modelId: typeof body.modelId === 'string' ? body.modelId : null,
+        ocAgent: typeof body.ocAgent === 'string' ? body.ocAgent : null,
+        sessionSelectable: body.sessionSelectable !== false,
         canResume: false,
         resumeCommand: null,
         sessionIdPattern: null,
@@ -114,12 +117,27 @@ export class AgentConfigsController {
       if (body.allowedSkillsJson !== undefined) patch.allowedSkillsJson = typeof body.allowedSkillsJson === 'string' ? body.allowedSkillsJson : null;
       if (body.modelProvider !== undefined) patch.modelProvider = typeof body.modelProvider === 'string' ? body.modelProvider : null;
       if (body.modelId !== undefined) patch.modelId = typeof body.modelId === 'string' ? body.modelId : null;
+      if (body.ocAgent !== undefined) patch.ocAgent = typeof body.ocAgent === 'string' ? body.ocAgent : null;
+      if (body.sessionSelectable !== undefined) patch.sessionSelectable = Boolean(body.sessionSelectable);
       // Legacy CLI fields (#581) — accept on the wire for back-compat
       // with old payloads but never propagate to the repository layer.
 
       const updated = repo.update(req.params.id, patch);
       if (!updated) throw AppError.notFound('AgentConfig');
       res.json(updated);
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * POST /agent-configs/sync-opencode — mirror the opencode engine's agent
+   * registry into agent_configs (idempotent). Returns the count synced.
+   */
+  async syncOpencode(_req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const result = await syncOpencodeAgentProfiles();
+      res.json(result);
     } catch (err) {
       next(err);
     }

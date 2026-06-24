@@ -9,6 +9,8 @@ export const agentConfigsRouter = Router();
 if (!env.agentLocal) agentConfigsRouter.use(requireAuth);
 
 agentConfigsRouter.get('/', controller.list.bind(controller));
+// Registered before '/:id' so "sync-opencode" is never treated as an id.
+agentConfigsRouter.post('/sync-opencode', controller.syncOpencode.bind(controller));
 agentConfigsRouter.get('/:id', controller.getOne.bind(controller));
 agentConfigsRouter.post('/', controller.create.bind(controller));
 agentConfigsRouter.patch('/:id', controller.patch.bind(controller));

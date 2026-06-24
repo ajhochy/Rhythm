@@ -11,6 +11,7 @@ import { TasksRepository } from '../repositories/tasks_repository';
 import type { AgentKind, CreateAgentSessionDto, PermissionMode } from '../models/agent_session';
 import { PERMISSION_MODES } from '../models/agent_session';
 import { opencodeClient, opencodeSessionMap } from '../services/opencode_engine';
+import { syncOpencodeAgentProfiles } from '../services/agent_profile_sync';
 import { streamBridge } from '../services/opencode_stream_bridge';
 import { broadcastSessionUpdated, broadcastSessionRemoved } from '../services/ws_gateway';
 import { logger } from '../utils/logger';
@@ -166,6 +167,11 @@ export class AgentSessionsController {
         return;
       }
       const agents = await opencodeClient.listAgents(directory);
+      // Mirror the engine's agent registry into agent_configs so every opencode
+      // agent also exists as an Agent Profile. Reuse the list we just fetched
+      // (no second engine hit). Fire-and-forget: the picker response must not
+      // wait on the upsert. Idempotent + non-throwing.
+      void syncOpencodeAgentProfiles(agents).catch(() => {});
       res.json({ agents });
     } catch (err) {
       next(err);
