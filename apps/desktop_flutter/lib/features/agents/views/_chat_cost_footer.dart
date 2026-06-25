@@ -1,11 +1,11 @@
-/// OPC-M2-4 — Per-message cost footer for assistant chat bubbles.
+/// OPC-M2-4 — Per-message usage footer for assistant chat bubbles.
 ///
-/// Renders "$0.0142" (2-4 significant decimal places) below the assistant
-/// message. Tap the row to expand/collapse the token breakdown detail.
-/// User messages and messages without cost render nothing (SizedBox.shrink).
+/// Collapsed (default): shows the TOKEN context (input / output / reasoning /
+/// cache). Tap to expand and reveal the message PRICE underneath. This keeps
+/// the at-a-glance signal on tokens, with cost one tap away.
 ///
-/// Token fields displayed: input / output / reasoning / cache (all four,
-/// even when zero, so the user can see the full breakdown).
+/// User messages and messages without cost or tokens render nothing
+/// (SizedBox.shrink).
 library;
 
 import 'package:flutter/material.dart';
@@ -19,11 +19,11 @@ class ChatCostFooter extends StatefulWidget {
     required this.tokens,
   });
 
-  /// Cost in USD. Null → renders nothing.
+  /// Cost in USD. Revealed (on the bottom) when expanded.
   final double? cost;
 
   /// Token usage map. Expected keys: 'input', 'output', 'reasoning', 'cache'.
-  /// Null or empty → token detail row is suppressed.
+  /// Shown collapsed as the always-visible token context.
   final Map<String, dynamic>? tokens;
 
   @override
@@ -35,40 +35,38 @@ class _ChatCostFooterState extends State<ChatCostFooter> {
 
   @override
   Widget build(BuildContext context) {
+    final tokens = widget.tokens;
     final cost = widget.cost;
-    if (cost == null) return const SizedBox.shrink();
+    final hasTokens = tokens != null && tokens.isNotEmpty;
+    // Always 4 decimals — meaningful for sub-cent per-message costs.
+    final costText = cost != null ? '\$${cost.toStringAsFixed(4)}' : null;
 
-    // Format cost: always show $ prefix + enough decimals to be meaningful.
-    // e.g. 0.0142 → "$0.0142", 0.12 → "$0.1200", 1.5 → "$1.5000"
-    final costText = '\$${cost.toStringAsFixed(_sigDecimals(cost))}';
+    // Nothing to show.
+    if (!hasTokens && costText == null) return const SizedBox.shrink();
+
+    // The price is the expandable detail. The chevron only appears when there
+    // is both a collapsed token summary AND a price to reveal beneath it.
+    final canExpand = hasTokens && costText != null;
 
     return GestureDetector(
-      onTap: () => setState(() => _expanded = !_expanded),
+      behavior: HitTestBehavior.opaque,
+      onTap: canExpand ? () => setState(() => _expanded = !_expanded) : null,
       child: Padding(
         padding: const EdgeInsets.only(top: 4, left: 4),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           mainAxisSize: MainAxisSize.min,
           children: [
-            // Cost label row.
+            // Collapsed / header: token context (falls back to price when a
+            // message has a cost but no token breakdown).
             Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                Icon(
-                  Icons.attach_money,
-                  size: 12,
-                  color: context.rhythm.textMuted,
-                ),
-                const SizedBox(width: 2),
-                Text(
-                  costText,
-                  style: TextStyle(
-                    fontSize: 11,
-                    color: context.rhythm.textMuted,
-                    fontFeatures: const [FontFeature.tabularFigures()],
-                  ),
-                ),
-                if (widget.tokens != null) ...[
+                if (hasTokens)
+                  Flexible(child: _TokenBreakdown(tokens: tokens))
+                else
+                  _CostLabel(costText: costText!),
+                if (canExpand) ...[
                   const SizedBox(width: 4),
                   Icon(
                     _expanded
@@ -80,26 +78,48 @@ class _ChatCostFooterState extends State<ChatCostFooter> {
                 ],
               ],
             ),
-            // Token breakdown (only when expanded).
-            if (_expanded && widget.tokens != null)
-              _TokenBreakdown(tokens: widget.tokens!),
+            // Expanded: price on the bottom.
+            if (_expanded && costText != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: _CostLabel(costText: costText),
+              ),
           ],
         ),
       ),
     );
   }
+}
 
-  /// Returns the number of decimal places to show for [cost].
-  /// We show between 2 and 4 decimal places:
-  ///   ≥ 1.0 → 2 decimals
-  ///   ≥ 0.01 → 2 decimals
-  ///   ≥ 0.001 → 3 decimals
-  ///   otherwise → 4 decimals
-  int _sigDecimals(double cost) {
-    final abs = cost.abs();
-    if (abs >= 0.01) return 4;
-    if (abs >= 0.001) return 4;
-    return 4;
+/// The "$0.0142" price label — money icon + tabular figures. Unchanged look
+/// from the previous footer header; only its position moved (now revealed on
+/// expand).
+class _CostLabel extends StatelessWidget {
+  const _CostLabel({required this.costText});
+
+  final String costText;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(
+          Icons.attach_money,
+          size: 12,
+          color: context.rhythm.textMuted,
+        ),
+        const SizedBox(width: 2),
+        Text(
+          costText,
+          style: TextStyle(
+            fontSize: 11,
+            color: context.rhythm.textMuted,
+            fontFeatures: const [FontFeature.tabularFigures()],
+          ),
+        ),
+      ],
+    );
   }
 }
 
@@ -123,19 +143,17 @@ class _TokenBreakdown extends StatelessWidget {
                 .toInt()
             : null);
 
-    return Padding(
-      padding: const EdgeInsets.only(top: 4, left: 4),
-      child: Wrap(
-        spacing: 10,
-        runSpacing: 2,
-        children: [
-          if (input != null) _TokenCell(label: 'input', value: '$input'),
-          if (output != null) _TokenCell(label: 'output', value: '$output'),
-          if (reasoning != null)
-            _TokenCell(label: 'reasoning', value: '$reasoning'),
-          if (cacheInt != null) _TokenCell(label: 'cache', value: '$cacheInt'),
-        ],
-      ),
+    return Wrap(
+      spacing: 10,
+      runSpacing: 2,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: [
+        if (input != null) _TokenCell(label: 'input', value: '$input'),
+        if (output != null) _TokenCell(label: 'output', value: '$output'),
+        if (reasoning != null)
+          _TokenCell(label: 'reasoning', value: '$reasoning'),
+        if (cacheInt != null) _TokenCell(label: 'cache', value: '$cacheInt'),
+      ],
     );
   }
 }

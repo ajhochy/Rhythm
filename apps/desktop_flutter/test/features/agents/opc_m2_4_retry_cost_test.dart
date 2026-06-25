@@ -178,42 +178,6 @@ Widget _wrap(Widget child) => MaterialApp(
       home: Scaffold(body: SizedBox(width: 600, child: child)),
     );
 
-/// Test-only wrapper that renders token breakdown inline (mirrors ChatCostFooter
-/// expanded state) without requiring a tap gesture, bypassing hit-test issues
-/// in widget tests.
-class _ExpandedCostFooter extends StatelessWidget {
-  const _ExpandedCostFooter({required this.cost, required this.tokens});
-  final double cost;
-  final Map<String, dynamic> tokens;
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Text('\$${cost.toStringAsFixed(4)}'),
-        // Token breakdown rows — one per token type.
-        Wrap(
-          spacing: 10,
-          runSpacing: 2,
-          children: [
-            for (final entry in tokens.entries)
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(entry.key),
-                  const SizedBox(width: 3),
-                  Text('${entry.value}'),
-                ],
-              ),
-          ],
-        ),
-      ],
-    );
-  }
-}
-
 void main() {
 // ---------------------------------------------------------------------------
 // c2 — Retry part renders inline with attempt count and reason
@@ -299,7 +263,7 @@ void main() {
   group(
       'issue-693-c4: assistant message with cost renders footer \$0.0142 and token breakdown',
       () {
-    testWidgets('ChatCostFooter shows cost and all 4 token counts',
+    testWidgets('ChatCostFooter shows token context collapsed, price on expand',
         (tester) async {
       const tokens = <String, dynamic>{
         'input': 1200,
@@ -308,27 +272,22 @@ void main() {
         'cache': 800,
       };
 
-      // Part 1: cost label visible in collapsed state.
+      // Collapsed: token context visible, price hidden.
       await tester.pumpWidget(_wrap(
         ChatCostFooter(cost: 0.0142, tokens: tokens),
       ));
-      // Footer must display cost with $ prefix.
-      expect(find.textContaining(r'$0.014'), findsAtLeastNWidgets(1));
-
-      // Part 2: render an already-expanded state by building a Stateful wrapper
-      // that starts expanded. This avoids hit-test issues with the tap gesture
-      // while still exercising the same code path as user tap-to-expand.
-      await tester.pumpWidget(_wrap(
-        _ExpandedCostFooter(cost: 0.0142, tokens: tokens),
-      ));
-      await tester.pump();
-
-      // All 4 token counts must appear in the expanded breakdown.
       expect(find.textContaining('1200'), findsAtLeastNWidgets(1)); // input
       expect(find.textContaining('350'), findsAtLeastNWidgets(1)); // output
       expect(find.textContaining('800'), findsAtLeastNWidgets(1)); // cache
-      // reasoning label (value is 0 which also appears as '0').
       expect(find.textContaining('reasoning'), findsAtLeastNWidgets(1));
+      expect(find.textContaining(r'$0.014'), findsNothing,
+          reason: 'price is hidden until the chevron is expanded');
+
+      // Tap to expand → price revealed on the bottom; tokens stay visible.
+      await tester.tap(find.byType(ChatCostFooter));
+      await tester.pump();
+      expect(find.textContaining(r'$0.014'), findsAtLeastNWidgets(1));
+      expect(find.textContaining('1200'), findsAtLeastNWidgets(1));
     });
   });
 
@@ -414,9 +373,14 @@ void main() {
     testWidgets(
         'ChatCostFooter from REST-rehydrated cost renders same as streamed',
         (tester) async {
+      // Price lives behind the chevron now, so expand before reading it.
+      // Distinct keys ensure each pump builds a fresh State (otherwise the
+      // second footer reuses the first's already-expanded state and the tap
+      // would collapse it).
       // Streamed: cost arrived via WS message.updated event.
       await tester.pumpWidget(_wrap(
         ChatCostFooter(
+          key: const ValueKey('streamed'),
           cost: 0.0142,
           tokens: const {
             'input': 1200,
@@ -426,6 +390,8 @@ void main() {
           },
         ),
       ));
+      await tester.tap(find.byType(ChatCostFooter));
+      await tester.pump();
       final streamedCostText = tester
           .widget<Text>(
             find.descendant(
@@ -440,6 +406,7 @@ void main() {
       // Rehydrated: same cost values but constructed from REST payload.
       await tester.pumpWidget(_wrap(
         ChatCostFooter(
+          key: const ValueKey('rehydrated'),
           cost: 0.0142,
           tokens: const {
             'input': 1200,
@@ -449,6 +416,8 @@ void main() {
           },
         ),
       ));
+      await tester.tap(find.byType(ChatCostFooter));
+      await tester.pump();
       final rehydratedCostText = tester
           .widget<Text>(
             find.descendant(
