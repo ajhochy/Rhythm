@@ -298,4 +298,102 @@ describe('syncOpencodeAgentProfiles hygiene (P3)', () => {
     expect(row!.modelProvider).toBe('anthropic');
     expect(row!.modelId).toMatch(/claude-sonnet/);
   });
+
+  // ---------------------------------------------------------------------------
+  // is_manager decoupling (fix/decouple-ismanager-importer)
+  //
+  // The importer must NEVER write is_manager. That flag is user-controlled so
+  // any profile (e.g. Secretary) can be designated the delegator/default agent
+  // and survive re-syncs. The picker (sessionSelectable) remains driven by
+  // DEV_FRONT_DOOR_PRIMARY / DEV_FRONT_DOOR_SECONDARY — that behaviour is
+  // unchanged and verified by the existing 'exactly one dev front-door' test.
+  // ---------------------------------------------------------------------------
+
+  it('fresh INSERT defaults is_manager=false for every imported agent', async () => {
+    // First-ever sync — every opencode agent is a brand-new row.
+    await syncOpencodeAgentProfiles(makeWorkflowAgents() as never);
+
+    const repo = new AgentConfigsRepository();
+    const imported = repo.list().filter((r) => r.sortOrder === 100);
+
+    // There must be some imported rows to make this test meaningful.
+    expect(imported.length).toBeGreaterThan(0);
+
+    for (const row of imported) {
+      expect(
+        row.isManager,
+        `${row.id}: importer must not set is_manager=true on INSERT`,
+      ).toBe(false);
+    }
+  });
+
+  it('re-sync does NOT force workflow-orchestrator is_manager=true', async () => {
+    // Simulate a world where workflow-orchestrator was never the manager.
+    await syncOpencodeAgentProfiles(makeWorkflowAgents() as never);
+
+    const repo = new AgentConfigsRepository();
+    const wo = repo.getById('workflow-orchestrator');
+    expect(wo).not.toBeNull();
+
+    // workflow-orchestrator should not have is_manager set by the importer.
+    expect(
+      wo!.isManager,
+      'workflow-orchestrator: importer must not force is_manager=true',
+    ).toBe(false);
+
+    // Run again — should still not be forced true.
+    await syncOpencodeAgentProfiles(makeWorkflowAgents() as never);
+    const wo2 = repo.getById('workflow-orchestrator');
+    expect(
+      wo2!.isManager,
+      'workflow-orchestrator: is_manager must stay false after re-sync',
+    ).toBe(false);
+  });
+
+  it('pre-set is_manager on a non-orchestrator profile survives re-sync', async () => {
+    // First sync — inserts all rows.
+    await syncOpencodeAgentProfiles(makeWorkflowAgents() as never);
+
+    const repo = new AgentConfigsRepository();
+
+    // Designate planning-agent as the manager (e.g. Secretary equivalent).
+    repo.update('planning-agent', { isManager: true });
+    const beforeResync = repo.getById('planning-agent');
+    expect(beforeResync?.isManager).toBe(true);
+
+    // Second sync — must preserve planning-agent's is_manager=true.
+    await syncOpencodeAgentProfiles(makeWorkflowAgents() as never);
+
+    const afterResync = repo.getById('planning-agent');
+    expect(
+      afterResync?.isManager,
+      'planning-agent: is_manager=true set by user must survive re-sync',
+    ).toBe(true);
+  });
+
+  it('sessionSelectable for dev front-doors is unaffected by is_manager change', async () => {
+    // Verify picker behaviour is independent of is_manager.
+    await syncOpencodeAgentProfiles(makeWorkflowAgents() as never);
+
+    const repo = new AgentConfigsRepository();
+
+    // Manually set a non-primary as is_manager (user choice).
+    repo.update('planning-agent', { isManager: true });
+
+    // Re-sync.
+    await syncOpencodeAgentProfiles(makeWorkflowAgents() as never);
+
+    // Picker behaviour must be unchanged: exactly workflow-orchestrator is selectable.
+    const frontDoorNames = ['workflow-orchestrator', 'superpowers', 'plan'];
+    const frontDoors = repo.list().filter((r) => frontDoorNames.includes(r.id));
+    expect(frontDoors.length).toBe(3);
+
+    const selectable = frontDoors.filter((r) => r.sessionSelectable);
+    expect(selectable.length).toBe(1);
+    expect(selectable[0].id).toBe('workflow-orchestrator');
+
+    // And is_manager on planning-agent must still be true.
+    const planningAgent = repo.getById('planning-agent');
+    expect(planningAgent?.isManager).toBe(true);
+  });
 });

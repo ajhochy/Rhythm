@@ -47,6 +47,24 @@ const INTERNAL_PRIMARY = new Set(['compaction', 'summary', 'title']);
 // edit would be clobbered the next time syncOpencodeAgentProfiles runs.
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// is_manager: NOT set by the importer (intentional decoupling)
+//
+// The importer controls session_selectable (picker visibility) but must NEVER
+// touch is_manager. That flag designates the delegator / default-agent role
+// and is USER-CONTROLLED — any profile (e.g. Secretary) may hold it, and it
+// must survive re-syncs unchanged.
+//
+// On INSERT  → is_manager defaults to false (DB column DEFAULT 0; the
+//              AgentConfigInput field is omitted so repo.insert() writes 0).
+// On UPDATE  → is_manager is never included in the patch object, so the
+//              existing DB value is preserved exactly as the user left it.
+//
+// DO NOT add isManager to the INSERT input or the UPDATE patch here.
+// Enforce this invariant with the tests in agent_profile_sync_hygiene.test.ts
+// (see "is_manager decoupling" describe block).
+// ---------------------------------------------------------------------------
+
 /** The single dev front-door that should be session-selectable. */
 const DEV_FRONT_DOOR_PRIMARY = 'workflow-orchestrator';
 
@@ -362,6 +380,10 @@ export async function syncOpencodeAgentProfiles(
         // idempotent. Backfill prompt/model ONLY when the profile has none yet
         // — never clobber values the user edited in the designer (which is now
         // the source of truth for model/prompt).
+        //
+        // is_manager is intentionally ABSENT from the patch. That flag is
+        // user-controlled — whoever the user designated as manager (possibly
+        // a different profile entirely) must not be overwritten here.
         const patch: Parameters<typeof repo.update>[1] = {
           ocAgent: name,
           sessionSelectable: selectable,
@@ -402,6 +424,11 @@ export async function syncOpencodeAgentProfiles(
           icon: 'assets/agents/opencode.png',
           isAgent: true,
           enabled: true,
+          // is_manager is intentionally NOT set here. The delegator/manager role
+          // is user-controlled and must never be assigned by the importer.
+          // Omitting the field lets repo.insert() write the DB DEFAULT (0/false).
+          // See "is_manager decoupling" comment block above and
+          // agent_profile_sync_hygiene.test.ts for the enforcement tests.
           ocAgent: name,
           sessionSelectable: selectable,
           systemPrompt: prompt,
