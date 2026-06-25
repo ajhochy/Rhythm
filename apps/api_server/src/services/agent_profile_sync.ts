@@ -153,6 +153,15 @@ const WORKFLOW_CHAIN_SKILLS = [
   'workflow-retrospective',
 ] as const;
 
+const WORKFLOW_MANAGER_DELEGATES = WORKFLOW_CHAIN_SKILLS.filter(
+  (skill) => skill !== DEV_FRONT_DOOR_PRIMARY,
+);
+
+function deriveAllowedDelegates(agentName: string): string | null {
+  if (agentName !== DEV_FRONT_DOOR_PRIMARY) return null;
+  return JSON.stringify(WORKFLOW_MANAGER_DELEGATES);
+}
+
 /**
  * Map from agent name → skills allowlist JSON string.
  * Keys must exactly match the agent `name` field from the registry.
@@ -338,6 +347,8 @@ export async function syncOpencodeAgentProfiles(
         model?: string | null;
       };
       const prompt = typeof a.prompt === 'string' && a.prompt.trim() !== '' ? a.prompt : null;
+      const isManager = name === DEV_FRONT_DOOR_PRIMARY;
+      const allowedDelegatesJson = deriveAllowedDelegates(name);
 
       // Resolve model: registry string → tier detection → Tier 2 default.
       // For sortOrder=100 imports this guarantees a non-null model; the
@@ -354,6 +365,8 @@ export async function syncOpencodeAgentProfiles(
         const patch: Parameters<typeof repo.update>[1] = {
           ocAgent: name,
           sessionSelectable: selectable,
+          isManager,
+          allowedDelegatesJson,
         };
         if (!existing.systemPrompt && prompt) patch.systemPrompt = prompt;
         if (!existing.modelProvider && !existing.modelId) {
@@ -391,6 +404,8 @@ export async function syncOpencodeAgentProfiles(
           // Derive per-agent skill allowlist from name. null = all eligible
           // (fail-open for agents not in the map). See deriveSkillAllowlist().
           allowedSkillsJson: deriveSkillAllowlist(name),
+          isManager,
+          allowedDelegatesJson,
           sortOrder: 100,
         });
       }

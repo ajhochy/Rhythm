@@ -205,6 +205,40 @@ describe('syncOpencodeAgentProfiles hygiene (P3)', () => {
     expect(selectable[0].id).toBe('workflow-orchestrator');
   });
 
+  it('issue-P4-manager-delegation-c6: imports workflow-orchestrator as manager with allowed delegates', async () => {
+    await syncOpencodeAgentProfiles(makeWorkflowAgents() as never);
+
+    const repo = new AgentConfigsRepository();
+    const row = repo.getById('workflow-orchestrator');
+
+    expect(row).not.toBeNull();
+    expect(row!.isManager).toBe(true);
+    expect(row!.allowedDelegatesJson).not.toBeNull();
+    const parsed: unknown = JSON.parse(row!.allowedDelegatesJson!);
+    expect(Array.isArray(parsed)).toBe(true);
+    expect(parsed).toContain('coding-agent');
+    expect(parsed).toContain('verification-gate');
+    expect(parsed).not.toContain('workflow-orchestrator');
+  });
+
+  it('issue-P4-manager-delegation-c6: re-sync restores importer-driven manager delegation config', async () => {
+    await syncOpencodeAgentProfiles(makeWorkflowAgents() as never);
+
+    const repo = new AgentConfigsRepository();
+    repo.update('workflow-orchestrator', {
+      isManager: false,
+      allowedDelegatesJson: JSON.stringify(['wrong-target']),
+    });
+
+    await syncOpencodeAgentProfiles(makeWorkflowAgents() as never);
+
+    const row = repo.getById('workflow-orchestrator');
+    expect(row?.isManager).toBe(true);
+    const parsed: unknown = JSON.parse(row!.allowedDelegatesJson!);
+    expect(parsed).toContain('coding-agent');
+    expect(parsed).not.toContain('wrong-target');
+  });
+
   it('re-sync preserves user-edited label on existing row', async () => {
     // First sync — inserts
     await syncOpencodeAgentProfiles(makeWorkflowAgents() as never);

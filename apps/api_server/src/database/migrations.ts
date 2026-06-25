@@ -1443,6 +1443,9 @@ export function runMigrations(db: Database.Database): void {
   if (!agentConfigCols.includes('allowed_skills_json')) {
     db.exec(`ALTER TABLE agent_configs ADD COLUMN allowed_skills_json TEXT`);
   }
+  if (!agentConfigCols.includes('allowed_delegates_json')) {
+    db.exec(`ALTER TABLE agent_configs ADD COLUMN allowed_delegates_json TEXT`);
+  }
 
   // Agent-runner model selection: store the preferred provider/model on an
   // agent config profile so AgentRunner can resolve a model without user input.

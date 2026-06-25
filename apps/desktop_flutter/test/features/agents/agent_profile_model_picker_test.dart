@@ -7,6 +7,8 @@
 ///      with modelProvider and modelId populated.
 library;
 
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
@@ -75,7 +77,12 @@ class _RecordingAgentConfigsDataSource extends AgentConfigsDataSource {
 
 const _kConfigId = 'cfg-test-001';
 
-AgentConfig _makeConfig({String? modelProvider, String? modelId}) =>
+AgentConfig _makeConfig({
+  String? modelProvider,
+  String? modelId,
+  bool isManager = false,
+  List<String>? allowedDelegates,
+}) =>
     AgentConfig(
       id: _kConfigId,
       label: 'Test Profile',
@@ -83,6 +90,8 @@ AgentConfig _makeConfig({String? modelProvider, String? modelId}) =>
       enabled: true,
       isAgent: true,
       sortOrder: 0,
+      isManager: isManager,
+      allowedDelegates: allowedDelegates,
       modelProvider: modelProvider,
       modelId: modelId,
     );
@@ -131,6 +140,28 @@ Widget _buildSheet({
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  group('AgentConfig — manager delegation fields', () {
+    test('parses and serializes allowedDelegatesJson', () {
+      final config = AgentConfig.fromJson({
+        'id': 'workflow-orchestrator',
+        'label': 'Workflow Orchestrator',
+        'icon': 'terminal',
+        'enabled': true,
+        'isAgent': true,
+        'sortOrder': 0,
+        'isManager': true,
+        'allowedDelegatesJson': jsonEncode(['coding-agent']),
+      });
+
+      expect(config.isManager, isTrue);
+      expect(config.allowedDelegates, equals(['coding-agent']));
+      expect(
+        jsonDecode(config.toJson()['allowedDelegatesJson'] as String),
+        equals(['coding-agent']),
+      );
+    });
+  });
 
   group('AgentProfileSheet — model picker', () {
     final catalogEntry = _makeEntry('anthropic', 'claude-sonnet-4-6');
@@ -285,6 +316,48 @@ void main() {
 
         expect(dataSource.lastUpdatePatch?['modelProvider'], isNull);
         expect(dataSource.lastUpdatePatch?['modelId'], isNull);
+      },
+    );
+
+    testWidgets(
+      'saving a manager sends allowedDelegatesJson in the patch',
+      (tester) async {
+        final config = _makeConfig(
+          isManager: true,
+          allowedDelegates: ['coding-agent'],
+        );
+        final dataSource = _RecordingAgentConfigsDataSource(config);
+        final modelsDs = _FakeAgentModelsDataSource([catalogEntry]);
+
+        await tester.pumpWidget(
+          _buildSheet(
+            config: config,
+            dataSource: dataSource,
+            modelsDataSource: modelsDs,
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        await tester.enterText(
+          find.byType(TextField).at(3),
+          'verification-gate\ncoding-agent',
+        );
+
+        await tester.dragUntilVisible(
+          find.widgetWithText(FilledButton, 'Save changes'),
+          find.byType(ListView).first,
+          const Offset(0, -100),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(find.widgetWithText(FilledButton, 'Save changes'));
+        await tester.pumpAndSettle();
+
+        expect(dataSource.lastUpdatePatch?['isManager'], isTrue);
+        expect(
+          jsonDecode(
+              dataSource.lastUpdatePatch?['allowedDelegatesJson'] as String),
+          equals(['coding-agent', 'verification-gate']),
+        );
       },
     );
   });

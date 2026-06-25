@@ -663,6 +663,7 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
     ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS model_id TEXT;
     ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS oc_agent TEXT;
     ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS session_selectable BOOLEAN NOT NULL DEFAULT TRUE;
+    ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS allowed_delegates_json TEXT;
   `);
 
   // agent_config_id: logical FK from scheduled tasks to agent_configs.id.

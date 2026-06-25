@@ -15,6 +15,7 @@ import { registerNotificationTools } from './tools/notifications.js';
 import { registerGoogleTools } from './tools/google.js';
 import { registerPcoTools } from './tools/pco.js';
 import { registerAgentScheduleTools } from './tools/agentSchedule.js';
+import { registerAgentDelegationTools } from './tools/agentDelegation.js';
 import { registerAgentMemoryTools } from './tools/agentMemory.js';
 import { registerAgentResearchTools } from './tools/agentResearch.js';
 
@@ -49,6 +50,7 @@ registerNotificationTools(server, RHYTHM_AGENT_URL);
 registerGoogleTools(server, RHYTHM_API_URL, RHYTHM_API_TOKEN);
 registerPcoTools(server, RHYTHM_API_URL, RHYTHM_API_TOKEN);
 registerAgentScheduleTools(server, RHYTHM_API_URL, RHYTHM_API_TOKEN);
+registerAgentDelegationTools(server, RHYTHM_AGENT_URL, RHYTHM_API_TOKEN);
 registerAgentMemoryTools(server, RHYTHM_API_URL, RHYTHM_API_TOKEN);
 registerAgentResearchTools(server, RHYTHM_API_URL, RHYTHM_API_TOKEN);
 

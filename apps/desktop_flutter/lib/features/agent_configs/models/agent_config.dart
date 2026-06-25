@@ -22,6 +22,7 @@ class AgentConfig {
     this.systemPrompt,
     this.allowedMcps,
     this.allowedSkills,
+    this.allowedDelegates,
     this.modelProvider,
     this.modelId,
     this.ocAgent,
@@ -43,6 +44,8 @@ class AgentConfig {
           _parseStringList(json['allowedMcpsJson'] ?? json['allowedMcps']),
       allowedSkills:
           _parseStringList(json['allowedSkillsJson'] ?? json['allowedSkills']),
+      allowedDelegates: _parseStringList(
+          json['allowedDelegatesJson'] ?? json['allowedDelegates']),
       modelProvider: asString(json['modelProvider']),
       modelId: asString(json['modelId']),
       ocAgent: asString(json['ocAgent']),
@@ -76,6 +79,9 @@ class AgentConfig {
 
   /// List of permitted skill names for this profile.
   final List<String>? allowedSkills;
+
+  /// List of profile ids this manager can delegate to.
+  final List<String>? allowedDelegates;
 
   /// Preferred provider for AgentRunner model resolution (e.g. "anthropic").
   /// Null means fall back to the most-recently-used session model or the
@@ -121,6 +127,8 @@ class AgentConfig {
         'allowedMcpsJson': allowedMcps != null ? jsonEncode(allowedMcps) : null,
         'allowedSkillsJson':
             allowedSkills != null ? jsonEncode(allowedSkills) : null,
+        'allowedDelegatesJson':
+            allowedDelegates != null ? jsonEncode(allowedDelegates) : null,
         'modelProvider': modelProvider,
         'modelId': modelId,
         'ocAgent': ocAgent,
@@ -138,6 +146,7 @@ class AgentConfig {
     Object? systemPrompt = _sentinel,
     Object? allowedMcps = _sentinel,
     Object? allowedSkills = _sentinel,
+    Object? allowedDelegates = _sentinel,
     Object? modelProvider = _sentinel,
     Object? modelId = _sentinel,
     Object? ocAgent = _sentinel,
@@ -162,6 +171,9 @@ class AgentConfig {
       allowedSkills: identical(allowedSkills, _sentinel)
           ? this.allowedSkills
           : allowedSkills as List<String>?,
+      allowedDelegates: identical(allowedDelegates, _sentinel)
+          ? this.allowedDelegates
+          : allowedDelegates as List<String>?,
       modelProvider: identical(modelProvider, _sentinel)
           ? this.modelProvider
           : modelProvider as String?,

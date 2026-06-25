@@ -141,6 +141,19 @@ describe('AgentConfigsRepository', () => {
       expect(config.sortOrder).toBe(10);
     });
 
+    it('issue-P4-manager-delegation-c2: round-trips allowedDelegatesJson on insert', () => {
+      const delegates = JSON.stringify(['coding-agent']);
+      const config = repo.insert({
+        label: 'Manager',
+        icon: 'assets/agents/manager.png',
+        isManager: true,
+        allowedDelegatesJson: delegates,
+      });
+
+      expect(config.allowedDelegatesJson).toBe(delegates);
+      expect(repo.getById(config.id)?.allowedDelegatesJson).toBe(delegates);
+    });
+
     it('ignores legacy CLI fields if a stale client sends them (issue #581)', () => {
       const config = repo.insert({
         label: 'Stale Client',
@@ -196,6 +209,19 @@ describe('AgentConfigsRepository', () => {
       await new Promise((r) => setTimeout(r, 10));
       const updated = repo.update(created.id, { label: 'Updated' });
       expect(updated?.updatedAt).toBeTypeOf('string');
+    });
+
+    it('issue-P4-manager-delegation-c2: round-trips allowedDelegatesJson on update', () => {
+      const created = repo.insert({
+        label: 'Delegation Update',
+        icon: 'assets/agents/delegation.png',
+      });
+      const delegates = JSON.stringify(['coding-agent', 'verification-gate']);
+
+      const updated = repo.update(created.id, { allowedDelegatesJson: delegates });
+
+      expect(updated?.allowedDelegatesJson).toBe(delegates);
+      expect(repo.getById(created.id)?.allowedDelegatesJson).toBe(delegates);
     });
 
     it('ignores legacy CLI fields on update if a stale client sends them (issue #581)', () => {

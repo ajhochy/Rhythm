@@ -1,0 +1,56 @@
+{
+  "issue": "P4-manager-delegation",
+  "generated": "2026-06-24",
+  "criteria": [
+    {
+      "criterion_id": "issue-P4-manager-delegation-c1",
+      "text": "D1: agent_configs.allowed_delegates_json column (additive pragma-guarded ALTER on SQLite + ADD COLUMN IF NOT EXISTS on postgres_bootstrap) + repository/model field.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/agent_configs.test.ts",
+      "test_id": "issue-P4-manager-delegation-c1: agent_configs exposes allowed_delegates_json",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-P4-manager-delegation-c2",
+      "text": "D1: repository/model field round-trips allowedDelegatesJson on insert and update.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/repositories/agent_configs_repository.test.ts",
+      "test_id": "issue-P4-manager-delegation-c2: repository round-trips allowedDelegatesJson",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-P4-manager-delegation-c3",
+      "text": "D2/D4: manager with allowed_delegates=[X] can call X re-scoped to the target profile.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/agent_delegation_auth.test.ts",
+      "test_id": "issue-P4-manager-delegation-c3: allowed manager delegation invokes target profile",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-P4-manager-delegation-c4",
+      "text": "D4: manager cannot delegate to unlisted profiles; non-manager cannot delegate; self-delegation is rejected; delegation depth is capped.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/agent_delegation_auth.test.ts",
+      "test_id": "issue-P4-manager-delegation-c4: delegation rejects unauthorized, self, and nested calls",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-P4-manager-delegation-c5",
+      "text": "D3: rhythm_delegate MCP/agent tool is registered and posts delegation requests to the local API.",
+      "mode": "unit",
+      "test_file": "apps/mcp_server/src/tools/agentDelegation.test.ts",
+      "test_id": "issue-P4-manager-delegation-c5: rhythm_delegate posts delegation request",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-P4-manager-delegation-c6",
+      "text": "D5: importer/config + UI surface for is_manager and allowed_delegates_json (importer-driven so it survives re-sync, per P3 — see syncOpencodeAgentProfiles).",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/agent_profile_sync_hygiene.test.ts",
+      "test_id": "issue-P4-manager-delegation-c6: workflow-orchestrator imports as manager with allowed delegates",
+      "status": "pass"
+    }
+  ],
+  "stack": "typescript,dart",
+  "not_tested": []
+}

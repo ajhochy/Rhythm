@@ -71,6 +71,7 @@ export class AgentConfigsController {
         systemPrompt: typeof body.systemPrompt === 'string' ? body.systemPrompt : null,
         allowedMcpsJson: typeof body.allowedMcpsJson === 'string' ? body.allowedMcpsJson : null,
         allowedSkillsJson: typeof body.allowedSkillsJson === 'string' ? body.allowedSkillsJson : null,
+        allowedDelegatesJson: typeof body.allowedDelegatesJson === 'string' ? body.allowedDelegatesJson : null,
         modelProvider: typeof body.modelProvider === 'string' ? body.modelProvider : null,
         modelId: typeof body.modelId === 'string' ? body.modelId : null,
         ocAgent: typeof body.ocAgent === 'string' ? body.ocAgent : null,
@@ -122,6 +123,7 @@ export class AgentConfigsController {
       if (body.systemPrompt !== undefined) patch.systemPrompt = typeof body.systemPrompt === 'string' ? body.systemPrompt : null;
       if (body.allowedMcpsJson !== undefined) patch.allowedMcpsJson = typeof body.allowedMcpsJson === 'string' ? body.allowedMcpsJson : null;
       if (body.allowedSkillsJson !== undefined) patch.allowedSkillsJson = typeof body.allowedSkillsJson === 'string' ? body.allowedSkillsJson : null;
+      if (body.allowedDelegatesJson !== undefined) patch.allowedDelegatesJson = typeof body.allowedDelegatesJson === 'string' ? body.allowedDelegatesJson : null;
       if (body.modelProvider !== undefined) patch.modelProvider = typeof body.modelProvider === 'string' ? body.modelProvider : null;
       if (body.modelId !== undefined) patch.modelId = typeof body.modelId === 'string' ? body.modelId : null;
       if (body.ocAgent !== undefined) patch.ocAgent = typeof body.ocAgent === 'string' ? body.ocAgent : null;

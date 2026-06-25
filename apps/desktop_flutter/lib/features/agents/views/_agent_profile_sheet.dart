@@ -320,6 +320,7 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
   late final TextEditingController _labelController;
   late final TextEditingController _iconController;
   late final TextEditingController _systemPromptController;
+  late final TextEditingController _allowedDelegatesController;
 
   late bool _isManager;
 
@@ -345,6 +346,8 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
     _iconController = TextEditingController(text: cfg?.icon ?? 'terminal');
     _systemPromptController =
         TextEditingController(text: cfg?.systemPrompt ?? '');
+    _allowedDelegatesController =
+        TextEditingController(text: (cfg?.allowedDelegates ?? []).join('\n'));
     _isManager = cfg?.isManager ?? false;
     _selectedMcps =
         cfg?.allowedMcps != null ? List<String>.from(cfg!.allowedMcps!) : null;
@@ -381,7 +384,18 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
     _labelController.dispose();
     _iconController.dispose();
     _systemPromptController.dispose();
+    _allowedDelegatesController.dispose();
     super.dispose();
+  }
+
+  List<String> _parseDelimitedList(String value) {
+    return value
+        .split(RegExp(r'[,\n]'))
+        .map((v) => v.trim())
+        .where((v) => v.isNotEmpty)
+        .toSet()
+        .toList()
+      ..sort();
   }
 
   // --------------------------------------------------------------------------
@@ -418,6 +432,9 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
             _selectedMcps != null ? jsonEncode(_selectedMcps) : null,
         'allowedSkillsJson':
             _selectedSkills != null ? jsonEncode(_selectedSkills) : null,
+        'allowedDelegatesJson': _isManager
+            ? jsonEncode(_parseDelimitedList(_allowedDelegatesController.text))
+            : null,
         'modelProvider': _selectedModel?.provider,
         'modelId': _selectedModel?.modelId,
       };
@@ -441,6 +458,9 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
             _selectedMcps != null ? jsonEncode(_selectedMcps) : null,
         'allowedSkillsJson':
             _selectedSkills != null ? jsonEncode(_selectedSkills) : null,
+        'allowedDelegatesJson': _isManager
+            ? jsonEncode(_parseDelimitedList(_allowedDelegatesController.text))
+            : null,
         'modelProvider': _selectedModel?.provider,
         'modelId': _selectedModel?.modelId,
       };
@@ -491,6 +511,10 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
                 _buildSystemPromptSection(),
                 const SizedBox(height: 16),
                 _buildManagerToggle(),
+                if (_isManager) ...[
+                  const SizedBox(height: 16),
+                  _buildAllowedDelegatesSection(),
+                ],
                 const SizedBox(height: 24),
                 _buildModelSection(),
                 const SizedBox(height: 24),
@@ -642,6 +666,38 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
           controlAffinity: ListTileControlAffinity.leading,
         ),
       ),
+    );
+  }
+
+  Widget _buildAllowedDelegatesSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _sectionLabel('Allowed Delegates'),
+        const SizedBox(height: 10),
+        TextField(
+          controller: _allowedDelegatesController,
+          enabled: _isManager,
+          minLines: 2,
+          maxLines: 5,
+          style: TextStyle(
+            color: _isManager
+                ? context.rhythm.textPrimary
+                : context.rhythm.textMuted,
+            fontSize: 13,
+          ),
+          decoration: _inputDecoration(
+            context,
+            'coding-agent, verification-gate',
+            alignLabelWithHint: true,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          'Profile ids this manager can invoke as delegated specialist runs.',
+          style: TextStyle(color: context.rhythm.textMuted, fontSize: 11),
+        ),
+      ],
     );
   }
 
