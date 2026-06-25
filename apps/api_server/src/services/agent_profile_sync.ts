@@ -47,6 +47,24 @@ const INTERNAL_PRIMARY = new Set(['compaction', 'summary', 'title']);
 // edit would be clobbered the next time syncOpencodeAgentProfiles runs.
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// is_manager: NOT set by the importer (intentional decoupling)
+//
+// The importer controls session_selectable (picker visibility) but must NEVER
+// touch is_manager. That flag designates the delegator / default-agent role
+// and is USER-CONTROLLED — any profile (e.g. Secretary) may hold it, and it
+// must survive re-syncs unchanged.
+//
+// On INSERT  → is_manager defaults to false (DB column DEFAULT 0; the
+//              AgentConfigInput field is omitted so repo.insert() writes 0).
+// On UPDATE  → is_manager is never included in the patch object, so the
+//              existing DB value is preserved exactly as the user left it.
+//
+// DO NOT add isManager to the INSERT input or the UPDATE patch here.
+// Enforce this invariant with the tests in agent_profile_sync_hygiene.test.ts
+// (see "is_manager decoupling" describe block).
+// ---------------------------------------------------------------------------
+
 /** The single dev front-door that should be session-selectable. */
 const DEV_FRONT_DOOR_PRIMARY = 'workflow-orchestrator';
 
@@ -55,7 +73,17 @@ const DEV_FRONT_DOOR_PRIMARY = 'workflow-orchestrator';
  * not appear alongside the primary in the AgentSelectorPill. These are still
  * imported as profiles so the scheduler + programmatic callers can target them.
  */
-const DEV_FRONT_DOOR_SECONDARY = new Set(['superpowers', 'plan']);
+const DEV_FRONT_DOOR_SECONDARY = new Set([
+  'superpowers',
+  'plan',
+  // CLI / system agents that must stay hidden from the session picker across
+  // every sync. They are still imported as profiles so programmatic callers
+  // can target them, but they must never appear in the AgentSelectorPill.
+  'build',
+  'codex',
+  'gemini-cli',
+  'opencode',
+]);
 
 // ---------------------------------------------------------------------------
 // Tier → model mapping (P3 — importer profile hygiene)
@@ -347,7 +375,6 @@ export async function syncOpencodeAgentProfiles(
         model?: string | null;
       };
       const prompt = typeof a.prompt === 'string' && a.prompt.trim() !== '' ? a.prompt : null;
-      const isManager = name === DEV_FRONT_DOOR_PRIMARY;
       const allowedDelegatesJson = deriveAllowedDelegates(name);
 
       // Resolve model: registry string → tier detection → Tier 2 default.
@@ -362,10 +389,13 @@ export async function syncOpencodeAgentProfiles(
         // idempotent. Backfill prompt/model ONLY when the profile has none yet
         // — never clobber values the user edited in the designer (which is now
         // the source of truth for model/prompt).
+        //
+        // is_manager is intentionally absent — see comment block above the
+        // DEV_FRONT_DOOR_PRIMARY constant. That flag is user-controlled and
+        // must survive re-syncs unchanged.
         const patch: Parameters<typeof repo.update>[1] = {
           ocAgent: name,
           sessionSelectable: selectable,
-          isManager,
         };
         if (!existing.systemPrompt && prompt) patch.systemPrompt = prompt;
         if (!existing.modelProvider && !existing.modelId) {
@@ -402,6 +432,11 @@ export async function syncOpencodeAgentProfiles(
           icon: 'assets/agents/opencode.png',
           isAgent: true,
           enabled: true,
+          // is_manager is intentionally NOT set here. The delegator/manager role
+          // is user-controlled and must never be assigned by the importer.
+          // Omitting the field lets repo.insert() write the DB DEFAULT (0/false).
+          // See "is_manager decoupling" comment block above and
+          // agent_profile_sync_hygiene.test.ts for the enforcement tests.
           ocAgent: name,
           sessionSelectable: selectable,
           systemPrompt: prompt,
@@ -412,7 +447,7 @@ export async function syncOpencodeAgentProfiles(
           // Derive per-agent skill allowlist from name. null = all eligible
           // (fail-open for agents not in the map). See deriveSkillAllowlist().
           allowedSkillsJson: deriveSkillAllowlist(name),
-          isManager,
+          // is_manager is intentionally NOT set here — see comment block above.
           allowedDelegatesJson,
           sortOrder: 100,
         });
