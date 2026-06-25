@@ -61,3 +61,18 @@ docs/superpowers/plans/
 
 # GitNexus local index
 .gitnexus/
+
+# Vendored opencode fork (apps/opencode_fork) — source is committed, build
+# artifacts are not. The subtree ships its own .gitignore too; these root
+# entries make the intent explicit. See
+# docs/ai/decisions/2026-06-25-opencode-fork-vendoring.md
+apps/opencode_fork/node_modules/
+apps/opencode_fork/**/node_modules/
+apps/opencode_fork/.bun/
+apps/opencode_fork/.turbo/
+apps/opencode_fork/**/.turbo/
+apps/opencode_fork/**/dist/
+apps/opencode_fork/**/ts-dist/
+apps/opencode_fork/**/*.bun-build
+apps/opencode_fork/.sst/
+apps/opencode_fork/**/*.tsbuildinfo

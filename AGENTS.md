@@ -12,6 +12,18 @@ After significant work, log to `docs/ai/` (never to one growing file):
 
 Do **not** write session logs to the Obsidian vault note via `obsidian_post_file` — that path is retired; it created a second, divergent log. The vault note is now a read-only index that links to these `docs/ai/` files.
 
+## Vendored subtree: `apps/opencode_fork`
+
+`apps/opencode_fork/` is a **vendored git subtree** of `github.com/sst/opencode`
+at tag **v1.14.49** — NOT a standalone project and NOT part of the api_server
+TypeScript build. It exists so Rhythm can carry a minimal patch to the engine's
+MCP tool-schema assembly (per-session scoping by Agent Profile) and build a
+standalone engine binary from it. Do **not** add `apps/opencode_fork` to
+`apps/api_server/tsconfig.json` or any existing build pipeline. Edit it only when
+working the `mcp-scope-*` issues; sync it with upstream via `git subtree pull`.
+See `docs/ai/decisions/2026-06-25-opencode-fork-vendoring.md` for the import
+command, upstream-sync procedure, and rebase-on-upstream steps.
+
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 

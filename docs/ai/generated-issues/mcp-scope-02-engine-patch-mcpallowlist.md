@@ -72,6 +72,17 @@ injected exactly as upstream (back-compat preserved).
   - An id in `tools` that no server exposes is silently absent (no throw).
 - [ ] `cd apps/opencode_fork && bun test` (or the fork's test command) exits 0.
 - [ ] Existing `apps/api_server` tests unchanged: `cd apps/api_server && npx tsc --noEmit && npx vitest run` exits 0.
+- [ ] **Inherited-baseline typecheck unblock (from mcp-scope-01 triage, 2026-06-25):**
+  pristine upstream v1.14.49 ships **one** pre-existing `TS2416` in
+  `packages/opencode/src/bus/global.ts:14` (`GlobalBusEmitter.emit` override is
+  narrower than the `@types/node` 24.x `EventEmitter` base signature). It is
+  unrelated to MCP and does NOT block the `bun build` binary (verified: bun
+  transpiles the file at exit 0). Because this issue's typecheck gate requires
+  `bun run typecheck` to exit 0, carry a **minimal, clearly-commented** type-only
+  fix to that override signature (broaden to match the base, or a scoped
+  annotation) so the opencode-package typecheck is green. Keep it ≤ a few lines to
+  minimize `git subtree pull` conflict surface; note it in the vendoring decision
+  doc as a carried patch.
 
 ---
 
