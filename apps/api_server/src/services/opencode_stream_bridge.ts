@@ -458,6 +458,23 @@ export class OpencodeStreamBridge {
                 tokens != null ? JSON.stringify(tokens) : null,
                 cost,
               );
+
+              // Backfill the session's actual model from the assistant message
+              // (opencode reports providerID/modelID even when the session was
+              // created without an explicit pick). Only fills when empty, then
+              // broadcasts so the context panel + model-derived icon update live.
+              if (role === 'assistant') {
+                const providerID = info.providerID as string | undefined;
+                const modelID = info.modelID as string | undefined;
+                if (providerID && modelID) {
+                  const modelled = this.sessionsRepo.backfillModel(
+                    localSessionId,
+                    providerID,
+                    modelID,
+                  );
+                  if (modelled) broadcastSessionUpdated(modelled);
+                }
+              }
             }
           } catch (err) {
             logger.error('[OpencodeStreamBridge] Failed to persist message info:', err);

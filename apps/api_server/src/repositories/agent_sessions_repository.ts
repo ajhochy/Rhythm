@@ -210,6 +210,28 @@ export class AgentSessionsRepository {
   }
 
   /**
+   * Persist the actual provider/model a session ran with — but ONLY when the
+   * row has none yet. Sessions created without an explicit model pick (e.g.
+   * instant "+ New") leave provider_id/model_id empty; opencode still runs a
+   * default model (the bridged account), and the assistant message reports it.
+   * Backfilling lets the context panel + the model-derived session icon show
+   * the real model. Never overrides an explicit user selection.
+   * Returns the updated row when a write happened, else null.
+   */
+  backfillModel(id: string, providerId: string, modelId: string): AgentSession | null {
+    if (!providerId || !modelId) return null;
+    const now = new Date().toISOString();
+    const result = getDb()
+      .prepare(
+        `UPDATE agent_sessions
+           SET provider_id = ?, model_id = ?, updated_at = ?
+         WHERE id = ? AND (provider_id IS NULL OR provider_id = '')`,
+      )
+      .run(providerId, modelId, now, id);
+    return result.changes > 0 ? this.findById(id) : null;
+  }
+
+  /**
    * OPC-M1-4 — Persist error state on the session row.
    * Replaces the in-memory setTimeout sentinel: error is now durable and
    * survives bridge restarts. Clearing happens only on an explicit user action.

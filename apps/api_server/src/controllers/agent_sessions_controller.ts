@@ -36,6 +36,44 @@ const messagesRepo = new AgentSessionMessagesRepository();
 import { gitCheckout, probeVcs } from '../services/vcs_probe';
 
 /**
+ * Learn a session's actual model from opencode when the row never recorded one
+ * (created without an explicit pick). Reads the session's messages, finds the
+ * most recent assistant message's providerID/modelID, backfills the row (only
+ * when still empty), and broadcasts the update so live clients refresh. Best
+ * effort — any failure is logged and swallowed (never blocks a request).
+ */
+async function backfillSessionModelFromOpencode(
+  localSessionId: string,
+  sdkSessionId: string,
+): Promise<void> {
+  try {
+    const messages = await opencodeClient.listMessages(sdkSessionId);
+    for (let i = messages.length - 1; i >= 0; i--) {
+      // SDK shape is { info, parts }; tolerate a flat shape defensively.
+      const m = messages[i] as unknown as Record<string, unknown>;
+      const info = (m.info ?? m) as Record<string, unknown>;
+      if (
+        info?.role === 'assistant' &&
+        typeof info.providerID === 'string' &&
+        typeof info.modelID === 'string'
+      ) {
+        const updated = repo.backfillModel(
+          localSessionId,
+          info.providerID,
+          info.modelID,
+        );
+        if (updated) broadcastSessionUpdated(updated);
+        return;
+      }
+    }
+  } catch (err) {
+    logger.warn(
+      `[AgentSessionsController] model backfill failed for ${localSessionId}: ${String(err)}`,
+    );
+  }
+}
+
+/**
  * C1 — MCP role resolution helpers.
  *
  * `.mcp-roles/` lives at the repo root. The controller lives at:
@@ -208,6 +246,14 @@ export class AgentSessionsController {
       // Legacy rows (parts_json IS NULL) get a synthetic [{type:'text',text:rawText}] shim.
       const messages = messagesRepo.listBySessionStructured(session.id, 200);
       res.json({ session, messages });
+
+      // Non-blocking: if the session never recorded a model (created without an
+      // explicit pick), learn the actual model from opencode and broadcast the
+      // update so the context panel + model-derived icon fill in. Fire-and-forget
+      // so it never adds latency to opening a session.
+      if ((!session.providerId || session.providerId === '') && session.sdkSessionId) {
+        void backfillSessionModelFromOpencode(session.id, session.sdkSessionId);
+      }
     } catch (err) {
       next(err);
     }
