@@ -2,36 +2,41 @@
 
 ## Current focus
 
-**2026-06-24 — Production-trigger scheduled task parity implemented and automated verification passed locally.**
+**2026-06-24 — P4 manager-to-specialist delegation implemented locally.**
 
-Issue A (`docs/ai/generated-issues/A-prod-trigger-scope-model-parity.md`) closes the server-side gap left by the scheduled-task model/scope work: the production scheduler path now resolves the effective profile scope/model before inserting `pending_claude_triggers`.
+Follow-up B / P4 D1-D5 is implemented on `feature/agent-scheduler`: manager profiles can delegate to importer-authorized specialist profiles through a local API + MCP tool, with sub-runs invoked through `AgentRunner.run` under the target profile id so the existing `resolveProfileScope` path re-scopes model, MCPs, skills, system prompt, and `ocAgent`.
 
-Completed in this working tree:
-- Production trigger inserts now persist effective MCP scope, skill scope, and model.
-- `pending_claude_triggers` has additive nullable `model_provider` / `model_id` columns in SQLite and Postgres bootstrap.
-- `ClaudeTriggersRepository` exposes `modelProvider` / `modelId` in trigger responses.
-- Contract coverage exists at `docs/ai/contracts/issue-A-prod-trigger-scope-model-parity.json`.
+Run detail: `docs/ai/runs/2026-06-24-manager-delegation.md`.
+Contract: `docs/ai/contracts/issue-P4-manager-delegation.json`.
 
-Run detail: `docs/ai/runs/2026-06-24-prod-trigger-scope-model-parity.md`.
+**2026-06-25 — smoke "create→close" regression was a misdiagnosis (no backend bug).**
+The backend does not auto-close new sessions (verified live + statically). The new
+session was appended to the bottom of a tall-card list. Fixed in the Flutter UI:
+newest-first ordering + compact `SessionRow`. Detail:
+`docs/ai/runs/2026-06-25-session-list-ordering-density.md`. Still open: delegated-session
+card stays "Starting"/no usage (synchronous run, no WS lifecycle streaming).
 
 ## Active branch / PR
 
 - **Branch:** `feature/agent-scheduler`
 - **PR:** [#734](https://github.com/ajhochy/Rhythm/pull/734) — open; do not auto-merge
 - **Base:** `main`
-- **Local state:** verified local commit pending push to PR #734
+- **Local state:** P4 implementation is uncommitted and unpushed in this working tree
 
 ## In progress
 
-Production-trigger parity is implemented locally. Automated checks passed. Local commit is pending push. Manual app smoke remains before merge.
+- D1: `agent_configs.allowed_delegates_json` added to SQLite/Postgres bootstrap and repository/API models.
+- D2-D4: `delegateToAgent` service authorizes manager callers, validates allowed delegates, blocks self-delegation, caps depth at one layer, and runs target sub-runs under the target profile.
+- D3: `rhythm_delegate` MCP tool posts to `/agent-delegation/delegate` on the local agent API.
+- D5: `syncOpencodeAgentProfiles` importer marks `workflow-orchestrator` as manager and re-syncs its allowed delegate list; Flutter model/profile sheet surfaces `allowedDelegatesJson`.
+- Generated issue split exists under `docs/ai/generated-issues/D1-*.md` through `D5-*.md`.
 
 ## Risks / known issues
 
-- **Flutter drain follow-up remains:** `AgentTriggerWatcher` / `PendingTrigger` / `AgentsController.handleIncomingTrigger` still do not consume the trigger `prompt`, scope, or model fields. This is intentionally out of scope for issue A and remains the documented B-flutter follow-up.
-- **Research/webhook producers remain follow-ups:** `agentResearchController.ts` and `agentWebhookController.ts` still have independent trigger inserts that do not resolve model/scope at insert time.
-- **Manual smoke not run:** existing local listeners occupied ports 4001/4096, so `apps/api_server/scripts/smoke-launch.sh` was not run because it kills those listeners. Run manual smoke before merging.
-- **P3 allowlist maintenance:** `AGENT_SKILL_ALLOWLIST_MAP` is hand-maintained. Add new chain agents when the registry gains them.
-- **Pre-existing flaky test:** `tasks_controller.test.ts > overdue=yes` intermittently returns 200 vs 400 due shared test DB/server state; unrelated to this work.
+- GitNexus reports the local P4 diff as **medium** risk; direct compare against `main` is **critical** because this branch already contains a large stack of unrelated prior work.
+- `AgentConfig` Dart model impact remains **HIGH** because it is shared by agent views/widgets and the follow-up smoke flow; this change is additive and covered by a focused model/sheet test plus `flutter analyze --no-fatal-infos`.
+- Delegation authorization currently trusts the caller-supplied manager profile id, then checks that profile in the local DB. This matches the MCP/tool boundary but does not cryptographically bind the live opencode session to that profile.
+- Partial app smoke ran after implementation. The isolated smoke server attempt timed out, but the same allowed manager delegation passed against the currently running live app server after importer sync.
 
 ## Test status
 
@@ -39,13 +44,18 @@ Production-trigger parity is implemented locally. Automated checks passed. Local
 |-------|--------|
 | `ai-workflow checks --level issue` | **PASS** — Flutter analyze, Dart format, API `tsc --noEmit` |
 | `ai-workflow checks --level pr` | **PASS** — issue checks + API Vitest |
-| `apps/api_server npm run build` | **PASS** — `tsc -p tsconfig.json` |
-| `apps/api_server npx vitest run` | **PASS** — 139 files, 1178 tests |
-| Focused contract tests | **PASS** — prod trigger parity, schema, trigger exposure, scheduler dispatch |
-| Smoke | **MANUAL PENDING** — `ai-workflow checks --level smoke` points to `docs/testing/manual-smoke.md` |
+| `apps/api_server npx tsc --noEmit` | **PASS** |
+| `apps/api_server npx vitest run` | **PASS** — 140 files, 1184 tests |
+| `apps/api_server` focused P4 contract tests | **PASS** — schema, repo, delegation auth, importer |
+| `apps/mcp_server npm run typecheck` | **PASS** |
+| `apps/mcp_server npx vitest run src/tools/agentDelegation.test.ts` | **PASS** |
+| `apps/desktop_flutter flutter test test/features/agents/agent_profile_model_picker_test.dart` | **PASS** — 6 tests |
+| `apps/desktop_flutter flutter analyze --no-fatal-infos` | **PASS** — info-level pre-existing lints remain |
+| GitNexus `detect-changes --repo Rhythm --scope unstaged` | **PASS** — medium risk, 14 files / 20 symbols / 4 flows |
+| P4 live smoke | **PASS / PARTIAL SCOPE** — see `smoke-test.md`; launch/API/importer/auth guards passed, and live allowed delegation returned `SMOKE_DELEGATION_OK` |
 
 ## Next step
 
-1. Push/update PR #734 after repo/branch confirmation, then watch CI.
-2. Run manual smoke before merge, especially scheduled-task production-trigger drain behavior and existing app launch checks.
-3. Implement the Flutter drain follow-up only after this server-side issue is reviewed.
+1. Run manual profile-sheet smoke for editing `workflow-orchestrator` allowed delegates.
+2. Review whether `rhythm_delegate` should bind caller identity to the active session profile instead of trusting the caller-supplied profile id.
+3. Commit/push P4 after final review.

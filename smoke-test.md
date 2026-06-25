@@ -1,34 +1,46 @@
 # Smoke Test
 
-Scope: PR #649 (`workflow/run-2026-05-27`) for issues #648, #638, #635, and #630.
-Date: 2026-05-27
+Scope: PR #734 / `feature/agent-scheduler`, P4 manager-to-specialist delegation D1-D5.
+Date: 2026-06-24 (re-run against the live running app server)
 
 ## Findings
 
-- Launched the branch build from `/Users/ajhochhalter/Documents/Rhythm/apps/desktop_flutter/build/macos/Build/Products/Debug/Rhythm.app` after confirming the process path with `ps`; avoided the installed `/Applications/Rhythm.app` process that initially attached through the same bundle ID.
-- Local smoke guard was enabled with `RHYTHM_LOCAL_SMOKE=1` via `launchctl setenv` and the Flutter build used `--dart-define=RHYTHM_LOCAL_SMOKE=1`.
-- The local agent server on `localhost:4001` was healthy and reported all four capabilities as true: `claude-code`, `codex`, `gemini-cli`, and `opencode`.
-- #648 passed manually: a new Gemini CLI session used `openrouter/google/gemini-3-flash-preview`, reached `Idle`, and did not show `ProviderModelNotFoundError`.
-- #638 passed manually using a live Gemini session: with chat output present, the full transcript pane showed `Error: Rhythm API error 401: [object Object]`, proving WS/system error frames are visible in the hasChat=true path.
-- #635 passed manually: the expanded mini-bubble showed `bubble smoke check` immediately after Send, before the assistant response arrived; the assistant response appeared below afterward.
-- #630 passed manually: the Claude Code session rendered the AskUserQuestion card with `Quick` and `Thorough` option buttons. Clicking `Quick` submitted the answer back into the transcript as a user message.
-- Contract tests passed for all four issues, and all four live smoke checks are green.
+- The local agent API (port 4001) was already running, spawned by the live Flutter macOS app (`Rhythm.app`, pid 38523) with `AGENT_LOCAL=true`, so `/agent-delegation/delegate` is reachable without auth (route guard is `if (!env.agentLocal) requireAuth`).
+- Acceptance baseline = contract `docs/ai/contracts/issue-P4-manager-delegation.json` (c1-c6). All six criteria were exercised behaviorally against the live server this run.
+- Live config state confirms the D5 importer outcome: `workflow-orchestrator.isManager=true` with 12 allowed delegates including `coding-agent`, excluding itself; `coding-agent` present, enabled, isAgent.
+- Happy-path delegation returned HTTP 200 in 1.7s with `output="SMOKE_DELEGATION_OK"` and created a persisted session `Delegated: Coding Agent` (`agentKind=coding-agent`, status `idle`), confirming the sub-run is re-scoped to the target profile.
 
 ## Checks
 
 | Area | Check | How to run | Result | Reasoning |
 | --- | --- | --- | --- | --- |
-| Setup | Use requested branch and PR head | `git status --short --branch`; `gh pr view 649 --repo ajhochy/Rhythm --json headRefName,baseRefName,mergeStateStatus,statusCheckRollup` | Success | Checkout was `workflow/run-2026-05-27` at `origin/workflow/run-2026-05-27`; PR #649 head matched and CI checks were green. |
-| Setup | Launch app from branch build, not installed app | `flutter build macos --debug --dart-define=RHYTHM_LOCAL_SMOKE=1`; `open -na apps/desktop_flutter/build/macos/Build/Products/Debug/Rhythm.app`; `ps -p <pid> -o args=` | Success | Running process path was `/Users/ajhochhalter/Documents/Rhythm/apps/desktop_flutter/build/macos/Build/Products/Debug/Rhythm.app/Contents/MacOS/Rhythm`. |
-| Backend | Local agent server is healthy | `curl http://localhost:4001/health`; `curl http://localhost:4001/agents/capabilities` | Success | Health returned ok; capabilities returned true for claude-code, codex, gemini-cli, and opencode. |
-| Frontend/API #648 | Start Gemini CLI with simple prompt and no invalid model error | Agents -> New -> pick Gemini/OpenRouter `google/gemini-3-flash-preview` -> send `hello`; inspect UI and `GET /agent-sessions` | Success | Session row became `agentKind=gemini-cli`, `providerId=openrouter`, `modelId=google/gemini-3-flash-preview`, status `idle`; transcript did not show `ProviderModelNotFoundError`. |
-| Frontend #638 | WS error frame appears in full transcript when chat messages exist | Observe Gemini transcript after live run generated chat output plus dashboard tool error | Success | Full pane showed `Error: Rhythm API error 401: [object Object]` below SDK chat/tool output, not only in the mini-bubble. |
-| Frontend #635 | Expanded mini-bubble shows user message immediately and assistant later | Expand floating session bubble, send `bubble smoke check`, observe bubble | Success | The user message appeared immediately as a purple message in the expanded bubble; later assistant output appeared below it. |
-| Frontend #630 | AskUserQuestion card renders option buttons and submits an answer | New Claude Code session; send prompt asking for an AskUserQuestion with `quick` and `thorough` options; click `Quick` | Success | The card rendered `Response depth`, `How would you like me to approach this?`, and `Quick`/`Thorough` buttons. Clicking `Quick` inserted a `Quick` user message in the transcript. |
-| Automated support | Contract tests for #630/#635/#638 pass | `cd apps/desktop_flutter && flutter test test/features/agents/issue_630_contract_test.dart test/features/agents/issue_635_contract_test.dart test/features/agents/issue_638_contract_test.dart` | Success | 8 Flutter tests passed, including AskUserQuestion dispatch and Map option label parsing contracts. |
-| Automated support | Contract tests for #648 pass | `cd apps/api_server && /usr/local/bin/npm test -- --run src/__tests__/issue_648_contract.test.ts` | Success | 3 Vitest tests passed, confirming `google/gemini-3-flash` is absent and preview fallback remains. |
+| Backend | Local agent API alive | `curl localhost:4001/health` | Success | `{"status":"ok","service":"rhythm-api-server"}`. Server spawned by the running app. |
+| Backend D5 | Importer state: manager + delegates | `GET /agent-configs`, inspect `workflow-orchestrator` | Success | `isManager=true`, 12 delegates, includes `coding-agent`, excludes self; `coding-agent` enabled+isAgent. |
+| Backend D1 | API round-trips `allowedDelegatesJson` (insert) | `POST /agent-configs` with `allowedDelegatesJson:"[\"coding-agent\"]"` | Success | Created config returned `allowedDelegatesJson=["coding-agent"]`, `isManager=true`. |
+| Backend D1 | API round-trips `allowedDelegatesJson` (update) | `PATCH /agent-configs/:id` | Success | Returned `allowedDelegatesJson=["coding-agent","verification-gate"]`. Smoke config deleted (204); config count back to 21. |
+| Backend D4 | Non-manager cannot delegate | `POST /agent-delegation/delegate` caller `coding-agent` | Success | 403 `caller profile is not allowed to delegate`. |
+| Backend D4 | Manager → unlisted target rejected | `POST .../delegate` target `some-bogus-target` | Success | 403 `target profile is not an allowed delegate`. |
+| Backend D4 | Self-delegation rejected | `POST .../delegate` caller==target | Success | 400 `self-delegation is not allowed`. |
+| Backend D4 | Depth limit enforced | `POST .../delegate` `depth:1` | Success | 400 `delegation depth limit exceeded`. |
+| Backend D4 | Empty prompt rejected | `POST .../delegate` `prompt:""` | Success | 400 `prompt is required`. |
+| Backend D2/D3 | Allowed delegation runs re-scoped target | `POST .../delegate` caller `workflow-orchestrator` → target `coding-agent` | Success | HTTP 200, `output=SMOKE_DELEGATION_OK`, `targetAgentConfigId=coding-agent`, new session `3bb946b1-...`. |
+| Backend D2/D3 | Delegated sub-run persisted + re-scoped | `GET /agent-sessions`, find session | Success | Session `Delegated: Coding Agent`, `agentKind=coding-agent`, status `idle`. |
+| Frontend D5 | Profile sheet Manager toggle + Allowed Delegates editor | Manual: Agents → Profiles → open `workflow-orchestrator` → toggle/edit/save | Manual (visual) | Save mechanism (`PATCH allowedDelegatesJson`) and serialization (`agent_profile_model_picker_test.dart`, 6 tests) are both verified; only the visual click-through itself remains a human check. |
+
+## Regressions found during smoke
+
+| Area | Check | Result | Evidence |
+| --- | --- | --- | --- |
+| Frontend (UI) | Create a new agent session ("+ New") | **RESOLVED — was a misdiagnosis, not a backend bug** | Originally logged as "the backend closes every new session ~1s after create." Re-investigation (2026-06-25) **disproved** that: the server never auto-closes a freshly created session. The new row was simply appended to the **bottom** of a tall-card list and looked like it vanished. Fixed on the Flutter side: newest-first ordering + much denser session cards. See "Corrected diagnosis" below. |
+| Agents (UI) | Delegated session reaches terminal state + shows model/usage | **FAIL (cosmetic, still open)** | Delegated sub-run completes server-side (`status: idle`, correct reply) but the desktop card stays "Starting" with `Model ?/?`, `$0.0000`, 0 tokens — delegated runs execute synchronously inside `POST /agent-delegation/delegate` and never stream lifecycle/usage to the desktop client over `ws://localhost:4001/ws/agents`. |
+
+Corrected diagnosis (create→"vanish") — 2026-06-25:
+- The backend does **not** auto-close sessions. Verified live against the running `:4001` server: 6 programmatic creates (agent-less, `build` ×2, `claude-code` ×2, incl. a 3-at-once burst) all stayed `starting`; a real app "+ New" stayed `starting`; DB has `starting` sessions surviving up to 186 h.
+- The only path that writes `status='closed'` is `markClosed`, callable only via `agent_sessions_controller.ts:421/438` (which **throw 400**, so never on a 201 path) and `:737` = `DELETE /agent-sessions/:id`. The scheduler, `agent_runner`, the delegation service, and the opencode stream bridge never write `closed`; the server never emits a `session.closed` WS frame.
+- The smoke-era `closed` rows were **selective** (siblings created seconds apart survived), i.e. a transient create+DELETE actor during that smoke run — not a reconcile.
+- Real cause: `createSession` appended new rows to the **bottom** of the list and the cards were tall, so the new session was off-screen / easy to miss. Fix: sort the list newest-first (`_agents_nav_column.dart`) and shrink `SessionRow` to a single-line compact card (`_session_list_body.dart`). The new session is already auto-selected by `_instantCreateSession`.
 
 ## Known Gaps
 
-- Initial observation stopped too early while the question card was still hydrating. A later screenshot and live app state showed the card fully rendered; the `Quick` option was clicked and submitted successfully.
-- Follow-up issue https://github.com/ajhochy/Rhythm/issues/650 was filed from the premature failure read and then closed after the live smoke passed.
+- The profile-sheet editor click-through is the single genuine visual-UI manual check (open sheet, see Manager toggle + Allowed Delegates field, type, save). Its underlying PATCH save path and list serialization are verified automatically above, so the residual risk is purely rendering/interaction.
+- D3 was verified at the HTTP boundary the `rhythm_delegate` MCP tool posts to (`POST /agent-delegation/delegate`); the tool wrapper itself is covered by `agentDelegation.test.ts` (unit) rather than a live MCP round-trip this run.
