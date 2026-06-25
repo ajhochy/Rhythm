@@ -203,6 +203,12 @@ const Model = Schema.Struct({
   variant: optionalOmitUndefined(Schema.String),
 })
 
+// Rhythm carried patch (mcp-scope): per-session MCP allowlist schema.
+const McpAllowlist = Schema.Struct({
+  servers: Schema.mutable(Schema.Array(Schema.String)),
+  tools: Schema.mutable(Schema.Array(Schema.String)),
+})
+
 export const Info = Schema.Struct({
   id: SessionID,
   slug: Schema.String,
@@ -222,6 +228,8 @@ export const Info = Schema.Struct({
   time: Time,
   permission: optionalOmitUndefined(Permission.Ruleset),
   revert: optionalOmitUndefined(Revert),
+  // Rhythm carried patch (mcp-scope): optional per-session MCP tool allowlist.
+  mcpAllowlist: optionalOmitUndefined(McpAllowlist),
 }).annotate({ identifier: "Session" })
 export type Info = Types.DeepMutable<Schema.Schema.Type<typeof Info>>
 
@@ -246,6 +254,8 @@ export const CreateInput = Schema.optional(
     model: Schema.optional(Model),
     permission: Schema.optional(Permission.Ruleset),
     workspaceID: Schema.optional(WorkspaceID),
+    // Rhythm carried patch (mcp-scope): optional per-session MCP tool allowlist.
+    mcpAllowlist: Schema.optional(McpAllowlist),
   }),
 )
 export type CreateInput = Types.DeepMutable<Schema.Schema.Type<typeof CreateInput>>
@@ -459,6 +469,8 @@ export interface Interface {
     model?: Schema.Schema.Type<typeof Model>
     permission?: Permission.Ruleset
     workspaceID?: WorkspaceID
+    /** Rhythm carried patch (mcp-scope): per-session MCP tool allowlist. */
+    mcpAllowlist?: Info["mcpAllowlist"]
   }) => Effect.Effect<Info>
   readonly fork: (input: { sessionID: SessionID; messageID?: MessageID }) => Effect.Effect<Info, NotFound>
   readonly touch: (sessionID: SessionID) => Effect.Effect<void>
@@ -529,6 +541,8 @@ export const layer: Layer.Layer<
       directory: string
       path?: string
       permission?: Permission.Ruleset
+      /** Rhythm carried patch (mcp-scope): per-session MCP tool allowlist. */
+      mcpAllowlist?: Info["mcpAllowlist"]
     }) {
       const ctx = yield* InstanceState.context
       const result: Info = {
@@ -544,6 +558,7 @@ export const layer: Layer.Layer<
         agent: input.agent,
         model: input.model,
         permission: input.permission,
+        mcpAllowlist: input.mcpAllowlist,
         cost: 0,
         tokens: EmptyTokens,
         time: {
@@ -661,6 +676,8 @@ export const layer: Layer.Layer<
       model?: Schema.Schema.Type<typeof Model>
       permission?: Permission.Ruleset
       workspaceID?: WorkspaceID
+      /** Rhythm carried patch (mcp-scope): per-session MCP tool allowlist. */
+      mcpAllowlist?: Info["mcpAllowlist"]
     }) {
       const ctx = yield* InstanceState.context
       const workspace = yield* InstanceState.workspaceID
@@ -673,6 +690,7 @@ export const layer: Layer.Layer<
         model: input?.model,
         permission: input?.permission,
         workspaceID: input?.workspaceID ?? workspace,
+        mcpAllowlist: input?.mcpAllowlist,
       })
     })
 

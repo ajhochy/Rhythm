@@ -239,6 +239,8 @@ export interface Interface {
   readonly status: () => Effect.Effect<Record<string, Status>>
   readonly clients: () => Effect.Effect<Record<string, MCPClient>>
   readonly tools: () => Effect.Effect<Record<string, Tool>>
+  /** Rhythm carried patch (mcp-scope): returns composedKey → raw clientName for every connected tool. */
+  readonly toolClientNames: () => Effect.Effect<Record<string, string>>
   readonly prompts: () => Effect.Effect<Record<string, PromptInfo & { client: string }>>
   readonly resources: () => Effect.Effect<Record<string, ResourceInfo & { client: string }>>
   readonly add: (name: string, mcp: ConfigMCP.Info) => Effect.Effect<{ status: Record<string, Status> | Status }>
@@ -689,6 +691,23 @@ export const layer = Layer.effect(
       return result
     })
 
+    // Rhythm carried patch (mcp-scope): builds composedKey → raw clientName without
+    // splitting on "_" so hyphenated server names (e.g. "gmail-work") are preserved.
+    const toolClientNames = Effect.fn("MCP.toolClientNames")(function* () {
+      const result: Record<string, string> = {}
+      const s = yield* InstanceState.get(state)
+      for (const [clientName] of Object.entries(s.clients).filter(
+        ([name]) => s.status[name]?.status === "connected",
+      )) {
+        const listed = s.defs[clientName]
+        if (!listed) continue
+        for (const mcpTool of listed) {
+          result[sanitize(clientName) + "_" + sanitize(mcpTool.name)] = clientName
+        }
+      }
+      return result
+    })
+
     function collectFromConnected<T extends { name: string }>(
       s: State,
       listFn: (c: Client) => Promise<T[]>,
@@ -925,6 +944,7 @@ export const layer = Layer.effect(
       status,
       clients,
       tools,
+      toolClientNames,
       prompts,
       resources,
       add,

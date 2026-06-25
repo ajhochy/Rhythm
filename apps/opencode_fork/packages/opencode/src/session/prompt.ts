@@ -22,6 +22,7 @@ import MAX_STEPS from "../session/prompt/max-steps.txt"
 import { ToolRegistry } from "@/tool/registry"
 import { ToolJsonSchema } from "@/tool/json-schema"
 import { MCP } from "../mcp"
+import { filterMcpToolsByAllowlist } from "./mcp_allowlist"
 import { LSP } from "@/lsp/lsp"
 import { ulid } from "ulid"
 import { ChildProcess, ChildProcessSpawner } from "effect/unstable/process"
@@ -605,7 +606,16 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         })
       }
 
-      for (const [key, item] of Object.entries(yield* mcp.tools())) {
+      // Rhythm carried patch (mcp-scope): build keyToServer from MCP metadata (not string-split)
+      // then filter by session's mcpAllowlist before injecting tool schemas into model context.
+      const mcpToolsAll = yield* mcp.tools()
+      const keyToServer = yield* mcp.toolClientNames()
+      const allowedKeys = new Set(
+        filterMcpToolsByAllowlist(Object.keys(mcpToolsAll), keyToServer, input.session.mcpAllowlist),
+      )
+
+      for (const [key, item] of Object.entries(mcpToolsAll)) {
+        if (!allowedKeys.has(key)) continue
         const execute = item.execute
         if (!execute) continue
 

@@ -14,7 +14,8 @@ Approach: vendor opencode as a git subtree (`apps/opencode_fork`), carry a minim
 per-session `mcpAllowlist` patch, build a standalone binary, and have api_server
 pass each session's expanded profile allowlist on session create.
 
-**Issue mcp-scope-01 is DONE** (opencode @ v1.14.49 vendored). Now on Issue 02.
+**Issue mcp-scope-01 DONE** (opencode @ v1.14.49 vendored).
+**Issue mcp-scope-02 DONE** (engine patch + TS2416 carried fix; verification passed).
 
 ## Active branch / PR
 
@@ -25,33 +26,38 @@ pass each session's expanded profile allowlist on session create.
 
 ## In progress
 
-mcp-scope run, order: **01 (done)** → 02 (engine patch) → 05 (allowlist expander)
+mcp-scope run, order: 01 (done) → 02 (done) → **05** (allowlist expander, next)
 → 04 (api_server wiring) → local proof → 03 (CI binary bundle + sign) → 06 (verify).
-Next: Issue 02, preceded by `acceptance-contract`.
 
 ## Risks / known issues
 
-- **Upstream baseline TS2416** in `apps/opencode_fork/packages/opencode/src/bus/global.ts`
-  (pristine v1.14.49 `@types/node` EventEmitter generic). Non-blocking for the
-  binary; minimal type-only fix folded into Issue 02. Re-validate on each
-  `git subtree pull`. See `docs/ai/decisions/2026-06-25-opencode-fork-vendoring.md`.
 - **Issue 03 is the riskiest** — CI `bun build --compile` (arm64+x64) + macOS
   sign/notarize + bundle into the .app + PATH-prepend before `createOpencode`.
   Audit signing/secrets config statically before any release run.
 - **Pre-existing flaky test:** `tasks_controller.test.ts > overdue=yes` intermittent.
+- **`toolClientNames()` / `tools()` snapshot race:** both read `s.defs[clientName]`
+  from the same InstanceState snapshot in synchronous Effects; risk is low in practice
+  but should be kept in mind on future MCP refactors.
+- **Upstream TS2416 carried patch** in `bus/global.ts` — must re-validate on each
+  `git subtree pull` from upstream. See `docs/ai/decisions/2026-06-25-opencode-fork-vendoring.md`.
 
 ## Test status
 
 | Suite | Status |
 |-------|--------|
-| `apps/api_server npx tsc --noEmit` | **PASS** — exit 0 (no opencode_fork bleed) |
-| `apps/opencode_fork bun install` | **PASS** — exit 0 (upstream lockfile unchanged) |
-| opencode pkg `bun run typecheck` | **1 baseline error** — upstream TS2416, deferred to Issue 02 |
-| GitNexus detect_changes vs main | additions-only; no existing code symbol modified |
+| `apps/api_server npx tsc --noEmit` | **PASS** — exit 0 |
+| `apps/api_server vitest` | **PASS** — exit 0 |
+| `apps/opencode_fork bun run typecheck` | **PASS** — exit 0 (TS2416 fixed) |
+| `apps/opencode_fork bun test src/session/mcp_allowlist.test.ts` | **PASS** — 5/5 |
+| `apps/opencode_fork bun test src/session/` | **PASS** — 5 pass, 0 fail |
+| `flutter analyze --no-fatal-infos` | **PASS** |
+| `dart format --set-exit-if-changed` | **PASS** |
 
 ## Next step
 
-1. `acceptance-contract` for Issue mcp-scope-02 (per-session `mcpAllowlist` gate).
-2. coding-agent: patch `session/session.ts` + `session/prompt.ts`, add fork unit
-   test, carry the baseline TS2416 fix; `verification-gate`.
-3. Continue 05 → 04 → local proof → 03 → 06; open draft PR at end. No merge.
+1. Implement Issue **mcp-scope-05** (allowlist expander: `.mcp-roles` config → flat sanitized `<server>_<tool>` id list).
+2. Implement Issue **mcp-scope-04** (api_server wiring: pass `mcpAllowlist` on `createSession`, both paths).
+3. Local end-to-end proof (fork binary on PATH, open Secretary session, verify tool count drops).
+4. Issue **mcp-scope-03** (CI binary bundle + sign).
+5. Issue **mcp-scope-06** (verification + acceptance measurement).
+6. Open draft PR. No merge.
