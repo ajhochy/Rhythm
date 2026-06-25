@@ -2,52 +2,56 @@
 
 ## Current focus
 
-**2026-06-25 — ACTUALLY remove is_manager forcing write from the importer.**
+**2026-06-25 — Per-session MCP tool-schema scoping (forked opencode engine).**
 
-PR #741 (`fix/decouple-ismanager-importer`) has been rebased onto
-`feature/agent-scheduler` and now contains the real fix:
-- `const isManager = name === DEV_FRONT_DOOR_PRIMARY` deleted.
-- `isManager` removed from both the UPDATE patch and the INSERT call.
-- `DEV_FRONT_DOOR_SECONDARY` extended with `build`, `codex`, `gemini-cli`,
-  `opencode` so CLI agents stay hidden from the session picker across every sync.
-- 3 new tests: CLI agents hidden, claude-code selectable, re-sync stability.
-- Existing is_manager decoupling tests (4 from prior commit) pass.
-- Updated `issue-P4-manager-delegation-c6` test to assert `isManager=false`.
+Goal: a "lite" agent session should only pay the token weight of its Agent
+Profile's MCP allowlist. All MCP servers stay connected at startup (memory only,
+no token cost); the only change is that the engine injects just the session's
+profile allowlist into model context. This is Rhythm's owned fix for upstream
+sst/opencode#5373.
 
-The app must be REBUILT from `feature/agent-scheduler` (after #741 merges) for
-the churn to actually stop. Until then, every sync/restart will flip
-`workflow-orchestrator` back to `is_manager=true`.
+Approach: vendor opencode as a git subtree (`apps/opencode_fork`), carry a minimal
+per-session `mcpAllowlist` patch, build a standalone binary, and have api_server
+pass each session's expanded profile allowlist on session create.
+
+**Issue mcp-scope-01 is DONE** (opencode @ v1.14.49 vendored). Now on Issue 02.
 
 ## Active branch / PR
 
-- **Branch:** `fix/decouple-ismanager-importer`
-- **PR:** [#741](https://github.com/ajhochy/Rhythm/pull/741) — open against `feature/agent-scheduler` (do not merge)
-- **Also active:** `feature/agent-scheduler` → [PR #734](https://github.com/ajhochy/Rhythm/pull/734) (do not auto-merge)
+- **Branch:** `feature/agent-scheduler` (stacking the mcp-scope-* work here).
+- **PR:** [#734](https://github.com/ajhochy/Rhythm/pull/734) — open, do not auto-merge.
+  A draft PR for the mcp-scope work is opened at the END of the run (after 06).
+- PR #741 (is_manager/importer decouple) merged as commit `5d67aaa`.
 
 ## In progress
 
-Awaiting human review and merge decision on PR #741.
+mcp-scope run, order: **01 (done)** → 02 (engine patch) → 05 (allowlist expander)
+→ 04 (api_server wiring) → local proof → 03 (CI binary bundle + sign) → 06 (verify).
+Next: Issue 02, preceded by `acceptance-contract`.
 
 ## Risks / known issues
 
-- **Merge order:** #741 must land before any code that reads `isManager` from
-  the importer result. The feature/agent-scheduler branch already removed the
-  importer's forced write so they are compatible.
-- **P3 allowlist maintenance:** `AGENT_SKILL_ALLOWLIST_MAP` is hand-maintained.
+- **Upstream baseline TS2416** in `apps/opencode_fork/packages/opencode/src/bus/global.ts`
+  (pristine v1.14.49 `@types/node` EventEmitter generic). Non-blocking for the
+  binary; minimal type-only fix folded into Issue 02. Re-validate on each
+  `git subtree pull`. See `docs/ai/decisions/2026-06-25-opencode-fork-vendoring.md`.
+- **Issue 03 is the riskiest** — CI `bun build --compile` (arm64+x64) + macOS
+  sign/notarize + bundle into the .app + PATH-prepend before `createOpencode`.
+  Audit signing/secrets config statically before any release run.
 - **Pre-existing flaky test:** `tasks_controller.test.ts > overdue=yes` intermittent.
 
 ## Test status
 
 | Suite | Status |
 |-------|--------|
-| `apps/api_server npm run build` | **PASS** — `tsc -p tsconfig.json` |
-| `apps/api_server npm test` | **PASS** — 141 files, 1196 tests |
-| Hygiene test suite (20 tests) | **PASS** — all is_manager + CLI agent tests |
-| GitNexus detect_changes | **LOW** — 2 symbols touched, 0 affected processes |
+| `apps/api_server npx tsc --noEmit` | **PASS** — exit 0 (no opencode_fork bleed) |
+| `apps/opencode_fork bun install` | **PASS** — exit 0 (upstream lockfile unchanged) |
+| opencode pkg `bun run typecheck` | **1 baseline error** — upstream TS2416, deferred to Issue 02 |
+| GitNexus detect_changes vs main | additions-only; no existing code symbol modified |
 
 ## Next step
 
-1. Human reviews PR #741 and merges into `feature/agent-scheduler`.
-2. Rebuild app from `feature/agent-scheduler` — churn stops.
-3. Optional: run manual sync smoke to verify `workflow-orchestrator.isManager`
-   stays false after restart.
+1. `acceptance-contract` for Issue mcp-scope-02 (per-session `mcpAllowlist` gate).
+2. coding-agent: patch `session/session.ts` + `session/prompt.ts`, add fork unit
+   test, carry the baseline TS2416 fix; `verification-gate`.
+3. Continue 05 → 04 → local proof → 03 → 06; open draft PR at end. No merge.
