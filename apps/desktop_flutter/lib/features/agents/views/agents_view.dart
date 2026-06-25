@@ -17,6 +17,7 @@ import '../../agent_projects/controllers/agent_projects_controller.dart';
 import '../../agent_projects/views/edit_project_dialog.dart';
 import '../controllers/agents_controller.dart';
 import '../models/agent_session.dart';
+import '../models/agent_session_message.dart';
 import '../models/chat_models.dart';
 import '../../settings/services/destructive_modal_service.dart';
 import '_attachment_mime.dart';
@@ -442,6 +443,12 @@ class _TranscriptPanelState extends State<_TranscriptPanel> {
   /// "pinned" — small jitter / the tail of an animation shouldn't unpin.
   static const double _pinThreshold = 120;
 
+  /// Whether the previous build was showing the subagent (child) transcript.
+  /// Used to detect the return-to-parent transition so we can land the main
+  /// chat at the most recent message (the child list remounts the parent
+  /// ListView at offset 0). One-shot — does NOT re-enable always-follow.
+  bool _wasShowingChild = false;
+
   /// Issue #653: track which session ids have already had their composer
   /// draft consumed in this widget instance. Drafts are stored in
   /// AgentsController and consumed once on session selection.
@@ -547,6 +554,16 @@ class _TranscriptPanelState extends State<_TranscriptPanel> {
   Widget build(BuildContext context) {
     final controller = context.watch<AgentsController>();
     final selected = controller.selectedSession;
+
+    // Returning from the subagent transcript: the parent ListView remounts at
+    // the top, so jump once to the most recent message (re-pins). This is a
+    // one-shot on the child→parent transition — it does NOT reinstate the old
+    // "always snap to bottom" behavior; normal scrolling still un-pins below.
+    final showingChild = controller.activeChildSessionId != null;
+    if (_wasShowingChild && !showingChild && selected != null) {
+      _scrollToBottom();
+    }
+    _wasShowingChild = showingChild;
 
     // Auto-scroll when transcript changes — but ONLY if the user is already
     // at the bottom. If they've scrolled up to read, leave their position
@@ -2833,6 +2850,42 @@ class ResumableSessionRowTestHarness extends StatelessWidget {
 // OPC-M3-6: ChildTranscriptView — read-only transcript for a child session.
 // ---------------------------------------------------------------------------
 
+/// Derive readable text for a child (subagent) message.
+///
+/// Subagent messages fetched from the bridge keep their content in `parts`
+/// (e.g. `{type:'text', text:'…'}`) with `strippedText`/`rawText` empty, so a
+/// naive `strippedText ?? rawText` renders blank bubbles. Resolve in order:
+///   1. strippedText, then rawText (legacy/plain rows).
+///   2. concatenated `text`/`reasoning` parts.
+///   3. a compact tool summary (`⚙ tool1, tool2`) for tool-only messages, so a
+///      message that did work but emitted no prose isn't an empty box.
+String _childMessageDisplayText(AgentSessionMessage m) {
+  if (m.strippedText.trim().isNotEmpty) return m.strippedText;
+  if (m.rawText.trim().isNotEmpty) return m.rawText;
+
+  final parts = m.parts;
+  if (parts == null || parts.isEmpty) return '';
+
+  final prose = <String>[];
+  final tools = <String>[];
+  for (final p in parts) {
+    switch (p['type']) {
+      case 'text':
+      case 'reasoning':
+        final t = p['text'];
+        if (t is String && t.trim().isNotEmpty) prose.add(t.trim());
+        break;
+      case 'tool':
+        final tool = (p['tool'] as String?) ?? 'tool';
+        tools.add(tool);
+        break;
+    }
+  }
+  if (prose.isNotEmpty) return prose.join('\n\n');
+  if (tools.isNotEmpty) return '⚙ ${tools.join(', ')}';
+  return '';
+}
+
 /// A read-only transcript panel for a child (subagent) session.
 ///
 /// Displays the messages fetched into [AgentsController] for [childSdkId],
@@ -2859,6 +2912,7 @@ class ChildTranscriptView extends StatelessWidget {
   Widget build(BuildContext context) {
     final controller = context.watch<AgentsController>();
     final messages = controller.childMessagesFor(childSdkId);
+    final loading = controller.isChildLoading(childSdkId);
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -2916,76 +2970,88 @@ class ChildTranscriptView extends StatelessWidget {
         ),
         // Message list.
         Expanded(
-          child: messages.isEmpty
+          child: loading && messages.isEmpty
               ? Center(
-                  child: Text(
-                    'No messages in this subagent session.',
-                    style: TextStyle(
-                      color: context.rhythm.textMuted,
-                      fontSize: 13,
+                  child: SizedBox(
+                    width: 22,
+                    height: 22,
+                    child: CircularProgressIndicator(
+                      strokeWidth: 2,
+                      color: context.rhythm.accent,
                     ),
                   ),
                 )
-              : ListView.builder(
-                  padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
-                  itemCount: messages.length,
-                  itemBuilder: (context, index) {
-                    final m = messages[index];
-                    final isUser = m.role == 'input' || m.role == 'user';
-                    // Use strippedText for display (rawText may contain ANSI).
-                    final displayText =
-                        m.strippedText.isNotEmpty ? m.strippedText : m.rawText;
-                    return Padding(
-                      padding: const EdgeInsets.only(bottom: 8),
-                      child: isUser
-                          ? Align(
-                              alignment: Alignment.centerRight,
-                              child: Container(
-                                constraints:
-                                    const BoxConstraints(maxWidth: 560),
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 12, vertical: 8),
-                                decoration: BoxDecoration(
-                                  color: context.rhythm.accentMuted,
-                                  borderRadius:
-                                      BorderRadius.circular(RhythmRadius.md),
-                                  border: Border.all(
-                                    color: context.rhythm.accent
-                                        .withValues(alpha: 0.2),
+              : messages.isEmpty
+                  ? Center(
+                      child: Text(
+                        'No messages in this subagent session.',
+                        style: TextStyle(
+                          color: context.rhythm.textMuted,
+                          fontSize: 13,
+                        ),
+                      ),
+                    )
+                  : ListView.builder(
+                      padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
+                      itemCount: messages.length,
+                      itemBuilder: (context, index) {
+                        final m = messages[index];
+                        final isUser = m.role == 'input' || m.role == 'user';
+                        // Real subagent messages keep their text in `parts`, with
+                        // strippedText/rawText empty — derive display text from the
+                        // parts so the bubbles aren't blank.
+                        final displayText = _childMessageDisplayText(m);
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 8),
+                          child: isUser
+                              ? Align(
+                                  alignment: Alignment.centerRight,
+                                  child: Container(
+                                    constraints:
+                                        const BoxConstraints(maxWidth: 560),
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 12, vertical: 8),
+                                    decoration: BoxDecoration(
+                                      color: context.rhythm.accentMuted,
+                                      borderRadius: BorderRadius.circular(
+                                          RhythmRadius.md),
+                                      border: Border.all(
+                                        color: context.rhythm.accent
+                                            .withValues(alpha: 0.2),
+                                      ),
+                                    ),
+                                    child: Text(
+                                      displayText,
+                                      style: TextStyle(
+                                        fontSize: 13,
+                                        color: context.rhythm.accent,
+                                        height: 1.4,
+                                      ),
+                                    ),
+                                  ),
+                                )
+                              : Container(
+                                  width: double.infinity,
+                                  padding: const EdgeInsets.all(12),
+                                  decoration: BoxDecoration(
+                                    color: context.rhythm.surfaceMuted,
+                                    borderRadius:
+                                        BorderRadius.circular(RhythmRadius.md),
+                                    border: Border.all(
+                                        color: context.rhythm.borderSubtle),
+                                  ),
+                                  child: Text(
+                                    displayText,
+                                    style: TextStyle(
+                                      fontSize: 13,
+                                      color: context.rhythm.textPrimary,
+                                      height: 1.4,
+                                    ),
                                   ),
                                 ),
-                                child: Text(
-                                  displayText,
-                                  style: TextStyle(
-                                    fontSize: 13,
-                                    color: context.rhythm.accent,
-                                    height: 1.4,
-                                  ),
-                                ),
-                              ),
-                            )
-                          : Container(
-                              width: double.infinity,
-                              padding: const EdgeInsets.all(12),
-                              decoration: BoxDecoration(
-                                color: context.rhythm.surfaceMuted,
-                                borderRadius:
-                                    BorderRadius.circular(RhythmRadius.md),
-                                border: Border.all(
-                                    color: context.rhythm.borderSubtle),
-                              ),
-                              child: Text(
-                                displayText,
-                                style: TextStyle(
-                                  fontSize: 13,
-                                  color: context.rhythm.textPrimary,
-                                  height: 1.4,
-                                ),
-                              ),
-                            ),
-                    );
-                  },
-                ),
+                        );
+                      },
+                    ),
         ),
       ],
     );

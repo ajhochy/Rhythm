@@ -229,6 +229,15 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   // Entries persist for the lifetime of the app so back-navigation is instant.
   final Map<String, List<AgentSessionMessage>> _childMessagesByChildId = {};
 
+  // childSdkIds whose first message fetch is currently in flight — drives a
+  // loading spinner in ChildTranscriptView so the (slow) first open isn't a
+  // frozen click followed by a flash of "No messages".
+  final Set<String> _loadingChildIds = <String>{};
+
+  /// True while [openChildSession]'s first fetch for [childSdkId] is in flight.
+  bool isChildLoading(String childSdkId) =>
+      _loadingChildIds.contains(childSdkId);
+
   // --------------------------------------------------------------------------
   // Model-picker state
   // --------------------------------------------------------------------------
@@ -699,25 +708,36 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     required String parentSessionName,
     required String childSdkId,
   }) async {
-    // Use cache if available.
-    if (!_childMessagesByChildId.containsKey(childSdkId)) {
-      try {
-        final messages = await _repository.fetchChildMessages(
-          parentSessionId,
-          childSdkId,
-        );
-        if (_disposed) return;
-        _childMessagesByChildId[childSdkId] = messages;
-      } catch (_) {
-        if (_disposed) return;
-        // Non-fatal: show empty child transcript rather than crashing.
-        _childMessagesByChildId[childSdkId] = const [];
-      }
-    }
+    // Switch to the child view IMMEDIATELY so the click feels responsive — the
+    // first fetch can be slow (cold opencode round-trip), and awaiting it before
+    // switching made the chevron look frozen. Messages stream in afterward.
     _activeChildSessionId = childSdkId;
     _activeChildParentSessionId = parentSessionId;
     _activeChildParentName = parentSessionName;
+
+    // Cached → nothing to fetch; back-navigation stays instant.
+    if (_childMessagesByChildId.containsKey(childSdkId)) {
+      notifyListeners();
+      return;
+    }
+
+    _loadingChildIds.add(childSdkId);
     notifyListeners();
+    try {
+      final messages = await _repository.fetchChildMessages(
+        parentSessionId,
+        childSdkId,
+      );
+      if (_disposed) return;
+      _childMessagesByChildId[childSdkId] = messages;
+    } catch (_) {
+      if (_disposed) return;
+      // Non-fatal: show empty child transcript rather than crashing.
+      _childMessagesByChildId[childSdkId] = const [];
+    } finally {
+      _loadingChildIds.remove(childSdkId);
+      if (!_disposed) notifyListeners();
+    }
   }
 
   /// Navigate back to the parent transcript.
