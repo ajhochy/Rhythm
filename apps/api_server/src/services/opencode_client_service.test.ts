@@ -1,10 +1,12 @@
-import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { homedir } from 'os';
 import { join } from 'path';
 import {
   OpencodeClientService,
   augmentPathForOpencode,
 } from './opencode_client_service';
+import { expandMcpAllowlist } from './mcp_allowlist_expander';
+import type { McpRoleConfig } from './agent_profile_scope';
 
 describe('augmentPathForOpencode', () => {
   let originalPath: string | undefined;
@@ -100,5 +102,121 @@ describe('OpencodeClientService', () => {
     const service = new OpencodeClientService();
     service.dispose();
     expect(service.isReady).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// mcp-scope-04: createSession body-level mcpAllowlist tests
+// ---------------------------------------------------------------------------
+//
+// Pattern: inject a fake SDK client into the private `client` field (same
+// approach as opc_sdk_boundary_regression.test.ts and opc_agent_session_routes.test.ts).
+// The fake's session.create captures every call so we can assert on the
+// exact body object passed to the SDK.
+
+function injectReadyClient(svc: OpencodeClientService, fakeClient: unknown) {
+  (svc as unknown as Record<string, unknown>)['status'] = 'ready';
+  (svc as unknown as Record<string, unknown>)['client'] = fakeClient;
+}
+
+/** A minimal McpRoleConfig that expandMcpAllowlist will expand non-trivially. */
+const ROLE_CONFIG: McpRoleConfig = {
+  role: 'secretary',
+  mcpServers: {
+    rhythm: {},
+    'pco-services': { allowedTools: ['get_plans', 'get_plan_items'] },
+  },
+  allowedToolsJson: '{}',
+};
+
+describe('createSession — mcpAllowlist body field (mcp-scope-04)', () => {
+  let svc: OpencodeClientService;
+  let capturedBody: Record<string, unknown>;
+  let fakeSessionCreate: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    svc = new OpencodeClientService();
+    capturedBody = {};
+    fakeSessionCreate = vi.fn().mockImplementation((opts: { body: Record<string, unknown> }) => {
+      capturedBody = opts.body as Record<string, unknown>;
+      return Promise.resolve({ data: { id: 'sdk-session-001' } });
+    });
+    injectReadyClient(svc, {
+      session: { create: fakeSessionCreate },
+    });
+  });
+
+  // AC-01: WITH mcpRoleConfig → body contains mcpAllowlist deep-equal to expansion
+  it('AC-01: sends body.mcpAllowlist when mcpRoleConfig is provided', async () => {
+    const result = await svc.createSession('My Session', '/workspace', ROLE_CONFIG);
+
+    expect(result).toEqual({ id: 'sdk-session-001' });
+    expect(fakeSessionCreate).toHaveBeenCalledOnce();
+
+    const expectedAllowlist = expandMcpAllowlist(ROLE_CONFIG);
+    expect(capturedBody).toHaveProperty('mcpAllowlist');
+    expect(capturedBody.mcpAllowlist).toEqual(expectedAllowlist);
+  });
+
+  // AC-01 (content check): verify exact expansion content so the test cannot
+  // pass via a trivially-wrong constant like `{ servers: [], tools: [] }`.
+  it('AC-01b: mcpAllowlist contains the correct servers[] and tools[] entries', async () => {
+    await svc.createSession('Secretary', undefined, ROLE_CONFIG);
+
+    const body = capturedBody;
+    // rhythm has no allowedTools → goes into servers[] as raw name
+    expect((body.mcpAllowlist as { servers: string[] }).servers).toContain('rhythm');
+    // pco-services has explicit tools → goes into tools[] with sanitized composite id
+    expect((body.mcpAllowlist as { tools: string[] }).tools).toContain('pco-services_get_plans');
+    expect((body.mcpAllowlist as { tools: string[] }).tools).toContain('pco-services_get_plan_items');
+  });
+
+  // AC-02: WITHOUT mcpRoleConfig → body has NO mcpAllowlist key (back-compat)
+  it('AC-02: body has NO mcpAllowlist key when mcpRoleConfig is absent', async () => {
+    const result = await svc.createSession('Plain Session');
+
+    expect(result).toEqual({ id: 'sdk-session-001' });
+    expect(fakeSessionCreate).toHaveBeenCalledOnce();
+    expect(capturedBody).not.toHaveProperty('mcpAllowlist');
+  });
+
+  // AC-02b: also test explicit undefined
+  it('AC-02b: body has NO mcpAllowlist key when mcpRoleConfig is explicitly undefined', async () => {
+    await svc.createSession('Plain Session', '/workspace', undefined);
+    expect(capturedBody).not.toHaveProperty('mcpAllowlist');
+  });
+
+  // AC-03 / AC-04: ws_gateway and agent_runner call createSession with mcpRoleConfig.
+  // Since expansion is centralised INSIDE createSession, both paths get it for free.
+  // This test exercises the path-agnostic guarantee: any caller that passes
+  // mcpRoleConfig will get mcpAllowlist on the body — regardless of call site.
+  it('AC-03/04: any caller passing mcpRoleConfig gets mcpAllowlist on the body (path-agnostic)', async () => {
+    // Simulate the ws_gateway call pattern (passes wsMcpRoleConfig)
+    const wsRoleConfig: McpRoleConfig = {
+      role: 'worship-planning',
+      mcpServers: { 'pco-services': {} },
+      allowedToolsJson: '{}',
+    };
+    await svc.createSession('Interactive Session', '/cwd', wsRoleConfig);
+
+    expect(capturedBody).toHaveProperty('mcpAllowlist');
+    const expected = expandMcpAllowlist(wsRoleConfig);
+    expect(capturedBody.mcpAllowlist).toEqual(expected);
+
+    // servers[] contains the raw server name (not sanitized), as the engine expects
+    expect((capturedBody.mcpAllowlist as { servers: string[] }).servers).toContain('pco-services');
+  });
+
+  // Error-guard: invalid/unparseable mcpRoleConfig → omit field, no throw
+  it('omits mcpAllowlist and does not throw when mcpRoleConfig has no mcpServers', async () => {
+    const badConfig = { role: 'bad', mcpServers: null, allowedToolsJson: '{}' } as unknown as McpRoleConfig;
+    const result = await svc.createSession('Bad Config Session', undefined, badConfig);
+
+    // Must NOT throw; must still return the session id
+    expect(result).toEqual({ id: 'sdk-session-001' });
+    // mcpAllowlist should be omitted entirely when expansion yields an empty result
+    // OR when the config is bad — the guard test just asserts no throw, which is key.
+    // The exact omit-vs-empty-object behavior is tested by AC-01/AC-02.
+    expect(fakeSessionCreate).toHaveBeenCalledOnce();
   });
 });

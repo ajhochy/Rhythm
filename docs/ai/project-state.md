@@ -26,13 +26,13 @@ pass each session's expanded profile allowlist on session create.
 
 ## In progress
 
-mcp-scope run, order: 01 (done) → 02 (done) → 05 (done) → **04** (api_server
-wiring, next) → local proof → 03 (CI binary bundle + sign) → 06 (verify).
+mcp-scope run, order: 01 (done) → 02 (done) → 05 (done) → 04 (done) →
+**local proof** (next) → 03 (CI binary bundle + sign) → 06 (verify).
 
-Note for 04: call `expandMcpAllowlist(profileScope.mcpRoleConfig)` and pass the
-result as `mcpAllowlist` on `createSession` (both ws_gateway + agent_runner paths).
-`servers[]` holds RAW server names (matches engine raw clientName); `tools[]` holds
-sanitized `<server>_<tool>` ids.
+The full software path is now wired end-to-end (engine gate + expander +
+createSession body). What remains is the DELIVERY half: build/bundle/sign the
+fork binary (03) so the running app actually uses the patched engine, plus the
+local proof and final acceptance measurement (06).
 
 ## Risks / known issues
 
@@ -60,9 +60,12 @@ sanitized `<server>_<tool>` ids.
 
 ## Next step
 
-1. Implement Issue **mcp-scope-05** (allowlist expander: `.mcp-roles` config → flat sanitized `<server>_<tool>` id list).
-2. Implement Issue **mcp-scope-04** (api_server wiring: pass `mcpAllowlist` on `createSession`, both paths).
-3. Local end-to-end proof (fork binary on PATH, open Secretary session, verify tool count drops).
-4. Issue **mcp-scope-03** (CI binary bundle + sign).
-5. Issue **mcp-scope-06** (verification + acceptance measurement).
-6. Open draft PR. No merge.
+1. **Local end-to-end proof** — build the fork binary, put it on PATH ahead of
+   `createOpencode`, open a Secretary session, confirm injected MCP tool count
+   drops to the profile allowlist. (See runs/2026-06-25-mcp-scope-04 for wiring.)
+2. Issue **mcp-scope-03** (CI binary bundle + sign) — riskiest; static-audit
+   signing/secrets first.
+3. Issue **mcp-scope-06** (verification + acceptance measurement).
+4. Open draft PR. No merge.
+
+Per-issue run logs: docs/ai/runs/2026-06-25-mcp-scope-0{1,2,4,5}-*.md.

@@ -251,3 +251,46 @@ describe('SDK surface guard: event.subscribe is an SSE { stream } result, NOT a 
     expect(code).not.toContain('SdkEnvelope');
   });
 });
+
+// ---------------------------------------------------------------------------
+// mcp-scope-04: createSession with mcpRoleConfig produces request body with mcpAllowlist
+// (AC-05 from docs/ai/contracts/issue-mcp-scope-04.json)
+// ---------------------------------------------------------------------------
+//
+// This is a STRUCTURAL guard (not a runtime SDK call): it verifies that
+// opencode_client_service.ts includes `mcpAllowlist` on the body object passed
+// to client.session.create when mcpRoleConfig is provided. We assert this by
+// reading the source and checking for the expected structural pattern.
+//
+// Why source-level: we cannot call session.create against a live engine here;
+// this file is restricted to SDK surface checks. The structural guard ensures
+// the back-compat rule (mcpAllowlist omitted when no mcpRoleConfig) is encoded
+// at the call site. The runtime behavior is verified by the service-level tests
+// in src/services/opencode_client_service.test.ts (AC-01 through AC-04).
+describe('SDK surface guard: createSession with mcpRoleConfig includes mcpAllowlist on body (mcp-scope-04)', () => {
+  const SVC_PATH = join(__dirname, '..', 'services', 'opencode_client_service.ts');
+
+  it('opencode_client_service.ts passes mcpAllowlist on the session.create body when mcpRoleConfig is present', () => {
+    const src = readFileSync(SVC_PATH, 'utf8');
+    // The expansion must happen inside createSession: expandMcpAllowlist must be called
+    expect(src).toMatch(/expandMcpAllowlist\s*\(/);
+    // The result must be assigned and included in the body object
+    expect(src).toMatch(/mcpAllowlist/);
+  });
+
+  it('back-compat guard: mcpAllowlist is included only when mcpRoleConfig is present (conditional body assignment)', () => {
+    const src = readFileSync(SVC_PATH, 'utf8');
+    // The mcpAllowlist key must appear inside a conditional branch (if mcpRoleConfig / when mcpRoleConfig)
+    // — it must NOT be unconditionally set on every createSession call.
+    // We verify this by confirming the mcpAllowlist assignment is collocated with
+    // a guard on mcpRoleConfig (grep for the pattern together in the source).
+    const createSessionBlock = src.match(
+      /async createSession[\s\S]*?(?=\n\s{2}\/\*\*|\n\s{2}async |\n\s{2}[a-z])/,
+    );
+    expect(createSessionBlock, 'Could not extract createSession block from service source').toBeTruthy();
+    const block = createSessionBlock![0];
+    // Block must reference mcpRoleConfig (the guard) AND mcpAllowlist (the field)
+    expect(block).toMatch(/mcpRoleConfig/);
+    expect(block).toMatch(/mcpAllowlist/);
+  });
+});

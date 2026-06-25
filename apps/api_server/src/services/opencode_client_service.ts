@@ -12,6 +12,7 @@ import {
   type CuratedTokenProvider,
 } from '../config/curated_mcp_servers';
 import { ensureGeminiProjectConfig } from './gemini_project_config';
+import { expandMcpAllowlist } from './mcp_allowlist_expander';
 
 /**
  * MCP-6 — resolves a FRESH OAuth access token for a curated server's
@@ -485,16 +486,46 @@ export class OpencodeClientService {
     },
   ): Promise<{ id: string } | null> {
     if (!this.client) return null;
+
+    // mcp-scope-04: expand the McpRoleConfig into a flat { servers[], tools[] }
+    // allowlist and pass it as `mcpAllowlist` on the session.create POST body.
+    // The forked opencode engine (apps/opencode_fork) reads this field to scope
+    // MCP tools to only the profile's allowed set for this session.
+    //
+    // SDK-type decision (R3): the hand-written @types/opencode-ai-sdk.d.ts does
+    // NOT declare this field (extending it risks false-green drift — see postmortem
+    // 2026-06-13). We pass it via an untyped body cast.
+    // TODO: once the upstream SDK supports per-session allowlists natively, remove
+    //       this cast and update the d.ts instead.
+    let mcpAllowlist: { servers: string[]; tools: string[] } | undefined;
     if (mcpRoleConfig) {
-      logger.info(
-        '[OpencodeClientService] createSession: mcpRole=%s allowedServers=%s (stored on session row; SDK has no per-session allowlist param)',
-        mcpRoleConfig.role,
-        Object.keys(mcpRoleConfig.mcpServers).join(','),
-      );
+      try {
+        mcpAllowlist = expandMcpAllowlist(mcpRoleConfig);
+        logger.info(
+          '[OpencodeClientService] createSession: mcpRole=%s allowlist servers=%s tools=%s',
+          mcpRoleConfig.role,
+          mcpAllowlist.servers.join(',') || '(none)',
+          mcpAllowlist.tools.join(',') || '(none)',
+        );
+      } catch (expandErr) {
+        logger.warn(
+          '[OpencodeClientService] createSession: expandMcpAllowlist failed for role=%s — omitting mcpAllowlist',
+          mcpRoleConfig.role,
+          expandErr,
+        );
+      }
     }
+
     try {
-      const raw = await this.client.session.create({
-        body: { title },
+      const body: Record<string, unknown> = { title };
+      if (mcpAllowlist !== undefined) {
+        body.mcpAllowlist = mcpAllowlist;
+      }
+      const raw = await (this.client.session.create as (opts: {
+        body: Record<string, unknown>;
+        query?: { directory?: string };
+      }) => Promise<{ data?: { id?: string }; error?: unknown }>)({
+        body,
         ...(directory ? { query: { directory } } : {}),
       });
       const id = raw.data?.id;
