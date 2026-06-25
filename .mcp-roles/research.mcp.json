@@ -1,0 +1,60 @@
+{
+  "$schema": "https://rhythm.vcrcapps.com/schemas/mcp-role.json",
+  "role": "research",
+  "description": "Research assistant — multi-source web research, fact-checking, and synthesis into cited reports saved to the Obsidian vault. No write access to email or calendar.",
+  "mcpServers": {
+    "rhythm": {
+      "inherit": true,
+      "allowedTools": [
+        "rhythm_ping",
+        "rhythm_get_dashboard",
+        "rhythm_list_tasks",
+        "rhythm_create_task",
+        "rhythm_remember",
+        "rhythm_search_context",
+        "rhythm_list_memories"
+      ]
+    },
+    "obsidian": {
+      "inherit": true,
+      "allowedTools": [
+        "obsidian_get_file",
+        "obsidian_put_file",
+        "obsidian_patch_file",
+        "obsidian_simple_search",
+        "obsidian_search_dataview",
+        "obsidian_list_vault_directory",
+        "obsidian_list_vault_root",
+        "obsidian_status"
+      ]
+    },
+    "pdf-tools": {
+      "inherit": true,
+      "allowedTools": [
+        "read_pdf_content",
+        "get_pdf_info",
+        "list_pdfs",
+        "search_pdf_text",
+        "render_pdf_page"
+      ]
+    },
+    "context7": {
+      "inherit": true
+    }
+  },
+  "disabledMcpServers": [
+    "bash",
+    "computer",
+    "editor",
+    "filesystem"
+  ],
+  "allowedSkills": [
+    "research-synthesis",
+    "study-passage",
+    "searxng-search",
+    "duckduckgo-search",
+    "scrapling",
+    "domain-intel",
+    "parallel-cli"
+  ]
+}

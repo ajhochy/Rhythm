@@ -1,11 +1,13 @@
 {
   "$schema": "https://rhythm.vcrcapps.com/schemas/mcp-role.json",
   "role": "church-admin",
-  "description": "Church administration agent — full PCO Services + Rhythm tasks/projects/messaging. Read/write access to planning center data. No code execution.",
+  "description": "Church administration agent \u2014 full PCO Services + Rhythm tasks/projects/messaging. Read/write access to planning center data. No code execution.",
   "mcpServers": {
     "rhythm": {
       "command": "node",
-      "args": ["apps/mcp_server/dist/index.js"],
+      "args": [
+        "apps/mcp_server/dist/index.js"
+      ],
       "env": {
         "RHYTHM_API_URL": "${RHYTHM_API_URL}",
         "RHYTHM_API_TOKEN": "${RHYTHM_API_TOKEN}"
@@ -48,5 +50,11 @@
     "computer",
     "editor",
     "filesystem"
+  ],
+  "allowedSkills": [
+    "monthly-gc-report",
+    "good-friday-binder-reminder",
+    "ministry-command-center",
+    "pco-song-usage-sync"
   ]
 }

@@ -1,0 +1,120 @@
+{
+  "$schema": "https://rhythm.vcrcapps.com/schemas/mcp-role.json",
+  "role": "fantasy-gm",
+  "description": "Fantasy GM \u2014 Manages AJ's dynasty and keeper fantasy football leagues. Full NFL MCP access, Supabase DB, Obsidian vault, and Rhythm tasks. No social media or external browsing beyond crawl_url.",
+  "agentConfigId": "470823d0-5c8f-4611-b014-f2c750cff965",
+  "mcpServers": {
+    "nfl_mcp": {
+      "inherit": true,
+      "allowedTools": [
+        "get_nfl_state",
+        "get_rosters",
+        "get_matchups",
+        "get_league",
+        "get_league_users",
+        "get_user_leagues",
+        "get_user",
+        "get_transactions",
+        "get_waiver_log",
+        "get_trending_players",
+        "get_traded_picks",
+        "get_draft_picks",
+        "get_draft",
+        "get_league_drafts",
+        "get_nfl_standings",
+        "get_nfl_news",
+        "get_injury_report",
+        "get_high_confidence_injuries",
+        "get_gameday_inactives",
+        "get_depth_chart",
+        "get_team_injuries",
+        "get_vegas_lines",
+        "get_defense_rankings",
+        "get_matchup_win_probability",
+        "get_matchup_difficulty",
+        "get_team_schedule",
+        "get_teams",
+        "fetch_teams",
+        "fetch_athletes",
+        "fetch_all_players",
+        "lookup_athlete",
+        "search_athletes",
+        "get_athletes_by_team",
+        "get_cbs_player_news",
+        "get_cbs_projections",
+        "get_cbs_expert_picks",
+        "analyze_trade",
+        "get_trade_deadline_analysis",
+        "get_start_sit_recommendation",
+        "get_fantasy_context",
+        "get_roster_recommendations",
+        "get_stack_opportunities",
+        "crawl_url"
+      ]
+    },
+    "supabase": {
+      "inherit": true
+    },
+    "Minutes": {
+      "inherit": true
+    },
+    "obsidian": {
+      "inherit": true,
+      "allowedTools": [
+        "obsidian_get_file",
+        "obsidian_put_file",
+        "obsidian_patch_file",
+        "obsidian_simple_search",
+        "obsidian_search_dataview",
+        "obsidian_status",
+        "obsidian_list_vault_directory"
+      ]
+    },
+    "rhythm": {
+      "inherit": true,
+      "allowedTools": [
+        "rhythm_ping",
+        "rhythm_list_tasks",
+        "rhythm_create_task",
+        "rhythm_update_task",
+        "rhythm_complete_task",
+        "rhythm_get_dashboard",
+        "rhythm_remember",
+        "rhythm_search_context",
+        "rhythm_list_memories"
+      ]
+    }
+  },
+  "disabledMcpServers": [
+    "bash",
+    "computer",
+    "editor",
+    "filesystem"
+  ],
+  "notes": {
+    "registeredMcps": [
+      "obsidian",
+      "rhythm"
+    ],
+    "unregisteredMcps": [
+      "nfl_mcp",
+      "supabase",
+      "Minutes"
+    ],
+    "inertUntilRegistered": [
+      "nfl_mcp",
+      "supabase",
+      "Minutes"
+    ]
+  },
+  "allowedSkills": [
+    "ffb-consolidated-operations",
+    "ffb-roster",
+    "ffb-trades",
+    "ffb-dynasty",
+    "ffb-tuesday-refresh",
+    "ffb-tff-vibes",
+    "ffb-podcast-vibes",
+    "ffb-daily-dashboard-update"
+  ]
+}

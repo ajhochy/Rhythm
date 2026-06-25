@@ -1,7 +1,7 @@
 {
   "$schema": "https://rhythm.vcrcapps.com/schemas/mcp-role.json",
   "role": "graphic-designer",
-  "description": "Agentic graphic designer — Canva design creation and export only. No code execution.",
+  "description": "Agentic graphic designer \u2014 Canva design creation and export only. No code execution.",
   "mcpServers": {
     "canva": {
       "type": "remote",
@@ -25,5 +25,12 @@
     "computer",
     "editor",
     "filesystem"
+  ],
+  "allowedSkills": [
+    "claude-design",
+    "baoyu-infographic",
+    "popular-web-designs",
+    "excalidraw",
+    "design-md"
   ]
 }

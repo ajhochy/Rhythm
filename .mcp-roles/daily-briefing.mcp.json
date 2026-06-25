@@ -1,11 +1,13 @@
 {
   "$schema": "https://rhythm.vcrcapps.com/schemas/mcp-role.json",
   "role": "daily-briefing",
-  "description": "Daily morning briefing agent — PCO Services + Rhythm tasks + Calendar. No code execution, no file system, no browser.",
+  "description": "Daily morning briefing agent \u2014 PCO Services + Rhythm tasks + Calendar. No code execution, no file system, no browser.",
   "mcpServers": {
     "rhythm": {
       "command": "node",
-      "args": ["apps/mcp_server/dist/index.js"],
+      "args": [
+        "apps/mcp_server/dist/index.js"
+      ],
       "env": {
         "RHYTHM_API_URL": "${RHYTHM_API_URL}",
         "RHYTHM_API_TOKEN": "${RHYTHM_API_TOKEN}"
@@ -43,5 +45,9 @@
     "computer",
     "editor",
     "filesystem"
+  ],
+  "allowedSkills": [
+    "daily-morning-briefing",
+    "ministry-command-center"
   ]
 }

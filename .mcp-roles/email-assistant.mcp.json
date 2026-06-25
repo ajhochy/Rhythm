@@ -1,11 +1,13 @@
 {
   "$schema": "https://rhythm.vcrcapps.com/schemas/mcp-role.json",
   "role": "email-assistant",
-  "description": "Agentic email assistant — Gmail read/search/send via the Rhythm MCP server plus read-only context tools (tasks, dashboard, messaging). No code execution.",
+  "description": "Agentic email assistant \u2014 Gmail read/search/send via the Rhythm MCP server plus read-only context tools (tasks, dashboard, messaging). No code execution.",
   "mcpServers": {
     "rhythm": {
       "command": "node",
-      "args": ["apps/mcp_server/dist/index.js"],
+      "args": [
+        "apps/mcp_server/dist/index.js"
+      ],
       "env": {
         "RHYTHM_API_URL": "${RHYTHM_API_URL}",
         "RHYTHM_API_TOKEN": "${RHYTHM_API_TOKEN}"
@@ -28,5 +30,8 @@
     "computer",
     "editor",
     "filesystem"
+  ],
+  "allowedSkills": [
+    "daily-email-triage"
   ]
 }

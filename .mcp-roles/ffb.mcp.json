@@ -1,11 +1,13 @@
 {
   "$schema": "https://rhythm.vcrcapps.com/schemas/mcp-role.json",
   "role": "ffb",
-  "description": "Fantasy football agent — NFL MCP (Sleeper + ESPN data), Rhythm memory + tasks. No church data, no code execution.",
+  "description": "Fantasy football agent \u2014 NFL MCP (Sleeper + ESPN data), Rhythm memory + tasks. No church data, no code execution.",
   "mcpServers": {
     "rhythm": {
       "command": "node",
-      "args": ["apps/mcp_server/dist/index.js"],
+      "args": [
+        "apps/mcp_server/dist/index.js"
+      ],
       "env": {
         "RHYTHM_API_URL": "${RHYTHM_API_URL}",
         "RHYTHM_API_TOKEN": "${RHYTHM_API_TOKEN}"
@@ -37,5 +39,14 @@
     "computer",
     "editor",
     "filesystem"
+  ],
+  "allowedSkills": [
+    "ffb-consolidated-operations",
+    "ffb-roster",
+    "ffb-trades",
+    "ffb-dynasty",
+    "ffb-tuesday-refresh",
+    "ffb-tff-vibes",
+    "ffb-daily-dashboard-update"
   ]
 }
