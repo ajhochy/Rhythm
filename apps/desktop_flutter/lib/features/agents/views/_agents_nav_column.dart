@@ -185,7 +185,7 @@ class _AgentsNavColumnState extends State<AgentsNavColumn> {
             .toList();
 
     final query = _searchQuery.trim().toLowerCase();
-    final filteredSessions = query.isEmpty
+    final searchFiltered = query.isEmpty
         ? projectFiltered
         : projectFiltered
             .where(
@@ -194,6 +194,13 @@ class _AgentsNavColumnState extends State<AgentsNavColumn> {
                   (s.lastPreview?.toLowerCase().contains(query) ?? false),
             )
             .toList();
+
+    // Newest sessions first: a freshly created session appears at the TOP of
+    // the list (and is the auto-selected row from _instantCreateSession),
+    // instead of being appended to the bottom where it's easy to miss.
+    // A sorted copy — controller.sessions is unmodifiable.
+    final filteredSessions = [...searchFiltered]
+      ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
 
     return Container(
       key: const ValueKey('agents-nav-column'),

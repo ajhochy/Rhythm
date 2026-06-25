@@ -114,7 +114,7 @@ class SessionListBody extends StatelessWidget {
             isStuck: controller.connectivity.isStuck(session.id),
             onTap: () => onRowTap(session.id),
           ),
-          const SizedBox(height: 6),
+          const SizedBox(height: 4),
         ],
 
         // ── Resumable section ──────────────────────────────────────────────
@@ -231,7 +231,9 @@ class SessionRow extends StatelessWidget {
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 160),
         curve: Curves.easeOut,
-        padding: const EdgeInsets.all(12),
+        // Minimal: a single tight line — agent icon · title · status light · menu.
+        // No agent label, no preview, no stuck text (status light conveys state).
+        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
         decoration: BoxDecoration(
           color: highlighted
               ? context.rhythm.accentMuted
@@ -255,64 +257,31 @@ class SessionRow extends StatelessWidget {
                 ]
               : const [],
         ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+        child: Row(
           children: [
-            Row(
-              children: [
-                AgentKindBadge(
-                  agentId: session.agentId,
-                  providerId: session.providerId,
-                  modelId: session.modelId,
-                ),
-                const Spacer(),
-                SessionStatusDot(
-                  status: session.status,
-                  isWorking: isWorking,
-                ),
-                const SizedBox(width: 4),
-                SessionRowMenu(session: session),
-              ],
+            AgentKindIcon(
+              agentId: session.agentId,
+              providerId: session.providerId,
+              modelId: session.modelId,
             ),
-            const SizedBox(height: 6),
-            Text(
-              session.name.isNotEmpty ? session.name : 'New session',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                fontSize: 13.5,
-                fontWeight: FontWeight.w700,
-                color: session.name.isNotEmpty
-                    ? context.rhythm.textPrimary
-                    : context.rhythm.textMuted,
-              ),
-            ),
-            if (session.lastPreview != null &&
-                session.lastPreview!.isNotEmpty) ...[
-              const SizedBox(height: 3),
-              Text(
-                session.lastPreview!,
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                session.name.isNotEmpty ? session.name : 'New session',
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
-                  fontSize: 11,
-                  color: context.rhythm.textMuted,
-                  fontFamily: 'Menlo',
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: session.name.isNotEmpty
+                      ? context.rhythm.textPrimary
+                      : context.rhythm.textMuted,
                 ),
               ),
-            ],
-            if (isStuck)
-              Padding(
-                padding: const EdgeInsets.only(top: 4),
-                child: Text(
-                  'No output yet — the agent may be stuck',
-                  style: TextStyle(
-                    fontSize: 10,
-                    color: context.rhythm.warning,
-                    fontStyle: FontStyle.italic,
-                  ),
-                ),
-              ),
+            ),
+            const SizedBox(width: 6),
+            SessionStatusDot(status: session.status, isWorking: isWorking),
+            SessionRowMenu(session: session),
           ],
         ),
       ),
@@ -511,6 +480,50 @@ class ArchivedSessionRow extends StatelessWidget {
 ///
 /// Uses [AgentConfigsController] and [AgentServerController] from the
 /// Provider tree.
+/// Icon-only agent identity for the compact session row — same resolution as
+/// [AgentKindBadge] but renders just the icon (no label pill / "description").
+class AgentKindIcon extends StatelessWidget {
+  const AgentKindIcon({
+    super.key,
+    required this.agentId,
+    this.providerId,
+    this.modelId,
+    this.size = 14,
+  });
+
+  final String agentId;
+  final String? providerId;
+  final String? modelId;
+  final double size;
+
+  @override
+  Widget build(BuildContext context) {
+    final configsCtrl = context.watch<AgentConfigsController>();
+    final providerToAgentKind =
+        context.watch<AgentServerController>().providerToAgentKind;
+
+    final identity = resolveAgentBadgeIdentity(
+      agentId: agentId,
+      providerId: providerId,
+      modelId: modelId,
+      providerToAgentKind: providerToAgentKind,
+      configById: configsCtrl.byId,
+    );
+    final config = identity.config;
+    final color = identity.isRecognised
+        ? context.rhythm.accent
+        : context.rhythm.textMuted;
+
+    if (config != null) {
+      return AgentIcon(config.icon, size: size, fallbackLabel: config.label);
+    }
+    if (identity.materialIcon != null) {
+      return Icon(identity.materialIcon, size: size, color: color);
+    }
+    return Icon(Icons.smart_toy_outlined, size: size, color: color);
+  }
+}
+
 class AgentKindBadge extends StatelessWidget {
   const AgentKindBadge({
     super.key,

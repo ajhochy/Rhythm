@@ -38,6 +38,7 @@ import 'package:rhythm_desktop/features/agents/models/agent_session_message.dart
 import 'package:rhythm_desktop/features/agents/models/agent_ws_message.dart';
 import 'package:rhythm_desktop/features/agents/repositories/agents_repository.dart';
 import 'package:rhythm_desktop/features/agents/views/agents_view.dart';
+import 'package:rhythm_desktop/features/agents/views/_session_list_body.dart';
 import 'package:rhythm_desktop/features/agent_projects/controllers/agent_projects_controller.dart';
 import 'package:rhythm_desktop/features/agent_projects/data/agent_projects_remote_data_source.dart';
 import 'package:rhythm_desktop/features/agent_projects/models/agent_project.dart';
@@ -517,30 +518,37 @@ void main() {
 
     // ── (8) Rich rows: model badge present ──────────────────────────────────
 
-    testWidgets(
-        'session rows show agent kind badge (rich SessionRow rendering)',
+    testWidgets('session rows show agent icon (compact SessionRow rendering)',
         (tester) async {
       await tester.binding.setSurfaceSize(const Size(1600, 900));
       addTearDown(() => tester.binding.setSurfaceSize(null));
 
-      // Session with agentId='claude-code' → badge resolves to "Claude Code".
+      // Session with agentId='claude-code' → resolves to the claude-code config.
       final sessions = [_makeSession('s1', 'Model Badge Session')];
       final controller = _makeControllerWithSessions(sessions);
 
       await tester.pumpWidget(await _buildTestApp(controller));
       await tester.pump();
 
-      // (8) The agent badge pill text ("Claude Code") must be present inside
-      // the nav column, confirming rich SessionRow is rendered (not a lean row
-      // that only shows session name + a plain dot).
+      // The compact SessionRow renders an icon-only agent identity
+      // (AgentKindIcon) plus the session title — no agent label/"description".
       final navCol = find.byKey(const ValueKey('agents-nav-column'));
       expect(
-        find.descendant(
-          of: navCol,
-          matching: find.text('Claude Code'),
-        ),
+        find.descendant(of: navCol, matching: find.byType(AgentKindIcon)),
         findsAtLeastNWidgets(1),
-        reason: 'Rich SessionRow must render the AgentKindBadge pill',
+        reason: 'Compact SessionRow must render the agent icon',
+      );
+      expect(
+        find.descendant(of: navCol, matching: find.text('Model Badge Session')),
+        findsOneWidget,
+        reason: 'Compact SessionRow must render the session title',
+      );
+      // The agent label ("Claude Code") is intentionally dropped in the
+      // compact row.
+      expect(
+        find.descendant(of: navCol, matching: find.text('Claude Code')),
+        findsNothing,
+        reason: 'Compact SessionRow shows icon only, no agent label',
       );
 
       await tester.pumpWidget(const MaterialApp(home: SizedBox()));
