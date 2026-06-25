@@ -221,22 +221,23 @@ describe('syncOpencodeAgentProfiles hygiene (P3)', () => {
     expect(parsed).not.toContain('workflow-orchestrator');
   });
 
-  it('issue-P4-manager-delegation-c6: re-sync restores importer-driven manager delegation config', async () => {
+  it('issue-P4-manager-delegation-c6: re-sync preserves a user-edited manager delegation override', async () => {
+    // allowed_delegates_json is a USER-OWNED overlay field. Once a user scopes a
+    // manager's delegates in the designer, re-sync must NEVER regenerate it from
+    // the importer-derived list — otherwise the sync silently un-scopes the
+    // profile (the live bug that wiped Secretary's allowlist).
     await syncOpencodeAgentProfiles(makeWorkflowAgents() as never);
 
     const repo = new AgentConfigsRepository();
     repo.update('workflow-orchestrator', {
-      isManager: false,
-      allowedDelegatesJson: JSON.stringify(['wrong-target']),
+      allowedDelegatesJson: JSON.stringify(['custom-target']),
     });
 
     await syncOpencodeAgentProfiles(makeWorkflowAgents() as never);
 
     const row = repo.getById('workflow-orchestrator');
-    expect(row?.isManager).toBe(true);
     const parsed: unknown = JSON.parse(row!.allowedDelegatesJson!);
-    expect(parsed).toContain('coding-agent');
-    expect(parsed).not.toContain('wrong-target');
+    expect(parsed).toEqual(['custom-target']);
   });
 
   it('re-sync preserves user-edited label on existing row', async () => {

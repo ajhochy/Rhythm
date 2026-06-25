@@ -16,6 +16,16 @@ newest-first ordering + compact `SessionRow`. Detail:
 `docs/ai/runs/2026-06-25-session-list-ordering-density.md`. Still open: delegated-session
 card stays "Starting"/no usage (synchronous run, no WS lifecycle streaming).
 
+**2026-06-25 — sync now preserves user-owned overlay allowlist fields.**
+`syncOpencodeAgentProfiles` was nulling `allowed_delegates_json` (and could wipe
+`allowed_mcps_json` — live Secretary bug) on every re-sync. The three overlay
+columns (`allowed_mcps_json`, `allowed_skills_json`, `allowed_delegates_json`)
+are now treated as user-owned: importer defaults on first INSERT only,
+backfill-when-null + preserve-on-UPDATE thereafter. Engine fields
+(`ocAgent`, `sessionSelectable`) still refresh every sync. Detail:
+`docs/ai/runs/2026-06-25-sync-preserve-overlay-fields.md`; decision:
+`docs/ai/decisions/2026-06-25-sync-preserve-overlay-fields.md`.
+
 ## Active branch / PR
 
 - **Branch:** `feature/agent-scheduler`
@@ -45,7 +55,7 @@ card stays "Starting"/no usage (synchronous run, no WS lifecycle streaming).
 | `ai-workflow checks --level issue` | **PASS** — Flutter analyze, Dart format, API `tsc --noEmit` |
 | `ai-workflow checks --level pr` | **PASS** — issue checks + API Vitest |
 | `apps/api_server npx tsc --noEmit` | **PASS** |
-| `apps/api_server npx vitest run` | **PASS** — 140 files, 1184 tests |
+| `apps/api_server npx vitest run` | **PASS** — 141 files, 1189 tests (incl. overlay-preservation suite) |
 | `apps/api_server` focused P4 contract tests | **PASS** — schema, repo, delegation auth, importer |
 | `apps/mcp_server npm run typecheck` | **PASS** |
 | `apps/mcp_server npx vitest run src/tools/agentDelegation.test.ts` | **PASS** |

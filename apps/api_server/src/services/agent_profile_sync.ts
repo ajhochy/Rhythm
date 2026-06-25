@@ -366,25 +366,33 @@ export async function syncOpencodeAgentProfiles(
           ocAgent: name,
           sessionSelectable: selectable,
           isManager,
-          allowedDelegatesJson,
         };
         if (!existing.systemPrompt && prompt) patch.systemPrompt = prompt;
         if (!existing.modelProvider && !existing.modelId) {
           patch.modelProvider = resolvedProvider;
           patch.modelId = resolvedModelId;
         }
-        // Backfill allowedMcpsJson if the row was inserted before this hygiene
-        // fix and still has a null value.
+        // USER-OWNED overlay allowlists — allowed_mcps_json, allowed_skills_json,
+        // and allowed_delegates_json are owned by the designer, not the engine.
+        // The sync must NEVER overwrite a value the user set; it only BACKFILLS a
+        // still-null row with the first-insert default (same preserve-when-set
+        // policy as systemPrompt / modelProvider / modelId above).
+        //
+        // Live bug this guards against: re-syncing was nulling/regenerating these
+        // columns, so e.g. Secretary silently lost its allowed_mcps_json scope and
+        // had to be re-PATCHed. allowedDelegatesJson was the worst offender — it
+        // was written unconditionally, clobbering user overrides on every sync.
         if (existing.allowedMcpsJson === null) {
           patch.allowedMcpsJson = IMPORTER_DEFAULT_ALLOWED_MCPS_JSON;
         }
-        // Backfill allowedSkillsJson if the row still has a null value.
-        // Uses the same derivation as the insert path so re-sync is idempotent.
         if (existing.allowedSkillsJson === null) {
           const derived = deriveSkillAllowlist(name);
           if (derived !== null) {
             patch.allowedSkillsJson = derived;
           }
+        }
+        if (existing.allowedDelegatesJson === null && allowedDelegatesJson !== null) {
+          patch.allowedDelegatesJson = allowedDelegatesJson;
         }
         repo.update(name, patch);
       } else {
