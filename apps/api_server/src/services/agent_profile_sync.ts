@@ -73,7 +73,17 @@ const DEV_FRONT_DOOR_PRIMARY = 'workflow-orchestrator';
  * not appear alongside the primary in the AgentSelectorPill. These are still
  * imported as profiles so the scheduler + programmatic callers can target them.
  */
-const DEV_FRONT_DOOR_SECONDARY = new Set(['superpowers', 'plan']);
+const DEV_FRONT_DOOR_SECONDARY = new Set([
+  'superpowers',
+  'plan',
+  // CLI / system agents that must stay hidden from the session picker across
+  // every sync. They are still imported as profiles so programmatic callers
+  // can target them, but they must never appear in the AgentSelectorPill.
+  'build',
+  'codex',
+  'gemini-cli',
+  'opencode',
+]);
 
 // ---------------------------------------------------------------------------
 // Tier → model mapping (P3 — importer profile hygiene)
@@ -365,7 +375,6 @@ export async function syncOpencodeAgentProfiles(
         model?: string | null;
       };
       const prompt = typeof a.prompt === 'string' && a.prompt.trim() !== '' ? a.prompt : null;
-      const isManager = name === DEV_FRONT_DOOR_PRIMARY;
       const allowedDelegatesJson = deriveAllowedDelegates(name);
 
       // Resolve model: registry string → tier detection → Tier 2 default.
@@ -381,13 +390,12 @@ export async function syncOpencodeAgentProfiles(
         // — never clobber values the user edited in the designer (which is now
         // the source of truth for model/prompt).
         //
-        // is_manager is intentionally ABSENT from the patch. That flag is
-        // user-controlled — whoever the user designated as manager (possibly
-        // a different profile entirely) must not be overwritten here.
+        // is_manager is intentionally absent — see comment block above the
+        // DEV_FRONT_DOOR_PRIMARY constant. That flag is user-controlled and
+        // must survive re-syncs unchanged.
         const patch: Parameters<typeof repo.update>[1] = {
           ocAgent: name,
           sessionSelectable: selectable,
-          isManager,
         };
         if (!existing.systemPrompt && prompt) patch.systemPrompt = prompt;
         if (!existing.modelProvider && !existing.modelId) {
@@ -439,7 +447,7 @@ export async function syncOpencodeAgentProfiles(
           // Derive per-agent skill allowlist from name. null = all eligible
           // (fail-open for agents not in the map). See deriveSkillAllowlist().
           allowedSkillsJson: deriveSkillAllowlist(name),
-          isManager,
+          // is_manager is intentionally NOT set here — see comment block above.
           allowedDelegatesJson,
           sortOrder: 100,
         });

@@ -65,6 +65,13 @@ function makeWorkflowAgents(): FixtureAgent[] {
     { name: 'some-subagent', mode: 'subagent', builtIn: false },
     // An internal primary that should not appear as selectable
     { name: 'compaction', mode: 'primary', builtIn: true },
+    // CLI / system agents that must be hidden from the session picker
+    { name: 'build', mode: 'primary', builtIn: false },
+    { name: 'codex', mode: 'primary', builtIn: false },
+    { name: 'gemini-cli', mode: 'primary', builtIn: false },
+    { name: 'opencode', mode: 'primary', builtIn: false },
+    // claude-code is the user's escape hatch and must stay selectable
+    { name: 'claude-code', mode: 'primary', builtIn: false },
   ];
 }
 
@@ -205,14 +212,21 @@ describe('syncOpencodeAgentProfiles hygiene (P3)', () => {
     expect(selectable[0].id).toBe('workflow-orchestrator');
   });
 
-  it('issue-P4-manager-delegation-c6: imports workflow-orchestrator as manager with allowed delegates', async () => {
+  it('issue-P4-manager-delegation-c6: importer seeds allowedDelegatesJson but does NOT set isManager', async () => {
+    // The importer may seed the allowed-delegates list (so the user has a
+    // sensible starting scope) but must NEVER force is_manager=true. That flag
+    // is user-controlled — any profile (Secretary, workflow-orchestrator, etc.)
+    // may hold the manager role and the choice must survive re-syncs.
     await syncOpencodeAgentProfiles(makeWorkflowAgents() as never);
 
     const repo = new AgentConfigsRepository();
     const row = repo.getById('workflow-orchestrator');
 
     expect(row).not.toBeNull();
-    expect(row!.isManager).toBe(true);
+    // is_manager must default to false — the importer never writes it.
+    expect(row!.isManager).toBe(false);
+    // allowedDelegatesJson is still seeded by the importer (user-owned from
+    // first insert, preserved on re-sync).
     expect(row!.allowedDelegatesJson).not.toBeNull();
     const parsed: unknown = JSON.parse(row!.allowedDelegatesJson!);
     expect(Array.isArray(parsed)).toBe(true);
@@ -395,5 +409,59 @@ describe('syncOpencodeAgentProfiles hygiene (P3)', () => {
     // And is_manager on planning-agent must still be true.
     const planningAgent = repo.getById('planning-agent');
     expect(planningAgent?.isManager).toBe(true);
+  });
+
+  // ---------------------------------------------------------------------------
+  // CLI / system agents hidden from the session picker
+  //
+  // build, codex, gemini-cli, opencode are CLI wrappers — they must be
+  // imported as profiles (so programmatic callers can target them) but must
+  // never appear in the AgentSelectorPill. claude-code is intentionally NOT
+  // in this set because it is the user's escape hatch.
+  // ---------------------------------------------------------------------------
+
+  it('CLI agents (build/codex/gemini-cli/opencode) have sessionSelectable=false after sync', async () => {
+    await syncOpencodeAgentProfiles(makeWorkflowAgents() as never);
+
+    const repo = new AgentConfigsRepository();
+    const cliAgents = ['build', 'codex', 'gemini-cli', 'opencode'];
+
+    for (const agentId of cliAgents) {
+      const row = repo.getById(agentId);
+      expect(row, `${agentId} should exist after sync`).not.toBeNull();
+      expect(
+        row!.sessionSelectable,
+        `${agentId}: CLI agent must not appear in the session picker`,
+      ).toBe(false);
+    }
+  });
+
+  it('claude-code is sessionSelectable=true after sync (user escape hatch)', async () => {
+    await syncOpencodeAgentProfiles(makeWorkflowAgents() as never);
+
+    const repo = new AgentConfigsRepository();
+    const row = repo.getById('claude-code');
+    expect(row, 'claude-code should exist after sync').not.toBeNull();
+    expect(
+      row!.sessionSelectable,
+      'claude-code must remain session-selectable (user escape hatch)',
+    ).toBe(true);
+  });
+
+  it('re-sync keeps CLI agents sessionSelectable=false', async () => {
+    await syncOpencodeAgentProfiles(makeWorkflowAgents() as never);
+    // Second sync — must not flip them back to selectable.
+    await syncOpencodeAgentProfiles(makeWorkflowAgents() as never);
+
+    const repo = new AgentConfigsRepository();
+    const cliAgents = ['build', 'codex', 'gemini-cli', 'opencode'];
+
+    for (const agentId of cliAgents) {
+      const row = repo.getById(agentId);
+      expect(
+        row!.sessionSelectable,
+        `${agentId}: CLI agent must stay hidden after re-sync`,
+      ).toBe(false);
+    }
   });
 });

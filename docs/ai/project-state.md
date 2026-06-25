@@ -2,31 +2,37 @@
 
 ## Current focus
 
-**2026-06-25 — Decouple is_manager from the OpenCode agent importer.**
+**2026-06-25 — ACTUALLY remove is_manager forcing write from the importer.**
 
-Branch `fix/decouple-ismanager-importer` adds comments and tests to
-`agent_profile_sync.ts` to prevent the importer from ever writing `is_manager`,
-keeping that flag user-controlled so any profile (e.g. Secretary) can be the
-manager and survive re-syncs unchanged.
+PR #741 (`fix/decouple-ismanager-importer`) has been rebased onto
+`feature/agent-scheduler` and now contains the real fix:
+- `const isManager = name === DEV_FRONT_DOOR_PRIMARY` deleted.
+- `isManager` removed from both the UPDATE patch and the INSERT call.
+- `DEV_FRONT_DOOR_SECONDARY` extended with `build`, `codex`, `gemini-cli`,
+  `opencode` so CLI agents stay hidden from the session picker across every sync.
+- 3 new tests: CLI agents hidden, claude-code selectable, re-sync stability.
+- Existing is_manager decoupling tests (4 from prior commit) pass.
+- Updated `issue-P4-manager-delegation-c6` test to assert `isManager=false`.
 
-Previous focus (feature/agent-scheduler, PR #734):
-Production-trigger scheduled task parity implemented and automated verification
-passed locally. PR #734 open; do not auto-merge.
+The app must be REBUILT from `feature/agent-scheduler` (after #741 merges) for
+the churn to actually stop. Until then, every sync/restart will flip
+`workflow-orchestrator` back to `is_manager=true`.
 
 ## Active branch / PR
 
 - **Branch:** `fix/decouple-ismanager-importer`
-- **PR:** pending push — open against `feature/agent-scheduler` (base)
+- **PR:** [#741](https://github.com/ajhochy/Rhythm/pull/741) — open against `feature/agent-scheduler` (do not merge)
 - **Also active:** `feature/agent-scheduler` → [PR #734](https://github.com/ajhochy/Rhythm/pull/734) (do not auto-merge)
 
 ## In progress
 
-`fix/decouple-ismanager-importer` — commit ready, pushing to origin and opening PR.
+Awaiting human review and merge decision on PR #741.
 
 ## Risks / known issues
 
-- **Other agent on feature/agent-scheduler is adding isManager to the importer** — this
-  PR preempts that by landing the correct decoupled behavior with enforcement tests.
+- **Merge order:** #741 must land before any code that reads `isManager` from
+  the importer result. The feature/agent-scheduler branch already removed the
+  importer's forced write so they are compatible.
 - **P3 allowlist maintenance:** `AGENT_SKILL_ALLOWLIST_MAP` is hand-maintained.
 - **Pre-existing flaky test:** `tasks_controller.test.ts > overdue=yes` intermittent.
 
@@ -35,11 +41,13 @@ passed locally. PR #734 open; do not auto-merge.
 | Suite | Status |
 |-------|--------|
 | `apps/api_server npm run build` | **PASS** — `tsc -p tsconfig.json` |
-| `apps/api_server npm test` | **PASS** — 139 files, 1182 tests (4 new is_manager tests) |
+| `apps/api_server npm test` | **PASS** — 141 files, 1196 tests |
+| Hygiene test suite (20 tests) | **PASS** — all is_manager + CLI agent tests |
 | GitNexus detect_changes | **LOW** — 2 symbols touched, 0 affected processes |
 
 ## Next step
 
-1. Push fix/decouple-ismanager-importer and open PR against feature/agent-scheduler.
-2. Human reviews and decides merge order with respect to feature/agent-scheduler.
-3. Resolve any conflicts when the other agent's manager-delegation work is merged.
+1. Human reviews PR #741 and merges into `feature/agent-scheduler`.
+2. Rebuild app from `feature/agent-scheduler` — churn stops.
+3. Optional: run manual sync smoke to verify `workflow-orchestrator.isManager`
+   stays false after restart.
