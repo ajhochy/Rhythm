@@ -26,8 +26,13 @@ pass each session's expanded profile allowlist on session create.
 
 ## In progress
 
-mcp-scope run, order: 01 (done) → 02 (done) → **05** (allowlist expander, next)
-→ 04 (api_server wiring) → local proof → 03 (CI binary bundle + sign) → 06 (verify).
+mcp-scope run, order: 01 (done) → 02 (done) → 05 (done) → **04** (api_server
+wiring, next) → local proof → 03 (CI binary bundle + sign) → 06 (verify).
+
+Note for 04: call `expandMcpAllowlist(profileScope.mcpRoleConfig)` and pass the
+result as `mcpAllowlist` on `createSession` (both ws_gateway + agent_runner paths).
+`servers[]` holds RAW server names (matches engine raw clientName); `tools[]` holds
+sanitized `<server>_<tool>` ids.
 
 ## Risks / known issues
 
