@@ -112,6 +112,20 @@ afterEach(async () => {
 
 Failing to do this poisons subsequent tests (they'll hit the 400 "engine not ready" guard).
 
+### opencode fork (Bun/TypeScript)
+```bash
+cd apps/opencode_fork/packages/opencode
+bun run typecheck                                          # must exit 0
+bun test src/session/mcp_allowlist.test.ts                 # 5 pass — unit: filterMcpToolsByAllowlist
+bun test test/session/mcp_allowlist_e2e.test.ts            # 4 pass — e2e: A=5,B=3,C=1,D=0 tools
+bun test test/session/ src/session/                        # full session suite (325+ pass, 0 fail)
+```
+
+| File | What it covers |
+|---|---|
+| `apps/opencode_fork/packages/opencode/src/session/mcp_allowlist.test.ts` | Unit: `filterMcpToolsByAllowlist` — server-level pass-through, tool-level filter, empty allowlist→0, undefined→all |
+| `apps/opencode_fork/packages/opencode/test/session/mcp_allowlist_e2e.test.ts` | E2E integration: full `sessions.create → DB persist → runLoop sessions.get → resolveTools → LLM request body`; 4 cases prove the gate fires end-to-end |
+
 ## Smoke test checklist (manual, pre-merge)
 
 After deploying the Opencode engine:

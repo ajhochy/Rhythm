@@ -41,6 +41,8 @@ export const SessionTable = sqliteTable(
     tokens_cache_write: integer().notNull().default(0),
     revert: text({ mode: "json" }).$type<{ messageID: MessageID; partID?: PartID; snapshot?: string; diff?: string }>(),
     permission: text({ mode: "json" }).$type<Permission.Ruleset>(),
+    // Rhythm carried patch (mcp-scope): per-session MCP tool allowlist (nullable JSON).
+    mcp_allowlist: text({ mode: "json" }).$type<{ servers: string[]; tools: string[] }>(),
     agent: text(),
     model: text({ mode: "json" }).$type<{
       id: string

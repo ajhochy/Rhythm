@@ -100,6 +100,7 @@ export function fromRow(row: SessionRow): Info {
     share,
     revert,
     permission: row.permission ?? undefined,
+    mcpAllowlist: row.mcp_allowlist ?? undefined,
     time: {
       created: row.time_created,
       updated: row.time_updated,
@@ -135,6 +136,7 @@ export function toRow(info: Info) {
     tokens_cache_write: (info.tokens ?? EmptyTokens).cache.write,
     revert: info.revert ?? null,
     permission: info.permission,
+    mcp_allowlist: info.mcpAllowlist ?? null,
     time_created: info.time.created,
     time_updated: info.time.updated,
     time_compacting: info.time.compacting,

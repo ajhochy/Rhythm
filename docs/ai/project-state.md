@@ -15,7 +15,9 @@ per-session `mcpAllowlist` patch, build a standalone binary, and have api_server
 pass each session's expanded profile allowlist on session create.
 
 **Issue mcp-scope-01 DONE** (opencode @ v1.14.49 vendored).
-**Issue mcp-scope-02 DONE** (engine patch + TS2416 carried fix; verification passed).
+**Issue mcp-scope-02 DONE** (engine patch + TS2416 carried fix + mcpAllowlist SQLite persistence defect fixed; all e2e cases pass).
+**Issue mcp-scope-05 DONE** (allowlist expander).
+**Issue mcp-scope-04 DONE** (api_server wiring).
 
 ## Active branch / PR
 
@@ -27,12 +29,16 @@ pass each session's expanded profile allowlist on session create.
 ## In progress
 
 mcp-scope run, order: 01 (done) → 02 (done) → 05 (done) → 04 (done) →
-**local proof** (next) → 03 (CI binary bundle + sign) → 06 (verify).
+local proof (done — deterministic e2e) → **03** (CI binary bundle + sign, next)
+→ 06 (verify).
 
-The full software path is now wired end-to-end (engine gate + expander +
-createSession body). What remains is the DELIVERY half: build/bundle/sign the
-fork binary (03) so the running app actually uses the patched engine, plus the
-local proof and final acceptance measurement (06).
+The full software path is wired AND proven end-to-end: the deterministic e2e test
+(`mcp_allowlist_e2e.test.ts`) drives the real prompt/resolveTools flow and shows the
+offered MCP tool set drop 5→3→1→0 across no-profile / server-scoped / tool-scoped /
+empty-allowlist sessions. What remains is the DELIVERY half: build/bundle/sign the
+fork binary (03) so the running app actually uses the patched engine, then final
+acceptance measurement (06). A live full-app smoke (Flutter UI + signed binary) is
+naturally part of the post-03 manual smoke.
 
 ## Risks / known issues
 
@@ -54,18 +60,21 @@ local proof and final acceptance measurement (06).
 | `apps/api_server vitest` | **PASS** — exit 0 |
 | `apps/opencode_fork bun run typecheck` | **PASS** — exit 0 (TS2416 fixed) |
 | `apps/opencode_fork bun test src/session/mcp_allowlist.test.ts` | **PASS** — 5/5 |
-| `apps/opencode_fork bun test src/session/` | **PASS** — 5 pass, 0 fail |
+| `apps/opencode_fork bun test test/session/mcp_allowlist_e2e.test.ts` | **PASS** — 4/4 (A=5, B=3, C=1, D=0) |
+| `apps/opencode_fork bun test test/session/ src/session/` | **PASS** — 325 pass, 0 fail |
 | `flutter analyze --no-fatal-infos` | **PASS** |
 | `dart format --set-exit-if-changed` | **PASS** |
 
 ## Next step
 
-1. **Local end-to-end proof** — build the fork binary, put it on PATH ahead of
-   `createOpencode`, open a Secretary session, confirm injected MCP tool count
-   drops to the profile allowlist. (See runs/2026-06-25-mcp-scope-04 for wiring.)
-2. Issue **mcp-scope-03** (CI binary bundle + sign) — riskiest; static-audit
-   signing/secrets first.
-3. Issue **mcp-scope-06** (verification + acceptance measurement).
+1. Issue **mcp-scope-03** (CI binary bundle + sign) — riskiest. Static-audit
+   `desktop_release.yml` signing/secrets first; build the fork binary via
+   `bun build --compile` (arm64+x64), sign in tools/release, bundle into the .app,
+   PATH-prepend its dir before `createOpencode`.
+2. Issue **mcp-scope-06** (verification + acceptance measurement).
+3. Live full-app manual smoke (Flutter UI + signed binary: open a Secretary session,
+   confirm tool count drops) — part of the post-03 smoke handoff.
 4. Open draft PR. No merge.
 
-Per-issue run logs: docs/ai/runs/2026-06-25-mcp-scope-0{1,2,4,5}-*.md.
+Per-issue run logs: `docs/ai/runs/2026-06-25-mcp-scope-0{1,2,4,5}-*.md`.
+Persistence defect fix: `docs/ai/runs/2026-06-25-mcp-scope-02-allowlist-persistence.md`.
