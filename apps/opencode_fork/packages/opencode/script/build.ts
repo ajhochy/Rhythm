@@ -48,6 +48,11 @@ const migrations = await Promise.all(
 console.log(`Loaded ${migrations.length} migrations`)
 
 const singleFlag = process.argv.includes("--single")
+// Rhythm carried patch (mcp-scope): --macos builds only the two clean darwin
+// targets (arm64 + x64) for the universal-binary CI bundle, skipping the
+// linux/windows/musl/baseline targets (which Rhythm never ships and whose
+// baseline/musl runtimes "can be flaky to download" per the note below).
+const macosFlag = process.argv.includes("--macos")
 const baselineFlag = process.argv.includes("--baseline")
 const skipInstall = process.argv.includes("--skip-install")
 const sourcemapsFlag = process.argv.includes("--sourcemaps")
@@ -143,7 +148,9 @@ const allTargets: {
   },
 ]
 
-const targets = singleFlag
+const targets = macosFlag
+  ? allTargets.filter((item) => item.os === "darwin" && item.avx2 !== false && item.abi === undefined)
+  : singleFlag
   ? allTargets.filter((item) => {
       if (item.os !== process.platform || item.arch !== process.arch) {
         return false

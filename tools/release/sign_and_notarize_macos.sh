@@ -80,6 +80,19 @@ fi
 PROCESSED_ENTITLEMENTS="$(mktemp -t rhythm-entitlements).plist"
 sed "s/\$(AppIdentifierPrefix)/${APPLE_TEAM_ID}./" "${ENTITLEMENTS_PATH}" > "${PROCESSED_ENTITLEMENTS}"
 
+# The bundled opencode fork binary is an extensionless Mach-O produced by bun
+# --compile. The find pattern below does NOT match it (no extension), so we must
+# sign it explicitly BEFORE the broad nested-binary pass — and fail loudly if it
+# is absent (it should always be present after the Bundle step in CI).
+OPENCODE_BIN="${APP_PATH}/Contents/Resources/opencode_bin/opencode"
+if [[ ! -f "${OPENCODE_BIN}" ]]; then
+  echo "::error::Bundled opencode fork binary not found at ${OPENCODE_BIN} — aborting sign step." >&2
+  exit 1
+fi
+codesign --force --options runtime --timestamp \
+  --sign "${IDENTITY_SHA}" \
+  "${OPENCODE_BIN}"
+
 # Sign nested frameworks and binaries from the inside out with Hardened Runtime.
 # codesign --deep does NOT propagate --options runtime to nested items, so we
 # must sign each one explicitly before signing the top-level bundle.

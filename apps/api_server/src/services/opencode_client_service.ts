@@ -200,13 +200,38 @@ export async function reclaimStalePortForOpencode(
  * Directories the SDK's `cross-spawn("opencode")` may need on PATH. GUI-spawned
  * .app children on macOS only inherit `/usr/bin:/bin:/usr/sbin:/sbin` — none of
  * which contain the opencode binary. Idempotent: prepends each dir at most once.
+ *
+ * When running inside the bundled .app the Rhythm fork binary lives at
+ *   Contents/Resources/opencode_bin/opencode
+ * The api_server JS entry point is at
+ *   Contents/Resources/api_server/dist/server.js
+ * so __dirname resolves to …/api_server/dist and the opencode_bin dir is two
+ * levels up from there.  When the bundled binary is present its directory is
+ * prepended FIRST so the forked engine always shadows any stock opencode on PATH.
+ * In local `flutter run` / `npm run dev` development the bundled path won't exist;
+ * in that case a WARN is logged and the existing PATH fallbacks are used as-is.
  */
 export function augmentPathForOpencode(): void {
-  const extras = [
+  // Bundled binary: …/api_server/dist/../../opencode_bin → …/opencode_bin
+  const bundledBinDir = join(__dirname, '..', '..', 'opencode_bin');
+  const bundledBinaryPath = join(bundledBinDir, 'opencode');
+
+  const extras: string[] = [];
+
+  if (existsSync(bundledBinaryPath)) {
+    extras.push(bundledBinDir);
+  } else {
+    logger.warn(
+      `[WARN] bundled opencode fork not found at ${bundledBinaryPath}; falling back to PATH opencode (patch may be inactive)`,
+    );
+  }
+
+  extras.push(
     join(homedir(), '.opencode', 'bin'),
     '/opt/homebrew/bin',
     '/usr/local/bin',
-  ];
+  );
+
   const current = (process.env.PATH ?? '').split(':');
   const missing = extras.filter((d) => !current.includes(d));
   if (missing.length === 0) return;

@@ -1,25 +1,44 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { homedir } from 'os';
 import { join } from 'path';
+
+// ---------------------------------------------------------------------------
+// augmentPathForOpencode uses __dirname (module-level) and existsSync at call
+// time. We mock 'fs' before importing the service so the mock is in place when
+// the module loads, and we re-mock existsSync per test.
+// ---------------------------------------------------------------------------
+vi.mock('fs', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('fs')>();
+  return {
+    ...actual,
+    existsSync: vi.fn(() => false), // default: no bundled binary
+  };
+});
+
 import {
   OpencodeClientService,
   augmentPathForOpencode,
 } from './opencode_client_service';
 import { expandMcpAllowlist } from './mcp_allowlist_expander';
 import type { McpRoleConfig } from './agent_profile_scope';
+import { existsSync } from 'fs';
+
+const mockExistsSync = existsSync as ReturnType<typeof vi.fn>;
 
 describe('augmentPathForOpencode', () => {
   let originalPath: string | undefined;
 
   beforeEach(() => {
     originalPath = process.env.PATH;
+    mockExistsSync.mockReturnValue(false); // default: no bundled binary
   });
 
   afterEach(() => {
     process.env.PATH = originalPath;
+    vi.restoreAllMocks();
   });
 
-  it('prepends opencode bin + homebrew + /usr/local/bin to PATH', () => {
+  it('prepends opencode bin + homebrew + /usr/local/bin to PATH (no bundled binary)', () => {
     process.env.PATH = '/usr/bin:/bin';
     augmentPathForOpencode();
     const parts = process.env.PATH!.split(':');
@@ -52,6 +71,51 @@ describe('augmentPathForOpencode', () => {
     const parts = process.env.PATH!.split(':');
     expect(parts).toContain(join(homedir(), '.opencode', 'bin'));
     expect(parts.filter((p) => p === '').length).toBe(0);
+  });
+
+  // -------------------------------------------------------------------------
+  // mcp-scope-03: bundled binary path tests
+  // -------------------------------------------------------------------------
+
+  it('(bundled present) prepends opencode_bin dir FIRST — before all other extras', () => {
+    mockExistsSync.mockReturnValue(true);
+    process.env.PATH = '/usr/bin:/bin';
+
+    augmentPathForOpencode();
+
+    const parts = process.env.PATH!.split(':');
+    // The bundled bin dir is resolved as __dirname/../../opencode_bin.
+    // In tests __dirname is the compiled output dir; we just assert it
+    // ends with 'opencode_bin' and comes before the homebrewpath.
+    const bundledIdx = parts.findIndex((p) => p.endsWith('opencode_bin'));
+    const homebrewIdx = parts.findIndex((p) => p === '/opt/homebrew/bin');
+    const opencodeUserIdx = parts.findIndex((p) =>
+      p === join(homedir(), '.opencode', 'bin'),
+    );
+    expect(bundledIdx).toBeGreaterThanOrEqual(0);
+    expect(homebrewIdx).toBeGreaterThan(bundledIdx);
+    expect(opencodeUserIdx).toBeGreaterThan(bundledIdx);
+  });
+
+  it('(bundled present) bundled dir is still only included once (idempotent)', () => {
+    mockExistsSync.mockReturnValue(true);
+    process.env.PATH = '/usr/bin:/bin';
+    augmentPathForOpencode();
+    const afterFirst = process.env.PATH;
+    augmentPathForOpencode();
+    expect(process.env.PATH).toBe(afterFirst);
+  });
+
+  it('(bundled absent) does NOT throw and still prepends the existing extras', () => {
+    mockExistsSync.mockReturnValue(false);
+    process.env.PATH = '/usr/bin:/bin';
+    expect(() => augmentPathForOpencode()).not.toThrow();
+    const parts = process.env.PATH!.split(':');
+    expect(parts).toContain(join(homedir(), '.opencode', 'bin'));
+    expect(parts).toContain('/opt/homebrew/bin');
+    expect(parts).toContain('/usr/local/bin');
+    // No opencode_bin dir should be added when binary is absent
+    expect(parts.some((p) => p.endsWith('opencode_bin'))).toBe(false);
   });
 });
 

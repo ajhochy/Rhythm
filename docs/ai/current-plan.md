@@ -210,7 +210,7 @@ Issue 5 has no dependencies and can be built in parallel with 1/2. The local
 end-to-end proof (cheapest path) is reachable after 4 using a locally-built fork
 binary on PATH, before CI bundling (3) is finished.
 
-**Progress (2026-06-25):** Issues 1 and 2 are DONE. Next: Issue 5 (allowlist expander).
+**Progress (2026-06-25):** Issues 1, 2, 3, 4, 5 are DONE. Next: Issue 6 (verification + acceptance measurement).
 
 ---
 
