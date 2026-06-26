@@ -590,7 +590,14 @@ class _TranscriptPanelState extends State<_TranscriptPanel> {
               boxShadow: RhythmElevation.panel,
             ),
             child: selected == null
-                ? const _EmptyTranscriptState()
+                // #746 — while a new session is being created (engine cold-start
+                // may take ~30s), show the composer immediately with a lightweight
+                // "Connecting…" banner instead of the blank empty-state.  The text
+                // field is visible but disabled so the user sees it is coming and
+                // does not click "New session" again by mistake.
+                ? (controller.isCreating
+                    ? const _EngineConnectingState()
+                    : const _EmptyTranscriptState())
                 // OPC-M3-6: when a child session is active, swap the main
                 // transcript area to the child transcript view. The parent
                 // transcript, composer, and tool bars are hidden; a breadcrumb
@@ -1191,6 +1198,132 @@ class _EmptyTranscriptState extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// #746 — Shown in the transcript panel while a new session is being created
+/// and the engine is cold-starting (~30s on first launch). Renders the composer
+/// area immediately so the chat window looks alive, with a non-blocking
+/// "Connecting to agent engine…" banner above the (disabled) text field.
+///
+/// This replaces the blank [_EmptyTranscriptState] during [AgentsController.isCreating]
+/// so the user sees progress rather than a frozen UI.
+class _EngineConnectingState extends StatelessWidget {
+  const _EngineConnectingState();
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        // Connecting banner
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+          decoration: BoxDecoration(
+            color: context.rhythm.accentMuted,
+            border: Border(
+              bottom: BorderSide(color: context.rhythm.borderSubtle),
+            ),
+          ),
+          child: Row(
+            children: [
+              SizedBox(
+                width: 14,
+                height: 14,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: context.rhythm.accent,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Text(
+                'Connecting to agent engine…',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
+                  color: context.rhythm.accent,
+                ),
+              ),
+            ],
+          ),
+        ),
+        // Spacer taking up the transcript area
+        const Expanded(child: SizedBox()),
+        // Disabled composer (visible immediately so the window feels responsive)
+        Container(
+          padding: const EdgeInsets.fromLTRB(18, 14, 18, 18),
+          decoration: BoxDecoration(
+            border: Border(
+              top: BorderSide(color: context.rhythm.borderSubtle),
+            ),
+            color: context.rhythm.surfaceRaised,
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              TextField(
+                enabled: false,
+                maxLines: 3,
+                minLines: 1,
+                decoration: InputDecoration(
+                  hintText: 'Connecting to engine — ready shortly…',
+                  hintStyle: TextStyle(
+                    color: context.rhythm.textMuted,
+                    fontSize: 13,
+                    fontFamily: 'Menlo',
+                  ),
+                  isDense: true,
+                  filled: true,
+                  fillColor: context.rhythm.canvas.withValues(alpha: 0.4),
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 12,
+                  ),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(RhythmRadius.lg),
+                    borderSide: BorderSide(color: context.rhythm.border),
+                  ),
+                  disabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(RhythmRadius.lg),
+                    borderSide: BorderSide(
+                      color: context.rhythm.borderSubtle,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 10),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  FilledButton(
+                    onPressed: null, // disabled while connecting
+                    style: FilledButton.styleFrom(
+                      backgroundColor: context.rhythm.accent,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 22,
+                        vertical: 12,
+                      ),
+                      minimumSize: const Size(88, 40),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                    ),
+                    child: const Text(
+                      'Send',
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: Colors.white,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }
@@ -3433,5 +3566,26 @@ class SessionRowTestHarness extends StatelessWidget {
       isStuck: false,
       onTap: () {},
     );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// #746 test harness — connecting state
+// ---------------------------------------------------------------------------
+
+/// Wraps [_EngineConnectingState] for widget tests (issue #746).
+///
+/// Renders the connecting-state widget inside a minimal [MaterialApp] /
+/// [Scaffold] so tests can assert:
+///   - The "Connecting to agent engine…" banner is visible.
+///   - The text field is disabled (not interactive).
+///   - The Send button is disabled (onPressed == null).
+@visibleForTesting
+class EngineConnectingStateTestHarness extends StatelessWidget {
+  const EngineConnectingStateTestHarness({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return const _EngineConnectingState();
   }
 }

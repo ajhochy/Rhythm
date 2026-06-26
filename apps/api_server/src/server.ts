@@ -91,6 +91,18 @@ async function main() {
   opencodeClient
     .initialize()
     .then(async () => {
+      // #746 — Notify the skill curator that the engine is ready so it can
+      // begin deferring extraction work until the cold-start window passes.
+      // Non-fatal: if notifyEngineReady throws for any reason, swallow and log.
+      try {
+        const readyAt = opencodeClient.engineReadyAt ?? Date.now();
+        const { notifyEngineReady } = await import('./services/skill_extractor');
+        notifyEngineReady(readyAt);
+        logger.info('[server] skill curator cold-start window started');
+      } catch (e) {
+        logger.warn(`[server] notifyEngineReady failed (non-fatal): ${String(e)}`);
+      }
+
       // #658: auto-bridge Claude Code credentials on launch so the user never
       // has to click "Reconnect" after a normal start. force:true re-reads the
       // keychain fresh; a successful bridge starts the 15-min refresh loop that

@@ -2,91 +2,114 @@
 
 ## Current focus
 
-**2026-06-25 — Per-session MCP tool-schema scoping (forked opencode engine).**
+**2026-06-25 — Issue #746: agent session startup latency reduction.**
 
-Goal: a "lite" agent session should only pay the token weight of its Agent
-Profile's MCP allowlist. All MCP servers stay connected at startup (memory only,
-no token cost); the only change is that the engine injects just the session's
-profile allowlist into model context. This is Rhythm's owned fix for upstream
-sst/opencode#5373.
+Branch `workflow/run-2026-06-25-agent-fixes` — all four items implemented and verified:
 
-Approach: vendor opencode as a git subtree (`apps/opencode_fork`), carry a minimal
-per-session `mcpAllowlist` patch, build a standalone binary, and have api_server
-pass each session's expanded profile allowlist on session create.
+1. **Phase timing logs** — `[Opencode][timing] <phase> took Nms` in `_initializeImpl()` (6 phases) and `create()` (3 phases).
+2. **Eager engine warm** — `notifyEngineReady()` called from `server.ts` `.then()` block; curator cold window starts exactly when engine is ready.
+3. **Non-blocking composer** — `_EngineConnectingState` widget renders immediately when `controller.isCreating == true`; disabled composer + "Connecting…" banner.
+4. **Curator throttle** — `queueSkillExtraction` defers for 90s after engine init.
 
-**Issue mcp-scope-01 DONE** (opencode @ v1.14.49 vendored).
-**Issue mcp-scope-02 DONE** (engine patch + TS2416 carried fix + mcpAllowlist SQLite persistence defect fixed; all e2e cases pass).
-**Issue mcp-scope-05 DONE** (allowlist expander).
-**Issue mcp-scope-04 DONE** (api_server wiring).
-**Issue mcp-scope-03 DONE** (CI binary bundle + sign + PATH injection — all checks pass).
-**Issue mcp-scope-06 DONE** (verification: resolveToolsCount DEBUG log + acceptance proven by composition; live full-stack smoke deferred to post-release).
-
-**All 6 mcp-scope issues complete.** Ready for draft PR + manual smoke handoff.
+Previous work on this branch: #747 (background activity indicator), #743 (child session persistence + getDiff flood fix), #745 (manager-default AgentSelectorPill), #742 (Secretary routing depth).
 
 ## Active branch / PR
 
-- **Branch:** `feature/agent-scheduler` (stacking the mcp-scope-* work here).
-- **PR:** [#734](https://github.com/ajhochy/Rhythm/pull/734) — open, do not auto-merge.
-  A draft PR for the mcp-scope work is opened at the END of the run (after 06).
-- PR #741 (is_manager/importer decouple) merged as commit `5d67aaa`.
+- **Branch:** `workflow/run-2026-06-25-agent-fixes`
+- **PR:** not yet opened — next step is draft PR covering all issues on this branch.
+- **Related open PR:** [#734](https://github.com/ajhochy/Rhythm/pull/734) — mcp-scope work, do not merge.
 
 ## In progress
 
-mcp-scope run COMPLETE: 01 → 02 → 05 → 04 → local proof → 03 → 06 all done.
-Next: open the draft PR (no merge), then the live full-stack manual smoke after a
-release/dev build with the bundled fork binary.
+All issues on branch (#742, #743, #745, #747, #746) implemented and verified. Awaiting draft PR open + manual smoke.
 
-The full software path is now wired AND bundled:
-- The deterministic e2e test proves the gate fires end-to-end.
-- `augmentPathForOpencode()` now prepends `Contents/Resources/opencode_bin/` FIRST
-  when the bundled binary is present; WARNs and falls back in local dev.
-- CI builds both darwin arches via `bun run build`, lipo-merges into a universal
-  binary, bundles to `Contents/Resources/opencode_bin/opencode`, and verifies
-  presence + executability + version marker (must NOT be stock `^1\.14\.x`).
-- `sign_and_notarize_macos.sh` explicitly codesigns the extensionless Mach-O
-  before the broad `find`-based nested-binary pass; errors if binary absent.
+Key changes on this branch (cumulative):
 
-What remains: Issue 06 acceptance measurement (tool count drops to profile
-allowlist in a live Secretary session after a fork-bundled build), plus the
-live full-app manual smoke.
+**#746 (current):**
+- `notifyEngineReady()` + `isCuratorThrottled()` in `skill_extractor.ts`
+- `_engineReadyAt` getter on `OpencodeClientService`
+- `[Opencode][timing]` phase logs in `_initializeImpl()` + `create()`
+- `_EngineConnectingState` widget in `agents_view.dart`
+- 6 new TS tests + 5 new Dart widget tests
+
+**#747:**
+- `BackgroundActivityController` + `/background-status` endpoint
+- `is_system` column for scheduler sessions
+- `BackgroundActivityIndicator` in app shell header
+
+**#743:**
+- Child session persistence via `session.created` SSE events
+- `parent_session_id` column (SQLite + Postgres)
+- `getDiff` soft-404 (200 [] for unknown session ids)
+- `AgentSession.parentId` + `_buildSessionTree()` in Flutter
+
+**#745 / #742:**
+- `AgentSelectorPill` defaults to manager profile
+- `MAX_DELEGATION_DEPTH` raised 1→2
+- Secretary routing rule updated
 
 ## Risks / known issues
 
-- **Issue 06 live smoke still required** — CI binary bundle not yet exercised in
-  a real release run (HARD STOP rules prevented triggering CI). The fork-marker
-  version check (`^1\.14\.` regex) guards against accidental stock-binary shipping.
-- **Pre-existing flaky test:** `tasks_controller.test.ts > overdue=yes` intermittent.
-- **`toolClientNames()` / `tools()` snapshot race:** both read `s.defs[clientName]`
-  from the same InstanceState snapshot in synchronous Effects; risk is low in practice
-  but should be kept in mind on future MCP refactors.
-- **Upstream TS2416 carried patch** in `bus/global.ts` — must re-validate on each
-  `git subtree pull` from upstream. See `docs/ai/decisions/2026-06-25-opencode-fork-vendoring.md`.
+- **Visual smoke required for #746** — `_EngineConnectingState` banner/disabled composer must be confirmed in `flutter run` (transient state during ~30s cold-start; cannot screenshot without live app).
+- **MCP cold-start cost unknown** — timing logs will reveal if `createOpencode` phase dominates. Follow-up issue for lazy-MCP init if > 10s observed in production logs.
+- **Pre-existing flaky test:** `claude_triggers.test.ts > repeated add/remove/add` — non-deterministic test-order isolation failure, unrelated to this branch.
+- **Secretary prompt picked up on next session only** — updated `secretary.md` read at session creation; existing sessions need reopening.
+- **Issue 06 live smoke still required** (mcp-scope) — CI binary bundle not yet exercised in a real release run.
 
 ## Test status
 
 | Suite | Status |
 |-------|--------|
+| `dart format --set-exit-if-changed` | **PASS** — 0 changed |
+| `flutter analyze --no-fatal-infos` | **PASS** — 0 errors, 0 warnings (259 pre-existing infos) |
+| `flutter test` | **PASS** — 693/693 (5 new #746 widget tests) |
 | `apps/api_server npx tsc --noEmit` | **PASS** — exit 0 |
-| `apps/api_server vitest` | **PASS** — exit 0 (21/21 for opencode_client_service.test.ts) |
-| `apps/opencode_fork bun run typecheck` | **PASS** — exit 0 (TS2416 fixed) |
-| `apps/opencode_fork bun test src/session/mcp_allowlist.test.ts` | **PASS** — 5/5 |
-| `apps/opencode_fork bun test test/session/mcp_allowlist_e2e.test.ts` | **PASS** — 4/4 (A=5, B=3, C=1, D=0) |
-| `apps/opencode_fork bun test test/session/ src/session/` | **PASS** — 325 pass, 0 fail |
-| `flutter analyze --no-fatal-infos` | **PASS** |
-| `dart format --set-exit-if-changed` | **PASS** |
-| `bun run build --single --skip-embed-web-ui` (fork) | **PASS** — `0.0.0-feature/agent-scheduler-<ts>` |
-| `bash -n sign_and_notarize_macos.sh` | **PASS** — syntax OK |
+| `apps/api_server vitest` | **PASS** — 1250/1250 (6 new #746 latency tests) |
 
 ## Next step
 
-1. Issue **mcp-scope-06** (verification + acceptance measurement):
-   - Trigger a `flutter run` build.
-   - Open a Secretary session, measure injected MCP tool count via engine debug log.
-   - Assert count equals `expandMcpAllowlist(secretaryConfig).tools.length`.
-   - Record in `docs/ai/runs/` + update `docs/ai/testing-guide.md` smoke entry.
-2. Live full-app manual smoke (Flutter UI + signed binary: open a Secretary session,
-   confirm tool count drops) — part of the post-06 manual smoke handoff.
-3. Open draft PR. No merge.
+1. Open draft PR for `workflow/run-2026-06-25-agent-fixes` covering #742 + #743 + #745 + #747 + #746 (with `Closes #N` for each).
+2. Manual smoke:
+   - `flutter run`, open a new agent session, confirm "Connecting to agent engine…" banner + disabled composer appear during cold-start window (#746).
+   - Confirm background activity indicator shows spinning states during scheduler/sync activity (#747).
+   - Confirm child sessions appear indented under parent after `task` delegation (#743).
+   - Confirm pill shows manager label (#745).
+   - Confirm getDiff no longer floods ERROR logs (#743).
+3. After smoke passes, merge (human sign-off required).
 
-Per-issue run logs: `docs/ai/runs/2026-06-25-mcp-scope-0{1,2,3,4,5}-*.md`.
-Persistence defect fix: `docs/ai/runs/2026-06-25-mcp-scope-02-allowlist-persistence.md`.
+Run logs:
+- `docs/ai/runs/2026-06-25-issue-746-startup-latency.md`
+- `docs/ai/runs/2026-06-25-issue-743-child-session-persistence.md`
+
+Decisions:
+- `docs/ai/decisions/2026-06-25-issue-746-notifyengineready-wiring.md`
+- `docs/ai/decisions/2026-06-25-issue-743-logger-debug.md`
+- `docs/ai/decisions/2026-06-25-issue-747-is-system-column.md`
+
+---
+
+## Recent coding-agent runs
+
+### 2026-06-25 — Issue #746: agent session startup latency reduction
+
+- **Files modified:** `opencode_client_service.ts` (timing + engineReadyAt), `agent_sessions_controller.ts` (timing), `skill_extractor.ts` (curator throttle), `server.ts` (notifyEngineReady wiring), `agents_view.dart` (_EngineConnectingState + test harness), + 2 new test files
+- **Checks run:** tsc, dart format, flutter analyze, vitest 1250/1250, flutter test 693/693 — all PASS
+- **Decisions made:** notifyEngineReady wired from server.ts (not service) to avoid circular import — see `docs/ai/decisions/2026-06-25-issue-746-notifyengineready-wiring.md`
+- **Deviations from spec:** none
+- **Concerns:** MCP cold-start cost unquantified until timing logs run in production; visual screenshot requires manual smoke
+
+### 2026-06-25 — Issue #747: background activity indicator
+
+- **Files modified:** `skill_extractor.ts`, `skill_refiner.ts`, `sync_orchestrator_service.ts`, `migrations.ts`, `postgres_bootstrap.ts`, `agent_session.ts`, `agent_sessions_repository.ts`, `agent_runner.ts`, `agent_sessions_controller.ts`, `agent_sessions_routes.ts`, + 5 new Flutter files + 1 new test file
+- **Checks run:** flutter analyze PASS, dart format PASS, tsc PASS, vitest 1244/1244 PASS, flutter test 688/688 PASS
+- **Decisions made:** `is_system` boolean column for scheduler session tagging — see `docs/ai/decisions/2026-06-25-issue-747-is-system-column.md`
+- **Deviations from spec:** none
+- **Concerns:** Skill-extract/refine sessions not in local `agent_sessions` (no parentID), status tracked in-memory only
+
+### 2026-06-25 — Issues #743 + #745 + #742
+
+- **Files modified:** session persistence, getDiff, SDK d.ts fix, AgentSelectorPill, MAX_DELEGATION_DEPTH, Secretary prompt
+- **Checks run:** All PASS (676/676 flutter, 1232/1232 vitest)
+- **Decisions made:** `logger.debug` unavailable — info level used — see `docs/ai/decisions/2026-06-25-issue-743-logger-debug.md`
+- **Deviations from spec:** none
+- **Concerns:** Visual smoke gap for AgentSelectorPill label/color

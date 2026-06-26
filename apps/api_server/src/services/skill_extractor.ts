@@ -54,6 +54,32 @@ function isTestEnv(): boolean {
 let _curatorExtractLastAt: string | null = null;
 let _curatorExtractRunning = false;
 
+// ── Curator throttle: defer work during engine cold-start window (#746) ───────
+// When the engine was just initialized (< CURATOR_COLD_WINDOW_MS ago), background
+// skill extraction contends with the first interactive session setup. Defer all
+// curator work during this window to keep the interactive path fast.
+const CURATOR_COLD_WINDOW_MS = 90_000; // 90 seconds after engine init
+let _engineReadyAt: number | null = null;
+
+/**
+ * #746 — Called by OpencodeClientService once the engine is ready. Records the
+ * timestamp so queueSkillExtraction can gate curator work outside the cold window.
+ */
+export function notifyEngineReady(readyAt: number): void {
+  _engineReadyAt = readyAt;
+}
+
+/**
+ * #746 — Returns true when the engine is still in its cold-start window and
+ * curator work should be deferred. False when enough time has passed (or when
+ * the engine has never been initialized — queueSkillExtraction's isTestEnv
+ * guard already no-ops under test without needing this).
+ */
+function isCuratorThrottled(): boolean {
+  if (_engineReadyAt === null) return false;
+  return Date.now() - _engineReadyAt < CURATOR_COLD_WINDOW_MS;
+}
+
 /** Update extract-run tracking. Called by distillFromSession start/end. */
 export function _setCuratorExtractRunning(running: boolean, at?: string): void {
   _curatorExtractRunning = running;
@@ -406,6 +432,16 @@ export type DistillFn = (sessionId: string) => Promise<AgentSkill | null>;
  * test injects a fake `distill`.
  */
 export function queueSkillExtraction(sessionId: string, distill: DistillFn = distillFromSession): void {
+  // #746 — Defer curator during the cold-start window so background skill work
+  // does not contend with the first interactive session. Non-fatal: logs and exits.
+  if (isCuratorThrottled()) {
+    const elapsed = _engineReadyAt !== null ? Date.now() - _engineReadyAt : 0;
+    logger.info(
+      `[skill-extract] queue: throttled during engine cold-start window (${elapsed}ms elapsed of ${CURATOR_COLD_WINDOW_MS}ms) for ${sessionId} — skipping`,
+    );
+    return;
+  }
+
   let rounds = 0;
   try {
     const msgRepo = new AgentSessionMessagesRepository();

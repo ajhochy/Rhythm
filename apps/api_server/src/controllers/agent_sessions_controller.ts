@@ -563,6 +563,9 @@ export class AgentSessionsController {
       // as a server-seeded system message. Sessions arrive at the WS
       // gateway fully resolved.
 
+      // #746 — time the full create→stream-ready path to attribute latency.
+      const _createT0 = Date.now();
+
       // Create an Opencode SDK session instead of spawning a PTY subprocess.
       // Try to auto-recover if the engine was disposed accidentally (e.g.,
       // PARENT_GONE watchdog raced against a request).
@@ -570,23 +573,27 @@ export class AgentSessionsController {
         console.log(
           `[AgentSessionsController] Engine status="${opencodeClient.statusMessage}" — attempting auto-recovery for session ${session.id}`,
         );
+        const tEnsure = Date.now();
         if (!(await opencodeClient.ensureReady())) {
           repo.markClosed(session.id);
           throw AppError.badRequest(
             `Opencode engine is not ready (${opencodeClient.statusMessage}) — check Settings to connect an AI account`,
           );
         }
+        logger.info(`[Opencode][timing] ensureReady (recovery) took ${Date.now() - tEnsure}ms for session ${session.id}`);
         console.log(`[AgentSessionsController] Engine recovered — continuing session ${session.id} creation`);
       }
 
       // OPC-#710: name may be undefined/null for instant-create sessions.
       // C1: pass mcpRoleConfig so callers/tests can spy on the init-time allowlist;
       // the SDK itself doesn't have a per-session tool param (documented in service).
+      const tSdkCreate = Date.now();
       const opencodeSession = await opencodeClient.createSession(
         typeof name === 'string' ? name.trim() : '',
         dto.cwd,
         mcpRoleConfig,
       );
+      logger.info(`[Opencode][timing] opencodeClient.createSession took ${Date.now() - tSdkCreate}ms for session ${session.id}`);
       if (!opencodeSession) {
         repo.markClosed(session.id);
         throw AppError.badRequest('Failed to create Opencode session — check your AI account is authorized');
@@ -603,14 +610,18 @@ export class AgentSessionsController {
       // Pass the cwd so the bridge can subscribe to /event with the right
       // directory filter (opencode only delivers session/message events
       // for sessions whose cwd matches the subscription's directory).
+      const tStream = Date.now();
       try {
         await streamBridge.streamSession(session.id, opencodeSession.id, dto.cwd);
+        logger.info(`[Opencode][timing] streamSession took ${Date.now() - tStream}ms for session ${session.id}`);
       } catch (err) {
         console.error(
           `[AgentSessionsController] Stream bridge error for session ${session.id}:`,
           err,
         );
       }
+
+      logger.info(`[Opencode][timing] total create→stream-ready took ${Date.now() - _createT0}ms for session ${session.id}`);
 
       // Issue #653: the previous "auto-send initial prompt with task context"
       // path is removed. The client owns first-turn content (composer prefill
