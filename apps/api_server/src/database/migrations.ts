@@ -1499,4 +1499,14 @@ export function runMigrations(db: Database.Database): void {
   if (!agentSessionColsScheduled.includes('scheduled_task_id')) {
     db.exec(`ALTER TABLE agent_sessions ADD COLUMN scheduled_task_id TEXT REFERENCES agent_scheduled_tasks(id) ON DELETE SET NULL`);
   }
+
+  // #743 — agent_sessions.parent_session_id: tracks delegated subagent (child)
+  // sessions. When the opencode engine creates a child session via the `task`
+  // tool, the stream bridge upserts a local row with this column pointing at
+  // the local id of the parent session. Null for top-level interactive sessions.
+  // SQLite: additive ALTER guarded by pragma. Postgres: use ADD COLUMN IF NOT EXISTS.
+  const agentSessionCols743 = (db.pragma('table_info(agent_sessions)') as { name: string }[]).map((c) => c.name);
+  if (!agentSessionCols743.includes('parent_session_id')) {
+    db.exec(`ALTER TABLE agent_sessions ADD COLUMN parent_session_id TEXT REFERENCES agent_sessions(id) ON DELETE SET NULL`);
+  }
 }

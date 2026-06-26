@@ -608,10 +608,24 @@ export class AgentSessionsController {
   // M3-4: return a session's working-tree diff via the typed getSessionDiff
   // wrapper (OPC-M1-1). The duck-typed probe that always returned [] has been
   // replaced — getSessionDiff calls the real SDK method.
+  //
+  // #743 — When the local row does not exist (session not yet persisted, e.g.
+  // during a race between child session creation and the first diff poll), return
+  // an empty list with a debug log instead of raising AppError.notFound(). This
+  // stops the flood of ERROR-level NOT_FOUND logs while the child row is being
+  // upserted by the stream bridge. The Flutter client already has diff-backoff
+  // logic when the first poll returns [].
   async getDiff(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const session = repo.findById(req.params.id);
-      if (!session) throw AppError.notFound('AgentSession');
+      if (!session) {
+        // Unknown session id — return empty list without ERROR flood.
+        logger.info(
+          `[AgentSessionsController] getDiff: session ${req.params.id} not found in local store — returning []`,
+        );
+        res.json([]);
+        return;
+      }
       const opencodeId = resolveSdkSessionId(session);
       if (!opencodeId) {
         res.json([]);

@@ -105,17 +105,15 @@ class SessionListBody extends StatelessWidget {
           const SizedBox(height: 6),
         ],
         // ── Active sessions ────────────────────────────────────────────────
-        for (final session in filteredSessions) ...[
-          SessionRow(
-            session: session,
-            isSelected: controller.selectedSessionId == session.id,
-            isMultiSelected: multiSelected.contains(session.id),
-            isWorking: controller.isWorking(session.id),
-            isStuck: controller.connectivity.isStuck(session.id),
-            onTap: () => onRowTap(session.id),
-          ),
-          const SizedBox(height: 4),
-        ],
+        // Child sessions (parentId != null) are rendered indented under their
+        // parent. Root sessions are rendered first; their children follow inline.
+        ..._buildSessionTree(
+          context,
+          filteredSessions,
+          controller,
+          multiSelected,
+          onRowTap,
+        ),
 
         // ── Resumable section ──────────────────────────────────────────────
         if (controller.resumable.isNotEmpty) ...[
@@ -201,6 +199,66 @@ class SessionListBody extends StatelessWidget {
 }
 
 // ---------------------------------------------------------------------------
+// Session tree builder (#743)
+// ---------------------------------------------------------------------------
+
+/// Groups [sessions] into a parent→children tree and builds the widget list.
+///
+/// Root sessions (parentId == null, or parentId not in the filtered set) are
+/// rendered as [SessionRow]. Their children are rendered indented beneath them
+/// as [ChildSessionRow] widgets, so the UI communicates the delegation chain.
+///
+/// Sessions whose parent IS in the filtered list are NOT rendered as standalone
+/// root rows — they appear only under their parent row.
+List<Widget> _buildSessionTree(
+  BuildContext context,
+  List<AgentSession> sessions,
+  AgentsController controller,
+  Set<String> multiSelected,
+  void Function(String id) onRowTap,
+) {
+  // Build a parent-id → children map.
+  final childrenOf = <String, List<AgentSession>>{};
+  final sessionIds = {for (final s in sessions) s.id};
+  for (final s in sessions) {
+    if (s.parentId != null && sessionIds.contains(s.parentId)) {
+      childrenOf.putIfAbsent(s.parentId!, () => []).add(s);
+    }
+  }
+
+  final widgets = <Widget>[];
+  for (final session in sessions) {
+    // Skip sessions that are children of another session in this filtered list.
+    if (session.parentId != null && sessionIds.contains(session.parentId)) {
+      continue;
+    }
+    widgets.add(SessionRow(
+      session: session,
+      isSelected: controller.selectedSessionId == session.id,
+      isMultiSelected: multiSelected.contains(session.id),
+      isWorking: controller.isWorking(session.id),
+      isStuck: controller.connectivity.isStuck(session.id),
+      onTap: () => onRowTap(session.id),
+    ));
+    widgets.add(const SizedBox(height: 4));
+    // Render children indented.
+    for (final child in childrenOf[session.id] ?? []) {
+      widgets.add(Padding(
+        padding: const EdgeInsets.only(left: 16),
+        child: ChildSessionRow(
+          session: child,
+          isSelected: controller.selectedSessionId == child.id,
+          isWorking: controller.isWorking(child.id),
+          onTap: () => onRowTap(child.id),
+        ),
+      ));
+      widgets.add(const SizedBox(height: 3));
+    }
+  }
+  return widgets;
+}
+
+// ---------------------------------------------------------------------------
 // SessionRow — rich active-session row
 // ---------------------------------------------------------------------------
 
@@ -282,6 +340,73 @@ class SessionRow extends StatelessWidget {
             const SizedBox(width: 6),
             SessionStatusDot(status: session.status, isWorking: isWorking),
             SessionRowMenu(session: session),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// ChildSessionRow — compact indented row for delegated subagent sessions (#743)
+// ---------------------------------------------------------------------------
+
+class ChildSessionRow extends StatelessWidget {
+  const ChildSessionRow({
+    super.key,
+    required this.session,
+    required this.isSelected,
+    required this.isWorking,
+    required this.onTap,
+  });
+
+  final AgentSession session;
+  final bool isSelected;
+  final bool isWorking;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(RhythmRadius.md),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 160),
+        curve: Curves.easeOut,
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        decoration: BoxDecoration(
+          color: isSelected
+              ? context.rhythm.accentMuted
+              : context.rhythm.surfaceMuted.withValues(alpha: 0.6),
+          borderRadius: BorderRadius.circular(RhythmRadius.md),
+          border: Border.all(
+            color: isSelected
+                ? context.rhythm.accent.withValues(alpha: 0.28)
+                : context.rhythm.border.withValues(alpha: 0.5),
+          ),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              Icons.subdirectory_arrow_right,
+              size: 11,
+              color: context.rhythm.textMuted,
+            ),
+            const SizedBox(width: 5),
+            Expanded(
+              child: Text(
+                session.name.isNotEmpty ? session.name : 'Subagent task',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w500,
+                  color: context.rhythm.textSecondary,
+                ),
+              ),
+            ),
+            const SizedBox(width: 4),
+            SessionStatusDot(status: session.status, isWorking: isWorking),
           ],
         ),
       ),

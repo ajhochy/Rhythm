@@ -712,6 +712,43 @@ export class OpencodeStreamBridge {
       }
 
       case 'session.created': {
+        // #743 — When the session.created event carries a parentID on info,
+        // the engine has spawned a child (subagent/task-delegated) session.
+        // Persist a local agent_sessions row so the inspector can resolve
+        // /diff, token counts, and messages without 404ing.
+        //
+        // Event shape (opencode fork + upstream): properties = { sessionID, info: Session.Info }
+        // Session.Info.parentID is present when created via the `task` tool.
+        const createdInfo = (event.properties as Record<string, unknown>)?.info as Record<string, unknown> | undefined;
+        const createdParentId = createdInfo?.parentID as string | undefined;
+        if (createdParentId && opencodeSessionId) {
+          // Child session: persist and register.
+          const childTitle = (createdInfo?.title as string | undefined) ?? '';
+          const childCwd = (createdInfo?.directory as string | undefined) ?? '';
+          try {
+            const childRow = this.sessionsRepo.upsertChildSession(
+              opencodeSessionId,
+              createdParentId,
+              childTitle,
+              childCwd,
+            );
+            if (childRow) {
+              // Register in the session map so subsequent events route correctly.
+              opencodeSessionMap.set(childRow.id, opencodeSessionId);
+              // Broadcast the new child session so live Flutter clients update their list.
+              broadcastSessionUpdated(childRow);
+              logger.info(
+                `[OpencodeStreamBridge] child session created: localId=${childRow.id} sdkId=${opencodeSessionId} parentSdkId=${createdParentId}`,
+              );
+            } else {
+              logger.info(
+                `[OpencodeStreamBridge] child session.created: parent SDK id ${createdParentId} not in local store — skipping upsert`,
+              );
+            }
+          } catch (err) {
+            logger.error('[OpencodeStreamBridge] Failed to upsert child session:', err);
+          }
+        }
         broadcast({
           v: 1,
           type: 'session.created',

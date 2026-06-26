@@ -36,6 +36,8 @@ interface AgentSessionRow {
   mcp_allowed_tools_json: string | null;
   /** Agent-loop tracking: FK to agent_scheduled_tasks.id. Null for interactive sessions. */
   scheduled_task_id: string | null;
+  /** #743 — Local id of the parent agent_sessions row (for delegated subagent sessions). */
+  parent_session_id: string | null;
 }
 
 function rowToModel(row: AgentSessionRow): AgentSession {
@@ -65,6 +67,7 @@ function rowToModel(row: AgentSessionRow): AgentSession {
     mcpRole: row.mcp_role ?? null,
     mcpAllowedToolsJson: row.mcp_allowed_tools_json ?? null,
     scheduledTaskId: row.scheduled_task_id ?? null,
+    parentSessionId: row.parent_session_id ?? null,
   };
 }
 
@@ -347,6 +350,67 @@ export class AgentSessionsRepository {
       )
       .run(archivedAt, now, id);
     return this.findById(id);
+  }
+
+  /**
+   * #743 — Upsert a local row for a delegated child (subagent) session.
+   *
+   * Called by the stream bridge when a `session.created` event arrives with
+   * a non-null parentID in `properties.info`. The parent is identified by its
+   * SDK session id; we look up the local parent row and store its local id as
+   * `parent_session_id` on the child row.
+   *
+   * The upsert key is the child's SDK session id (`sdk_session_id`). If a row
+   * already exists for that SDK id, it is a no-op (idempotent). Returns the
+   * (possibly existing) local row, or null when the parent cannot be resolved.
+   */
+  upsertChildSession(
+    childSdkSessionId: string,
+    parentSdkSessionId: string,
+    title: string,
+    cwd: string,
+  ): AgentSession | null {
+    // Look up the local parent row by its SDK session id.
+    const parentRow = getDb()
+      .prepare(
+        `SELECT id, agent_kind FROM agent_sessions WHERE sdk_session_id = ? LIMIT 1`,
+      )
+      .get(parentSdkSessionId) as { id: string; agent_kind: string } | undefined;
+    if (!parentRow) return null;
+    const parentLocalId = parentRow.id;
+    const inheritedAgentKind = parentRow.agent_kind ?? 'claude-code';
+
+    // Check whether the child row already exists (idempotent).
+    const existingRow = getDb()
+      .prepare(
+        `SELECT id FROM agent_sessions WHERE sdk_session_id = ? LIMIT 1`,
+      )
+      .get(childSdkSessionId) as { id: string } | undefined;
+    if (existingRow) {
+      return this.findById(existingRow.id);
+    }
+
+    // Insert a new row for the child session.
+    const childLocalId = crypto.randomUUID();
+    const now = new Date().toISOString();
+    getDb()
+      .prepare(
+        `INSERT INTO agent_sessions
+           (id, task_id, task_title, agent_kind, status, cwd, name, project_id,
+            sdk_session_id, parent_session_id, created_at, updated_at)
+         VALUES (?, NULL, NULL, ?, 'starting', ?, ?, NULL, ?, ?, ?, ?)`,
+      )
+      .run(
+        childLocalId,
+        inheritedAgentKind,
+        cwd,
+        title || 'Subagent task',
+        childSdkSessionId,
+        parentLocalId,
+        now,
+        now,
+      );
+    return this.findById(childLocalId);
   }
 
   deleteOlderThan(cutoffIso: string): number {

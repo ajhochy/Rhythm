@@ -682,4 +682,9 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
   await pool.query(`
     ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS scheduled_task_id TEXT REFERENCES agent_scheduled_tasks(id) ON DELETE SET NULL;
   `);
+
+  // #743 — agent_sessions.parent_session_id: delegated subagent (child) sessions.
+  await pool.query(`
+    ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS parent_session_id TEXT REFERENCES agent_sessions(id) ON DELETE SET NULL;
+  `);
 }

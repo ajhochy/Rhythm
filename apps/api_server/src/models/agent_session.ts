@@ -58,6 +58,11 @@ export interface AgentSession {
    * session. Null for interactive sessions.
    */
   scheduledTaskId: string | null;
+  /**
+   * #743 — Local id of the parent agent_sessions row that spawned this session
+   * via the `task` tool delegation. Null for top-level interactive sessions.
+   */
+  parentSessionId: string | null;
 }
 
 export interface UpdateAgentSessionDto {
