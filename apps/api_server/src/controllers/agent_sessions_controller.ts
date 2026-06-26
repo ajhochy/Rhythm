@@ -6,6 +6,7 @@ import { AppError } from '../errors/app_error';
 import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
 import { AgentSessionMessagesRepository } from '../repositories/agent_session_messages_repository';
 import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
+import { AgentScheduledTasksRepository } from '../repositories/agent_scheduled_tasks_repository';
 import { ProjectsRepository } from '../repositories/projects_repository';
 import { TasksRepository } from '../repositories/tasks_repository';
 import type { AgentKind, CreateAgentSessionDto, PermissionMode } from '../models/agent_session';
@@ -15,6 +16,9 @@ import { syncOpencodeAgentProfiles } from '../services/agent_profile_sync';
 import { streamBridge } from '../services/opencode_stream_bridge';
 import { broadcastSessionUpdated, broadcastSessionRemoved } from '../services/ws_gateway';
 import { logger } from '../utils/logger';
+import { getCuratorExtractStatus } from '../services/skill_extractor';
+import { getCuratorRefineStatus } from '../services/skill_refiner';
+import { getSyncStatus } from '../services/sync_orchestrator_service';
 
 // Legacy agentId aliases. Older Rhythm clients (and a handful of historical
 // scripts) used short names. /agents/capabilities and the seed both use
@@ -211,6 +215,109 @@ export class AgentSessionsController {
       // wait on the upsert. Idempotent + non-throwing.
       void syncOpencodeAgentProfiles(agents).catch(() => {});
       res.json({ agents });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * #747 — GET /agent-sessions/background-status
+   *
+   * Aggregates the five background loop states into a compact JSON payload so
+   * the Flutter header indicator can poll cheaply (no per-session engine calls).
+   *
+   * Shape of each loop entry:
+   *   { name, state: 'idle'|'running', lastRunAt: ISO8601|null, nextRunAt: ISO8601|null, currentItem?: string }
+   *
+   * Loops:
+   *   - skill_harvester  (skill_extractor.ts — fires on turn-complete)
+   *   - skill_improver   (skill_refiner.ts  — fires after extract)
+   *   - memory           (agent_scheduled_tasks row name='Memory Consolidation')
+   *   - scheduler        (node-cron 1-min tick — aggregates running task count)
+   *   - integrations_sync (sync_orchestrator_job.ts — 10-min cron)
+   */
+  async backgroundStatus(_req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const scheduledRepo = new AgentScheduledTasksRepository();
+      const allTasks = await scheduledRepo.listAllAsync();
+
+      // Memory consolidation task row.
+      const memTask = allTasks.find((t) => t.name === 'Memory Consolidation');
+      const memState = memTask?.lastRunStatus === 'running' ? 'running' : 'idle';
+      const memLastRun = memTask?.lastRunAt ?? null;
+      const memNextRun = memTask?.nextRunAt ?? null;
+
+      // Scheduler aggregate: count of tasks currently in 'running' status.
+      const runningCount = allTasks.filter((t) => t.lastRunStatus === 'running').length;
+      const schedulerState = runningCount > 0 ? 'running' : 'idle';
+      // Last run = most recent last_run_at across all tasks (excluding memory, counted above).
+      const schedulerTasks = allTasks.filter((t) => t.name !== 'Memory Consolidation');
+      const schedulerLastRun = schedulerTasks
+        .filter((t) => t.lastRunAt)
+        .sort((a, b) => (a.lastRunAt! > b.lastRunAt! ? -1 : 1))[0]?.lastRunAt ?? null;
+      const schedulerNextRun = schedulerTasks
+        .filter((t) => t.nextRunAt && t.enabled)
+        .sort((a, b) => (a.nextRunAt! < b.nextRunAt! ? -1 : 1))[0]?.nextRunAt ?? null;
+
+      // Curator (skill extract + refine) — in-memory counters from the services.
+      const extractStatus = getCuratorExtractStatus();
+      const refineStatus = getCuratorRefineStatus();
+      const curatorRunning = extractStatus.running || refineStatus.running;
+      const curatorLastRun = [extractStatus.lastRunAt, refineStatus.lastRunAt]
+        .filter(Boolean)
+        .sort((a, b) => (a! > b! ? -1 : 1))[0] ?? null;
+
+      // Integrations sync — in-memory tracker from sync_orchestrator_service.
+      const syncStatus = getSyncStatus();
+
+      res.json({
+        loops: [
+          {
+            name: 'skill_harvester',
+            state: extractStatus.running ? 'running' : 'idle',
+            lastRunAt: extractStatus.lastRunAt,
+            nextRunAt: null,
+          },
+          {
+            name: 'skill_improver',
+            state: refineStatus.running ? 'running' : 'idle',
+            lastRunAt: refineStatus.lastRunAt,
+            nextRunAt: null,
+          },
+          {
+            name: 'memory',
+            state: memState,
+            lastRunAt: memLastRun,
+            nextRunAt: memNextRun,
+          },
+          {
+            name: 'scheduler',
+            state: schedulerState,
+            lastRunAt: schedulerLastRun,
+            nextRunAt: schedulerNextRun,
+            currentItem: runningCount > 0 ? `${runningCount} task(s) running` : undefined,
+          },
+          {
+            name: 'integrations_sync',
+            state: syncStatus.running ? 'running' : 'idle',
+            lastRunAt: syncStatus.lastRunAt,
+            nextRunAt: null,
+          },
+        ],
+        // Convenience: count of actively running loops for the indicator dot.
+        activeCount: [
+          extractStatus.running,
+          refineStatus.running,
+          memState === 'running',
+          schedulerState === 'running',
+          syncStatus.running,
+        ].filter(Boolean).length,
+        // Also surface curator aggregate for simpler widget rendering.
+        curator: {
+          state: curatorRunning ? 'running' : 'idle',
+          lastRunAt: curatorLastRun,
+        },
+      });
     } catch (err) {
       next(err);
     }

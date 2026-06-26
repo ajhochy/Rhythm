@@ -95,6 +95,8 @@ import 'features/agent_email/repositories/agent_email_repository.dart';
 import 'features/agent_gallery/controllers/agent_gallery_controller.dart';
 import 'features/agent_gallery/data/agent_gallery_data_source.dart';
 import 'features/agent_gallery/repositories/agent_gallery_repository.dart';
+import 'app/core/background_activity/background_activity_controller.dart';
+import 'app/core/background_activity/background_status_data_source.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -447,6 +449,32 @@ class _RhythmAppContent extends StatelessWidget {
           create: (_) => AgentGalleryController(
             AgentGalleryRepository(AgentGalleryDataSource()),
           ),
+        ),
+        // #747 — Background activity indicator controller. Polls
+        // GET /agent-sessions/background-status every 15 s against the local
+        // agent server (agentLocalBaseUrl). Polling starts automatically and
+        // stops when disposed.
+        ChangeNotifierProvider(
+          create: (ctx) {
+            final controller = BackgroundActivityController(
+              BackgroundStatusDataSource(),
+            );
+            // Start polling once the agent server is ready; if already ready,
+            // start immediately.
+            void onAgentServerChanged() {
+              if (agentServerController.isReady) {
+                agentServerController.removeListener(onAgentServerChanged);
+                controller.startPolling();
+              }
+            }
+
+            if (agentServerController.isReady) {
+              controller.startPolling();
+            } else {
+              agentServerController.addListener(onAgentServerChanged);
+            }
+            return controller;
+          },
         ),
       ],
       child: Consumer<ThemeModeService>(

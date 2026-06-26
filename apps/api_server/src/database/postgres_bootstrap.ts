@@ -687,4 +687,12 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
   await pool.query(`
     ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS parent_session_id TEXT REFERENCES agent_sessions(id) ON DELETE SET NULL;
   `);
+
+  // #747 — agent_sessions.is_system: background/system sessions excluded from normal session list.
+  await pool.query(`
+    ALTER TABLE agent_sessions ADD COLUMN IF NOT EXISTS is_system INTEGER NOT NULL DEFAULT 0;
+  `);
+  await pool.query(`
+    CREATE INDEX IF NOT EXISTS idx_agent_sessions_is_system ON agent_sessions(is_system);
+  `);
 }

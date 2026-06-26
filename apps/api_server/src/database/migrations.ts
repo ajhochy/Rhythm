@@ -1509,4 +1509,15 @@ export function runMigrations(db: Database.Database): void {
   if (!agentSessionCols743.includes('parent_session_id')) {
     db.exec(`ALTER TABLE agent_sessions ADD COLUMN parent_session_id TEXT REFERENCES agent_sessions(id) ON DELETE SET NULL`);
   }
+
+  // #747 — agent_sessions.is_system: marks background/system sessions (skill-extract,
+  // skill-refine-judge, scheduler-spawned, memory consolidation) so they are excluded
+  // from the normal session list and the agent picker. Child sessions (#743, parent_session_id
+  // NOT NULL) that are delegated subagent tasks are NOT system — only curator/scheduler
+  // spawned background-loop sessions are. Value: 0 (default, user-facing) or 1 (system).
+  const agentSessionCols747 = (db.pragma('table_info(agent_sessions)') as { name: string }[]).map((c) => c.name);
+  if (!agentSessionCols747.includes('is_system')) {
+    db.exec(`ALTER TABLE agent_sessions ADD COLUMN is_system INTEGER NOT NULL DEFAULT 0`);
+    db.exec(`CREATE INDEX IF NOT EXISTS idx_agent_sessions_is_system ON agent_sessions(is_system)`);
+  }
 }

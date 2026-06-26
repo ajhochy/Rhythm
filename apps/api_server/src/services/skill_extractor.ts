@@ -47,6 +47,24 @@ function isTestEnv(): boolean {
   return process.env.VITEST === 'true' || process.env.NODE_ENV === 'test';
 }
 
+// ── Background status tracking ────────────────────────────────────────────────
+// Lightweight in-memory counters updated on each extract/refine run so the
+// /agent-sessions/background-status endpoint can report curator state cheaply
+// without hitting the DB or LLM.
+let _curatorExtractLastAt: string | null = null;
+let _curatorExtractRunning = false;
+
+/** Update extract-run tracking. Called by distillFromSession start/end. */
+export function _setCuratorExtractRunning(running: boolean, at?: string): void {
+  _curatorExtractRunning = running;
+  if (at) _curatorExtractLastAt = at;
+}
+
+/** Return lightweight curator status for the background-status endpoint. */
+export function getCuratorExtractStatus(): { running: boolean; lastRunAt: string | null } {
+  return { running: _curatorExtractRunning, lastRunAt: _curatorExtractLastAt };
+}
+
 /** How many recent messages to include (Odysseus CONTEXT_WINDOW). */
 const CONTEXT_WINDOW = 12;
 
@@ -230,6 +248,7 @@ export async function distillFromSession(
   const llmCall = opts?.llmCall ?? defaultLlmCall;
   const source = opts?.source ?? 'auto-extract';
 
+  _setCuratorExtractRunning(true, new Date().toISOString());
   try {
     const msgRepo = new AgentSessionMessagesRepository();
     const all = msgRepo.listBySession(sessionId, 200);
@@ -348,10 +367,12 @@ export async function distillFromSession(
       source,
     });
     logger.info(`[skill-extract] drafted skill '${title}' (id=${created.id})`);
+    _setCuratorExtractRunning(false);
     return created;
   } catch (err) {
     // NEVER throw — fire-and-forget caller (P2-2) depends on this.
     logger.warn(`[skill-extract] FAILED (non-fatal): ${String(err)}`);
+    _setCuratorExtractRunning(false);
     return null;
   }
 }

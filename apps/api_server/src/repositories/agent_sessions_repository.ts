@@ -38,6 +38,8 @@ interface AgentSessionRow {
   scheduled_task_id: string | null;
   /** #743 — Local id of the parent agent_sessions row (for delegated subagent sessions). */
   parent_session_id: string | null;
+  /** #747 — 1 when this is a background/system session (curator, scheduler, memory). */
+  is_system: number;
 }
 
 function rowToModel(row: AgentSessionRow): AgentSession {
@@ -68,6 +70,7 @@ function rowToModel(row: AgentSessionRow): AgentSession {
     mcpAllowedToolsJson: row.mcp_allowed_tools_json ?? null,
     scheduledTaskId: row.scheduled_task_id ?? null,
     parentSessionId: row.parent_session_id ?? null,
+    isSystem: row.is_system === 1,
   };
 }
 
@@ -79,8 +82,8 @@ export class AgentSessionsRepository {
       .prepare(
         `INSERT INTO agent_sessions
            (id, task_id, task_title, agent_kind, status, cwd, name, project_id,
-            mcp_role, mcp_allowed_tools_json, scheduled_task_id, created_at, updated_at)
-         VALUES (?, ?, ?, ?, 'starting', ?, ?, ?, ?, ?, ?, ?, ?)`,
+            mcp_role, mcp_allowed_tools_json, scheduled_task_id, is_system, created_at, updated_at)
+         VALUES (?, ?, ?, ?, 'starting', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         id,
@@ -93,6 +96,7 @@ export class AgentSessionsRepository {
         dto.mcpRole ?? null,
         dto.mcpAllowedToolsJson ?? null,
         dto.scheduledTaskId ?? null,
+        dto.isSystem ? 1 : 0,
         now,
         now,
       );
@@ -109,9 +113,10 @@ export class AgentSessionsRepository {
       : opts.includeArchived
         ? ''
         : ' AND archived_at IS NULL';
+    // #747: exclude background/system sessions from the normal session list.
     const sql = projectId === null
-      ? `SELECT * FROM agent_sessions WHERE project_id IS NULL${archiveClause} ORDER BY created_at DESC LIMIT ?`
-      : `SELECT * FROM agent_sessions WHERE project_id = ?${archiveClause} ORDER BY created_at DESC LIMIT ?`;
+      ? `SELECT * FROM agent_sessions WHERE project_id IS NULL AND is_system = 0${archiveClause} ORDER BY created_at DESC LIMIT ?`
+      : `SELECT * FROM agent_sessions WHERE project_id = ? AND is_system = 0${archiveClause} ORDER BY created_at DESC LIMIT ?`;
     const rows = projectId === null
       ? (getDb().prepare(sql).all(limit) as AgentSessionRow[])
       : (getDb().prepare(sql).all(projectId, limit) as AgentSessionRow[]);
@@ -129,13 +134,15 @@ export class AgentSessionsRepository {
     limit = 100,
     opts: { includeArchived?: boolean; archivedOnly?: boolean } = {},
   ): AgentSession[] {
+    // #747: exclude background/system sessions from the normal session list.
+    const baseClause = ' WHERE is_system = 0';
     const archiveClause = opts.archivedOnly
-      ? ' WHERE archived_at IS NOT NULL'
+      ? ' AND archived_at IS NOT NULL'
       : opts.includeArchived
         ? ''
-        : ' WHERE archived_at IS NULL';
+        : ' AND archived_at IS NULL';
     const rows = getDb()
-      .prepare(`SELECT * FROM agent_sessions${archiveClause} ORDER BY created_at DESC LIMIT ?`)
+      .prepare(`SELECT * FROM agent_sessions${baseClause}${archiveClause} ORDER BY created_at DESC LIMIT ?`)
       .all(limit) as AgentSessionRow[];
     return rows.map(rowToModel);
   }

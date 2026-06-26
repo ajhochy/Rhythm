@@ -35,6 +35,21 @@ function isTestEnv(): boolean {
   return process.env.VITEST === 'true' || process.env.NODE_ENV === 'test';
 }
 
+// ── Background status tracking ────────────────────────────────────────────────
+let _refineLastAt: string | null = null;
+let _refineRunning = false;
+
+/** Update refine-run tracking. Called by runJudge start/end. */
+export function _setRefineRunning(running: boolean, at?: string): void {
+  _refineRunning = running;
+  if (at) _refineLastAt = at;
+}
+
+/** Return lightweight refine status for the background-status endpoint. */
+export function getCuratorRefineStatus(): { running: boolean; lastRunAt: string | null } {
+  return { running: _refineRunning, lastRunAt: _refineLastAt };
+}
+
 /**
  * Live read of the refinement toggle (mirrors isSkillInjectionEnabled). When OFF
  * the loop still drafts NEW skills but never revises existing ones. Default ON.
@@ -103,11 +118,16 @@ const defaultJudge: JudgeCall = async (existing, candidate) => {
     `EXISTING skill:\n${skillText(existing)}\n\n` +
     `CANDIDATE skill:\n${skillText(candidate)}\n\n` +
     'Verdict (better|equal|worse) + one-sentence reason:';
+  _setRefineRunning(true, new Date().toISOString());
   const session = await opencodeClient.createSession('skill-refine-judge');
-  if (!session?.id) return { verdict: 'equal', reason: 'no judge session' };
+  if (!session?.id) {
+    _setRefineRunning(false);
+    return { verdict: 'equal', reason: 'no judge session' };
+  }
   const resp = await opencodeClient.prompt(session.id, `${system}\n\n${user}`, model, undefined, {
     permissionMode: 'bypassPermissions',
   });
+  _setRefineRunning(false);
   const text = (resp?.parts ?? [])
     .filter((p): p is import('@opencode-ai/sdk').TextPart => p.type === 'text')
     .map((p) => p.text)

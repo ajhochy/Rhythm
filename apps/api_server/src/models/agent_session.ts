@@ -63,6 +63,14 @@ export interface AgentSession {
    * via the `task` tool delegation. Null for top-level interactive sessions.
    */
   parentSessionId: string | null;
+  /**
+   * #747 — When true, this is a background/system session (skill-extract,
+   * skill-refine-judge, scheduler background-loop, memory consolidation) and
+   * must NOT appear in the normal session list or agent picker. Child sessions
+   * (#743, parent_session_id NOT NULL) that are delegated subagent tasks remain
+   * user-visible (isSystem = false).
+   */
+  isSystem: boolean;
 }
 
 export interface UpdateAgentSessionDto {
@@ -120,4 +128,6 @@ export interface CreateAgentSessionDto {
    * surface scheduler-originated runs with their source task.
    */
   scheduledTaskId?: string | null;
+  /** #747 — Mark this session as a background system session (curator, scheduler, memory). */
+  isSystem?: boolean;
 }

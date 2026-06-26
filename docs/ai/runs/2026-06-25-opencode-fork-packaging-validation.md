@@ -65,6 +65,25 @@ Two environmental blockers remain, neither in scope/fixable by code:
 - Local `lipo` OOM on the memory-constrained dev box (CI handles it fine).
 - Apple notarization 403 — expired/unsigned Apple Developer Program agreement.
 
+## Runtime bug found + fixed (item (e)) — v18.50
+
+Inspecting the running v18.49 instance revealed the bundled fork was NOT being
+spawned: the app ran stock `~/.opencode/bin/opencode` 1.14.40 instead. Root cause
+in `augmentPathForOpencode()` — it climbed two dirs from the compiled module
+(`dist/services/opencode_client_service.js`) to find `opencode_bin`, resolving to
+`…/api_server/opencode_bin` (nonexistent) instead of `…/Resources/opencode_bin`
+(three up). `existsSync` was always false → bundled dir never prepended → SDK's
+`cross-spawn` fell through to stock opencode. The fork was bundled + signed
+correctly but inert at runtime.
+
+Fix (commit `962f1ac4e`, on `feature/agent-scheduler`): probe candidate depths
+(dist/services → 3 up, flattened dist/ → 2 up), use the first whose `opencode`
+binary exists; robust to future output-nesting changes. Added a regression test
+that simulates the real `dist/services` layout and fails on the old code.
+22/22 tests pass; tsc clean. Released as **v18.50** (run 28212718547, green +
+notarized + published). Awaiting user reinstall to confirm the running app now
+spawns the bundled universal fork.
+
 ## Action needed (user / account admin)
 
 Accept the updated Apple Developer Program License Agreement at

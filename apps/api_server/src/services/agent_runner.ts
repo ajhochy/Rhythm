@@ -266,6 +266,8 @@ function _recordSession(opts: {
   scheduledTaskId?: string | null;
   mcpRole?: string | null;
   mcpAllowedToolsJson?: string | null;
+  /** #747: mark as a background/system session excluded from the normal session list. */
+  isSystem?: boolean;
 }): string | null {
   try {
     const repo = new AgentSessionsRepository();
@@ -279,6 +281,10 @@ function _recordSession(opts: {
       mcpRole: opts.mcpRole ?? null,
       mcpAllowedToolsJson: opts.mcpAllowedToolsJson ?? null,
       scheduledTaskId: opts.scheduledTaskId ?? null,
+      // #747: scheduler-spawned and memory runs are background system sessions.
+      // isSystem defaults to true when scheduledTaskId is set (all scheduler runs
+      // are background; user-facing chat sessions go through the WS gateway).
+      isSystem: opts.isSystem ?? (!!opts.scheduledTaskId),
     });
     return session.id;
   } catch (err) {
