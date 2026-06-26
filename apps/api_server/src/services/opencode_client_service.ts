@@ -203,26 +203,36 @@ export async function reclaimStalePortForOpencode(
  *
  * When running inside the bundled .app the Rhythm fork binary lives at
  *   Contents/Resources/opencode_bin/opencode
- * The api_server JS entry point is at
- *   Contents/Resources/api_server/dist/server.js
- * so __dirname resolves to …/api_server/dist and the opencode_bin dir is two
- * levels up from there.  When the bundled binary is present its directory is
- * prepended FIRST so the forked engine always shadows any stock opencode on PATH.
- * In local `flutter run` / `npm run dev` development the bundled path won't exist;
- * in that case a WARN is logged and the existing PATH fallbacks are used as-is.
+ * THIS module is compiled to
+ *   Contents/Resources/api_server/dist/services/opencode_client_service.js
+ * so __dirname resolves to …/api_server/dist/services and the opencode_bin dir
+ * is THREE levels up from there (…/dist/services → …/Resources). To stay robust
+ * against future changes to the compiled-output nesting we probe the known
+ * candidate depths and use the first one whose `opencode` binary actually
+ * exists. When the bundled binary is present its directory is prepended FIRST
+ * so the forked engine always shadows any stock opencode on PATH. In local
+ * `flutter run` / `npm run dev` development none of the candidates exist; in
+ * that case a WARN is logged and the existing PATH fallbacks are used as-is.
  */
 export function augmentPathForOpencode(): void {
-  // Bundled binary: …/api_server/dist/../../opencode_bin → …/opencode_bin
-  const bundledBinDir = join(__dirname, '..', '..', 'opencode_bin');
-  const bundledBinaryPath = join(bundledBinDir, 'opencode');
+  // Probe candidate locations of the bundled opencode_bin dir relative to the
+  // compiled module. dist/services (bundle today) is three levels up; a
+  // flattened dist/ would be two — pick whichever actually holds the binary.
+  const candidateBinDirs = [
+    join(__dirname, '..', '..', '..', 'opencode_bin'), // dist/services → Resources
+    join(__dirname, '..', '..', 'opencode_bin'), // dist          → Resources
+  ];
+  const bundledBinDir = candidateBinDirs.find((d) =>
+    existsSync(join(d, 'opencode')),
+  );
 
   const extras: string[] = [];
 
-  if (existsSync(bundledBinaryPath)) {
+  if (bundledBinDir) {
     extras.push(bundledBinDir);
   } else {
     logger.warn(
-      `[WARN] bundled opencode fork not found at ${bundledBinaryPath}; falling back to PATH opencode (patch may be inactive)`,
+      `[WARN] bundled opencode fork not found near ${__dirname}; falling back to PATH opencode (patch may be inactive)`,
     );
   }
 

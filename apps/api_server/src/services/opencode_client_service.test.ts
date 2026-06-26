@@ -97,6 +97,29 @@ describe('augmentPathForOpencode', () => {
     expect(opencodeUserIdx).toBeGreaterThan(bundledIdx);
   });
 
+  it('(real dist/services bundle layout) resolves opencode_bin THREE levels up — sibling of api_server, not inside it', () => {
+    // Regression for the off-by-one that shipped the bundled fork inert:
+    // the compiled module lives at <Resources>/api_server/dist/services/, so the
+    // bundled binary (<Resources>/opencode_bin/opencode) is THREE levels up.
+    // Two levels up (<Resources>/api_server/opencode_bin) does NOT exist in the
+    // bundle, so the old code fell through to stock ~/.opencode/bin/opencode.
+    const threeUp = join(__dirname, '..', '..', '..', 'opencode_bin');
+    const twoUp = join(__dirname, '..', '..', 'opencode_bin');
+    // Simulate the real bundle: ONLY the three-levels-up opencode exists.
+    mockExistsSync.mockImplementation((p: string) => p === join(threeUp, 'opencode'));
+    process.env.PATH = '/usr/bin:/bin';
+
+    augmentPathForOpencode();
+
+    const parts = process.env.PATH!.split(':');
+    expect(parts).toContain(threeUp);
+    expect(parts).not.toContain(twoUp);
+    // Bundled fork must shadow the stock fallback.
+    expect(parts.indexOf(threeUp)).toBeLessThan(
+      parts.indexOf(join(homedir(), '.opencode', 'bin')),
+    );
+  });
+
   it('(bundled present) bundled dir is still only included once (idempotent)', () => {
     mockExistsSync.mockReturnValue(true);
     process.env.PATH = '/usr/bin:/bin';
