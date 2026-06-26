@@ -702,6 +702,16 @@ NOTE: At any point in time through this workflow you should feel free to ask the
         tools[key] = item
       }
 
+      // Rhythm carried patch (mcp-scope): measurement instrument for the per-session
+      // MCP allowlist. resolveToolsCount is the number of tool schemas injected into
+      // model context; allowlistActive indicates whether the session was scoped by a
+      // profile (false → all MCP tools injected, back-compat). Read from engine logs
+      // during the Secretary smoke (see docs/ai/testing-guide.md "MCP allowlist smoke").
+      log.debug("resolveTools complete", {
+        resolveToolsCount: Object.keys(tools).length,
+        allowlistActive: !!input.session.mcpAllowlist,
+      })
+
       return tools
     })
 

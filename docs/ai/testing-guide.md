@@ -139,3 +139,37 @@ After deploying the Opencode engine:
 - [ ] WS connect to `ws://localhost:4001/ws/agents`, send `session.input` — SDK prompt is called
 - [ ] `DELETE /agent-sessions/:id` — returns 204, session map entry is cleared
 - [ ] `flutter run -d macos` — app launches without errors, AI Account section shows connected providers on open
+
+## MCP allowlist smoke (per-session tool-schema scoping — mcp-scope)
+
+Verifies a profile-scoped session injects only its allowlisted MCP tool schemas.
+**Requires the patched fork engine** — either a locally-built fork binary on PATH
+(`cd apps/opencode_fork/packages/opencode && bun run build --single && export PATH="$PWD/dist/opencode-darwin-arm64/bin:$PATH"`) or the bundled fork from a release build (`Contents/Resources/opencode_bin/opencode`). Confirm the fork is in use: its
+`--version` is NOT a stock `1.x.y` (it embeds the branch, e.g. `0.0.0-feature/...`).
+
+**Measurement instrument:** the fork's `resolveTools` emits a DEBUG log on every
+prompt: `resolveTools complete { resolveToolsCount, allowlistActive }`. Read it from
+the engine process logs (propagated through the api_server). `resolveToolsCount` is
+the number of tool schemas injected; `allowlistActive` is whether the session was
+profile-scoped.
+
+**Expected count helper (dynamic — never hardcode):** the api_server expander gives
+the expected Secretary count:
+```
+cd apps/api_server && npx vitest run src/services/__tests__/mcp_allowlist_expander.test.ts
+# C2 asserts secretary.mcp.json → tools.length (36 as of 2026-06-25: rhythm 14,
+# gmail-work 2, gmail-personal 2, calendar 3, obsidian 9, pdf-tools 6)
+```
+
+Checklist:
+- [ ] Open a **Secretary** session → engine log `allowlistActive: true`,
+  `resolveToolsCount` equals `expandMcpAllowlist(secretaryConfig).tools.length` (36).
+- [ ] Open a **profile-less** session (no role) → `allowlistActive: false`,
+  `resolveToolsCount` is GREATER (all connected MCP tools — back-compat).
+- [ ] Both sessions function normally (tools present and callable).
+
+Automated coverage already proves this by composition: api_server `opencode_client_service.test.ts`
+(Secretary session → createSession body carries `expandMcpAllowlist(config)`),
+fork `mcp_allowlist_e2e.test.ts` (gate filters offered tools to exactly the allowlist:
+5→3→1→0), and `mcp_allowlist_expander.test.ts` (Secretary → 36). The manual smoke is
+the live full-stack visual confirmation with the bundled binary.

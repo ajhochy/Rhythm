@@ -19,6 +19,9 @@ pass each session's expanded profile allowlist on session create.
 **Issue mcp-scope-05 DONE** (allowlist expander).
 **Issue mcp-scope-04 DONE** (api_server wiring).
 **Issue mcp-scope-03 DONE** (CI binary bundle + sign + PATH injection — all checks pass).
+**Issue mcp-scope-06 DONE** (verification: resolveToolsCount DEBUG log + acceptance proven by composition; live full-stack smoke deferred to post-release).
+
+**All 6 mcp-scope issues complete.** Ready for draft PR + manual smoke handoff.
 
 ## Active branch / PR
 
@@ -29,9 +32,9 @@ pass each session's expanded profile allowlist on session create.
 
 ## In progress
 
-mcp-scope run, order: 01 (done) → 02 (done) → 05 (done) → 04 (done) →
-local proof (done — deterministic e2e) → 03 (done) →
-**06** (verification + acceptance measurement — next).
+mcp-scope run COMPLETE: 01 → 02 → 05 → 04 → local proof → 03 → 06 all done.
+Next: open the draft PR (no merge), then the live full-stack manual smoke after a
+release/dev build with the bundled fork binary.
 
 The full software path is now wired AND bundled:
 - The deterministic e2e test proves the gate fires end-to-end.
