@@ -31,6 +31,37 @@ import { logger } from '../utils/logger';
 import { env } from '../config/env';
 import type { AgentConfig } from '../repositories/agent_configs_repository';
 
+/**
+ * Prepended to every manager-profile body so that the orchestrator role is
+ * explicit to opencode when it loads the file. Must appear exactly once.
+ * The distinctive heading "## Routing (mandatory)" is used as the idempotency
+ * marker — see `injectManagerPreamble`.
+ */
+export const MANAGER_ROUTING_PREAMBLE =
+  '## Routing (mandatory)\n' +
+  'For any coding, development, implementation, debugging, refactor, or PR/issue task, ' +
+  'you MUST hand off to the workflow-orchestrator by calling the `task` tool with ' +
+  '`subagent_type="workflow-orchestrator"` — name that delegate explicitly; never use ' +
+  '`"general"` and never omit `subagent_type`. Do this regardless of how the request is ' +
+  'phrased. Only handle non-development tasks yourself.';
+
+/** Idempotency marker: substring whose presence means the preamble is already there. */
+const PREAMBLE_MARKER = '## Routing (mandatory)';
+
+/**
+ * If `isManager` is true and the preamble is not already in `body`, prepend
+ * `MANAGER_ROUTING_PREAMBLE` followed by a blank line. No-op for non-managers
+ * and when the marker is already present (idempotent re-write safety).
+ *
+ * Exported for unit testing — callers outside this module should not need it.
+ */
+export function injectManagerPreamble(body: string, isManager: boolean): string {
+  if (!isManager) return body;
+  if (body.includes(PREAMBLE_MARKER)) return body;
+  const separator = body.length > 0 && !body.startsWith('\n') ? '\n\n' : '\n';
+  return `${MANAGER_ROUTING_PREAMBLE}${separator}${body}`;
+}
+
 /** opencode built-in / internal agents — no source file; never write these. */
 const BUILTIN_OPENCODE = new Set([
   'build',
@@ -132,6 +163,8 @@ export function writeAgentProfileFile(config: AgentConfig): void {
       if (model) fm += `\nmodel: ${model}`;
       body = config.systemPrompt ?? '';
     }
+
+    body = injectManagerPreamble(body, config.isManager === true);
 
     const out = `---\n${fm}\n---\n${body.startsWith('\n') ? body.slice(1) : body}`;
     writeFileSync(path, out.endsWith('\n') ? out : `${out}\n`, 'utf8');

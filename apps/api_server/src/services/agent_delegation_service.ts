@@ -19,7 +19,29 @@ export interface AgentDelegationResult {
   targetAgentConfigId: string;
 }
 
-const MAX_DELEGATION_DEPTH = 1;
+/**
+ * Maximum delegation nesting depth for the Secretary → orchestrator → specialist chain.
+ *
+ * Depth semantics: the root caller always starts at depth 0. Each recursive
+ * delegateToAgent() call increments depth before the depth-check so the check
+ * fires when depth === MAX_DELEGATION_DEPTH (i.e. a third level would be
+ * depth=2, blocked here).
+ *
+ * Design decision (2026-06-25, issue #742):
+ *   The intended 3-level chain is Secretary (manager, depth=0) →
+ *   workflow-orchestrator (manager-capable delegate, depth=1) →
+ *   specialist (depth=2). The old cap of 1 blocked the orchestrator from
+ *   sub-delegating because it was already a child (depth=1 ≥ 1).
+ *
+ *   Raising to 2 enables one additional level. The manager-role check
+ *   (`caller.isManager`) at each delegation node ensures only explicitly
+ *   designated manager profiles can delegate — a random specialist cannot
+ *   use this path even at depth=1. The combined constraint (isManager +
+ *   allowedDelegatesJson + depth < 2) is the hard cap against runaway nesting.
+ *
+ *   See docs/ai/decisions/2026-06-25-delegation-depth.md for full rationale.
+ */
+const MAX_DELEGATION_DEPTH = 2;
 
 function parseAllowedDelegates(json: string | null): Set<string> {
   if (!json) return new Set();

@@ -3133,9 +3133,17 @@ class AgentSelectorPill extends StatelessWidget {
               ),
           ];
 
-    // Display label: map the selected opencode-agent value back to its profile
-    // label when possible; otherwise show the raw value or the 'build' default.
-    String label = 'build';
+    // Display label: map the resolved agent value back to its profile label
+    // when possible. Resolution order (#745):
+    //   1. Explicit per-session selection  → resolve via items list.
+    //   2. Manager default (from resolver) → resolve via items list.
+    //   3. No manager configured          → fall back to 'build'.
+    //
+    // `selected` here is already the resolved value from selectedAgentFor(),
+    // which returns the manager ocAgent when no explicit selection is set.
+    final managerLabel =
+        cfgCtrl.managerAgent?.label ?? cfgCtrl.managerAgent?.ocAgent ?? 'build';
+    String label = managerLabel;
     if (selected != null) {
       label = selected;
       for (final i in items) {
@@ -3151,11 +3159,12 @@ class AgentSelectorPill extends StatelessWidget {
       // Constrain the popup width so it doesn't span the full screen.
       constraints: const BoxConstraints(maxWidth: 220),
       itemBuilder: (_) => [
-        // "Default" option always shown so the user can clear selection.
+        // "Default" option always shown so the user can reset back to the
+        // manager profile default (#745). Label shows manager name or 'build'.
         PopupMenuItem<String>(
           value: '',
           child: Text(
-            'build (default)',
+            '$managerLabel (default)',
             style: TextStyle(
               fontSize: 12,
               color: context.rhythm.textSecondary,
@@ -3190,51 +3199,60 @@ class AgentSelectorPill extends StatelessWidget {
       onSelected: (value) {
         ctrl.setSelectedAgent(sid, value.isEmpty ? null : value);
       },
-      child: Container(
-        height: 30,
-        padding: const EdgeInsets.symmetric(horizontal: 8),
-        decoration: BoxDecoration(
-          color: selected != null
-              ? context.rhythm.accentMuted
-              : context.rhythm.surfaceMuted,
-          borderRadius: BorderRadius.circular(RhythmRadius.md),
-          border: Border.all(
-            color: selected != null
-                ? context.rhythm.accent
-                : context.rhythm.border,
-          ),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              Icons.smart_toy_outlined,
-              size: 13,
-              color: selected != null
-                  ? context.rhythm.accent
-                  : context.rhythm.textSecondary,
-            ),
-            const SizedBox(width: 4),
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w500,
-                color: selected != null
+      child: Builder(
+        builder: (context) {
+          // #745: pill is "active/accent" only when the user has made an
+          // explicit override away from the manager default — not merely
+          // because a manager agent exists. This keeps the pill visually
+          // neutral in the default state.
+          final isOverridden = ctrl.hasExplicitAgentSelection(sid);
+          return Container(
+            height: 30,
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            decoration: BoxDecoration(
+              color: isOverridden
+                  ? context.rhythm.accentMuted
+                  : context.rhythm.surfaceMuted,
+              borderRadius: BorderRadius.circular(RhythmRadius.md),
+              border: Border.all(
+                color: isOverridden
                     ? context.rhythm.accent
-                    : context.rhythm.textSecondary,
+                    : context.rhythm.border,
               ),
             ),
-            const SizedBox(width: 2),
-            Icon(
-              Icons.arrow_drop_down,
-              size: 14,
-              color: selected != null
-                  ? context.rhythm.accent
-                  : context.rhythm.textSecondary,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  Icons.smart_toy_outlined,
+                  size: 13,
+                  color: isOverridden
+                      ? context.rhythm.accent
+                      : context.rhythm.textSecondary,
+                ),
+                const SizedBox(width: 4),
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                    color: isOverridden
+                        ? context.rhythm.accent
+                        : context.rhythm.textSecondary,
+                  ),
+                ),
+                const SizedBox(width: 2),
+                Icon(
+                  Icons.arrow_drop_down,
+                  size: 14,
+                  color: isOverridden
+                      ? context.rhythm.accent
+                      : context.rhythm.textSecondary,
+                ),
+              ],
             ),
-          ],
-        ),
+          );
+        },
       ),
     );
   }

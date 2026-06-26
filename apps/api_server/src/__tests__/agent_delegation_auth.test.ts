@@ -116,15 +116,34 @@ describe('manager delegation authorization contracts', () => {
       }),
     ).rejects.toMatchObject({ statusCode: 400 });
 
+    // #742: depth cap is now 2 (3-level chain). depth=2 must be blocked.
+    // depth=1 is now ALLOWED (orchestrator-as-subagent can sub-delegate).
     await expect(
       delegateToAgent({
         callerAgentConfigId: 'manager',
         targetAgentConfigId: 'specialist',
         prompt: 'Do this.',
-        depth: 1,
+        depth: 2,
       }),
     ).rejects.toMatchObject({ statusCode: 400 });
 
     expect(runMock).not.toHaveBeenCalled();
+  });
+
+  it('issue-742-c-nested: orchestrator-as-subagent (depth=1) can sub-delegate', async () => {
+    // #742: the orchestrator runs as a subagent at depth=1 and must be able
+    // to delegate one further level (depth=1 < MAX_DELEGATION_DEPTH=2).
+    const result = await delegateToAgent({
+      callerAgentConfigId: 'manager',
+      targetAgentConfigId: 'specialist',
+      prompt: 'Implement the task.',
+      depth: 1,
+    });
+    expect(result).toMatchObject({
+      sessionId: 'delegate-session',
+      output: 'delegated result',
+      targetAgentConfigId: 'specialist',
+    });
+    expect(runMock).toHaveBeenCalledTimes(1);
   });
 });
