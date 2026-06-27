@@ -85,3 +85,25 @@
 - **Workflow**: partial — W5 (#746 coding-agent committed + opened PR #749 prematurely against `main` before #748 and before orchestrator verification-gate), W6 (wrong PR base), W4 (first coding-agent edited home-dir secretary.md instead of the version-controlled opencode_agent_writer). All recovered by the orchestrator.
 - **Root cause (process)**: coding-agent dispatches did not hard-honor "do not commit / do not open PR"; subagents chained the full workflow autonomously.
 - **Suggested fix**: sharpen coding-agent boundaries (no commit/PR when dispatched as an implementation-only subagent) and add a "never edit ~/.config runtime paths — find the version-controlled writer" rule for opencode agent-profile changes.
+
+## 2026-06-27 — Issue #752 — v18.52 terminal fix regressed the engine launch
+
+- **Result**: smoke FAIL (verification claimed PASS)
+- **Category**: C1 — missing contract (no local check that the signed binary launches)
+- **Criteria affected**: Agents Terminal opens a working shell in the release build
+- **Root cause**: Signing the opencode bun binary with disable-library-validation ALONE turned on Hardened Runtime JIT enforcement; without allow-jit + allow-unsigned-executable-memory the binary SIGTRAP-crashed in dyld at launch (exit 133, "Server exited with code null"). v18.51 had no entitlements blob so it launched.
+- **Suggested fix**: For codesign/entitlements changes to a bundled bun/JIT/standalone binary, verification-gate must run a local hardened-runtime launch+behavior test (cp; codesign --options runtime --entitlements <f> -s -; run; exercise feature). Presence ≠ correctness. Fixed in #756 (v18.53).
+
+## 2026-06-27 — Issue 751 — "stuck on Starting" is a fork-engine /event regression, not the bridge map-miss
+- **Result**: smoke FAIL (verification claimed PASS) — divergence
+- **Category**: C5 — Environment/runtime-parity; plus process: release-deploy (fork binary regression), W5 (PASS claim on non-representative runtime)
+- **Criteria affected**: issue-751-c1 (session leaves "Starting", messages persist, child appears)
+- **Root cause**: The bundled fork opencode engine (0.0.0-main-202606271725) emits only `server.connected` on /event then no session/message events; the bridge listener loop ends and nothing is relayed. Verification "passed" because the live repro accidentally used the STOCK 1.14.40 engine (PATH augmentation prepends ~/.opencode/bin), which emits events correctly.
+- **Suggested fix**: (1) opencode-dependent verification/smoke MUST spawn the bundled fork engine, not PATH/stock opencode; (2) fix the fork /event SSE regression in apps/opencode_fork. The api_server map-miss fix (PR #758) is correct defense-in-depth but does not resolve #751.
+
+## 2026-06-27 — Issue 759 — /event fix verified; user-facing symptom persists in Flutter UI layer
+- **Result**: smoke FAIL (user-visible) — but verification claimed PASS for #759 and was CORRECT at the engine/bridge/DB layer
+- **Category**: C6 — Dependency failure (failing area not in this PR's diff)
+- **Criteria affected**: assistant responses render in Flutter UI (out of #759 engine scope)
+- **Root cause**: #759 engine /event collapse is fixed (stream stays open, status→idle, 2 messages persisted, bridge broadcasts over WS keyed by correct UUID); Flutter client did not surface the broadcast message events in the rendered list/context panel
+- **Suggested fix**: follow-up issue on the Flutter agents client WS-ingestion/rendering of message.part/message.updated; verify #759 + #758 together for full UX

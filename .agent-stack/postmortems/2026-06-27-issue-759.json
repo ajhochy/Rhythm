@@ -1,0 +1,64 @@
+{
+  "run_id": "2026-06-27-issue-759",
+  "issue": 759,
+  "date": "2026-06-27",
+  "smoke_result": "fail",
+  "verification_claimed": "PASS",
+  "divergence": true,
+  "criteria_results": [
+    {
+      "criterion_id": "issue-759-c1",
+      "text": "/event SSE stream stays open and streams session/message events (no collapse after server.connected)",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Engine log for the smoke session (version 0.0.0-fix/issue-759-event-sse-202606271952) shows 'service=server event connected' ONCE with ZERO 'event disconnected' and no 'type=* unsubscribing' for the whole session. Regression test in test/server/httpapi-event.test.ts passes with the fix and fails on unmodified source."
+    },
+    {
+      "criterion_id": "issue-759-c2",
+      "text": "Agent sessions leave the 'Starting' badge (status reaches idle)",
+      "contract_status": "untested",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "DB agent_sessions row f6d0d746 (sdk ses_0f556f455ffe40yklS2SZv0sJC) = status 'idle'. Every prior session created with the old buggy binary (e0797170, 0a4ea2e7, b89c8b7f) is stuck at status 'starting'. UI Context panel showed Status: idle."
+    },
+    {
+      "criterion_id": "issue-759-c3",
+      "text": "Assistant messages persist",
+      "contract_status": "untested",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "agent_session_messages has 2 persisted assistant responses for session UUID f6d0d746 ('Got it — test received…' 19:58:23, 'Hey AJ. 👋 …' 19:58:37). Bridge reverse-lookup HIT (persist is guarded on localSessionId at opencode_stream_bridge.ts:329), so this is NOT a #758 map-miss."
+    },
+    {
+      "criterion_id": "issue-759-c4",
+      "text": "Assistant responses render in the Flutter UI (user-visible)",
+      "contract_status": "absent",
+      "smoke_status": "fail",
+      "category": "C6",
+      "notes": "User saw 'No messages yet' / 0 tokens / no assistant bubbles despite the DB holding both responses and the bridge broadcasting message.part.updated/delta/updated over ws://localhost:4001/ws/agents keyed by the correct UUID. The failing layer is the Flutter client ingestion/rendering of WS message broadcasts — NOT touched by this PR's diff (engine-only, apps/opencode_fork). #759's own deliverables (stream alive, status leaves Starting, messages persist) all PASS."
+    }
+  ],
+  "process_issues": [
+    {
+      "process_category": "smoke-build-scope",
+      "description": "The local smoke build necessarily paired the #759 fork-engine fix with an api_server copied from the installed app (main), so it validated #759 in isolation but could not validate the complete user-facing path, which also depends on the Flutter client WS-ingestion layer. This correctly isolated the engine fix and surfaced that a separate UI-layer defect remains.",
+      "detected_by": "Smoke app api_server provenance (copied from /Applications/Rhythm.app) + DB/engine-log/bridge-source cross-check showing every layer through the api_server worked while the UI did not render."
+    }
+  ],
+  "workflow_adherence": {
+    "overall_score": "strict",
+    "expected_chain": ["workflow-orchestrator", "verification-gate", "project-state-updater", "failure-postmortem"],
+    "observed_chain": ["workflow-orchestrator", "verification-gate", "project-state-updater", "failure-postmortem"],
+    "skipped_skills": [],
+    "issues": []
+  },
+  "implementation_files": [
+    "apps/opencode_fork/packages/opencode/src/bus/index.ts",
+    "apps/opencode_fork/packages/opencode/src/server/routes/instance/httpapi/event.ts",
+    "apps/opencode_fork/packages/opencode/test/server/httpapi-event.test.ts"
+  ],
+  "failure_output": "UI: 'Context Usage: No messages yet', Input/Output tokens 0, Session cost $0.0000, no assistant message bubbles. Engine + api_server DB ground truth contradicts the UI: status=idle, 2 assistant messages persisted, /event stream stayed connected with 0 disconnects.",
+  "overall_category": "C6",
+  "suggested_follow_up": "File a follow-up for the Flutter agents client: assistant message.part/message.updated WS broadcasts (keyed by the correct session UUID) are persisted by the bridge but not surfaced in the rendered message list / context panel; isolate whether it's a live-WS ingestion bug or a missing REST refetch on selection."
+}
