@@ -2,84 +2,57 @@
 
 ## Current focus
 
-**2026-06-27 — Agent live-streaming: root cause re-diagnosed.** Runtime smoke
-against the BUILT fork overturned #762's serialization hypothesis. The real
-defect is a **dual-bus split**: `SyncEvent.process()` publishes via the
-module-level namespace `Bus` runtime while `/event` (and BusEvents like
-`message.part.delta`) use the per-request DI `Bus.Service`. They are different
-bus states for the same directory, so every deferred SyncEvent publish during a
-turn (`message.updated`, `message.part.updated`, and `session.updated` via
-`sync.run`) lands on a wildcard the live `/event` subscriber never reads.
+**2026-06-27 — Agent live-streaming: core bus-routing fix landed.** The
+**dual-bus split** (real root of #1/#3/#751/#759/#761/#762) is fixed and verified
+against the BUILT fork. `SyncEvent.process()` published via the module-level
+namespace `Bus` runtime while `/event` reads the per-request DI `Bus.Service` —
+two bus states per directory, so `message.updated` / `message.part.updated` /
+turn-time `session.updated` never reached the live `/event` subscriber. The fix
+(#764) makes both runtimes share ONE `{wildcard, typed}` PubSub per directory via
+a module-level registry in `bus/index.ts`. A real anthropic turn against the
+built fork now delivers all three event types on `/event`.
 
-Net effect on the three symptoms:
-- **#1 duplicate messages / #3 no token-context** — still BROKEN at runtime,
-  because `message.updated` never reaches the api_server bridge. The #762
-  convertEvent change is correct hardening but insufficient; the bus-routing fix
-  is the real prerequisite.
-- **#2 ask-question hang** — FIXED (question recovery; see below).
+Symptom status:
+- **#1 duplicate messages / #3 no token-context** — engine side now FIXED
+  (message.updated carries tokens/cost; part.updated carries canonical text).
+  Awaiting UI manual smoke to confirm the Flutter render.
+- **#2 ask-question hang** — FIXED earlier (question recovery).
 
 ## Active branch / PR
 
 - **Branch:** `fix/issue-761-agents-ui-render` — contains #760 (merged) + #761 +
-  the #2 question-recovery fix + #762 convertEvent hardening + new tests.
-  Commit `fix(agents): recover missed ask-questions; harden message SyncEvent…`.
-- **No combined "fixes #762" PR opened** — the headline fix does not work at
-  runtime; surfaced to the user as BLOCKED pending the core bus-routing fix.
-- Standalone PRs [#760](https://github.com/ajhochy/Rhythm/pull/760),
-  [#763](https://github.com/ajhochy/Rhythm/pull/763), and #758 remain open.
+  #2 question-recovery + #762 convertEvent hardening + **#764 shared-bus fix** +
+  tests. #764 fix not yet committed (working tree) at last update.
+- **PR [#763](https://github.com/ajhochy/Rhythm/pull/763)** open — fold #764 into
+  it with a `Closes #764` line. Not merged; left for human review + manual smoke.
+- Standalone PRs [#760](https://github.com/ajhochy/Rhythm/pull/760) and #758 also open.
 
-## Root cause (verified against the built fork — see decisions/)
+## In progress
 
-`apps/opencode_fork/.../sync/index.ts:333` — `SyncEvent.process()` does
-`ProjectBus.publish(...)` where `ProjectBus = Bus` (namespace, line 4). The
-namespace `Bus.publish` runs over a module-level `makeRuntime(Service, layer)`
-bus, distinct from the per-request DI `Bus.Service` that the `/event` handler
-and `bus.publish(message.part.delta)` (session.ts:839) use. busId diagnostics on
-the running fork proved it: `/event` subscribed busId A; `message.part.delta`
-published to A (arrived); `message.updated`/`part.updated`/`session.updated`
-published to B (never arrived). **Fix direction:** route
-`SyncEvent.process()`'s publish through the per-request DI `Bus.Service` (or make
-the bus a true per-directory singleton shared by both accessors).
+- Commit the #764 fix to the branch, update PR #763 body (`Closes #764`),
+  hand off for manual UI smoke. Do not merge.
+
+## Risks / known issues
+
+- Bus is HIGH blast radius (event backbone). The fix is additive and
+  signature-preserving; disposal lifecycle (`InstanceDisposed` + shutdown that
+  `/event`'s `Stream.takeUntil` relies on) is preserved and re-verified.
+- Unit/bus-level suites cannot reproduce the split (it only manifests across HTTP
+  requests) — always re-verify bus changes against the BUILT fork with a real turn.
 
 ## Test status
 
-- opencode_fork: `tsgo --noEmit` PASS · `bun test test/server/ test/bus/` 236
-  pass / 1 skip / 0 fail (incl. new httpapi-event-sync-message flow test).
-- api_server: `vitest run` 1278 pass / 0 fail (incl. new opc_question_recovery 5).
-- desktop_flutter: `flutter analyze` clean (errors), `flutter test
-  test/features/agents/` 446 pass (incl. new issue_762_live_turn_e2e).
-- **Runtime smoke (built fork, real anthropic turn): #762 FAILED** —
-  message.updated/part.updated still absent from /event with the convertEvent
-  fix. This is the evidence the unit suite could not surface.
-
-## Core bus-routing fix — attempted, found cross-cutting (2026-06-27)
-
-Attempted the real fix (route `SyncEvent.process()`'s publish through the DI
-`Bus.Service`). Two implementations, both sprawl beyond surgical scope:
-- **Capture DI bus in the SyncEvent layer:** adds `Bus.Service` to the layer's
-  requirements, which propagates `R = Bus.Service` through every composition that
-  merges `SyncEvent.defaultLayer` (app-runtime, bootstrap, server, compaction,
-  +many test harnesses) — each `Layer.mergeAll` unions the requirement rather
-  than satisfying it from the sibling `Bus.defaultLayer`.
-- **Require Bus in run/replay method `R`:** poisons dozens of deep service
-  contracts that call `sync.run` under `R = never` (workspace, compaction,
-  processor, prompt), since `sync.run` is invoked far down the turn pipeline.
-
-Both are real engine-architecture changes, not patches, and each needs
-rebuild+real-turn verification per iteration. Reverted the attempt to keep the
-tree compiling. A contained alternative (a per-directory bus-state registry in
-`bus/index.ts` so the namespace `Bus.publish` and DI `Bus.Service` share one
-wildcard) is plausible but also rewrites the bus core and carries disposal-/
-TUI-path risk. **Recommendation:** do the core fix as its own focused, carefully
-verified PR — issue #764 has the exact direction + repro.
-
-Filed/updated: issue #762 commented with the corrected root cause;
-[#764](https://github.com/ajhochy/Rhythm/issues/764) opened for the dual-bus
-split (real root of #1/#3/#751/#759/#761/#762).
+- opencode_fork: `bun run typecheck` PASS · `bun test test/server/ test/bus/`
+  237 pass / 1 skip / 0 fail (incl. new `httpapi-event-dual-bus` contract test) ·
+  `bun run build --single` (arm64) PASS.
+- **Runtime smoke (built fork, real anthropic turn): PASS** — `/event` capture
+  contains `message.updated` ×6 + `message.part.updated` ×5 + `session.updated`
+  ×3 (all absent before the fix). See `runs/2026-06-27-issue-764-dual-bus-fix.md`.
+- api_server / desktop_flutter: unchanged this run (last green; see prior runs).
 
 ## Next step
 
-1. Ship the verified #2 question-recovery fix (its own PR or as part of this
-   branch), and the #760 merge.
-2. Schedule the core bus-routing fix (#764) as a focused engine pass; re-smoke
-   the built fork (real turn → `message.updated` must appear on `/event`).
+1. Commit #764, push, watch CI green, update PR #763 (`Closes #764`).
+2. Manual UI smoke on a signed local build: agent turn renders live, NO duplicate
+   messages, working token/context gauge. Then `failure-postmortem`.
+3. Human merge of #763 after smoke passes.
