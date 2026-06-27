@@ -2,48 +2,49 @@
 
 ## Current focus
 
-**2026-06-26 — PR #749 smoke/merge readiness plus skill-gap mapping from recent runs.**
-
-Recent work clusters around agent-session UX, opencode runtime scoping, and
-workflow discipline. The strongest repeated gaps are:
-
-- runtime-boundary verification against real dependencies and packaged builds
-- production-environment parity (Postgres, packaged binary, long-lived backend)
-- tighter subagent workflow boundaries and durable-edit discipline
+**2026-06-27 — #759: fork opencode `/event` SSE regression fixed (real root
+cause of #751).** The bundled fork engine's event stream collapsed right after
+`server.connected`, leaving agent sessions stuck on "Starting". Fixed by
+resolving the wildcard PubSub eagerly in the `/event` handler. Verified against
+the bundled fork engine; PR pending.
 
 ## Active branch / PR
 
-- **Branch:** `workflow/run-2026-06-25-agent-fixes`
-- **PR:** [#749](https://github.com/ajhochy/Rhythm/pull/749) — draft on `feature/agent-scheduler`; implementation verified, smoke partly blocked by macOS screen-recording consent modal.
-- **Related open PR:** [#734](https://github.com/ajhochy/Rhythm/pull/734) — Odysseus port + mcp-scope stack on `main`; still needs live packaged-runtime validation.
+- **Branch:** `fix/issue-759-event-sse` (off `main`), commit `003d71074`.
+- **PR:** to open — "Fixes #759" (do not merge; leave for review + manual smoke).
+- **Related open PR:** [#758](https://github.com/ajhochy/Rhythm/pull/758) —
+  durable `sdk_session_id` fallback in the bridge reverse-lookup; correct
+  defense-in-depth for the map-miss class, "refs #751" (NOT a fix for the engine
+  regression). Leave as-is.
 
 ## In progress
 
-- Manual smoke / merge readiness for #749.
-- Translating recent PR/postmortem patterns into a concrete skill progression map.
+- Open the #759 PR and hand off for manual smoke in the packaged `Rhythm.app`
+  (requires a release build of the fork binary).
 
-## Risks
+## Risks / known issues
 
-- **Verification remains strongest in local test harnesses, weaker at real runtime seams.**
-  Recent failures came from SDK shape drift, packaged binary path drift, stale
-  backend processes, and Postgres bootstrap drift that green local suites missed.
-- **Subagent process control is still leaky.**
-  The #749 run recorded a coding subagent opening a PR and committing outside its
-  bounds, plus an earlier non-durable edit to `~/.config/opencode/.../secretary.md`.
-- **UI smoke still has environment blockers.**
-  macOS consent modals can block automated click-through verification of agent UI flows.
+- **Verification parity:** opencode-engine changes must be verified against the
+  **bundled fork** engine, not stock 1.14.40 — PATH augmentation
+  (`augmentPathForOpencode`) spawns stock unless the fork is forced, which
+  previously masked this regression and produced a false PASS on #751.
+- **End-to-end (shipped app) still unproven for #759** until a release build
+  swaps the rebuilt fork binary into `Rhythm.app` — source-server runtime test
+  is the strongest pre-build evidence but not a substitute for packaged smoke.
 
 ## Test status
 
-- `flutter analyze --no-fatal-infos` — PASS
-- `dart format --set-exit-if-changed` — PASS
-- `apps/api_server npx tsc --noEmit` — PASS
-- `apps/api_server vitest` — PASS
-- `flutter test` — PASS
-- Manual smoke — partial; some #749 checks still blocked by local OS permissions
+- `npm run typecheck` (opencode_fork, tsgo --noEmit) — PASS
+- `bun test test/server/` (opencode_fork) — 217 pass / 1 skip / 0 fail
+- `bun test test/bus/ test/acp/event-subscription.test.ts` — PASS
+- #759 regression test — passes with fix, **fails on unmodified source** (faithful)
+- Runtime curl `/event` A/B vs bundled fork — FIXED stays open + heartbeats/events
 
 ## Next step
 
-1. Finish the blocked #749 smoke items on a machine/session with screen-recording permission settled.
-2. Turn the identified gaps into follow-up workflow tightening, especially around verification and coding-agent boundaries.
-3. Use `docs/ai/runs/2026-06-26-skill-progression-map.md` as the evidence base for skill-deepening priorities.
+1. Open PR "Fixes #759" off `fix/issue-759-event-sse`; do not merge.
+2. Manual smoke: release-build the fork binary, swap into `Rhythm.app`, run a
+   real delegating turn — confirm sessions leave "Starting", messages persist,
+   child subagent rows appear.
+3. After merge, #751 can be closed as resolved by #759 (symptom) — #758 remains
+   independent hardening.
