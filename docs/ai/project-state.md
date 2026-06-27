@@ -52,12 +52,34 @@ the bus a true per-directory singleton shared by both accessors).
   message.updated/part.updated still absent from /event with the convertEvent
   fix. This is the evidence the unit suite could not surface.
 
-## Next step (needs user decision)
+## Core bus-routing fix — attempted, found cross-cutting (2026-06-27)
 
-1. Authorize the core bus-routing fix (route SyncEvent publishes through the DI
-   `Bus.Service`), then re-smoke the built fork. This fixes #1/#3 (and is the
-   true root of #751/#759/#761/#762).
-2. OR split the #2 question-recovery fix into its own PR now (complete + tested)
-   and track the bus-routing fix separately.
-3. Update issue #762 with the corrected root cause; file a new issue for the
-   dual-bus split.
+Attempted the real fix (route `SyncEvent.process()`'s publish through the DI
+`Bus.Service`). Two implementations, both sprawl beyond surgical scope:
+- **Capture DI bus in the SyncEvent layer:** adds `Bus.Service` to the layer's
+  requirements, which propagates `R = Bus.Service` through every composition that
+  merges `SyncEvent.defaultLayer` (app-runtime, bootstrap, server, compaction,
+  +many test harnesses) — each `Layer.mergeAll` unions the requirement rather
+  than satisfying it from the sibling `Bus.defaultLayer`.
+- **Require Bus in run/replay method `R`:** poisons dozens of deep service
+  contracts that call `sync.run` under `R = never` (workspace, compaction,
+  processor, prompt), since `sync.run` is invoked far down the turn pipeline.
+
+Both are real engine-architecture changes, not patches, and each needs
+rebuild+real-turn verification per iteration. Reverted the attempt to keep the
+tree compiling. A contained alternative (a per-directory bus-state registry in
+`bus/index.ts` so the namespace `Bus.publish` and DI `Bus.Service` share one
+wildcard) is plausible but also rewrites the bus core and carries disposal-/
+TUI-path risk. **Recommendation:** do the core fix as its own focused, carefully
+verified PR — issue #764 has the exact direction + repro.
+
+Filed/updated: issue #762 commented with the corrected root cause;
+[#764](https://github.com/ajhochy/Rhythm/issues/764) opened for the dual-bus
+split (real root of #1/#3/#751/#759/#761/#762).
+
+## Next step
+
+1. Ship the verified #2 question-recovery fix (its own PR or as part of this
+   branch), and the #760 merge.
+2. Schedule the core bus-routing fix (#764) as a focused engine pass; re-smoke
+   the built fork (real turn → `message.updated` must appear on `/event`).
