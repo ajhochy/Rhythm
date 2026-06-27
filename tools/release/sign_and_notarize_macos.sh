@@ -89,15 +89,26 @@ if [[ ! -f "${OPENCODE_BIN}" ]]; then
   echo "::error::Bundled opencode fork binary not found at ${OPENCODE_BIN} — aborting sign step." >&2
   exit 1
 fi
-# Sign WITH entitlements: opencode extracts an embedded native FFI dylib to a
-# temp path and dlopen()s it at runtime (PTY backend). Under Hardened Runtime,
-# library validation rejects a dylib whose Team ID differs from this process's,
-# so opencode needs com.apple.security.cs.disable-library-validation (declared
-# in Release.entitlements → PROCESSED_ENTITLEMENTS). Without it, Pty.create
-# fails with "different Team IDs" and the Agents Terminal tab shows
-# "Terminal connection failed".
+# Sign the opencode binary with its OWN entitlements (NOT the app's). As a bun
+# standalone it needs two Hardened Runtime relaxations the Flutter app does not:
+#   - allow-jit + allow-unsigned-executable-memory: bun runs a JITting
+#     JavaScriptCore. Adding ANY entitlement turns on JIT enforcement, so these
+#     two MUST be present or the process is SIGTRAP-killed in dyld at launch
+#     ("Server exited with code null"). Signing with NO entitlements launches but
+#     then dlopen fails (below); signing with disable-library-validation ALONE
+#     launch-crashes. Both sets are required together.
+#   - disable-library-validation: opencode extracts an embedded FFI dylib to a
+#     temp path and dlopen()s it (PTY backend); its Team ID differs from this
+#     re-signed binary's, so library validation rejects it ("different Team IDs")
+#     and Pty.create 500s ("Terminal connection failed").
+# These live in opencode.entitlements so the main app keeps a strict runtime.
+OPENCODE_ENTITLEMENTS_PATH="${ROOT_DIR}/apps/desktop_flutter/macos/Runner/opencode.entitlements"
+if [[ ! -f "${OPENCODE_ENTITLEMENTS_PATH}" ]]; then
+  echo "::error::opencode.entitlements not found at ${OPENCODE_ENTITLEMENTS_PATH} — aborting sign step." >&2
+  exit 1
+fi
 codesign --force --options runtime --timestamp \
-  --entitlements "${PROCESSED_ENTITLEMENTS}" \
+  --entitlements "${OPENCODE_ENTITLEMENTS_PATH}" \
   --sign "${IDENTITY_SHA}" \
   "${OPENCODE_BIN}"
 

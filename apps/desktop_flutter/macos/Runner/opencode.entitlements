@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Entitlements for the bundled opencode fork binary ONLY. It is a bun
+	     standalone executable, so it has two Hardened Runtime requirements the
+	     main Flutter app does not:
+
+	     1. JIT — bun runs JavaScriptCore with a JIT, which Hardened Runtime
+	        forbids unless allow-jit + allow-unsigned-executable-memory are
+	        granted. Without them the process is SIGTRAP-killed in dyld at launch
+	        ("Server exited with code null"). NOTE: signing the binary with NO
+	        entitlements at all is lenient enough to launch, but the moment ANY
+	        entitlement is added the JIT enforcement turns on — so these two MUST
+	        accompany disable-library-validation, never ship it alone.
+
+	     2. Library validation — opencode extracts an embedded native FFI dylib
+	        to a temp path and dlopen()s it at runtime (its PTY backend). The
+	        extracted dylib's Team ID differs from this re-signed binary's, so
+	        library validation rejects it ("different Team IDs") and Pty.create
+	        500s ("Terminal connection failed"). disable-library-validation
+	        permits the load. -->
+	<key>com.apple.security.cs.allow-jit</key>
+	<true/>
+	<key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+	<true/>
+	<key>com.apple.security.cs.disable-library-validation</key>
+	<true/>
+</dict>
+</plist>
