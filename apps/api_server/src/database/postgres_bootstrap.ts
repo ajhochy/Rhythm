@@ -676,6 +676,63 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
     `CREATE INDEX IF NOT EXISTS idx_agent_skill_versions_skill_id ON agent_skill_versions(skill_id)`,
   );
 
+  // agent_configs — user-configurable list of CLI agents (issue #481 / #466).
+  // NOTE: this CREATE was previously missing from the Postgres path; only the SQLite
+  // migrations.ts created it, while the ALTERs below assumed it existed. On a Postgres
+  // deploy that never had the table, `ALTER TABLE agent_configs ...` threw 42P01 and
+  // crash-looped boot (ADD COLUMN IF NOT EXISTS does not guard a missing *table*).
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS agent_configs (
+      id TEXT PRIMARY KEY,
+      label TEXT NOT NULL,
+      icon TEXT NOT NULL,
+      command TEXT NOT NULL,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      is_agent INTEGER NOT NULL DEFAULT 1,
+      can_resume INTEGER NOT NULL DEFAULT 0,
+      resume_command TEXT,
+      session_id_pattern TEXT,
+      output_marker TEXT,
+      preset_id TEXT,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_agent_configs_enabled ON agent_configs(enabled)`,
+  );
+
+  // Seed built-in preset rows (ON CONFLICT keeps bootstrap idempotent).
+  await pool.query(`
+    INSERT INTO agent_configs
+      (id, label, icon, command, is_agent, can_resume, resume_command, session_id_pattern, output_marker, preset_id, sort_order)
+    VALUES
+      ('claude-code', 'Claude Code', 'assets/agents/claude-code.png', 'claude', 1, 1, 'claude --resume {{sessionId}}', 'Session ID:\\s+([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})', '⏺', 'claude-code', 0),
+      ('codex', 'Codex', 'assets/agents/codex.png', 'codex', 1, 0, NULL, NULL, '•', 'codex', 1),
+      ('gemini-cli', 'Gemini CLI', 'assets/agents/gemini-cli.png', 'gemini', 1, 0, NULL, NULL, '✦', 'gemini-cli', 2),
+      ('opencode', 'OpenCode', 'assets/agents/opencode.png', 'opencode', 1, 0, NULL, NULL, '│', 'opencode', 3)
+    ON CONFLICT (id) DO NOTHING;
+  `);
+
+  // agent_sessions — agent run records. Same missing-CREATE bug as agent_configs above:
+  // only migrations.ts (SQLite) created it, while the ALTERs further down assumed it existed.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS agent_sessions (
+      id TEXT PRIMARY KEY,
+      task_id TEXT REFERENCES tasks(id) ON DELETE SET NULL,
+      agent_kind TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'starting',
+      session_token TEXT,
+      cwd TEXT NOT NULL,
+      name TEXT NOT NULL,
+      last_preview TEXT,
+      last_activity_at TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+
   // Agent-runner model selection: store preferred provider/model on agent_configs.
   await pool.query(`
     ALTER TABLE agent_configs ADD COLUMN IF NOT EXISTS model_provider TEXT;
