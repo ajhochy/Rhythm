@@ -577,20 +577,32 @@ export const cursor = {
   },
 }
 
-const info = (row: typeof MessageTable.$inferSelect) =>
-  ({
+// Exported so server/projectors.ts `convertEvent` can reconstruct a plain,
+// JSON-serializable Info/Part from a persisted row — mirroring how
+// `session.updated` uses the exported `Session.fromRow`. The raw SyncEvent
+// `data.info` / `data.part` are Effect `Schema.Class` instances that do NOT
+// survive SSE serialization to the `/event` wildcard stream (issue #762); a
+// row-reconstructed plain object does.
+export function infoFromRow(row: typeof MessageTable.$inferSelect): Info {
+  return {
     ...row.data,
     id: row.id,
     sessionID: row.session_id,
-  }) as Info
+  } as Info
+}
 
-const part = (row: typeof PartTable.$inferSelect) =>
-  ({
+export function partFromRow(row: typeof PartTable.$inferSelect): Part {
+  return {
     ...row.data,
     id: row.id,
     sessionID: row.session_id,
     messageID: row.message_id,
-  }) as Part
+  } as Part
+}
+
+const info = infoFromRow
+
+const part = partFromRow
 
 const older = (row: Cursor) =>
   or(lt(MessageTable.time_created, row.time), and(eq(MessageTable.time_created, row.time), lt(MessageTable.id, row.id)))
