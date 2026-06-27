@@ -89,7 +89,15 @@ if [[ ! -f "${OPENCODE_BIN}" ]]; then
   echo "::error::Bundled opencode fork binary not found at ${OPENCODE_BIN} — aborting sign step." >&2
   exit 1
 fi
+# Sign WITH entitlements: opencode extracts an embedded native FFI dylib to a
+# temp path and dlopen()s it at runtime (PTY backend). Under Hardened Runtime,
+# library validation rejects a dylib whose Team ID differs from this process's,
+# so opencode needs com.apple.security.cs.disable-library-validation (declared
+# in Release.entitlements → PROCESSED_ENTITLEMENTS). Without it, Pty.create
+# fails with "different Team IDs" and the Agents Terminal tab shows
+# "Terminal connection failed".
 codesign --force --options runtime --timestamp \
+  --entitlements "${PROCESSED_ENTITLEMENTS}" \
   --sign "${IDENTITY_SHA}" \
   "${OPENCODE_BIN}"
 
