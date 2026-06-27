@@ -82,8 +82,14 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     this._notificationService,
     this._notificationsController, {
     AgentModelsDataSource? modelsDataSource,
+    // #745: optional resolver that returns the manager profile's ocAgent name.
+    // When provided, new sessions default to the manager's agent rather than
+    // the SDK built-in 'build'. Falls back to null (SDK default) if absent or
+    // if the resolver returns null (e.g. no manager profile configured yet).
+    String? Function()? managerAgentNameResolver,
   })  : _modelsDataSource = modelsDataSource ?? AgentModelsDataSource(),
-        _commandsDataSource = CommandsDataSource();
+        _commandsDataSource = CommandsDataSource(),
+        _managerAgentNameResolver = managerAgentNameResolver;
 
   final AgentsRepository _repository;
   final AgentModelsDataSource _modelsDataSource;
@@ -91,6 +97,9 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   final AgentServerController _agentServerController;
   final LocalNotificationService _notificationService;
   final NotificationsController _notificationsController;
+  // #745: resolves the manager profile's opencode agent name at call time.
+  // Nullable so tests and legacy construction sites can omit it safely.
+  final String? Function()? _managerAgentNameResolver;
 
   AppLifecycleState _lifecycleState = AppLifecycleState.resumed;
 
@@ -887,18 +896,44 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   List<AgentInfo> availableAgentsFor(String sessionId) =>
       List.unmodifiable(_availableAgentsBySession[sessionId] ?? const []);
 
-  /// Currently selected agent name for [sessionId], or null when using the
-  /// SDK default (build). Does NOT change permissionMode — the PermissionMode-
-  /// Picker is the sole owner of that field (c6 regression contract).
-  String? selectedAgentFor(String sessionId) =>
-      _selectedAgentBySession[sessionId];
+  /// Currently selected agent name for [sessionId].
+  ///
+  /// Resolution order (#745):
+  ///   1. Explicit per-session selection stored in [_selectedAgentBySession].
+  ///   2. Manager profile's ocAgent name (from [_managerAgentNameResolver]).
+  ///   3. null → SDK default ('build') when no manager profile is configured.
+  ///
+  /// Does NOT change permissionMode — the PermissionModePicker is the sole
+  /// owner of that field (c6 regression contract).
+  String? selectedAgentFor(String sessionId) {
+    if (_selectedAgentBySession.containsKey(sessionId)) {
+      return _selectedAgentBySession[sessionId];
+    }
+    return _managerAgentNameResolver?.call();
+  }
 
-  /// Set the per-turn agent for [sessionId]. Null clears back to SDK default.
+  /// Returns true when the user has made an explicit per-session agent
+  /// selection (distinct from the manager-profile default). Used by
+  /// [AgentSelectorPill] to colour the pill as "overridden" (#745).
+  bool hasExplicitAgentSelection(String sessionId) =>
+      _selectedAgentBySession.containsKey(sessionId) &&
+      _selectedAgentBySession[sessionId] != null;
+
+  /// Set the per-turn agent for [sessionId].
+  ///
+  /// Passing null removes the explicit per-session entry so that
+  /// [selectedAgentFor] falls back to the manager profile resolver (#745).
+  /// This is the "reset to default" path — the picker sends null when the
+  /// user selects the placeholder "build (default)" item.
   ///
   /// Does NOT touch permissionMode or any other session field — the agent
   /// selector is orthogonal to the PermissionModePicker (c6).
   void setSelectedAgent(String sessionId, String? agentName) {
-    _selectedAgentBySession[sessionId] = agentName;
+    if (agentName == null) {
+      _selectedAgentBySession.remove(sessionId);
+    } else {
+      _selectedAgentBySession[sessionId] = agentName;
+    }
     notifyListeners();
   }
 
@@ -1840,8 +1875,9 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
       ...controllerPending,
     ];
     final useParts = allAttachments.isNotEmpty;
-    // OPC-M4-4: include the per-session selected agent when set.
-    final selectedAgent = _selectedAgentBySession[sessionId];
+    // OPC-M4-4 / #745: include the per-session selected agent.
+    // selectedAgentFor resolves: explicit selection → manager default → null.
+    final selectedAgent = selectedAgentFor(sessionId);
     _repository.send({
       'type': 'session.input',
       'id': sessionId,

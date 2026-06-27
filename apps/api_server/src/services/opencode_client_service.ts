@@ -318,13 +318,35 @@ export class OpencodeClientService {
   private _initializing = false;
   private _initPromise: Promise<void> | null = null;
 
+  /**
+   * #746 — Timestamp (ms since epoch) when _initializeImpl completed
+   * successfully. Exported via engineReadyAt() for the curator throttle guard.
+   */
+  private _engineReadyAt: number | null = null;
+
+  /**
+   * #746 — Returns the epoch-ms timestamp when the engine became ready, or
+   * null if it has not yet initialized. Used by queueSkillExtraction to skip
+   * curator work during the warm-up window after cold launch.
+   */
+  get engineReadyAt(): number | null {
+    return this._engineReadyAt;
+  }
+
   private async _initializeImpl(config?: { directory?: string }): Promise<void> {
+    const t0 = Date.now();
     try {
+      // Phase 1: augment PATH so the bundled opencode binary is discoverable.
+      const t1 = Date.now();
       augmentPathForOpencode();
+      logger.info(`[Opencode][timing] augmentPath took ${Date.now() - t1}ms`);
+
+      // Phase 2: dynamic import of the ESM-only SDK.
       // Dynamic import — SDK is ESM-only, api_server uses CommonJS.
       // TS with module:commonjs rewrites `import()` to `require()`, which
       // fails on ESM-only packages. The `Function` wrapper hides the call
       // from the TS transformer so Node executes a real dynamic import.
+      const t2 = Date.now();
       const dynamicImport = new Function('s', 'return import(s)') as (
         s: string,
       ) => Promise<unknown>;
@@ -338,37 +360,54 @@ export class OpencodeClientService {
           directory?: string;
         }) => OpencodeClient;
       };
-      // Ensure the Gemini Code Assist projectId is on disk in opencode.json
+      logger.info(`[Opencode][timing] SDK import took ${Date.now() - t2}ms`);
+
+      // Phase 3: ensure Gemini Code Assist projectId is on disk in opencode.json
       // BEFORE createOpencode() spawns the engine — the opencode-gemini-auth
       // plugin reads provider.google.options.projectId at provider-registration
       // time, so it must be persisted first or the google provider won't
       // register for Workspace accounts. Never throws; logs and continues.
+      const t3 = Date.now();
       const geminiCfg = ensureGeminiProjectConfig();
       logger.info(
         `[OpencodeClientService] ensured Gemini Code Assist projectId=${geminiCfg.projectId} (changed=${geminiCfg.changed})`,
       );
+      logger.info(`[Opencode][timing] geminiProjectConfig took ${Date.now() - t3}ms`);
 
+      // Phase 4: reclaim stale port.
       // #655 — Before spawning, reclaim :4096 from a stale opencode orphan
       // (e.g. one reparented to launchd after a Force-Quit / SIGKILL). A bound
       // port makes the SDK's fresh spawn exit code 1 ("engine not ready"). A
       // non-opencode holder throws a clear error (caught below → status=error
       // with the occupying PID/command) instead of the opaque exit-code-1.
+      const t4 = Date.now();
       await reclaimStalePortForOpencode();
+      logger.info(`[Opencode][timing] reclaimStalePort took ${Date.now() - t4}ms`);
 
+      // Phase 5: spawn the opencode engine and wait for readiness.
       // Use createOpencode which starts an in-process Opencode server.
       // `server.close()` is the only documented way to stop the spawned
       // opencode subprocess on :4096 — we MUST hold this handle for clean
       // shutdown (see dispose()).
+      const t5 = Date.now();
       const { client, server } = await mod.createOpencode({});
+      logger.info(`[Opencode][timing] createOpencode (engine spawn) took ${Date.now() - t5}ms`);
+
       this.client = client;
       this.server = server;
       this.status = 'ready';
       this.error = null;
       logger.info('[OpencodeClientService] SDK initialized');
-      // Restore persisted auth credentials into the fresh SDK instance.
+
+      // Phase 6: restore persisted auth credentials.
       // auth.json is written by client.auth.set() from previous runs but
       // createOpencode() starts a clean server that doesn't auto-load it.
+      const t6 = Date.now();
       await this.restoreAuth();
+      logger.info(`[Opencode][timing] restoreAuth took ${Date.now() - t6}ms`);
+
+      this._engineReadyAt = Date.now();
+      logger.info(`[Opencode][timing] total _initializeImpl took ${Date.now() - t0}ms`);
     } catch (err) {
       this.status = 'error';
       this.error = err instanceof Error ? err : new Error(String(err));

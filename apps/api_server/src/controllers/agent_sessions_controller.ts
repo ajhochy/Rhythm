@@ -6,6 +6,7 @@ import { AppError } from '../errors/app_error';
 import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
 import { AgentSessionMessagesRepository } from '../repositories/agent_session_messages_repository';
 import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
+import { AgentScheduledTasksRepository } from '../repositories/agent_scheduled_tasks_repository';
 import { ProjectsRepository } from '../repositories/projects_repository';
 import { TasksRepository } from '../repositories/tasks_repository';
 import type { AgentKind, CreateAgentSessionDto, PermissionMode } from '../models/agent_session';
@@ -15,6 +16,9 @@ import { syncOpencodeAgentProfiles } from '../services/agent_profile_sync';
 import { streamBridge } from '../services/opencode_stream_bridge';
 import { broadcastSessionUpdated, broadcastSessionRemoved } from '../services/ws_gateway';
 import { logger } from '../utils/logger';
+import { getCuratorExtractStatus } from '../services/skill_extractor';
+import { getCuratorRefineStatus } from '../services/skill_refiner';
+import { getSyncStatus } from '../services/sync_orchestrator_service';
 
 // Legacy agentId aliases. Older Rhythm clients (and a handful of historical
 // scripts) used short names. /agents/capabilities and the seed both use
@@ -211,6 +215,109 @@ export class AgentSessionsController {
       // wait on the upsert. Idempotent + non-throwing.
       void syncOpencodeAgentProfiles(agents).catch(() => {});
       res.json({ agents });
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  /**
+   * #747 — GET /agent-sessions/background-status
+   *
+   * Aggregates the five background loop states into a compact JSON payload so
+   * the Flutter header indicator can poll cheaply (no per-session engine calls).
+   *
+   * Shape of each loop entry:
+   *   { name, state: 'idle'|'running', lastRunAt: ISO8601|null, nextRunAt: ISO8601|null, currentItem?: string }
+   *
+   * Loops:
+   *   - skill_harvester  (skill_extractor.ts — fires on turn-complete)
+   *   - skill_improver   (skill_refiner.ts  — fires after extract)
+   *   - memory           (agent_scheduled_tasks row name='Memory Consolidation')
+   *   - scheduler        (node-cron 1-min tick — aggregates running task count)
+   *   - integrations_sync (sync_orchestrator_job.ts — 10-min cron)
+   */
+  async backgroundStatus(_req: Request, res: Response, next: NextFunction): Promise<void> {
+    try {
+      const scheduledRepo = new AgentScheduledTasksRepository();
+      const allTasks = await scheduledRepo.listAllAsync();
+
+      // Memory consolidation task row.
+      const memTask = allTasks.find((t) => t.name === 'Memory Consolidation');
+      const memState = memTask?.lastRunStatus === 'running' ? 'running' : 'idle';
+      const memLastRun = memTask?.lastRunAt ?? null;
+      const memNextRun = memTask?.nextRunAt ?? null;
+
+      // Scheduler aggregate: count of tasks currently in 'running' status.
+      const runningCount = allTasks.filter((t) => t.lastRunStatus === 'running').length;
+      const schedulerState = runningCount > 0 ? 'running' : 'idle';
+      // Last run = most recent last_run_at across all tasks (excluding memory, counted above).
+      const schedulerTasks = allTasks.filter((t) => t.name !== 'Memory Consolidation');
+      const schedulerLastRun = schedulerTasks
+        .filter((t) => t.lastRunAt)
+        .sort((a, b) => (a.lastRunAt! > b.lastRunAt! ? -1 : 1))[0]?.lastRunAt ?? null;
+      const schedulerNextRun = schedulerTasks
+        .filter((t) => t.nextRunAt && t.enabled)
+        .sort((a, b) => (a.nextRunAt! < b.nextRunAt! ? -1 : 1))[0]?.nextRunAt ?? null;
+
+      // Curator (skill extract + refine) — in-memory counters from the services.
+      const extractStatus = getCuratorExtractStatus();
+      const refineStatus = getCuratorRefineStatus();
+      const curatorRunning = extractStatus.running || refineStatus.running;
+      const curatorLastRun = [extractStatus.lastRunAt, refineStatus.lastRunAt]
+        .filter(Boolean)
+        .sort((a, b) => (a! > b! ? -1 : 1))[0] ?? null;
+
+      // Integrations sync — in-memory tracker from sync_orchestrator_service.
+      const syncStatus = getSyncStatus();
+
+      res.json({
+        loops: [
+          {
+            name: 'skill_harvester',
+            state: extractStatus.running ? 'running' : 'idle',
+            lastRunAt: extractStatus.lastRunAt,
+            nextRunAt: null,
+          },
+          {
+            name: 'skill_improver',
+            state: refineStatus.running ? 'running' : 'idle',
+            lastRunAt: refineStatus.lastRunAt,
+            nextRunAt: null,
+          },
+          {
+            name: 'memory',
+            state: memState,
+            lastRunAt: memLastRun,
+            nextRunAt: memNextRun,
+          },
+          {
+            name: 'scheduler',
+            state: schedulerState,
+            lastRunAt: schedulerLastRun,
+            nextRunAt: schedulerNextRun,
+            currentItem: runningCount > 0 ? `${runningCount} task(s) running` : undefined,
+          },
+          {
+            name: 'integrations_sync',
+            state: syncStatus.running ? 'running' : 'idle',
+            lastRunAt: syncStatus.lastRunAt,
+            nextRunAt: null,
+          },
+        ],
+        // Convenience: count of actively running loops for the indicator dot.
+        activeCount: [
+          extractStatus.running,
+          refineStatus.running,
+          memState === 'running',
+          schedulerState === 'running',
+          syncStatus.running,
+        ].filter(Boolean).length,
+        // Also surface curator aggregate for simpler widget rendering.
+        curator: {
+          state: curatorRunning ? 'running' : 'idle',
+          lastRunAt: curatorLastRun,
+        },
+      });
     } catch (err) {
       next(err);
     }
@@ -456,6 +563,9 @@ export class AgentSessionsController {
       // as a server-seeded system message. Sessions arrive at the WS
       // gateway fully resolved.
 
+      // #746 — time the full create→stream-ready path to attribute latency.
+      const _createT0 = Date.now();
+
       // Create an Opencode SDK session instead of spawning a PTY subprocess.
       // Try to auto-recover if the engine was disposed accidentally (e.g.,
       // PARENT_GONE watchdog raced against a request).
@@ -463,23 +573,27 @@ export class AgentSessionsController {
         console.log(
           `[AgentSessionsController] Engine status="${opencodeClient.statusMessage}" — attempting auto-recovery for session ${session.id}`,
         );
+        const tEnsure = Date.now();
         if (!(await opencodeClient.ensureReady())) {
           repo.markClosed(session.id);
           throw AppError.badRequest(
             `Opencode engine is not ready (${opencodeClient.statusMessage}) — check Settings to connect an AI account`,
           );
         }
+        logger.info(`[Opencode][timing] ensureReady (recovery) took ${Date.now() - tEnsure}ms for session ${session.id}`);
         console.log(`[AgentSessionsController] Engine recovered — continuing session ${session.id} creation`);
       }
 
       // OPC-#710: name may be undefined/null for instant-create sessions.
       // C1: pass mcpRoleConfig so callers/tests can spy on the init-time allowlist;
       // the SDK itself doesn't have a per-session tool param (documented in service).
+      const tSdkCreate = Date.now();
       const opencodeSession = await opencodeClient.createSession(
         typeof name === 'string' ? name.trim() : '',
         dto.cwd,
         mcpRoleConfig,
       );
+      logger.info(`[Opencode][timing] opencodeClient.createSession took ${Date.now() - tSdkCreate}ms for session ${session.id}`);
       if (!opencodeSession) {
         repo.markClosed(session.id);
         throw AppError.badRequest('Failed to create Opencode session — check your AI account is authorized');
@@ -496,14 +610,18 @@ export class AgentSessionsController {
       // Pass the cwd so the bridge can subscribe to /event with the right
       // directory filter (opencode only delivers session/message events
       // for sessions whose cwd matches the subscription's directory).
+      const tStream = Date.now();
       try {
         await streamBridge.streamSession(session.id, opencodeSession.id, dto.cwd);
+        logger.info(`[Opencode][timing] streamSession took ${Date.now() - tStream}ms for session ${session.id}`);
       } catch (err) {
         console.error(
           `[AgentSessionsController] Stream bridge error for session ${session.id}:`,
           err,
         );
       }
+
+      logger.info(`[Opencode][timing] total create→stream-ready took ${Date.now() - _createT0}ms for session ${session.id}`);
 
       // Issue #653: the previous "auto-send initial prompt with task context"
       // path is removed. The client owns first-turn content (composer prefill
@@ -608,10 +726,24 @@ export class AgentSessionsController {
   // M3-4: return a session's working-tree diff via the typed getSessionDiff
   // wrapper (OPC-M1-1). The duck-typed probe that always returned [] has been
   // replaced — getSessionDiff calls the real SDK method.
+  //
+  // #743 — When the local row does not exist (session not yet persisted, e.g.
+  // during a race between child session creation and the first diff poll), return
+  // an empty list with a debug log instead of raising AppError.notFound(). This
+  // stops the flood of ERROR-level NOT_FOUND logs while the child row is being
+  // upserted by the stream bridge. The Flutter client already has diff-backoff
+  // logic when the first poll returns [].
   async getDiff(req: Request, res: Response, next: NextFunction): Promise<void> {
     try {
       const session = repo.findById(req.params.id);
-      if (!session) throw AppError.notFound('AgentSession');
+      if (!session) {
+        // Unknown session id — return empty list without ERROR flood.
+        logger.info(
+          `[AgentSessionsController] getDiff: session ${req.params.id} not found in local store — returning []`,
+        );
+        res.json([]);
+        return;
+      }
       const opencodeId = resolveSdkSessionId(session);
       if (!opencodeId) {
         res.json([]);

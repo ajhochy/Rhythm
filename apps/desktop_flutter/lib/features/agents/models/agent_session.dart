@@ -91,6 +91,7 @@ class AgentSession {
     this.archivedAt,
     required this.createdAt,
     required this.updatedAt,
+    this.parentId,
   });
 
   final String id;
@@ -119,7 +120,14 @@ class AgentSession {
   final DateTime createdAt;
   final DateTime updatedAt;
 
+  /// #743 — Local id of the parent session when this is a delegated subagent session.
+  /// Null for top-level interactive sessions.
+  final String? parentId;
+
   bool get isArchived => archivedAt != null;
+
+  /// True when this session was spawned by a parent (delegated subagent).
+  bool get isChildSession => parentId != null;
 
   factory AgentSession.fromJson(Map<String, dynamic> json) {
     // Accept `agent_id` (new) or fall back to `agent_kind` (legacy) for one
@@ -149,6 +157,7 @@ class AgentSession {
       archivedAt: _parseDateTime(asString(json['archivedAt'])),
       createdAt: _parseDateTime(asString(json['createdAt'])) ?? _epoch,
       updatedAt: _parseDateTime(asString(json['updatedAt'])) ?? _epoch,
+      parentId: asString(json['parentSessionId']) ?? asString(json['parentId']),
     );
   }
 
@@ -174,6 +183,7 @@ class AgentSession {
       'archivedAt': archivedAt?.toUtc().toIso8601String(),
       'createdAt': createdAt.toUtc().toIso8601String(),
       'updatedAt': updatedAt.toUtc().toIso8601String(),
+      if (parentId != null) 'parentSessionId': parentId,
     };
   }
 
@@ -196,6 +206,7 @@ class AgentSession {
     Object? archivedAt = _sentinel,
     DateTime? createdAt,
     DateTime? updatedAt,
+    Object? parentId = _sentinel,
   }) {
     return AgentSession(
       id: id ?? this.id,
@@ -228,6 +239,7 @@ class AgentSession {
           archivedAt == _sentinel ? this.archivedAt : archivedAt as DateTime?,
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
+      parentId: parentId == _sentinel ? this.parentId : parentId as String?,
     );
   }
 }

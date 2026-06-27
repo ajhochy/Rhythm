@@ -76,6 +76,8 @@ dart format . --set-exit-if-changed # CI fails on format violations
 | `src/__tests__/issue_740_cookbook_run.test.ts` | #740: POST /agent-cookbook/:id/run returns 202+sessionId, 404 unknown, prompt compiled from steps, 401 unauth (4 tests) |
 | `src/__tests__/issue_738_fix_model_and_session.test.ts` | #738-fix: resolveRunModel 3-step cascade (config/MRU/default), promptAsync gets model arg, session recorded, schema columns present (10 tests) |
 | `src/__tests__/issue_738_fix_stale_run_recovery.test.ts` | #738-fix: scheduler boot calls resetStaleRunning on SQLite, skips on Postgres (2 tests) |
+| `src/__tests__/issue_743_child_session_persistence.test.ts` | #743: upsertChildSession creates/is-idempotent/null-on-missing-parent; getDiff returns 200 [] for unknown session (5 tests) |
+| `test/features/agents/issue_743_parent_id_test.dart` | #743: AgentSession.parentId fromJson (parentSessionId + parentId fallback), toJson omit-when-null, copyWith sentinel, isChildSession; _buildSessionTree root/child/orphan/multi grouping (11 tests) |
 
 ## Mocking the Opencode engine in tests
 

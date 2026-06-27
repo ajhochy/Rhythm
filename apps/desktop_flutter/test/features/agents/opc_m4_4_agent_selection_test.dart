@@ -181,7 +181,10 @@ AgentSession _makeSession(String id) => AgentSession(
       updatedAt: _kEpoch,
     );
 
-AgentsController _buildController(_StubAgentsRepository repo) =>
+AgentsController _buildController(
+  _StubAgentsRepository repo, {
+  String? Function()? managerAgentNameResolver,
+}) =>
     AgentsController(
       repo,
       _ReadyAgentServerController(),
@@ -189,6 +192,7 @@ AgentsController _buildController(_StubAgentsRepository repo) =>
       NotificationsController(
         NotificationsRepository(NotificationsDataSource()),
       ),
+      managerAgentNameResolver: managerAgentNameResolver,
     );
 
 /// An empty AgentConfigsController for the widget tree. With no profiles
@@ -421,6 +425,74 @@ void main() {
         reason:
             'AgentSelectorPill must render in the real composer (InputAreaTestHarness)',
       );
+
+      ctrl.dispose();
+    },
+  );
+
+  // ── #745: manager-profile default ─────────────────────────────────────────
+
+  test(
+    'issue-745-c1: selectedAgentFor returns manager ocAgent when no explicit selection',
+    () {
+      final repo = _StubAgentsRepository();
+      // Resolver always returns 'secretary' (the manager profile's ocAgent).
+      final ctrl =
+          _buildController(repo, managerAgentNameResolver: () => 'secretary');
+
+      const sessionId = '745-c1-session';
+
+      // No explicit selection → should return the manager default.
+      expect(ctrl.selectedAgentFor(sessionId), equals('secretary'));
+
+      // Explicit selection → should return the overridden value.
+      ctrl.setSelectedAgent(sessionId, 'build');
+      expect(ctrl.selectedAgentFor(sessionId), equals('build'));
+      expect(ctrl.hasExplicitAgentSelection(sessionId), isTrue);
+
+      // Clear back to default (null = reset) → manager default resumes.
+      ctrl.setSelectedAgent(sessionId, null);
+      expect(ctrl.selectedAgentFor(sessionId), equals('secretary'));
+      expect(ctrl.hasExplicitAgentSelection(sessionId), isFalse);
+
+      ctrl.dispose();
+    },
+  );
+
+  test(
+    'issue-745-c2: dispatcher sends manager ocAgent when no explicit selection',
+    () {
+      final repo = _StubAgentsRepository();
+      final ctrl =
+          _buildController(repo, managerAgentNameResolver: () => 'secretary');
+
+      const sessionId = '745-c2-session';
+
+      // No explicit selection set — manager agent must be sent on the wire.
+      ctrl.sendInput(sessionId, 'hello');
+
+      expect(repo.sentFrames.length, equals(1));
+      expect(
+        repo.sentFrames.first['agent'],
+        equals('secretary'),
+        reason:
+            'turn dispatch must include the manager agent when no explicit selection',
+      );
+
+      ctrl.dispose();
+    },
+  );
+
+  test(
+    'issue-745-c3: selectedAgentFor returns null when no resolver and no selection',
+    () {
+      final repo = _StubAgentsRepository();
+      // No resolver → falls back to SDK default (null).
+      final ctrl = _buildController(repo);
+
+      const sessionId = '745-c3-session';
+      expect(ctrl.selectedAgentFor(sessionId), isNull);
+      expect(ctrl.hasExplicitAgentSelection(sessionId), isFalse);
 
       ctrl.dispose();
     },

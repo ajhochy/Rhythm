@@ -2,6 +2,7 @@ import http from 'http';
 import path from 'path';
 import { config as loadDotenv } from 'dotenv';
 import { opencodeClient } from './services/opencode_engine';
+import { managedChromeService } from './services/managed_chrome_service';
 
 // Load .env from the api_server root (one level above dist/).
 // CI writes OAuth secrets here before bundling into the .app.
@@ -87,10 +88,44 @@ async function main() {
     );
   }
 
+  // #748 — Start managed headless Chrome on :9222 (non-blocking, failure-tolerant).
+  // Controlled by RHYTHM_MANAGED_CHROME env var: set to "0" or "false" to disable.
+  const chromeManagementEnabled =
+    process.env.RHYTHM_MANAGED_CHROME !== '0' &&
+    process.env.RHYTHM_MANAGED_CHROME !== 'false';
+  if (chromeManagementEnabled) {
+    managedChromeService.ensureReady()
+      .then(() => {
+        if (managedChromeService.isReady) {
+          // Set env vars on the process so any subsequently spawned subprocesses
+          // (including the opencode engine and its bash tool) inherit them.
+          managedChromeService.setProcessEnvVars();
+          logger.info('[server] Managed Chrome ready — CDP env vars set on process.env');
+        }
+      })
+      .catch((err) => {
+        logger.warn(`[server] Managed Chrome startup failed (non-fatal): ${String(err)}`);
+      });
+  } else {
+    logger.info('[server] RHYTHM_MANAGED_CHROME=0 — skipping managed Chrome');
+  }
+
   // Initialize Opencode SDK (non-blocking — logs on failure, never prevents startup)
   opencodeClient
     .initialize()
     .then(async () => {
+      // #746 — Notify the skill curator that the engine is ready so it can
+      // begin deferring extraction work until the cold-start window passes.
+      // Non-fatal: if notifyEngineReady throws for any reason, swallow and log.
+      try {
+        const readyAt = opencodeClient.engineReadyAt ?? Date.now();
+        const { notifyEngineReady } = await import('./services/skill_extractor');
+        notifyEngineReady(readyAt);
+        logger.info('[server] skill curator cold-start window started');
+      } catch (e) {
+        logger.warn(`[server] notifyEngineReady failed (non-fatal): ${String(e)}`);
+      }
+
       // #658: auto-bridge Claude Code credentials on launch so the user never
       // has to click "Reconnect" after a normal start. force:true re-reads the
       // keychain fresh; a successful bridge starts the 15-min refresh loop that
@@ -143,6 +178,9 @@ async function main() {
 
     // 2. Dispose the Opencode SDK subprocess.
     try { opencodeClient.dispose(); } catch (_) { /* ignore */ }
+
+    // 2b. Shut down managed Chrome (no-op if Chrome was reused / not spawned).
+    try { managedChromeService.shutdown(); } catch (_) { /* ignore */ }
 
     // 3. Close the WebSocket server (no new connections).
     wss.close(() => {

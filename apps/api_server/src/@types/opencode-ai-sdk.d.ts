@@ -235,7 +235,15 @@ declare module '@opencode-ai/sdk' {
   export type EventSessionCreated = {
     type: 'session.created';
     properties: {
-      session: Session;
+      // Opencode SSE shape: { sessionID, info: Session.Info }.
+      // The `session` key is NOT present; use `info` for the full session data.
+      // Verified against opencode fork session.ts CreatedEventSchema.
+      sessionID: string;
+      info: Session & {
+        /** Present when created via the `task` tool (delegated subagent). */
+        parentID?: string;
+        directory?: string;
+      };
     };
   };
 

@@ -95,6 +95,8 @@ import 'features/agent_email/repositories/agent_email_repository.dart';
 import 'features/agent_gallery/controllers/agent_gallery_controller.dart';
 import 'features/agent_gallery/data/agent_gallery_data_source.dart';
 import 'features/agent_gallery/repositories/agent_gallery_repository.dart';
+import 'app/core/background_activity/background_activity_controller.dart';
+import 'app/core/background_activity/background_status_data_source.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -350,29 +352,9 @@ class _RhythmAppContent extends StatelessWidget {
             AgentProjectsRepository(AgentProjectsRemoteDataSource()),
           ),
         ),
-        ChangeNotifierProvider(
-          create: (ctx) {
-            final ds = AgentsDataSource();
-            final repo = AgentsRepository(ds);
-            final controller = AgentsController(
-              repo,
-              agentServerController,
-              localNotificationService,
-              ctx.read<NotificationsController>(),
-            )..initialize();
-            _maybeSeedDebugTrigger(controller);
-            return controller;
-          },
-        ),
-        // OPC-M1-3: OverlayController removed (mini-bubble deleted).
-        ChangeNotifierProvider(
-          create: (ctx) => AgentTriggerWatcher(
-            serverConfigService: serverConfigService,
-            authSessionService: authSessionService,
-            agentServerController: agentServerController,
-            agentsController: ctx.read<AgentsController>(),
-          ),
-        ),
+        // #745: AgentConfigsController is created BEFORE AgentsController so
+        // that the manager-agent resolver closure can read it via ctx.read().
+        // The order change is safe — nothing in this block reads AgentsController.
         ChangeNotifierProvider(
           create: (_) {
             final controller = AgentConfigsController(
@@ -393,6 +375,34 @@ class _RhythmAppContent extends StatelessWidget {
             }
             return controller;
           },
+        ),
+        ChangeNotifierProvider(
+          create: (ctx) {
+            final ds = AgentsDataSource();
+            final repo = AgentsRepository(ds);
+            // #745: resolver reads the manager profile's ocAgent at call time
+            // (lazy — called per-turn, not at construction). AgentConfigsController
+            // is available because it is created in the preceding provider above.
+            final cfgCtrl = ctx.read<AgentConfigsController>();
+            final controller = AgentsController(
+              repo,
+              agentServerController,
+              localNotificationService,
+              ctx.read<NotificationsController>(),
+              managerAgentNameResolver: () => cfgCtrl.managerAgent?.ocAgent,
+            )..initialize();
+            _maybeSeedDebugTrigger(controller);
+            return controller;
+          },
+        ),
+        // OPC-M1-3: OverlayController removed (mini-bubble deleted).
+        ChangeNotifierProvider(
+          create: (ctx) => AgentTriggerWatcher(
+            serverConfigService: serverConfigService,
+            authSessionService: authSessionService,
+            agentServerController: agentServerController,
+            agentsController: ctx.read<AgentsController>(),
+          ),
         ),
         // OPC-M4-3: MCP server management (#702)
         ChangeNotifierProvider(
@@ -439,6 +449,32 @@ class _RhythmAppContent extends StatelessWidget {
           create: (_) => AgentGalleryController(
             AgentGalleryRepository(AgentGalleryDataSource()),
           ),
+        ),
+        // #747 — Background activity indicator controller. Polls
+        // GET /agent-sessions/background-status every 15 s against the local
+        // agent server (agentLocalBaseUrl). Polling starts automatically and
+        // stops when disposed.
+        ChangeNotifierProvider(
+          create: (ctx) {
+            final controller = BackgroundActivityController(
+              BackgroundStatusDataSource(),
+            );
+            // Start polling once the agent server is ready; if already ready,
+            // start immediately.
+            void onAgentServerChanged() {
+              if (agentServerController.isReady) {
+                agentServerController.removeListener(onAgentServerChanged);
+                controller.startPolling();
+              }
+            }
+
+            if (agentServerController.isReady) {
+              controller.startPolling();
+            } else {
+              agentServerController.addListener(onAgentServerChanged);
+            }
+            return controller;
+          },
         ),
       ],
       child: Consumer<ThemeModeService>(

@@ -2,91 +2,76 @@
 
 ## Current focus
 
-**2026-06-25 — Per-session MCP tool-schema scoping (forked opencode engine).**
+**2026-06-25 — Agent-subsystem UX/observability fixes (6 issues).**
 
-Goal: a "lite" agent session should only pay the token weight of its Agent
-Profile's MCP allowlist. All MCP servers stay connected at startup (memory only,
-no token cost); the only change is that the engine injects just the session's
-profile allowlist into model context. This is Rhythm's owned fix for upstream
-sst/opencode#5373.
+Branch `workflow/run-2026-06-25-agent-fixes` (off `feature/agent-scheduler`)
+resolves six agent/opencode issues. All implemented, all checks green:
 
-Approach: vendor opencode as a git subtree (`apps/opencode_fork`), carry a minimal
-per-session `mcpAllowlist` patch, build a standalone binary, and have api_server
-pass each session's expanded profile allowlist on session create.
-
-**Issue mcp-scope-01 DONE** (opencode @ v1.14.49 vendored).
-**Issue mcp-scope-02 DONE** (engine patch + TS2416 carried fix + mcpAllowlist SQLite persistence defect fixed; all e2e cases pass).
-**Issue mcp-scope-05 DONE** (allowlist expander).
-**Issue mcp-scope-04 DONE** (api_server wiring).
-**Issue mcp-scope-03 DONE** (CI binary bundle + sign + PATH injection — all checks pass).
-**Issue mcp-scope-06 DONE** (verification: resolveToolsCount DEBUG log + acceptance proven by composition; live full-stack smoke deferred to post-release).
-
-**All 6 mcp-scope issues complete.** Ready for draft PR + manual smoke handoff.
+- **#745** — new sessions default to the manager profile (Secretary), not `build`.
+- **#742** — reliable Secretary→`@workflow-orchestrator` routing + 3-level delegation.
+- **#743** — delegated subagent (child `task`) sessions persisted + nested; `/diff` 404 flood stopped.
+- **#747** — top-bar background-activity indicator + system sessions excluded from the list.
+- **#746** — non-blocking composer / "connecting" state, engine phase timing logs, curator throttle.
+- **#748** — managed headless Chrome on `:9222` for agent browser smoke.
 
 ## Active branch / PR
 
-- **Branch:** `feature/agent-scheduler` (stacking the mcp-scope-* work here).
-- **PR:** [#734](https://github.com/ajhochy/Rhythm/pull/734) — open, do not auto-merge.
-  A draft PR for the mcp-scope work is opened at the END of the run (after 06).
-- PR #741 (is_manager/importer decouple) merged as commit `5d67aaa`.
+- **Branch:** `workflow/run-2026-06-25-agent-fixes`
+- **PR:** [#749](https://github.com/ajhochy/Rhythm/pull/749) — draft, base `feature/agent-scheduler`, `Closes` all 6 issues. Do not auto-merge.
+- **Related open PR:** [#734](https://github.com/ajhochy/Rhythm/pull/734) — mcp-scope work into `main`, do not merge.
 
 ## In progress
 
-mcp-scope run COMPLETE: 01 → 02 → 05 → 04 → local proof → 03 → 06 all done.
-Next: open the draft PR (no merge), then the live full-stack manual smoke after a
-release/dev build with the bundled fork binary.
+Implementation + verification complete; awaiting manual smoke + human merge of #749.
 
-The full software path is now wired AND bundled:
-- The deterministic e2e test proves the gate fires end-to-end.
-- `augmentPathForOpencode()` now prepends `Contents/Resources/opencode_bin/` FIRST
-  when the bundled binary is present; WARNs and falls back in local dev.
-- CI builds both darwin arches via `bun run build`, lipo-merges into a universal
-  binary, bundles to `Contents/Resources/opencode_bin/opencode`, and verifies
-  presence + executability + version marker (must NOT be stock `^1\.14\.x`).
-- `sign_and_notarize_macos.sh` explicitly codesigns the extensionless Mach-O
-  before the broad `find`-based nested-binary pass; errors if binary absent.
-
-What remains: Issue 06 acceptance measurement (tool count drops to profile
-allowlist in a live Secretary session after a fork-bundled build), plus the
-live full-app manual smoke.
+Durable design notes worth carrying forward:
+- #742 routing is delivered by a version-controlled `MANAGER_ROUTING_PREAMBLE`
+  injected in `opencode_agent_writer.ts` for manager profiles (NOT a hand-edit of
+  the home-dir `secretary.md`, which is runtime output and non-durable). It is
+  projected to the live `secretary.md` on the next Secretary-profile save/re-sync.
+- #743 added `parent_session_id` (self-FK) and #747 added `is_system` to
+  `agent_sessions`, with idempotent migrations in BOTH `migrations.ts` (SQLite)
+  and `postgres_bootstrap.ts` (Postgres).
 
 ## Risks / known issues
 
-- **Issue 06 live smoke still required** — CI binary bundle not yet exercised in
-  a real release run (HARD STOP rules prevented triggering CI). The fork-marker
-  version check (`^1\.14\.` regex) guards against accidental stock-binary shipping.
-- **Pre-existing flaky test:** `tasks_controller.test.ts > overdue=yes` intermittent.
-- **`toolClientNames()` / `tools()` snapshot race:** both read `s.defs[clientName]`
-  from the same InstanceState snapshot in synchronous Effects; risk is low in practice
-  but should be kept in mind on future MCP refactors.
-- **Upstream TS2416 carried patch** in `bus/global.ts` — must re-validate on each
-  `git subtree pull` from upstream. See `docs/ai/decisions/2026-06-25-opencode-fork-vendoring.md`.
+- **Live visual + server smoke pending** — #745 picker, #746 connecting banner, and
+  #747 header indicator need confirmation under `flutter run -d macos` with the
+  local engine (`:4001`/`:4096`); behavioral contracts are covered by widget tests.
+- **#742 provider parity is prompt-level** — the engine `task` tool already requires
+  an explicit `subagent_type`; Gemini→`@general` is the model omitting it. The
+  preamble is the lever; no safe engine-side default exists. Residual model variance possible.
+- **#746 CHROME/MCP env→engine timing** — `CHROME_CDP_*` is set on `process.env`; the
+  deterministic fix is Chrome actually running on `:9222`. Env propagation to the
+  engine subprocess is best-effort (spawn-time race), not relied upon.
+- **#746 lazy per-session MCP init deferred** — judged too entangled with the
+  just-shipped mcp-scope work to change safely; timing logs will quantify the cost.
+  Candidate follow-up if `createOpencode` dominates the ~30s.
+- **Pre-existing flaky test** (`claude_triggers` / `tasks_controller` order isolation) — unrelated to this branch.
+- **mcp-scope live smoke still required** — CI fork-binary bundle not yet exercised in a real release run (PR #734).
 
 ## Test status
 
 | Suite | Status |
 |-------|--------|
+| `dart format --set-exit-if-changed` | **PASS** — 0 changed |
+| `flutter analyze --no-fatal-infos` | **PASS** — 0 errors/warnings |
+| `flutter test` | **PASS** — 693/693 |
 | `apps/api_server npx tsc --noEmit` | **PASS** — exit 0 |
-| `apps/api_server vitest` | **PASS** — exit 0 (21/21 for opencode_client_service.test.ts) |
-| `apps/opencode_fork bun run typecheck` | **PASS** — exit 0 (TS2416 fixed) |
-| `apps/opencode_fork bun test src/session/mcp_allowlist.test.ts` | **PASS** — 5/5 |
-| `apps/opencode_fork bun test test/session/mcp_allowlist_e2e.test.ts` | **PASS** — 4/4 (A=5, B=3, C=1, D=0) |
-| `apps/opencode_fork bun test test/session/ src/session/` | **PASS** — 325 pass, 0 fail |
-| `flutter analyze --no-fatal-infos` | **PASS** |
-| `dart format --set-exit-if-changed` | **PASS** |
-| `bun run build --single --skip-embed-web-ui` (fork) | **PASS** — `0.0.0-feature/agent-scheduler-<ts>` |
-| `bash -n sign_and_notarize_macos.sh` | **PASS** — syntax OK |
+| `apps/api_server vitest` | **PASS** — 1273/1273 |
+| `apps/opencode_fork` bun suite | **N/A** — zero fork files changed this run |
 
 ## Next step
 
-1. Issue **mcp-scope-06** (verification + acceptance measurement):
-   - Trigger a `flutter run` build.
-   - Open a Secretary session, measure injected MCP tool count via engine debug log.
-   - Assert count equals `expandMcpAllowlist(secretaryConfig).tools.length`.
-   - Record in `docs/ai/runs/` + update `docs/ai/testing-guide.md` smoke entry.
-2. Live full-app manual smoke (Flutter UI + signed binary: open a Secretary session,
-   confirm tool count drops) — part of the post-06 manual smoke handoff.
-3. Open draft PR. No merge.
+1. Manual smoke of PR #749 under `flutter run -d macos` (see `docs/ai/runs/2026-06-25-agent-fixes-run.md` checklist).
+2. After smoke passes, human merge of #749 into `feature/agent-scheduler` (no auto-merge).
+3. Consider follow-up issues for: lazy per-session MCP init (#746), `smoketest-runner.mjs` self-launch robustness (#748).
 
-Per-issue run logs: `docs/ai/runs/2026-06-25-mcp-scope-0{1,2,3,4,5}-*.md`.
-Persistence defect fix: `docs/ai/runs/2026-06-25-mcp-scope-02-allowlist-persistence.md`.
+Run logs: `docs/ai/runs/2026-06-25-agent-fixes-run.md` (consolidated) +
+per-issue logs `2026-06-25-agent-fixes-745-742.md`,
+`2026-06-25-issue-743-child-session-persistence.md`,
+`2026-06-25-issue-746-startup-latency.md`.
+Decisions: `docs/ai/decisions/2026-06-25-delegation-depth.md`,
+`2026-06-25-issue-743-logger-debug.md`,
+`2026-06-25-issue-746-notifyengineready-wiring.md`,
+`2026-06-25-issue-747-is-system-column.md`.

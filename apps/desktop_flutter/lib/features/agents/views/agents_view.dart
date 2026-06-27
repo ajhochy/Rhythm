@@ -590,7 +590,14 @@ class _TranscriptPanelState extends State<_TranscriptPanel> {
               boxShadow: RhythmElevation.panel,
             ),
             child: selected == null
-                ? const _EmptyTranscriptState()
+                // #746 — while a new session is being created (engine cold-start
+                // may take ~30s), show the composer immediately with a lightweight
+                // "Connecting…" banner instead of the blank empty-state.  The text
+                // field is visible but disabled so the user sees it is coming and
+                // does not click "New session" again by mistake.
+                ? (controller.isCreating
+                    ? const _EngineConnectingState()
+                    : const _EmptyTranscriptState())
                 // OPC-M3-6: when a child session is active, swap the main
                 // transcript area to the child transcript view. The parent
                 // transcript, composer, and tool bars are hidden; a breadcrumb
@@ -1191,6 +1198,132 @@ class _EmptyTranscriptState extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// #746 — Shown in the transcript panel while a new session is being created
+/// and the engine is cold-starting (~30s on first launch). Renders the composer
+/// area immediately so the chat window looks alive, with a non-blocking
+/// "Connecting to agent engine…" banner above the (disabled) text field.
+///
+/// This replaces the blank [_EmptyTranscriptState] during [AgentsController.isCreating]
+/// so the user sees progress rather than a frozen UI.
+class _EngineConnectingState extends StatelessWidget {
+  const _EngineConnectingState();
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        // Connecting banner
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
+          decoration: BoxDecoration(
+            color: context.rhythm.accentMuted,
+            border: Border(
+              bottom: BorderSide(color: context.rhythm.borderSubtle),
+            ),
+          ),
+          child: Row(
+            children: [
+              SizedBox(
+                width: 14,
+                height: 14,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  color: context.rhythm.accent,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Text(
+                'Connecting to agent engine…',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w500,
+                  color: context.rhythm.accent,
+                ),
+              ),
+            ],
+          ),
+        ),
+        // Spacer taking up the transcript area
+        const Expanded(child: SizedBox()),
+        // Disabled composer (visible immediately so the window feels responsive)
+        Container(
+          padding: const EdgeInsets.fromLTRB(18, 14, 18, 18),
+          decoration: BoxDecoration(
+            border: Border(
+              top: BorderSide(color: context.rhythm.borderSubtle),
+            ),
+            color: context.rhythm.surfaceRaised,
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              TextField(
+                enabled: false,
+                maxLines: 3,
+                minLines: 1,
+                decoration: InputDecoration(
+                  hintText: 'Connecting to engine — ready shortly…',
+                  hintStyle: TextStyle(
+                    color: context.rhythm.textMuted,
+                    fontSize: 13,
+                    fontFamily: 'Menlo',
+                  ),
+                  isDense: true,
+                  filled: true,
+                  fillColor: context.rhythm.canvas.withValues(alpha: 0.4),
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 12,
+                  ),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(RhythmRadius.lg),
+                    borderSide: BorderSide(color: context.rhythm.border),
+                  ),
+                  disabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(RhythmRadius.lg),
+                    borderSide: BorderSide(
+                      color: context.rhythm.borderSubtle,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 10),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  FilledButton(
+                    onPressed: null, // disabled while connecting
+                    style: FilledButton.styleFrom(
+                      backgroundColor: context.rhythm.accent,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 22,
+                        vertical: 12,
+                      ),
+                      minimumSize: const Size(88, 40),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(999),
+                      ),
+                    ),
+                    child: const Text(
+                      'Send',
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: Colors.white,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }
@@ -3133,9 +3266,17 @@ class AgentSelectorPill extends StatelessWidget {
               ),
           ];
 
-    // Display label: map the selected opencode-agent value back to its profile
-    // label when possible; otherwise show the raw value or the 'build' default.
-    String label = 'build';
+    // Display label: map the resolved agent value back to its profile label
+    // when possible. Resolution order (#745):
+    //   1. Explicit per-session selection  → resolve via items list.
+    //   2. Manager default (from resolver) → resolve via items list.
+    //   3. No manager configured          → fall back to 'build'.
+    //
+    // `selected` here is already the resolved value from selectedAgentFor(),
+    // which returns the manager ocAgent when no explicit selection is set.
+    final managerLabel =
+        cfgCtrl.managerAgent?.label ?? cfgCtrl.managerAgent?.ocAgent ?? 'build';
+    String label = managerLabel;
     if (selected != null) {
       label = selected;
       for (final i in items) {
@@ -3151,11 +3292,12 @@ class AgentSelectorPill extends StatelessWidget {
       // Constrain the popup width so it doesn't span the full screen.
       constraints: const BoxConstraints(maxWidth: 220),
       itemBuilder: (_) => [
-        // "Default" option always shown so the user can clear selection.
+        // "Default" option always shown so the user can reset back to the
+        // manager profile default (#745). Label shows manager name or 'build'.
         PopupMenuItem<String>(
           value: '',
           child: Text(
-            'build (default)',
+            '$managerLabel (default)',
             style: TextStyle(
               fontSize: 12,
               color: context.rhythm.textSecondary,
@@ -3190,51 +3332,60 @@ class AgentSelectorPill extends StatelessWidget {
       onSelected: (value) {
         ctrl.setSelectedAgent(sid, value.isEmpty ? null : value);
       },
-      child: Container(
-        height: 30,
-        padding: const EdgeInsets.symmetric(horizontal: 8),
-        decoration: BoxDecoration(
-          color: selected != null
-              ? context.rhythm.accentMuted
-              : context.rhythm.surfaceMuted,
-          borderRadius: BorderRadius.circular(RhythmRadius.md),
-          border: Border.all(
-            color: selected != null
-                ? context.rhythm.accent
-                : context.rhythm.border,
-          ),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(
-              Icons.smart_toy_outlined,
-              size: 13,
-              color: selected != null
-                  ? context.rhythm.accent
-                  : context.rhythm.textSecondary,
-            ),
-            const SizedBox(width: 4),
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w500,
-                color: selected != null
+      child: Builder(
+        builder: (context) {
+          // #745: pill is "active/accent" only when the user has made an
+          // explicit override away from the manager default — not merely
+          // because a manager agent exists. This keeps the pill visually
+          // neutral in the default state.
+          final isOverridden = ctrl.hasExplicitAgentSelection(sid);
+          return Container(
+            height: 30,
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            decoration: BoxDecoration(
+              color: isOverridden
+                  ? context.rhythm.accentMuted
+                  : context.rhythm.surfaceMuted,
+              borderRadius: BorderRadius.circular(RhythmRadius.md),
+              border: Border.all(
+                color: isOverridden
                     ? context.rhythm.accent
-                    : context.rhythm.textSecondary,
+                    : context.rhythm.border,
               ),
             ),
-            const SizedBox(width: 2),
-            Icon(
-              Icons.arrow_drop_down,
-              size: 14,
-              color: selected != null
-                  ? context.rhythm.accent
-                  : context.rhythm.textSecondary,
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  Icons.smart_toy_outlined,
+                  size: 13,
+                  color: isOverridden
+                      ? context.rhythm.accent
+                      : context.rhythm.textSecondary,
+                ),
+                const SizedBox(width: 4),
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                    color: isOverridden
+                        ? context.rhythm.accent
+                        : context.rhythm.textSecondary,
+                  ),
+                ),
+                const SizedBox(width: 2),
+                Icon(
+                  Icons.arrow_drop_down,
+                  size: 14,
+                  color: isOverridden
+                      ? context.rhythm.accent
+                      : context.rhythm.textSecondary,
+                ),
+              ],
             ),
-          ],
-        ),
+          );
+        },
       ),
     );
   }
@@ -3415,5 +3566,26 @@ class SessionRowTestHarness extends StatelessWidget {
       isStuck: false,
       onTap: () {},
     );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// #746 test harness — connecting state
+// ---------------------------------------------------------------------------
+
+/// Wraps [_EngineConnectingState] for widget tests (issue #746).
+///
+/// Renders the connecting-state widget inside a minimal [MaterialApp] /
+/// [Scaffold] so tests can assert:
+///   - The "Connecting to agent engine…" banner is visible.
+///   - The text field is disabled (not interactive).
+///   - The Send button is disabled (onPressed == null).
+@visibleForTesting
+class EngineConnectingStateTestHarness extends StatelessWidget {
+  const EngineConnectingStateTestHarness({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return const _EngineConnectingState();
   }
 }

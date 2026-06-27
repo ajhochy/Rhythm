@@ -75,6 +75,15 @@ async function fetchProductionTasks(
   return all;
 }
 
+// ── Background status tracking ────────────────────────────────────────────────
+let _syncLastAt: string | null = null;
+let _syncRunning = false;
+
+/** Return lightweight sync status for the background-status endpoint. */
+export function getSyncStatus(): { running: boolean; lastRunAt: string | null } {
+  return { running: _syncRunning, lastRunAt: _syncLastAt };
+}
+
 export class SyncOrchestratorService {
   private readonly accountsRepo = new IntegrationAccountsRepository();
   private readonly signalsRepo = new AutomationSignalsRepository();
@@ -84,6 +93,8 @@ export class SyncOrchestratorService {
   private readonly automationEngine = new AutomationEngineService();
 
   async runSync(): Promise<void> {
+    _syncRunning = true;
+    _syncLastAt = new Date().toISOString();
     try {
       const rhythmSignals = [
         ...(await this.rhythmGenerator.generateTaskDueSignalsAsync()),
@@ -180,6 +191,7 @@ export class SyncOrchestratorService {
         }
       }
     }
+    _syncRunning = false;
   }
 
   /**

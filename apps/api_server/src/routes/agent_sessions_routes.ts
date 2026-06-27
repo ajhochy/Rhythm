@@ -20,6 +20,16 @@ if (!env.agentLocal) agentSessionsRouter.use(requireAuth);
  */
 agentSessionsRouter.get('/agents', controller.listAgents.bind(controller));
 
+/**
+ * #747 — GET /agent-sessions/background-status
+ *
+ * Aggregates five background loop states (skill harvester, skill improver,
+ * memory, scheduler, integrations sync) into a compact JSON payload for the
+ * Flutter header activity indicator. Cheap poll — no per-session engine calls.
+ * Must be declared BEFORE /:id wildcard.
+ */
+agentSessionsRouter.get('/background-status', controller.backgroundStatus.bind(controller));
+
 agentSessionsRouter.get('/', controller.list.bind(controller));
 agentSessionsRouter.get('/:id', controller.getOne.bind(controller));
 agentSessionsRouter.post('/', controller.create.bind(controller));
