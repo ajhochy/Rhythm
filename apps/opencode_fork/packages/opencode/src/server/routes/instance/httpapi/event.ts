@@ -39,8 +39,8 @@ function eventData(data: unknown): Sse.Event {
   }
 }
 
-function eventResponse(bus: Bus.Interface) {
-  const events = bus.subscribeAll().pipe(Stream.takeUntil((event) => event.type === Bus.InstanceDisposed.type))
+function eventResponse(events: Stream.Stream<Bus.Payload>) {
+  const stream = events.pipe(Stream.takeUntil((event) => event.type === Bus.InstanceDisposed.type))
   const heartbeat = Stream.tick("10 seconds").pipe(
     Stream.drop(1),
     Stream.map(() => ({ id: Bus.createID(), type: "server.heartbeat", properties: {} })),
@@ -49,7 +49,7 @@ function eventResponse(bus: Bus.Interface) {
   log.info("event connected")
   return HttpServerResponse.stream(
     Stream.make({ id: Bus.createID(), type: "server.connected", properties: {} }).pipe(
-      Stream.concat(events.pipe(Stream.merge(heartbeat, { haltStrategy: "left" }))),
+      Stream.concat(stream.pipe(Stream.merge(heartbeat, { haltStrategy: "left" }))),
       Stream.map(eventData),
       Stream.pipeThroughChannel(Sse.encode()),
       Stream.encodeText,
@@ -72,7 +72,11 @@ export const eventHandlers = HttpApiBuilder.group(EventApi, "event", (handlers) 
     return handlers.handleRaw(
       "subscribe",
       Effect.fn("EventHttpApi.subscribe")(function* () {
-        return eventResponse(bus)
+        // Resolve the concrete event stream here, while the request's Instance
+        // context is bound, so the SSE response body doesn't depend on a lazy
+        // InstanceState.get running on the server's response-pumping fiber. (#759)
+        const events = yield* bus.subscribeAllStream()
+        return eventResponse(events)
       }),
     )
   }),

@@ -18,7 +18,7 @@ export const InstanceDisposed = BusEvent.define(
   }),
 )
 
-type Payload<D extends BusEvent.Definition = BusEvent.Definition> = {
+export type Payload<D extends BusEvent.Definition = BusEvent.Definition> = {
   id: string
   type: D["type"]
   properties: BusProperties<D>
@@ -29,6 +29,19 @@ type State = {
   typed: Map<string, PubSub.PubSub<Payload>>
 }
 
+// #764: the namespace `Bus` runs over a module-level `makeRuntime(Service, layer)`
+// (bus B) while `/event` subscribes through the per-request DI `Bus.Service`
+// (bus A). Each `Bus.layer` build owns its own `InstanceState` ScopedCache, so
+// the two runtimes held SEPARATE `{wildcard, typed}` PubSubs for the same
+// directory — SyncEvent publishes (`sync/index.ts` → namespace `Bus.publish`)
+// landed on bus B and never reached the live `/event` subscriber on bus A
+// (duplicate messages + empty token/context gauge in Rhythm). This module-level
+// registry collapses every build to ONE State per directory: whichever runtime
+// builds the state first creates and owns it (and the disposal finalizer);
+// every later build — in either runtime — resolves the same object. Keyed by
+// directory string so it is independent of how many runtimes/caches exist.
+const shared = new Map<string, State>()
+
 export interface Interface {
   readonly publish: <D extends BusEvent.Definition>(
     def: D,
@@ -37,6 +50,7 @@ export interface Interface {
   ) => Effect.Effect<void>
   readonly subscribe: <D extends BusEvent.Definition>(def: D) => Stream.Stream<Payload<D>>
   readonly subscribeAll: () => Stream.Stream<Payload>
+  readonly subscribeAllStream: () => Effect.Effect<Stream.Stream<Payload>>
   readonly subscribeCallback: <D extends BusEvent.Definition>(
     def: D,
     callback: (event: Payload<D>) => unknown,
@@ -51,11 +65,32 @@ export const layer = Layer.effect(
   Effect.gen(function* () {
     const state = yield* InstanceState.make<State>(
       Effect.fn("Bus.state")(function* (ctx) {
+        // Fast path: another runtime already built the State for this directory.
+        const existing = shared.get(ctx.directory)
+        if (existing) return existing
+
         const wildcard = yield* PubSub.unbounded<Payload>()
         const typed = new Map<string, PubSub.PubSub<Payload>>()
 
+        // The `PubSub.unbounded` above is a fiber yield point, so two caches
+        // (namespace + DI) can each pass the fast-path check for a fresh
+        // directory before either registers. Re-check after allocation: the
+        // loser discards its throwaway wildcard and adopts the winner's State,
+        // so both runtimes still converge on one PubSub.
+        const raced = shared.get(ctx.directory)
+        if (raced) {
+          yield* PubSub.shutdown(wildcard)
+          return raced
+        }
+
+        const created: State = { wildcard, typed }
+        shared.set(ctx.directory, created)
+
         yield* Effect.addFinalizer(() =>
           Effect.gen(function* () {
+            // Only the owning builder clears the shared entry, so a late reader
+            // cannot resurrect a shut-down PubSub for this directory.
+            if (shared.get(ctx.directory) === created) shared.delete(ctx.directory)
             // Publish InstanceDisposed before shutting down so subscribers see it
             yield* PubSub.publish(wildcard, {
               type: InstanceDisposed.type,
@@ -69,7 +104,7 @@ export const layer = Layer.effect(
           }),
         )
 
-        return { wildcard, typed }
+        return created
       }),
     )
 
@@ -128,6 +163,24 @@ export const layer = Layer.effect(
       ).pipe(Stream.ensuring(Effect.sync(() => log.info("unsubscribing", { type: "*" }))))
     }
 
+    // Eagerly resolves the concrete wildcard PubSub while the caller's Instance
+    // context (InstanceRef fiber-local) is still bound, then streams from that
+    // concrete PubSub. The lazy `subscribeAll()` above defers `InstanceState.get`
+    // until the stream is consumed; that works when the consumer fiber inherits
+    // the caller's context (e.g. `Effect.forkScoped` in plugin/index.ts), but
+    // NOT for an HTTP SSE response body, which is pumped by a server fiber that
+    // never inherits the handler's InstanceRef. There the lazy get cannot
+    // resolve the instance and the stream collapses immediately after
+    // `server.connected`. Resolving the PubSub here mirrors the working
+    // `subscribeAllCallback`/`on()` path used by the TUI. (fixes #759)
+    const subscribeAllStream = Effect.fn("Bus.subscribeAllStream")(function* () {
+      log.info("subscribing", { type: "*" })
+      const s = yield* InstanceState.get(state)
+      return Stream.fromPubSub(s.wildcard).pipe(
+        Stream.ensuring(Effect.sync(() => log.info("unsubscribing", { type: "*" }))),
+      )
+    })
+
     function on<T>(pubsub: PubSub.PubSub<T>, type: string, callback: (event: T) => unknown) {
       return Effect.gen(function* () {
         log.info("subscribing", { type })
@@ -170,7 +223,7 @@ export const layer = Layer.effect(
       return yield* on(s.wildcard, "*", callback)
     })
 
-    return Service.of({ publish, subscribe, subscribeAll, subscribeCallback, subscribeAllCallback })
+    return Service.of({ publish, subscribe, subscribeAll, subscribeAllStream, subscribeCallback, subscribeAllCallback })
   }),
 )
 

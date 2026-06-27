@@ -2,48 +2,57 @@
 
 ## Current focus
 
-**2026-06-26 — PR #749 smoke/merge readiness plus skill-gap mapping from recent runs.**
+**2026-06-27 — Agent live-streaming: core bus-routing fix landed.** The
+**dual-bus split** (real root of #1/#3/#751/#759/#761/#762) is fixed and verified
+against the BUILT fork. `SyncEvent.process()` published via the module-level
+namespace `Bus` runtime while `/event` reads the per-request DI `Bus.Service` —
+two bus states per directory, so `message.updated` / `message.part.updated` /
+turn-time `session.updated` never reached the live `/event` subscriber. The fix
+(#764) makes both runtimes share ONE `{wildcard, typed}` PubSub per directory via
+a module-level registry in `bus/index.ts`. A real anthropic turn against the
+built fork now delivers all three event types on `/event`.
 
-Recent work clusters around agent-session UX, opencode runtime scoping, and
-workflow discipline. The strongest repeated gaps are:
-
-- runtime-boundary verification against real dependencies and packaged builds
-- production-environment parity (Postgres, packaged binary, long-lived backend)
-- tighter subagent workflow boundaries and durable-edit discipline
+Symptom status:
+- **#1 duplicate messages / #3 no token-context** — engine side now FIXED
+  (message.updated carries tokens/cost; part.updated carries canonical text).
+  Awaiting UI manual smoke to confirm the Flutter render.
+- **#2 ask-question hang** — FIXED earlier (question recovery).
 
 ## Active branch / PR
 
-- **Branch:** `workflow/run-2026-06-25-agent-fixes`
-- **PR:** [#749](https://github.com/ajhochy/Rhythm/pull/749) — draft on `feature/agent-scheduler`; implementation verified, smoke partly blocked by macOS screen-recording consent modal.
-- **Related open PR:** [#734](https://github.com/ajhochy/Rhythm/pull/734) — Odysseus port + mcp-scope stack on `main`; still needs live packaged-runtime validation.
+- **Branch:** `fix/issue-761-agents-ui-render` — contains #760 (merged) + #761 +
+  #2 question-recovery + #762 convertEvent hardening + **#764 shared-bus fix** +
+  tests. #764 fix not yet committed (working tree) at last update.
+- **PR [#763](https://github.com/ajhochy/Rhythm/pull/763)** open — fold #764 into
+  it with a `Closes #764` line. Not merged; left for human review + manual smoke.
+- Standalone PRs [#760](https://github.com/ajhochy/Rhythm/pull/760) and #758 also open.
 
 ## In progress
 
-- Manual smoke / merge readiness for #749.
-- Translating recent PR/postmortem patterns into a concrete skill progression map.
+- Commit the #764 fix to the branch, update PR #763 body (`Closes #764`),
+  hand off for manual UI smoke. Do not merge.
 
-## Risks
+## Risks / known issues
 
-- **Verification remains strongest in local test harnesses, weaker at real runtime seams.**
-  Recent failures came from SDK shape drift, packaged binary path drift, stale
-  backend processes, and Postgres bootstrap drift that green local suites missed.
-- **Subagent process control is still leaky.**
-  The #749 run recorded a coding subagent opening a PR and committing outside its
-  bounds, plus an earlier non-durable edit to `~/.config/opencode/.../secretary.md`.
-- **UI smoke still has environment blockers.**
-  macOS consent modals can block automated click-through verification of agent UI flows.
+- Bus is HIGH blast radius (event backbone). The fix is additive and
+  signature-preserving; disposal lifecycle (`InstanceDisposed` + shutdown that
+  `/event`'s `Stream.takeUntil` relies on) is preserved and re-verified.
+- Unit/bus-level suites cannot reproduce the split (it only manifests across HTTP
+  requests) — always re-verify bus changes against the BUILT fork with a real turn.
 
 ## Test status
 
-- `flutter analyze --no-fatal-infos` — PASS
-- `dart format --set-exit-if-changed` — PASS
-- `apps/api_server npx tsc --noEmit` — PASS
-- `apps/api_server vitest` — PASS
-- `flutter test` — PASS
-- Manual smoke — partial; some #749 checks still blocked by local OS permissions
+- opencode_fork: `bun run typecheck` PASS · `bun test test/server/ test/bus/`
+  237 pass / 1 skip / 0 fail (incl. new `httpapi-event-dual-bus` contract test) ·
+  `bun run build --single` (arm64) PASS.
+- **Runtime smoke (built fork, real anthropic turn): PASS** — `/event` capture
+  contains `message.updated` ×6 + `message.part.updated` ×5 + `session.updated`
+  ×3 (all absent before the fix). See `runs/2026-06-27-issue-764-dual-bus-fix.md`.
+- api_server / desktop_flutter: unchanged this run (last green; see prior runs).
 
 ## Next step
 
-1. Finish the blocked #749 smoke items on a machine/session with screen-recording permission settled.
-2. Turn the identified gaps into follow-up workflow tightening, especially around verification and coding-agent boundaries.
-3. Use `docs/ai/runs/2026-06-26-skill-progression-map.md` as the evidence base for skill-deepening priorities.
+1. Commit #764, push, watch CI green, update PR #763 (`Closes #764`).
+2. Manual UI smoke on a signed local build: agent turn renders live, NO duplicate
+   messages, working token/context gauge. Then `failure-postmortem`.
+3. Human merge of #763 after smoke passes.

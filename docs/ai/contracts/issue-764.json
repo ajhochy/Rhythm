@@ -1,0 +1,16 @@
+{
+  "issue": 764,
+  "generated": "2026-06-27",
+  "criteria": [
+    {
+      "criterion_id": "issue-764-c1",
+      "text": "With a real HTTP /event subscriber connected for a directory, a namespace Bus.publish of message.updated AND message.part.updated for that directory must arrive on the /event stream (SyncEvent publishes must reach the per-request DI Bus.Service that /event reads).",
+      "mode": "integration",
+      "test_file": "apps/opencode_fork/packages/opencode/test/server/httpapi-event-dual-bus.test.ts",
+      "test_id": "issue-764-c1: namespace Bus.publish of message.updated and message.part.updated arrives on /event",
+      "status": "pending"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}

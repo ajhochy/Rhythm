@@ -8,6 +8,14 @@ import { queueSkillExtraction } from './skill_extractor';
 import type { PermissionMode } from '../models/agent_session';
 
 /**
+ * How often each active directory stream polls the engine's GET /question to
+ * recover a `question.asked` event that was missed on the SSE stream. opencode
+ * blocks the `question` tool until a reply arrives, so a missed event would
+ * otherwise hang the turn forever with no card to answer from.
+ */
+const QUESTION_RECOVERY_POLL_MS = 1500;
+
+/**
  * Bridges Opencode SSE events to the existing WebSocket gateway.
  *
  * The bridge subscribes to the Opencode event stream once (on first session)
@@ -27,6 +35,12 @@ import type { PermissionMode } from '../models/agent_session';
 type DirectoryStream = {
   eventStream: AsyncIterable<import('@opencode-ai/sdk').Event>;
   abort: AbortController;
+  // Recovery poll for questions whose `question.asked` event was missed on the
+  // SSE stream (race with session mapping, child/subagent session, or the
+  // engine dropping the event). Mirrors opencode's own CLI transport, which
+  // polls `question.list` to recover missed questions. See
+  // recoverPendingQuestions().
+  questionPoll?: ReturnType<typeof setInterval>;
 };
 
 /**
@@ -191,6 +205,77 @@ export class OpencodeStreamBridge {
   }
 
   /**
+   * Register a pending question and broadcast the `question.asked` card frame.
+   * Idempotent: if a question with this `requestId` is already tracked for the
+   * session, nothing is broadcast and `false` is returned. Shared by the live
+   * `question.asked` SSE handler and the `question.list` recovery poll so a
+   * question surfaced by either path never double-broadcasts.
+   */
+  private registerQuestion(
+    localSessionId: string,
+    entry: PendingQuestion,
+  ): boolean {
+    if (this.stoppedSessions.has(localSessionId)) return false;
+    const key = `${localSessionId}:${entry.requestId}`;
+    if (this.pendingQuestions.has(key)) return false;
+    this.pendingQuestions.set(key, entry);
+    broadcast({
+      v: 1,
+      type: 'question.asked',
+      sessionId: localSessionId,
+      requestId: entry.requestId,
+      callId: entry.callId,
+      questions: entry.questions,
+    });
+    return true;
+  }
+
+  /**
+   * Recover questions whose `question.asked` event never reached us on the SSE
+   * stream. opencode keeps the `question` tool blocked until
+   * POST /question/{id}/reply arrives, so a missed `question.asked` hangs the
+   * turn forever with no card to answer from. We poll the engine's
+   * GET /question (scoped to a directory), reverse-map each pending question's
+   * SDK session id to a local session, and surface any we are not already
+   * tracking — mirroring opencode's own CLI transport recovery.
+   *
+   * Idempotent and safe to call repeatedly; only newly-seen questions broadcast.
+   */
+  async recoverPendingQuestions(directory: string): Promise<void> {
+    let pending: Array<{
+      id: string;
+      sessionID: string;
+      questions?: unknown[];
+      tool?: { callID?: string };
+    }>;
+    try {
+      pending = await opencodeClient.listQuestions(directory);
+    } catch {
+      return;
+    }
+    if (!Array.isArray(pending) || pending.length === 0) return;
+
+    for (const q of pending) {
+      if (!q?.id || !q.sessionID) continue;
+      // Reverse-map the SDK session id to a local session id.
+      let localSessionId: string | undefined;
+      for (const [localId, sdkId] of opencodeSessionMap.entries()) {
+        if (sdkId === q.sessionID) {
+          localSessionId = localId;
+          break;
+        }
+      }
+      if (!localSessionId) continue;
+      this.registerQuestion(localSessionId, {
+        requestId: q.id,
+        callId: q.tool?.callID ?? '',
+        sdkSessionId: q.sessionID,
+        questions: Array.isArray(q.questions) ? q.questions : [],
+      });
+    }
+  }
+
+  /**
    * Start streaming events for a given local session.
    * Subscribes (idempotently) to the opencode /event SSE for the session's
    * cwd. Multiple sessions in the same directory share a single subscriber.
@@ -215,9 +300,18 @@ export class OpencodeStreamBridge {
         return;
       }
       const abort = new AbortController();
+      // Recovery poll: catch any `question.asked` the SSE stream missed so the
+      // ask-question tool can never hang for want of a card. Cheap localhost
+      // GET; only newly-seen questions broadcast (registerQuestion is
+      // idempotent). Cleared when the stream ends or the session stops.
+      const questionPoll = setInterval(() => {
+        void this.recoverPendingQuestions(directory);
+      }, QUESTION_RECOVERY_POLL_MS);
+      if (typeof questionPoll.unref === 'function') questionPoll.unref();
       this.streamsByDirectory.set(directory, {
         eventStream: events.stream,
         abort,
+        questionPoll,
       });
       // Fire-and-forget listener loop. Failures inside the loop unset the
       // entry so a subsequent session in the same directory can re-subscribe.
@@ -250,6 +344,8 @@ export class OpencodeStreamBridge {
         err,
       );
     } finally {
+      const entry = this.streamsByDirectory.get(directory);
+      if (entry?.questionPoll) clearInterval(entry.questionPoll);
       this.streamsByDirectory.delete(directory);
     }
   }
@@ -956,23 +1052,11 @@ export class OpencodeStreamBridge {
         };
         const requestId = q.id ?? q.requestID;
         if (!requestId || !localSessionId) break;
-        const sdkSessionId = opencodeSessionId ?? '';
-        const callId = q.tool?.callID ?? '';
-        const questions = Array.isArray(q.questions) ? q.questions : [];
-
-        this.pendingQuestions.set(`${localSessionId}:${requestId}`, {
+        this.registerQuestion(localSessionId, {
           requestId,
-          callId,
-          sdkSessionId,
-          questions,
-        });
-        broadcast({
-          v: 1,
-          type: 'question.asked',
-          sessionId: localSessionId,
-          requestId,
-          callId,
-          questions,
+          callId: q.tool?.callID ?? '',
+          sdkSessionId: opencodeSessionId ?? '',
+          questions: Array.isArray(q.questions) ? q.questions : [],
         });
         break;
       }
@@ -1029,6 +1113,12 @@ export class OpencodeStreamBridge {
     // Also clean up the pending-text accumulator for this session so stale
     // deltas don't linger in memory after the session is closed.
     this.pendingText.delete(localSessionId);
+    // Drop any pending questions for this session so the recovery poll cannot
+    // resurface a card for a session the user has closed.
+    const prefix = `${localSessionId}:`;
+    for (const key of this.pendingQuestions.keys()) {
+      if (key.startsWith(prefix)) this.pendingQuestions.delete(key);
+    }
   }
 
   /**
@@ -1052,6 +1142,7 @@ export class OpencodeStreamBridge {
   /** Clean up all streams. */
   dispose(): void {
     for (const [, entry] of this.streamsByDirectory) {
+      if (entry.questionPoll) clearInterval(entry.questionPoll);
       entry.abort.abort();
     }
     this.streamsByDirectory.clear();

@@ -1063,15 +1063,24 @@ export class OpencodeClientService {
   async listQuestions(
     directory?: string,
   ): Promise<
-    Array<{ id: string; sessionID: string; tool?: { callID?: string } }>
+    Array<{
+      id: string;
+      sessionID: string;
+      questions?: unknown[];
+      tool?: { callID?: string };
+    }>
   > {
     const qs = directory ? `?directory=${encodeURIComponent(directory)}` : '';
     try {
       const res = await fetch(`${this.serverUrl}/question${qs}`);
       if (!res.ok) return [];
+      // GET /question returns the full QuestionRequest list — including the
+      // `questions` array used to render the card when a missed `question.asked`
+      // is recovered (see OpencodeStreamBridge.recoverPendingQuestions).
       return (await res.json()) as Array<{
         id: string;
         sessionID: string;
+        questions?: unknown[];
         tool?: { callID?: string };
       }>;
     } catch (err) {

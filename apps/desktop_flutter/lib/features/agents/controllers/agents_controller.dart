@@ -2443,6 +2443,8 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
         tokens: msg.tokens,
       );
     } else if (msg is MessagePartUpdatedMessage) {
+      // #761 — ensure the assistant bubble exists before attaching the part.
+      _ensureLiveAssistantMessage(msg.sessionId, msg.messageId);
       _upsertChatPart(
         messageId: msg.messageId,
         partId: msg.partId,
@@ -2464,6 +2466,8 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
         sessionFirstSeenAt.remove(msg.sessionId);
       }
     } else if (msg is MessagePartDeltaMessage) {
+      // #761 — ensure the assistant bubble exists before appending the delta.
+      _ensureLiveAssistantMessage(msg.sessionId, msg.messageId);
       _appendChatDelta(
         messageId: msg.messageId,
         partId: msg.partId,
@@ -2598,6 +2602,30 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   // --------------------------------------------------------------------------
   // Parts-based chat reducer (Opencode Desktop port)
   // --------------------------------------------------------------------------
+
+  /// #761 — Create the assistant [ChatMessage] bubble for a live streaming part
+  /// when no bubble exists yet for [messageId].
+  ///
+  /// The fork opencode engine's `message.updated` / `message.part.updated`
+  /// SyncEvents do not reach the `/event` stream (only `message.part.delta`
+  /// does), so the bubble that [_upsertChatMessage] would normally create from
+  /// `message.updated` never arrives live. Without a bubble, the streamed parts
+  /// accumulate in `_chatPartsByMessage` but have nothing to render under — the
+  /// assistant response only appears after a REST refetch on session reselect.
+  /// Synthesizing the bubble from the first live part renders the response while
+  /// it streams. Safe because part events during a turn always belong to the
+  /// assistant message; the user's message is inserted optimistically on send
+  /// (role 'user') and is never the target of an unknown-message part event.
+  void _ensureLiveAssistantMessage(String sessionId, String messageId) {
+    if (sessionId.isEmpty || messageId.isEmpty) return;
+    final existing = _chatMessagesBySession[sessionId];
+    if (existing != null && existing.any((m) => m.id == messageId)) return;
+    _upsertChatMessage(
+      sessionId: sessionId,
+      messageId: messageId,
+      role: 'assistant',
+    );
+  }
 
   void _upsertChatMessage({
     required String sessionId,
