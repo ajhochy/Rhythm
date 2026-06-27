@@ -249,22 +249,14 @@ describe('POST /opencode/mcp/curated/ensure token bridge (c3, c4)', () => {
   let dir: string;
   let baseUrl: string;
   let close: () => Promise<void>;
-  const ensureCuratedMcpsSpy = vi.fn();
+  // Spy on the REAL opencodeClient singleton (set up in beforeEach). See the
+  // beforeEach comment for why this replaced a whole-module doMock.
+  let ensureCuratedMcpsSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(async () => {
     vi.resetModules();
-    ensureCuratedMcpsSpy.mockReset();
     dir = mkdtempSync(join(tmpdir(), 'opencode-token-route-'));
 
-    vi.doMock('../services/opencode_engine', () => ({
-      opencodeClient: {
-        isReady: true,
-        ensureCuratedMcps: ensureCuratedMcpsSpy,
-        statusMessage: 'ready',
-        listCommands: vi.fn().mockResolvedValue([]),
-      },
-      opencodeSessionMap: new Map(),
-    }));
     vi.doMock('../config/env', () => ({
       env: {
         dbClient: 'sqlite',
@@ -273,6 +265,25 @@ describe('POST /opencode/mcp/curated/ensure token bridge (c3, c4)', () => {
         jwtSecret: 'test-secret',
       },
     }));
+
+    // HERMETIC: spy on the actual opencodeClient singleton that the route holds
+    // a reference to, rather than replacing the entire opencode_engine module.
+    // Whole-module doMock intermittently failed to apply in the full CI suite,
+    // letting the route call the REAL ensureCuratedMcps — whose verified catalog
+    // has no google/pco entry — so the response carried the real (account-/env-
+    // dependent) server list and servers[0].environment came back undefined,
+    // flaking c4. Spying the shared singleton is deterministic regardless of any
+    // ambient connected Google/PCO account or curated-MCP token in the env.
+    const engine = await import('../services/opencode_engine');
+    ensureCuratedMcpsSpy = vi.spyOn(engine.opencodeClient, 'ensureCuratedMcps');
+    // Default to a benign empty result so the real method (which would touch the
+    // user's ~/.config/opencode.json) never runs through the singleton when a
+    // test does not override the return value.
+    ensureCuratedMcpsSpy.mockResolvedValue({
+      changed: false,
+      registered: false,
+      servers: [],
+    });
 
     const { setDb } = await import('../database/db');
     const { runMigrations } = await import('../database/migrations');
@@ -287,6 +298,9 @@ describe('POST /opencode/mcp/curated/ensure token bridge (c3, c4)', () => {
 
     const { createApp } = await import('../app');
     const server = createApp().listen(0);
+    // Force a fresh connection per request — undici keep-alive socket reuse
+    // intermittently fails these fetch()-based route tests (testing-guide).
+    server.maxRequestsPerSocket = 1;
     await new Promise<void>((r) => server.once('listening', () => r()));
     baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
     close = () =>
@@ -297,7 +311,7 @@ describe('POST /opencode/mcp/curated/ensure token bridge (c3, c4)', () => {
 
   afterEach(async () => {
     await close();
-    vi.doUnmock('../services/opencode_engine');
+    ensureCuratedMcpsSpy.mockRestore();
     vi.doUnmock('../config/env');
     rmSync(dir, { recursive: true, force: true });
   });
@@ -324,7 +338,9 @@ describe('POST /opencode/mcp/curated/ensure token bridge (c3, c4)', () => {
   it('c4: route response redacts env values — no plaintext token echoed', async () => {
     // The route receives a service result that (hypothetically) carries an
     // environment with a token. The route MUST redact it before responding.
-    ensureCuratedMcpsSpy.mockResolvedValueOnce({
+    // Persistent (not Once) so the redaction path is exercised regardless of how
+    // many times the route's dependency is invoked.
+    ensureCuratedMcpsSpy.mockResolvedValue({
       changed: true,
       registered: false,
       servers: [

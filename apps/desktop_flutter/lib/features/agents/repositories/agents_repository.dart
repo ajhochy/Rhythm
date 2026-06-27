@@ -38,6 +38,7 @@ class AgentsRepository {
     String? branch,
     String? stash,
     bool createBranch = false,
+    String? mcpRole,
   }) =>
       _dataSource.createSession(
         agentId: agentId,
@@ -47,6 +48,7 @@ class AgentsRepository {
         branch: branch,
         stash: stash,
         createBranch: createBranch,
+        mcpRole: mcpRole,
       );
 
   Future<void> closeSession(String id) => _dataSource.closeSession(id);
@@ -88,6 +90,16 @@ class AgentsRepository {
     String decision,
   ) =>
       _dataSource.respondPermission(sessionId, permissionId, decision);
+
+  Future<void> replyQuestion(
+    String sessionId,
+    String callId,
+    List<List<String>> answers,
+  ) =>
+      _dataSource.replyQuestion(sessionId, callId, answers);
+
+  Future<void> rejectQuestion(String sessionId, String callId) =>
+      _dataSource.rejectQuestion(sessionId, callId);
 
   Future<void> cancelSession(String id) => _dataSource.cancelSession(id);
 

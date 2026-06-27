@@ -47,6 +47,7 @@ describe('agent_configs migration', () => {
       'sort_order',
       'created_at',
       'updated_at',
+      'allowed_delegates_json',
     ];
     for (const col of expected) {
       expect(cols).toContain(col);

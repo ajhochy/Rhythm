@@ -14,6 +14,18 @@ export interface AgentSession {
   /** Human-readable error message when status='error'. Null otherwise. */
   statusMessage: string | null;
   /**
+   * C1 — MCP role name (e.g. "church-admin") resolved from .mcp-roles/<role>.mcp.json
+   * at session-create time. Null when no role was requested. The resolved
+   * allowlist is stored alongside; see mcpAllowedToolsJson.
+   */
+  mcpRole: string | null;
+  /**
+   * C1 — JSON-serialised per-server allowedTools map from the resolved MCP role.
+   * Shape: Record<serverName, string[]>. Null when mcpRole is null.
+   * Used by the WS gateway (future: init-time gate enforcement).
+   */
+  mcpAllowedToolsJson: string | null;
+  /**
    * @deprecated Use sdkSessionId for resume continuity (OPC-M1-5).
    * Retained for backward compatibility — do not remove the column.
    */
@@ -41,6 +53,24 @@ export interface AgentSession {
   archivedAt: string | null;
   createdAt: string;
   updatedAt: string;
+  /**
+   * Agent-loop tracking: the `agent_scheduled_tasks.id` that triggered this
+   * session. Null for interactive sessions.
+   */
+  scheduledTaskId: string | null;
+  /**
+   * #743 — Local id of the parent agent_sessions row that spawned this session
+   * via the `task` tool delegation. Null for top-level interactive sessions.
+   */
+  parentSessionId: string | null;
+  /**
+   * #747 — When true, this is a background/system session (skill-extract,
+   * skill-refine-judge, scheduler background-loop, memory consolidation) and
+   * must NOT appear in the normal session list or agent picker. Child sessions
+   * (#743, parent_session_id NOT NULL) that are delegated subagent tasks remain
+   * user-visible (isSystem = false).
+   */
+  isSystem: boolean;
 }
 
 export interface UpdateAgentSessionDto {
@@ -85,4 +115,19 @@ export interface CreateAgentSessionDto {
   cwd: string;
   name: string;
   projectId?: string | null;
+  /** C1 — optional MCP role slug (e.g. "church-admin"). Null/undefined = no scoping. */
+  mcpRole?: string | null;
+  /**
+   * C1 — Resolved per-server allowedTools from the role file.
+   * Shape: Record<serverName, string[]>. Null when no role was requested.
+   */
+  mcpAllowedToolsJson?: string | null;
+  /**
+   * Agent-loop tracking: the `agent_scheduled_tasks` row that triggered this
+   * session. Null for interactive sessions. Persisted so the CHATS list can
+   * surface scheduler-originated runs with their source task.
+   */
+  scheduledTaskId?: string | null;
+  /** #747 — Mark this session as a background system session (curator, scheduler, memory). */
+  isSystem?: boolean;
 }

@@ -1,0 +1,112 @@
+{
+  "issue": "P1-1",
+  "generated": "2026-06-24",
+  "criteria": [
+    {
+      "criterion_id": "issue-P1-1-c1",
+      "text": "Schema parity: `agent_skills` created in BOTH migrations.ts (SQLite, additive guarded like the agent_configs ALTER pattern / CREATE TABLE IF NOT EXISTS) AND postgres_bootstrap.ts (Postgres, CREATE TABLE IF NOT EXISTS) with identical columns: id (TEXT PRIMARY KEY, uuid), title (TEXT NOT NULL), when_to_use (TEXT, nullable), description (TEXT, nullable), steps_json (TEXT, nullable, JSON array), tags_json (TEXT, nullable, JSON array), confidence (REAL, default 0), status (TEXT, default 'draft'; values draft|published), source (TEXT; e.g. 'agent-stack-seed','teacher-escalation','auto-extract'), uses (INTEGER, default 0), created_at (TEXT/timestamp default now), updated_at (TEXT/timestamp default now), NO owner_user_id (shared instance-wide)",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_p1_1_agent_skills.test.ts",
+      "test_id": "issue-P1-1-c1: SQLite migration creates agent_skills table with all columns",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-P1-1-c2",
+      "text": "Schema parity: agent_skills created in Postgres postgres_bootstrap.ts with identical columns",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_p1_1_agent_skills.test.ts",
+      "test_id": "issue-P1-1-c2: Postgres migration creates agent_skills table with all columns",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-P1-1-c3",
+      "text": "Both SQLite and Postgres tables have identical column names and types",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_p1_1_agent_skills.test.ts",
+      "test_id": "issue-P1-1-c3: Both SQLite and Postgres have identical agent_skills schema",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-P1-1-c4",
+      "text": "TypeScript model: `AgentSkill` interface in models/agent_skill.ts matching all columns + rowToModel mapper (mirror agent_configs_repository row mapping style)",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/issue_p1_1_agent_skills.test.ts",
+      "test_id": "issue-P1-1-c4: AgentSkill TypeScript model exists with all required properties",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-P1-1-c5",
+      "text": "rowToModel mapper converts DB rows to AgentSkill instances with correct field mapping",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/issue_p1_1_agent_skills.test.ts",
+      "test_id": "issue-P1-1-c5: rowToModel mapper converts DB rows to AgentSkill instances",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-P1-1-c6",
+      "text": "Repository `AgentSkillsRepository.create(input)` inserts and returns record",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_p1_1_agent_skills.test.ts",
+      "test_id": "issue-P1-1-c6: AgentSkillsRepository.create() inserts and returns record",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-P1-1-c7",
+      "text": "Repository `AgentSkillsRepository.getById(id)` retrieves by id",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_p1_1_agent_skills.test.ts",
+      "test_id": "issue-P1-1-c7: AgentSkillsRepository.getById() retrieves by id",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-P1-1-c8",
+      "text": "Repository `AgentSkillsRepository.list()` returns all records",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_p1_1_agent_skills.test.ts",
+      "test_id": "issue-P1-1-c8: AgentSkillsRepository.list() returns all records",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-P1-1-c9",
+      "text": "Repository `AgentSkillsRepository.update(id, patch)` patches record",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_p1_1_agent_skills.test.ts",
+      "test_id": "issue-P1-1-c9: AgentSkillsRepository.update() patches a record",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-P1-1-c10",
+      "text": "Repository `AgentSkillsRepository.remove(id)` deletes record",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_p1_1_agent_skills.test.ts",
+      "test_id": "issue-P1-1-c10: AgentSkillsRepository.remove() deletes a record",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-P1-1-c11",
+      "text": "Repository `AgentSkillsRepository.incrementUses(id)` increments uses field",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_p1_1_agent_skills.test.ts",
+      "test_id": "issue-P1-1-c11: AgentSkillsRepository.incrementUses() increments uses field",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-P1-1-c12",
+      "text": "Repository `AgentSkillsRepository.findByTitle(title)` deduplicates by title",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_p1_1_agent_skills.test.ts",
+      "test_id": "issue-P1-1-c12: AgentSkillsRepository.findByTitle() finds by title and deduplicates",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-P1-1-c13",
+      "text": "Empty-DB gate readiness: repository.list() returns [] on empty DB (not throw)",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/issue_p1_1_agent_skills.test.ts",
+      "test_id": "issue-P1-1-c13: repository.list() returns [] on empty DB instead of throwing",
+      "status": "pending"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}

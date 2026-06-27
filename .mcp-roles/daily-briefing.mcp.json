@@ -1,0 +1,53 @@
+{
+  "$schema": "https://rhythm.vcrcapps.com/schemas/mcp-role.json",
+  "role": "daily-briefing",
+  "description": "Daily morning briefing agent \u2014 PCO Services + Rhythm tasks + Calendar. No code execution, no file system, no browser.",
+  "mcpServers": {
+    "rhythm": {
+      "command": "node",
+      "args": [
+        "apps/mcp_server/dist/index.js"
+      ],
+      "env": {
+        "RHYTHM_API_URL": "${RHYTHM_API_URL}",
+        "RHYTHM_API_TOKEN": "${RHYTHM_API_TOKEN}"
+      },
+      "allowedTools": [
+        "rhythm_ping",
+        "rhythm_list_pending_triggers",
+        "rhythm_clear_pending_trigger",
+        "rhythm_list_tasks",
+        "rhythm_create_task",
+        "rhythm_update_task",
+        "rhythm_complete_task",
+        "rhythm_get_dashboard",
+        "rhythm_list_scheduled_tasks",
+        "rhythm_remember_memory",
+        "rhythm_search_memory",
+        "rhythm_list_memories"
+      ]
+    },
+    "pco-services": {
+      "inherit": true,
+      "allowedTools": [
+        "get_plans",
+        "get_plan_items",
+        "get_plan_team_members",
+        "get_needed_positions",
+        "get_person_blockouts",
+        "get_person_plan_schedule",
+        "search_people"
+      ]
+    }
+  },
+  "disabledMcpServers": [
+    "bash",
+    "computer",
+    "editor",
+    "filesystem"
+  ],
+  "allowedSkills": [
+    "daily-morning-briefing",
+    "ministry-command-center"
+  ]
+}

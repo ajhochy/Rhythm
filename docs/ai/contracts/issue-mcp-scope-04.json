@@ -1,0 +1,93 @@
+{
+  "issue": "mcp-scope-04",
+  "title": "api_server wiring: pass mcpAllowlist on createSession (both paths)",
+  "date": "2026-06-25",
+  "author": "coding-agent",
+  "status": "implemented",
+
+  "summary": "When an agent session is created with a resolved McpRoleConfig, opencode_client_service.createSession must call expandMcpAllowlist(mcpRoleConfig) and include the result as the mcpAllowlist field on the POST body sent to the SDK. When no mcpRoleConfig is present, the body must be byte-identical to pre-fix (no mcpAllowlist key).",
+
+  "constraints": {
+    "additive_only": true,
+    "back_compat_required": true,
+    "sdk_type_rule": "pass mcpAllowlist via untyped/dynamic body path; do NOT extend the hand-written @types/opencode-ai-sdk.d.ts",
+    "expansion_location": "inside createSession (single choke point, not per-call-site)",
+    "invalid_role_config": "omit mcpAllowlist field, log a warn, do not throw"
+  },
+
+  "acceptance_tests": [
+    {
+      "id": "AC-01",
+      "description": "createSession WITH mcpRoleConfig sends body.mcpAllowlist deep-equal to expandMcpAllowlist(mcpRoleConfig)",
+      "file": "apps/api_server/src/services/opencode_client_service.test.ts",
+      "assertion": "capturedBody.mcpAllowlist deep-equals expandMcpAllowlist(roleConfig)"
+    },
+    {
+      "id": "AC-02",
+      "description": "createSession WITHOUT mcpRoleConfig sends body with NO mcpAllowlist key",
+      "file": "apps/api_server/src/services/opencode_client_service.test.ts",
+      "assertion": "expect(capturedBody).not.toHaveProperty('mcpAllowlist')"
+    },
+    {
+      "id": "AC-03",
+      "description": "ws_gateway interactive path (wsMcpRoleConfig present) results in mcpAllowlist on the body",
+      "file": "apps/api_server/src/services/opencode_client_service.test.ts",
+      "assertion": "createSession called with mcpRoleConfig that yields mcpAllowlist — proven by verifying the expansion happens inside createSession (AC-01 covers the path)"
+    },
+    {
+      "id": "AC-04",
+      "description": "agent_runner scheduled path (mcpRoleConfig present) results in mcpAllowlist on the body",
+      "file": "apps/api_server/src/services/opencode_client_service.test.ts",
+      "assertion": "createSession called with mcpRoleConfig that yields mcpAllowlist — proven by verifying the expansion happens inside createSession (AC-01 covers the path)"
+    },
+    {
+      "id": "AC-05",
+      "description": "opc_sdk_surface_guard: createSession with mcpRoleConfig present produces request body containing mcpAllowlist",
+      "file": "apps/api_server/src/__tests__/opc_sdk_surface_guard.test.ts",
+      "assertion": "new assertion added to the guard that verifies this call-site contract (structural, not runtime SDK call)"
+    }
+  ],
+
+  "call_sites": {
+    "agent_sessions_controller": {
+      "file": "apps/api_server/src/controllers/agent_sessions_controller.ts",
+      "line_approx": 478,
+      "delegates_via": "direct call to opencodeClient.createSession(..., mcpRoleConfig)",
+      "note": "passes mcpRoleConfig already; expansion happens inside createSession"
+    },
+    "agent_sessions_controller_resume": {
+      "file": "apps/api_server/src/controllers/agent_sessions_controller.ts",
+      "line_approx": 897,
+      "delegates_via": "direct call WITHOUT mcpRoleConfig (legacy resume path)",
+      "note": "no mcpRoleConfig available at resume time; body stays back-compat (no mcpAllowlist)"
+    },
+    "ws_gateway_fresh_gone": {
+      "file": "apps/api_server/src/services/ws_gateway.ts",
+      "line_approx": 442,
+      "delegates_via": "opencodeClient.createSession(..., wsMcpRoleConfig)"
+    },
+    "ws_gateway_legacy": {
+      "file": "apps/api_server/src/services/ws_gateway.ts",
+      "line_approx": 478,
+      "delegates_via": "opencodeClient.createSession(..., wsMcpRoleConfig)"
+    },
+    "agent_runner": {
+      "file": "apps/api_server/src/services/agent_runner.ts",
+      "line_approx": 606,
+      "delegates_via": "opencodeClient.createSession(..., mcpRoleConfig)"
+    }
+  },
+
+  "implementation_notes": {
+    "expansion_in_create_session": "expandMcpAllowlist is called inside createSession when mcpRoleConfig is defined; all 5 call sites above get the fix for free without changes",
+    "sdk_body_cast": "body object is cast via `as Record<string, unknown>` at the call site to avoid extending the hand-written d.ts",
+    "no_op_logger_removed": "the logger.info('SDK has no per-session allowlist param') stub is replaced by the actual expansion + body inclusion",
+    "error_guard": "expandMcpAllowlist is wrapped in try/catch; on any exception, mcpAllowlist is omitted and a warn is logged"
+  },
+
+  "validation_commands": [
+    "cd apps/api_server && npx vitest run src/services/opencode_client_service.test.ts src/__tests__/opc_sdk_surface_guard.test.ts",
+    "cd apps/api_server && npx vitest run",
+    "cd apps/api_server && npx tsc --noEmit"
+  ]
+}

@@ -17,7 +17,7 @@ All commands delegate to `scripts/run_ai_workflow.py` in this repo.
 ### api_server (Node.js/TypeScript)
 ```bash
 cd apps/api_server
-npm test                  # vitest run — 679 tests (as of OPC-M3-6 / issue #699)
+npm test                  # vitest run — 965 tests (as of #738-fix, 2026-06-23)
 node_modules/.bin/tsc --noEmit   # TypeScript type check (no tsc in global PATH)
 ```
 
@@ -71,6 +71,13 @@ dart format . --set-exit-if-changed # CI fails on format violations
 | `test/features/agents/opc_m3_6_child_sessions_test.dart` | OPC-M3-6: TaskChip tap → ChildTranscriptView (c2a REAL-SURFACE), openChildSession fetches messages (c2b), closeChildSession no-refetch (c3), ChildTranscriptView read-only (c4), children not in sidebar lists (c5), ToolState regression (c6) |
 | `src/__tests__/opc_instant_new_session.test.ts` | #710: bridge session.updated → updateFields + broadcastSessionUpdated (c2a), empty title skipped (c2b), server accepts null/empty agentId (c4) |
 | `test/features/agents/opc_instant_new_session_test.dart` | #710: c1 REAL-SURFACE header tap → onNewSession no dialog; c1-controller empty name default; c3 handleWsMessageForTest → session name updated; c4 empty name → "New session" placeholder; c5 ⋯ button → onOptionsPressed |
+| `src/__tests__/issue_738_agent_runner.test.ts` | #738: AgentRunner.run() success, timeout+abort, slot released, createSession fail, promptAsync fail, concurrency cap (7 tests) |
+| `src/__tests__/issue_739_scheduler_agent_runner.test.ts` | #739: AGENT_LOCAL=true → AgentRunner called, no trigger insert; AGENT_LOCAL=false → trigger inserted, no AgentRunner; loop isolation (4 tests) |
+| `src/__tests__/issue_740_cookbook_run.test.ts` | #740: POST /agent-cookbook/:id/run returns 202+sessionId, 404 unknown, prompt compiled from steps, 401 unauth (4 tests) |
+| `src/__tests__/issue_738_fix_model_and_session.test.ts` | #738-fix: resolveRunModel 3-step cascade (config/MRU/default), promptAsync gets model arg, session recorded, schema columns present (10 tests) |
+| `src/__tests__/issue_738_fix_stale_run_recovery.test.ts` | #738-fix: scheduler boot calls resetStaleRunning on SQLite, skips on Postgres (2 tests) |
+| `src/__tests__/issue_743_child_session_persistence.test.ts` | #743: upsertChildSession creates/is-idempotent/null-on-missing-parent; getDiff returns 200 [] for unknown session (5 tests) |
+| `test/features/agents/issue_743_parent_id_test.dart` | #743: AgentSession.parentId fromJson (parentSessionId + parentId fallback), toJson omit-when-null, copyWith sentinel, isChildSession; _buildSessionTree root/child/orphan/multi grouping (11 tests) |
 
 ## Mocking the Opencode engine in tests
 
@@ -107,6 +114,20 @@ afterEach(async () => {
 
 Failing to do this poisons subsequent tests (they'll hit the 400 "engine not ready" guard).
 
+### opencode fork (Bun/TypeScript)
+```bash
+cd apps/opencode_fork/packages/opencode
+bun run typecheck                                          # must exit 0
+bun test src/session/mcp_allowlist.test.ts                 # 5 pass — unit: filterMcpToolsByAllowlist
+bun test test/session/mcp_allowlist_e2e.test.ts            # 4 pass — e2e: A=5,B=3,C=1,D=0 tools
+bun test test/session/ src/session/                        # full session suite (325+ pass, 0 fail)
+```
+
+| File | What it covers |
+|---|---|
+| `apps/opencode_fork/packages/opencode/src/session/mcp_allowlist.test.ts` | Unit: `filterMcpToolsByAllowlist` — server-level pass-through, tool-level filter, empty allowlist→0, undefined→all |
+| `apps/opencode_fork/packages/opencode/test/session/mcp_allowlist_e2e.test.ts` | E2E integration: full `sessions.create → DB persist → runLoop sessions.get → resolveTools → LLM request body`; 4 cases prove the gate fires end-to-end |
+
 ## Smoke test checklist (manual, pre-merge)
 
 After deploying the Opencode engine:
@@ -120,3 +141,37 @@ After deploying the Opencode engine:
 - [ ] WS connect to `ws://localhost:4001/ws/agents`, send `session.input` — SDK prompt is called
 - [ ] `DELETE /agent-sessions/:id` — returns 204, session map entry is cleared
 - [ ] `flutter run -d macos` — app launches without errors, AI Account section shows connected providers on open
+
+## MCP allowlist smoke (per-session tool-schema scoping — mcp-scope)
+
+Verifies a profile-scoped session injects only its allowlisted MCP tool schemas.
+**Requires the patched fork engine** — either a locally-built fork binary on PATH
+(`cd apps/opencode_fork/packages/opencode && bun run build --single && export PATH="$PWD/dist/opencode-darwin-arm64/bin:$PATH"`) or the bundled fork from a release build (`Contents/Resources/opencode_bin/opencode`). Confirm the fork is in use: its
+`--version` is NOT a stock `1.x.y` (it embeds the branch, e.g. `0.0.0-feature/...`).
+
+**Measurement instrument:** the fork's `resolveTools` emits a DEBUG log on every
+prompt: `resolveTools complete { resolveToolsCount, allowlistActive }`. Read it from
+the engine process logs (propagated through the api_server). `resolveToolsCount` is
+the number of tool schemas injected; `allowlistActive` is whether the session was
+profile-scoped.
+
+**Expected count helper (dynamic — never hardcode):** the api_server expander gives
+the expected Secretary count:
+```
+cd apps/api_server && npx vitest run src/services/__tests__/mcp_allowlist_expander.test.ts
+# C2 asserts secretary.mcp.json → tools.length (36 as of 2026-06-25: rhythm 14,
+# gmail-work 2, gmail-personal 2, calendar 3, obsidian 9, pdf-tools 6)
+```
+
+Checklist:
+- [ ] Open a **Secretary** session → engine log `allowlistActive: true`,
+  `resolveToolsCount` equals `expandMcpAllowlist(secretaryConfig).tools.length` (36).
+- [ ] Open a **profile-less** session (no role) → `allowlistActive: false`,
+  `resolveToolsCount` is GREATER (all connected MCP tools — back-compat).
+- [ ] Both sessions function normally (tools present and callable).
+
+Automated coverage already proves this by composition: api_server `opencode_client_service.test.ts`
+(Secretary session → createSession body carries `expandMcpAllowlist(config)`),
+fork `mcp_allowlist_e2e.test.ts` (gate filters offered tools to exactly the allowlist:
+5→3→1→0), and `mcp_allowlist_expander.test.ts` (Secretary → 36). The manual smoke is
+the live full-stack visual confirmation with the bundled binary.

@@ -82,8 +82,14 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     this._notificationService,
     this._notificationsController, {
     AgentModelsDataSource? modelsDataSource,
+    // #745: optional resolver that returns the manager profile's ocAgent name.
+    // When provided, new sessions default to the manager's agent rather than
+    // the SDK built-in 'build'. Falls back to null (SDK default) if absent or
+    // if the resolver returns null (e.g. no manager profile configured yet).
+    String? Function()? managerAgentNameResolver,
   })  : _modelsDataSource = modelsDataSource ?? AgentModelsDataSource(),
-        _commandsDataSource = CommandsDataSource();
+        _commandsDataSource = CommandsDataSource(),
+        _managerAgentNameResolver = managerAgentNameResolver;
 
   final AgentsRepository _repository;
   final AgentModelsDataSource _modelsDataSource;
@@ -91,6 +97,9 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   final AgentServerController _agentServerController;
   final LocalNotificationService _notificationService;
   final NotificationsController _notificationsController;
+  // #745: resolves the manager profile's opencode agent name at call time.
+  // Nullable so tests and legacy construction sites can omit it safely.
+  final String? Function()? _managerAgentNameResolver;
 
   AppLifecycleState _lifecycleState = AppLifecycleState.resumed;
 
@@ -152,6 +161,15 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   // -- Permission state (#608) -----------------------------------------------
   // Keyed by sessionId → list of pending permissions.
   final Map<String, List<PendingPermission>> _pendingPermissions = {};
+
+  // -- Question state (AskUserQuestion handshake) ----------------------------
+  // Authoritative question payload from the `question.asked` frame, keyed by
+  // `${sessionId}:${callId}`. Lets QuestionToolCard render options even if the
+  // tool-part input lagged (fixes the stuck "Waiting for question…" card).
+  final Map<String, List<dynamic>> _questionsByCallId = {};
+  // callIds whose question has been resolved (answered/dismissed), so the card
+  // can stop offering an answer even when resolved by another client/agent.
+  final Set<String> _resolvedQuestionCallIds = {};
 
   // OPC-M3-1: Per-session working-tree diff (FileDiff entries from the server).
   // Populated by fetchSessionDiff() and invalidated by session.diff WS events.
@@ -219,6 +237,15 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   // Cache of fetched child messages keyed by childSdkId.
   // Entries persist for the lifetime of the app so back-navigation is instant.
   final Map<String, List<AgentSessionMessage>> _childMessagesByChildId = {};
+
+  // childSdkIds whose first message fetch is currently in flight — drives a
+  // loading spinner in ChildTranscriptView so the (slow) first open isn't a
+  // frozen click followed by a flash of "No messages".
+  final Set<String> _loadingChildIds = <String>{};
+
+  /// True while [openChildSession]'s first fetch for [childSdkId] is in flight.
+  bool isChildLoading(String childSdkId) =>
+      _loadingChildIds.contains(childSdkId);
 
   // --------------------------------------------------------------------------
   // Model-picker state
@@ -690,25 +717,36 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     required String parentSessionName,
     required String childSdkId,
   }) async {
-    // Use cache if available.
-    if (!_childMessagesByChildId.containsKey(childSdkId)) {
-      try {
-        final messages = await _repository.fetchChildMessages(
-          parentSessionId,
-          childSdkId,
-        );
-        if (_disposed) return;
-        _childMessagesByChildId[childSdkId] = messages;
-      } catch (_) {
-        if (_disposed) return;
-        // Non-fatal: show empty child transcript rather than crashing.
-        _childMessagesByChildId[childSdkId] = const [];
-      }
-    }
+    // Switch to the child view IMMEDIATELY so the click feels responsive — the
+    // first fetch can be slow (cold opencode round-trip), and awaiting it before
+    // switching made the chevron look frozen. Messages stream in afterward.
     _activeChildSessionId = childSdkId;
     _activeChildParentSessionId = parentSessionId;
     _activeChildParentName = parentSessionName;
+
+    // Cached → nothing to fetch; back-navigation stays instant.
+    if (_childMessagesByChildId.containsKey(childSdkId)) {
+      notifyListeners();
+      return;
+    }
+
+    _loadingChildIds.add(childSdkId);
     notifyListeners();
+    try {
+      final messages = await _repository.fetchChildMessages(
+        parentSessionId,
+        childSdkId,
+      );
+      if (_disposed) return;
+      _childMessagesByChildId[childSdkId] = messages;
+    } catch (_) {
+      if (_disposed) return;
+      // Non-fatal: show empty child transcript rather than crashing.
+      _childMessagesByChildId[childSdkId] = const [];
+    } finally {
+      _loadingChildIds.remove(childSdkId);
+      if (!_disposed) notifyListeners();
+    }
   }
 
   /// Navigate back to the parent transcript.
@@ -858,18 +896,44 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   List<AgentInfo> availableAgentsFor(String sessionId) =>
       List.unmodifiable(_availableAgentsBySession[sessionId] ?? const []);
 
-  /// Currently selected agent name for [sessionId], or null when using the
-  /// SDK default (build). Does NOT change permissionMode — the PermissionMode-
-  /// Picker is the sole owner of that field (c6 regression contract).
-  String? selectedAgentFor(String sessionId) =>
-      _selectedAgentBySession[sessionId];
+  /// Currently selected agent name for [sessionId].
+  ///
+  /// Resolution order (#745):
+  ///   1. Explicit per-session selection stored in [_selectedAgentBySession].
+  ///   2. Manager profile's ocAgent name (from [_managerAgentNameResolver]).
+  ///   3. null → SDK default ('build') when no manager profile is configured.
+  ///
+  /// Does NOT change permissionMode — the PermissionModePicker is the sole
+  /// owner of that field (c6 regression contract).
+  String? selectedAgentFor(String sessionId) {
+    if (_selectedAgentBySession.containsKey(sessionId)) {
+      return _selectedAgentBySession[sessionId];
+    }
+    return _managerAgentNameResolver?.call();
+  }
 
-  /// Set the per-turn agent for [sessionId]. Null clears back to SDK default.
+  /// Returns true when the user has made an explicit per-session agent
+  /// selection (distinct from the manager-profile default). Used by
+  /// [AgentSelectorPill] to colour the pill as "overridden" (#745).
+  bool hasExplicitAgentSelection(String sessionId) =>
+      _selectedAgentBySession.containsKey(sessionId) &&
+      _selectedAgentBySession[sessionId] != null;
+
+  /// Set the per-turn agent for [sessionId].
+  ///
+  /// Passing null removes the explicit per-session entry so that
+  /// [selectedAgentFor] falls back to the manager profile resolver (#745).
+  /// This is the "reset to default" path — the picker sends null when the
+  /// user selects the placeholder "build (default)" item.
   ///
   /// Does NOT touch permissionMode or any other session field — the agent
   /// selector is orthogonal to the PermissionModePicker (c6).
   void setSelectedAgent(String sessionId, String? agentName) {
-    _selectedAgentBySession[sessionId] = agentName;
+    if (agentName == null) {
+      _selectedAgentBySession.remove(sessionId);
+    } else {
+      _selectedAgentBySession[sessionId] = agentName;
+    }
     notifyListeners();
   }
 
@@ -1326,6 +1390,7 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     String? branch,
     String? stash,
     bool createBranch = false,
+    String? mcpRole,
   }) async {
     _error = null;
     _lastErrorStatus = null;
@@ -1348,6 +1413,7 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
         branch: branch,
         stash: stash,
         createBranch: createBranch,
+        mcpRole: mcpRole,
       );
       _sessions = [..._sessions, session];
       sessionFirstSeenAt[session.id] = DateTime.now();
@@ -1572,6 +1638,52 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   // --------------------------------------------------------------------------
+  // Question (AskUserQuestion) handshake
+  // --------------------------------------------------------------------------
+
+  /// Authoritative questions for a tool [callId] from the `question.asked`
+  /// frame, or null if none were broadcast (card falls back to the tool input).
+  List<dynamic>? questionsForCallId(String sessionId, String callId) =>
+      _questionsByCallId['$sessionId:$callId'];
+
+  /// True once the question for [callId] has been answered or dismissed.
+  bool isQuestionResolved(String sessionId, String callId) =>
+      _resolvedQuestionCallIds.contains('$sessionId:$callId');
+
+  /// Answer a pending `question` (AskUserQuestion) tool call. [answers] is one
+  /// `List<String>` per question (the selected option labels). This is the path
+  /// that actually unblocks the agent — a plain `session.input` does NOT.
+  Future<void> replyQuestion(
+    String sessionId,
+    String callId,
+    List<List<String>> answers,
+  ) async {
+    _resolvedQuestionCallIds.add('$sessionId:$callId');
+    _questionsByCallId.remove('$sessionId:$callId');
+    notifyListeners();
+    try {
+      await _repository.replyQuestion(sessionId, callId, answers);
+    } catch (e) {
+      _error = e is AppError ? e.message : e.toString();
+      notifyListeners();
+    }
+  }
+
+  /// Dismiss a pending question without answering (the user declines). This
+  /// also unblocks the agent so the session never hangs.
+  Future<void> rejectQuestion(String sessionId, String callId) async {
+    _resolvedQuestionCallIds.add('$sessionId:$callId');
+    _questionsByCallId.remove('$sessionId:$callId');
+    notifyListeners();
+    try {
+      await _repository.rejectQuestion(sessionId, callId);
+    } catch (e) {
+      _error = e is AppError ? e.message : e.toString();
+      notifyListeners();
+    }
+  }
+
+  // --------------------------------------------------------------------------
   // Permission mode (#611)
   // --------------------------------------------------------------------------
 
@@ -1763,8 +1875,9 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
       ...controllerPending,
     ];
     final useParts = allAttachments.isNotEmpty;
-    // OPC-M4-4: include the per-session selected agent when set.
-    final selectedAgent = _selectedAgentBySession[sessionId];
+    // OPC-M4-4 / #745: include the per-session selected agent.
+    // selectedAgentFor resolves: explicit selection → manager default → null.
+    final selectedAgent = selectedAgentFor(sessionId);
     _repository.send({
       'type': 'session.input',
       'id': sessionId,
@@ -2431,6 +2544,24 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
       }
     } else if (msg is PermissionResolvedMessage) {
       _removePendingPermission(msg.sessionId, msg.permissionId);
+    } else if (msg is QuestionAskedMessage) {
+      // Store the authoritative question payload so the card can render even if
+      // the tool-part input streamed in slowly (or not at all).
+      if (msg.callId.isNotEmpty) {
+        _questionsByCallId['${msg.sessionId}:${msg.callId}'] = msg.questions;
+        _resolvedQuestionCallIds.remove('${msg.sessionId}:${msg.callId}');
+      }
+    } else if (msg is QuestionResolvedMessage) {
+      // Resolved by us, another client, or the agent. Mark every tracked
+      // callId for this session as resolved (we key local state by callId; the
+      // resolved frame only carries requestId, so clear conservatively).
+      _questionsByCallId.removeWhere((key, _) {
+        if (key.startsWith('${msg.sessionId}:')) {
+          _resolvedQuestionCallIds.add(key);
+          return true;
+        }
+        return false;
+      });
     } else if (msg is TriggerFiredMessage) {
       _pendingTriggers.add(
         PendingTrigger(

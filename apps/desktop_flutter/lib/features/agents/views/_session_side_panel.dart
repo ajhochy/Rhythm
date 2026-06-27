@@ -1,7 +1,12 @@
+import 'dart:async';
+import 'dart:io' show Platform;
+
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../../app/core/agents/agent_server_controller.dart';
+import '../data/usage_budget_data_source.dart';
+import '../models/usage_budget.dart';
 import '../../../app/core/formatters/date_formatters.dart';
 import '../../../app/core/ui/tokens/rhythm_theme.dart';
 import '../../agent_configs/controllers/agent_configs_controller.dart';
@@ -225,6 +230,9 @@ class _ContextTab extends StatelessWidget {
         const SizedBox(height: 8),
         _ContextUsageGauge(
             tokensUsed: totalTokens, contextWindow: contextWindow),
+        const SizedBox(height: 12),
+        // Real per-provider usage so you can see when to switch models.
+        const _UsageBudgetSection(),
         // OPC: enriched Context-tab details (cost, token breakdown, session
         // metadata). Only rendered once the session has at least one message;
         // zero-message sessions keep the gauge's "No messages yet" empty state.
@@ -502,6 +510,255 @@ class _ContextUsageGauge extends StatelessWidget {
             valueColor: AlwaysStoppedAnimation<Color>(barColor),
           ),
         ),
+      ],
+    );
+  }
+}
+
+/// USAGE BUDGET — real per-provider usage (Anthropic windows, OpenRouter
+/// credits, Gemini per-model quota; OpenAI shown as unavailable). Fetches on
+/// mount and polls every 60s while the Context tab is visible (the data source
+/// is server-cached so the poll is cheap). Self-contained: owns its data
+/// source, state, and timer.
+class _UsageBudgetSection extends StatefulWidget {
+  const _UsageBudgetSection();
+
+  @override
+  State<_UsageBudgetSection> createState() => _UsageBudgetSectionState();
+}
+
+class _UsageBudgetSectionState extends State<_UsageBudgetSection> {
+  static const _pollInterval = Duration(seconds: 60);
+
+  final UsageBudgetDataSource _dataSource = UsageBudgetDataSource();
+  Timer? _timer;
+  UsageBudgetSnapshot? _snapshot;
+  bool _loading = false;
+  bool _failed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // Skip live network + the periodic timer under widget tests so mounting the
+    // Context tab stays hermetic (no real :4001 call, no pending Timer).
+    if (!Platform.environment.containsKey('FLUTTER_TEST')) {
+      _refresh();
+      _timer = Timer.periodic(_pollInterval, (_) => _refresh());
+    }
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _refresh() async {
+    if (_loading) return;
+    _loading = true;
+    if (mounted && _snapshot == null) setState(() {});
+    try {
+      final snap = await _dataSource.fetch();
+      if (!mounted) return;
+      setState(() {
+        _snapshot = snap;
+        _failed = false;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _failed = true); // keep any prior snapshot visible
+    } finally {
+      _loading = false;
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final r = context.rhythm;
+    final header = Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(
+          'USAGE BUDGET',
+          style: TextStyle(
+            fontSize: 10,
+            fontWeight: FontWeight.w600,
+            letterSpacing: 0.6,
+            color: r.textMuted,
+          ),
+        ),
+        InkWell(
+          onTap: _loading ? null : _refresh,
+          borderRadius: BorderRadius.circular(4),
+          child: Padding(
+            padding: const EdgeInsets.all(2),
+            child: Icon(Icons.refresh, size: 12, color: r.textMuted),
+          ),
+        ),
+      ],
+    );
+
+    final snap = _snapshot;
+    if (snap == null) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          header,
+          const SizedBox(height: 4),
+          Text(
+            _failed ? 'Unavailable' : 'Loading…',
+            style: TextStyle(fontSize: 12, color: r.textMuted),
+          ),
+        ],
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        header,
+        const SizedBox(height: 6),
+        for (final p in snap.providers) ...[
+          _UsageBudgetProviderBlock(provider: p),
+          const SizedBox(height: 8),
+        ],
+      ],
+    );
+  }
+}
+
+class _UsageBudgetProviderBlock extends StatelessWidget {
+  const _UsageBudgetProviderBlock({required this.provider});
+
+  final UsageBudgetProvider provider;
+
+  /// Remaining-fraction → colour (inverse of the context gauge: full = green).
+  static Color _barColor(BuildContext context, double remaining) {
+    final r = context.rhythm;
+    if (remaining > 0.4) return r.success;
+    if (remaining > 0.15) return r.warning;
+    return r.danger;
+  }
+
+  static String? _resetLabel(DateTime? resetAt) {
+    if (resetAt == null) return null;
+    final now = DateTime.now();
+    final d = resetAt.toLocal().difference(now);
+    if (d.isNegative) return 'resets now';
+    if (d.inHours >= 24) return 'resets ${d.inDays}d';
+    if (d.inHours >= 1) return 'resets ${d.inHours}h';
+    return 'resets ${d.inMinutes}m';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final r = context.rhythm;
+    final providerLabel = Text(
+      provider.label,
+      style: TextStyle(
+        fontSize: 11,
+        fontWeight: FontWeight.w600,
+        color: r.textSecondary,
+      ),
+    );
+
+    if (provider.isUnavailable || provider.items.isEmpty) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          providerLabel,
+          const SizedBox(height: 2),
+          Text(
+            provider.reason ?? 'No usage data',
+            style: TextStyle(fontSize: 10, color: r.textMuted),
+          ),
+        ],
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        providerLabel,
+        const SizedBox(height: 3),
+        for (final item in provider.items) ...[
+          _UsageBudgetBar(item: item, color: _barColorFor(context, item)),
+          const SizedBox(height: 3),
+        ],
+      ],
+    );
+  }
+
+  static Color _barColorFor(BuildContext context, UsageBudgetItem item) {
+    final frac = item.remainingFraction;
+    if (frac == null) return context.rhythm.textMuted;
+    return _barColor(context, frac);
+  }
+}
+
+class _UsageBudgetBar extends StatelessWidget {
+  const _UsageBudgetBar({required this.item, required this.color});
+
+  final UsageBudgetItem item;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    final r = context.rhythm;
+    final frac = item.remainingFraction;
+    final pctLabel = frac != null ? '${(frac * 100).round()}%' : '—';
+    final reset = _UsageBudgetProviderBlock._resetLabel(item.resetAt);
+    final rightBits = <String>[
+      if (item.detail != null && item.detail!.isNotEmpty) item.detail!,
+      if (reset != null) reset,
+    ];
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Expanded(
+              child: Text(
+                item.label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(fontSize: 11, color: r.textPrimary),
+              ),
+            ),
+            const SizedBox(width: 6),
+            Text(
+              pctLabel,
+              style: TextStyle(
+                fontSize: 10,
+                fontWeight: FontWeight.w600,
+                color: frac != null ? color : r.textMuted,
+              ),
+            ),
+          ],
+        ),
+        // Only draw a bar when a ceiling is known; a null fraction (pay-as-you-go
+        // with no cap) would otherwise render an infinite spinner.
+        if (frac != null) ...[
+          const SizedBox(height: 2),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(2),
+            child: LinearProgressIndicator(
+              value: frac,
+              minHeight: 4,
+              backgroundColor: r.border,
+              valueColor: AlwaysStoppedAnimation<Color>(color),
+            ),
+          ),
+        ],
+        if (rightBits.isNotEmpty) ...[
+          const SizedBox(height: 2),
+          Text(
+            rightBits.join(' · '),
+            style: TextStyle(fontSize: 9, color: r.textMuted),
+          ),
+        ],
       ],
     );
   }

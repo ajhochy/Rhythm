@@ -4,6 +4,7 @@ import { opencodeSessionMap } from './opencode_engine';
 import { logger } from '../utils/logger';
 import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
 import { AgentSessionMessagesRepository } from '../repositories/agent_session_messages_repository';
+import { queueSkillExtraction } from './skill_extractor';
 import type { PermissionMode } from '../models/agent_session';
 
 /**
@@ -85,6 +86,26 @@ export interface PendingPermission {
   sdkSessionId: string;
 }
 
+/**
+ * Shape of a pending `question` (AskUserQuestion) tool call stored in-memory.
+ *
+ * opencode answers questions via a dedicated Question API keyed by `requestId`
+ * (the `que_…` id from the `question.asked` event), but the Flutter client only
+ * knows the tool `callId` it rendered the card from. We store both so the
+ * controller can resolve callId → requestId when the user answers, without the
+ * `que_…` id ever needing to leave the server.
+ */
+export interface PendingQuestion {
+  /** opencode QuestionID (the `que_…` id) — needed to POST /question/{id}/reply. */
+  requestId: string;
+  /** Tool callID (`toolu_…`/`chatcmpl-tool-…`) — what the rendered card carries. */
+  callId: string;
+  /** SDK session ID. */
+  sdkSessionId: string;
+  /** The question array (mirrors the tool input) for resume/fallback rendering. */
+  questions: unknown[];
+}
+
 export class OpencodeStreamBridge {
   // One SSE subscription per directory, because opencode's /event endpoint
   // filters by ?directory= — sessions whose cwd is outside the subscribed
@@ -135,6 +156,38 @@ export class OpencodeStreamBridge {
   /** Remove a pending permission after it is resolved. */
   clearPendingPermission(localSessionId: string, permissionId: string): void {
     this.pendingPermissions.delete(`${localSessionId}:${permissionId}`);
+  }
+
+  // In-memory map of pending questions. Key = `${localSessionId}:${requestId}`.
+  // Cleared when opencode emits question.replied/rejected (or on explicit reply).
+  private pendingQuestions = new Map<string, PendingQuestion>();
+
+  /** Return the pending question for a session+requestId, or undefined. */
+  getPendingQuestion(
+    localSessionId: string,
+    requestId: string,
+  ): PendingQuestion | undefined {
+    return this.pendingQuestions.get(`${localSessionId}:${requestId}`);
+  }
+
+  /**
+   * Resolve a pending question by the tool callId the Flutter card carries.
+   * Returns the pending entry (with its `requestId`) or undefined.
+   */
+  getPendingQuestionByCallId(
+    localSessionId: string,
+    callId: string,
+  ): PendingQuestion | undefined {
+    const prefix = `${localSessionId}:`;
+    for (const [key, q] of this.pendingQuestions) {
+      if (key.startsWith(prefix) && q.callId === callId) return q;
+    }
+    return undefined;
+  }
+
+  /** Remove a pending question after it is resolved. */
+  clearPendingQuestion(localSessionId: string, requestId: string): void {
+    this.pendingQuestions.delete(`${localSessionId}:${requestId}`);
   }
 
   /**
@@ -405,6 +458,23 @@ export class OpencodeStreamBridge {
                 tokens != null ? JSON.stringify(tokens) : null,
                 cost,
               );
+
+              // Backfill the session's actual model from the assistant message
+              // (opencode reports providerID/modelID even when the session was
+              // created without an explicit pick). Only fills when empty, then
+              // broadcasts so the context panel + model-derived icon update live.
+              if (role === 'assistant') {
+                const providerID = info.providerID as string | undefined;
+                const modelID = info.modelID as string | undefined;
+                if (providerID && modelID) {
+                  const modelled = this.sessionsRepo.backfillModel(
+                    localSessionId,
+                    providerID,
+                    modelID,
+                  );
+                  if (modelled) broadcastSessionUpdated(modelled);
+                }
+              }
             }
           } catch (err) {
             logger.error('[OpencodeStreamBridge] Failed to persist message info:', err);
@@ -594,6 +664,12 @@ export class OpencodeStreamBridge {
             this.pendingText.delete(localSessionId);
             // Clear per-part delta accumulators — turn boundary reached.
             this.pendingPartDeltas.clear();
+
+            // P2-2: fire-and-forget background skill extraction now that the
+            // assistant turn has been persisted. This is the WS/interactive
+            // turn-completion point (the >= 2 rounds gate is enforced inside
+            // queueSkillExtraction). Must NOT block or reject the turn.
+            queueSkillExtraction(localSessionId);
           } else {
             // Zero tokens streamed this turn — surface as user-visible error (#636)
             broadcast({
@@ -636,6 +712,43 @@ export class OpencodeStreamBridge {
       }
 
       case 'session.created': {
+        // #743 — When the session.created event carries a parentID on info,
+        // the engine has spawned a child (subagent/task-delegated) session.
+        // Persist a local agent_sessions row so the inspector can resolve
+        // /diff, token counts, and messages without 404ing.
+        //
+        // Event shape (opencode fork + upstream): properties = { sessionID, info: Session.Info }
+        // Session.Info.parentID is present when created via the `task` tool.
+        const createdInfo = (event.properties as Record<string, unknown>)?.info as Record<string, unknown> | undefined;
+        const createdParentId = createdInfo?.parentID as string | undefined;
+        if (createdParentId && opencodeSessionId) {
+          // Child session: persist and register.
+          const childTitle = (createdInfo?.title as string | undefined) ?? '';
+          const childCwd = (createdInfo?.directory as string | undefined) ?? '';
+          try {
+            const childRow = this.sessionsRepo.upsertChildSession(
+              opencodeSessionId,
+              createdParentId,
+              childTitle,
+              childCwd,
+            );
+            if (childRow) {
+              // Register in the session map so subsequent events route correctly.
+              opencodeSessionMap.set(childRow.id, opencodeSessionId);
+              // Broadcast the new child session so live Flutter clients update their list.
+              broadcastSessionUpdated(childRow);
+              logger.info(
+                `[OpencodeStreamBridge] child session created: localId=${childRow.id} sdkId=${opencodeSessionId} parentSdkId=${createdParentId}`,
+              );
+            } else {
+              logger.info(
+                `[OpencodeStreamBridge] child session.created: parent SDK id ${createdParentId} not in local store — skipping upsert`,
+              );
+            }
+          } catch (err) {
+            logger.error('[OpencodeStreamBridge] Failed to upsert child session:', err);
+          }
+        }
         broadcast({
           v: 1,
           type: 'session.created',
@@ -825,6 +938,68 @@ export class OpencodeStreamBridge {
         break;
       }
 
+      // opencode answers its `question` (AskUserQuestion) tool through a
+      // dedicated Question API, separate from permissions and session.input.
+      // The agent calls `question` → opencode emits `question.asked` with a
+      // QuestionRequest { id, sessionID, questions, tool:{callID} } and blocks
+      // the tool at status:running until POST /question/{id}/reply arrives.
+      // Without capturing the requestID here (and replying via the controller),
+      // the tool hangs forever and the whole session stalls — for every model,
+      // since they all run through the same opencode `build` agent.
+      case 'question.asked': {
+        const q = event.properties as {
+          id?: string;
+          requestID?: string;
+          sessionID?: string;
+          questions?: unknown[];
+          tool?: { callID?: string; messageID?: string };
+        };
+        const requestId = q.id ?? q.requestID;
+        if (!requestId || !localSessionId) break;
+        const sdkSessionId = opencodeSessionId ?? '';
+        const callId = q.tool?.callID ?? '';
+        const questions = Array.isArray(q.questions) ? q.questions : [];
+
+        this.pendingQuestions.set(`${localSessionId}:${requestId}`, {
+          requestId,
+          callId,
+          sdkSessionId,
+          questions,
+        });
+        broadcast({
+          v: 1,
+          type: 'question.asked',
+          sessionId: localSessionId,
+          requestId,
+          callId,
+          questions,
+        });
+        break;
+      }
+
+      // opencode resolved the question (we replied, or another client did, or
+      // it was rejected). Clear our pending entry and tell the client so the
+      // card can stop showing the answer affordance.
+      case 'question.replied':
+      case 'question.rejected': {
+        const q = event.properties as {
+          requestID?: string;
+          id?: string;
+          answers?: unknown;
+        };
+        const requestId = q.requestID ?? q.id;
+        if (!requestId || !localSessionId) break;
+        this.clearPendingQuestion(localSessionId, requestId);
+        broadcast({
+          v: 1,
+          type: 'question.resolved',
+          sessionId: localSessionId,
+          requestId,
+          rejected: event.type === 'question.rejected',
+        });
+        break;
+      }
+
       default: {
         // Relay any unrecognized event as a generic event
         broadcast({
@@ -882,6 +1057,8 @@ export class OpencodeStreamBridge {
     this.streamsByDirectory.clear();
     this.stoppedSessions.clear();
     this.pendingText.clear();
+    this.pendingPermissions.clear();
+    this.pendingQuestions.clear();
   }
 }
 

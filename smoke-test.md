@@ -1,41 +1,46 @@
 # Smoke Test
 
-Scope: Issue #499 — Manage Agents end-to-end smoke test, run against the currently open `/Applications/Rhythm.app` instance (`org.visaliacrc.rhythm`, pid 18831) on 2026-05-12.
-Date: 2026-05-12
+Scope: PR #734 / `feature/agent-scheduler`, P4 manager-to-specialist delegation D1-D5.
+Date: 2026-06-24 (re-run against the live running app server)
 
 ## Findings
 
-- Requirement: the running app should support the Manage agents workflow end to end: preset cards, enable/disable behavior in the trigger bubble, custom agent creation, Claude resume, server failure surfacing, deleted preset restore, Gemini trigger availability, and OpenCode trigger/resume.
-- The current instance initially showed `Agent server unavailable` because nothing was listening on `localhost:4001`. I started the repo API server on `localhost:4001` using the app DB path so the already-open app could continue.
-- The first source-server start failed with a `better-sqlite3` Node ABI mismatch when the shell selected the wrong Node version. Starting with `PATH=/opt/homebrew/bin:$PATH` fixed that, and `/health` returned `{"status":"ok","service":"rhythm-api-server"}`.
-- `Manage agents` opened and showed all four preset cards: Claude Code, Codex, Gemini CLI, and OpenCode. Claude Code, Codex, and Gemini CLI showed `Configured`; OpenCode showed `Needs setup` even though `opencode` is installed in a login shell, because the local server capability check returned `"opencode": false`.
-- Toggling Codex off persisted to `GET /agent-configs/codex` as `"enabled": false`; I restored it to enabled before finishing.
-- The Add agent menu exposed `+ Custom`, but the menu item did not activate through Computer Use. I created the requested temporary `Test` config through `POST /agent-configs` to verify the local API path, then deleted it before finishing.
-- The current live Agents page showed no active or resumable sessions, and the New button did not open a session dialog during this run, so Claude resume, Start inline error, Gemini trigger button, and OpenCode trigger/resume could not be completed from the current UI state.
-- Killing the local server with `kill $(lsof -ti:4001)` succeeded and left no listener on port 4001. The already-open Agents screen did not immediately refresh to an inline error after the kill.
+- The local agent API (port 4001) was already running, spawned by the live Flutter macOS app (`Rhythm.app`, pid 38523) with `AGENT_LOCAL=true`, so `/agent-delegation/delegate` is reachable without auth (route guard is `if (!env.agentLocal) requireAuth`).
+- Acceptance baseline = contract `docs/ai/contracts/issue-P4-manager-delegation.json` (c1-c6). All six criteria were exercised behaviorally against the live server this run.
+- Live config state confirms the D5 importer outcome: `workflow-orchestrator.isManager=true` with 12 allowed delegates including `coding-agent`, excluding itself; `coding-agent` present, enabled, isAgent.
+- Happy-path delegation returned HTTP 200 in 1.7s with `output="SMOKE_DELEGATION_OK"` and created a persisted session `Delegated: Coding Agent` (`agentKind=coding-agent`, status `idle`), confirming the sub-run is re-scoped to the target profile.
 
 ## Checks
 
 | Area | Check | How to run | Result | Reasoning |
 | --- | --- | --- | --- | --- |
-| Setup | Use the currently running Rhythm instance | Computer Use `get_app_state` for `Rhythm` | Success | Confirmed `/Applications/Rhythm.app` pid 18831 and did not relaunch the app. |
-| Backend | Local agent server can be made reachable for the current instance | `PATH=/opt/homebrew/bin:$PATH PORT=4001 DB_PATH="$HOME/Library/Application Support/Rhythm/rhythm.db" AGENT_LOCAL=true npm run dev`; `curl http://localhost:4001/health` | Success | Server became healthy on `localhost:4001`; initial run without Homebrew Node failed with a native module ABI mismatch. |
-| Frontend | Agents tab can reach Manage agents | Agents tab -> `Manage agents` | Success | Manage CLI Agents screen opened after the server was healthy. |
-| Frontend | All four preset cards appear with install badges | Observe Manage CLI Agents | Partial | Claude Code, Codex, Gemini CLI, and OpenCode appeared. OpenCode showed `Needs setup` despite `opencode` being installed in a login shell. |
-| Backend | Capability API matches visible badges | `curl http://localhost:4001/agents/capabilities` | Fail | Returned `{"claude-code":true,"codex":true,"gemini-cli":true,"opencode":false}` while `/Users/ajhochhalter/.local/bin/opencode` exists. |
-| Frontend/API | Toggle an agent off | Click Codex switch; `curl http://localhost:4001/agent-configs/codex` | Partial | Codex persisted as disabled, but no trigger bubble was available in the current UI to verify disappearance there. Codex was restored to enabled. |
-| Frontend/API | Add custom agent `Test` with command `echo hi`, AI Agent checked, enabled | Add-agent menu plus `POST /agent-configs` fallback | Partial | Add menu exposed `+ Custom`, but Computer Use could not activate it. API creation succeeded; temporary config was deleted afterward. Trigger bubble verification was blocked. |
-| Frontend | Resume existing Claude Code session | Observe Agents page | Blocked | Current page showed `No active agent sessions`; no resumable Claude Code session was visible. |
-| Frontend | Kill local server and confirm inline error appears on Start | `kill $(lsof -ti:4001)`, then try Agents `New` | Fail | Port 4001 was killed successfully, but the already-open screen stayed on the empty sessions view and did not surface an inline Start error during observation. |
-| Frontend | Re-add a deleted preset | Manage agents | Blocked | Preset rows cannot be deleted through the API (`Preset configs cannot be deleted` by design), and the UI did not expose a deleted-preset state to restore. |
-| Frontend | Gemini CLI trigger button appears if installed | `which gemini`; trigger bubble observation | Blocked | `gemini` is installed and capability API returned true, but no trigger bubble was available in the current UI. |
-| Frontend | OpenCode trigger button and resume work end to end | `which opencode`; capability API; trigger/resume UI | Fail | `opencode` is installed in a login shell, but local capability API returned false and the UI showed `Needs setup`; trigger/resume could not proceed. |
-| Backend | Source backend agent-config/session tests pass | `PATH=/opt/homebrew/bin:$PATH npm test -- --run src/__tests__/agent_configs.test.ts src/__tests__/agent_configs_routes.test.ts src/__tests__/agents_capabilities_routes.test.ts src/__tests__/agent_sessions.test.ts src/__tests__/pty_runner.test.ts` | Success | 5 test files and 69 tests passed. |
-| Frontend | Source Agents tests pass | `flutter test test/features/agents` | Success | 84 tests passed. A broader first attempt failed only because `test/features/agent_configs` does not exist. |
+| Backend | Local agent API alive | `curl localhost:4001/health` | Success | `{"status":"ok","service":"rhythm-api-server"}`. Server spawned by the running app. |
+| Backend D5 | Importer state: manager + delegates | `GET /agent-configs`, inspect `workflow-orchestrator` | Success | `isManager=true`, 12 delegates, includes `coding-agent`, excludes self; `coding-agent` enabled+isAgent. |
+| Backend D1 | API round-trips `allowedDelegatesJson` (insert) | `POST /agent-configs` with `allowedDelegatesJson:"[\"coding-agent\"]"` | Success | Created config returned `allowedDelegatesJson=["coding-agent"]`, `isManager=true`. |
+| Backend D1 | API round-trips `allowedDelegatesJson` (update) | `PATCH /agent-configs/:id` | Success | Returned `allowedDelegatesJson=["coding-agent","verification-gate"]`. Smoke config deleted (204); config count back to 21. |
+| Backend D4 | Non-manager cannot delegate | `POST /agent-delegation/delegate` caller `coding-agent` | Success | 403 `caller profile is not allowed to delegate`. |
+| Backend D4 | Manager → unlisted target rejected | `POST .../delegate` target `some-bogus-target` | Success | 403 `target profile is not an allowed delegate`. |
+| Backend D4 | Self-delegation rejected | `POST .../delegate` caller==target | Success | 400 `self-delegation is not allowed`. |
+| Backend D4 | Depth limit enforced | `POST .../delegate` `depth:1` | Success | 400 `delegation depth limit exceeded`. |
+| Backend D4 | Empty prompt rejected | `POST .../delegate` `prompt:""` | Success | 400 `prompt is required`. |
+| Backend D2/D3 | Allowed delegation runs re-scoped target | `POST .../delegate` caller `workflow-orchestrator` → target `coding-agent` | Success | HTTP 200, `output=SMOKE_DELEGATION_OK`, `targetAgentConfigId=coding-agent`, new session `3bb946b1-...`. |
+| Backend D2/D3 | Delegated sub-run persisted + re-scoped | `GET /agent-sessions`, find session | Success | Session `Delegated: Coding Agent`, `agentKind=coding-agent`, status `idle`. |
+| Frontend D5 | Profile sheet Manager toggle + Allowed Delegates editor | Manual: Agents → Profiles → open `workflow-orchestrator` → toggle/edit/save | Manual (visual) | Save mechanism (`PATCH allowedDelegatesJson`) and serialization (`agent_profile_model_picker_test.dart`, 6 tests) are both verified; only the visual click-through itself remains a human check. |
+
+## Regressions found during smoke
+
+| Area | Check | Result | Evidence |
+| --- | --- | --- | --- |
+| Frontend (UI) | Create a new agent session ("+ New") | **RESOLVED — was a misdiagnosis, not a backend bug** | Originally logged as "the backend closes every new session ~1s after create." Re-investigation (2026-06-25) **disproved** that: the server never auto-closes a freshly created session. The new row was simply appended to the **bottom** of a tall-card list and looked like it vanished. Fixed on the Flutter side: newest-first ordering + much denser session cards. See "Corrected diagnosis" below. |
+| Agents (UI) | Delegated session reaches terminal state + shows model/usage | **FAIL (cosmetic, still open)** | Delegated sub-run completes server-side (`status: idle`, correct reply) but the desktop card stays "Starting" with `Model ?/?`, `$0.0000`, 0 tokens — delegated runs execute synchronously inside `POST /agent-delegation/delegate` and never stream lifecycle/usage to the desktop client over `ws://localhost:4001/ws/agents`. |
+
+Corrected diagnosis (create→"vanish") — 2026-06-25:
+- The backend does **not** auto-close sessions. Verified live against the running `:4001` server: 6 programmatic creates (agent-less, `build` ×2, `claude-code` ×2, incl. a 3-at-once burst) all stayed `starting`; a real app "+ New" stayed `starting`; DB has `starting` sessions surviving up to 186 h.
+- The only path that writes `status='closed'` is `markClosed`, callable only via `agent_sessions_controller.ts:421/438` (which **throw 400**, so never on a 201 path) and `:737` = `DELETE /agent-sessions/:id`. The scheduler, `agent_runner`, the delegation service, and the opencode stream bridge never write `closed`; the server never emits a `session.closed` WS frame.
+- The smoke-era `closed` rows were **selective** (siblings created seconds apart survived), i.e. a transient create+DELETE actor during that smoke run — not a reconcile.
+- Real cause: `createSession` appended new rows to the **bottom** of the list and the cards were tall, so the new session was off-screen / easy to miss. Fix: sort the list newest-first (`_agents_nav_column.dart`) and shrink `SessionRow` to a single-line compact card (`_session_list_body.dart`). The new session is already auto-selected by `_instantCreateSession`.
 
 ## Known Gaps
 
-- I did not run `cd apps/desktop_flutter && flutter run -d macos` because the user requested the currently running instance.
-- No trigger bubble was present in the live instance, and this app was not launched with `RHYTHM_LOCAL_SEED_TRIGGER=1`, so trigger-bubble-specific checks could not be verified manually.
-- No active or resumable Claude Code session was visible in the current Agents page.
-- Port 4001 is intentionally left stopped after the requested kill check.
+- The profile-sheet editor click-through is the single genuine visual-UI manual check (open sheet, see Manager toggle + Allowed Delegates field, type, save). Its underlying PATCH save path and list serialization are verified automatically above, so the residual risk is purely rendering/interaction.
+- D3 was verified at the HTTP boundary the `rhythm_delegate` MCP tool posts to (`POST /agent-delegation/delegate`); the tool wrapper itself is covered by `agentDelegation.test.ts` (unit) rather than a live MCP round-trip this run.

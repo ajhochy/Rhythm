@@ -1,0 +1,60 @@
+{
+  "$schema": "https://rhythm.vcrcapps.com/schemas/mcp-role.json",
+  "role": "church-admin",
+  "description": "Church administration agent \u2014 full PCO Services + Rhythm tasks/projects/messaging. Read/write access to planning center data. No code execution.",
+  "mcpServers": {
+    "rhythm": {
+      "command": "node",
+      "args": [
+        "apps/mcp_server/dist/index.js"
+      ],
+      "env": {
+        "RHYTHM_API_URL": "${RHYTHM_API_URL}",
+        "RHYTHM_API_TOKEN": "${RHYTHM_API_TOKEN}"
+      },
+      "allowedTools": [
+        "rhythm_ping",
+        "rhythm_list_pending_triggers",
+        "rhythm_clear_pending_trigger",
+        "rhythm_list_tasks",
+        "rhythm_create_task",
+        "rhythm_update_task",
+        "rhythm_complete_task",
+        "rhythm_delete_task",
+        "rhythm_get_dashboard",
+        "rhythm_list_rhythms",
+        "rhythm_create_rhythm",
+        "rhythm_update_rhythm",
+        "rhythm_list_project_templates",
+        "rhythm_list_project_instances",
+        "rhythm_create_project_instance",
+        "rhythm_send_message",
+        "rhythm_list_message_threads",
+        "rhythm_create_message_thread",
+        "rhythm_list_facilities",
+        "rhythm_create_reservation",
+        "rhythm_remember_memory",
+        "rhythm_search_memory",
+        "rhythm_list_memories",
+        "rhythm_forget_memory",
+        "rhythm_start_research",
+        "rhythm_get_research_job"
+      ]
+    },
+    "pco-services": {
+      "inherit": true
+    }
+  },
+  "disabledMcpServers": [
+    "bash",
+    "computer",
+    "editor",
+    "filesystem"
+  ],
+  "allowedSkills": [
+    "monthly-gc-report",
+    "good-friday-binder-reminder",
+    "ministry-command-center",
+    "pco-song-usage-sync"
+  ]
+}

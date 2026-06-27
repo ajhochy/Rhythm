@@ -235,7 +235,15 @@ declare module '@opencode-ai/sdk' {
   export type EventSessionCreated = {
     type: 'session.created';
     properties: {
-      session: Session;
+      // Opencode SSE shape: { sessionID, info: Session.Info }.
+      // The `session` key is NOT present; use `info` for the full session data.
+      // Verified against opencode fork session.ts CreatedEventSchema.
+      sessionID: string;
+      info: Session & {
+        /** Present when created via the `task` tool (delegated subagent). */
+        parentID?: string;
+        directory?: string;
+      };
     };
   };
 
@@ -304,6 +312,44 @@ declare module '@opencode-ai/sdk' {
     };
   };
 
+  // ── Question event (AskUserQuestion handshake) ──
+  //
+  // opencode emits `question.asked` when the agent calls its `question` tool,
+  // carrying a QuestionRequest { id, sessionID, questions, tool:{callID} }, and
+  // blocks the tool until POST /question/{id}/reply. `question.replied` /
+  // `question.rejected` fire on resolution. Confirmed from the running binary's
+  // event definitions + the live GET /question payload. The Question API lives
+  // in the SDK's v2 namespace, so these are declared here for the v1 stream.
+  export type EventQuestionAsked = {
+    type: 'question.asked';
+    properties: {
+      id?: string;
+      requestID?: string;
+      sessionID?: string;
+      questions?: unknown[];
+      tool?: { callID?: string; messageID?: string };
+    };
+  };
+
+  export type EventQuestionReplied = {
+    type: 'question.replied';
+    properties: {
+      sessionID?: string;
+      requestID?: string;
+      id?: string;
+      answers?: string[][];
+    };
+  };
+
+  export type EventQuestionRejected = {
+    type: 'question.rejected';
+    properties: {
+      sessionID?: string;
+      requestID?: string;
+      id?: string;
+    };
+  };
+
   // OPC-M3-5: emitted by opencode when the todo list for a session changes.
   export type EventTodoUpdated = {
     type: 'todo.updated';
@@ -345,6 +391,9 @@ declare module '@opencode-ai/sdk' {
     | EventFileEdited
     | EventPermissionUpdated
     | EventPermissionAsked
+    | EventQuestionAsked
+    | EventQuestionReplied
+    | EventQuestionRejected
     | EventTodoUpdated;
 
   // ── Provider types ──

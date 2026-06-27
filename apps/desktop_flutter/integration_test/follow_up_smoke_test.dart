@@ -145,6 +145,7 @@ class _FakeAgentsRepository implements AgentsRepository {
     String? branch,
     String? stash,
     bool createBranch = false,
+    String? mcpRole,
   }) async {
     final session = AgentSession(
       id: 'sid-${_store.length + 1}',
@@ -211,6 +212,16 @@ class _FakeAgentsRepository implements AgentsRepository {
     String permissionId,
     String decision,
   ) async {}
+
+  @override
+  Future<void> replyQuestion(
+    String sessionId,
+    String callId,
+    List<List<String>> answers,
+  ) async {}
+
+  @override
+  Future<void> rejectQuestion(String sessionId, String callId) async {}
 
   @override
   Future<AgentSession> resumeSession(String id) async {

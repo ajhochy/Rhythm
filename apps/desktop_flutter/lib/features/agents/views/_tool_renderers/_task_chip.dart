@@ -62,11 +62,31 @@ class TaskChip extends StatelessWidget {
         (part.toolName ?? 'task');
   }
 
-  /// The child SDK session id, if present in the tool args.
-  /// Opencode embeds it as 'sessionId' in the task tool input.
+  /// The child SDK session id for this task.
+  ///
+  /// opencode's native `task` tool does NOT carry the child session id in its
+  /// input args — it returns it in the tool OUTPUT as `task_id: ses_…`
+  /// (e.g. "task_id: ses_10091f3c5ffee81eES4aW1V8Ev (for resuming …)"). We
+  /// therefore resolve it in order:
+  ///   1. toolArgs['sessionId'] — some tool variants embed it in the input.
+  ///   2. a `task_id: ses_…` marker in the tool output.
+  ///   3. any `ses_…` token in the output (last-resort fallback).
+  /// Returns null while the task is still running and no id has surfaced yet,
+  /// which keeps the chevron inert until the child transcript is reachable.
   String? _childSdkId() {
     final args = part.toolArgs ?? {};
-    return args['sessionId'] as String?;
+    final fromInput = args['sessionId'] as String?;
+    if (fromInput != null && fromInput.isNotEmpty) return fromInput;
+
+    final output = part.toolOutput;
+    if (output != null && output.isNotEmpty) {
+      final tagged =
+          RegExp(r'task_id:\s*(ses_[A-Za-z0-9]+)').firstMatch(output);
+      if (tagged != null) return tagged.group(1);
+      final any = RegExp(r'\b(ses_[A-Za-z0-9]+)\b').firstMatch(output);
+      if (any != null) return any.group(1);
+    }
+    return null;
   }
 
   @override

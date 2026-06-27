@@ -121,6 +121,7 @@ class _ErrorAgentsRepository implements AgentsRepository {
     String? branch,
     String? stash,
     bool createBranch = false,
+    String? mcpRole,
   }) async {
     throw AppError(
       message,
@@ -166,6 +167,20 @@ class _ErrorAgentsRepository implements AgentsRepository {
     String permissionId,
     String decision,
   ) async {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<void> replyQuestion(
+    String sessionId,
+    String callId,
+    List<List<String>> answers,
+  ) async {
+    throw UnimplementedError();
+  }
+
+  @override
+  Future<void> rejectQuestion(String sessionId, String callId) async {
     throw UnimplementedError();
   }
 

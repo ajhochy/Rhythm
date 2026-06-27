@@ -6,10 +6,36 @@ export interface AgentConfig {
   icon: string;
   enabled: boolean;
   isAgent: boolean;
+  isManager: boolean;
+  systemPrompt: string | null;
+  allowedMcpsJson: string | null;
+  allowedSkillsJson: string | null;
+  allowedDelegatesJson: string | null;
   presetId: string | null;
   sortOrder: number;
   createdAt: string;
   updatedAt: string;
+  /**
+   * Preferred provider for AgentRunner model resolution (e.g. "anthropic").
+   * Null means "fall back to most-recently-used session model or hardcoded default".
+   */
+  modelProvider: string | null;
+  /**
+   * Preferred model id for AgentRunner model resolution
+   * (e.g. "claude-sonnet-4-5"). Null when no preference is set.
+   */
+  modelId: string | null;
+  /**
+   * OpenCode built-in agent mode for this profile (e.g. 'build', 'plan').
+   * Null means use the opencode default ('build').
+   */
+  ocAgent: string | null;
+  /**
+   * True when this profile should appear in session-level agent pickers (the
+   * composer AgentSelectorPill). Subagents and opencode internal primaries are
+   * seeded false so they exist as profiles without cluttering the picker.
+   */
+  sessionSelectable: boolean;
   // Legacy CLI fields — retained on the row but no longer used by the
   // Opencode-based client. Marked optional so consumers do not depend on
   // them. New writes set these to NULL / empty defaults (issue #581).
@@ -26,8 +52,21 @@ export interface AgentConfigInput {
   icon: string;
   enabled?: boolean;
   isAgent?: boolean;
+  isManager?: boolean;
+  systemPrompt?: string | null;
+  allowedMcpsJson?: string | null;
+  allowedSkillsJson?: string | null;
+  allowedDelegatesJson?: string | null;
   presetId?: string | null;
   sortOrder?: number;
+  /** Preferred provider for AgentRunner model resolution (e.g. "anthropic"). */
+  modelProvider?: string | null;
+  /** Preferred model id for AgentRunner model resolution (e.g. "claude-sonnet-4-5"). */
+  modelId?: string | null;
+  /** OpenCode built-in agent mode (e.g. 'build', 'plan'). Null = default. */
+  ocAgent?: string | null;
+  /** Whether this profile appears in session-level agent pickers. Default true. */
+  sessionSelectable?: boolean;
   // Legacy fields — accepted on the input shape for back-compat with stale
   // clients, but silently ignored by insert()/update() (issue #581).
   command?: string;
@@ -44,6 +83,11 @@ interface AgentConfigRow {
   command: string;
   enabled: number;
   is_agent: number;
+  is_manager: number;
+  system_prompt: string | null;
+  allowed_mcps_json: string | null;
+  allowed_skills_json: string | null;
+  allowed_delegates_json: string | null;
   can_resume: number;
   resume_command: string | null;
   session_id_pattern: string | null;
@@ -52,6 +96,10 @@ interface AgentConfigRow {
   sort_order: number;
   created_at: string;
   updated_at: string;
+  model_provider: string | null;
+  model_id: string | null;
+  oc_agent: string | null;
+  session_selectable: number;
 }
 
 function rowToModel(row: AgentConfigRow): AgentConfig {
@@ -66,10 +114,19 @@ function rowToModel(row: AgentConfigRow): AgentConfig {
     icon: row.icon,
     enabled: row.enabled !== 0,
     isAgent: row.is_agent !== 0,
+    isManager: (row.is_manager ?? 0) !== 0,
+    systemPrompt: row.system_prompt ?? null,
+    allowedMcpsJson: row.allowed_mcps_json ?? null,
+    allowedSkillsJson: row.allowed_skills_json ?? null,
+    allowedDelegatesJson: row.allowed_delegates_json ?? null,
     presetId: row.preset_id,
     sortOrder: row.sort_order,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    modelProvider: row.model_provider ?? null,
+    modelId: row.model_id ?? null,
+    ocAgent: row.oc_agent ?? null,
+    sessionSelectable: (row.session_selectable ?? 1) !== 0,
   };
 }
 
@@ -110,10 +167,12 @@ export class AgentConfigsRepository {
     getDb()
       .prepare(
         `INSERT INTO agent_configs
-          (id, label, icon, command, enabled, is_agent, can_resume,
+          (id, label, icon, command, enabled, is_agent, is_manager, system_prompt,
+           allowed_mcps_json, allowed_skills_json, allowed_delegates_json, can_resume,
            resume_command, session_id_pattern, output_marker, preset_id, sort_order,
+           model_provider, model_id, oc_agent, session_selectable,
            created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         id,
@@ -122,12 +181,21 @@ export class AgentConfigsRepository {
         '', // command — legacy, no longer populated
         config.enabled !== false ? 1 : 0,
         config.isAgent !== false ? 1 : 0,
+        config.isManager ? 1 : 0,
+        config.systemPrompt ?? null,
+        config.allowedMcpsJson ?? null,
+        config.allowedSkillsJson ?? null,
+        config.allowedDelegatesJson ?? null,
         0, // can_resume — legacy
         null, // resume_command — legacy
         null, // session_id_pattern — legacy
         null, // output_marker — legacy
         config.presetId ?? null,
         config.sortOrder ?? 0,
+        config.modelProvider ?? null,
+        config.modelId ?? null,
+        config.ocAgent ?? null,
+        config.sessionSelectable === false ? 0 : 1,
         now,
         now,
       );
@@ -157,9 +225,45 @@ export class AgentConfigsRepository {
       fields.push('is_agent = ?');
       values.push(patch.isAgent ? 1 : 0);
     }
+    if (patch.isManager !== undefined) {
+      fields.push('is_manager = ?');
+      values.push(patch.isManager ? 1 : 0);
+    }
+    if (patch.systemPrompt !== undefined) {
+      fields.push('system_prompt = ?');
+      values.push(patch.systemPrompt ?? null);
+    }
+    if (patch.allowedMcpsJson !== undefined) {
+      fields.push('allowed_mcps_json = ?');
+      values.push(patch.allowedMcpsJson ?? null);
+    }
+    if (patch.allowedSkillsJson !== undefined) {
+      fields.push('allowed_skills_json = ?');
+      values.push(patch.allowedSkillsJson ?? null);
+    }
+    if (patch.allowedDelegatesJson !== undefined) {
+      fields.push('allowed_delegates_json = ?');
+      values.push(patch.allowedDelegatesJson ?? null);
+    }
     if (patch.sortOrder !== undefined) {
       fields.push('sort_order = ?');
       values.push(patch.sortOrder);
+    }
+    if (patch.modelProvider !== undefined) {
+      fields.push('model_provider = ?');
+      values.push(patch.modelProvider ?? null);
+    }
+    if (patch.modelId !== undefined) {
+      fields.push('model_id = ?');
+      values.push(patch.modelId ?? null);
+    }
+    if (patch.ocAgent !== undefined) {
+      fields.push('oc_agent = ?');
+      values.push(patch.ocAgent ?? null);
+    }
+    if (patch.sessionSelectable !== undefined) {
+      fields.push('session_selectable = ?');
+      values.push(patch.sessionSelectable ? 1 : 0);
     }
     // Legacy CLI fields (command, canResume, resumeCommand, sessionIdPattern,
     // outputMarker) are silently ignored on update so stale clients can't

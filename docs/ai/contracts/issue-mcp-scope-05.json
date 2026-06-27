@@ -1,0 +1,88 @@
+{
+  "$schema": "https://rhythm.vcrcapps.com/schemas/acceptance-contract.json",
+  "issue": "mcp-scope-05",
+  "title": "expandMcpAllowlist pure function",
+  "created": "2026-06-25",
+  "module": "apps/api_server/src/services/mcp_allowlist_expander.ts",
+  "testFile": "apps/api_server/src/services/__tests__/mcp_allowlist_expander.test.ts",
+  "exports": [
+    {
+      "name": "McpAllowlist",
+      "kind": "interface",
+      "shape": { "servers": "string[]", "tools": "string[]" }
+    },
+    {
+      "name": "expandMcpAllowlist",
+      "kind": "function",
+      "paramType": "McpRoleConfig (from agent_profile_scope.ts)",
+      "returnType": "McpAllowlist",
+      "pure": true
+    }
+  ],
+  "sanitizeRule": "s.replace(/[^a-zA-Z0-9_-]/g, '_') — applied to server segment AND tool segment independently",
+  "cases": [
+    {
+      "id": "C1",
+      "label": "Librarian fixture — all tools explicit",
+      "fixture": ".mcp-roles/librarian.mcp.json",
+      "asserts": [
+        "servers: []",
+        "tools.length === 20 + 11 === 31",
+        "every tool entry is <server>_<tool>"
+      ]
+    },
+    {
+      "id": "C2",
+      "label": "Secretary fixture — all tools explicit",
+      "fixture": ".mcp-roles/secretary.mcp.json",
+      "asserts": [
+        "servers: []",
+        "tools.length === 14 + 2 + 2 + 3 + 9 + 6 === 36",
+        "all server prefixes present in tools[]"
+      ]
+    },
+    {
+      "id": "C3",
+      "label": "Inherit-all server (empty allowedTools: [])",
+      "asserts": [
+        "sanitized server name in servers[]",
+        "absent from tools[]"
+      ]
+    },
+    {
+      "id": "C4",
+      "label": "Hyphenated server 'gmail-work' + ['search_emails']",
+      "asserts": [
+        "tools contains 'gmail-work_search_emails'"
+      ]
+    },
+    {
+      "id": "C5",
+      "label": "Dot/colon sanitize: server 'my.server', tool 'get:data'",
+      "asserts": [
+        "tools contains 'my_server_get_data'"
+      ]
+    },
+    {
+      "id": "C6",
+      "label": "disabledMcpServers exclusion",
+      "asserts": [
+        "named server absent from servers[]",
+        "named server absent from tools[]"
+      ]
+    },
+    {
+      "id": "C7",
+      "label": "Empty mcpServers",
+      "asserts": [
+        "{ servers: [], tools: [] }"
+      ]
+    }
+  ],
+  "hardStopRules": [
+    "Do NOT commit anything",
+    "Do NOT edit docs/ai/project-state.md, docs/ai/runs/*, or docs/ai/current-plan.md",
+    "Do NOT modify McpRoleConfig type in agent_profile_scope.ts",
+    "Do NOT wire into agent_profile_scope.ts unless trivially additive"
+  ]
+}

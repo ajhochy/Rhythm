@@ -25,6 +25,31 @@ class AgentConfigsController extends ChangeNotifier {
       _configs.where((c) => c.enabled && c.isAgent).toList()
         ..sort((a, b) => a.sortOrder.compareTo(b.sortOrder));
 
+  /// Profiles that should appear in the session composer's agent picker:
+  /// enabled, session-selectable, and backed by an opencode agent (ocAgent set,
+  /// so they can actually drive a turn). Ordered by sortOrder then label.
+  List<AgentConfig> get sessionSelectableAgents => _configs
+      .where((c) =>
+          c.enabled && c.sessionSelectable && (c.ocAgent ?? '').isNotEmpty)
+      .toList()
+    ..sort((a, b) {
+      final s = a.sortOrder.compareTo(b.sortOrder);
+      return s != 0 ? s : a.label.compareTo(b.label);
+    });
+
+  /// The manager agent (is_manager = true). Returns null if none set.
+  AgentConfig? get managerAgent {
+    for (final c in _configs) {
+      if (c.isManager) return c;
+    }
+    return null;
+  }
+
+  /// All specialist configs (enabled + isAgent + not manager), sorted by sortOrder.
+  List<AgentConfig> get specialistAgents =>
+      _configs.where((c) => c.enabled && c.isAgent && !c.isManager).toList()
+        ..sort((a, b) => a.sortOrder.compareTo(b.sortOrder));
+
   /// Look up a config by its id. Returns null if not found.
   AgentConfig? byId(String id) {
     for (final c in _configs) {

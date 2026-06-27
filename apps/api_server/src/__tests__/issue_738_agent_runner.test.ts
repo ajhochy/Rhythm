@@ -1,0 +1,210 @@
+/**
+ * #738 — AgentRunner service tests
+ *
+ * All tests mock opencode_engine so nothing real launches.
+ */
+
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+
+// ── Hoist mocks so they're available when vi.mock factory runs ────────────────
+
+const {
+  mockCreateSession,
+  mockPrompt,
+  mockAbortSession,
+} = vi.hoisted(() => ({
+  mockCreateSession: vi.fn(),
+  mockPrompt: vi.fn(),
+  mockAbortSession: vi.fn(),
+}));
+
+vi.mock('../services/opencode_engine', () => ({
+  opencodeClient: {
+    get isReady() { return true; },
+    createSession: mockCreateSession,
+    prompt: mockPrompt,
+    abortSession: mockAbortSession,
+  },
+  opencodeSessionMap: new Map<string, string>(),
+}));
+
+// ── Import after mock ─────────────────────────────────────────────────────────
+
+import { run, _activeRunCount } from '../services/agent_runner';
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+/** A minimal prompt() response with one text part. */
+function makePromptResponse(text: string): { info: Record<string, unknown>; parts: { type: string; text: string }[] } {
+  return {
+    info: { sessionID: 'sess-1' },
+    parts: [{ type: 'text', text }],
+  };
+}
+
+describe('#738 — AgentRunner', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    // Default: session creates fine, prompt resolves with a text reply
+    mockCreateSession.mockResolvedValue({ id: 'sdk-session-1' });
+    mockPrompt.mockResolvedValue(makePromptResponse('Hello from agent'));
+    mockAbortSession.mockResolvedValue(true);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.useRealTimers();
+  });
+
+  // ── A. Successful run ─────────────────────────────────────────────────────
+
+  it('returns done status and result text when assistant replies', async () => {
+    mockPrompt.mockResolvedValue(makePromptResponse('Hello from agent'));
+
+    const result = await run({ prompt: 'Say hello' });
+
+    expect(result.status).toBe('done');
+    expect(result.result).toBe('Hello from agent');
+    // sessionId is now the Rhythm session id (from _recordSession); it may differ
+    // from the opencode session id since the DB is not initialized in this test.
+    expect(typeof result.sessionId).toBe('string');
+    expect(mockCreateSession).toHaveBeenCalledOnce();
+    // #738-fix: prompt must be called WITH a resolved model (not undefined).
+    // The DB is not initialized in this test so MRU lookup falls back to the
+    // hardcoded default: anthropic / claude-sonnet-4-5.
+    expect(mockPrompt).toHaveBeenCalledWith(
+      'sdk-session-1',
+      'Say hello',
+      { providerID: 'anthropic', modelID: 'claude-sonnet-4-5' },
+      undefined,
+      expect.objectContaining({ permissionMode: 'bypassPermissions' }),
+    );
+  });
+
+  // ── B. Short-timeout + prompt never resolves ──────────────────────────────
+  //
+  // When AGENT_RUN_TIMEOUT_MS is very short, the timeoutPromise in Promise.race
+  // resolves first (returning null), which triggers the 'run timed out' error.
+  // The run returns an error and abortSession is called.
+
+  it('calls abortSession and returns error when timeout expires with no messages', async () => {
+    process.env.AGENT_RUN_TIMEOUT_MS = '50';
+
+    // prompt never resolves — timeout fires via Promise.race
+    mockPrompt.mockReturnValue(new Promise(() => {}));
+
+    const result = await run({ prompt: 'Timeout test' });
+
+    expect(result.status).toBe('error');
+    expect(result.error).toMatch(/run timed out/i);
+    expect(mockAbortSession).toHaveBeenCalledWith('sdk-session-1', undefined);
+
+    delete process.env.AGENT_RUN_TIMEOUT_MS;
+  });
+
+  // ── C. Slot released after successful run ─────────────────────────────────
+
+  it('releases the concurrency slot after a successful run', async () => {
+    mockPrompt.mockResolvedValue(makePromptResponse('Done'));
+
+    const beforeCount = _activeRunCount();
+    await run({ prompt: 'Slot release test' });
+    const afterCount = _activeRunCount();
+
+    expect(afterCount).toBe(beforeCount);
+  });
+
+  it('releases the concurrency slot after a failed run (timeout)', async () => {
+    process.env.AGENT_RUN_TIMEOUT_MS = '50';
+    mockPrompt.mockReturnValue(new Promise(() => {}));
+
+    const beforeCount = _activeRunCount();
+    await run({ prompt: 'Error release test' });
+    const afterCount = _activeRunCount();
+
+    expect(afterCount).toBe(beforeCount);
+
+    delete process.env.AGENT_RUN_TIMEOUT_MS;
+  });
+
+  // ── D. Session creation failure ───────────────────────────────────────────
+
+  it('returns error when createSession returns null', async () => {
+    mockCreateSession.mockResolvedValue(null);
+
+    const result = await run({ prompt: 'No session' });
+
+    expect(result.status).toBe('error');
+    expect(result.error).toMatch(/failed to create/i);
+    expect(mockPrompt).not.toHaveBeenCalled();
+  });
+
+  // ── E. prompt returns null → no output error ──────────────────────────────
+
+  it('returns error when prompt returns null (model produced no output)', async () => {
+    mockPrompt.mockResolvedValue(null);
+
+    const result = await run({ prompt: 'Bad prompt' });
+
+    expect(result.status).toBe('error');
+    expect(result.error).toMatch(/no output/i);
+  });
+
+  // ── G. prompt returns null → fast error (replaces no-progress fast-fail) ──
+
+  it('errors fast when model produces no output (prompt returns null)', async () => {
+    // prompt() resolves immediately with null — model returned nothing.
+    mockPrompt.mockResolvedValue(null);
+
+    const result = await run({ prompt: 'No output test' });
+
+    expect(result.status).toBe('error');
+    expect(result.error).toMatch(/no output/i);
+    // abortSession should NOT be called for a null response (only for timeout)
+    expect(mockAbortSession).not.toHaveBeenCalled();
+  });
+
+  // ── F. Concurrency cap rejects (N+1)th run ────────────────────────────────
+
+  it('rejects the (N+1)th run when concurrency cap is reached', async () => {
+    // Use a very short timeout so the first run completes (times out) promptly
+    process.env.AGENT_RUN_TIMEOUT_MS = '100';
+    process.env.MAX_CONCURRENT_AGENT_RUNS = '1';
+
+    // First run: prompt never resolves during the run window (times out)
+    let firstRunResolve!: (v: null) => void;
+    const firstRunPromise_mock = new Promise<null>((resolve) => {
+      firstRunResolve = resolve;
+    });
+    mockPrompt.mockReturnValue(firstRunPromise_mock);
+
+    // Start first run — don't await yet; let it acquire the slot
+    const firstRunPromise = run({ prompt: 'First' });
+
+    // Give the first run 20ms to acquire its slot (before timeout fires at 100ms)
+    await new Promise<void>((resolve) => setTimeout(resolve, 20));
+
+    // Second run should be rejected immediately (cap = 1, slot taken)
+    const secondResult = await run({ prompt: 'Second' });
+
+    expect(secondResult.status).toBe('error');
+    expect(secondResult.error).toMatch(/concurrency cap/i);
+
+    // Unblock and await first run (it will time out at 100ms and release slot)
+    firstRunResolve(null); // return null so it just times out cleanly
+    const firstResult = await firstRunPromise;
+    expect(firstResult.status).toBe('error'); // timed out
+
+    // Slot should be released now — a new run should be accepted
+    mockPrompt.mockResolvedValue(makePromptResponse('Done'));
+    const thirdResult = await run({
+      prompt: 'Third (after slot released)',
+    });
+    // Third run succeeds now that slot is free — no concurrency error
+    expect(thirdResult.error ?? '').not.toMatch(/concurrency cap/i);
+    expect(thirdResult.status).toBe('done');
+
+    delete process.env.AGENT_RUN_TIMEOUT_MS;
+    delete process.env.MAX_CONCURRENT_AGENT_RUNS;
+  }, 10_000); // extend test timeout to 10s
+});

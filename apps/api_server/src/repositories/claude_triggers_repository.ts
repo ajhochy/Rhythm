@@ -3,13 +3,43 @@ import { getDb, getPostgresPool } from '../database/db';
 
 export interface PendingClaudeTrigger {
   id: number;
-  taskId: string;
+  /** Null for scheduler- or webhook-originated triggers */
+  taskId: string | null;
   triggeredByUserId: number | null;
   createdAt: string;
-  taskTitle: string;
+  /** Populated when task_id is non-null */
+  taskTitle: string | null;
   taskNotes: string | null;
   taskOwnerId: number | null;
+  /** Populated for scheduler / webhook / research triggers */
+  prompt: string | null;
+  scheduledTaskId: string | null;
+  webhookEndpointId: string | null;
+  allowedMcps: string[] | null;
+  allowedSkills: string[] | null;
+  modelProvider: string | null;
+  modelId: string | null;
 }
+
+/** SELECT clause used by all queries — LEFT JOIN so NULL task_id rows are included */
+const SELECT_SQL = `
+  SELECT pct.id,
+         pct.task_id,
+         pct.triggered_by_user_id,
+         pct.created_at,
+         pct.prompt,
+         pct.scheduled_task_id,
+         pct.webhook_endpoint_id,
+         pct.allowed_mcps_json,
+         pct.allowed_skills_json,
+         pct.model_provider,
+         pct.model_id,
+         t.title    AS task_title,
+         t.notes    AS task_notes,
+         t.owner_id AS task_owner_id
+  FROM pending_claude_triggers pct
+  LEFT JOIN tasks t ON t.id = pct.task_id
+`;
 
 export class ClaudeTriggersRepository {
   async insertAsync(taskId: string, triggeredByUserId: number | null): Promise<void> {
@@ -30,13 +60,7 @@ export class ClaudeTriggersRepository {
   }
 
   async listAllAsync(): Promise<PendingClaudeTrigger[]> {
-    const sql = `
-      SELECT pct.id, pct.task_id, pct.triggered_by_user_id, pct.created_at,
-             t.title AS task_title, t.notes AS task_notes, t.owner_id AS task_owner_id
-      FROM pending_claude_triggers pct
-      JOIN tasks t ON t.id = pct.task_id
-      ORDER BY pct.created_at ASC
-    `;
+    const sql = `${SELECT_SQL} ORDER BY pct.created_at ASC`;
     if (env.dbClient === 'postgres') {
       const r = await getPostgresPool().query(sql);
       return r.rows.map(this.rowToModel);
@@ -46,37 +70,35 @@ export class ClaudeTriggersRepository {
   }
 
   async listForUser(userId: number): Promise<PendingClaudeTrigger[]> {
-    const sql = `
-      SELECT pct.id, pct.task_id, pct.triggered_by_user_id, pct.created_at,
-             t.title AS task_title, t.notes AS task_notes, t.owner_id AS task_owner_id
-      FROM pending_claude_triggers pct
-      JOIN tasks t ON t.id = pct.task_id
-      WHERE pct.triggered_by_user_id = $1
-      ORDER BY pct.created_at ASC
-    `;
+    const pgSql = `${SELECT_SQL} WHERE pct.triggered_by_user_id = $1 ORDER BY pct.created_at ASC`;
     if (env.dbClient === 'postgres') {
-      const r = await getPostgresPool().query(sql, [userId]);
+      const r = await getPostgresPool().query(pgSql, [userId]);
       return r.rows.map(this.rowToModel);
     }
-    const sqliteSql = sql.replace('$1', '?');
+    const sqliteSql = pgSql.replace('$1', '?');
     const rows = getDb().prepare(sqliteSql).all(userId) as any[];
     return rows.map(this.rowToModel);
   }
 
   async findByIdAndUser(id: number, userId: number): Promise<PendingClaudeTrigger | null> {
-    const sql = `
-      SELECT pct.id, pct.task_id, pct.triggered_by_user_id, pct.created_at,
-             t.title AS task_title, t.notes AS task_notes, t.owner_id AS task_owner_id
-      FROM pending_claude_triggers pct
-      JOIN tasks t ON t.id = pct.task_id
-      WHERE pct.id = $1 AND pct.triggered_by_user_id = $2
-    `;
+    const pgSql = `${SELECT_SQL} WHERE pct.id = $1 AND pct.triggered_by_user_id = $2`;
     if (env.dbClient === 'postgres') {
-      const r = await getPostgresPool().query(sql, [id, userId]);
+      const r = await getPostgresPool().query(pgSql, [id, userId]);
       return r.rows.length > 0 ? this.rowToModel(r.rows[0]) : null;
     }
-    const sqliteSql = sql.replace('$1', '?').replace('$2', '?');
+    const sqliteSql = pgSql.replace('$1', '?').replace('$2', '?');
     const row = getDb().prepare(sqliteSql).get(id, userId) as any | undefined;
+    return row ? this.rowToModel(row) : null;
+  }
+
+  async findByIdAsync(id: number): Promise<PendingClaudeTrigger | null> {
+    const pgSql = `${SELECT_SQL} WHERE pct.id = $1`;
+    if (env.dbClient === 'postgres') {
+      const r = await getPostgresPool().query(pgSql, [id]);
+      return r.rows.length > 0 ? this.rowToModel(r.rows[0]) : null;
+    }
+    const sqliteSql = pgSql.replace('$1', '?');
+    const row = getDb().prepare(sqliteSql).get(id) as any | undefined;
     return row ? this.rowToModel(row) : null;
   }
 
@@ -95,17 +117,29 @@ export class ClaudeTriggersRepository {
   }
 
   private rowToModel(row: any): PendingClaudeTrigger {
+    let allowedMcps: string[] | null = null;
+    let allowedSkills: string[] | null = null;
+    try { if (row.allowed_mcps_json) allowedMcps = JSON.parse(row.allowed_mcps_json); } catch { /* ignore */ }
+    try { if (row.allowed_skills_json) allowedSkills = JSON.parse(row.allowed_skills_json); } catch { /* ignore */ }
+
     return {
       id: row.id,
-      taskId: row.task_id,
-      triggeredByUserId: row.triggered_by_user_id,
+      taskId: row.task_id ?? null,
+      triggeredByUserId: row.triggered_by_user_id ?? null,
       createdAt:
         typeof row.created_at === 'string'
           ? row.created_at
           : row.created_at.toISOString(),
-      taskTitle: row.task_title,
-      taskNotes: row.task_notes,
-      taskOwnerId: row.task_owner_id,
+      taskTitle: row.task_title ?? null,
+      taskNotes: row.task_notes ?? null,
+      taskOwnerId: row.task_owner_id ?? null,
+      prompt: row.prompt ?? null,
+      scheduledTaskId: row.scheduled_task_id ?? null,
+      webhookEndpointId: row.webhook_endpoint_id ?? null,
+      allowedMcps,
+      allowedSkills,
+      modelProvider: row.model_provider ?? null,
+      modelId: row.model_id ?? null,
     };
   }
 }

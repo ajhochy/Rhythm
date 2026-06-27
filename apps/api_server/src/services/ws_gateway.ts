@@ -4,6 +4,10 @@ import { appEvents } from '../utils/app_events';
 import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
 import { opencodeClient, opencodeSessionMap } from './opencode_engine';
 import { bridgePty, ptyEngineUrl } from './pty_proxy';
+import { buildSkillsPreface, isSkillInjectionEnabled } from './skill_retrieval';
+import { buildMemoryPreface, isMemoryInjectionEnabled } from './memory_retrieval';
+import { AgentSkillsRepository } from '../repositories/agent_skills_repository';
+import { resolveProfileScope } from './agent_profile_scope';
 
 export interface WsMessage {
   v: 1;
@@ -361,6 +365,34 @@ export async function handleInputFrame(
     return;
   }
 
+  // P1a — Resolve profile scope (model + MCP config) for this session's agentKind.
+  // agentKind IS the agent_configs id on the interactive path. No override is
+  // passed (undefined) so the helper derives MCP scope from the profile's own
+  // allowed_mcps_json column — giving interactive sessions the same MCP
+  // restriction as their agent profile specifies, matching the scheduled path.
+  // This must happen BEFORE any createSession call so the mcpRoleConfig is
+  // available for init-time scoping. Non-fatal: a missing/unknown agentKind
+  // returns null mcpRoleConfig (no restriction).
+  let wsMcpRoleConfig: import('./agent_profile_scope').McpRoleConfig | undefined;
+  let wsAllowedSkillsJson: string | null = null;
+  let wsSystemPrompt: string | null = null;
+  let wsOcAgent: string | null = null;
+  try {
+    const wsProfileScope = await resolveProfileScope(agentKind ?? null);
+    wsMcpRoleConfig = wsProfileScope.mcpRoleConfig ?? undefined;
+    wsAllowedSkillsJson = wsProfileScope.allowedSkillsJson;
+    wsSystemPrompt = wsProfileScope.systemPrompt;
+    wsOcAgent = wsProfileScope.ocAgent;
+    if (wsMcpRoleConfig) {
+      console.log(
+        `[ws_gateway] session ${id}: profile mcpRoleConfig resolved (role=${wsMcpRoleConfig.role}, servers=${Object.keys(wsMcpRoleConfig.mcpServers).join(',')})`,
+      );
+    }
+  } catch (err) {
+    // Non-fatal: a scope-resolution failure must never block an interactive turn.
+    console.error(`[ws_gateway] resolveProfileScope failed (non-fatal):`, err);
+  }
+
   // OPC-M1-5 Auto-resume: sessions persist in SQLite across api_server
   // restarts, but `opencodeSessionMap` is in-process and is wiped
   // on each boot. If the user sends input to a session that has
@@ -402,12 +434,15 @@ export async function handleInputFrame(
           );
         } else {
           // SDK session is gone — create a fresh one and persist the new id.
+          // P1a: pass wsMcpRoleConfig so the new session inherits the profile's
+          // MCP scope even after an auto-resume.
           console.warn(
             `[ws_gateway] SDK session "${persistedSdkId}" gone for local session ${id} — creating fresh`,
           );
           const freshSession = await opencodeClient.createSession(
             sessionName ?? 'Resumed',
             cwd,
+            wsMcpRoleConfig,
           );
           if (!freshSession) {
             ws.send(
@@ -438,9 +473,12 @@ export async function handleInputFrame(
         }
       } else {
         // Legacy path: no sdk_session_id persisted — create a fresh session.
+        // P1a: pass wsMcpRoleConfig so the new session inherits the profile's
+        // MCP scope.
         const opencodeSession = await opencodeClient.createSession(
           sessionName ?? 'Resumed',
           cwd,
+          wsMcpRoleConfig,
         );
         if (!opencodeSession) {
           ws.send(
@@ -551,14 +589,22 @@ export async function handleInputFrame(
         `[ws_gateway] session ${id}: enabling reasoning via reasoningConfig.budgetTokens=${effectiveThinkingBudget}`,
       );
     }
-    const sdkOpts = (effectiveThinkingBudget !== null || effectiveFastMode || perTurnAgent !== null || sessionPermissionMode !== 'default')
+    // P2: Resolve `agent` with precedence: per-turn override > profile ocAgent > none.
+    // Per docs/ai/decisions/2026-06-24-sdk-per-session-system-prompt.md:
+    //   profile.ocAgent is an opencode *mode* ('build'/'plan'/etc.), NOT the Rhythm
+    //   provider kind — forwarding it is safe and different from the #738 guardrail.
+    //   wsOcAgent is null when the profile has no ocAgent; perTurnAgent is null when
+    //   the Flutter client didn't send an explicit per-turn agent override.
+    const effectiveAgent: string | null = perTurnAgent ?? wsOcAgent;
+    const sdkOpts = (effectiveThinkingBudget !== null || effectiveFastMode || effectiveAgent !== null || sessionPermissionMode !== 'default' || wsSystemPrompt !== null)
       ? {
           ...(effectiveThinkingBudget !== null
             ? { reasoningConfig: { type: 'enabled', budgetTokens: effectiveThinkingBudget } }
             : {}),
           ...(effectiveFastMode ? { fastMode: true } : {}),
-          ...(perTurnAgent !== null ? { agent: perTurnAgent } : {}),
+          ...(effectiveAgent !== null ? { agent: effectiveAgent } : {}),
           ...(sessionPermissionMode !== 'default' ? { permissionMode: sessionPermissionMode } : {}),
+          ...(wsSystemPrompt !== null ? { system: wsSystemPrompt } : {}),
         }
       : undefined;
 
@@ -580,7 +626,97 @@ export async function handleInputFrame(
       opts?: Record<string, unknown>,
       parts?: Array<Record<string, unknown>>,
     ) => Promise<unknown>;
-    await promptFn(opencodeId, data, model, cwd, sdkOpts, partsToForward);
+
+    // P3-2: inject retrieved skills as a TRANSIENT preface. The WS prompt body
+    // has no system-prompt seam (sdkOpts only carries reasoning/fastMode/agent/
+    // permission fields), so the preface is prepended to the forwarded user
+    // text — both the `data` string and the leading text part (whichever the
+    // SDK uses). This is in-memory only for this turn: nothing is persisted to
+    // the session, profile systemPrompt, or any opencode .md. uses are bumped
+    // after a successful enqueue.
+    let forwardData = data;
+    let forwardParts = partsToForward;
+    let wsInjectedSkillIds: string[] = [];
+    if (isSkillInjectionEnabled()) {
+      try {
+        // P1b: pass the profile's allowedSkillsJson so only permitted skills are injected.
+        const preface = buildSkillsPreface(data, { allowedSkillsJson: wsAllowedSkillsJson });
+        if (preface.text) {
+          forwardData = `${preface.text}\n\n${data}`;
+          wsInjectedSkillIds = preface.skillIds;
+          if (partsToForward) {
+            // Prepend to the first text part so the parts payload (which the
+            // SDK prefers over `data` when present) also carries the preface.
+            const idx = partsToForward.findIndex(
+              (p) => p.type === 'text' && typeof p.text === 'string',
+            );
+            forwardParts = partsToForward.map((p, i) =>
+              i === idx ? { ...p, text: `${preface.text}\n\n${p.text as string}` } : p,
+            );
+          }
+          console.log(
+            `[ws_gateway] session ${id}: injected ${wsInjectedSkillIds.length} retrieved skill(s) into prompt preface`,
+          );
+        }
+      } catch (err) {
+        // Non-fatal — never block a turn on retrieval failure.
+        console.error(`[ws_gateway] skill preface build failed (non-fatal):`, err);
+      }
+    }
+
+    // FOLLOW-UP (memory injection): prepend an OWNER-SCOPED, TRANSIENT
+    // "## Known context" block ALONGSIDE the skills preface (additive, not a
+    // replacement) — final forwarded text is:
+    //   <memory preface>\n\n<skills preface>\n\n<original user text>
+    // matching the AgentRunner composition order. Independently toggle-guarded.
+    //
+    // FAIL-SAFE OWNER RESOLUTION: the interactive `agent_sessions` row has NO
+    // owner/user column (sessions are not user-scoped on the local agent
+    // server), so the owning user CANNOT be determined here. Per the issue's
+    // fail-closed rule we pass ownerUserId=null → ONLY instance-global
+    // (null-owner) memory is retrieved; a user-owned fact can never leak into
+    // another user's interactive turn. As with skills, this is in-memory only:
+    // nothing is persisted to the session, profile systemPrompt, or any
+    // opencode .md.
+    if (isMemoryInjectionEnabled()) {
+      try {
+        const memPreface = await buildMemoryPreface(data, null);
+        if (memPreface.text) {
+          forwardData = `${memPreface.text}\n\n${forwardData}`;
+          if (forwardParts) {
+            const idx = forwardParts.findIndex(
+              (p) => p.type === 'text' && typeof p.text === 'string',
+            );
+            forwardParts = forwardParts.map((p, i) =>
+              i === idx
+                ? { ...p, text: `${memPreface.text}\n\n${p.text as string}` }
+                : p,
+            );
+          }
+          console.log(
+            `[ws_gateway] session ${id}: injected ${memPreface.memoryIds.length} relevant memory item(s) into prompt preface (owner=global)`,
+          );
+        }
+      } catch (err) {
+        // Non-fatal — never block a turn on retrieval failure.
+        console.error(`[ws_gateway] memory preface build failed (non-fatal):`, err);
+      }
+    }
+
+    await promptFn(opencodeId, forwardData, model, cwd, sdkOpts, forwardParts);
+
+    // P3-2: bump `uses` for each injected skill (non-fatal). Done after a
+    // successful enqueue; the preface text itself is never persisted.
+    if (wsInjectedSkillIds.length > 0) {
+      try {
+        const skillsRepo = new AgentSkillsRepository();
+        for (const skillId of wsInjectedSkillIds) {
+          skillsRepo.incrementUses(skillId);
+        }
+      } catch (err) {
+        console.error(`[ws_gateway] incrementUses failed (non-fatal):`, err);
+      }
+    }
   } catch (err) {
     console.error(
       `[ws_gateway] SDK prompt error for session ${id}:`,

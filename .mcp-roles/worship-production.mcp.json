@@ -1,0 +1,151 @@
+{
+  "$schema": "https://rhythm.vcrcapps.com/schemas/mcp-role.json",
+  "role": "worship-production",
+  "description": "Worship Production \u2014 Builds Ableton setlists, manages ProPresenter presentations, and interfaces with PCO for production. Uses ableton-mcp (broad), propresenter (library + playlist + presentation), PCO (read-only).",
+  "agentConfigId": "704d705e-42cc-416d-89d6-8a5d678eb279",
+  "mcpServers": {
+    "ableton-mcp": {
+      "inherit": true,
+      "allowedTools": [
+        "health_check",
+        "get_session_info",
+        "get_session_path",
+        "get_all_scenes",
+        "get_track_info",
+        "get_clip_notes",
+        "get_clip_loop",
+        "get_clip_pitch",
+        "get_clip_gain",
+        "get_clip_color",
+        "get_clip_warp_info",
+        "get_warp_markers",
+        "get_device_parameters",
+        "get_browser_tree",
+        "get_browser_items_at_path",
+        "search_browser",
+        "create_midi_track",
+        "create_audio_track",
+        "create_clip",
+        "add_notes_to_clip",
+        "set_clip_name",
+        "set_clip_loop",
+        "set_clip_pitch",
+        "set_clip_color",
+        "set_tempo",
+        "set_track_name",
+        "set_track_volume",
+        "set_track_mute",
+        "set_track_arm",
+        "fire_clip",
+        "fire_scene",
+        "stop_playback",
+        "start_playback",
+        "load_instrument_or_effect",
+        "load_drum_kit",
+        "duplicate_track",
+        "duplicate_clip",
+        "delete_clip",
+        "delete_track",
+        "set_arrangement_loop",
+        "jump_to_time",
+        "select_track",
+        "select_clip",
+        "select_scene"
+      ]
+    },
+    "propresenter": {
+      "inherit": true,
+      "allowedTools": [
+        "get_propresenter_version",
+        "library_get",
+        "library_get_libraries",
+        "library_trigger_presentation",
+        "library_trigger_presentation_cue",
+        "get_presentation",
+        "get_active_presentation",
+        "get_focused_presentation",
+        "get_active_slide_index",
+        "get_presentation_thumbnail",
+        "playlists_get_all",
+        "playlists_get",
+        "playlists_get_active",
+        "playlists_trigger",
+        "playlists_trigger_next",
+        "playlists_trigger_previous",
+        "playlists_trigger_item",
+        "playlists_trigger_active_presentation",
+        "trigger_next_slide",
+        "trigger_previous_slide",
+        "trigger_presentation",
+        "trigger_presentation_cue",
+        "status_get_slide",
+        "status_get_layers"
+      ]
+    },
+    "pco-services": {
+      "inherit": true,
+      "allowedTools": [
+        "get_service_types",
+        "get_plans",
+        "get_plan_items",
+        "get_plan_team_members",
+        "get_songs",
+        "get_song",
+        "find_song_by_title",
+        "get_all_arrangements_for_song",
+        "get_arrangement_for_song",
+        "get_keys_for_arrangement_of_song",
+        "search_people"
+      ]
+    },
+    "obsidian": {
+      "inherit": true,
+      "allowedTools": [
+        "obsidian_get_file",
+        "obsidian_put_file",
+        "obsidian_patch_file",
+        "obsidian_simple_search",
+        "obsidian_search_dataview",
+        "obsidian_status"
+      ]
+    },
+    "rhythm": {
+      "inherit": true,
+      "allowedTools": [
+        "rhythm_ping",
+        "rhythm_list_tasks",
+        "rhythm_create_task",
+        "rhythm_update_task",
+        "rhythm_complete_task",
+        "rhythm_get_dashboard",
+        "rhythm_remember",
+        "rhythm_search_context"
+      ]
+    }
+  },
+  "disabledMcpServers": [
+    "bash",
+    "computer",
+    "editor",
+    "filesystem"
+  ],
+  "notes": {
+    "registeredMcps": [
+      "pco-services",
+      "obsidian",
+      "rhythm"
+    ],
+    "unregisteredMcps": [
+      "ableton-mcp",
+      "propresenter"
+    ],
+    "inertUntilRegistered": [
+      "ableton-mcp",
+      "propresenter"
+    ]
+  },
+  "allowedSkills": [
+    "ableton-setlist-build",
+    "pco-song-usage-sync"
+  ]
+}

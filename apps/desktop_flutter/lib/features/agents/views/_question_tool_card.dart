@@ -16,9 +16,12 @@ import '../models/chat_models.dart';
 /// per option.  Multi-select questions (more than one question in the array)
 /// are handled by collecting each individual answer before submitting.
 ///
-/// Submitting sends a plain-text `session.input` WS message back to the agent
-/// with a human-readable summary of the selection.  No new controller methods
-/// are required — [AgentsController.sendInput] is the existing path.
+/// Submitting answers the question through opencode's dedicated Question API
+/// (`AgentsController.replyQuestion`, keyed by the tool `callId`), NOT via a
+/// `session.input` prompt — a plain prompt never completes the pending
+/// `question` tool, so the agent would hang forever (#622 root cause). A
+/// Dismiss affordance calls `rejectQuestion` so a question can always be
+/// escaped; either path unblocks the agent.
 ///
 /// If the tool is already answered (toolStatus == 'completed') the card renders
 /// a compact "Answered: <label>" stub instead.
@@ -77,7 +80,10 @@ class _QuestionToolCardState extends State<QuestionToolCard> {
 
   static List<_Question> _parseQuestions(Map<String, dynamic>? args) {
     if (args == null) return const [];
-    final raw = args['questions'];
+    return _parseQuestionList(args['questions']);
+  }
+
+  static List<_Question> _parseQuestionList(dynamic raw) {
     if (raw is! List) return const [];
     final out = <_Question>[];
     for (final item in raw) {
@@ -107,54 +113,137 @@ class _QuestionToolCardState extends State<QuestionToolCard> {
   void _selectOption(int qIdx, String option) {
     if (_questions.length == 1) {
       // Single question — submit immediately on tap.
-      _submit([option]);
+      _submit([
+        [option]
+      ], displayLabels: [
+        option
+      ]);
     } else {
       // Multi-question — stage the selection; submit when all answered.
       setState(() {
         _pending[qIdx] = option;
         if (_pending.length == _questions.length) {
-          final answers = [
-            for (var i = 0; i < _questions.length; i++)
-              '${_questions[i].header.isNotEmpty ? "${_questions[i].header}: " : ""}'
-                  '${_pending[i] ?? ""}',
-          ];
-          _submit(answers);
+          _submitFromPending();
         }
       });
     }
   }
 
-  void _submit(List<String> answers) {
-    final controller = context.read<AgentsController>();
-    final text = answers.join('\n');
-    // (#622 follow-up) — If a dedicated tool-result reply path is added to the
-    // WS gateway in a future PR, switch to it here. For now, session.input is
-    // the only upstream path and carries the answer back to the agent cleanly.
-    controller.sendInput(widget.sessionId, text);
-    setState(() => _answers = answers);
+  void _submitFromPending() {
+    final answers = <List<String>>[
+      for (var i = 0; i < _questions.length; i++) [_pending[i] ?? ''],
+    ];
+    final display = <String>[
+      for (var i = 0; i < _questions.length; i++)
+        '${_questions[i].header.isNotEmpty ? "${_questions[i].header}: " : ""}'
+            '${_pending[i] ?? ""}',
+    ];
+    _submit(answers, displayLabels: display);
+  }
+
+  /// Resolve the [AgentsController] from the tree, or null when none is
+  /// provided (e.g. isolated widget tests). The card still renders and the
+  /// answer affordance is a safe no-op without a controller.
+  AgentsController? _controller(BuildContext context, {required bool listen}) {
+    try {
+      return listen
+          ? context.watch<AgentsController>()
+          : context.read<AgentsController>();
+    } on Object {
+      return null;
+    }
+  }
+
+  /// Answer the question via opencode's Question API (NOT `session.input`).
+  /// A plain prompt never completes the pending `question` tool, so the agent
+  /// would hang forever (#622 root cause). [answers] is one `List<String>` per
+  /// question — opencode's QuestionAnswer is an array of selected labels.
+  void _submit(
+    List<List<String>> answers, {
+    required List<String> displayLabels,
+  }) {
+    final callId = widget.part.toolCallId;
+    if (callId != null && callId.isNotEmpty) {
+      _controller(context, listen: false)
+          ?.replyQuestion(widget.sessionId, callId, answers);
+    }
+    setState(() => _answers = displayLabels);
+  }
+
+  /// Dismiss the question without answering — also unblocks the agent so the
+  /// session can never get stuck on an unanswered question.
+  void _dismiss() {
+    final callId = widget.part.toolCallId;
+    if (callId != null && callId.isNotEmpty) {
+      _controller(context, listen: false)
+          ?.rejectQuestion(widget.sessionId, callId);
+    }
+    setState(() => _answers = ['Dismissed']);
   }
 
   @override
   Widget build(BuildContext context) {
-    // Already answered — show compact stub.
+    final r = context.rhythm;
+    // Already answered locally — show compact stub.
     if (_answers != null) {
       return _AnsweredStub(answers: _answers!);
     }
 
-    // No questions parsed yet (args still streaming) — show placeholder.
+    final controller = _controller(context, listen: true);
+    final callId = widget.part.toolCallId;
+
+    // Resolved by another client or by the agent — stop offering an answer.
+    if (controller != null &&
+        callId != null &&
+        callId.isNotEmpty &&
+        controller.isQuestionResolved(widget.sessionId, callId)) {
+      return const _AnsweredStub(answers: ['Resolved']);
+    }
+
+    // Prefer the tool-part input; fall back to the authoritative `question.asked`
+    // payload the controller captured (the tool input can stream in slowly, or
+    // arrive after the card first rendered — this kept the card stuck on the
+    // "Waiting for question…" placeholder).
+    if (_questions.isEmpty &&
+        controller != null &&
+        callId != null &&
+        callId.isNotEmpty) {
+      final fallback = controller.questionsForCallId(widget.sessionId, callId);
+      if (fallback != null) {
+        _questions = _parseQuestionList(fallback);
+      }
+    }
+
+    // No questions parsed yet (args still streaming) — show placeholder, but
+    // always offer a Dismiss escape so the agent can never be stuck waiting.
     if (_questions.isEmpty) {
       return Container(
         margin: const EdgeInsets.symmetric(vertical: 6),
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
         decoration: BoxDecoration(
-          border:
-              Border.all(color: const Color(0xFF4F6AF5).withValues(alpha: 0.4)),
+          border: Border.all(color: r.accent.withValues(alpha: 0.4)),
           borderRadius: BorderRadius.circular(6),
-          color: Colors.white,
+          color: r.surface,
         ),
-        child: Text(
-          'Waiting for question…',
-          style: TextStyle(fontSize: 12, color: context.rhythm.textMuted),
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(
+                'Waiting for question…',
+                style: TextStyle(fontSize: 12, color: r.textMuted),
+              ),
+            ),
+            TextButton(
+              onPressed: _dismiss,
+              style: TextButton.styleFrom(
+                foregroundColor: r.textMuted,
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                textStyle: const TextStyle(fontSize: 11),
+                minimumSize: const Size(0, 28),
+              ),
+              child: const Text('Dismiss'),
+            ),
+          ],
         ),
       );
     }
@@ -162,10 +251,9 @@ class _QuestionToolCardState extends State<QuestionToolCard> {
     return Container(
       margin: const EdgeInsets.symmetric(vertical: 6),
       decoration: BoxDecoration(
-        border:
-            Border.all(color: const Color(0xFF4F6AF5).withValues(alpha: 0.4)),
+        border: Border.all(color: r.accent.withValues(alpha: 0.4)),
         borderRadius: BorderRadius.circular(8),
-        color: Colors.white,
+        color: r.surface,
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -173,24 +261,25 @@ class _QuestionToolCardState extends State<QuestionToolCard> {
           // Header bar
           Container(
             padding: const EdgeInsets.fromLTRB(10, 6, 10, 6),
-            decoration: const BoxDecoration(
-              color: Color(0x144F6AF5), // primary tint
-              borderRadius: BorderRadius.vertical(top: Radius.circular(7)),
+            decoration: BoxDecoration(
+              color: r.accentMuted, // primary tint
+              borderRadius:
+                  const BorderRadius.vertical(top: Radius.circular(7)),
             ),
             child: Row(
               children: [
-                const Icon(
+                Icon(
                   Icons.help_outline,
                   size: 14,
-                  color: Color(0xFF4F6AF5),
+                  color: r.accent,
                 ),
                 const SizedBox(width: 6),
                 Text(
                   'Question',
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.w700,
-                    color: Color(0xFF4F6AF5),
+                    color: r.accent,
                   ),
                 ),
               ],
@@ -210,36 +299,43 @@ class _QuestionToolCardState extends State<QuestionToolCard> {
                     onSelect: (opt) => _selectOption(i, opt),
                   ),
                 ],
-                // Multi-question submit button — shown once at least one
-                // option has been staged.
-                if (_questions.length > 1 && _pending.isNotEmpty) ...[
-                  const SizedBox(height: 12),
-                  Align(
-                    alignment: Alignment.centerRight,
-                    child: FilledButton(
-                      onPressed: _pending.length == _questions.length
-                          ? () {
-                              final answers = [
-                                for (var i = 0; i < _questions.length; i++)
-                                  '${_questions[i].header.isNotEmpty ? "${_questions[i].header}: " : ""}'
-                                      '${_pending[i] ?? ""}',
-                              ];
-                              _submit(answers);
-                            }
-                          : null,
-                      style: FilledButton.styleFrom(
-                        backgroundColor: const Color(0xFF4F6AF5),
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 14, vertical: 6),
+                // Action row: Dismiss (always) + multi-question Submit.
+                const SizedBox(height: 12),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    TextButton(
+                      onPressed: _dismiss,
+                      style: TextButton.styleFrom(
+                        foregroundColor: context.rhythm.textMuted,
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
                         textStyle: const TextStyle(fontSize: 12),
+                        minimumSize: const Size(0, 30),
                       ),
-                      child: Text(
-                        'Submit (${_pending.length}/${_questions.length})',
-                      ),
+                      child: const Text('Dismiss'),
                     ),
-                  ),
-                ],
+                    // Multi-question submit — enabled once every question has a
+                    // staged selection.
+                    if (_questions.length > 1) ...[
+                      const SizedBox(width: 8),
+                      FilledButton(
+                        onPressed: _pending.length == _questions.length
+                            ? _submitFromPending
+                            : null,
+                        style: FilledButton.styleFrom(
+                          backgroundColor: r.accent,
+                          foregroundColor: r.surface,
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 14, vertical: 6),
+                          textStyle: const TextStyle(fontSize: 12),
+                        ),
+                        child: Text(
+                          'Submit (${_pending.length}/${_questions.length})',
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
               ],
             ),
           ),
@@ -266,16 +362,17 @@ class _QuestionSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final r = context.rhythm;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         if (question.header.isNotEmpty) ...[
           Text(
             question.header,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 10,
               fontWeight: FontWeight.w700,
-              color: Color(0xFF9CA3AF), // textMuted
+              color: r.textMuted,
               letterSpacing: 0.5,
             ),
           ),
@@ -283,10 +380,10 @@ class _QuestionSection extends StatelessWidget {
         ],
         Text(
           question.question,
-          style: const TextStyle(
+          style: TextStyle(
             fontSize: 13,
             fontWeight: FontWeight.w500,
-            color: Color(0xFF111827), // textPrimary
+            color: r.textPrimary,
             height: 1.4,
           ),
         ),
@@ -321,12 +418,13 @@ class _OptionButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final r = context.rhythm;
     if (selected) {
       return FilledButton(
         onPressed: onTap,
         style: FilledButton.styleFrom(
-          backgroundColor: const Color(0xFF4F6AF5),
-          foregroundColor: Colors.white,
+          backgroundColor: r.accent,
+          foregroundColor: r.surface,
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
           textStyle: const TextStyle(fontSize: 12),
           shape: RoundedRectangleBorder(
@@ -339,14 +437,14 @@ class _OptionButton extends StatelessWidget {
     return OutlinedButton(
       onPressed: onTap,
       style: OutlinedButton.styleFrom(
-        foregroundColor: const Color(0xFF4F6AF5),
-        side: const BorderSide(color: Color(0xFFE5E7EB)),
+        foregroundColor: r.accent,
+        side: BorderSide(color: r.border),
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
         textStyle: const TextStyle(fontSize: 12),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(6),
         ),
-        backgroundColor: Colors.white,
+        backgroundColor: r.surface,
       ),
       child: Text(label),
     );
@@ -360,31 +458,31 @@ class _AnsweredStub extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final r = context.rhythm;
     final display = answers.join(', ');
     return Container(
       margin: const EdgeInsets.symmetric(vertical: 4),
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
-        color: const Color(0x144F6AF5),
+        color: r.accentMuted,
         borderRadius: BorderRadius.circular(6),
-        border:
-            Border.all(color: const Color(0xFF4F6AF5).withValues(alpha: 0.3)),
+        border: Border.all(color: r.accent.withValues(alpha: 0.3)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Icon(
+          Icon(
             Icons.check_circle_outline,
             size: 13,
-            color: Color(0xFF4F6AF5),
+            color: r.accent,
           ),
           const SizedBox(width: 6),
           Expanded(
             child: Text(
               'Answered: $display',
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 12,
-                color: Color(0xFF4F6AF5),
+                color: r.accent,
               ),
             ),
           ),

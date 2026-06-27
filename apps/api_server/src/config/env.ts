@@ -92,6 +92,64 @@ export const env = {
   resendApiKey: process.env.RESEND_API_KEY ?? '',
   emailFromAddress: process.env.EMAIL_FROM_ADDRESS ?? 'Rhythm <onboarding@resend.dev>',
   agentLocal: process.env.AGENT_LOCAL === 'true',
+  /**
+   * P3-2: instance-wide toggle for injecting retrieved skills into the agent
+   * prompt preface. Default ON. Only the explicit strings 'false' or '0'
+   * disable it (any other value, including unset, leaves it enabled). This is
+   * instance-wide, NOT per-user — skills are a shared library (OQ-6).
+   */
+  agentSkillsEnabled: (() => {
+    const raw = (process.env.AGENT_SKILLS_ENABLED ?? '').trim().toLowerCase();
+    return !(raw === 'false' || raw === '0');
+  })(),
+  /**
+   * P5-2: instance-wide toggle for the self-refinement loop (improving EXISTING
+   * skills in place). Default ON. Only the explicit strings 'false' or '0'
+   * disable it. When OFF the loop still drafts NEW skills but never revises an
+   * existing one. The live gate in skill_refiner.ts uses
+   * `isSkillRefinementEnabled()` (re-reads process.env per call) for
+   * test/per-call toggling; this is the documented config surface.
+   */
+  agentSkillRefinementEnabled: (() => {
+    const raw = (process.env.AGENT_SKILL_REFINEMENT_ENABLED ?? '').trim().toLowerCase();
+    return !(raw === 'false' || raw === '0');
+  })(),
+  /**
+   * FOLLOW-UP (memory injection): instance-wide toggle for injecting relevant
+   * stored memories (facts & preferences) into the agent prompt preface as a
+   * transient "Known context" block. Default ON. Only the explicit strings
+   * 'false' or '0' disable it (any other value, including unset, leaves it
+   * enabled). Instance-wide, NOT per-user — but RETRIEVAL is owner-scoped at the
+   * call site (memory is per-user; see memory_retrieval.ts). The live gate in
+   * callers uses `isMemoryInjectionEnabled()` (re-reads process.env per call) so
+   * the toggle is testable without a process restart; this remains the
+   * documented config surface (mirrors agentSkillsEnabled).
+   */
+  agentMemoryInjectionEnabled: (() => {
+    const raw = (process.env.AGENT_MEMORY_INJECTION_ENABLED ?? '').trim().toLowerCase();
+    return !(raw === 'false' || raw === '0');
+  })(),
+  /**
+   * P4-1: stronger "teacher" model used when a weaker-model run fails and the
+   * teacher-escalation path re-runs it. Format 'provider/modelId'
+   * (e.g. 'anthropic/claude-opus-4-8'). Override with AGENT_TEACHER_MODEL.
+   * Parsed lazily by AgentRunner (split on the FIRST '/').
+   */
+  agentTeacherModel: process.env.AGENT_TEACHER_MODEL ?? 'anthropic/claude-opus-4-8',
+  /**
+   * P4-1: instance-wide toggle for the teacher-escalation path. Default ON.
+   * Only the explicit strings 'false' or '0' disable it (any other value,
+   * including unset, leaves it enabled). Instance-wide, NOT per-user.
+   *
+   * COST NOTE: when ON, every run that resolves with status==='error' triggers
+   * a second (stronger-model) re-run — this roughly DOUBLES the cost of FAILED
+   * runs. Successful runs are unaffected (no escalation). Escalation happens at
+   * most once per run (recursion-guarded).
+   */
+  agentTeacherEscalationEnabled: (() => {
+    const raw = (process.env.AGENT_TEACHER_ESCALATION_ENABLED ?? '').trim().toLowerCase();
+    return !(raw === 'false' || raw === '0');
+  })(),
   /** URL of the production Rhythm API to mirror tasks from (agent-local mode only).
    *  Set via PROD_API_URL env var.  When absent, production task mirroring is skipped. */
   prodApiUrl: process.env.PROD_API_URL ?? null,

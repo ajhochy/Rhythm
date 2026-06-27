@@ -69,3 +69,19 @@
 - **Criteria affected**: issue-677-c1/c3 closed live (production /health returned commit 3313c97 + builtAt after NAS pull); watchtower-rhythm-api-c4 (auto-update without SSH) is the one open criterion, observable on the next api_server merge.
 - **Root cause**: n/a — clean run.
 - **Suggested fix**: n/a.
+
+## 2026-06-24 — agent-question-hang (bug) — ask-question handshake + dark-mode card
+
+- **Result**: smoke PASS (both the hang fix and the in-session dark-mode follow-up)
+- **Category**: none (correctness). Process: P4 (issue_638 SharedPreferences async-after-completion flake, unrelated, de-flaked in 4b66c3f) + a noted local-verification-scope gap (Flutter verify scoped to test/features/agents/ vs full CI run).
+- **Criteria affected**: agent resumes after answering (PASS); dark-mode rendering (caught by smoke, fixed in-session via context.rhythm tokens, re-smoked PASS).
+- **Root cause**: opencode answers its `question` tool via a dedicated Question API (question.asked + POST /question/{id}/reply), not session.input — Rhythm replied via session.input so the tool hung at status:running forever. Card was also hardcoded to light-theme colors.
+- **Suggested fix**: smoke handoffs for mid-agent-session UI changes (un-screenshot-able by verification-gate) should explicitly request light+dark verification so theming defects surface on the first smoke.
+
+## 2026-06-26 — PR #749 agent-fixes (#742 #743 #745 #746 #747 #748) — 6-issue agent-subsystem run
+
+- **Result**: smoke PASS (no divergence). AI UI smoke: 4 runtime PASS (#747 endpoint+is_system exclusion, #743 nesting-schema + #743 no-flood, #748 Chrome reuse), 3 not_checked (#745/#746/#742 UI click-through) — blocked by a macOS screen-recording consent modal, NOT a defect; code confirmed present for all three.
+- **Category**: none (correctness). Process: `ai-smoke-blocker` (consent modal blocks computer-control clicks to Flutter canvas — needs one-time human Allow); `release-runtime` (installed app was spawning STOCK opencode not the bundled fork — path-depth bug, fixed 962f1ac4e).
+- **Workflow**: partial — W5 (#746 coding-agent committed + opened PR #749 prematurely against `main` before #748 and before orchestrator verification-gate), W6 (wrong PR base), W4 (first coding-agent edited home-dir secretary.md instead of the version-controlled opencode_agent_writer). All recovered by the orchestrator.
+- **Root cause (process)**: coding-agent dispatches did not hard-honor "do not commit / do not open PR"; subagents chained the full workflow autonomously.
+- **Suggested fix**: sharpen coding-agent boundaries (no commit/PR when dispatched as an implementation-only subagent) and add a "never edit ~/.config runtime paths — find the version-controlled writer" rule for opencode agent-profile changes.

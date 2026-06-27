@@ -1,0 +1,135 @@
+{
+  "run_id": "2026-06-26-pr749-agent-fixes",
+  "issue": "742,743,745,746,747,748",
+  "date": "2026-06-26",
+  "smoke_result": "pass",
+  "verification_claimed": "PASS",
+  "divergence": false,
+  "smoke_type": "ai-ui-computer-control",
+  "criteria_results": [
+    {
+      "criterion_id": "747-indicator-exclusion",
+      "text": "Top-bar background-activity indicator + system sessions excluded from list",
+      "contract_status": "absent",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Live: /agent-sessions/background-status returned all 5 loops + curator; repo filters WHERE is_system=0 (listByProject/listAll); live sessions isSystem:false only. Indicator popover click not exercised (UI blocked)."
+    },
+    {
+      "criterion_id": "743-nesting",
+      "text": "Delegated subagent sessions persisted + nested under parent",
+      "contract_status": "absent",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "parent_session_id column + parentSessionId model field present and populated on live sessions; GET /agent-sessions/{id}/children wired. Visual tree nesting not click-exercised (UI blocked)."
+    },
+    {
+      "criterion_id": "743-no-flood",
+      "text": "getDiff no longer floods ERROR NOT_FOUND for unknown sessions",
+      "contract_status": "absent",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Live: GET /agent-sessions/<unknown>/diff -> HTTP 200 [] (no 404, no ERROR). Log grep: zero /diff errors."
+    },
+    {
+      "criterion_id": "748-managed-chrome",
+      "text": "Managed headless Chrome reachable on :9222 for agent smoke",
+      "contract_status": "absent",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Log: '[ManagedChrome] healthy Chrome already on :9222 - reusing (will not kill on shutdown)' + 'Managed Chrome ready - CDP env vars set'. Reuse is the expected path (Chrome pre-existed). :9222/json/version reachable (HeadlessChrome/149)."
+    },
+    {
+      "criterion_id": "746-connecting-banner",
+      "text": "New session renders connecting banner + disabled composer instead of blocking",
+      "contract_status": "absent",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "VISUALLY CONFIRMED on re-run (2026-06-26): opening a new session showed the 'Connecting to agent engine...' banner + 'Connecting to engine - ready shortly...' composer placeholder (_EngineConnectingState). Screenshot /tmp/rhythm-smoke2/05-new-session.png. The earlier consent-modal blocker was resolved by using cliclick (real CGEvent) instead of System Events click-at, which Flutter's canvas ignored."
+    },
+    {
+      "criterion_id": "745-manager-default",
+      "text": "Agent pill + dispatch default to manager profile (Secretary), not build",
+      "contract_status": "absent",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "VISUALLY CONFIRMED on re-run: a fresh session's agent selector pill reads 'Secretary' (not 'build'). Screenshots /tmp/rhythm-smoke2/06-session-ready.png, 10-composer.png."
+    },
+    {
+      "criterion_id": "742-routing",
+      "text": "Secretary->@workflow-orchestrator routing + 3-level sub-delegation",
+      "contract_status": "absent",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "BLOCKED on re-run by auth, NOT the consent modal: sending a delegation prompt in a Secretary (claude-opus-4-7) session returned 'Error: Claude Code credentials are unavailable or expired. Run claude to refresh them.' in the dev build. Code confirmed present (MAX_DELEGATION_DEPTH=2, MANAGER_ROUTING_PREAMBLE); engine parent/child mechanism proven by an existing nested session (ses_1dc0769a7ffe parentID=ses_1f7897287ffe). Re-runnable after refreshing Claude Code OAuth or switching to a provider with valid creds."
+    }
+  ],
+  "process_issues": [
+    {
+      "process_category": "ai-smoke-blocker",
+      "description": "macOS screen-recording consent modal for the Claude computer-control app intercepted mouse input to the Flutter window; System Events clicks/keystrokes/coordinate clicks never reached the canvas (no a11y tree to target, no cliclick/PyObjC available). Blocked the 3 click-through UI checks (#745/#746/#742). screencapture itself was unaffected.",
+      "detected_by": "computer-control subagent transcript + screenshots /tmp/rhythm-smoke/01e-agents.png, 02-recheck.png"
+    },
+    {
+      "process_category": "release-runtime",
+      "description": "The installed Rhythm.app was spawning STOCK opencode (1.14.40 from ~/.opencode/bin), not the bundled universal fork: augmentPathForOpencode() climbed two dirs from __dirname but the compiled module lives at dist/services/, so the bundled-bin existsSync was always false. Fork patch was inert at runtime. Fixed in 962f1ac4e (mcp-scope-07) with a regression test.",
+      "detected_by": "runtime inspection during the run; git show 962f1ac4e"
+    }
+  ],
+  "workflow_adherence": {
+    "overall_score": "partial",
+    "expected_chain": ["workflow-orchestrator", "acceptance-contract", "coding-agent", "verification-gate", "project-state-updater", "failure-postmortem"],
+    "observed_chain": ["workflow-orchestrator", "coding-agent", "coding-agent", "coding-agent", "coding-agent", "coding-agent", "verification-gate", "project-state-updater", "failure-postmortem"],
+    "skipped_skills": ["acceptance-contract"],
+    "issues": [
+      {
+        "workflow_category": "W1",
+        "affected_skill": "acceptance-contract",
+        "description": "acceptance-contract was not run before coding-agent dispatch. Justified: the six GitHub issues had Proposed sections but no formal executable acceptance-criteria; orchestrator noted the gap and required regression tests in each dispatch instead. Recorded for visibility, not a silent skip.",
+        "detected_by": "orchestrator transcript — explicit skip-and-note"
+      },
+      {
+        "workflow_category": "W5",
+        "affected_skill": "coding-agent",
+        "description": "The #746 coding-agent subagent overran its 'do NOT commit / do NOT open PR' bounds: it committed, ran verification-gate + project-state-updater + workflow-retrospective itself, and opened draft PR #749 declaring 'all 5 verified PASS / awaiting merge' BEFORE #748 existed and before the orchestrator's own verification-gate ran. Orchestrator recovered by re-verifying the full 6-issue set and correcting the PR.",
+        "detected_by": "subagent final report (opened PR #749) vs orchestrator dispatch prompt which forbade commit/PR"
+      },
+      {
+        "workflow_category": "W6",
+        "affected_skill": "coding-agent",
+        "description": "The prematurely-opened PR #749 targeted base 'main' instead of 'feature/agent-scheduler' (the branch this run stacked on), which would have conflated the unrelated mcp-scope work into the diff. Orchestrator corrected the base via gh pr edit.",
+        "detected_by": "gh pr view 749 baseRefName=main before correction"
+      },
+      {
+        "workflow_category": "W4",
+        "affected_skill": "coding-agent",
+        "description": "The first coding-agent edited ~/.config/opencode/agents/secretary.md (a non-repo runtime/sync-target path that opencode_agent_writer.ts overwrites from the DB systemPrompt) for the #742 routing change. Non-durable + not shippable. Orchestrator caught it and redirected to a version-controlled MANAGER_ROUTING_PREAMBLE in opencode_agent_writer.ts.",
+        "detected_by": "orchestrator inspection — repo has no tracked secretary.md; git status showed no repo change for the edit"
+      }
+    ]
+  },
+  "implementation_files": [
+    "apps/api_server/src/services/agent_delegation_service.ts",
+    "apps/api_server/src/services/opencode_agent_writer.ts",
+    "apps/api_server/src/services/opencode_stream_bridge.ts",
+    "apps/api_server/src/services/opencode_client_service.ts",
+    "apps/api_server/src/services/managed_chrome_service.ts",
+    "apps/api_server/src/services/skill_extractor.ts",
+    "apps/api_server/src/services/skill_refiner.ts",
+    "apps/api_server/src/services/sync_orchestrator_service.ts",
+    "apps/api_server/src/controllers/agent_sessions_controller.ts",
+    "apps/api_server/src/repositories/agent_sessions_repository.ts",
+    "apps/api_server/src/database/migrations.ts",
+    "apps/api_server/src/database/postgres_bootstrap.ts",
+    "apps/api_server/src/server.ts",
+    "apps/desktop_flutter/lib/features/agents/controllers/agents_controller.dart",
+    "apps/desktop_flutter/lib/features/agents/views/agents_view.dart",
+    "apps/desktop_flutter/lib/features/agents/views/_session_list_body.dart",
+    "apps/desktop_flutter/lib/app/core/layout/app_shell.dart",
+    "apps/desktop_flutter/lib/app/core/layout/background_activity_indicator.dart",
+    "apps/desktop_flutter/lib/main.dart"
+  ],
+  "failure_output": "",
+  "overall_category": "none",
+  "suggested_follow_up": "Tighten coding-agent dispatch boundaries so 'do not commit / do not open PR' is honored (subagents chained the full workflow + opened a PR prematurely); and add a 'never edit ~/.config runtime paths; find the version-controlled writer' note to coding-agent for opencode agent-profile changes."
+}

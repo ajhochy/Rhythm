@@ -71,6 +71,32 @@ import 'app/core/agents/agent_server_controller.dart';
 import 'app/core/agents/agent_trigger_watcher.dart';
 import 'features/settings/controllers/mcp_controller.dart';
 import 'features/settings/data/mcp_data_source.dart';
+import 'features/agent_schedules/controllers/agent_schedules_controller.dart';
+import 'features/agent_schedules/data/agent_schedules_data_source.dart';
+import 'features/agent_schedules/repositories/agent_schedules_repository.dart';
+import 'features/agent_memory/controllers/agent_memory_controller.dart';
+import 'features/agent_memory/data/agent_memory_data_source.dart';
+import 'features/agent_memory/repositories/agent_memory_repository.dart';
+import 'features/agent_research/controllers/agent_research_controller.dart';
+import 'features/agent_research/data/agent_research_data_source.dart';
+import 'features/agent_research/repositories/agent_research_repository.dart';
+import 'features/agent_webhooks/controllers/agent_webhooks_controller.dart';
+import 'features/agent_webhooks/data/agent_webhooks_data_source.dart';
+import 'features/agent_webhooks/repositories/agent_webhooks_repository.dart';
+import 'features/agent_cookbook/controllers/agent_cookbook_controller.dart';
+import 'features/agent_cookbook/data/agent_cookbook_data_source.dart';
+import 'features/agent_cookbook/repositories/agent_cookbook_repository.dart';
+import 'features/agent_skills/controllers/agent_skills_controller.dart';
+import 'features/agent_skills/data/agent_skills_data_source.dart';
+import 'features/agent_skills/repositories/agent_skills_repository.dart';
+import 'features/agent_email/controllers/agent_email_controller.dart';
+import 'features/agent_email/data/agent_email_data_source.dart';
+import 'features/agent_email/repositories/agent_email_repository.dart';
+import 'features/agent_gallery/controllers/agent_gallery_controller.dart';
+import 'features/agent_gallery/data/agent_gallery_data_source.dart';
+import 'features/agent_gallery/repositories/agent_gallery_repository.dart';
+import 'app/core/background_activity/background_activity_controller.dart';
+import 'app/core/background_activity/background_status_data_source.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -326,29 +352,9 @@ class _RhythmAppContent extends StatelessWidget {
             AgentProjectsRepository(AgentProjectsRemoteDataSource()),
           ),
         ),
-        ChangeNotifierProvider(
-          create: (ctx) {
-            final ds = AgentsDataSource();
-            final repo = AgentsRepository(ds);
-            final controller = AgentsController(
-              repo,
-              agentServerController,
-              localNotificationService,
-              ctx.read<NotificationsController>(),
-            )..initialize();
-            _maybeSeedDebugTrigger(controller);
-            return controller;
-          },
-        ),
-        // OPC-M1-3: OverlayController removed (mini-bubble deleted).
-        ChangeNotifierProvider(
-          create: (ctx) => AgentTriggerWatcher(
-            serverConfigService: serverConfigService,
-            authSessionService: authSessionService,
-            agentServerController: agentServerController,
-            agentsController: ctx.read<AgentsController>(),
-          ),
-        ),
+        // #745: AgentConfigsController is created BEFORE AgentsController so
+        // that the manager-agent resolver closure can read it via ctx.read().
+        // The order change is safe — nothing in this block reads AgentsController.
         ChangeNotifierProvider(
           create: (_) {
             final controller = AgentConfigsController(
@@ -370,9 +376,105 @@ class _RhythmAppContent extends StatelessWidget {
             return controller;
           },
         ),
+        ChangeNotifierProvider(
+          create: (ctx) {
+            final ds = AgentsDataSource();
+            final repo = AgentsRepository(ds);
+            // #745: resolver reads the manager profile's ocAgent at call time
+            // (lazy — called per-turn, not at construction). AgentConfigsController
+            // is available because it is created in the preceding provider above.
+            final cfgCtrl = ctx.read<AgentConfigsController>();
+            final controller = AgentsController(
+              repo,
+              agentServerController,
+              localNotificationService,
+              ctx.read<NotificationsController>(),
+              managerAgentNameResolver: () => cfgCtrl.managerAgent?.ocAgent,
+            )..initialize();
+            _maybeSeedDebugTrigger(controller);
+            return controller;
+          },
+        ),
+        // OPC-M1-3: OverlayController removed (mini-bubble deleted).
+        ChangeNotifierProvider(
+          create: (ctx) => AgentTriggerWatcher(
+            serverConfigService: serverConfigService,
+            authSessionService: authSessionService,
+            agentServerController: agentServerController,
+            agentsController: ctx.read<AgentsController>(),
+          ),
+        ),
         // OPC-M4-3: MCP server management (#702)
         ChangeNotifierProvider(
           create: (_) => McpController(McpDataSource()),
+        ),
+        // ── Odysseus: Agent Scheduler, Memory, Research, Webhooks ─────────
+        ChangeNotifierProvider(
+          create: (_) => AgentSchedulesController(
+            AgentSchedulesRepository(AgentSchedulesDataSource()),
+          ),
+        ),
+        ChangeNotifierProvider(
+          create: (_) => AgentMemoryController(
+            AgentMemoryRepository(AgentMemoryDataSource()),
+          ),
+        ),
+        ChangeNotifierProvider(
+          create: (_) => AgentResearchController(
+            AgentResearchRepository(AgentResearchDataSource()),
+          ),
+        ),
+        ChangeNotifierProvider(
+          create: (_) => AgentWebhooksController(
+            AgentWebhooksRepository(AgentWebhooksDataSource()),
+          ),
+        ),
+        // ── Odysseus Phase B2/C3/D2: Cookbook, Email, Gallery ────────────────
+        ChangeNotifierProvider(
+          create: (_) => AgentCookbookController(
+            AgentCookbookRepository(AgentCookbookDataSource()),
+          ),
+        ),
+        ChangeNotifierProvider(
+          create: (_) => AgentSkillsController(
+            AgentSkillsRepository(AgentSkillsDataSource()),
+          ),
+        ),
+        ChangeNotifierProvider(
+          create: (_) => AgentEmailController(
+            AgentEmailRepository(AgentEmailDataSource(baseUrl: baseUrl)),
+          ),
+        ),
+        ChangeNotifierProvider(
+          create: (_) => AgentGalleryController(
+            AgentGalleryRepository(AgentGalleryDataSource()),
+          ),
+        ),
+        // #747 — Background activity indicator controller. Polls
+        // GET /agent-sessions/background-status every 15 s against the local
+        // agent server (agentLocalBaseUrl). Polling starts automatically and
+        // stops when disposed.
+        ChangeNotifierProvider(
+          create: (ctx) {
+            final controller = BackgroundActivityController(
+              BackgroundStatusDataSource(),
+            );
+            // Start polling once the agent server is ready; if already ready,
+            // start immediately.
+            void onAgentServerChanged() {
+              if (agentServerController.isReady) {
+                agentServerController.removeListener(onAgentServerChanged);
+                controller.startPolling();
+              }
+            }
+
+            if (agentServerController.isReady) {
+              controller.startPolling();
+            } else {
+              agentServerController.addListener(onAgentServerChanged);
+            }
+            return controller;
+          },
         ),
       ],
       child: Consumer<ThemeModeService>(

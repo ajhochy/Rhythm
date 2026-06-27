@@ -1,0 +1,68 @@
+{
+  "run_id": "2026-06-24-agent-question-hang",
+  "issue": "agent-question-hang (bug, no issue-writer ticket)",
+  "date": "2026-06-24",
+  "smoke_result": "pass",
+  "verification_claimed": "PASS",
+  "divergence": false,
+  "criteria_results": [
+    {
+      "criterion_id": "implicit-c1",
+      "text": "Answering an agent 'ask question' (AskUserQuestion) card resumes the agent instead of hanging at 'Waiting for question…'.",
+      "contract_status": "absent",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Manual smoke PASS: user clicked an option, the 'Answered: Test passed' stub appeared, and the agent continued ('Test passed. The ask question feature is working.'). No formal contract file because this was a bug, not an issue-writer ticket — acceptance-contract legitimately skipped (no acceptance-criteria section). Regression covered by new tests: opc_question_handshake.test.ts (5) + question_reply_handshake_test.dart (2)."
+    },
+    {
+      "criterion_id": "implicit-c2",
+      "text": "The question card renders correctly in dark mode.",
+      "contract_status": "absent",
+      "smoke_status": "fail_then_fixed",
+      "category": "none",
+      "notes": "Manual smoke caught a VISUAL defect the automated gate had explicitly flagged as unverifiable (verification-gate Required-Evidence #8: the card only appears mid-agent-session and could not be screenshot-driven). The card (pre-existing #622 code, plus the rows added in this fix) was hardcoded to light-theme colors, so it rendered as a white card in dark mode. Fixed in-session by converting every hardcoded color to context.rhythm theme tokens (commit db97f8b); re-smoked PASS in dark mode. This is the gate working as designed — it disclosed the visual gap, manual smoke covered it. Not a divergence in the verified behavior (the reply handshake)."
+    }
+  ],
+  "process_issues": [
+    {
+      "process_category": "P4",
+      "description": "issue_638_contract_test.dart (test/features/agents/) flakily failed Desktop CI with 'This test failed after it had already completed' — AgentsController.initialize() → loadInspectorPrefs() → SharedPreferences.getInstance() rejects asynchronously after the test body completes when the shared_preferences mock channel is not registered. Passed locally by timing; failed once on CI; passed on rerun.",
+      "detected_by": "Desktop CI first run failed (gh run view --log-failed); stack trace pointed at SharedPreferences.getInstance after test completion. Confirmed unrelated to the question fix (no changed files in the path). Remediated by a parallel de-flake commit (4b66c3f) registering SharedPreferences.setMockInitialValues({}) in setUp."
+    },
+    {
+      "process_category": "local-verification-scope",
+      "description": "verification-gate ran the FULL server vitest (1078/1078) but scoped the Flutter run to test/features/agents/ rather than the full `flutter test` that Desktop CI runs. The P4 flake lives in that directory and passed locally by timing, so a full local run would not have reliably caught it either — but the scope gap is worth noting.",
+      "detected_by": "Comparing the verification-gate command set (flutter test test/features/agents/) against the Desktop CI step (full flutter test)."
+    }
+  ],
+  "workflow_adherence": {
+    "overall_score": "strict",
+    "expected_chain": ["workflow-orchestrator", "systematic-debugging", "verification-gate", "project-state-updater", "failure-postmortem"],
+    "observed_chain": ["workflow-orchestrator", "systematic-debugging", "verification-gate", "project-state-updater", "failure-postmortem"],
+    "skipped_skills": [],
+    "issues": [
+      {
+        "workflow_category": "W3",
+        "affected_skill": "workflow-orchestrator",
+        "description": "TodoWrite was attempted at the start but the tool was not enabled in this session context ('No such tool available: TodoWrite'); phases were tracked inline instead. Tooling limitation, not a discipline skip.",
+        "detected_by": "Transcript: TodoWrite call returned an error, followed by an explicit note to track phases inline."
+      }
+    ]
+  },
+  "implementation_files": [
+    "apps/api_server/src/services/opencode_stream_bridge.ts",
+    "apps/api_server/src/services/opencode_client_service.ts",
+    "apps/api_server/src/controllers/agent_sessions_controller.ts",
+    "apps/api_server/src/routes/agent_sessions_routes.ts",
+    "apps/api_server/src/@types/opencode-ai-sdk.d.ts",
+    "apps/desktop_flutter/lib/features/agents/models/chat_models.dart",
+    "apps/desktop_flutter/lib/features/agents/models/agent_ws_message.dart",
+    "apps/desktop_flutter/lib/features/agents/controllers/agents_controller.dart",
+    "apps/desktop_flutter/lib/features/agents/data/agents_data_source.dart",
+    "apps/desktop_flutter/lib/features/agents/repositories/agents_repository.dart",
+    "apps/desktop_flutter/lib/features/agents/views/_question_tool_card.dart"
+  ],
+  "failure_output": "",
+  "overall_category": "none",
+  "suggested_follow_up": "When a UI change is only observable mid-agent-session (so verification-gate cannot screenshot it), the smoke handoff should explicitly call out 'verify in BOTH light and dark mode' so theming defects are caught on the first smoke rather than a second round."
+}

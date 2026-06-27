@@ -1,0 +1,36 @@
+{
+  "$schema": "https://rhythm.vcrcapps.com/schemas/mcp-role.json",
+  "role": "graphic-designer",
+  "description": "Agentic graphic designer \u2014 Canva design creation and export only. No code execution.",
+  "mcpServers": {
+    "canva": {
+      "type": "remote",
+      "url": "https://mcp.canva.com/mcp",
+      "allowedTools": [
+        "generate-design",
+        "create-design-from-brand-template",
+        "export-design",
+        "get-design",
+        "get-design-content",
+        "get-design-pages",
+        "get-design-thumbnail",
+        "search-designs",
+        "search-brand-templates",
+        "list-brand-kits"
+      ]
+    }
+  },
+  "disabledMcpServers": [
+    "bash",
+    "computer",
+    "editor",
+    "filesystem"
+  ],
+  "allowedSkills": [
+    "claude-design",
+    "baoyu-infographic",
+    "popular-web-designs",
+    "excalidraw",
+    "design-md"
+  ]
+}

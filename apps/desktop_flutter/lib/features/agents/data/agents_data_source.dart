@@ -186,6 +186,7 @@ class AgentsDataSource {
     String? branch,
     String? stash,
     bool createBranch = false,
+    String? mcpRole,
   }) async {
     final response = await _client.post(
       Uri.parse('$_baseUrl/agent-sessions'),
@@ -201,6 +202,7 @@ class AgentsDataSource {
         if (branch != null) 'branch': branch,
         if (stash != null) 'stash': stash,
         if (createBranch) 'createBranch': true,
+        if (mcpRole != null) 'mcpRole': mcpRole,
       }),
     );
     assertOk(response);
@@ -263,6 +265,37 @@ class AgentsDataSource {
     final response = await _client.post(
       Uri.parse(
           '$_baseUrl/agent-sessions/$sessionId/permission/$permissionId/$decision'),
+      headers: AuthSessionStore.headers(),
+    );
+    if (response.statusCode != 204) {
+      assertOk(response);
+    }
+  }
+
+  /// Answer a pending `question` (AskUserQuestion) tool call.
+  ///
+  /// [answers] is one `List<String>` per question (the selected option labels).
+  /// The server resolves [callId] → opencode's requestID and POSTs the reply,
+  /// which unblocks the agent. Without this the question tool hangs forever.
+  Future<void> replyQuestion(
+    String sessionId,
+    String callId,
+    List<List<String>> answers,
+  ) async {
+    final response = await _client.post(
+      Uri.parse('$_baseUrl/agent-sessions/$sessionId/question/$callId/reply'),
+      headers: AuthSessionStore.headers(json: true),
+      body: jsonEncode({'answers': answers}),
+    );
+    if (response.statusCode != 204) {
+      assertOk(response);
+    }
+  }
+
+  /// Dismiss a pending question (the user declines to answer).
+  Future<void> rejectQuestion(String sessionId, String callId) async {
+    final response = await _client.post(
+      Uri.parse('$_baseUrl/agent-sessions/$sessionId/question/$callId/reject'),
       headers: AuthSessionStore.headers(),
     );
     if (response.statusCode != 204) {

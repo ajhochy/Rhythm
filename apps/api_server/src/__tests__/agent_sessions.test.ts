@@ -916,7 +916,9 @@ describe('Agent Sessions API', () => {
     expect(session.taskTitle).toBe(taskTitle);
     expect(session.status).toBe('starting');
 
-    expect(mock.createSession).toHaveBeenCalledWith(sessionName, cwd);
+    // C1: createSession now accepts an optional third arg (mcpRoleConfig).
+    // When no mcpRole is provided the arg is undefined.
+    expect(mock.createSession).toHaveBeenCalledWith(sessionName, cwd, undefined);
     expect(opencodeSessionMap.get(session.id)).toBe('sdk-launch-no-fk');
     // Issue #653: server no longer fabricates an "I need help with: <title>"
     // initial prompt. The client owns first-turn content via composer prefill.
@@ -963,7 +965,9 @@ describe('Agent Sessions API', () => {
     expect(session.taskId).toBe(taskId);
     expect(session.taskTitle).toBe('Local Task');
     expect(session.status).toBe('starting');
-    expect(mock.createSession).toHaveBeenCalledWith(sessionName, cwd);
+    // C1: createSession now accepts an optional third arg (mcpRoleConfig).
+    // When no mcpRole is provided the arg is undefined.
+    expect(mock.createSession).toHaveBeenCalledWith(sessionName, cwd, undefined);
     expect(opencodeSessionMap.get(session.id)).toBe('sdk-launch-with-fk');
     // Issue #653: no auto-initial-prompt; client owns first-turn content.
     expect(mock.promptAsync).not.toHaveBeenCalled();

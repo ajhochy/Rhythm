@@ -116,6 +116,7 @@ class _SlowStubAgentsRepository implements AgentsRepository {
     String? branch,
     String? stash,
     bool createBranch = false,
+    String? mcpRole,
   }) async {
     await Future<void>.delayed(delay);
     return _makeSession('new-session');
@@ -165,6 +166,16 @@ class _SlowStubAgentsRepository implements AgentsRepository {
     String permissionId,
     String decision,
   ) async {}
+
+  @override
+  Future<void> replyQuestion(
+    String sessionId,
+    String callId,
+    List<List<String>> answers,
+  ) async {}
+
+  @override
+  Future<void> rejectQuestion(String sessionId, String callId) async {}
 
   @override
   Future<List<AgentSessionMessage>> getMessages(String id,
@@ -375,6 +386,7 @@ class _ThrowingStubRepo implements AgentsRepository {
     String? branch,
     String? stash,
     bool createBranch = false,
+    String? mcpRole,
   }) async {
     if (shouldThrow()) throw Exception('stubbed error');
     return inner.createSession(
@@ -385,6 +397,7 @@ class _ThrowingStubRepo implements AgentsRepository {
       branch: branch,
       stash: stash,
       createBranch: createBranch,
+      mcpRole: mcpRole,
     );
   }
 
@@ -467,6 +480,18 @@ class _ThrowingStubRepo implements AgentsRepository {
     String decision,
   ) =>
       inner.respondPermission(sessionId, permissionId, decision);
+
+  @override
+  Future<void> replyQuestion(
+    String sessionId,
+    String callId,
+    List<List<String>> answers,
+  ) =>
+      inner.replyQuestion(sessionId, callId, answers);
+
+  @override
+  Future<void> rejectQuestion(String sessionId, String callId) =>
+      inner.rejectQuestion(sessionId, callId);
 
   @override
   Future<List<AgentSessionMessage>> getMessages(String id, {int? limit}) =>

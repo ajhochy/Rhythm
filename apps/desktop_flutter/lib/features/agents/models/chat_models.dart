@@ -95,6 +95,7 @@ class ChatPart {
     required this.type,
     String text = '',
     this.toolName,
+    this.toolCallId,
     Map<String, dynamic>? toolArgs,
     String? toolOutput,
     String? toolStatus,
@@ -121,6 +122,12 @@ class ChatPart {
 
   /// Tool-part fields. Null for non-tool parts.
   String? toolName;
+
+  /// Tool callID (e.g. `toolu_…`). For a `question` (AskUserQuestion) tool this
+  /// is the correlation key the client uses to answer the question via
+  /// `POST /agent-sessions/:id/question/:callId/reply` — the server maps it to
+  /// opencode's internal requestID.
+  String? toolCallId;
   Map<String, dynamic>? _toolArgs;
   String? _toolOutput;
   String? _toolStatus;
@@ -181,6 +188,8 @@ class ChatPart {
   void mergePart(Map<String, dynamic> raw) {
     if (raw['type'] == 'tool') {
       toolName = raw['tool'] as String?;
+      final callId = raw['callID'] as String?;
+      if (callId != null) toolCallId = callId;
       final state = raw['state'] as Map<String, dynamic>?;
       if (state != null) {
         final input = state['input'];

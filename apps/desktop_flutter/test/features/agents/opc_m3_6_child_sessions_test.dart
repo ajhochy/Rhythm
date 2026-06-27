@@ -223,12 +223,17 @@ Widget _wrap(AgentsController controller, Widget child) => MultiProvider(
     );
 
 /// Build a minimal ChatPart for a 'task' tool with the given status and
-/// optional childSdkId embedded in toolArgs.
+/// optional childSdkId embedded in toolArgs and/or the tool output.
+///
+/// [childSdkId] → embedded in `state.input.sessionId` (legacy path).
+/// [outputChildId] → embedded in `state.output` as `task_id: <id>`, which is
+/// how opencode's native `task` tool actually returns the child session id.
 ChatPart _makeTaskPart({
   String messageId = 'msg-parent-001',
   String toolStatus = 'running',
   String description = 'Fix the auth bug',
   String? childSdkId,
+  String? outputChildId,
 }) =>
     ChatPart.fromJson(messageId, {
       'id': 'part-task-001',
@@ -241,6 +246,9 @@ ChatPart _makeTaskPart({
           'description': description,
           if (childSdkId != null) 'sessionId': childSdkId,
         },
+        if (outputChildId != null)
+          'output':
+              'task_id: $outputChildId (for resuming to continue this task if needed)\n\n<task_result>\ndone\n</task_result>',
         'title': 'Task: $description',
         'metadata': <String, dynamic>{},
       },
@@ -399,6 +407,68 @@ void main() {
           reason: 'Returning to parent must not trigger a rehydrate refetch');
     });
 
+    testWidgets(
+        'c2a-out: TaskChip navigates when child id is ONLY in tool output '
+        '(opencode `task_id: ses_…`)', (tester) async {
+      const parentSessionId = 'parent-session-c2a-out';
+      const childSdkId = 'ses_10091f3c5ffee81eES4aW1V8Ev';
+      const parentSessionName = 'Parent Session C2a-out';
+
+      repo.stagedChildMessages = _makeChildMessages();
+      _makeSession(parentSessionId, name: parentSessionName);
+
+      // Completed task whose child id is ONLY present in the tool output —
+      // exactly how opencode's native `task` tool reports it. The input has
+      // no `sessionId`, so the chevron must resolve the id from the output.
+      final taskPart = _makeTaskPart(
+        toolStatus: 'completed',
+        description: 'Delegation smoke test',
+        outputChildId: childSdkId,
+      );
+
+      controller.setMessageForTest(ChatMessage(
+        id: 'msg-parent-001',
+        sessionId: parentSessionId,
+        role: 'assistant',
+        createdAt: _kEpoch,
+      ));
+      controller.setChatPartForTest(taskPart);
+
+      await tester.pumpWidget(
+        _wrap(
+          controller,
+          Builder(
+            builder: (ctx) {
+              final agentsCtrl = ctx.watch<AgentsController>();
+              if (agentsCtrl.activeChildSessionId != null) {
+                return TextButton.icon(
+                  onPressed: () => agentsCtrl.closeChildSession(),
+                  icon: const Icon(Icons.chevron_left),
+                  label: Text('‹ ${agentsCtrl.activeChildParentName ?? ''}'),
+                );
+              }
+              return TaskChip(
+                part: taskPart,
+                parentSessionId: parentSessionId,
+                parentSessionName: parentSessionName,
+              );
+            },
+          ),
+        ),
+      );
+
+      expect(find.byType(TaskChip), findsOneWidget);
+
+      await tester.tap(find.byType(TaskChip));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
+
+      // Navigated into the child transcript using the id parsed from output.
+      expect(find.text('‹ $parentSessionName'), findsOneWidget);
+      expect(find.byType(TaskChip), findsNothing);
+      expect(controller.activeChildSessionId, equals(childSdkId));
+    });
+
     testWidgets('c2b: controller.openChildSession fetches child messages',
         (tester) async {
       const parentSessionId = 'parent-session-c2b';
@@ -508,6 +578,68 @@ void main() {
       // c4: no TextField (composer input) in the child view.
       expect(find.byType(TextField), findsNothing,
           reason: 'Child view must be read-only; no composer TextField');
+    });
+  });
+
+  // ── c4b: parts-only child messages render text (regression) ──
+
+  group('issue-699-c4b: child transcript renders text carried only in parts',
+      () {
+    testWidgets(
+        'c4b: subagent message with text only in parts renders (not blank)',
+        (tester) async {
+      const parentSessionId = 'parent-session-c4b';
+      const childSdkId = 'sdk-child-c4b';
+
+      // Real subagent shape: rawText/strippedText empty, text lives in parts.
+      repo.stagedChildMessages = [
+        AgentSessionMessage.fromStructuredJson({
+          'id': 1,
+          'sessionId': 'child-synthetic',
+          'role': 'output',
+          'rawText': '',
+          'strippedText': '',
+          'createdAt': '2026-06-25T10:00:00Z',
+          'sdkMessageId': 'msg-child-parts-001',
+          'parts': [
+            {'id': 'p1', 'type': 'text', 'text': 'Subagent transcript line'},
+          ],
+          'tokens': null,
+          'cost': null,
+        }),
+      ];
+
+      await controller.openChildSession(
+        parentSessionId: parentSessionId,
+        parentSessionName: 'Parent C4b',
+        childSdkId: childSdkId,
+      );
+      await tester.pump(Duration.zero);
+
+      await tester.pumpWidget(
+        _wrap(
+          controller,
+          Builder(
+            builder: (ctx) {
+              final agentsCtrl = ctx.watch<AgentsController>();
+              final childId = agentsCtrl.activeChildSessionId;
+              if (childId == null) return const SizedBox();
+              return ChildTranscriptView(
+                childSdkId: childId,
+                parentSessionName: agentsCtrl.activeChildParentName ?? 'Parent',
+                onBack: () => agentsCtrl.closeChildSession(),
+              );
+            },
+          ),
+        ),
+      );
+      await tester.pump(Duration.zero);
+
+      expect(find.text('Subagent transcript line'), findsOneWidget);
+      expect(
+        find.text('No messages in this subagent session.'),
+        findsNothing,
+      );
     });
   });
 

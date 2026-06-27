@@ -10,6 +10,7 @@ import '../../../features/dashboard/controllers/dashboard_controller.dart';
 import '../../../features/integrations/controllers/integrations_controller.dart';
 import '../../../features/notifications/controllers/notifications_controller.dart';
 import '../../../features/notifications/views/notification_panel.dart';
+import 'background_activity_indicator.dart';
 import '../../../features/dashboard/views/dashboard_view.dart';
 import '../../../features/facilities/views/facilities_view.dart';
 import '../../../features/integrations/models/integration_account.dart';
@@ -323,6 +324,14 @@ class _AppContent extends StatelessWidget {
                               ),
                             ),
                             const Spacer(),
+                            // #747 — Background activity indicator sits in the
+                            // empty header space between the Spacer and the
+                            // account cluster. Shows idle dot when quiet;
+                            // pulsing accent dot + count when active.
+                            const Padding(
+                              padding: EdgeInsets.only(right: 10),
+                              child: BackgroundActivityIndicator(),
+                            ),
                             _TopRightAccountCluster(
                               authSessionService: authSessionService,
                               updateController: updateController,

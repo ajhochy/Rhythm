@@ -1,0 +1,56 @@
+{
+  "issue": "mcp-scope-02",
+  "generated": "2026-06-25",
+  "stack": "typescript",
+  "criteria": [
+    {
+      "criterion_id": "mcp-scope-02-c1",
+      "text": "With mcpAllowlist = { servers: [], tools: ['srvA_tool1'] }: resolveTools MCP output includes srvA_tool1, excludes srvA_tool2 and srvB_tool1.",
+      "mode": "unit",
+      "test_file": "apps/opencode_fork/packages/opencode/src/session/mcp_allowlist.test.ts",
+      "test_id": "mcp-scope-02-c1: explicit tool key allowlist > returns only srvA_tool1 when tools=['srvA_tool1'] and servers=[]",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "mcp-scope-02-c2",
+      "text": "With mcpAllowlist = { servers: ['srvB'], tools: [] }: output includes all srvB_* tools, excludes all srvA_*.",
+      "mode": "unit",
+      "test_file": "apps/opencode_fork/packages/opencode/src/session/mcp_allowlist.test.ts",
+      "test_id": "mcp-scope-02-c2: server-level allowlist passes all server tools > returns all srvB_* tools when servers=['srvB'] and tools=[]",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "mcp-scope-02-c3",
+      "text": "With mcpAllowlist = { servers: [], tools: [] } (empty both): zero MCP tools in output.",
+      "mode": "unit",
+      "test_file": "apps/opencode_fork/packages/opencode/src/session/mcp_allowlist.test.ts",
+      "test_id": "mcp-scope-02-c3: empty allowlist returns no tools > returns empty array when both servers and tools are empty",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "mcp-scope-02-c4",
+      "text": "With mcpAllowlist = undefined: output identical to upstream (all MCP tools present — no behavior change).",
+      "mode": "unit",
+      "test_file": "apps/opencode_fork/packages/opencode/src/session/mcp_allowlist.test.ts",
+      "test_id": "mcp-scope-02-c4: undefined allowlist returns all tools (back-compat) > returns all tool keys when allowlist is undefined",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "mcp-scope-02-c5",
+      "text": "An id in tools that no server exposes is silently absent (no throw).",
+      "mode": "unit",
+      "test_file": "apps/opencode_fork/packages/opencode/src/session/mcp_allowlist.test.ts",
+      "test_id": "mcp-scope-02-c5: unknown key in tools list is silently absent > does not throw when tools contains a key that no server exposes",
+      "status": "pending"
+    }
+  ],
+  "helper": {
+    "name": "filterMcpToolsByAllowlist",
+    "signature": "filterMcpToolsByAllowlist(toolKeys: string[], keyToServer: Record<string, string>, mcpAllowlist: { servers: string[]; tools: string[] } | undefined): string[]",
+    "location": "apps/opencode_fork/packages/opencode/src/session/mcp_allowlist.ts",
+    "export": "named export",
+    "notes": "Pure function. toolKeys = Object.keys(mcp.tools()). keyToServer = index built from MCP.tools() clientName metadata (NOT string-split on '_'). resolveTools calls this and skips any key not in the returned set."
+  },
+  "test_command": "cd apps/opencode_fork/packages/opencode && bun test src/session/mcp_allowlist.test.ts",
+  "not_tested": []
+}

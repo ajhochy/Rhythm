@@ -1,0 +1,56 @@
+{
+  "issue": "sched-scope-inherit",
+  "generated": "2026-06-24",
+  "stack": "typescript",
+  "criteria": [
+    {
+      "criterion_id": "sched-scope-inherit-c1",
+      "text": "A scheduled task with no allowed_mcps_json, bound to a profile scoped to [\"rhythm\"], runs with exactly the rhythm tools and cannot call out-of-scope tools (scheduler passes undefined so the runner inherits the profile scope).",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/scheduler_dispatch_contract.test.ts",
+      "test_id": "scope-c1: task with null allowed_mcps_json → run() receives allowedMcpsJson: undefined (inherit)",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "sched-scope-inherit-c2",
+      "text": "Changing the profile's allowed_mcps_json changes what the task can do on its next run, with NO edit to the task (scope is resolved live).",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/scheduled_task_scope_helper_contract.test.ts",
+      "test_id": "scope-c2: editing the profile changes the resolved MCP scope on the next call (no override)",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "sched-scope-inherit-c3",
+      "text": "A task WITH an explicit allowlist still overrides the profile.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/scheduler_dispatch_contract.test.ts",
+      "test_id": "scope-c3: task with explicit allowed_mcps_json → run() receives that value (override)",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "sched-scope-inherit-c4",
+      "text": "The same inheritance/override precedence applies to allowed_skills_json (skills filtering), not just MCPs.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/scheduled_task_scope_helper_contract.test.ts",
+      "test_id": "scope-c4: allowedSkillsJsonOverride takes precedence over the profile allowed_skills_json",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "sched-scope-inherit-c5",
+      "text": "The create-task path (MCP tool + REST) does NOT require an allowlist — omitting it means \"inherit from profile\".",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/scheduled_task_columns_contract.test.ts",
+      "test_id": "scope-c5: does NOT require allowedMcps/allowedSkills (omitting = inherit)",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "sched-scope-inherit-c6",
+      "text": "At dispatch the scheduler forwards the task's own allowed_skills_json as a skills override when set, and undefined (inherit) when null/empty.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/scheduler_dispatch_contract.test.ts",
+      "test_id": "scope-c6: task with explicit allowed_skills_json → run() receives that value",
+      "status": "pass"
+    }
+  ],
+  "not_tested": []
+}

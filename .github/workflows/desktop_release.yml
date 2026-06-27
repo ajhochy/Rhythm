@@ -194,6 +194,67 @@ jobs:
             });
           '
 
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Build opencode fork binary
+        working-directory: apps/opencode_fork/packages/opencode
+        run: |
+          bun install
+          # --macos builds only the two darwin targets (arm64 + x64) for the
+          # universal bundle, skipping linux/windows/musl/baseline.
+          bun run build --macos
+          # Assert both architecture binaries were produced before lipo
+          if [ ! -f "dist/opencode-darwin-arm64/bin/opencode" ]; then
+            echo "::error::opencode fork arm64 binary not found after build"
+            exit 1
+          fi
+          if [ ! -f "dist/opencode-darwin-x64/bin/opencode" ]; then
+            echo "::error::opencode fork x64 binary not found after build"
+            exit 1
+          fi
+
+      - name: Bundle opencode fork binary (universal)
+        working-directory: apps/desktop_flutter
+        run: |
+          APP="build/macos/Build/Products/Release/Rhythm.app"
+          DEST="$APP/Contents/Resources/opencode_bin"
+          mkdir -p "$DEST"
+          ARM64="../../apps/opencode_fork/packages/opencode/dist/opencode-darwin-arm64/bin/opencode"
+          X64="../../apps/opencode_fork/packages/opencode/dist/opencode-darwin-x64/bin/opencode"
+          lipo -create "$ARM64" "$X64" -output "$DEST/opencode"
+          chmod +x "$DEST/opencode"
+
+      - name: Verify bundled opencode fork payload
+        working-directory: apps/desktop_flutter
+        run: |
+          DEST="build/macos/Build/Products/Release/Rhythm.app/Contents/Resources/opencode_bin"
+          if [ ! -f "$DEST/opencode" ]; then
+            echo "::error::Bundled opencode fork binary not found at $DEST/opencode"
+            exit 1
+          fi
+          if [ ! -x "$DEST/opencode" ]; then
+            echo "::error::Bundled opencode fork binary is not executable"
+            exit 1
+          fi
+          echo "opencode fork binary present and executable: OK"
+
+      - name: Smoke opencode fork marker
+        working-directory: apps/desktop_flutter
+        run: |
+          BINARY="build/macos/Build/Products/Release/Rhythm.app/Contents/Resources/opencode_bin/opencode"
+          VERSION_OUTPUT="$("$BINARY" --version 2>&1 || true)"
+          echo "opencode fork --version output: $VERSION_OUTPUT"
+          # Assert the binary is NOT stock opencode (stock releases begin with 1.14.x).
+          # The fork embeds the branch/timestamp in its version string.
+          if echo "$VERSION_OUTPUT" | grep -qE '^1\.[0-9]+\.[0-9]+$'; then
+            echo "::error::Bundled opencode binary reports a stock release version ($VERSION_OUTPUT). Expected the Rhythm fork marker."
+            exit 1
+          fi
+          echo "Fork marker verified: binary is not a stock release."
+
       - name: Package macOS artifacts
         working-directory: apps/desktop_flutter
         run: ../../tools/release/package_macos.sh

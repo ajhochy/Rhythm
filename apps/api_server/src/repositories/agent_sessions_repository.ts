@@ -30,6 +30,16 @@ interface AgentSessionRow {
   archived_at: string | null;
   created_at: string;
   updated_at: string;
+  /** C1 — MCP role slug (e.g. "church-admin"). Null when no role was requested. */
+  mcp_role: string | null;
+  /** C1 — JSON Record<serverName, string[]> of resolved per-server allowedTools. */
+  mcp_allowed_tools_json: string | null;
+  /** Agent-loop tracking: FK to agent_scheduled_tasks.id. Null for interactive sessions. */
+  scheduled_task_id: string | null;
+  /** #743 — Local id of the parent agent_sessions row (for delegated subagent sessions). */
+  parent_session_id: string | null;
+  /** #747 — 1 when this is a background/system session (curator, scheduler, memory). */
+  is_system: number;
 }
 
 function rowToModel(row: AgentSessionRow): AgentSession {
@@ -56,6 +66,11 @@ function rowToModel(row: AgentSessionRow): AgentSession {
     archivedAt: row.archived_at ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+    mcpRole: row.mcp_role ?? null,
+    mcpAllowedToolsJson: row.mcp_allowed_tools_json ?? null,
+    scheduledTaskId: row.scheduled_task_id ?? null,
+    parentSessionId: row.parent_session_id ?? null,
+    isSystem: row.is_system === 1,
   };
 }
 
@@ -65,8 +80,10 @@ export class AgentSessionsRepository {
     const now = new Date().toISOString();
     getDb()
       .prepare(
-        `INSERT INTO agent_sessions (id, task_id, task_title, agent_kind, status, cwd, name, project_id, created_at, updated_at)
-         VALUES (?, ?, ?, ?, 'starting', ?, ?, ?, ?, ?)`,
+        `INSERT INTO agent_sessions
+           (id, task_id, task_title, agent_kind, status, cwd, name, project_id,
+            mcp_role, mcp_allowed_tools_json, scheduled_task_id, is_system, created_at, updated_at)
+         VALUES (?, ?, ?, ?, 'starting', ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         id,
@@ -76,6 +93,10 @@ export class AgentSessionsRepository {
         dto.cwd,
         dto.name,
         dto.projectId ?? null,
+        dto.mcpRole ?? null,
+        dto.mcpAllowedToolsJson ?? null,
+        dto.scheduledTaskId ?? null,
+        dto.isSystem ? 1 : 0,
         now,
         now,
       );
@@ -92,9 +113,10 @@ export class AgentSessionsRepository {
       : opts.includeArchived
         ? ''
         : ' AND archived_at IS NULL';
+    // #747: exclude background/system sessions from the normal session list.
     const sql = projectId === null
-      ? `SELECT * FROM agent_sessions WHERE project_id IS NULL${archiveClause} ORDER BY created_at DESC LIMIT ?`
-      : `SELECT * FROM agent_sessions WHERE project_id = ?${archiveClause} ORDER BY created_at DESC LIMIT ?`;
+      ? `SELECT * FROM agent_sessions WHERE project_id IS NULL AND is_system = 0${archiveClause} ORDER BY created_at DESC LIMIT ?`
+      : `SELECT * FROM agent_sessions WHERE project_id = ? AND is_system = 0${archiveClause} ORDER BY created_at DESC LIMIT ?`;
     const rows = projectId === null
       ? (getDb().prepare(sql).all(limit) as AgentSessionRow[])
       : (getDb().prepare(sql).all(projectId, limit) as AgentSessionRow[]);
@@ -112,13 +134,15 @@ export class AgentSessionsRepository {
     limit = 100,
     opts: { includeArchived?: boolean; archivedOnly?: boolean } = {},
   ): AgentSession[] {
+    // #747: exclude background/system sessions from the normal session list.
+    const baseClause = ' WHERE is_system = 0';
     const archiveClause = opts.archivedOnly
-      ? ' WHERE archived_at IS NOT NULL'
+      ? ' AND archived_at IS NOT NULL'
       : opts.includeArchived
         ? ''
-        : ' WHERE archived_at IS NULL';
+        : ' AND archived_at IS NULL';
     const rows = getDb()
-      .prepare(`SELECT * FROM agent_sessions${archiveClause} ORDER BY created_at DESC LIMIT ?`)
+      .prepare(`SELECT * FROM agent_sessions${baseClause}${archiveClause} ORDER BY created_at DESC LIMIT ?`)
       .all(limit) as AgentSessionRow[];
     return rows.map(rowToModel);
   }
@@ -193,6 +217,28 @@ export class AgentSessionsRepository {
 
   markClosed(id: string): void {
     this.updateStatus(id, 'closed');
+  }
+
+  /**
+   * Persist the actual provider/model a session ran with — but ONLY when the
+   * row has none yet. Sessions created without an explicit model pick (e.g.
+   * instant "+ New") leave provider_id/model_id empty; opencode still runs a
+   * default model (the bridged account), and the assistant message reports it.
+   * Backfilling lets the context panel + the model-derived session icon show
+   * the real model. Never overrides an explicit user selection.
+   * Returns the updated row when a write happened, else null.
+   */
+  backfillModel(id: string, providerId: string, modelId: string): AgentSession | null {
+    if (!providerId || !modelId) return null;
+    const now = new Date().toISOString();
+    const result = getDb()
+      .prepare(
+        `UPDATE agent_sessions
+           SET provider_id = ?, model_id = ?, updated_at = ?
+         WHERE id = ? AND (provider_id IS NULL OR provider_id = '')`,
+      )
+      .run(providerId, modelId, now, id);
+    return result.changes > 0 ? this.findById(id) : null;
   }
 
   /**
@@ -313,10 +359,108 @@ export class AgentSessionsRepository {
     return this.findById(id);
   }
 
+  /**
+   * #743 — Upsert a local row for a delegated child (subagent) session.
+   *
+   * Called by the stream bridge when a `session.created` event arrives with
+   * a non-null parentID in `properties.info`. The parent is identified by its
+   * SDK session id; we look up the local parent row and store its local id as
+   * `parent_session_id` on the child row.
+   *
+   * The upsert key is the child's SDK session id (`sdk_session_id`). If a row
+   * already exists for that SDK id, it is a no-op (idempotent). Returns the
+   * (possibly existing) local row, or null when the parent cannot be resolved.
+   */
+  upsertChildSession(
+    childSdkSessionId: string,
+    parentSdkSessionId: string,
+    title: string,
+    cwd: string,
+  ): AgentSession | null {
+    // Look up the local parent row by its SDK session id.
+    const parentRow = getDb()
+      .prepare(
+        `SELECT id, agent_kind FROM agent_sessions WHERE sdk_session_id = ? LIMIT 1`,
+      )
+      .get(parentSdkSessionId) as { id: string; agent_kind: string } | undefined;
+    if (!parentRow) return null;
+    const parentLocalId = parentRow.id;
+    const inheritedAgentKind = parentRow.agent_kind ?? 'claude-code';
+
+    // Check whether the child row already exists (idempotent).
+    const existingRow = getDb()
+      .prepare(
+        `SELECT id FROM agent_sessions WHERE sdk_session_id = ? LIMIT 1`,
+      )
+      .get(childSdkSessionId) as { id: string } | undefined;
+    if (existingRow) {
+      return this.findById(existingRow.id);
+    }
+
+    // Insert a new row for the child session.
+    const childLocalId = crypto.randomUUID();
+    const now = new Date().toISOString();
+    getDb()
+      .prepare(
+        `INSERT INTO agent_sessions
+           (id, task_id, task_title, agent_kind, status, cwd, name, project_id,
+            sdk_session_id, parent_session_id, created_at, updated_at)
+         VALUES (?, NULL, NULL, ?, 'starting', ?, ?, NULL, ?, ?, ?, ?)`,
+      )
+      .run(
+        childLocalId,
+        inheritedAgentKind,
+        cwd,
+        title || 'Subagent task',
+        childSdkSessionId,
+        parentLocalId,
+        now,
+        now,
+      );
+    return this.findById(childLocalId);
+  }
+
   deleteOlderThan(cutoffIso: string): number {
     const result = getDb()
       .prepare(`DELETE FROM agent_sessions WHERE status = 'closed' AND created_at < ?`)
       .run(cutoffIso);
+    return result.changes;
+  }
+
+  /**
+   * #738-fix — Return the most-recently-used {providerID, modelID} pair from
+   * any agent session that has both columns populated.
+   *
+   * Source: agent_sessions.provider_id + model_id, ordered by created_at DESC.
+   * Used by AgentRunner.resolveRunModel() when the agent config has no preferred
+   * model set and no hardcoded default has been provided by the caller.
+   */
+  findMostRecentlyUsedModel(): { providerID: string; modelID: string } | null {
+    const row = getDb()
+      .prepare(
+        `SELECT provider_id, model_id FROM agent_sessions
+         WHERE provider_id IS NOT NULL AND model_id IS NOT NULL
+         ORDER BY created_at DESC LIMIT 1`,
+      )
+      .get() as { provider_id: string; model_id: string } | undefined;
+    if (!row) return null;
+    return { providerID: row.provider_id, modelID: row.model_id };
+  }
+
+  /**
+   * #738-fix — Reset orphaned 'running' sessions to 'error' on server restart.
+   * Sessions left in status='running' from a previous crash would stay stuck
+   * forever. Called by the scheduler on boot.
+   */
+  resetStaleRunning(message = 'Server restarted — run interrupted'): number {
+    const now = new Date().toISOString();
+    const result = getDb()
+      .prepare(
+        `UPDATE agent_sessions
+         SET status = 'error', status_message = ?, updated_at = ?
+         WHERE status = 'running'`,
+      )
+      .run(message, now);
     return result.changes;
   }
 }

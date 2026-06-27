@@ -12,6 +12,7 @@ import {
   type CuratedTokenProvider,
 } from '../config/curated_mcp_servers';
 import { ensureGeminiProjectConfig } from './gemini_project_config';
+import { expandMcpAllowlist } from './mcp_allowlist_expander';
 
 /**
  * MCP-6 — resolves a FRESH OAuth access token for a curated server's
@@ -199,13 +200,48 @@ export async function reclaimStalePortForOpencode(
  * Directories the SDK's `cross-spawn("opencode")` may need on PATH. GUI-spawned
  * .app children on macOS only inherit `/usr/bin:/bin:/usr/sbin:/sbin` — none of
  * which contain the opencode binary. Idempotent: prepends each dir at most once.
+ *
+ * When running inside the bundled .app the Rhythm fork binary lives at
+ *   Contents/Resources/opencode_bin/opencode
+ * THIS module is compiled to
+ *   Contents/Resources/api_server/dist/services/opencode_client_service.js
+ * so __dirname resolves to …/api_server/dist/services and the opencode_bin dir
+ * is THREE levels up from there (…/dist/services → …/Resources). To stay robust
+ * against future changes to the compiled-output nesting we probe the known
+ * candidate depths and use the first one whose `opencode` binary actually
+ * exists. When the bundled binary is present its directory is prepended FIRST
+ * so the forked engine always shadows any stock opencode on PATH. In local
+ * `flutter run` / `npm run dev` development none of the candidates exist; in
+ * that case a WARN is logged and the existing PATH fallbacks are used as-is.
  */
 export function augmentPathForOpencode(): void {
-  const extras = [
+  // Probe candidate locations of the bundled opencode_bin dir relative to the
+  // compiled module. dist/services (bundle today) is three levels up; a
+  // flattened dist/ would be two — pick whichever actually holds the binary.
+  const candidateBinDirs = [
+    join(__dirname, '..', '..', '..', 'opencode_bin'), // dist/services → Resources
+    join(__dirname, '..', '..', 'opencode_bin'), // dist          → Resources
+  ];
+  const bundledBinDir = candidateBinDirs.find((d) =>
+    existsSync(join(d, 'opencode')),
+  );
+
+  const extras: string[] = [];
+
+  if (bundledBinDir) {
+    extras.push(bundledBinDir);
+  } else {
+    logger.warn(
+      `[WARN] bundled opencode fork not found near ${__dirname}; falling back to PATH opencode (patch may be inactive)`,
+    );
+  }
+
+  extras.push(
     join(homedir(), '.opencode', 'bin'),
     '/opt/homebrew/bin',
     '/usr/local/bin',
-  ];
+  );
+
   const current = (process.env.PATH ?? '').split(':');
   const missing = extras.filter((d) => !current.includes(d));
   if (missing.length === 0) return;
@@ -282,13 +318,35 @@ export class OpencodeClientService {
   private _initializing = false;
   private _initPromise: Promise<void> | null = null;
 
+  /**
+   * #746 — Timestamp (ms since epoch) when _initializeImpl completed
+   * successfully. Exported via engineReadyAt() for the curator throttle guard.
+   */
+  private _engineReadyAt: number | null = null;
+
+  /**
+   * #746 — Returns the epoch-ms timestamp when the engine became ready, or
+   * null if it has not yet initialized. Used by queueSkillExtraction to skip
+   * curator work during the warm-up window after cold launch.
+   */
+  get engineReadyAt(): number | null {
+    return this._engineReadyAt;
+  }
+
   private async _initializeImpl(config?: { directory?: string }): Promise<void> {
+    const t0 = Date.now();
     try {
+      // Phase 1: augment PATH so the bundled opencode binary is discoverable.
+      const t1 = Date.now();
       augmentPathForOpencode();
+      logger.info(`[Opencode][timing] augmentPath took ${Date.now() - t1}ms`);
+
+      // Phase 2: dynamic import of the ESM-only SDK.
       // Dynamic import — SDK is ESM-only, api_server uses CommonJS.
       // TS with module:commonjs rewrites `import()` to `require()`, which
       // fails on ESM-only packages. The `Function` wrapper hides the call
       // from the TS transformer so Node executes a real dynamic import.
+      const t2 = Date.now();
       const dynamicImport = new Function('s', 'return import(s)') as (
         s: string,
       ) => Promise<unknown>;
@@ -302,37 +360,54 @@ export class OpencodeClientService {
           directory?: string;
         }) => OpencodeClient;
       };
-      // Ensure the Gemini Code Assist projectId is on disk in opencode.json
+      logger.info(`[Opencode][timing] SDK import took ${Date.now() - t2}ms`);
+
+      // Phase 3: ensure Gemini Code Assist projectId is on disk in opencode.json
       // BEFORE createOpencode() spawns the engine — the opencode-gemini-auth
       // plugin reads provider.google.options.projectId at provider-registration
       // time, so it must be persisted first or the google provider won't
       // register for Workspace accounts. Never throws; logs and continues.
+      const t3 = Date.now();
       const geminiCfg = ensureGeminiProjectConfig();
       logger.info(
         `[OpencodeClientService] ensured Gemini Code Assist projectId=${geminiCfg.projectId} (changed=${geminiCfg.changed})`,
       );
+      logger.info(`[Opencode][timing] geminiProjectConfig took ${Date.now() - t3}ms`);
 
+      // Phase 4: reclaim stale port.
       // #655 — Before spawning, reclaim :4096 from a stale opencode orphan
       // (e.g. one reparented to launchd after a Force-Quit / SIGKILL). A bound
       // port makes the SDK's fresh spawn exit code 1 ("engine not ready"). A
       // non-opencode holder throws a clear error (caught below → status=error
       // with the occupying PID/command) instead of the opaque exit-code-1.
+      const t4 = Date.now();
       await reclaimStalePortForOpencode();
+      logger.info(`[Opencode][timing] reclaimStalePort took ${Date.now() - t4}ms`);
 
+      // Phase 5: spawn the opencode engine and wait for readiness.
       // Use createOpencode which starts an in-process Opencode server.
       // `server.close()` is the only documented way to stop the spawned
       // opencode subprocess on :4096 — we MUST hold this handle for clean
       // shutdown (see dispose()).
+      const t5 = Date.now();
       const { client, server } = await mod.createOpencode({});
+      logger.info(`[Opencode][timing] createOpencode (engine spawn) took ${Date.now() - t5}ms`);
+
       this.client = client;
       this.server = server;
       this.status = 'ready';
       this.error = null;
       logger.info('[OpencodeClientService] SDK initialized');
-      // Restore persisted auth credentials into the fresh SDK instance.
+
+      // Phase 6: restore persisted auth credentials.
       // auth.json is written by client.auth.set() from previous runs but
       // createOpencode() starts a clean server that doesn't auto-load it.
+      const t6 = Date.now();
       await this.restoreAuth();
+      logger.info(`[Opencode][timing] restoreAuth took ${Date.now() - t6}ms`);
+
+      this._engineReadyAt = Date.now();
+      logger.info(`[Opencode][timing] total _initializeImpl took ${Date.now() - t0}ms`);
     } catch (err) {
       this.status = 'error';
       this.error = err instanceof Error ? err : new Error(String(err));
@@ -458,15 +533,73 @@ export class OpencodeClientService {
     }
   }
 
-  /** Create a new Opencode session with an optional working directory */
+  /**
+   * Create a new Opencode session with an optional working directory.
+   *
+   * C1 — MCP role gating (init-time):
+   * The opencode SDK's session.create() accepts only { title, directory } — there
+   * is no per-session tool allowlist parameter in the current SDK version (v1.14.x).
+   * When `mcpRoleConfig` is provided the resolved allowlist is PASSED THROUGH as a
+   * parameter here so callers (controller, tests) can spy on it; the SDK call itself
+   * does not forward it (documented limitation). The allowlist is persisted on the
+   * agent_sessions row and the WS gateway uses it as the init-time scope gate.
+   *
+   * Fallback note (per issue C1 "Ambiguity flag for reviewer"):
+   *   The SDK cannot accept a per-session allowlist at init time. We use the
+   *   "store on session row + WS gateway enforcement" path rather than writing a
+   *   per-session .mcp.json file (which would scope to the cwd directory, not to
+   *   the session, and would affect all concurrent sessions sharing that cwd).
+   */
   async createSession(
     title: string,
     directory?: string,
+    mcpRoleConfig?: {
+      role: string;
+      mcpServers: Record<string, unknown>;
+      allowedToolsJson: string;
+    },
   ): Promise<{ id: string } | null> {
     if (!this.client) return null;
+
+    // mcp-scope-04: expand the McpRoleConfig into a flat { servers[], tools[] }
+    // allowlist and pass it as `mcpAllowlist` on the session.create POST body.
+    // The forked opencode engine (apps/opencode_fork) reads this field to scope
+    // MCP tools to only the profile's allowed set for this session.
+    //
+    // SDK-type decision (R3): the hand-written @types/opencode-ai-sdk.d.ts does
+    // NOT declare this field (extending it risks false-green drift — see postmortem
+    // 2026-06-13). We pass it via an untyped body cast.
+    // TODO: once the upstream SDK supports per-session allowlists natively, remove
+    //       this cast and update the d.ts instead.
+    let mcpAllowlist: { servers: string[]; tools: string[] } | undefined;
+    if (mcpRoleConfig) {
+      try {
+        mcpAllowlist = expandMcpAllowlist(mcpRoleConfig);
+        logger.info(
+          '[OpencodeClientService] createSession: mcpRole=%s allowlist servers=%s tools=%s',
+          mcpRoleConfig.role,
+          mcpAllowlist.servers.join(',') || '(none)',
+          mcpAllowlist.tools.join(',') || '(none)',
+        );
+      } catch (expandErr) {
+        logger.warn(
+          '[OpencodeClientService] createSession: expandMcpAllowlist failed for role=%s — omitting mcpAllowlist',
+          mcpRoleConfig.role,
+          expandErr,
+        );
+      }
+    }
+
     try {
-      const raw = await this.client.session.create({
-        body: { title },
+      const body: Record<string, unknown> = { title };
+      if (mcpAllowlist !== undefined) {
+        body.mcpAllowlist = mcpAllowlist;
+      }
+      const raw = await (this.client.session.create as (opts: {
+        body: Record<string, unknown>;
+        query?: { directory?: string };
+      }) => Promise<{ data?: { id?: string }; error?: unknown }>)({
+        body,
         ...(directory ? { query: { directory } } : {}),
       });
       const id = raw.data?.id;
@@ -493,6 +626,7 @@ export class OpencodeClientService {
     text: string,
     model?: { providerID: string; modelID: string },
     directory?: string,
+    opts?: Record<string, unknown>,
   ): Promise<{ info: import('@opencode-ai/sdk').Message; parts: Array<import('@opencode-ai/sdk').Part> } | null> {
     if (!this.client) return null;
     try {
@@ -501,6 +635,7 @@ export class OpencodeClientService {
         body: {
           model,
           parts: [{ type: 'text', text }],
+          ...(opts ?? {}),
         },
         ...(directory ? { query: { directory } } : {}),
       });
@@ -855,6 +990,94 @@ export class OpencodeClientService {
       body: { response: decision },
       ...(directory ? { query: { directory } } : {}),
     });
+  }
+
+  // ── Question API (AskUserQuestion handshake) ──────────────────────────────
+  //
+  // opencode answers its `question` tool through POST /question/{id}/reply.
+  // The v1 OpencodeClient we hold does NOT expose this route (the Question API
+  // lives in the SDK's v2 namespace), so we call the spawned server's HTTP
+  // endpoint directly — the same routes confirmed live on the running binary.
+  // Without this, a question tool stays status:running forever and the session
+  // hangs. Mirrors respondToPermission: pass `directory` to scope the reply.
+
+  /** Base URL of the spawned opencode server (falls back to the default port). */
+  private get serverUrl(): string {
+    return this.server?.url ?? 'http://127.0.0.1:4096';
+  }
+
+  /**
+   * POST /question/{requestID}/reply — answer a pending question.
+   * `answers` is one `string[]` per question (selected option labels);
+   * opencode's QuestionAnswer = string[]. Returns true on 2xx, false otherwise
+   * (never throws — the caller still clears local UI state).
+   */
+  async replyToQuestion(
+    requestId: string,
+    answers: string[][],
+    directory?: string,
+  ): Promise<boolean> {
+    return this.questionAction('reply', requestId, { answers }, directory);
+  }
+
+  /** POST /question/{requestID}/reject — dismiss a pending question. */
+  async rejectQuestion(requestId: string, directory?: string): Promise<boolean> {
+    return this.questionAction('reject', requestId, undefined, directory);
+  }
+
+  private async questionAction(
+    action: 'reply' | 'reject',
+    requestId: string,
+    body: Record<string, unknown> | undefined,
+    directory?: string,
+  ): Promise<boolean> {
+    const qs = directory ? `?directory=${encodeURIComponent(directory)}` : '';
+    const url = `${this.serverUrl}/question/${encodeURIComponent(requestId)}/${action}${qs}`;
+    try {
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body ?? {}),
+      });
+      if (!res.ok) {
+        logger.error(
+          `[OpencodeClientService] question ${action} failed (${res.status}) for ${requestId}`,
+        );
+        return false;
+      }
+      return true;
+    } catch (err) {
+      logger.error(
+        `[OpencodeClientService] question ${action} threw for ${requestId}:`,
+        err,
+      );
+      return false;
+    }
+  }
+
+  /**
+   * GET /question — list pending question requests across all sessions.
+   * Fallback for resolving a tool callID → requestID when the bridge's
+   * in-memory map was lost (e.g. server restart with a question still pending).
+   */
+  async listQuestions(
+    directory?: string,
+  ): Promise<
+    Array<{ id: string; sessionID: string; tool?: { callID?: string } }>
+  > {
+    const qs = directory ? `?directory=${encodeURIComponent(directory)}` : '';
+    try {
+      const res = await fetch(`${this.serverUrl}/question${qs}`);
+      if (!res.ok) return [];
+      return (await res.json()) as Array<{
+        id: string;
+        sessionID: string;
+        tool?: { callID?: string };
+      }>;
+    } catch (err) {
+      logger.error('[OpencodeClientService] listQuestions failed:', err);
+      return [];
+    }
   }
 
   /**

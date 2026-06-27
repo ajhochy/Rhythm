@@ -24,8 +24,11 @@ import { workspaceRouter } from './routes/workspace_routes';
 import { notificationsRouter } from './routes/notifications_routes';
 import claudeTriggersRouter from './routes/claude_triggers_routes';
 import { agentConfigsRouter } from './routes/agent_configs_routes';
+import { agentDelegationRouter } from './routes/agent_delegation_routes';
+import { agentSkillsRouter } from './routes/agentSkillsRoutes';
 import { agentSessionsRouter } from './routes/agent_sessions_routes';
 import { agentsCapabilitiesRouter } from './routes/agents_capabilities_routes';
+import { usageBudgetRouter } from './routes/usage_budget_routes';
 import { agentsModelsRouter } from './routes/agents_models_routes';
 import { notificationsAgentRouter } from './routes/notifications_agent_routes';
 import { opencodeAuthRouter } from './routes/opencode_auth_routes';
@@ -35,6 +38,13 @@ import { opencodeMcpRouter } from './routes/opencode_mcp_routes';
 import { syncRouter } from './routes/sync_routes';
 import { ptyRouter } from './routes/pty_routes';
 import { opencodeClient } from './services/opencode_engine';
+import agentSchedulesRouter from './routes/agentSchedulesRoutes';
+import agentMemoryRouter from './routes/agentMemoryRoutes';
+import agentWebhookRouter from './routes/agentWebhookRoutes';
+import agentResearchRouter from './routes/agentResearchRoutes';
+import agentCookbookRouter from './routes/agentCookbookRoutes';
+import agentDesignsRouter from './routes/agentDesignsRoutes';
+import gmailSignalsRouter from './routes/gmail_signals_routes';
 
 export function createApp() {
   const app = express();
@@ -65,6 +75,7 @@ export function createApp() {
   app.use('/health', healthRouter);
   // NOTE: /agents/capabilities is unauthenticated for now; Phase 3.1 will add the AGENT_LOCAL bypass.
   app.use('/agents/capabilities', agentsCapabilitiesRouter);
+  app.use('/agents/usage-budget', usageBudgetRouter);
   app.use('/agents/models', agentsModelsRouter);
   app.use('/dashboard', dashboardRouter);
   app.use('/auth', authRouter);
@@ -86,6 +97,15 @@ export function createApp() {
   app.use('/notifications', notificationsRouter);
   app.use('/claude-triggers', claudeTriggersRouter);
   app.use('/agent-configs', agentConfigsRouter);
+  app.use('/agent-delegation', agentDelegationRouter);
+  app.use('/agent-skills', agentSkillsRouter);
+  app.use('/agent-schedules', agentSchedulesRouter);
+  app.use('/agent-memory', agentMemoryRouter);
+  app.use('/agent-webhooks', agentWebhookRouter);
+  app.use('/agent-research', agentResearchRouter);
+  app.use('/agent-cookbook', agentCookbookRouter);
+  app.use('/agent-designs', agentDesignsRouter);
+  app.use('/integrations/gmail-signals', gmailSignalsRouter);
   app.use('/agent-sessions', agentSessionsRouter);
   app.use(ptyRouter);
   app.use('/projects', projectsRouter);
