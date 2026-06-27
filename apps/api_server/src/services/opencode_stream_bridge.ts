@@ -444,6 +444,31 @@ export class OpencodeStreamBridge {
           break;
         }
       }
+
+      // #751 — The in-memory opencodeSessionMap is ephemeral: it is wiped on
+      // every api_server restart and is not guaranteed to be populated at the
+      // instant a freshly-created session's first events arrive. When the
+      // reverse-lookup misses, fall back to the DURABLE `sdk_session_id` column
+      // (persisted at create/resume time). Without this fallback EVERY event for
+      // the session is dropped — status never leaves the 'starting' DB default,
+      // message parts never persist, and the parent of a delegated subagent is
+      // unresolvable — leaving the chat frozen on "Starting" while the engine
+      // actually ran the whole turn. Lazily repopulate the map on a hit so
+      // subsequent events for this session take the fast in-memory path.
+      if (!localSessionId) {
+        try {
+          const row = this.sessionsRepo.findBySdkSessionId(opencodeSessionId);
+          if (row) {
+            localSessionId = row.id;
+            opencodeSessionMap.set(row.id, opencodeSessionId);
+          }
+        } catch (err) {
+          logger.error(
+            '[OpencodeStreamBridge] DB fallback session lookup failed:',
+            err,
+          );
+        }
+      }
     }
 
     // OPC-M1-4: If the local session has been explicitly stopped (via
