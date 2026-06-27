@@ -12,6 +12,7 @@ import { TasksRepository } from '../repositories/tasks_repository';
 import type { AgentKind, CreateAgentSessionDto, PermissionMode } from '../models/agent_session';
 import { PERMISSION_MODES } from '../models/agent_session';
 import { opencodeClient, opencodeSessionMap } from '../services/opencode_engine';
+import { resolveProfileScope } from '../services/agent_profile_scope';
 import { syncOpencodeAgentProfiles } from '../services/agent_profile_sync';
 import { streamBridge } from '../services/opencode_stream_bridge';
 import { broadcastSessionUpdated, broadcastSessionRemoved } from '../services/ws_gateway';
@@ -485,6 +486,16 @@ export class AgentSessionsController {
           mcpServers: roleFile.mcpServers as Record<string, unknown>,
           allowedToolsJson: mcpAllowedToolsJson,
         };
+      } else if (normalizedAgentId) {
+        // Profile scope must be fixed before the SDK session is created.
+        // A non-empty explicit mcpRole above takes precedence over this
+        // profile-derived scope.
+        const profileScope = await resolveProfileScope(normalizedAgentId);
+        if (profileScope.mcpRoleConfig) {
+          mcpRoleConfig = profileScope.mcpRoleConfig;
+          resolvedMcpRole = profileScope.mcpRoleConfig.role;
+          mcpAllowedToolsJson = profileScope.mcpRoleConfig.allowedToolsJson;
+        }
       }
 
       // projectId: optional in body. Explicit `null` is honored (intentional
