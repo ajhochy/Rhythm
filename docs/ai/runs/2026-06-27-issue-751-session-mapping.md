@@ -72,3 +72,13 @@ the 3 expected symbols.
 - The two pre-existing stuck rows (`0a4ea2e7`, `b89c8b7f`) won't retroactively
   recover their already-completed turns; a new prompt (auto-resume) or the fix
   applied to future turns is the path forward. The fix prevents recurrence.
+
+## CORRECTION (post-manual-smoke)
+Manual smoke against the **packaged app FAILED**. Re-testing the in-process
+bridge against the **bundled fork** engine (not the stock 1.14.40 the earlier
+"verification" accidentally used) reproduced the failure: only `server.connected`
+received, stream ends, status stuck `starting`, 0 messages, 0 children. The real
+cause is a fork `/event` SSE regression (**#759**), upstream of the map-miss.
+This PR (#758) is correct defense-in-depth but does NOT fix #751. Status:
+fix-merged-pending → **superseded by #759 for the symptom**. See
+`.agent-stack/postmortems/2026-06-27-issue-751.json`.
