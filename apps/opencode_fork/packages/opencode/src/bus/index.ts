@@ -18,7 +18,7 @@ export const InstanceDisposed = BusEvent.define(
   }),
 )
 
-type Payload<D extends BusEvent.Definition = BusEvent.Definition> = {
+export type Payload<D extends BusEvent.Definition = BusEvent.Definition> = {
   id: string
   type: D["type"]
   properties: BusProperties<D>
@@ -37,6 +37,7 @@ export interface Interface {
   ) => Effect.Effect<void>
   readonly subscribe: <D extends BusEvent.Definition>(def: D) => Stream.Stream<Payload<D>>
   readonly subscribeAll: () => Stream.Stream<Payload>
+  readonly subscribeAllStream: () => Effect.Effect<Stream.Stream<Payload>>
   readonly subscribeCallback: <D extends BusEvent.Definition>(
     def: D,
     callback: (event: Payload<D>) => unknown,
@@ -128,6 +129,24 @@ export const layer = Layer.effect(
       ).pipe(Stream.ensuring(Effect.sync(() => log.info("unsubscribing", { type: "*" }))))
     }
 
+    // Eagerly resolves the concrete wildcard PubSub while the caller's Instance
+    // context (InstanceRef fiber-local) is still bound, then streams from that
+    // concrete PubSub. The lazy `subscribeAll()` above defers `InstanceState.get`
+    // until the stream is consumed; that works when the consumer fiber inherits
+    // the caller's context (e.g. `Effect.forkScoped` in plugin/index.ts), but
+    // NOT for an HTTP SSE response body, which is pumped by a server fiber that
+    // never inherits the handler's InstanceRef. There the lazy get cannot
+    // resolve the instance and the stream collapses immediately after
+    // `server.connected`. Resolving the PubSub here mirrors the working
+    // `subscribeAllCallback`/`on()` path used by the TUI. (fixes #759)
+    const subscribeAllStream = Effect.fn("Bus.subscribeAllStream")(function* () {
+      log.info("subscribing", { type: "*" })
+      const s = yield* InstanceState.get(state)
+      return Stream.fromPubSub(s.wildcard).pipe(
+        Stream.ensuring(Effect.sync(() => log.info("unsubscribing", { type: "*" }))),
+      )
+    })
+
     function on<T>(pubsub: PubSub.PubSub<T>, type: string, callback: (event: T) => unknown) {
       return Effect.gen(function* () {
         log.info("subscribing", { type })
@@ -170,7 +189,7 @@ export const layer = Layer.effect(
       return yield* on(s.wildcard, "*", callback)
     })
 
-    return Service.of({ publish, subscribe, subscribeAll, subscribeCallback, subscribeAllCallback })
+    return Service.of({ publish, subscribe, subscribeAll, subscribeAllStream, subscribeCallback, subscribeAllCallback })
   }),
 )
 
