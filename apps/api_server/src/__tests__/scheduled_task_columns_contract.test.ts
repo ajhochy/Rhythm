@@ -20,7 +20,7 @@ import { setDb, getDb } from '../database/db';
 import { UsersRepository } from '../repositories/users_repository';
 import { SessionsRepository } from '../repositories/sessions_repository';
 import { AgentScheduledTasksRepository } from '../repositories/agent_scheduled_tasks_repository';
-import type { AddressInfo } from 'node:net';
+import { startTestServer } from './helpers/real_server';
 
 function makeDb() {
   const db = new Database(':memory:');
@@ -146,15 +146,9 @@ describe('model-c5 / scope-c5: REST POST /agent-schedules', () => {
     const user = new UsersRepository().create({ name: 'T', email: 't@example.com' });
     const session = await new SessionsRepository().createAsync(user.id);
     authHeaders = { Authorization: `Bearer ${session.token}`, 'Content-Type': 'application/json' };
-    const server = createApp().listen(0);
-    server.maxRequestsPerSocket = 1;
-    await new Promise<void>((r) => server.once('listening', () => r()));
-    baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
-    closeServer = () =>
-      new Promise<void>((res, rej) => {
-        server.closeAllConnections();
-        server.close((e) => (e ? rej(e) : res()));
-      });
+    const { baseUrl: b, close } = await startTestServer(createApp());
+    baseUrl = b;
+    closeServer = close;
   });
 
   afterEach(async () => {

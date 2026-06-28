@@ -1,7 +1,7 @@
-import type { AddressInfo } from 'node:net';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import Database from 'better-sqlite3';
 import { createApp } from '../app';
+import { startTestServer } from './helpers/real_server';
 import { runMigrations } from '../database/migrations';
 import { setDb, getDb } from '../database/db';
 import { SessionsRepository } from '../repositories/sessions_repository';
@@ -36,10 +36,7 @@ describe('Claude triggers endpoints', () => {
     originalClaudeUserId = env.claudeUserId;
     (env as any).claudeUserId = claudeId;
 
-    const server = createApp().listen(0);
-    await new Promise<void>((r) => server.once('listening', () => r()));
-    baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
-    closeServer = () => new Promise<void>((res, rej) => server.close((e) => e ? rej(e) : res()));
+    ({ baseUrl, close: closeServer } = await startTestServer(createApp()));
   });
 
   afterEach(async () => {

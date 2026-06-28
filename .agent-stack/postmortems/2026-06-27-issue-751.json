@@ -1,0 +1,52 @@
+{
+  "run_id": "2026-06-27-issue-751",
+  "issue": 751,
+  "date": "2026-06-27",
+  "smoke_result": "fail",
+  "verification_claimed": "PASS",
+  "divergence": true,
+  "criteria_results": [
+    {
+      "criterion_id": "issue-751-c1",
+      "text": "An agent session that delegates to a subagent leaves the 'Starting' badge, persists messages/token counts, and shows the child subagent session.",
+      "contract_status": "pass",
+      "smoke_status": "fail",
+      "category": "C5",
+      "notes": "The vitest (issue_751_session_mapping.test.ts) and the live in-process repro both PASSED, but the live repro accidentally spawned the STOCK opencode engine (1.14.40) because augmentPathForOpencode prepends ~/.opencode/bin; the shipping app uses the bundled FORK engine (0.0.0-main-202606271725). Re-running the in-process bridge against the FORK engine reproduced the failure: the bridge received only `server.connected`, then the SSE stream ENDED (LOOP ENDED) — 0 further events, status stuck 'starting', 0 messages, 0 children. Against stock the same bridge received 134 events and worked. Root cause is the fork build's /event SSE endpoint emitting no session/message events after server.connected — upstream of the map-miss the issue blamed. The map-miss fix is correct defense-in-depth but cannot help when no events are delivered."
+    }
+  ],
+  "process_issues": [
+    {
+      "process_category": "runtime-parity",
+      "description": "verification-gate's live/smoke evidence ran against the PATH/stock opencode engine (1.14.40), not the bundled fork engine (0.0.0-main-202606271725) the app actually ships. The stock engine emits events correctly and masked a fork-only /event regression, producing a false PASS.",
+      "detected_by": "lsof on the spawned engine PID showed ~/.opencode/bin/opencode (stock) during the 'passing' dev run; the app's engine is /Applications/Rhythm.app/Contents/Resources/opencode_bin/opencode (fork). Forcing the fork on PATH reproduced the failure."
+    },
+    {
+      "process_category": "release-deploy",
+      "description": "The fork opencode binary built today (0.0.0-main-202606271725, bundled via desktop_release.yml from apps/opencode_fork) regressed /event session-event emission. The bundled engine is what every release ships, so the regression reaches all users.",
+      "detected_by": "In-process bridge against the bundled fork received only server.connected then stream end; raw curl on the running fork engine's /event during a completed sync turn also returned only server.connected."
+    }
+  ],
+  "workflow_adherence": {
+    "overall_score": "partial",
+    "expected_chain": ["workflow-orchestrator", "systematic-debugging", "verification-gate", "project-state-updater", "failure-postmortem"],
+    "observed_chain": ["workflow-orchestrator", "systematic-debugging", "verification-gate", "project-state-updater", "failure-postmortem"],
+    "skipped_skills": [],
+    "issues": [
+      {
+        "workflow_category": "W5",
+        "affected_skill": "verification-gate",
+        "description": "Emitted a Verification PASS block and opened PR #758 with 'Fixes #751' before smoking the actual shipping runtime. Evidence existed (tests + a live run) so it was not evidence-free, but the live evidence used a non-representative engine (stock not fork), so the PASS did not actually verify the criterion in the runtime the issue is about. Borderline premature-completion driven by the runtime-parity gap above.",
+        "detected_by": "User manual smoke against the packaged app failed immediately after the PASS claim; subsequent fork-engine repro confirmed the symptom persists."
+      }
+    ]
+  },
+  "implementation_files": [
+    "apps/api_server/src/services/opencode_stream_bridge.ts",
+    "apps/api_server/src/repositories/agent_sessions_repository.ts",
+    "apps/api_server/src/__tests__/issue_751_session_mapping.test.ts"
+  ],
+  "failure_output": "In-process bridge vs FORK engine (0.0.0-main-202606271725): INSTR recv type=server.connected (x1); LOOP ENDED dir=/Users/ajhochhalter; DB status=starting msgs=0 children=0. Same bridge vs STOCK 1.14.40: 134 events, parent->idle, child created.",
+  "overall_category": "C5",
+  "suggested_follow_up": "verification-gate/smoke for opencode-dependent changes MUST spawn the bundled fork engine (apps/opencode_fork build), never the PATH/stock opencode; and the real fix for #751 is the fork /event SSE regression, which needs a fork-side investigation."
+}

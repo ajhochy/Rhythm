@@ -244,10 +244,6 @@ class _ErrorAgentsRepository implements AgentsRepository {
   Future<List<AgentInfo>> fetchAvailableAgents({String? cwd}) async => const [];
 
   @override
-  Future<String> runShellCommand(String sessionId, String command) async =>
-      'msg-shell-stub';
-
-  @override
   Future<String> createPty(String sessionId) async => 'pty-stub';
 
   @override

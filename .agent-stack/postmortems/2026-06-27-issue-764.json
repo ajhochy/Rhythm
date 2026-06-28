@@ -1,0 +1,54 @@
+{
+  "run_id": "2026-06-27-issue-764",
+  "issue": 764,
+  "date": "2026-06-27",
+  "smoke_result": "pass",
+  "verification_claimed": "PASS",
+  "divergence": false,
+  "criteria_results": [
+    {
+      "criterion_id": "issue-764-c1",
+      "text": "With a real HTTP /event subscriber connected for a directory, a namespace Bus.publish of message.updated AND message.part.updated for that directory must arrive on the /event stream (SyncEvent publishes must reach the per-request DI Bus.Service that /event reads).",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Contract test httpapi-event-dual-bus failed on unmodified code, passed after the shared-bus fix. Built-fork real anthropic turn delivered message.updated x6 + message.part.updated x5 + session.updated x3 on /event. User UI smoke: no duplicate messages, token/context gauge populated, live render OK."
+    }
+  ],
+  "process_issues": [
+    {
+      "process_category": "smoke-environment",
+      "description": "Local dev smoke nearly false-negatived: the opencode engine binds a FIXED port (:4096) and tools/dev/launch_desktop_current.sh starts a second api_server on :4000 that ALSO spawns an engine on :4096, starving the app's :4001 agent server so it reported 'unavailable'/'failed to start'. Verified resolution: nothing else may hold :4096 while the app runs; an identical shell-spawn of the agent server reached ready in ~3s with the staged fix binary. The copied Debug app under /private/tmp also cannot walk up to the repo-local apps/api_server, and GUI-spawn of the adhoc non-notarized binary behaved differently than shell-spawn.",
+      "detected_by": "lsof on :4001/:4096, /opencode/health polling, comparing app-launch vs shell-spawn of the same `npx tsx src/server.ts` command, lsof txt path of the :4096 listener."
+    },
+    {
+      "process_category": "smoke-environment",
+      "description": "Engine-change smokes require the running :4096 engine to be the freshly-built fork, not the system ~/.opencode/bin/opencode (1.14.40). Staged the build at apps/api_server/opencode_bin/opencode (the dev resolver's first candidate) and verified identity via the unique version string 0.0.0-fix/issue-761-agents-ui-render-202606272206 before trusting the smoke.",
+      "detected_by": "opencode --version on both binaries; lsof txt path of the live :4096 listener."
+    }
+  ],
+  "workflow_adherence": {
+    "overall_score": "strict",
+    "expected_chain": ["workflow-orchestrator", "acceptance-contract", "coding-agent", "verification-gate", "project-state-updater", "failure-postmortem"],
+    "observed_chain": ["workflow-orchestrator", "acceptance-contract", "coding-agent", "verification-gate", "project-state-updater", "failure-postmortem"],
+    "skipped_skills": [],
+    "issues": [
+      {
+        "workflow_category": "W3",
+        "affected_skill": "verification-gate",
+        "description": "TodoWrite is not enabled in this host context; the checklist was tracked via the host's Task tools (TaskCreate/TaskUpdate) instead. Checklist behavior was preserved, but the literal TodoWrite expansion the SKILL.md names did not occur. Minor / host-limitation, not a discipline lapse.",
+        "detected_by": "TodoWrite tool-call returned 'No such tool available'; Task tools used as the host equivalent."
+      }
+    ]
+  },
+  "implementation_files": [
+    "apps/opencode_fork/packages/opencode/src/bus/index.ts",
+    "apps/opencode_fork/packages/opencode/test/server/httpapi-event-dual-bus.test.ts",
+    "docs/ai/contracts/issue-764.json",
+    "docs/ai/decisions/2026-06-27-syncevent-shared-bus-registry.md",
+    "docs/ai/runs/2026-06-27-issue-764-dual-bus-fix.md"
+  ],
+  "failure_output": "",
+  "overall_category": "none",
+  "suggested_follow_up": "Add a dev-smoke helper (or fix tools/dev/launch_desktop_current.sh) that refuses to start a :4000 engine-spawning server, frees :4096 first, and stages+verifies the freshly-built fork at apps/api_server/opencode_bin/opencode before launching — so engine-change smokes can't silently run the stale system binary or fail on port contention. Separately (NOT a #764 criterion): a live run surfaced a Secretary MCP-scoping bug (POST /agent-sessions creates the engine session before profile scope is resolved, so no mcpAllowlist is applied) — file its own issue; tracked in docs/ai/project-state.md."
+}

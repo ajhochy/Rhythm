@@ -55,8 +55,6 @@ agentSessionsRouter.get('/:id/todo', controller.getTodo.bind(controller));
 agentSessionsRouter.get('/:id/children', controller.getChildren.bind(controller));
 agentSessionsRouter.get('/:id/children/:childSdkId/messages', controller.getChildMessages.bind(controller));
 agentSessionsRouter.post('/:id/fork', controller.fork.bind(controller));
-// OPC-M1-6 / issue #709 — one-shot shell command runner.
-agentSessionsRouter.post('/:id/shell', controller.shell.bind(controller));
 
 /**
  * Feature J — SSE streaming for agent session output.

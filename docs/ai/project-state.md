@@ -2,71 +2,77 @@
 
 ## Current focus
 
-**2026-06-27 — Agent live-streaming: core bus-routing fix landed.** The
-**dual-bus split** (real root of #1/#3/#751/#759/#761/#762) is fixed and verified
-against the BUILT fork. `SyncEvent.process()` published via the module-level
-namespace `Bus` runtime while `/event` reads the per-request DI `Bus.Service` —
-two bus states per directory, so `message.updated` / `message.part.updated` /
-turn-time `session.updated` never reached the live `/event` subscriber. The fix
-(#764) makes both runtimes share ONE `{wildcard, typed}` PubSub per directory via
-a module-level registry in `bus/index.ts`. A real anthropic turn against the
-built fork now delivers all three event types on `/event`.
+**2026-06-28 — Consolidated agent-stack batch merged to `main` and released.**
+PR [#774](https://github.com/ajhochy/Rhythm/pull/774) (merge commit `4fbfc059d`)
+landed 9 issues' worth of work. Release **v18.54** triggered
+(`desktop_release.yml`, run 28312640618). Issue #737 (email fencing) is landing
+separately on top via PR #773.
 
-Symptom status:
-- **#1 duplicate messages / #3 no token-context** — engine side now FIXED
-  (message.updated carries tokens/cost; part.updated carries canonical text).
-  Awaiting UI manual smoke to confirm the Flutter render.
-- **#2 ask-question hang** — FIXED earlier (question recovery).
+The #765 MCP-scoping regression was found and re-fixed in this batch (the
+`PATCH /session/:id` write path had been deleted in favor of the wrong schema —
+`UpdatedInfo` instead of `UpdatePayload`). It is **verified end-to-end** and is
+guarded in release CI by `tools/release/smoke_mcp_allowlist.sh`.
 
 ## Active branch / PR
 
-- **Branch:** `fix/issue-761-agents-ui-render` — contains #760 (merged) + #761 +
-  #2 question-recovery + #762 convertEvent hardening + **#764 shared-bus fix** +
-  tests. #764 fix not yet committed (working tree) at last update.
-- **PR [#763](https://github.com/ajhochy/Rhythm/pull/763)** open — fold #764 into
-  it with a `Closes #764` line. Not merged; left for human review + manual smoke.
-- Standalone PRs [#760](https://github.com/ajhochy/Rhythm/pull/760) and #758 also open.
+- **Branch:** `main` @ `4fbfc059d` (batch merged; consolidated branch deleted).
+- **PR #773** (`fix/issue-737-email-fencing`) — email fencing, re-landing on main.
 
-## In progress
+## Pending manual smoke (post-merge)
 
-- Commit the #764 fix to the branch, update PR #763 body (`Closes #764`),
-  hand off for manual UI smoke. Do not merge.
+Everything below **landed (or is landing) and still needs a real UI/behaviour
+smoke**. **MCP scoping (#765) is the only item already smoked — skip it.**
+
+- **#720 — compaction divider:** run an agent session to compaction; the
+  divider should render live in the chat (not only after reload).
+- **#723 — MCP remove/sync:** remove an MCP server in settings; it should
+  disappear and stay removed across an engine restart (no resurrection).
+- **#731 — shell-runner removal (regression):** confirm normal agent runs still
+  work end-to-end (vestigial `runShellCommand` path removed).
+- **#736 — WS-gateway tool-gating backstop:** agent streaming works; a
+  disallowed tool call on a role-scoped session is denied (Layer-2 backstop).
+- **#755 — role separation:** locally `RHYTHM_ROLE` defaults to `all` → agents
+  work (capabilities `opencode=true`). The `cloud`-role omission path is not
+  exercisable from the desktop app.
+- **#770 — Brain mirror-sync:** Memory-Vault (`~/Documents/Memory-Vault/*.md`)
+  notes appear in the Rhythm Brain panel; sync runs on the cron (~10 min).
+- **#737 — fence untrusted email content (prompt-injection, SF-4):** have an
+  agent read email via `rhythm_read_email` / `rhythm_search_gmail`; confirm the
+  email body is delivered fenced ("data, not instructions") and that injected
+  instructions in an email do not get acted on.
+- **#661 / #707:** no runtime UI surface — docs (#661) and a test-harness
+  refactor (#707); covered by the green suite, no manual smoke needed.
+
+- **#765 — MCP scoping:** ✅ already smoked end-to-end (real UI turn scoped
+  Secretary to its 7 servers; DB `mcp_allowlist` confirmed). No action.
+
+## Still outstanding
+
+- **#775 — verify per-agent skill scoping:** new follow-up. `allowed_skills_json`
+  exists per profile but `skill_retrieval.ts` shares skills instance-wide and
+  ignores it — same gap class as #765. Audit + guard pending.
 
 ## Risks / known issues
 
-- Bus is HIGH blast radius (event backbone). The fix is additive and
-  signature-preserving; disposal lifecycle (`InstanceDisposed` + shutdown that
-  `/event`'s `Stream.takeUntil` relies on) is preserved and re-verified.
-- Unit/bus-level suites cannot reproduce the split (it only manifests across HTTP
-  requests) — always re-verify bus changes against the BUILT fork with a real turn.
+- **Known limitation (#765):** switching from a restricted profile back to an
+  unrestricted one mid-session leaves the last-set allowlist on the fork
+  session. Acceptable for first-turn scope enforcement (the real app flow).
+- Fork binary is gitignored and **per-branch**; release CI rebuilds it from
+  `apps/opencode_fork` source and signs with a real Developer ID. Local dev
+  must rebuild + ad-hoc re-sign after staging (launcher handles this).
+- **#737 fencing scope:** only the gmail MCP tool results are fenced;
+  calendar/PCO/web tools that surface external text are not yet fenced
+  (governed by the decision doc, follow-up when they surface model-facing text).
 
-## Test status
+## Test status (at merge)
 
-- opencode_fork: `bun run typecheck` PASS · `bun test test/server/ test/bus/`
-  237 pass / 1 skip / 0 fail (incl. new `httpapi-event-dual-bus` contract test) ·
-  `bun run build --single` (arm64) PASS.
-- **Runtime smoke (built fork, real anthropic turn): PASS** — `/event` capture
-  contains `message.updated` ×6 + `message.part.updated` ×5 + `session.updated`
-  ×3 (all absent before the fix). See `runs/2026-06-27-issue-764-dual-bus-fix.md`.
-- api_server / desktop_flutter: unchanged this run (last green; see prior runs).
+- `npx tsc --noEmit` → exit 0
+- `npx vitest run` → 156 files, 1330 tests, all passed
+- `tools/release/smoke_mcp_allowlist.sh` → PASS on fixed binary, FAIL on a
+  binary lacking the write path (guard validated both ways)
+- E2e: real UI turn `agent=secretary` → DB `mcp_allowlist` = the 7-server set ✓
 
 ## Next step
 
-1. Commit #764, push, watch CI green, update PR #763 (`Closes #764`).
-2. Manual UI smoke on a signed local build: agent turn renders live, NO duplicate
-   messages, working token/context gauge. Then `failure-postmortem`.
-3. Human merge of #763 after smoke passes.
-
-## Recent coding-agent runs
-
-### 2026-06-27 — issue #737 fence untrusted email content (SF-4)
-- Files modified:
-  - `apps/mcp_server/src/untrusted_context.ts` (new) — shared `untrustedContext()` fence helper (delimiters + "data, not instructions" directive); TS analog of Odysseus `untrusted_context_message()`.
-  - `apps/mcp_server/src/tools/google.ts` — fence `rhythm_read_email` + `rhythm_search_gmail` tool results before they reach the model.
-  - `apps/mcp_server/src/__tests__/contract/issue-737.spec.ts` (new) — 3 contract tests.
-  - `docs/ai/contracts/issue-737.json` (new) — contract (2 unit, 1 manual/doc).
-  - `docs/ai/decisions/2026-06-27-fence-untrusted-external-content.md` (new) — fence-all-external-content rule.
-- Checks run: mcp_server `tsc --noEmit` PASS; `vitest run` 47/47 PASS (incl. 3 new contract + 7 existing google).
-- Decisions made: fence at the model-facing MCP tool-result boundary, NOT at `/integrations/gmail-signals` (that REST payload is a machine envelope consumed by Flutter; the agent reads gmail only via the MCP tools). See decision doc.
-- Deviations from spec: gmail-signals route left unfenced by design (structured-vs-text judgment); `rhythm_send_email` result ({id} confirmation, not attacker content) left unfenced.
-- Concerns: none. Calendar/PCO/web tools are not yet fenced — out of scope for #737 but now governed by the documented rule (follow-up when those tools surface external text to the model).
+Work through the **Pending manual smoke** list above against the v18.54 build,
+then start the #775 skill-scoping audit.

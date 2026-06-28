@@ -1,0 +1,40 @@
+{
+  "run_id": "2026-06-27-issue-756",
+  "issue": 756,
+  "date": "2026-06-27",
+  "smoke_result": "pass",
+  "verification_claimed": "PASS",
+  "divergence": false,
+  "criteria_results": [
+    {
+      "criterion_id": "issue-756-c1",
+      "text": "In the notarized release build, the opencode engine launches and Agents -> Terminal opens a working shell.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "v18.53 installed; user confirms 'terminal works'. No 'Server exited with code null'; PTY shell opens. This validates both the engine-launch fix (#756) and the original PTY dlopen fix (#752) end-to-end. The local hardened-runtime re-sign test (added this run) correctly predicted the release behavior."
+    }
+  ],
+  "process_issues": [
+    {
+      "process_category": "release-deploy",
+      "description": "Repair loop succeeded: the v18.52 regression was caught in user smoke, root-caused, and the v18.53 fix was LOCALLY verified before release via a hardened-runtime re-sign matrix. The release-only verification gap that caused v18.52 is now closed for this change class.",
+      "detected_by": "User manual smoke of installed v18.53 ('terminal works')."
+    }
+  ],
+  "workflow_adherence": {
+    "overall_score": "strict",
+    "expected_chain": ["workflow-orchestrator", "verification-gate", "failure-triage", "project-state-updater", "failure-postmortem"],
+    "observed_chain": ["workflow-orchestrator", "verification-gate", "failure-triage", "project-state-updater", "failure-postmortem"],
+    "skipped_skills": [],
+    "issues": []
+  },
+  "implementation_files": [
+    "apps/desktop_flutter/macos/Runner/opencode.entitlements",
+    "apps/desktop_flutter/macos/Runner/Release.entitlements",
+    "tools/release/sign_and_notarize_macos.sh"
+  ],
+  "failure_output": "",
+  "overall_category": "none",
+  "suggested_follow_up": "Carry the hardened-runtime local re-sign+launch+feature test into verification-gate as a standing check for any codesign/entitlement change to a bundled JIT/standalone binary."
+}

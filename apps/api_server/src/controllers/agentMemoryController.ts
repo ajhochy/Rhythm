@@ -2,6 +2,7 @@ import type { NextFunction, Request, Response } from 'express';
 import { AppError } from '../errors/app_error';
 import { agentMemoryService } from '../services/agentMemoryService';
 import { AgentMemoryRepository } from '../repositories/agent_memory_repository';
+import { syncMemoryVault } from '../services/memoryVaultSyncService';
 
 const repo = new AgentMemoryRepository();
 
@@ -56,6 +57,19 @@ export class AgentMemoryController {
       const deleted = await agentMemoryService.forget(req.params.id);
       if (!deleted) throw AppError.notFound('AgentMemory');
       res.status(204).end();
+    } catch (err) { next(err); }
+  }
+
+  /**
+   * Issue #770 WI6 — manual trigger for the Memory-Vault → agent_memory
+   * mirror-sync. Reads all notes from the configured Memory-Vault path and
+   * upserts/tombstones them. Returns a summary {scanned, upserted, deleted}.
+   * A missing vault path is reported as a no-op summary (all zeros), not a 500.
+   */
+  async sync(_req: Request, res: Response, next: NextFunction) {
+    try {
+      const summary = await syncMemoryVault();
+      res.json(summary);
     } catch (err) { next(err); }
   }
 }

@@ -263,6 +263,21 @@ declare module '@opencode-ai/sdk' {
     };
   };
 
+  // #720: opencode signals compaction completion with `session.compacted`
+  // (NOT a live `compaction` message-part). Shape verified against the real
+  // SDK: @opencode-ai/sdk/dist/gen/types.gen.d.ts EventSessionCompacted =
+  // { type: 'session.compacted'; properties: { sessionID } }. (The v2 SDK adds
+  // a top-level `id` field; we only consume `properties.sessionID` here, which
+  // is identical across both.) The persisted session carries a CompactionPart,
+  // so the bridge relays this event and the client rehydrates to render the
+  // "Conversation compacted" divider live.
+  export type EventSessionCompacted = {
+    type: 'session.compacted';
+    properties: {
+      sessionID: string;
+    };
+  };
+
   export type EventFileEdited = {
     type: 'file.edited';
     properties: {
@@ -388,6 +403,7 @@ declare module '@opencode-ai/sdk' {
     | EventSessionUpdated
     | EventSessionError
     | EventSessionDiff
+    | EventSessionCompacted
     | EventFileEdited
     | EventPermissionUpdated
     | EventPermissionAsked
@@ -608,6 +624,19 @@ declare module '@opencode-ai/sdk' {
         };
         query?: { directory?: string };
       }): Promise<SdkEnvelope<AssistantMessage>>;
+      /**
+       * PATCH /session/{id} — update session metadata.
+       * Note: the fork's UpdatePayload also accepts `mcpAllowlist` (mcp-scope
+       * patch), but that field is sent via direct fetch (updateSessionAllowlist)
+       * rather than this SDK method to avoid SDK body-type constraints.
+       */
+      update(options: {
+        path: { id: string };
+        body?: {
+          title?: string;
+        };
+        query?: { directory?: string };
+      }): Promise<SdkEnvelope<Session>>;
     };
     /**
      * MCP server management — client.mcp in sdk.gen.ts v1.14.49.

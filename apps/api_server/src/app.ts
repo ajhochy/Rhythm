@@ -73,10 +73,6 @@ export function createApp() {
   app.use(express.json({ limit: '1mb' }));
 
   app.use('/health', healthRouter);
-  // NOTE: /agents/capabilities is unauthenticated for now; Phase 3.1 will add the AGENT_LOCAL bypass.
-  app.use('/agents/capabilities', agentsCapabilitiesRouter);
-  app.use('/agents/usage-budget', usageBudgetRouter);
-  app.use('/agents/models', agentsModelsRouter);
   app.use('/dashboard', dashboardRouter);
   app.use('/auth', authRouter);
   app.use('/automation-catalog', automationCatalogRouter);
@@ -93,58 +89,80 @@ export function createApp() {
   app.use('/message-threads', messagesRouter);
   app.use('/facilities', facilitiesRouter);
   app.use('/workspaces', workspaceRouter);
-  app.use('/notifications/agent', notificationsAgentRouter);
+  // #755 — the agent-execution notifications surface must be mounted BEFORE the
+  // always-on `/notifications` prefix (Express matches `/notifications` against
+  // `/notifications/agent` otherwise). Gated like the rest of the agent
+  // surfaces, but its registration order is pinned here.
+  if (env.agentExecutionEnabled) {
+    app.use('/notifications/agent', notificationsAgentRouter);
+  }
   app.use('/notifications', notificationsRouter);
   app.use('/claude-triggers', claudeTriggersRouter);
-  app.use('/agent-configs', agentConfigsRouter);
-  app.use('/agent-delegation', agentDelegationRouter);
-  app.use('/agent-skills', agentSkillsRouter);
-  app.use('/agent-schedules', agentSchedulesRouter);
-  app.use('/agent-memory', agentMemoryRouter);
-  app.use('/agent-webhooks', agentWebhookRouter);
-  app.use('/agent-research', agentResearchRouter);
-  app.use('/agent-cookbook', agentCookbookRouter);
-  app.use('/agent-designs', agentDesignsRouter);
   app.use('/integrations/gmail-signals', gmailSignalsRouter);
-  app.use('/agent-sessions', agentSessionsRouter);
-  app.use(ptyRouter);
   app.use('/projects', projectsRouter);
-  app.use('/sync', syncRouter);
 
-  // Opencode engine auth & health
-  app.use('/opencode/auth', opencodeAuthRouter);
-  // Issue #609 — OpenRouter / opencode model catalog browse (server-side proxy)
-  app.use('/opencode/models', opencodeModelsRouter);
-  // OPC-M4-3 — MCP server management (list, add, connect, disconnect, remove)
-  app.use('/opencode/mcp', opencodeMcpRouter);
-  // Issue #609 — agent model visibility CRUD
-  app.use('/agent-models/visibility', agentModelVisibilityRouter);
+  // ── Agent-execution surfaces (#755) ───────────────────────────────────────
+  // Registered only when the deployment role enables the agent runtime
+  // (RHYTHM_ROLE=all|local; the DEFAULT preserves today's behavior). The
+  // 'cloud' (hosted production) role omits these so it never stands up agent
+  // routes, the opencode proxy, the WS/sync fan-out, or the PTY bridge it
+  // never uses. Core business + prod-owned trigger/notification surfaces above
+  // are always registered. Gated at the registration site (not inside
+  // handlers) so concurrent handler-owning issues (#736/#765/#737) are left
+  // untouched.
+  if (env.agentExecutionEnabled) {
+    // NOTE: /agents/capabilities is unauthenticated for now; Phase 3.1 will add the AGENT_LOCAL bypass.
+    app.use('/agents/capabilities', agentsCapabilitiesRouter);
+    app.use('/agents/usage-budget', usageBudgetRouter);
+    app.use('/agents/models', agentsModelsRouter);
+    app.use('/agent-configs', agentConfigsRouter);
+    app.use('/agent-delegation', agentDelegationRouter);
+    app.use('/agent-skills', agentSkillsRouter);
+    app.use('/agent-schedules', agentSchedulesRouter);
+    app.use('/agent-memory', agentMemoryRouter);
+    app.use('/agent-webhooks', agentWebhookRouter);
+    app.use('/agent-research', agentResearchRouter);
+    app.use('/agent-cookbook', agentCookbookRouter);
+    app.use('/agent-designs', agentDesignsRouter);
+    app.use('/agent-sessions', agentSessionsRouter);
+    app.use(ptyRouter);
+    app.use('/sync', syncRouter);
 
-  // M5-2: custom provider definitions placeholder. Returns 501 until the
-  // SDK config writer is wired through `opencode_plugin_config.ts`.
-  app.put('/opencode/providers', (_req, res) => {
-    res.status(501).json({
-      error: 'NOT_IMPLEMENTED',
-      message:
-        'Custom provider definitions are not yet wired through opencode_plugin_config.ts. Edit opencode.json directly for now.',
+    // Opencode engine auth & health
+    app.use('/opencode/auth', opencodeAuthRouter);
+    // Issue #609 — OpenRouter / opencode model catalog browse (server-side proxy)
+    app.use('/opencode/models', opencodeModelsRouter);
+    // OPC-M4-3 — MCP server management (list, add, connect, disconnect, remove)
+    app.use('/opencode/mcp', opencodeMcpRouter);
+    // Issue #609 — agent model visibility CRUD
+    app.use('/agent-models/visibility', agentModelVisibilityRouter);
+
+    // M5-2: custom provider definitions placeholder. Returns 501 until the
+    // SDK config writer is wired through `opencode_plugin_config.ts`.
+    app.put('/opencode/providers', (_req, res) => {
+      res.status(501).json({
+        error: 'NOT_IMPLEMENTED',
+        message:
+          'Custom provider definitions are not yet wired through opencode_plugin_config.ts. Edit opencode.json directly for now.',
+      });
     });
-  });
 
-  // M5-1 (Providers tab) / M4-3 — list user-defined commands from the SDK.
-  app.get('/opencode/commands', async (_req, res) => {
-    try {
-      const commands = await opencodeClient.listCommands();
-      res.json(commands);
-    } catch {
-      res.json([]);
-    }
-  });
-  app.get('/opencode/health', (_req, res) => {
-    res.json({
-      status: opencodeClient.isReady ? 'ready' : 'unavailable',
-      message: opencodeClient.statusMessage,
+    // M5-1 (Providers tab) / M4-3 — list user-defined commands from the SDK.
+    app.get('/opencode/commands', async (_req, res) => {
+      try {
+        const commands = await opencodeClient.listCommands();
+        res.json(commands);
+      } catch {
+        res.json([]);
+      }
     });
-  });
+    app.get('/opencode/health', (_req, res) => {
+      res.json({
+        status: opencodeClient.isReady ? 'ready' : 'unavailable',
+        message: opencodeClient.statusMessage,
+      });
+    });
+  }
 
   app.use(errorHandler);
 

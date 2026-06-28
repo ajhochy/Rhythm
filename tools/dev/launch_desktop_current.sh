@@ -42,6 +42,13 @@ stage_engine() {
   chmod +x "$STAGED_ENGINE"
   xattr -dr com.apple.provenance "$STAGED_ENGINE" >/dev/null 2>&1 || true
 
+  # Re-sign ad-hoc after copy. `cp` rewrites the file such that the embedded
+  # Mach-O signature no longer validates against its on-disk bytes, and Apple
+  # Silicon AMFI SIGKILLs (rc=137) any arm64 binary whose signature is invalid.
+  # Without this the next `--version` read dies and staging fails.
+  codesign --force --sign - "$STAGED_ENGINE" >/dev/null 2>&1 ||
+    fail "could not ad-hoc re-sign staged opencode binary"
+
   local staged_version
   staged_version="$("$STAGED_ENGINE" --version)" ||
     fail "could not read staged opencode version"

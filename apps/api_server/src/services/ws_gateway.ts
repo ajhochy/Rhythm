@@ -365,28 +365,52 @@ export async function handleInputFrame(
     return;
   }
 
-  // P1a — Resolve profile scope (model + MCP config) for this session's agentKind.
-  // agentKind IS the agent_configs id on the interactive path. No override is
-  // passed (undefined) so the helper derives MCP scope from the profile's own
-  // allowed_mcps_json column — giving interactive sessions the same MCP
-  // restriction as their agent profile specifies, matching the scheduled path.
-  // This must happen BEFORE any createSession call so the mcpRoleConfig is
-  // available for init-time scoping. Non-fatal: a missing/unknown agentKind
-  // returns null mcpRoleConfig (no restriction).
+  // #765 — Resolve profile scope (model + MCP config) for the profile that
+  // ACTUALLY drives this turn.
+  //
+  // The interactive create path (POST /agent-sessions, agents_view.dart) makes
+  // agent-LESS sessions (agentId:null → agent_kind '' or a base kind like
+  // 'claude-code'). The real profile (e.g. 'secretary') is picked per-turn in
+  // the composer and arrives on the frame as `agent` (perTurnAgent). Resolving
+  // scope from the row's stored agentKind therefore loses the chosen profile's
+  // MCP restriction entirely (base kinds carry no allowed_mcps_json → null
+  // config → ALL tools). We must prefer the per-turn picked profile, falling
+  // back to the session's agentKind only when no per-turn agent was sent.
+  //
+  // No override is passed (undefined) so the helper derives MCP scope from the
+  // resolved profile's own allowed_mcps_json column — giving interactive
+  // sessions the same MCP restriction the scheduled path enforces. This must
+  // happen BEFORE any createSession call so the mcpRoleConfig is available for
+  // init-time scoping. Non-fatal: a missing/unknown profile id returns null
+  // mcpRoleConfig (no restriction).
+  const scopeAgentId = perTurnAgent ?? agentKind ?? null;
   let wsMcpRoleConfig: import('./agent_profile_scope').McpRoleConfig | undefined;
   let wsAllowedSkillsJson: string | null = null;
   let wsSystemPrompt: string | null = null;
   let wsOcAgent: string | null = null;
   try {
-    const wsProfileScope = await resolveProfileScope(agentKind ?? null);
+    const wsProfileScope = await resolveProfileScope(scopeAgentId);
     wsMcpRoleConfig = wsProfileScope.mcpRoleConfig ?? undefined;
     wsAllowedSkillsJson = wsProfileScope.allowedSkillsJson;
     wsSystemPrompt = wsProfileScope.systemPrompt;
     wsOcAgent = wsProfileScope.ocAgent;
     if (wsMcpRoleConfig) {
       console.log(
-        `[ws_gateway] session ${id}: profile mcpRoleConfig resolved (role=${wsMcpRoleConfig.role}, servers=${Object.keys(wsMcpRoleConfig.mcpServers).join(',')})`,
+        `[ws_gateway] session ${id}: profile mcpRoleConfig resolved from '${scopeAgentId}' (role=${wsMcpRoleConfig.role}, servers=${Object.keys(wsMcpRoleConfig.mcpServers).join(',')})`,
       );
+    }
+    // #765 — persist the resolved scope onto the session row so it is auditable
+    // and survives a later resume. Clear it (null) when the picked profile
+    // imposes no restriction so a row never carries a stale allowlist after the
+    // user switches to an unrestricted profile.
+    try {
+      new AgentSessionsRepository().setMcpScope(
+        id,
+        wsMcpRoleConfig?.role ?? null,
+        wsMcpRoleConfig?.allowedToolsJson ?? null,
+      );
+    } catch (persistErr) {
+      console.error(`[ws_gateway] setMcpScope persist failed (non-fatal):`, persistErr);
     }
   } catch (err) {
     // Non-fatal: a scope-resolution failure must never block an interactive turn.
@@ -521,6 +545,25 @@ export async function handleInputFrame(
         }),
       );
       return;
+    }
+  }
+
+  // #765 — push the resolved MCP allowlist onto the existing fork session so
+  // filterMcpToolsByAllowlist in prompt.ts reads it at prompt time. This is
+  // necessary when `opencodeId` was already in the map (set by
+  // POST /agent-sessions before the user picked a profile); those sessions
+  // were created without an allowlist, so we PATCH it here per-turn.
+  // For freshly-created sessions (the if-block above) this is a no-op
+  // update to the same value, which is harmless.
+  // Known limitation: if the user switches back to an unrestricted profile
+  // (no mcpRoleConfig), the fork session retains the last-set allowlist for
+  // that session — see docs/ai/project-state.md risk note.
+  if (wsMcpRoleConfig?.allowedToolsJson) {
+    try {
+      const servers = JSON.parse(wsMcpRoleConfig.allowedToolsJson) as string[];
+      await opencodeClient.updateSessionAllowlist(opencodeId, servers);
+    } catch (allowlistErr) {
+      console.error(`[ws_gateway] updateSessionAllowlist failed (non-fatal):`, allowlistErr);
     }
   }
 

@@ -20,8 +20,8 @@
  */
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 import Database from 'better-sqlite3';
-import type { AddressInfo } from 'node:net';
 import { createApp } from '../app';
+import { startTestServer } from './helpers/real_server';
 import { runMigrations } from '../database/migrations';
 import { setDb } from '../database/db';
 import { UsersRepository } from '../repositories/users_repository';
@@ -123,14 +123,7 @@ describe(
       const session = await new SessionsRepository().createAsync(user.id);
       authHeaders = { Authorization: `Bearer ${session.token}` };
 
-      const server = createApp().listen(0);
-      await new Promise<void>((r) => server.once('listening', () => r()));
-      const { port } = server.address() as AddressInfo;
-      baseUrl = `http://127.0.0.1:${port}`;
-      closeServer = () =>
-        new Promise<void>((res, rej) =>
-          server.close((e) => (e ? rej(e) : res())),
-        );
+      ({ baseUrl, close: closeServer } = await startTestServer(createApp()));
     });
 
     afterEach(async () => {
@@ -244,14 +237,7 @@ describe(
       const session = await new SessionsRepository().createAsync(user.id);
       authHeaders = { Authorization: `Bearer ${session.token}` };
 
-      const server = createApp().listen(0);
-      await new Promise<void>((r) => server.once('listening', () => r()));
-      const { port } = server.address() as AddressInfo;
-      baseUrl = `http://127.0.0.1:${port}`;
-      closeServer = () =>
-        new Promise<void>((res, rej) =>
-          server.close((e) => (e ? rej(e) : res())),
-        );
+      ({ baseUrl, close: closeServer } = await startTestServer(createApp()));
     });
 
     afterEach(async () => {

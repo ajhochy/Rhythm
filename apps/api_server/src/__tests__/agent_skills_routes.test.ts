@@ -5,22 +5,13 @@ import { runMigrations } from '../database/migrations';
 import { setDb } from '../database/db';
 import { UsersRepository } from '../repositories/users_repository';
 import { SessionsRepository } from '../repositories/sessions_repository';
-import type { AddressInfo } from 'node:net';
+import { startTestServer } from './helpers/real_server';
 
 function makeDb() {
   const db = new Database(':memory:');
   db.pragma('foreign_keys = ON');
   runMigrations(db);
   return db;
-}
-
-function makeServer() {
-  const server = createApp().listen(0);
-  // Close each connection after a single request so the response carries
-  // `Connection: close` — keeps undici from reusing a stale pooled socket when
-  // a later test's `listen(0)` recycles the same ephemeral port.
-  server.maxRequestsPerSocket = 1;
-  return server;
 }
 
 async function setup() {
@@ -36,14 +27,7 @@ async function setup() {
     'Content-Type': 'application/json',
   };
 
-  const server = makeServer();
-  await new Promise<void>((r) => server.once('listening', () => r()));
-  const baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
-  const closeServer = () =>
-    new Promise<void>((res, rej) => {
-      server.closeAllConnections();
-      server.close((e) => (e ? rej(e) : res()));
-    });
+  const { baseUrl, close: closeServer } = await startTestServer(createApp());
 
   return { baseUrl, closeServer, authHeaders };
 }

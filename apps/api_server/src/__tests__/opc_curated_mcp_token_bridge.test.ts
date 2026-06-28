@@ -22,13 +22,13 @@ import { vi, afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { mkdtempSync, rmSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
-import type { AddressInfo } from 'node:net';
 import Database from 'better-sqlite3';
 import { OpencodeClientService } from '../services/opencode_client_service';
 import {
   CURATED_MCP_SERVERS,
   type CuratedMcpServer,
 } from '../config/curated_mcp_servers';
+import { startTestServer } from './helpers/real_server';
 
 // The verified curated catalog has NO token-bridged entry anymore
 // (google-workspace + planning-center were dropped — the rhythm MCP already
@@ -261,6 +261,8 @@ describe('POST /opencode/mcp/curated/ensure token bridge (c3, c4)', () => {
       env: {
         dbClient: 'sqlite',
         agentLocal: true,
+        agentExecutionEnabled: true,
+        role: 'local',
         corsAllowedOrigins: [],
         jwtSecret: 'test-secret',
       },
@@ -297,16 +299,7 @@ describe('POST /opencode/mcp/curated/ensure token bridge (c3, c4)', () => {
     );
 
     const { createApp } = await import('../app');
-    const server = createApp().listen(0);
-    // Force a fresh connection per request — undici keep-alive socket reuse
-    // intermittently fails these fetch()-based route tests (testing-guide).
-    server.maxRequestsPerSocket = 1;
-    await new Promise<void>((r) => server.once('listening', () => r()));
-    baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
-    close = () =>
-      new Promise<void>((res, rej) =>
-        server.close((e) => (e ? rej(e) : res())),
-      );
+    ({ baseUrl, close } = await startTestServer(createApp()));
   });
 
   afterEach(async () => {

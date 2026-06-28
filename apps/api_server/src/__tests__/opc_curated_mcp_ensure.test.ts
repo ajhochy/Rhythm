@@ -26,10 +26,10 @@ import {
 } from 'fs';
 import { join, dirname } from 'path';
 import { tmpdir } from 'os';
-import type { AddressInfo } from 'node:net';
 import Database from 'better-sqlite3';
 import { OpencodeClientService } from '../services/opencode_client_service';
 import { CURATED_MCP_SERVERS } from '../config/curated_mcp_servers';
+import { startTestServer } from './helpers/real_server';
 
 // Desired opencode.json entry shape for the PDF Tools curated server.
 const PDF = CURATED_MCP_SERVERS.find((s) => s.id === 'pdf-tools')!;
@@ -131,7 +131,7 @@ describe('POST /opencode/mcp/curated/ensure route (c5)', () => {
       opencodeSessionMap: new Map(),
     }));
     vi.doMock('../config/env', () => ({
-      env: { agentLocal: true, corsAllowedOrigins: [], jwtSecret: 'test-secret' },
+      env: { agentLocal: true, agentExecutionEnabled: true, role: 'local', corsAllowedOrigins: [], jwtSecret: 'test-secret' },
     }));
 
     const { setDb } = await import('../database/db');
@@ -144,13 +144,7 @@ describe('POST /opencode/mcp/curated/ensure route (c5)', () => {
     })());
 
     const { createApp } = await import('../app');
-    const server = createApp().listen(0);
-    await new Promise<void>((r) => server.once('listening', () => r()));
-    baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
-    close = () =>
-      new Promise<void>((res, rej) =>
-        server.close((e) => (e ? rej(e) : res())),
-      );
+    ({ baseUrl, close } = await startTestServer(createApp()));
   });
 
   afterEach(async () => {
