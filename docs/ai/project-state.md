@@ -142,3 +142,44 @@ project-state-updater after verification.)
   only documents + guards that boundary. (Issue references #783 in the doc —
   the issue prompt cited #783/#781/#765; #783 used as the catalog/display
   tracking ref.)
+
+### 2026-06-28 — #788 validate agent_profile_sync MCP defaults vs live ids; document auto-installers (worktree off `feature/mcp-unify`)
+- Files modified:
+  - `apps/api_server/src/services/agent_profile_sync.ts` — added
+    `validateMcpsAgainstLive()` (mirrors the skill-side `filterAllowlistToLive`)
+    + a try/catch `liveMcpNames` fetch (`listMcp()` keys); both the insert and
+    backfill sites now validate the importer default `["rhythm"]` against the
+    live engine id set. A dead name is dropped + logged loudly (never persisted
+    as #765 scope); empty/unavailable live set → default unchanged, never throws.
+  - `apps/api_server/src/services/__tests__/agent_profile_sync_mcp_alignment.test.ts`
+    — new (4 tests): default persisted when live, dead name dropped+warned, two
+    boundary cases (listMcp throws / returns {} → default `["rhythm"]` preserved).
+  - `apps/desktop_flutter/lib/app/core/agents/curated_mcp_auto_installer.dart`,
+    `rhythm_mcp_auto_installer.dart` — header doc comment (materialize-on-install
+    trigger; live engine = source of truth; KEEP). Behavior unchanged.
+  - `docs/ai/decisions/2026-06-28-unify-mcp-source-of-truth.md` — addendum
+    recording the auto-installer KEEP decision + rationale + the MCP-default
+    validation.
+- Checks run:
+  - `vitest run agent_profile_sync` → 4 files / 32 tests pass.
+  - Falsification: reverting the insert-site validation to the raw constant →
+    the dead-name test fails (`expected '["rhythm"]' to be null`); restored.
+  - `vitest run mcp_names_alignment curated_mcp_no_display` (#785/#787 guards) →
+    12/12 pass (no regression).
+  - `npm run build` (tsc) → exit 0.
+  - `flutter analyze --no-fatal-infos` on the two edited files → 0 issues
+    (pre-existing `ansi_strip.dart` info from PR #552 is unrelated/out of scope).
+- Decisions made: implemented self-contained (NOT reusing a #789 helper) — #789
+  (`mcp_name_alignment.ts` / `normalizeDerivedAllowedMcps`) does **not** exist on
+  `feature/mcp-unify` yet, contrary to the dispatch framing; the validator mirrors
+  the existing skill-alignment pattern so #789 can later refactor both onto one
+  helper without changing behavior. Auto-installer fate = KEEP (see decision doc).
+- Deviations from spec: dispatch prompt assumed #789 was already merged here; it
+  was not (verified: helper absent on `feature/mcp-unify`). Built the validation
+  directly rather than reusing a non-existent helper. No user `allowed_mcps_json`
+  rows rewritten; no DB columns; no OAuth/#765 changes.
+- Concerns: when #789 lands its `mcp_name_alignment.ts`, fold `validateMcpsAgainstLive`
+  + the skill `filterAllowlistToLive` onto the shared helper (alias normalization,
+  e.g. `ableton`→`ableton-mcp`, is a #789 concern — this run only validates exact
+  live-id membership). node_modules here is a symlink to the main checkout (not
+  committed).

@@ -1,3 +1,18 @@
+// #788 — MCP source-of-truth note.
+//
+// This auto-installer is the *materialize-on-install trigger* for the curated
+// MCP templates: on launch it POSTs to the server-side ensure endpoint
+// (`/opencode/mcp/curated/ensure`), which materializes the curated catalog INTO
+// the opencode engine. It does NOT constitute a second MCP source.
+//
+// The SINGLE source of truth for which MCP servers exist is the live engine
+// list (`GET /opencode/mcp`) — that is what the pickers display and what #765
+// scoping enforces. The curated catalog (`curated_mcp_servers.ts`) is an
+// install-template + enrichment layer only (see
+// docs/ai/decisions/2026-06-28-unify-mcp-source-of-truth.md). Decision: KEEP
+// this client-side trigger (do not fold into a server-side ensure-on-ready) —
+// behavior unchanged.
+
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
