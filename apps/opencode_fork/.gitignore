@@ -30,3 +30,6 @@ UPCOMING_CHANGELOG.md
 logs/
 *.bun-build
 tsconfig.tsbuildinfo
+
+# opencode serve/test writes a default config stub here (credless, but noise)
+packages/opencode/config.json
