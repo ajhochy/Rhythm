@@ -1,0 +1,31 @@
+{
+  "issue": 723,
+  "generated": "2026-06-27",
+  "stack": "typescript",
+  "criteria": [
+    {
+      "criterion_id": "issue-723-c1",
+      "text": "Clicking Remove on an MCP server makes the row disappear from the Settings list without requiring an app restart.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/issue_723_mcp_remove_reconcile.test.ts",
+      "test_id": "issue-723-c1: removed server disappears from listMcp without engine restart",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-723-c2",
+      "text": "The server is gone from opencode.json (already true).",
+      "mode": "manual",
+      "status": "UNVERIFIED",
+      "reason": "Pre-existing behavior (DELETE writes config removal); covered by existing removeMcp config-write logic and existing route test issue-702-c1k. Not re-asserted by this change; confirm during smoke that opencode.json no longer contains the removed server."
+    },
+    {
+      "criterion_id": "issue-723-c3",
+      "text": "No regression to add/connect/disconnect.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/issue_723_mcp_remove_reconcile.test.ts",
+      "test_id": "issue-723-c3: re-adding a removed server makes it reappear in listMcp",
+      "status": "pending"
+    }
+  ],
+  "not_tested": ["issue-723-c2"]
+}
