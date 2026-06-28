@@ -278,6 +278,14 @@ export interface BuildSkillsPrefaceOptions {
  * The returned text is INTENDED to be prepended to the prompt in memory only.
  * It must NEVER be persisted to a profile systemPrompt, session memory, or an
  * opencode agent .md file (P3-2 core safeguard).
+ *
+ * NOTE (Unify-6 / #775): this preface is an inert relevance HINT, NOT the
+ * capability gate. The model can only LOAD skills the opencode fork discovered
+ * on disk (filesystem SKILL.md), and per-session scoping is enforced there via
+ * skillAllowlist. To make a DB skill loadable it must be MATERIALIZED to a
+ * SKILL.md in the Rhythm-managed dir (see skill_materializer.ts) — adding it to
+ * this preface alone does nothing. The allowlist filtering below likewise only
+ * affects which hints are shown, never what the model can actually load.
  */
 export function buildSkillsPreface(
   query: string,

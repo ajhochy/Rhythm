@@ -1,5 +1,16 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { mkdtempSync } from 'fs';
+import { tmpdir } from 'os';
+import { join } from 'path';
 import Database from 'better-sqlite3';
+
+// Unify-6: publishing a skill now materializes a SKILL.md to the managed dir.
+// Redirect it to a throwaway tmp dir so these route tests never touch the real
+// ~/.config/opencode tree.
+process.env.RHYTHM_MANAGED_SKILLS_DIR = mkdtempSync(
+  join(tmpdir(), 'rhythm-skills-routes-'),
+);
+
 import { createApp } from '../app';
 import { runMigrations } from '../database/migrations';
 import { setDb } from '../database/db';
