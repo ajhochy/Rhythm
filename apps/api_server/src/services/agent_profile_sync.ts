@@ -487,6 +487,31 @@ export async function syncOpencodeAgentProfiles(
     normalizeDerivedAllowedMcps(IMPORTER_DEFAULT_ALLOWED_MCPS_JSON, liveMcpNames) ??
     IMPORTER_DEFAULT_ALLOWED_MCPS_JSON;
 
+  // #788 observability — #789 normalization silently drops a default name that
+  // doesn't align to any live id, so emit the loud warning here when the default
+  // fails to survive against a non-empty live set. The #785 names-alignment guard
+  // relies on a dead name never being silently persisted as scope.
+  if (liveMcpNames.size > 0) {
+    try {
+      const rawDefault = JSON.parse(IMPORTER_DEFAULT_ALLOWED_MCPS_JSON) as unknown;
+      const survivors = JSON.parse(importerDefaultAllowedMcpsJson) as unknown;
+      if (
+        Array.isArray(rawDefault) &&
+        rawDefault.length > 0 &&
+        Array.isArray(survivors) &&
+        survivors.length === 0
+      ) {
+        logger.warn(
+          `[AgentProfileSync] MCP name(s) absent from the live engine server set — ` +
+            `dropping from the importer-default scope (leaving rows unrestricted): ` +
+            `${(rawDefault as string[]).join(', ')}`,
+        );
+      }
+    } catch {
+      // default is always a JSON array literal; parse failure is not actionable.
+    }
+  }
+
 
   for (const agent of agents) {
     const name = agent.name;
