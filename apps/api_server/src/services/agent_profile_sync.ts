@@ -26,6 +26,7 @@ import { opencodeClient } from './opencode_engine';
 import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
 import { logger } from '../utils/logger';
 import { env } from '../config/env';
+import { normalizeDerivedAllowedMcps } from './mcp_name_alignment';
 
 /**
  * opencode primaries that drive background machinery, not user-facing sessions.
@@ -407,6 +408,25 @@ export async function syncOpencodeAgentProfiles(
     (await opencodeClient.listSkills()).map((s) => s.name),
   );
 
+  // #789 — fetch the engine's live MCP server ids ONCE so the DERIVED default
+  // allowed_mcps_json is normalized to an exact live id before it is persisted
+  // (the #781 drift fix). Same fail-safe contract as liveSkillNames: any
+  // failure (engine not ready — listMcp() throws, unlike listSkills) yields an
+  // empty set, and normalizeDerivedAllowedMcps treats an empty live set as
+  // "skip normalization" so a momentary outage never rewrites/empties a scope.
+  let liveMcpNames = new Set<string>();
+  try {
+    liveMcpNames = new Set(Object.keys(await opencodeClient.listMcp()));
+  } catch (err) {
+    logger.warn(`[AgentProfileSync] listMcp failed (non-fatal): ${String(err)}`);
+  }
+
+  // The importer default ("rhythm") normalized to live ids. When the engine is
+  // unavailable (empty live set) this is identical to the raw default.
+  const importerDefaultAllowedMcpsJson =
+    normalizeDerivedAllowedMcps(IMPORTER_DEFAULT_ALLOWED_MCPS_JSON, liveMcpNames) ??
+    IMPORTER_DEFAULT_ALLOWED_MCPS_JSON;
+
   for (const agent of agents) {
     const name = agent.name;
     if (!name) continue;
@@ -469,7 +489,8 @@ export async function syncOpencodeAgentProfiles(
         // had to be re-PATCHed. allowedDelegatesJson was the worst offender — it
         // was written unconditionally, clobbering user overrides on every sync.
         if (existing.allowedMcpsJson === null) {
-          patch.allowedMcpsJson = IMPORTER_DEFAULT_ALLOWED_MCPS_JSON;
+          // #789 — backfill the DERIVED default normalized to live engine ids.
+          patch.allowedMcpsJson = importerDefaultAllowedMcpsJson;
         }
         if (existing.allowedSkillsJson === null) {
           const derived = filterAllowlistToLive(
@@ -502,8 +523,9 @@ export async function syncOpencodeAgentProfiles(
           systemPrompt: prompt,
           modelProvider: resolvedProvider,
           modelId: resolvedModelId,
-          // Default MCP scope: "rhythm" local server. null means unrestricted.
-          allowedMcpsJson: IMPORTER_DEFAULT_ALLOWED_MCPS_JSON,
+          // Default MCP scope: "rhythm" local server, #789-normalized to the
+          // exact live engine id. null means unrestricted.
+          allowedMcpsJson: importerDefaultAllowedMcpsJson,
           // Derive per-agent skill allowlist from name, then intersect with the
           // fork's live skill names so no dead name is persisted (Unify-3). null =
           // all eligible (fail-open for agents not in the map).

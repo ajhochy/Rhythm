@@ -142,3 +142,45 @@ project-state-updater after verification.)
   only documents + guards that boundary. (Issue references #783 in the doc —
   the issue prompt cited #783/#781/#765; #783 used as the catalog/display
   tracking ref.)
+
+### 2026-06-28 — #789 MCP name-drift reconciliation (subsumes #781; branch ff'd onto `feature/mcp-unify`)
+- Files modified:
+  - `apps/api_server/src/services/mcp_name_alignment.ts` — NEW pure helper.
+    `alignMcpName(candidate, liveNames)` → `{resolved, matched}`; rule = exact
+    live id wins, else canonical match (`canonicalizeMcpName`: lowercase, strip
+    `[-_]`, drop trailing `mcp` token), ambiguous/none → unresolved (never
+    guesses/invents). `normalizeDerivedAllowedMcps(json, liveNames)` maps a
+    DERIVED array to matched live ids (order-preserving, de-duped); drops
+    unmatched (incl. `foo`); empty live set / null / non-array / bad JSON →
+    passthrough; all-dead → `[]` (NOT null — empty MCP scope is a valid #765
+    scope, fail-open would widen).
+  - `apps/api_server/src/services/agent_profile_sync.ts` — wired normalization
+    into the DERIVED default ONLY. Fetches `liveMcpNames` once (try/catch →
+    empty set on throw, since `listMcp()` throws unlike `listSkills()`);
+    `importerDefaultAllowedMcpsJson = normalizeDerivedAllowedMcps(default, live)`;
+    used at the INSERT and the UPDATE-backfill sites. User-set rows untouched.
+  - `apps/api_server/src/services/__tests__/mcp_name_alignment.test.ts` — NEW
+    (15 pure-helper cases).
+  - `apps/api_server/src/services/__tests__/agent_profile_sync_mcp_alignment.test.ts`
+    — NEW (5 wiring cases incl. AC#2 user-row-not-rewritten + 2 fail-safe).
+  - `docs/ai/decisions/2026-06-28-issue-789-mcp-name-drift.md` — NEW decision.
+- Checks run: `vitest run mcp_name_alignment mcp_allowlist_expander
+  mcp_names_alignment agent_profile_sync opencode_client_service` → 100/100
+  pass (9 files). `npm run build` (tsc) exit 0. Falsification: (a) helper test
+  errored "no tests" before `mcp_name_alignment.ts` existed; (b) reverting the
+  two sync wiring sites failed the `rhythm-mcp` normalization case 1/5.
+- Decisions made: chose canonical-form normalization (separator-insensitive +
+  optional `-mcp` suffix) over a hardcoded alias map — covers both #781
+  fixtures generically; see decision doc. DERIVED-only scope: user rows are
+  reconciled read-only (surfaced as stale by #785's guard), never rewritten
+  (AC#2). all-dead → `[]` not null (diverges from skill `filterAllowlistToLive`
+  on purpose — empty MCP scope is valid #765).
+- Deviations from spec: none. `agent_profile_scope.ts` left untouched —
+  normalization belongs at derived-name PRODUCTION (sync), and routing it
+  through the read-path scope builder would risk silently rewriting user rows
+  (AC#2 violation). Expander (`mcp_allowlist_expander.ts`) untouched — its
+  `servers[]` already emits raw live ids matching the fork's `keyToServer`
+  (AC#4 verified: `opencode_client_service` suite green).
+- Concerns: only the `["rhythm"]` default is a derived MCP name today, so the
+  normalization is mostly future-proofing (the helper generalizes to any future
+  derived/expander-side name). #788 note below.
