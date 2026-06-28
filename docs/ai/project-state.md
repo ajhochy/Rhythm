@@ -16,8 +16,10 @@ Prior batch context: PR [#774](https://github.com/ajhochy/Rhythm/pull/774)
 
 ## Active branch / PR
 
-- **Branch:** `fix/issue-775-skill-allowlist-guard` (PR pending) — #775 skill scoping.
-- **Ships only after a fork rebuild + signed release** (fork binary is bundled).
+- **Branch:** `fix/issue-775-skill-allowlist-guard` — **PR #776 open, smoke PASSED,
+  ready for human merge.**
+- **Ships only after a fork rebuild + signed release** (fork binary is bundled);
+  the release CI rebuilds the fork, so merging + a release picks up the change.
 
 ## Pending manual smoke (post-merge)
 
@@ -49,14 +51,17 @@ smoke**. **MCP scoping (#765) is the only item already smoked — skip it.**
 
 ## Still outstanding
 
-- **#775 manual smoke (live end-to-end):** the automated guards prove the
-  allowlist persists on the real binary + the filter logic/wiring is correct, but
-  NOT the live path. After a fork rebuild+release, confirm a restricted Secretary
-  session's prompt omits out-of-scope skills and an out-of-scope `skill` load is
-  refused.
-- **Follow-up (file an issue):** the Flutter `_kAvailableSkills` picker is a
-  hardcoded list; its names must match the fork's `SKILL.md` `name` or scoping
-  matches nothing. Source it from the fork's `GET /skill` instead.
+- **#775 — ✅ manual smoke PASSED (2026-06-28).** Verified live on the dev-built
+  fork (launcher-staged, engine identity confirmed): a profile restricted to
+  `ffb-roster` refused an out-of-scope `workflow-orchestrator` skill load and
+  listed only the allowed skill. PR #776 is ready for human merge.
+- **Skills unification (planned, supersedes/expands #777):** the picker drift is
+  real and now measured — the hardcoded `_kAvailableSkills` (14) matches only 4
+  of the 79 skills the fork actually discovers (`GET /skill`). Same hardcoding in
+  `_kAvailableMcps` and `agent_profile_sync.AGENT_SKILL_ALLOWLIST_MAP`. Plan:
+  one source of truth (engine skill dir) + api_server `GET /skill` proxy + write
+  path; Flutter menu reads/writes it. A new-session workflow prompt for this is
+  drafted (see chat); fold in #777.
 
 ## Risks / known issues
 

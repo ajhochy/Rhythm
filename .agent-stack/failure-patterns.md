@@ -150,3 +150,12 @@
 - **Criteria affected**: issue-764-c1 (pass/pass)
 - **Root cause**: namespace Bus and per-request DI Bus.Service held separate per-directory wildcard PubSubs; SyncEvent publishes never reached /event. Fixed via a shared module-level Map<directory,State> read-through in bus/index.ts.
 - **Suggested fix**: provide a dev-smoke launcher that frees :4096, refuses a competing :4000 engine server, and stages+verifies the freshly-built fork at apps/api_server/opencode_bin/opencode before launch (engine-change smokes otherwise risk running the stale system binary or failing on port contention).
+
+## 2026-06-28 — Issue #775 — per-agent skill scoping (smoke PASS)
+
+- **Result**: smoke PASS (verification claimed PASS; no divergence)
+- **Category**: none (correctness); W5/W1 on the first pass — false-green caught by user
+- **Criteria affected**: all 3 pass; live end-to-end (restricted session refuses out-of-scope skill load) confirmed on the running fork
+- **Root cause**: skills are served by the opencode FORK (skill tool + system-prompt listing), not api_server's buildSkillsPreface; per-profile allowed_skills_json never reached the engine — the #765 shape. First verification attempt tested the inert api_server path (C2 false green).
+- **Suggested fix**: when a capability is served by the bundled fork, the acceptance contract must exercise the fork (built binary / fork unit test), not the api_server preface; a green api_server unit test for such a criterion is presumptively a false green.
+- **Process notes**: missing-migration bug surfaced ONLY by building+running the binary (build-verification); hardcoded picker drift — 4/14 picker names match the 79 real discovered skills (→ #777 + unification plan).
