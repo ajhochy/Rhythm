@@ -88,6 +88,7 @@ export function toPartialRow(info: DeepPartial<Session.Info>) {
     revert: grab(info, "revert"),
     permission: grab(info, "permission"),
     mcp_allowlist: grab(info, "mcpAllowlist"),
+    skill_allowlist: grab(info, "skillAllowlist"),
     time_created: grab(info, "time", (v) => grab(v, "created")),
     time_updated: grab(info, "time", (v) => grab(v, "updated")),
     time_compacting: grab(info, "time", (v) => grab(v, "compacting")),

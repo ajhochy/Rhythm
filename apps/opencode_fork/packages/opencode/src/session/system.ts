@@ -15,6 +15,8 @@ import type { Provider } from "@/provider/provider"
 import type { Agent } from "@/agent/agent"
 import { Permission } from "@/permission"
 import { Skill } from "@/skill"
+import { filterSkillsByAllowlist } from "./skill_allowlist"
+import type { Session } from "./session"
 
 export function provider(model: Provider.Model) {
   if (model.api.id.includes("gpt-4") || model.api.id.includes("o1") || model.api.id.includes("o3"))
@@ -34,7 +36,10 @@ export function provider(model: Provider.Model) {
 
 export interface Interface {
   readonly environment: (model: Provider.Model) => Effect.Effect<string[]>
-  readonly skills: (agent: Agent.Info) => Effect.Effect<string | undefined>
+  readonly skills: (
+    agent: Agent.Info,
+    skillAllowlist?: Session.Info["skillAllowlist"],
+  ) => Effect.Effect<string | undefined>
 }
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/SystemPrompt") {}
@@ -62,10 +67,21 @@ export const layer = Layer.effect(
         ]
       }),
 
-      skills: Effect.fn("SystemPrompt.skills")(function* (agent: Agent.Info) {
+      skills: Effect.fn("SystemPrompt.skills")(function* (
+        agent: Agent.Info,
+        skillAllowlist?: Session.Info["skillAllowlist"],
+      ) {
         if (Permission.disabled(["skill"], agent.permission).has("skill")) return
 
-        const list = yield* skill.available(agent)
+        const available = yield* skill.available(agent)
+        // Rhythm carried patch (skill-scope, #775): drop out-of-scope skills so the
+        // model is never offered them in the system prompt — the skill analogue of
+        // filterMcpToolsByAllowlist. undefined allowlist = unrestricted (back-compat).
+        const allowedNames = filterSkillsByAllowlist(
+          available.map((s) => s.name),
+          skillAllowlist,
+        )
+        const list = available.filter((s) => allowedNames.includes(s.name))
 
         return [
           "Skills provide specialized instructions and workflows for specific tasks.",

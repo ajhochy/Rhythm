@@ -386,12 +386,29 @@ export async function handleInputFrame(
   const scopeAgentId = perTurnAgent ?? agentKind ?? null;
   let wsMcpRoleConfig: import('./agent_profile_scope').McpRoleConfig | undefined;
   let wsAllowedSkillsJson: string | null = null;
+  // #775 (skill-scope): the resolved profile's permitted skill NAMES, parsed from
+  // allowed_skills_json. Pushed to the fork session so the model's available skills
+  // are scoped to this set — the skill analogue of wsMcpRoleConfig. Empty = unrestricted.
+  let wsSkillNames: string[] = [];
   let wsSystemPrompt: string | null = null;
   let wsOcAgent: string | null = null;
   try {
     const wsProfileScope = await resolveProfileScope(scopeAgentId);
     wsMcpRoleConfig = wsProfileScope.mcpRoleConfig ?? undefined;
     wsAllowedSkillsJson = wsProfileScope.allowedSkillsJson;
+    // #775 (skill-scope): parse allowed_skills_json (a JSON string[] of skill names)
+    // into the names array pushed to the fork. A non-array / empty / malformed value
+    // yields [] → unrestricted (fail-open, same posture as the MCP path).
+    if (wsAllowedSkillsJson) {
+      try {
+        const parsed = JSON.parse(wsAllowedSkillsJson);
+        if (Array.isArray(parsed)) {
+          wsSkillNames = parsed.filter((s): s is string => typeof s === 'string' && s.trim().length > 0);
+        }
+      } catch {
+        wsSkillNames = [];
+      }
+    }
     wsSystemPrompt = wsProfileScope.systemPrompt;
     wsOcAgent = wsProfileScope.ocAgent;
     if (wsMcpRoleConfig) {
@@ -467,6 +484,7 @@ export async function handleInputFrame(
             sessionName ?? 'Resumed',
             cwd,
             wsMcpRoleConfig,
+            wsSkillNames,
           );
           if (!freshSession) {
             ws.send(
@@ -503,6 +521,7 @@ export async function handleInputFrame(
           sessionName ?? 'Resumed',
           cwd,
           wsMcpRoleConfig,
+          wsSkillNames,
         );
         if (!opencodeSession) {
           ws.send(
@@ -564,6 +583,21 @@ export async function handleInputFrame(
       await opencodeClient.updateSessionAllowlist(opencodeId, servers);
     } catch (allowlistErr) {
       console.error(`[ws_gateway] updateSessionAllowlist failed (non-fatal):`, allowlistErr);
+    }
+  }
+
+  // #775 (skill-scope): push the resolved skill allowlist onto the existing fork
+  // session so SystemPrompt.skills / the skill tool / its execute-guard scope to it
+  // at prompt time. Mirrors the MCP block above — necessary because sessions created
+  // by POST /agent-sessions (before the user picked a profile) carry no allowlist, so
+  // we PATCH it here per-turn. Only push when the profile actually restricts skills;
+  // an empty list would deny everything, so an unrestricted profile leaves the fork's
+  // (absent) allowlist untouched.
+  if (wsSkillNames.length > 0) {
+    try {
+      await opencodeClient.updateSessionSkillAllowlist(opencodeId, wsSkillNames);
+    } catch (skillAllowlistErr) {
+      console.error(`[ws_gateway] updateSessionSkillAllowlist failed (non-fatal):`, skillAllowlistErr);
     }
   }
 

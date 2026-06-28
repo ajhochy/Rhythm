@@ -1,5 +1,6 @@
 import { PlanExitTool } from "./plan"
 import { Session } from "@/session/session"
+import { filterSkillsByAllowlist } from "@/session/skill_allowlist"
 import { QuestionTool } from "./question"
 import { ShellTool } from "./shell"
 import { EditTool } from "./edit"
@@ -71,7 +72,14 @@ export interface Interface {
   readonly ids: () => Effect.Effect<string[]>
   readonly all: () => Effect.Effect<Tool.Def[]>
   readonly named: () => Effect.Effect<{ task: TaskDef; read: ReadDef }>
-  readonly tools: (model: { providerID: ProviderID; modelID: ModelID; agent: Agent.Info }) => Effect.Effect<Tool.Def[]>
+  readonly tools: (model: {
+    providerID: ProviderID
+    modelID: ModelID
+    agent: Agent.Info
+    // Rhythm carried patch (skill-scope, #775): per-session skill allowlist used to
+    // filter the skill list injected into the skill tool description.
+    skillAllowlist?: Session.Info["skillAllowlist"]
+  }) => Effect.Effect<Tool.Def[]>
 }
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/ToolRegistry") {}
@@ -267,8 +275,19 @@ export const layer: Layer.Layer<
       return (yield* all()).map((tool) => tool.id)
     })
 
-    const describeSkill = Effect.fn("ToolRegistry.describeSkill")(function* (agent: Agent.Info) {
-      const list = yield* skill.available(agent)
+    const describeSkill = Effect.fn("ToolRegistry.describeSkill")(function* (
+      agent: Agent.Info,
+      skillAllowlist?: Session.Info["skillAllowlist"],
+    ) {
+      const available = yield* skill.available(agent)
+      // Rhythm carried patch (skill-scope, #775): scope the skill tool's advertised
+      // list to the session allowlist so the model is never told an out-of-scope
+      // skill exists. undefined allowlist = unrestricted (back-compat).
+      const allowedNames = filterSkillsByAllowlist(
+        available.map((s) => s.name),
+        skillAllowlist,
+      )
+      const list = available.filter((s) => allowedNames.includes(s.name))
       if (list.length === 0) return "No skills are currently available."
       return [
         "Load a specialized skill that provides domain-specific instructions and workflows.",
@@ -334,7 +353,7 @@ export const layer: Layer.Layer<
             description: [
               output.description,
               tool.id === TaskTool.id ? yield* describeTask(input.agent) : undefined,
-              tool.id === SkillTool.id ? yield* describeSkill(input.agent) : undefined,
+              tool.id === SkillTool.id ? yield* describeSkill(input.agent, input.skillAllowlist) : undefined,
             ]
               .filter(Boolean)
               .join("\n"),

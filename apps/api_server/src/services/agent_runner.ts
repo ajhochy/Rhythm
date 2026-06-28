@@ -608,11 +608,27 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
       }
     }
 
+    // #775 (skill-scope): parse the resolved profile/task skill allowlist (JSON
+    // string[] of skill names) so the scheduled session is scoped at create time —
+    // mirrors mcpRoleConfig. Malformed/empty/non-array → [] = unrestricted (fail-open).
+    let skillNames: string[] = [];
+    if (profileScope.allowedSkillsJson) {
+      try {
+        const parsed = JSON.parse(profileScope.allowedSkillsJson);
+        if (Array.isArray(parsed)) {
+          skillNames = parsed.filter((s): s is string => typeof s === 'string' && s.trim().length > 0);
+        }
+      } catch {
+        skillNames = [];
+      }
+    }
+
     // ── Create session ────────────────────────────────────────────────────────
     const sessionResult = await opencodeClient.createSession(
       effectiveName,
       effectiveCwd,
       mcpRoleConfig,
+      skillNames,
     );
 
     if (!sessionResult?.id) {

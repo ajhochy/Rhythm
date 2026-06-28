@@ -12,6 +12,17 @@
  *
  * Skills are SHARED instance-wide — there is intentionally no owner/user
  * weighting (matches the AgentSkill model + repository).
+ *
+ * SCOPE NOTE (#775): this module ranks the api_server DB skill store and emits a
+ * transient PROMPT PREFACE hint. It is NOT the enforcement boundary for what the
+ * model can actually load. The skills the model sees/invokes come from the
+ * opencode FORK (the `skill` tool + system-prompt listing of filesystem SKILL.md
+ * files), and per-profile scoping is enforced there via the per-session
+ * `skillAllowlist` (mirror of mcpAllowlist) — see
+ * apps/opencode_fork/.../session/skill_allowlist.ts and
+ * docs/ai/decisions/2026-06-28-skill-scope-enforcement.md. The `allowedSkillsJson`
+ * filtering below applies only to this DB-skill preface and must not be mistaken
+ * for the real capability gate.
  */
 
 import { AgentSkillsRepository } from '../repositories/agent_skills_repository';

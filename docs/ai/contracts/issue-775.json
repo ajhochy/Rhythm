@@ -1,0 +1,31 @@
+{
+  "issue": 775,
+  "generated": "2026-06-28",
+  "criteria": [
+    {
+      "criterion_id": "issue-775-c1",
+      "text": "Determine whether the skill-injection preface (buildSkillsPreface / isSkillInjectionEnabled path in skill_retrieval.ts, called from the agent prompt assembly) filters candidate skills by the per-turn resolved agent profile's allowed_skills_json.",
+      "mode": "manual",
+      "status": "pass",
+      "reason": "Investigation outcome (documented in docs/ai/decisions/2026-06-28-skill-scope-enforcement.md): buildSkillsPreface DOES filter, but it operates on the api_server DB-skill store and is effectively inert for real enforcement. The skills the model actually sees/loads come from the opencode FORK (the `skill` tool + system-prompt listing of filesystem SKILL.md files). allowed_skills_json holds FORK skill names, so the real gap is fork-side: the fork never received the allowlist and served every discovered skill — the #765 shape."
+    },
+    {
+      "criterion_id": "issue-775-c2",
+      "text": "If it does not, decide intended behavior: instance-wide shared (dead schema -> document/remove) OR per-agent scoped (parallel to MCP) -> implement enforcement at the injection site using the same per-turn agent resolution ws_gateway uses for MCP scope (perTurnAgent ?? agentKind).",
+      "mode": "integration",
+      "test_id": "issue-775-c4..c5 (filterSkillsByAllowlist / isSkillAllowed): per-agent scoped, mirroring mcpAllowlist — added a per-session fork skillAllowlist, filtered the two prompt seams + skill tool execute, and pushed it from ws_gateway/agent_runner via the same perTurnAgent ?? agentKind resolution.",
+      "test_file": "apps/opencode_fork/packages/opencode/src/session/skill_allowlist.test.ts",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-775-c3",
+      "text": "Add a runtime regression guard mirroring tools/release/smoke_mcp_allowlist.sh — assert that an agent with a restricted allowed_skills_json does not get out-of-scope skills injected. (The #765 lesson: a guard that runs the real path, not a mock.)",
+      "mode": "integration",
+      "test_id": "tools/release/smoke_skill_allowlist.sh — boots the REAL built opencode binary, PATCHes a per-session skillAllowlist, and asserts it round-trips on GET (null/absent on an unpatched binary). Wired into desktop_release.yml as the #775 guard.",
+      "test_file": "tools/release/smoke_skill_allowlist.sh",
+      "status": "pass"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": ["issue-775-c1"]
+}
