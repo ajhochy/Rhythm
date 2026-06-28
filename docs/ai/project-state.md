@@ -16,6 +16,18 @@ and `docs/ai/decisions/2026-06-28-unify-skills-source-of-truth.md`.
 Builds on **#775** (per-session `skillAllowlist` enforcement, PR #776, smoke
 PASSED) — this work keeps the picker names aligned with what #775 enforces.
 
+**2026-06-28 — #785 added the MCP analogue of the #777 skill guards.** A vitest
+`mcp_names_alignment.test.ts` + a real-binary `smoke_mcp_alignment.sh` (wired into
+`desktop_release.yml`) now enforce two invariants for MCP: (1) names alignment —
+every name in a persisted/derived `allowed_mcps_json` exists in the live
+`GET /opencode/mcp` id set (the #781 hazard: `ableton` vs `ableton-mcp`); (2)
+no-server-lost — the GET /opencode/mcp enrichment mapping is additive (ids OUT ==
+ids IN). The guard *detects* MCP-scope drift; #789 still owns *building* the
+agent_profile_sync reconciliation that intersects `allowed_mcps_json` with the
+live set (the MCP path currently writes a static `["rhythm"]`, unlike the skill
+path's Unify-3 intersection). See
+`docs/ai/runs/2026-06-28-issue-785-mcp-names-alignment.md`.
+
 ## Active branch / PR
 
 - **Branch:** `feature/unify-skills-source-of-truth` (stacked off
@@ -25,6 +37,8 @@ PASSED) — this work keeps the picker names aligned with what #775 enforces.
   #776 first or merge this PR after it, since this branch contains #775's commits.
 - Ships only after a **fork rebuild + signed release** (the fork binary is
   bundled; release CI rebuilds it).
+- **#785** committed on worktree branch `worktree-agent-a8e47e60d1bc0fe28`
+  (off `feature/mcp-unify`), commit `854216ed6` — test+CI-only, PR not yet opened.
 
 ## In progress
 
@@ -55,6 +69,9 @@ PASSED) — this work keeps the picker names aligned with what #775 enforces.
 - Flutter: `analyze --no-fatal-infos` 0 errors/0 warnings; agents widget tests
   **14 pass** (6 unrelated pre-existing trigger-watcher failures noted above).
 - New real-binary guard `smoke_skill_alignment.sh` wired into `desktop_release.yml`.
+- **#785:** `mcp_names_alignment.test.ts` **5 pass** + 4 related files (37 pass
+  total); `tsc --noEmit` 0 errors; `smoke_mcp_alignment.sh` `bash -n` OK (wired
+  into `desktop_release.yml`; real-binary serve runs only in release CI).
 
 ## Pending manual smoke (post-merge, against a signed build)
 
@@ -97,9 +114,9 @@ PASSED) — this work keeps the picker names aligned with what #775 enforces.
 
 ## Next step
 
-Open the PR for `feature/unify-skills-source-of-truth` (draft, no merge) with
-`Closes #777`. Then human-merge #776 and this PR, cut a signed release, and work
-the post-merge manual-smoke list against that build.
+MCP-unify Phase 1 (#785/#786/#787) integrated on `feature/mcp-unify`; Phase 2
+(#789 then #788) next, then verification-gate + PR. (Snapshot rewritten by
+project-state-updater after verification.)
 
 ## Recent coding-agent runs
 

@@ -273,6 +273,12 @@ jobs:
           BINARY="$PWD/build/macos/Build/Products/Release/Rhythm.app/Contents/Resources/opencode_bin/opencode"
           ../../tools/release/smoke_skill_alignment.sh "$BINARY"
 
+      - name: Smoke MCP alignment (no-server-lost + names alignment guard, #785)
+        working-directory: apps/desktop_flutter
+        run: |
+          BINARY="$PWD/build/macos/Build/Products/Release/Rhythm.app/Contents/Resources/opencode_bin/opencode"
+          ../../tools/release/smoke_mcp_alignment.sh "$BINARY"
+
       - name: Package macOS artifacts
         working-directory: apps/desktop_flutter
         run: ../../tools/release/package_macos.sh
