@@ -96,3 +96,41 @@ for "what MCP servers exist", and pin `CURATED_MCP_SERVERS` as an
   contract reads as one unit.
 - Mirrors `2026-06-28-unify-skills-source-of-truth.md`: engine = source of truth,
   Rhythm-owned config = a layer that materializes INTO the engine.
+
+## Addendum (#788) — client-side auto-installer fate: KEEP + document
+
+Two client-side launch-time installers existed with an undocumented role:
+`curated_mcp_auto_installer.dart` and `rhythm_mcp_auto_installer.dart`. On launch
+they POST to the server-side ensure endpoints (`/opencode/mcp/curated/ensure`,
+`/opencode/mcp/rhythm/ensure`). They read as "another MCP source," but they are
+the **materialize-on-install trigger** for the curated/rhythm templates — not a
+display or source-of-truth path.
+
+**Decision: KEEP both installers and document them** (the maintainer-default
+recommendation from issue #788, option "keep"). Each file now carries a header
+note stating: (a) it is the materialize-on-install trigger for its template;
+(b) the single source of truth for which MCP servers exist is the live engine
+list (`GET /opencode/mcp`), which is what the pickers display and what #765
+scoping enforces; (c) it does not constitute a second MCP source. Behavior is
+unchanged — no refactor to a server-side ensure (the rejected "fold" path).
+
+**Rationale.** The trigger is intentionally client-side: the installers only fire
+when the engine is ready, a user is authenticated, AND the configured server is
+the cloud API (a localhost-only token cannot be reached by the spawned MCP
+server process — see `shouldAutoInstall*` gates). That auth/cloud gating lives
+naturally on the client, which holds the session token and the configured server
+URL. Folding into a server-side ensure-on-ready would have to re-plumb that
+gating to the engine process for no source-of-truth benefit — display already
+comes exclusively from the engine list, so the installers can never drift the
+picker. Documenting the role (header note + this addendum) costs nothing and
+removes the "second source" ambiguity.
+
+**MCP-default validation (#788).** Alongside the fate decision, `agent_profile_sync`
+now validates the importer default (`["rhythm"]`) and any derived MCP scope
+against the live `GET /opencode/mcp` id set before persisting it
+(`validateMcpsAgainstLive`, mirroring the skill-side `filterAllowlistToLive`): a
+name absent from the live set is logged loudly and dropped (never silently
+persisted as dead #765 scope, caught by #785's names-alignment guard); an empty
+or unavailable live set (e.g. engine momentarily down) falls back to the existing
+default without crashing (try/catch to an empty set → validation skipped). No new
+DB columns; persisted USER `allowed_mcps_json` rows are untouched.

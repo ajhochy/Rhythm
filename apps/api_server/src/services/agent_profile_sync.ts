@@ -140,6 +140,62 @@ const IMPORTER_DEFAULT_MODEL_ID = IMPORTER_TIER2_MODEL_ID;
  */
 const IMPORTER_DEFAULT_ALLOWED_MCPS_JSON = '["rhythm"]';
 
+/**
+ * #788 — validate an MCP allowlist JSON against the engine's LIVE server ids
+ * (from GET /opencode/mcp / `listMcp()`) so a default/derived `allowed_mcps_json`
+ * can never persist a name the engine won't enforce. Mirrors `filterAllowlistToLive`
+ * for skills: under #765, a stored MCP name that does not exactly equal a live
+ * engine id silently scopes a per-session allowlist to NOTHING (the #781 hazard:
+ * `ableton` vs the live `ableton-mcp`, `nfl-mcp` vs `nfl_mcp`, or a leaked test
+ * `foo`). A name absent from the live set is logged LOUDLY and dropped rather than
+ * silently persisted as dead scope — and is caught by #785's names-alignment test.
+ *
+ *   - json === null      → null  (fail-open / unrestricted, unchanged)
+ *   - liveMcpNames empty → json  (engine unavailable — do NOT nuke the default
+ *                                  scope just because the engine was momentarily
+ *                                  down; AC#4 boundary, mirrors the skill path)
+ *   - else               → JSON of (names ∩ liveMcpNames); dead names dropped+warned
+ *   - intersection empty but input was non-empty → null + warn (fail-open rather
+ *     than lock the agent out of every MCP server)
+ *
+ * Pure + total: never throws (malformed JSON / non-array → returned unchanged so a
+ * sync pass can never crash on a bad stored value).
+ */
+function validateMcpsAgainstLive(
+  json: string | null,
+  liveMcpNames: Set<string>,
+  agentName: string,
+): string | null {
+  if (json === null) return null;
+  if (liveMcpNames.size === 0) return json;
+  let names: unknown;
+  try {
+    names = JSON.parse(json);
+  } catch {
+    return json;
+  }
+  if (!Array.isArray(names)) return json;
+  const kept: string[] = [];
+  const dropped: string[] = [];
+  for (const n of names) {
+    if (typeof n !== 'string') continue;
+    if (liveMcpNames.has(n)) kept.push(n);
+    else dropped.push(n);
+  }
+  if (dropped.length > 0) {
+    logger.warn(
+      `[AgentProfileSync] ${agentName}: dropping ${dropped.length} MCP name(s) absent from the live engine server set: ${dropped.join(', ')}`,
+    );
+  }
+  if (kept.length === 0) {
+    logger.warn(
+      `[AgentProfileSync] ${agentName}: default/derived MCP allowlist has no live matches — leaving unrestricted (fail-open) instead of locking out`,
+    );
+    return null;
+  }
+  return JSON.stringify(kept);
+}
+
 // ---------------------------------------------------------------------------
 // Per-agent skill allowlists (P3 tightening)
 //
@@ -408,24 +464,29 @@ export async function syncOpencodeAgentProfiles(
     (await opencodeClient.listSkills()).map((s) => s.name),
   );
 
-  // #789 — fetch the engine's live MCP server ids ONCE so the DERIVED default
-  // allowed_mcps_json is normalized to an exact live id before it is persisted
-  // (the #781 drift fix). Same fail-safe contract as liveSkillNames: any
-  // failure (engine not ready — listMcp() throws, unlike listSkills) yields an
-  // empty set, and normalizeDerivedAllowedMcps treats an empty live set as
-  // "skip normalization" so a momentary outage never rewrites/empties a scope.
+  // #789 + #788 — fetch the engine's live MCP server ids ONCE, then for the
+  // DERIVED default we (a) normalize aliases to the exact live id (#789, the
+  // #781 drift fix), then (b) validate the normalized value against the live id
+  // set so a dead name is never persisted as scope (#788). Fail-safe contract,
+  // same as liveSkillNames: any failure (engine not ready — listMcp() throws,
+  // unlike listSkills) yields an EMPTY set; an empty set means
+  // normalizeDerivedAllowedMcps skips normalization AND validateMcpsAgainstLive
+  // skips validation, so a momentary outage never rewrites or empties a scope.
   let liveMcpNames = new Set<string>();
   try {
     liveMcpNames = new Set(Object.keys(await opencodeClient.listMcp()));
   } catch (err) {
-    logger.warn(`[AgentProfileSync] listMcp failed (non-fatal): ${String(err)}`);
+    logger.warn(`[AgentProfileSync] listMcp failed (non-fatal; skipping MCP normalize+validate): ${String(err)}`);
   }
 
-  // The importer default ("rhythm") normalized to live ids. When the engine is
-  // unavailable (empty live set) this is identical to the raw default.
+  // The importer default ("rhythm"), normalized to live ids (#789). When the
+  // engine is unavailable (empty live set) this is identical to the raw default.
+  // Each persistence site additionally runs validateMcpsAgainstLive on this
+  // normalized value (#788) so no dead name is backfilled.
   const importerDefaultAllowedMcpsJson =
     normalizeDerivedAllowedMcps(IMPORTER_DEFAULT_ALLOWED_MCPS_JSON, liveMcpNames) ??
     IMPORTER_DEFAULT_ALLOWED_MCPS_JSON;
+
 
   for (const agent of agents) {
     const name = agent.name;
@@ -489,8 +550,18 @@ export async function syncOpencodeAgentProfiles(
         // had to be re-PATCHed. allowedDelegatesJson was the worst offender — it
         // was written unconditionally, clobbering user overrides on every sync.
         if (existing.allowedMcpsJson === null) {
-          // #789 — backfill the DERIVED default normalized to live engine ids.
-          patch.allowedMcpsJson = importerDefaultAllowedMcpsJson;
+          // #789 normalize → #788 validate: backfill the DERIVED default,
+          // normalized to live engine ids, then validated against the live set so
+          // a dead name is never silently backfilled. null (no live match / engine
+          // down with no default left) leaves the row unrestricted.
+          const validatedMcps = validateMcpsAgainstLive(
+            importerDefaultAllowedMcpsJson,
+            liveMcpNames,
+            name,
+          );
+          if (validatedMcps !== null) {
+            patch.allowedMcpsJson = validatedMcps;
+          }
         }
         if (existing.allowedSkillsJson === null) {
           const derived = filterAllowlistToLive(
@@ -523,9 +594,15 @@ export async function syncOpencodeAgentProfiles(
           systemPrompt: prompt,
           modelProvider: resolvedProvider,
           modelId: resolvedModelId,
-          // Default MCP scope: "rhythm" local server, #789-normalized to the
-          // exact live engine id. null means unrestricted.
-          allowedMcpsJson: importerDefaultAllowedMcpsJson,
+          // Default MCP scope: "rhythm" local server — #789-normalized to the
+          // exact live engine id, then #788-validated against the live set so no
+          // dead name is persisted. null = unrestricted (no live match / engine
+          // unavailable with no default surviving).
+          allowedMcpsJson: validateMcpsAgainstLive(
+            importerDefaultAllowedMcpsJson,
+            liveMcpNames,
+            name,
+          ),
           // Derive per-agent skill allowlist from name, then intersect with the
           // fork's live skill names so no dead name is persisted (Unify-3). null =
           // all eligible (fail-open for agents not in the map).
