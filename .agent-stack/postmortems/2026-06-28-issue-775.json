@@ -1,0 +1,89 @@
+{
+  "run_id": "2026-06-28-issue-775",
+  "issue": 775,
+  "date": "2026-06-28",
+  "smoke_result": "pass",
+  "verification_claimed": "PASS",
+  "divergence": false,
+  "criteria_results": [
+    {
+      "criterion_id": "issue-775-c1",
+      "text": "Determine whether the skill-injection preface filters candidate skills by the per-turn resolved agent profile's allowed_skills_json.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Investigation outcome: buildSkillsPreface (api_server DB-skill hint) filters but is inert for real enforcement; the model's skills come from the opencode fork. Documented in the decision doc; not the enforcement boundary."
+    },
+    {
+      "criterion_id": "issue-775-c2",
+      "text": "Implement per-agent skill scoping mirroring MCP (perTurnAgent ?? agentKind) at the injection site.",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "Manual smoke confirmed: a profile restricted to ffb-roster refused an out-of-scope workflow-orchestrator skill load and listed only the allowed skill on the running fork (engine version 0.0.0-fix/issue-775-... verified as the staged binary by the dev launcher)."
+    },
+    {
+      "criterion_id": "issue-775-c3",
+      "text": "Add a runtime regression guard mirroring smoke_mcp_allowlist.sh (real path, not a mock).",
+      "contract_status": "pass",
+      "smoke_status": "pass",
+      "category": "none",
+      "notes": "smoke_skill_allowlist.sh PATCH/GET round-trip passes against the BUILT binary; wired into desktop_release.yml."
+    }
+  ],
+  "process_issues": [
+    {
+      "process_category": "build-verification",
+      "description": "A real bug (Drizzle schema column added without a migration -> 'table session has no column named skill_allowlist' on every session create) was invisible to typecheck + unit tests and surfaced ONLY when the fork was built and run as a binary. Fixed by adding migration/20260628000000.",
+      "detected_by": "Running smoke_skill_allowlist.sh against the locally built single binary; server log showed the SQLiteError."
+    },
+    {
+      "process_category": "picker-drift",
+      "description": "The hardcoded Flutter picker _kAvailableSkills (14 names) matches only 4 of the 79 skills the fork actually discovered (GET /skill). Selecting a non-matching name silently scopes a profile to zero skills. Same hardcoding exists for _kAvailableMcps and agent_profile_sync.AGENT_SKILL_ALLOWLIST_MAP/deriveSkillAllowlist.",
+      "detected_by": "GET /skill on the running engine (:4096) vs the constant in _agent_profile_sheet.dart; follow-up issue #777 + a unification plan."
+    }
+  ],
+  "workflow_adherence": {
+    "overall_score": "partial",
+    "expected_chain": ["workflow-orchestrator", "acceptance-contract", "coding-agent", "verification-gate", "project-state-updater", "failure-postmortem"],
+    "observed_chain": ["workflow-orchestrator", "acceptance-contract", "verification-gate", "project-state-updater", "verification-gate", "project-state-updater", "failure-postmortem"],
+    "skipped_skills": [],
+    "issues": [
+      {
+        "workflow_category": "W5",
+        "affected_skill": "verification-gate",
+        "description": "First-pass conclusion claimed enforcement 'works' on the strength of a green api_server unit test that exercised buildSkillsPreface (the inert DB-skill path), NOT the real fork serving path. This was a C2-shape false green: the test passed while the real behavior (model still sees every skill) was broken. Caught by the user's pushback, not by the gate. Corrected by tracing the real runtime (fork skill tool + system-prompt listing) and discarding the misleading test.",
+        "detected_by": "User correction in-session; subsequent gitnexus + fork source trace confirmed buildSkillsPreface is not the enforcement boundary."
+      },
+      {
+        "workflow_category": "W1",
+        "affected_skill": "acceptance-contract",
+        "description": "Initial contract/test (issue_775_skill_allowlist_guard.test.ts) targeted buildSkillsPreface — the wrong layer — so it would have passed regardless of whether the model was actually scoped. A contract test on the api_server DB path cannot verify a criterion whose real boundary is the fork. Test was removed; the real guard became the fork unit test + smoke_skill_allowlist.sh against the built binary.",
+        "detected_by": "Re-derivation of the runtime path after user pushback."
+      }
+    ]
+  },
+  "implementation_files": [
+    "apps/opencode_fork/packages/opencode/src/session/session.ts",
+    "apps/opencode_fork/packages/opencode/src/session/session.sql.ts",
+    "apps/opencode_fork/packages/opencode/src/session/projectors.ts",
+    "apps/opencode_fork/packages/opencode/src/session/skill_allowlist.ts",
+    "apps/opencode_fork/packages/opencode/src/session/skill_allowlist.test.ts",
+    "apps/opencode_fork/packages/opencode/src/session/system.ts",
+    "apps/opencode_fork/packages/opencode/src/session/prompt.ts",
+    "apps/opencode_fork/packages/opencode/src/tool/registry.ts",
+    "apps/opencode_fork/packages/opencode/src/tool/skill.ts",
+    "apps/opencode_fork/packages/opencode/src/server/routes/instance/httpapi/groups/session.ts",
+    "apps/opencode_fork/packages/opencode/src/server/routes/instance/httpapi/handlers/session.ts",
+    "apps/opencode_fork/packages/opencode/migration/20260628000000_add_session_skill_allowlist/migration.sql",
+    "apps/api_server/src/services/opencode_client_service.ts",
+    "apps/api_server/src/services/ws_gateway.ts",
+    "apps/api_server/src/services/agent_runner.ts",
+    "apps/api_server/src/services/skill_retrieval.ts",
+    "tools/release/smoke_skill_allowlist.sh",
+    ".github/workflows/desktop_release.yml"
+  ],
+  "failure_output": "",
+  "overall_category": "none",
+  "suggested_follow_up": "acceptance-contract/verification-gate should require identifying the real enforcement boundary before writing a contract: for capabilities served by the bundled opencode fork, a green api_server unit test is presumptively a C2 false green — the contract must exercise the fork (built binary / fork unit test), not the api_server preface."
+}

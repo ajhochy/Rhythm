@@ -740,6 +740,72 @@ export class OpencodeClientService {
   }
 
   /**
+   * Unify-2 — list the skills the fork actually discovered, via its instance
+   * `GET /skill` route. This is the single source of truth for the Flutter
+   * skills picker and for agent_profile_sync's allowlist derivation, so stored
+   * `allowed_skills_json` names are guaranteed to match what the fork enforces
+   * (#775). `content` is stripped — the picker only needs name/description/location.
+   *
+   * Uses raw fetch because GET /skill is an experimental instance route the SDK
+   * client does not generate. `directory` is optional; it defaults to the home
+   * dir, which yields the directory-independent canonical set (home + config +
+   * config.skills.paths). Returns [] when the engine is unavailable.
+   */
+  async listSkills(
+    directory?: string,
+  ): Promise<Array<{ name: string; description?: string; location: string }>> {
+    const dir = directory ?? homedir();
+    try {
+      const base = this.serverUrl;
+      const res = await fetch(`${base}/skill?directory=${encodeURIComponent(dir)}`);
+      if (!res.ok) {
+        logger.warn('[OpencodeClientService] listSkills HTTP %s', res.status);
+        return [];
+      }
+      const data = (await res.json()) as Array<{
+        name: string;
+        description?: string;
+        location: string;
+      }>;
+      return data.map((s) => ({ name: s.name, description: s.description, location: s.location }));
+    } catch (err) {
+      logger.error('[OpencodeClientService] listSkills failed:', err);
+      return [];
+    }
+  }
+
+  /**
+   * Unify-2 — force the fork to re-scan its skill directories (it memoizes
+   * discovery per-instance, so a freshly-written SKILL.md is invisible until
+   * this is called). Calls the fork's POST /skill/reload and returns the fresh
+   * list. Call after any write into the Rhythm-managed dir.
+   */
+  async reloadSkills(
+    directory?: string,
+  ): Promise<Array<{ name: string; description?: string; location: string }>> {
+    const dir = directory ?? homedir();
+    try {
+      const base = this.serverUrl;
+      const res = await fetch(`${base}/skill/reload?directory=${encodeURIComponent(dir)}`, {
+        method: 'POST',
+      });
+      if (!res.ok) {
+        logger.warn('[OpencodeClientService] reloadSkills HTTP %s', res.status);
+        return [];
+      }
+      const data = (await res.json()) as Array<{
+        name: string;
+        description?: string;
+        location: string;
+      }>;
+      return data.map((s) => ({ name: s.name, description: s.description, location: s.location }));
+    } catch (err) {
+      logger.error('[OpencodeClientService] reloadSkills failed:', err);
+      return [];
+    }
+  }
+
+  /**
    * Send a prompt to a session and wait for the full response.
    * Used for synchronous user input via the WS gateway.
    */

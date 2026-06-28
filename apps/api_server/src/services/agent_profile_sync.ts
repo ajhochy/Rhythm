@@ -260,6 +260,54 @@ function deriveSkillAllowlist(agentName: string): string | null {
   return null;
 }
 
+/**
+ * Unify-3 — intersect a derived allowlist JSON against the fork's LIVE skill
+ * names (from GET /skill) so a stored `allowed_skills_json` can never contain a
+ * name the fork won't enforce. Without this, the hand-kept `WORKFLOW_CHAIN_SKILLS`
+ * / `AGENT_SKILL_ALLOWLIST_MAP` can drift from the discovered skill set and a
+ * dead name silently scopes a profile to nothing (#775 hazard).
+ *
+ *   - json === null        → null  (fail-open, unchanged)
+ *   - liveSkillNames empty → json  (engine unavailable — do NOT nuke scopes)
+ *   - else                 → JSON of (names ∩ liveSkillNames); dead names dropped
+ *   - intersection empty but input was non-empty → null + warn (fail-open rather
+ *     than lock the agent out of every skill).
+ */
+function filterAllowlistToLive(
+  json: string | null,
+  liveSkillNames: Set<string>,
+  agentName: string,
+): string | null {
+  if (json === null) return null;
+  if (liveSkillNames.size === 0) return json;
+  let names: unknown;
+  try {
+    names = JSON.parse(json);
+  } catch {
+    return json;
+  }
+  if (!Array.isArray(names)) return json;
+  const kept: string[] = [];
+  const dropped: string[] = [];
+  for (const n of names) {
+    if (typeof n !== 'string') continue;
+    if (liveSkillNames.has(n)) kept.push(n);
+    else dropped.push(n);
+  }
+  if (dropped.length > 0) {
+    logger.warn(
+      `[AgentProfileSync] ${agentName}: dropping ${dropped.length} skill name(s) absent from the live fork skill set: ${dropped.join(', ')}`,
+    );
+  }
+  if (kept.length === 0) {
+    logger.warn(
+      `[AgentProfileSync] ${agentName}: derived skill allowlist has no live matches — leaving unrestricted (fail-open) instead of locking out`,
+    );
+    return null;
+  }
+  return JSON.stringify(kept);
+}
+
 /** Split an opencode 'provider/model-id' string into [provider, modelId]. */
 function parseModel(model?: string | null): [string | null, string | null] {
   if (!model || typeof model !== 'string' || !model.includes('/')) {
@@ -351,6 +399,14 @@ export async function syncOpencodeAgentProfiles(
   const repo = new AgentConfigsRepository();
   let synced = 0;
 
+  // Unify-3 — fetch the fork's live skill names ONCE so every derived allowlist
+  // is validated against what the fork can actually enforce. An empty set
+  // (engine not ready / unavailable) means validation is skipped (fail-safe:
+  // never empty an existing scope just because the engine was momentarily down).
+  const liveSkillNames = new Set(
+    (await opencodeClient.listSkills()).map((s) => s.name),
+  );
+
   for (const agent of agents) {
     const name = agent.name;
     if (!name) continue;
@@ -416,7 +472,11 @@ export async function syncOpencodeAgentProfiles(
           patch.allowedMcpsJson = IMPORTER_DEFAULT_ALLOWED_MCPS_JSON;
         }
         if (existing.allowedSkillsJson === null) {
-          const derived = deriveSkillAllowlist(name);
+          const derived = filterAllowlistToLive(
+            deriveSkillAllowlist(name),
+            liveSkillNames,
+            name,
+          );
           if (derived !== null) {
             patch.allowedSkillsJson = derived;
           }
@@ -444,9 +504,14 @@ export async function syncOpencodeAgentProfiles(
           modelId: resolvedModelId,
           // Default MCP scope: "rhythm" local server. null means unrestricted.
           allowedMcpsJson: IMPORTER_DEFAULT_ALLOWED_MCPS_JSON,
-          // Derive per-agent skill allowlist from name. null = all eligible
-          // (fail-open for agents not in the map). See deriveSkillAllowlist().
-          allowedSkillsJson: deriveSkillAllowlist(name),
+          // Derive per-agent skill allowlist from name, then intersect with the
+          // fork's live skill names so no dead name is persisted (Unify-3). null =
+          // all eligible (fail-open for agents not in the map).
+          allowedSkillsJson: filterAllowlistToLive(
+            deriveSkillAllowlist(name),
+            liveSkillNames,
+            name,
+          ),
           // is_manager is intentionally NOT set here — see comment block above.
           allowedDelegatesJson,
           sortOrder: 100,

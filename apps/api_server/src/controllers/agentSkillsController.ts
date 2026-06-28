@@ -2,6 +2,7 @@ import type { NextFunction, Request, Response } from 'express';
 import { AppError } from '../errors/app_error';
 import { AgentSkillsRepository } from '../repositories/agent_skills_repository';
 import type { AgentSkillInput } from '../models/agent_skill';
+import { materializeSkill, dematerializeSkill } from '../services/skill_materializer';
 
 /**
  * Resolve the repository at REQUEST time so it binds to the current global DB.
@@ -86,6 +87,11 @@ export class AgentSkillsController {
       };
 
       const skill = repo.create(input);
+      // Unify-6 — a skill created already-published is materialized into the
+      // engine's managed dir (fire-and-forget; never fails the request).
+      if (skill.status === 'published') {
+        void materializeSkill(skill);
+      }
       res.status(201).json(skill);
     } catch (err) {
       next(err);
@@ -113,6 +119,18 @@ export class AgentSkillsController {
 
       const updated = repo.update(req.params.id, patch);
       if (!updated) throw AppError.notFound('AgentSkill');
+      // Unify-6 — keep the materialized SKILL.md in sync with publish state
+      // (fire-and-forget). Publish → write/refresh; unpublish → remove. A title
+      // change while published re-materializes under the new name; the old file
+      // is cleaned up here when the previous title differed.
+      if (updated.status === 'published') {
+        if (existing.status === 'published' && existing.title !== updated.title) {
+          void dematerializeSkill(existing);
+        }
+        void materializeSkill(updated);
+      } else if (existing.status === 'published') {
+        void dematerializeSkill(existing);
+      }
       res.json(updated);
     } catch (err) {
       next(err);
@@ -127,6 +145,11 @@ export class AgentSkillsController {
 
       const deleted = repo.remove(req.params.id);
       if (!deleted) throw AppError.notFound('AgentSkill');
+      // Unify-6 — drop the materialized SKILL.md when a published skill is
+      // deleted (fire-and-forget; never fails the request).
+      if (existing.status === 'published') {
+        void dematerializeSkill(existing);
+      }
       res.status(204).end();
     } catch (err) {
       next(err);

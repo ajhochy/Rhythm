@@ -35,6 +35,7 @@ import { opencodeAuthRouter } from './routes/opencode_auth_routes';
 import { agentModelVisibilityRouter } from './routes/agent_model_visibility_routes';
 import { opencodeModelsRouter } from './routes/opencode_models_routes';
 import { opencodeMcpRouter } from './routes/opencode_mcp_routes';
+import { opencodeSkillsRouter } from './routes/opencode_skills_routes';
 import { syncRouter } from './routes/sync_routes';
 import { ptyRouter } from './routes/pty_routes';
 import { opencodeClient } from './services/opencode_engine';
@@ -134,6 +135,8 @@ export function createApp() {
     app.use('/opencode/models', opencodeModelsRouter);
     // OPC-M4-3 — MCP server management (list, add, connect, disconnect, remove)
     app.use('/opencode/mcp', opencodeMcpRouter);
+    // Unify-2 — skills source of truth: live fork skills + Rhythm-managed writes
+    app.use('/opencode/skills', opencodeSkillsRouter);
     // Issue #609 — agent model visibility CRUD
     app.use('/agent-models/visibility', agentModelVisibilityRouter);
 
