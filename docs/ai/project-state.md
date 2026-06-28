@@ -2,57 +2,54 @@
 
 ## Current focus
 
-**2026-06-27 — Agent live-streaming: core bus-routing fix landed.** The
-**dual-bus split** (real root of #1/#3/#751/#759/#761/#762) is fixed and verified
-against the BUILT fork. `SyncEvent.process()` published via the module-level
-namespace `Bus` runtime while `/event` reads the per-request DI `Bus.Service` —
-two bus states per directory, so `message.updated` / `message.part.updated` /
-turn-time `session.updated` never reached the live `/event` subscriber. The fix
-(#764) makes both runtimes share ONE `{wildcard, typed}` PubSub per directory via
-a module-level registry in `bus/index.ts`. A real anthropic turn against the
-built fork now delivers all three event types on `/event`.
+**2026-06-27 — Issue #765 fix fully verified (backend + e2e).** All three
+layers fixed and confirmed working:
 
-Symptom status:
-- **#1 duplicate messages / #3 no token-context** — engine side now FIXED
-  (message.updated carries tokens/cost; part.updated carries canonical text).
-  Awaiting UI manual smoke to confirm the Flutter render.
-- **#2 ask-question hang** — FIXED earlier (question recovery).
+1. `UpdatedInfo` schema in fork `session.ts` — `mcpAllowlist` field added so
+   Effect.js validation no longer strips it.
+2. `toPartialRow` in fork `session/projectors.ts` — `mcp_allowlist` column
+   mapping added so the projector writes the value to SQLite.
+3. `ws_gateway.ts` + `opencode_client_service.ts` — `updateSessionAllowlist`
+   call after scope resolution (covers pre-existing, re-attached, and new
+   sessions).
+
+E2e smoke (2026-06-27):
+- Direct PATCH → DB: `mcp_allowlist = {"servers":["rhythm"],"tools":[]}` ✓
+- WS turn with `agent:'secretary'` → DB:
+  `mcp_allowlist = {"servers":["pco-services","rhythm","obsidian","gmail-personal","gmail-work","calendar","pdf-tools"],"tools":[]}` ✓
 
 ## Active branch / PR
 
-- **Branch:** `fix/issue-761-agents-ui-render` — contains #760 (merged) + #761 +
-  #2 question-recovery + #762 convertEvent hardening + **#764 shared-bus fix** +
-  tests. #764 fix not yet committed (working tree) at last update.
-- **PR [#763](https://github.com/ajhochy/Rhythm/pull/763)** open — fold #764 into
-  it with a `Closes #764` line. Not merged; left for human review + manual smoke.
-- Standalone PRs [#760](https://github.com/ajhochy/Rhythm/pull/760) and #758 also open.
+- **Branch:** `codex/fix-secretary-agent-scope`
+- **HEAD:** `ed61e632d`
+- **PR:** [#771](https://github.com/ajhochy/Rhythm/pull/771), open against main
+
+Also open:
+- **PR #763** (`fix/issue-761-agents-ui-render`) — agents UI live render + bus
+  routing fix; awaiting merge.
 
 ## In progress
 
-- Commit the #764 fix to the branch, update PR #763 body (`Closes #764`),
-  hand off for manual UI smoke. Do not merge.
+- PR #771 ready to merge. Manual live smoke via the Flutter app is the
+  remaining optional step.
 
 ## Risks / known issues
 
-- Bus is HIGH blast radius (event backbone). The fix is additive and
-  signature-preserving; disposal lifecycle (`InstanceDisposed` + shutdown that
-  `/event`'s `Stream.takeUntil` relies on) is preserved and re-verified.
-- Unit/bus-level suites cannot reproduce the split (it only manifests across HTTP
-  requests) — always re-verify bus changes against the BUILT fork with a real turn.
+- **Known limitation**: if the user switches from a restricted profile back to
+  an unrestricted one mid-session, the fork session retains the last-set
+  allowlist. Acceptable for the current smoke criterion.
+- Fork binary is gitignored; rebuilt at `202606280319` and in main repo at
+  `apps/api_server/opencode_bin/opencode`.
+- Live UI smoke used the old `Rhythm-759-smoke.app` bundle (wrong binary).
+  Backend e2e with the dev api_server + new fork was used instead and passed.
 
 ## Test status
 
-- opencode_fork: `bun run typecheck` PASS · `bun test test/server/ test/bus/`
-  237 pass / 1 skip / 0 fail (incl. new `httpapi-event-dual-bus` contract test) ·
-  `bun run build --single` (arm64) PASS.
-- **Runtime smoke (built fork, real anthropic turn): PASS** — `/event` capture
-  contains `message.updated` ×6 + `message.part.updated` ×5 + `session.updated`
-  ×3 (all absent before the fix). See `runs/2026-06-27-issue-764-dual-bus-fix.md`.
-- api_server / desktop_flutter: unchanged this run (last green; see prior runs).
+- `npx tsc --noEmit` → exit 0
+- `npx vitest run` → 150 files, 1285 tests, all passed
+- Direct PATCH smoke → `mcp_allowlist` written to DB ✓
+- E2e WS turn (agent=secretary) → `mcp_allowlist` = Secretary allowlist ✓
 
 ## Next step
 
-1. Commit #764, push, watch CI green, update PR #763 (`Closes #764`).
-2. Manual UI smoke on a signed local build: agent turn renders live, NO duplicate
-   messages, working token/context gauge. Then `failure-postmortem`.
-3. Human merge of #763 after smoke passes.
+Merge PR #771 after final human review.

@@ -333,6 +333,7 @@ const UpdatedInfo = Schema.Struct({
   time: Schema.optional(UpdatedTime),
   permission: Schema.optional(Schema.NullOr(Permission.Ruleset)),
   revert: Schema.optional(Schema.NullOr(Revert)),
+  mcpAllowlist: Schema.optional(Schema.NullOr(McpAllowlist)),
 })
 
 const UpdatedEventSchema = Schema.Struct({

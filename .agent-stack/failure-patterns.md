@@ -1,5 +1,19 @@
 # Failure Patterns
 
+## 2026-06-27 — mcp-scope-04 — REST-first interactive session bypasses profile scope
+
+- **Result**: smoke FAIL (verification claimed PASS) — divergence
+- **Category**: C2 — wrong contract
+- **Criteria affected**: mcp-scope-04 AC-03
+- **Root cause**: `POST /agent-sessions` creates the opencode session using only
+  an explicit legacy `mcpRole`; profile-derived scope is resolved later in
+  `ws_gateway`, after the engine session already exists. AC-03 treated a
+  `createSession` helper test as interactive-path proof without exercising this
+  lifecycle.
+- **Suggested fix**: add a full-stack POST contract for a scoped Agent Profile
+  and resolve profile scope before the controller's initial engine-session
+  creation.
+
 ## 2026-05-20 — PR #617 rounds 1-5 (#627, #628, #632-639) — Partial pass
 
 - **Result**: 8 of 10 criteria PASS at smoke; #638 (3 sub-criteria) FAIL across 5 rounds, parked as known bug. verification-gate emitted PASS each round; manual smoke caught the divergence each time.
@@ -115,3 +129,24 @@
 - **Criteria affected**: issue-secretary-profile-scope-c1 ("excludes servers not allowed by that profile")
 - **Root cause**: c1's integration test mocks opencodeClient.createSession and only asserts mcpRoleConfig was passed; it never asserts the running fork session actually excludes disallowed servers. Scope commit a30510f44 touched only agent_sessions_controller.ts (+11 lines) — sends config but the initial fork session does not enforce it, so a real new Secretary session shows all servers.
 - **Suggested fix**: acceptance-contract must require an end-to-end assertion against a real/fake fork session's resolved MCP tool set (exclusion verified), not just the argument handed to a mocked createSession.
+
+## 2026-06-27 — mcp-scope-04 — REST-first interactive session bypasses profile scope
+
+- **Result**: smoke FAIL (verification claimed PASS) — divergence
+- **Category**: C2 — wrong contract
+- **Criteria affected**: mcp-scope-04 AC-03
+- **Root cause**: `POST /agent-sessions` creates the opencode session using only
+  an explicit legacy `mcpRole`; profile-derived scope is resolved later in
+  `ws_gateway`, after the engine session already exists. AC-03 treated a
+  `createSession` helper test as interactive-path proof without exercising this
+  lifecycle.
+- **Suggested fix**: add a full-stack POST contract for a scoped Agent Profile
+  and resolve profile scope before the controller's initial engine-session
+  creation.
+
+## 2026-06-27 — Issue 764 — SyncEvent dual-bus split fixed; smoke PASS
+- **Result**: smoke PASS (verification claimed PASS — no divergence)
+- **Category**: none (correctness); process: smoke-environment ×2; workflow: W3 (host TodoWrite unavailable, Task tools used)
+- **Criteria affected**: issue-764-c1 (pass/pass)
+- **Root cause**: namespace Bus and per-request DI Bus.Service held separate per-directory wildcard PubSubs; SyncEvent publishes never reached /event. Fixed via a shared module-level Map<directory,State> read-through in bus/index.ts.
+- **Suggested fix**: provide a dev-smoke launcher that frees :4096, refuses a competing :4000 engine server, and stages+verifies the freshly-built fork at apps/api_server/opencode_bin/opencode before launch (engine-change smokes otherwise risk running the stale system binary or failing on port contention).

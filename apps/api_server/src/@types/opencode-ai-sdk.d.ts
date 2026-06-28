@@ -608,6 +608,19 @@ declare module '@opencode-ai/sdk' {
         };
         query?: { directory?: string };
       }): Promise<SdkEnvelope<AssistantMessage>>;
+      /**
+       * PATCH /session/{id} — update session metadata.
+       * Note: the fork's UpdatePayload also accepts `mcpAllowlist` (mcp-scope
+       * patch), but that field is sent via direct fetch (updateSessionAllowlist)
+       * rather than this SDK method to avoid SDK body-type constraints.
+       */
+      update(options: {
+        path: { id: string };
+        body?: {
+          title?: string;
+        };
+        query?: { directory?: string };
+      }): Promise<SdkEnvelope<Session>>;
     };
     /**
      * MCP server management — client.mcp in sdk.gen.ts v1.14.49.

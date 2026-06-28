@@ -259,6 +259,24 @@ export class OpencodeClientService {
   /** Set to true by the shutdown handler before dispose() is called. */
   private _shuttingDown = false;
 
+  /**
+   * Test-only seam (#765). The real SDK client is normally created inside
+   * {@link initialize} via a runtime `import('@opencode-ai/sdk')` that vitest
+   * cannot intercept (the import is built through `new Function` to dodge the
+   * CJS transformer). To exercise the REAL {@link createSession} body — and
+   * therefore the real `expandMcpAllowlist` allowlist that goes on the wire —
+   * against a faithful fake SDK transport, tests inject a stand-in client and
+   * mark the engine ready. Only the network boundary (`session.create`) is
+   * faked; the scope-derivation logic under test runs unchanged.
+   *
+   * Never called in production. Keep this the ONLY way tests reach `this.client`.
+   */
+  __setTestClient(client: OpencodeClient): void {
+    this.client = client;
+    this.status = 'ready';
+    this.error = null;
+  }
+
   get isReady(): boolean {
     return this.status === 'ready';
   }
@@ -614,6 +632,37 @@ export class OpencodeClientService {
     } catch (err) {
       logger.error('[OpencodeClientService] createSession failed:', err);
       return null;
+    }
+  }
+
+  /**
+   * PATCH /session/:id with { mcpAllowlist: { servers, tools } }.
+   * Updates the fork session's MCP allowlist so the next prompt uses it.
+   * Called by ws_gateway when the per-turn agent drives scope on an existing session.
+   *
+   * Uses direct fetch rather than the SDK client because the SDK's generated body
+   * type only includes `title` (generated before mcp-scope support was added), and
+   * the fork's URL is known at this.baseUrl.
+   */
+  async updateSessionAllowlist(
+    sessionId: string,
+    servers: string[],
+  ): Promise<boolean> {
+    try {
+      const base = this.serverUrl;
+      const res = await fetch(`${base}/session/${sessionId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mcpAllowlist: { servers, tools: [] } }),
+      });
+      if (!res.ok) {
+        logger.warn('[OpencodeClientService] updateSessionAllowlist HTTP %s for session %s', res.status, sessionId);
+        return false;
+      }
+      return true;
+    } catch (err) {
+      logger.error('[OpencodeClientService] updateSessionAllowlist failed:', err);
+      return false;
     }
   }
 
