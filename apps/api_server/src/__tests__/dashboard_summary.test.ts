@@ -1,9 +1,8 @@
-import type { AddressInfo } from 'node:net';
-
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import Database from 'better-sqlite3';
 
 import { createApp } from '../app';
+import { startTestServer } from './helpers/real_server';
 import { runMigrations } from '../database/migrations';
 import { setDb } from '../database/db';
 import { SessionsRepository } from '../repositories/sessions_repository';
@@ -58,14 +57,7 @@ describe('GET /dashboard/summary', () => {
     tasksRepo = new TasksRepository();
     rulesRepo = new RecurringTaskRulesRepository();
 
-    const server = createApp().listen(0);
-    await new Promise<void>((resolve) => server.once('listening', () => resolve()));
-    const address = server.address() as AddressInfo;
-    baseUrl = `http://127.0.0.1:${address.port}`;
-    closeServer = () =>
-      new Promise<void>((resolve, reject) => {
-        server.close((error) => (error ? reject(error) : resolve()));
-      });
+    ({ baseUrl, close: closeServer } = await startTestServer(createApp()));
   });
 
   afterEach(async () => {

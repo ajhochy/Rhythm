@@ -3,11 +3,11 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import Database from 'better-sqlite3';
-import type { AddressInfo } from 'node:net';
 
 import { createApp } from '../app';
 import { runMigrations } from '../database/migrations';
 import { setDb } from '../database/db';
+import { startTestServer } from './helpers/real_server';
 import { UsersRepository } from '../repositories/users_repository';
 import { SessionsRepository } from '../repositories/sessions_repository';
 
@@ -52,11 +52,9 @@ describe('Projects API', () => {
       'Content-Type': 'application/json',
     };
 
-    const server = createApp().listen(0);
-    await new Promise<void>((r) => server.once('listening', () => r()));
-    baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
-    closeServer = () =>
-      new Promise<void>((res, rej) => server.close((e) => (e ? rej(e) : res())));
+    const { baseUrl: b, close } = await startTestServer(createApp());
+    baseUrl = b;
+    closeServer = close;
   });
 
   afterEach(async () => {
