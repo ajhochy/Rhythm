@@ -18,6 +18,7 @@ async function main() {
     { attachWsGateway },
     { startAgentSchedulerJob },
     { agentMemoryService },
+    { startMemoryVaultSyncJob },
   ] = await Promise.all([
     import('./app'),
     import('./database/db'),
@@ -27,6 +28,7 @@ async function main() {
     import('./services/ws_gateway'),
     import('./services/agentSchedulerService'),
     import('./services/agentMemoryService'),
+    import('./jobs/memory_vault_sync_job'),
   ]);
 
   const port = Number(process.env.PORT ?? 4000);
@@ -46,8 +48,17 @@ async function main() {
   // so the single shutdown handler below remains valid in every role.
   const { env } = await import('./config/env');
   let agentSchedulerJob: { stop: () => void } | null = null;
+  // Issue #770 WI6: the Memory-Vault mirror-sync writes into agent_memory, so it
+  // is an agent-execution surface and is gated with the rest. Declared nullable
+  // here so the shutdown handler's `memoryVaultSyncJob?.stop()` stays valid in
+  // the 'cloud' role where the job is never started.
+  let memoryVaultSyncJob: { stop: () => void } | null = null;
 
   if (env.agentExecutionEnabled) {
+    // Issue #770 WI6: mirror the dedicated Memory-Vault into agent_memory so the
+    // Rhythm Brain panel displays vault contents. No-op when the vault is absent.
+    memoryVaultSyncJob = startMemoryVaultSyncJob();
+
     // Agent subsystem: scheduler + memory consolidation seed
     agentSchedulerJob = startAgentSchedulerJob();
     agentMemoryService.seedConsolidationTask().catch((err) => {
@@ -197,6 +208,7 @@ async function main() {
     // 1. Stop cron jobs so no new work is kicked off.
     try { recurrenceJob?.stop(); } catch (_) { /* ignore */ }
     try { syncJob?.stop(); } catch (_) { /* ignore */ }
+    try { memoryVaultSyncJob?.stop(); } catch (_) { /* ignore */ }
     try { agentSchedulerJob?.stop(); } catch (_) { /* ignore */ }
 
     // 2. Dispose the Opencode SDK subprocess.
