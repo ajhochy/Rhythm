@@ -1,5 +1,7 @@
 import type { Pool } from 'pg';
 
+import { env } from '../config/env';
+
 const UTC_TEXT_NOW =
   `to_char(timezone('utc', now()), 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')`;
 
@@ -510,6 +512,34 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
       WHERE enabled = TRUE AND next_run_at IS NOT NULL
   `);
 
+  // Extend pending_claude_triggers with scheduler context columns (additive,
+  // all nullable). PROD-OWNED: the cloud role enqueues scheduled triggers into
+  // this queue, so these columns and the agent_scheduled_tasks table above must
+  // exist in every postgres deployment regardless of RHYTHM_ROLE. Moved here
+  // (ahead of the role gate) so they are never skipped in the cloud role.
+  await pool.query(`
+    ALTER TABLE pending_claude_triggers ADD COLUMN IF NOT EXISTS scheduled_task_id TEXT REFERENCES agent_scheduled_tasks(id) ON DELETE CASCADE;
+    ALTER TABLE pending_claude_triggers ADD COLUMN IF NOT EXISTS prompt TEXT;
+    ALTER TABLE pending_claude_triggers ADD COLUMN IF NOT EXISTS allowed_mcps_json TEXT;
+    ALTER TABLE pending_claude_triggers ADD COLUMN IF NOT EXISTS allowed_skills_json TEXT;
+    ALTER TABLE pending_claude_triggers ADD COLUMN IF NOT EXISTS model_provider TEXT;
+    ALTER TABLE pending_claude_triggers ADD COLUMN IF NOT EXISTS model_id TEXT;
+    ALTER TABLE pending_claude_triggers ADD COLUMN IF NOT EXISTS webhook_endpoint_id TEXT;
+  `);
+
+  // ── Agent-EXECUTION tables (#755) ──────────────────────────────────────────
+  // Created ONLY when the deployment role runs the agent runtime
+  // (RHYTHM_ROLE=all|local; the DEFAULT preserves today's behavior). The
+  // 'cloud' (hosted production) role omits these — it never stands up agent
+  // session/config/memory/skill/webhook/research/cookbook/design tables it
+  // never uses. NOTE: the agent_configs / agent_sessions BASE tables are
+  // SQLite-only (migrations.ts), so the ALTERs below were already
+  // erroring/dead on postgres; gating them also removes that latent bootstrap
+  // failure from any future non-cloud postgres deploy.
+  if (!env.agentExecutionEnabled) {
+    return;
+  }
+
   await pool.query(`
     CREATE TABLE IF NOT EXISTS agent_memory (
       id TEXT PRIMARY KEY,
@@ -560,17 +590,6 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
     )
   `);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_agent_research_jobs_status ON agent_research_jobs(status)`);
-
-  // Extend pending_claude_triggers with scheduler context columns (additive, all nullable)
-  await pool.query(`
-    ALTER TABLE pending_claude_triggers ADD COLUMN IF NOT EXISTS scheduled_task_id TEXT REFERENCES agent_scheduled_tasks(id) ON DELETE CASCADE;
-    ALTER TABLE pending_claude_triggers ADD COLUMN IF NOT EXISTS prompt TEXT;
-    ALTER TABLE pending_claude_triggers ADD COLUMN IF NOT EXISTS allowed_mcps_json TEXT;
-    ALTER TABLE pending_claude_triggers ADD COLUMN IF NOT EXISTS allowed_skills_json TEXT;
-    ALTER TABLE pending_claude_triggers ADD COLUMN IF NOT EXISTS model_provider TEXT;
-    ALTER TABLE pending_claude_triggers ADD COLUMN IF NOT EXISTS model_id TEXT;
-    ALTER TABLE pending_claude_triggers ADD COLUMN IF NOT EXISTS webhook_endpoint_id TEXT;
-  `);
 
   // B1 — agent_cookbook: reusable recipe/skill library for the agent scheduler.
   await pool.query(`

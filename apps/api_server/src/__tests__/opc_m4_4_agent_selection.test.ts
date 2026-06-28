@@ -79,6 +79,8 @@ vi.mock('../services/agent_model_resolver', () => ({
 vi.mock('../config/env', () => ({
   env: {
     agentLocal: true,
+    agentExecutionEnabled: true,
+    role: 'local',
     corsAllowedOrigins: [],
     jwtSecret: 'test-secret',
   },

@@ -131,7 +131,7 @@ describe('POST /opencode/mcp/curated/ensure route (c5)', () => {
       opencodeSessionMap: new Map(),
     }));
     vi.doMock('../config/env', () => ({
-      env: { agentLocal: true, corsAllowedOrigins: [], jwtSecret: 'test-secret' },
+      env: { agentLocal: true, agentExecutionEnabled: true, role: 'local', corsAllowedOrigins: [], jwtSecret: 'test-secret' },
     }));
 
     const { setDb } = await import('../database/db');

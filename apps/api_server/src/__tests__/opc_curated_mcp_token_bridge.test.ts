@@ -261,6 +261,8 @@ describe('POST /opencode/mcp/curated/ensure token bridge (c3, c4)', () => {
       env: {
         dbClient: 'sqlite',
         agentLocal: true,
+        agentExecutionEnabled: true,
+        role: 'local',
         corsAllowedOrigins: [],
         jwtSecret: 'test-secret',
       },

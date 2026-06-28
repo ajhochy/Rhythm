@@ -46,6 +46,8 @@ vi.mock('../services/mcp_oauth_engine', () => ({
 vi.mock('../config/env', () => ({
   env: {
     agentLocal: true,
+    agentExecutionEnabled: true,
+    role: 'local',
     corsAllowedOrigins: [],
     jwtSecret: 'test-secret',
   },
