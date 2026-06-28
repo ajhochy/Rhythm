@@ -76,3 +76,43 @@ PASSED) — this work keeps the picker names aligned with what #775 enforces.
 Open the PR for `feature/unify-skills-source-of-truth` (draft, no merge) with
 `Closes #777`. Then human-merge #776 and this PR, cut a signed release, and work
 the post-merge manual-smoke list against that build.
+
+## Recent coding-agent runs
+
+### 2026-06-28 — #785 MCP names-alignment + no-server-lost guards
+- Files modified:
+  - `apps/api_server/src/__tests__/mcp_names_alignment.test.ts` (new) — MCP
+    analogue of `skill_names_alignment.test.ts`: GET /opencode/mcp mirrors the
+    live `listMcp()` ids (no-server-lost: set OUT == set IN; IN ⊆ OUT), the
+    importer-default `["rhythm"]` and a persisted profile `allowed_mcps_json`
+    align with the live set, and a boundary test where `ableton`/`nfl-mcp`/`foo`
+    fail the alignment check (proves it catches #781).
+  - `tools/release/smoke_mcp_alignment.sh` (new) — real-binary smoke modeled on
+    `smoke_mcp_allowlist.sh`/`smoke_skill_alignment.sh`: writes two `mcp` servers
+    into opencode.json, asserts both survive the live `GET /mcp` listing
+    (no-server-lost), then round-trips a live id through a per-session
+    `mcpAllowlist` (#765/#781 names alignment).
+  - `.github/workflows/desktop_release.yml` — wired the smoke as a new step
+    after `smoke_skill_alignment.sh`, before "Package macOS artifacts".
+- Checks run:
+  - `vitest run mcp_names_alignment.test.ts` → 5 pass on clean tree.
+  - Injected-failure demo: replacing the importer default with
+    `['rhythm','ableton','foo']` failed with `dead names: ableton, foo`; reverted.
+  - `vitest run` of 5 related files (mcp/skill alignment, m4_3 routes, profile
+    sync skill alignment, mcp_allowlist_expander) → 37 pass.
+  - `tsc --noEmit` → 0 errors. `bash -n smoke_mcp_alignment.sh` → OK
+    (shellcheck unavailable on this host).
+- Decisions made: the agent_profile_sync MCP path writes a STATIC
+  `IMPORTER_DEFAULT_ALLOWED_MCPS_JSON = ["rhythm"]` — it does NOT intersect with
+  the live MCP set the way the skill path does (Unify-3). The guard detects that
+  drift; building the reconciliation is #789's job.
+- Deviations from spec: none. Stayed additive — no edits to
+  opencode_mcp_routes.ts, curated_mcp_servers.ts, agent_profile_sync.ts, or
+  Flutter.
+- Concerns: the smoke's real-binary portion only runs in release CI (the fork
+  binary is per-branch + gitignored); I could not exercise it locally. The
+  `GET /mcp` shape is handled defensively (dict OR list). The vitest portion
+  fully covers the proxy-level no-server-lost + alignment logic.
+- Note for #789: MCP `allowed_mcps_json` is not reconciled against the live set
+  at sync time (only skills are, via Unify-3). #789 should add that intersection
+  in `agent_profile_sync.ts`; this guard will then stay green by construction.
