@@ -101,6 +101,7 @@ export function fromRow(row: SessionRow): Info {
     revert,
     permission: row.permission ?? undefined,
     mcpAllowlist: row.mcp_allowlist ?? undefined,
+    skillAllowlist: row.skill_allowlist ?? undefined,
     time: {
       created: row.time_created,
       updated: row.time_updated,
@@ -137,6 +138,7 @@ export function toRow(info: Info) {
     revert: info.revert ?? null,
     permission: info.permission,
     mcp_allowlist: info.mcpAllowlist ?? null,
+    skill_allowlist: info.skillAllowlist ?? null,
     time_created: info.time.created,
     time_updated: info.time.updated,
     time_compacting: info.time.compacting,
@@ -211,6 +213,15 @@ export const McpAllowlist = Schema.Struct({
   tools: Schema.mutable(Schema.Array(Schema.String)),
 })
 
+// Rhythm carried patch (skill-scope, #775): per-session SKILL allowlist schema.
+// Mirrors McpAllowlist. `skills` is the list of permitted skill NAMES (the
+// SKILL.md frontmatter `name`, e.g. "docx", "engineering:code-review"). An
+// undefined allowlist means "all skills" (back-compat); a present allowlist
+// restricts the agent to exactly the listed skill names.
+export const SkillAllowlist = Schema.Struct({
+  skills: Schema.mutable(Schema.Array(Schema.String)),
+})
+
 export const Info = Schema.Struct({
   id: SessionID,
   slug: Schema.String,
@@ -232,6 +243,8 @@ export const Info = Schema.Struct({
   revert: optionalOmitUndefined(Revert),
   // Rhythm carried patch (mcp-scope): optional per-session MCP tool allowlist.
   mcpAllowlist: optionalOmitUndefined(McpAllowlist),
+  // Rhythm carried patch (skill-scope, #775): optional per-session skill allowlist.
+  skillAllowlist: optionalOmitUndefined(SkillAllowlist),
 }).annotate({ identifier: "Session" })
 export type Info = Types.DeepMutable<Schema.Schema.Type<typeof Info>>
 
@@ -258,6 +271,8 @@ export const CreateInput = Schema.optional(
     workspaceID: Schema.optional(WorkspaceID),
     // Rhythm carried patch (mcp-scope): optional per-session MCP tool allowlist.
     mcpAllowlist: Schema.optional(McpAllowlist),
+    // Rhythm carried patch (skill-scope, #775): optional per-session skill allowlist.
+    skillAllowlist: Schema.optional(SkillAllowlist),
   }),
 )
 export type CreateInput = Types.DeepMutable<Schema.Schema.Type<typeof CreateInput>>
@@ -334,6 +349,7 @@ const UpdatedInfo = Schema.Struct({
   permission: Schema.optional(Schema.NullOr(Permission.Ruleset)),
   revert: Schema.optional(Schema.NullOr(Revert)),
   mcpAllowlist: Schema.optional(Schema.NullOr(McpAllowlist)),
+  skillAllowlist: Schema.optional(Schema.NullOr(SkillAllowlist)),
 })
 
 const UpdatedEventSchema = Schema.Struct({
@@ -474,6 +490,8 @@ export interface Interface {
     workspaceID?: WorkspaceID
     /** Rhythm carried patch (mcp-scope): per-session MCP tool allowlist. */
     mcpAllowlist?: Info["mcpAllowlist"]
+    /** Rhythm carried patch (skill-scope, #775): per-session skill allowlist. */
+    skillAllowlist?: Info["skillAllowlist"]
   }) => Effect.Effect<Info>
   readonly fork: (input: { sessionID: SessionID; messageID?: MessageID }) => Effect.Effect<Info, NotFound>
   readonly touch: (sessionID: SessionID) => Effect.Effect<void>
@@ -490,6 +508,11 @@ export interface Interface {
   readonly setSummary: (input: { sessionID: SessionID; summary: Info["summary"] }) => Effect.Effect<void>
   /** Rhythm carried patch (mcp-scope): update the per-session MCP tool allowlist. */
   readonly setMcpAllowlist: (input: { sessionID: SessionID; mcpAllowlist: Info["mcpAllowlist"] }) => Effect.Effect<void>
+  /** Rhythm carried patch (skill-scope, #775): update the per-session skill allowlist. */
+  readonly setSkillAllowlist: (input: {
+    sessionID: SessionID
+    skillAllowlist: Info["skillAllowlist"]
+  }) => Effect.Effect<void>
   readonly diff: (sessionID: SessionID) => Effect.Effect<Snapshot.FileDiff[]>
   readonly messages: (input: { sessionID: SessionID; limit?: number }) => Effect.Effect<MessageV2.WithParts[], NotFound>
   readonly children: (parentID: SessionID) => Effect.Effect<Info[]>
@@ -548,6 +571,8 @@ export const layer: Layer.Layer<
       permission?: Permission.Ruleset
       /** Rhythm carried patch (mcp-scope): per-session MCP tool allowlist. */
       mcpAllowlist?: Info["mcpAllowlist"]
+      /** Rhythm carried patch (skill-scope, #775): per-session skill allowlist. */
+      skillAllowlist?: Info["skillAllowlist"]
     }) {
       const ctx = yield* InstanceState.context
       const result: Info = {
@@ -564,6 +589,7 @@ export const layer: Layer.Layer<
         model: input.model,
         permission: input.permission,
         mcpAllowlist: input.mcpAllowlist,
+        skillAllowlist: input.skillAllowlist,
         cost: 0,
         tokens: EmptyTokens,
         time: {
@@ -683,6 +709,8 @@ export const layer: Layer.Layer<
       workspaceID?: WorkspaceID
       /** Rhythm carried patch (mcp-scope): per-session MCP tool allowlist. */
       mcpAllowlist?: Info["mcpAllowlist"]
+      /** Rhythm carried patch (skill-scope, #775): per-session skill allowlist. */
+      skillAllowlist?: Info["skillAllowlist"]
     }) {
       const ctx = yield* InstanceState.context
       const workspace = yield* InstanceState.workspaceID
@@ -696,6 +724,7 @@ export const layer: Layer.Layer<
         permission: input?.permission,
         workspaceID: input?.workspaceID ?? workspace,
         mcpAllowlist: input?.mcpAllowlist,
+        skillAllowlist: input?.skillAllowlist,
       })
     })
 
@@ -786,6 +815,13 @@ export const layer: Layer.Layer<
       mcpAllowlist: Info["mcpAllowlist"]
     }) {
       yield* patch(input.sessionID, { time: { updated: Date.now() }, mcpAllowlist: input.mcpAllowlist })
+    })
+
+    const setSkillAllowlist = Effect.fn("Session.setSkillAllowlist")(function* (input: {
+      sessionID: SessionID
+      skillAllowlist: Info["skillAllowlist"]
+    }) {
+      yield* patch(input.sessionID, { time: { updated: Date.now() }, skillAllowlist: input.skillAllowlist })
     })
 
     const diff = Effect.fn("Session.diff")(function* (sessionID: SessionID) {
@@ -879,6 +915,7 @@ export const layer: Layer.Layer<
       clearRevert,
       setSummary,
       setMcpAllowlist,
+      setSkillAllowlist,
       diff,
       messages,
       children,

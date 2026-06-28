@@ -261,6 +261,12 @@ jobs:
           BINARY="$PWD/build/macos/Build/Products/Release/Rhythm.app/Contents/Resources/opencode_bin/opencode"
           ../../tools/release/smoke_mcp_allowlist.sh "$BINARY"
 
+      - name: Smoke opencode skill allowlist persistence (#775 guard)
+        working-directory: apps/desktop_flutter
+        run: |
+          BINARY="$PWD/build/macos/Build/Products/Release/Rhythm.app/Contents/Resources/opencode_bin/opencode"
+          ../../tools/release/smoke_skill_allowlist.sh "$BINARY"
+
       - name: Package macOS artifacts
         working-directory: apps/desktop_flutter
         run: ../../tools/release/package_macos.sh

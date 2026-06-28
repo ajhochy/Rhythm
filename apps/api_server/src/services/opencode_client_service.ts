@@ -599,6 +599,10 @@ export class OpencodeClientService {
       mcpServers: Record<string, unknown>;
       allowedToolsJson: string;
     },
+    // #775 (skill-scope): permitted skill NAMES for this session. When provided
+    // (non-empty), the fork scopes the model's available skills to this set —
+    // the skill analogue of mcpRoleConfig. Undefined/empty = unrestricted.
+    skillAllowlist?: string[],
   ): Promise<{ id: string } | null> {
     if (!this.client) return null;
 
@@ -635,6 +639,15 @@ export class OpencodeClientService {
       const body: Record<string, unknown> = { title };
       if (mcpAllowlist !== undefined) {
         body.mcpAllowlist = mcpAllowlist;
+      }
+      // #775 (skill-scope): pass the per-session skill allowlist on the create body.
+      // The fork reads `skillAllowlist.skills` to scope the model's available skills.
+      if (skillAllowlist !== undefined && skillAllowlist.length > 0) {
+        body.skillAllowlist = { skills: skillAllowlist };
+        logger.info(
+          '[OpencodeClientService] createSession: skillAllowlist skills=%s',
+          skillAllowlist.join(',') || '(none)',
+        );
       }
       const raw = await (this.client.session.create as (opts: {
         body: Record<string, unknown>;
@@ -685,6 +698,43 @@ export class OpencodeClientService {
       return true;
     } catch (err) {
       logger.error('[OpencodeClientService] updateSessionAllowlist failed:', err);
+      return false;
+    }
+  }
+
+  /**
+   * #775 (skill-scope): PATCH /session/:id with { skillAllowlist: { skills } }.
+   * Updates the fork session's skill allowlist so the next prompt scopes the
+   * model's available skills to `skills`. Called by ws_gateway when the per-turn
+   * agent drives scope on an existing session — the skill analogue of
+   * {@link updateSessionAllowlist}.
+   *
+   * Passing an empty `skills` array clears the restriction (fork treats an
+   * undefined/absent allowlist as unrestricted; an explicit empty list would
+   * deny everything, so callers pass undefined-to-clear by not calling this).
+   */
+  async updateSessionSkillAllowlist(
+    sessionId: string,
+    skills: string[],
+  ): Promise<boolean> {
+    try {
+      const base = this.serverUrl;
+      const res = await fetch(`${base}/session/${sessionId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ skillAllowlist: { skills } }),
+      });
+      if (!res.ok) {
+        logger.warn(
+          '[OpencodeClientService] updateSessionSkillAllowlist HTTP %s for session %s',
+          res.status,
+          sessionId,
+        );
+        return false;
+      }
+      return true;
+    } catch (err) {
+      logger.error('[OpencodeClientService] updateSessionSkillAllowlist failed:', err);
       return false;
     }
   }

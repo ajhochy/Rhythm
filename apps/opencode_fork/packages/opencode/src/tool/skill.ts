@@ -4,6 +4,8 @@ import { Effect, Schema } from "effect"
 import * as Stream from "effect/Stream"
 import { Ripgrep } from "../file/ripgrep"
 import { Skill } from "../skill"
+import { Session } from "../session/session"
+import { isSkillAllowed } from "../session/skill_allowlist"
 import * as Tool from "./tool"
 import DESCRIPTION from "./skill.txt"
 
@@ -16,12 +18,25 @@ export const SkillTool = Tool.define(
   Effect.gen(function* () {
     const skill = yield* Skill.Service
     const rg = yield* Ripgrep.Service
+    const sessions = yield* Session.Service
 
     return {
       description: DESCRIPTION,
       parameters: Parameters,
       execute: (params: Schema.Schema.Type<typeof Parameters>, ctx: Tool.Context) =>
         Effect.gen(function* () {
+          // Rhythm carried patch (skill-scope, #775): execute-time guard. The skill
+          // tool's schema is always present, so a restricted agent could still try to
+          // load an out-of-scope skill by name even though it was filtered from the
+          // listing. Reject it here using the session's skillAllowlist — the skill
+          // analogue of the MCP allowlist gate. undefined allowlist = unrestricted.
+          const session = yield* sessions.get(ctx.sessionID).pipe(Effect.catchCause(() => Effect.succeed(undefined)))
+          if (session && !isSkillAllowed(params.name, session.skillAllowlist)) {
+            throw new Error(
+              `Skill "${params.name}" is not permitted for this agent. It is outside the agent's allowed skills.`,
+            )
+          }
+
           const info = yield* skill.get(params.name)
           if (!info) {
             const all = yield* skill.all()

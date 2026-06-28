@@ -196,6 +196,13 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       if (ctx.payload.mcpAllowlist !== undefined) {
         yield* session.setMcpAllowlist({ sessionID: ctx.params.sessionID, mcpAllowlist: ctx.payload.mcpAllowlist })
       }
+      // Rhythm carried patch (skill-scope, #775): update the per-session skill allowlist.
+      if (ctx.payload.skillAllowlist !== undefined) {
+        yield* session.setSkillAllowlist({
+          sessionID: ctx.params.sessionID,
+          skillAllowlist: ctx.payload.skillAllowlist,
+        })
+      }
       return yield* requireSession(ctx.params.sessionID)
     })
 

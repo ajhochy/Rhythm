@@ -53,6 +53,8 @@ export const UpdatePayload = Schema.Struct({
   ),
   // Rhythm carried patch (mcp-scope): per-session MCP tool allowlist.
   mcpAllowlist: Schema.optional(Session.McpAllowlist),
+  // Rhythm carried patch (skill-scope, #775): per-session skill allowlist.
+  skillAllowlist: Schema.optional(Session.SkillAllowlist),
 })
 export const ForkPayload = Schema.Struct(Struct.omit(Session.ForkInput.fields, ["sessionID"]))
 export const InitPayload = Schema.Struct({

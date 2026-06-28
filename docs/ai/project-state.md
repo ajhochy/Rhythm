@@ -2,21 +2,22 @@
 
 ## Current focus
 
-**2026-06-28 — Consolidated agent-stack batch merged to `main` and released.**
-PR [#774](https://github.com/ajhochy/Rhythm/pull/774) (merge commit `4fbfc059d`)
-landed 9 issues' worth of work. Release **v18.54** triggered
-(`desktop_release.yml`, run 28312640618). Issue #737 (email fencing) is landing
-separately on top via PR #773.
+**2026-06-28 — Issue #775 (per-agent skill scoping) resolved on a branch.**
+Found the same false-green as #765: per-profile `allowed_skills_json` was inert
+because the model's real skills come from the **opencode fork** (the `skill` tool
++ system-prompt listing), not from api_server's `buildSkillsPreface`. Fixed by
+adding a per-session `skillAllowlist` to the fork (a 1:1 mirror of `mcpAllowlist`)
++ api_server push + a real-binary release guard. Verified against the BUILT binary.
+See `docs/ai/decisions/2026-06-28-skill-scope-enforcement.md` and
+`docs/ai/runs/2026-06-28-issue-775-skill-allowlist.md`.
 
-The #765 MCP-scoping regression was found and re-fixed in this batch (the
-`PATCH /session/:id` write path had been deleted in favor of the wrong schema —
-`UpdatedInfo` instead of `UpdatePayload`). It is **verified end-to-end** and is
-guarded in release CI by `tools/release/smoke_mcp_allowlist.sh`.
+Prior batch context: PR [#774](https://github.com/ajhochy/Rhythm/pull/774)
+(`4fbfc059d`, v18.54) landed 9 issues incl. the #765 MCP-scoping re-fix.
 
 ## Active branch / PR
 
-- **Branch:** `main` @ `4fbfc059d` (batch merged; consolidated branch deleted).
-- **PR #773** (`fix/issue-737-email-fencing`) — email fencing, re-landing on main.
+- **Branch:** `fix/issue-775-skill-allowlist-guard` (PR pending) — #775 skill scoping.
+- **Ships only after a fork rebuild + signed release** (fork binary is bundled).
 
 ## Pending manual smoke (post-merge)
 
@@ -48,9 +49,14 @@ smoke**. **MCP scoping (#765) is the only item already smoked — skip it.**
 
 ## Still outstanding
 
-- **#775 — verify per-agent skill scoping:** new follow-up. `allowed_skills_json`
-  exists per profile but `skill_retrieval.ts` shares skills instance-wide and
-  ignores it — same gap class as #765. Audit + guard pending.
+- **#775 manual smoke (live end-to-end):** the automated guards prove the
+  allowlist persists on the real binary + the filter logic/wiring is correct, but
+  NOT the live path. After a fork rebuild+release, confirm a restricted Secretary
+  session's prompt omits out-of-scope skills and an out-of-scope `skill` load is
+  refused.
+- **Follow-up (file an issue):** the Flutter `_kAvailableSkills` picker is a
+  hardcoded list; its names must match the fork's `SKILL.md` `name` or scoping
+  matches nothing. Source it from the fork's `GET /skill` instead.
 
 ## Risks / known issues
 
@@ -64,15 +70,15 @@ smoke**. **MCP scoping (#765) is the only item already smoked — skip it.**
   calendar/PCO/web tools that surface external text are not yet fenced
   (governed by the decision doc, follow-up when they surface model-facing text).
 
-## Test status (at merge)
+## Test status (#775 branch)
 
-- `npx tsc --noEmit` → exit 0
-- `npx vitest run` → 156 files, 1330 tests, all passed
-- `tools/release/smoke_mcp_allowlist.sh` → PASS on fixed binary, FAIL on a
-  binary lacking the write path (guard validated both ways)
-- E2e: real UI turn `agent=secretary` → DB `mcp_allowlist` = the 7-server set ✓
+- Fork `bun run typecheck` → exit 0; api_server `tsc --noEmit` → exit 0
+- Fork `bun test` skill+mcp allowlist → 13 pass; api_server skill suites → 30 pass
+- Built single fork binary (22 migrations bundled)
+- `tools/release/smoke_skill_allowlist.sh` → PASS; `smoke_mcp_allowlist.sh` → PASS
+  (both against the BUILT binary; #765 not regressed)
 
 ## Next step
 
-Work through the **Pending manual smoke** list above against the v18.54 build,
-then start the #775 skill-scoping audit.
+Open the #775 PR, then on the next release work through the **Pending manual
+smoke** list (incl. the #775 live skill-scoping check) against that build.
