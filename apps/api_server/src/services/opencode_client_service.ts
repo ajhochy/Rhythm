@@ -259,6 +259,24 @@ export class OpencodeClientService {
   /** Set to true by the shutdown handler before dispose() is called. */
   private _shuttingDown = false;
 
+  /**
+   * Test-only seam (#765). The real SDK client is normally created inside
+   * {@link initialize} via a runtime `import('@opencode-ai/sdk')` that vitest
+   * cannot intercept (the import is built through `new Function` to dodge the
+   * CJS transformer). To exercise the REAL {@link createSession} body — and
+   * therefore the real `expandMcpAllowlist` allowlist that goes on the wire —
+   * against a faithful fake SDK transport, tests inject a stand-in client and
+   * mark the engine ready. Only the network boundary (`session.create`) is
+   * faked; the scope-derivation logic under test runs unchanged.
+   *
+   * Never called in production. Keep this the ONLY way tests reach `this.client`.
+   */
+  __setTestClient(client: OpencodeClient): void {
+    this.client = client;
+    this.status = 'ready';
+    this.error = null;
+  }
+
   get isReady(): boolean {
     return this.status === 'ready';
   }
