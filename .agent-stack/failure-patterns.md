@@ -107,3 +107,11 @@
 - **Criteria affected**: assistant responses render in Flutter UI (out of #759 engine scope)
 - **Root cause**: #759 engine /event collapse is fixed (stream stays open, status→idle, 2 messages persisted, bridge broadcasts over WS keyed by correct UUID); Flutter client did not surface the broadcast message events in the rendered list/context panel
 - **Suggested fix**: follow-up issue on the Flutter agents client WS-ingestion/rendering of message.part/message.updated; verify #759 + #758 together for full UX
+
+## 2026-06-27 — secretary-profile-scope — Secretary session loads ALL MCP servers despite scope fix
+
+- **Result**: smoke FAIL (user-visible) — verification claimed PASS (73 targeted + TypeScript)
+- **Category**: C2 — Wrong contract (false negative); secondary W5 (verification-gate trusted a boundary-only mock)
+- **Criteria affected**: issue-secretary-profile-scope-c1 ("excludes servers not allowed by that profile")
+- **Root cause**: c1's integration test mocks opencodeClient.createSession and only asserts mcpRoleConfig was passed; it never asserts the running fork session actually excludes disallowed servers. Scope commit a30510f44 touched only agent_sessions_controller.ts (+11 lines) — sends config but the initial fork session does not enforce it, so a real new Secretary session shows all servers.
+- **Suggested fix**: acceptance-contract must require an end-to-end assertion against a real/fake fork session's resolved MCP tool set (exclusion verified), not just the argument handed to a mocked createSession.
