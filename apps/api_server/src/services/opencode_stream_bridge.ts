@@ -5,6 +5,7 @@ import { logger } from '../utils/logger';
 import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
 import { AgentSessionMessagesRepository } from '../repositories/agent_session_messages_repository';
 import { queueSkillExtraction } from './skill_extractor';
+import { isToolAllowed } from './mcp_dispatch_guard';
 import type { PermissionMode } from '../models/agent_session';
 
 /**
@@ -350,6 +351,70 @@ export class OpencodeStreamBridge {
     }
   }
 
+  /**
+   * #736 — Layer 2 dispatch-time tool-gating backstop.
+   *
+   * Decide whether a tool call on `localSessionId` is permitted by the
+   * session's persisted MCP allowlist. Returns `true` (allowed) for any
+   * session that is NOT role-scoped (`mcp_role` is null) — full pass-through,
+   * matching the #736 "sessions with no mcp_role are unaffected" criterion.
+   *
+   * For a role-scoped session it delegates to the pure `isToolAllowed`
+   * predicate against the row's `mcpAllowedToolsJson` (the value C1's
+   * POST /agent-sessions path persisted). A DB read failure fails CLOSED for a
+   * role-scoped session (deny), because a role-scoped session that cannot prove
+   * a tool is allowed must not run it. If the row cannot be found at all we
+   * cannot know the role, so we pass through (the part path still forwards as
+   * before) — the permission path additionally fails closed where it can.
+   */
+  private isToolAllowedForSession(
+    localSessionId: string | undefined,
+    toolName: string,
+  ): boolean {
+    if (!localSessionId) return true;
+    let session;
+    try {
+      session = this.sessionsRepo.findById(localSessionId);
+    } catch (err) {
+      logger.error(
+        '[OpencodeStreamBridge] #736 allowlist lookup failed:',
+        err,
+      );
+      return true; // unknown role — do not over-block on an infra error.
+    }
+    if (!session) return true;
+    // Only sessions that opted into a role are gated. No role → pass-through.
+    if (session.mcpRole == null) return true;
+    return isToolAllowed(toolName, session.mcpAllowedToolsJson);
+  }
+
+  /**
+   * #736 — Surface a clear "denied" result to the client for a blocked tool
+   * call. Emitted as a dedicated `tool.denied` frame (so the Flutter client can
+   * render a denied tool affordance) plus a back-compat `error` frame.
+   */
+  private broadcastToolDenied(
+    eventId: string,
+    localSessionId: string | undefined,
+    toolName: string,
+  ): void {
+    const message = `Tool "${toolName}" is not permitted for this agent's role and was blocked.`;
+    broadcast({
+      v: 1,
+      type: 'tool.denied',
+      id: eventId,
+      sessionId: localSessionId ?? eventId,
+      tool: toolName,
+      message,
+    });
+    broadcast({
+      v: 1,
+      type: 'error',
+      id: eventId,
+      message,
+    });
+  }
+
   private _relayEvent(
     event: import('@opencode-ai/sdk').Event,
   ): void {
@@ -414,6 +479,21 @@ export class OpencodeStreamBridge {
         // Persist the part into the DB row's parts_json here.
         const part = props?.part as Record<string, unknown> | undefined;
         if (part) {
+          // #736 — Layer 2 dispatch backstop. If this is a tool-call part for a
+          // disallowed tool on a role-scoped session, block it: do NOT forward
+          // the part (which would render the tool as running/completed) and do
+          // NOT persist it. Surface a denied result instead. This covers the
+          // bypassPermissions path where no permission.asked event fires.
+          if (part.type === 'tool') {
+            const toolName =
+              (part.tool as string | undefined) ??
+              (part.name as string | undefined) ??
+              '';
+            if (toolName && !this.isToolAllowedForSession(localSessionId, toolName)) {
+              this.broadcastToolDenied(eventId, localSessionId, toolName);
+              break;
+            }
+          }
           broadcast({
             v: 1,
             type: 'message.part.updated',
@@ -967,6 +1047,46 @@ export class OpencodeStreamBridge {
         const toolName = perm.toolName ?? perm.type ?? '';
         const args = perm.args ?? perm.metadata ?? {};
         const summary = perm.summary ?? perm.title ?? toolName;
+
+        // #736 — Layer 2 dispatch backstop (pre-execution gate). opencode blocks
+        // the tool until this permission is answered, so denying here stops the
+        // tool BEFORE it executes — the Odysseus `_execute_tool_block_impl`
+        // analog. If the tool is outside a role-scoped session's allowlist,
+        // auto-DENY it (reject) and surface a denied result instead of forwarding
+        // the permission card or auto-accepting. Non-role sessions pass through.
+        if (toolName && !this.isToolAllowedForSession(localSessionId, toolName)) {
+          const dir = (() => {
+            try {
+              return this.sessionsRepo.findById(localSessionId)?.cwd;
+            } catch {
+              return undefined;
+            }
+          })();
+          (async () => {
+            try {
+              await opencodeClient.respondPermission(
+                sdkSessionId,
+                permissionId,
+                'deny',
+                dir,
+              );
+            } catch (err) {
+              logger.error(
+                '[OpencodeStreamBridge] #736 auto-deny respondPermission failed:',
+                err,
+              );
+            }
+          })();
+          broadcast({
+            v: 1,
+            type: 'permission.resolved',
+            sessionId: localSessionId,
+            permissionId,
+            decision: 'deny',
+          });
+          this.broadcastToolDenied(localSessionId, localSessionId, toolName);
+          break;
+        }
 
         // Consult the session's permission_mode to decide whether to
         // auto-respond or forward to the user.
