@@ -936,7 +936,22 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
         final managed = entry?.managed ?? false;
 
         final chip = FilterChip(
-          label: Text(name),
+          // Bound + ellipsize the label so a long skill name (e.g.
+          // `patristic-bible-study:study-passage`) can never make the chip —
+          // or the managed-skill Row it sits in — overflow the Wrap (#780).
+          // Full name stays legible via the tooltip.
+          label: Tooltip(
+            message: name,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 240),
+              child: Text(
+                name,
+                maxLines: 1,
+                softWrap: false,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ),
           selected: isSelected,
           onSelected: (_) => setState(() {
             if (_selectedSkills!.contains(name)) {
