@@ -872,6 +872,23 @@ export class OpencodeStreamBridge {
         break;
       }
 
+      case 'session.compacted': {
+        // #720 — opencode signals compaction completion with `session.compacted`
+        // ({ properties: { sessionID } }), NOT a live `compaction` message-part.
+        // Relay it as a dedicated WS frame so the Flutter client can clear the
+        // compacting spinner AND rehydrate (re-fetch messages) so the persisted
+        // CompactionPart loads and renders as the "Conversation compacted"
+        // divider, and the context gauge reflects the post-compaction tokens.
+        // The event carries no message payload itself — the client refetches
+        // GET /agent-sessions/:id (same as the diff refetch path).
+        broadcast({
+          v: 1,
+          type: 'session.compacted',
+          id: eventId,
+        });
+        break;
+      }
+
       case 'todo.updated': {
         // OPC-M3-5: relay todo.updated events so the Flutter todo panel can
         // update in real-time without polling. The full todo list is embedded
