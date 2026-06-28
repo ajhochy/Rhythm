@@ -118,6 +118,13 @@
   figure.shot figcaption b{color:var(--fg-2);font-weight:600}
   .shotrow{display:grid;gap:18px}
   @media(min-width:760px){.shotrow.two{grid-template-columns:1fr 1fr}.shotrow.two figure{margin-bottom:0}}
+  /* screenshot placeholder — shown until #recapture-screenshots lands */
+  figure.shot.placeholder{box-shadow:none;background:var(--ink-1);border-style:dashed;border-color:var(--rule-3)}
+  figure.shot.placeholder .ph{display:flex;align-items:center;gap:13px;padding:22px 20px;color:var(--fg-3)}
+  figure.shot.placeholder .ph svg{color:var(--fg-4);flex:0 0 auto;width:22px;height:22px}
+  figure.shot.placeholder .ph .pt{font-size:14px;line-height:1.5}
+  figure.shot.placeholder .ph .pt b{color:var(--fg-2);font-weight:600;display:block;margin-bottom:1px}
+  figure.shot.placeholder figcaption{border-top:1px solid var(--rule)}
 
   /* methods (the 3 capture/usage options) */
   .methods{display:grid;gap:14px;margin:0 0 6px}
@@ -278,6 +285,7 @@
         <li><b>Reserve rooms and message colleagues</b> without leaving the app.</li>
         <li><b>Wire in Planning Center / Google</b> so external context flows in as planning signals.</li>
       </ol>
+      <p style="margin:18px 0 0;font-size:14.5px;color:var(--fg-3)">Just want to start? Skip to <a href="#first-30-minutes"><b>Your first 30 minutes</b></a> for a concrete, no-AI setup you can finish in one sitting.</p>
     </div>
 
     <!-- GLOSSARY (#665) -->
@@ -327,6 +335,72 @@
       <div class="callout"><svg class="ic"><use href="#i-info"/></svg><div><span class="h">One build for every Mac</span>This single download works on both <b>Apple Silicon</b> (M1–M4) and <b>Intel</b> Macs.</div></div>
       <div class="callout"><svg class="ic"><use href="#i-check"/></svg><div><span class="h">Opening it the first time</span>The app is signed and notarized under the church's developer account, so it should open normally. If macOS asks because it was downloaded from the internet, click <b>Open</b> — you only confirm once.</div></div>
       <details class="more"><summary><svg class="ic chev"><use href="#i-chev"/></svg>Updating to a newer version</summary><div class="body">When you see a new release, come back to this page and download again — the new version replaces the old one in Applications. Your data and settings stay put.</div></details>
+    </section>
+
+    <!-- YOUR FIRST 30 MINUTES (#661 Part B / #666) -->
+    <section class="screen" id="first-30-minutes" data-title="Your first 30 minutes" data-nav="Your first 30 minutes" data-mark="first30">
+      <div class="s-head">
+        <div class="s-tile"><svg class="ic"><use href="#i-check"/></svg></div>
+        <div>
+          <div class="eyebrow">Zero → useful</div>
+          <h2>Your first 30 minutes <span class="who">Everyone · do this once</span></h2>
+        </div>
+      </div>
+      <p class="lead">Don't want to wire up Claude yet? That's fine — here's the hand-built path. Four steps, about half an hour, and you'll go from an empty app to a Weekly Planner that's actually doing something for you. An <b>empty planner is the fastest way to bounce off Rhythm</b>, so the goal here is simply to get real work flowing into it. Do these in order.</p>
+      <div class="callout"><svg class="ic"><use href="#i-sparkle"/></svg><div><span class="h">Prefer to let Claude do it?</span>If you'd rather not type any of this in by hand, skip to <a href="#onboarding">Let Claude set up Rhythm for you</a> — same outcome, driven by an interview instead. This section is the manual equivalent for staff who aren't taking the Claude path.</div></div>
+
+      <h3 style="font-size:15px;font-weight:600;letter-spacing:var(--ls-caps);text-transform:uppercase;color:var(--fg-3);margin:34px 0 4px">Step 1 · Capture three weekly things <span style="color:var(--fg-4);font-weight:500;text-transform:none;letter-spacing:0">~15 min</span></h3>
+      <p style="font-size:15px;color:var(--fg-2);margin:6px 0 12px;max-width:64ch">Think of three things you do <i>every week without fail</i> — proof the bulletin, run rehearsal, reconcile the offering. Each becomes a <b>rhythm</b> on a <b>Weekly</b> cadence so it lands on your planner automatically from now on.</p>
+      <ol class="steps">
+        <li>Open <a href="#rhythms"><b>Rhythms</b></a> and click <b>+ New Rhythm</b>.</li>
+        <li>Name it for the recurring work — e.g. <i>"Proof Sunday bulletin."</i> Pick the <b>Weekly</b> cadence.</li>
+        <li>Add the <b>steps</b> that happen each week (even one step is fine to start). Save.</li>
+        <li>Repeat twice more so you have <b>three weekly rhythms</b>. Don't aim for complete — aim for three real ones.</li>
+      </ol>
+      <figure class="shot placeholder">
+        <div class="ph"><svg class="ic"><use href="#i-repeat"/></svg><div class="pt"><b>Screenshot coming</b>The New Rhythm dialog with the Weekly cadence selected. Held until the screenshot recapture (see <a href="#recapture-screenshots">the note below</a>) lands; the steps above stand on their own in the meantime.</div></div>
+        <figcaption>Creating a Weekly rhythm — <b>Rhythms → + New Rhythm → Weekly</b>.</figcaption>
+      </figure>
+
+      <h3 style="font-size:15px;font-weight:600;letter-spacing:var(--ls-caps);text-transform:uppercase;color:var(--fg-3);margin:34px 0 4px">Step 2 · Set up one annual/recurring project <span style="color:var(--fg-4);font-weight:500;text-transform:none;letter-spacing:0">~10 min</span></h3>
+      <p style="font-size:15px;color:var(--fg-2);margin:6px 0 12px;max-width:64ch">Pick a single date-anchored event you run each year — a Christmas service, the annual budget, a summer retreat. Build it once as a <b>project template</b> with a handful of steps measured as offsets from the target date; Rhythm calendarizes the whole thing whenever you start an instance.</p>
+      <ol class="steps">
+        <li>Open <a href="#projects"><b>Projects</b></a> and click <b>+ New Template</b>. Give it the event's name and mark it <b>annual</b> if it repeats yearly.</li>
+        <li>Add <b>3–5 steps</b>, each with an <b>offset from the target date</b> — e.g. <i>"Pick a theme — 8 weeks before," "Confirm volunteers — 3 weeks before," "Debrief — 1 week after."</i></li>
+        <li>Click <b>New Instance</b>, give it this year's <b>target date</b>, and watch Rhythm lay every step onto its correct day.</li>
+      </ol>
+      <figure class="shot placeholder">
+        <div class="ph"><svg class="ic"><use href="#i-folder"/></svg><div class="pt"><b>Screenshot coming</b>A project template with offset steps, plus an instance dated for this year. Held until the screenshot recapture (see <a href="#recapture-screenshots">the note below</a>) lands.</div></div>
+        <figcaption>A template with offset steps — <b>Projects → + New Template → New Instance</b>.</figcaption>
+      </figure>
+
+      <h3 style="font-size:15px;font-weight:600;letter-spacing:var(--ls-caps);text-transform:uppercase;color:var(--fg-3);margin:34px 0 4px">Step 3 · Look at the Weekly Planner <span style="color:var(--fg-4);font-weight:500;text-transform:none;letter-spacing:0">~2 min</span></h3>
+      <p style="font-size:15px;color:var(--fg-2);margin:6px 0 12px;max-width:64ch">This is the payoff. Open the planner and confirm your new work actually shows up where you'd expect — that's how you know Rhythm is wired correctly.</p>
+      <ol class="steps">
+        <li>Open <a href="#weekly-planner"><b>Weekly Planner</b></a>. Your three rhythms' instances should appear on their cadence days this week.</li>
+        <li>Navigate to the week your project's first step falls in — the offset step should be sitting on the right day, tagged to the project.</li>
+        <li>If something <i>isn't</i> there, it almost always means the rhythm or project hasn't been set up yet, or its dates land in a different week — go back to Step 1 or 2 and check the cadence / target date.</li>
+      </ol>
+      <figure class="shot placeholder">
+        <div class="ph"><svg class="ic"><use href="#i-calendar"/></svg><div class="pt"><b>Screenshot coming</b>The Weekly Planner showing the rhythm instances and project step you just created. Held until the screenshot recapture (see <a href="#recapture-screenshots">the note below</a>) lands.</div></div>
+        <figcaption>Confirming your work landed — <b>Weekly Planner</b>, current and upcoming weeks.</figcaption>
+      </figure>
+
+      <h3 style="font-size:15px;font-weight:600;letter-spacing:var(--ls-caps);text-transform:uppercase;color:var(--fg-3);margin:34px 0 4px">Step 4 · Add one external connection <span style="color:var(--fg-4);font-weight:500;text-transform:none;letter-spacing:0">~5 min</span></h3>
+      <p style="font-size:15px;color:var(--fg-2);margin:6px 0 12px;max-width:64ch">Finally, connect <b>one</b> outside system so your week reflects what's already on your calendars. Pick whichever you live in — <b>Planning Center</b> or <b>Google Calendar</b>. Once connected, its events appear as read-only <b>shadow events</b> in the planner so you're planning around reality, not a blank slate.</p>
+      <ol class="steps">
+        <li>Open <a href="#integrations"><b>Integrations</b></a>.</li>
+        <li>Click <b>Connect</b> next to <b>Planning Center</b> <i>or</i> <b>Google Calendar</b> and sign in with your church account. Approve the read-only scopes.</li>
+        <li>Wait for the first sync window, then reopen the <a href="#weekly-planner"><b>Weekly Planner</b></a> — your external events now show up shadowed alongside your tasks.</li>
+      </ol>
+      <figure class="shot placeholder">
+        <div class="ph"><svg class="ic"><use href="#i-link"/></svg><div class="pt"><b>Screenshot coming</b>The Integrations screen with one service Connected and shadow events appearing in the planner. Held until the screenshot recapture (see <a href="#recapture-screenshots">the note below</a>) lands.</div></div>
+        <figcaption>One connection is enough to start — <b>Integrations → Connect</b>.</figcaption>
+      </figure>
+
+      <div class="callout"><svg class="ic"><use href="#i-check"/></svg><div><span class="h">That's it — you're running</span>Three weekly rhythms, one annual project, and one calendar feeding your planner. From here, add more as you notice them and explore the rest of this guide. The deeper a foundation you build, the more the Weekly Planner does for you.</div></div>
+
+      <div class="callout" id="recapture-screenshots"><svg class="ic"><use href="#i-info"/></svg><div><span class="h">About the placeholders in this guide</span>Some figures above (and in <a href="#task-inspector">Task inspector</a>) are <b>screenshot placeholders</b>. The captures are being redone at a larger monitor size for clarity, and the new images drop in here once that recapture is complete. Every step is written to stand on its own without them — you won't be blocked waiting on a picture.</div></div>
     </section>
 
     <!-- ONBOARDING WITH CLAUDE (#663) -->
@@ -490,10 +564,58 @@ Start with question 1. Just one question at a time.</pre>
         <li>Pick a <b>due date</b> (or week) and, optionally, a project to link it to.</li>
         <li>Save. It'll appear on its due day in the Weekly Planner.</li>
       </ol>
+      <div class="callout"><svg class="ic"><use href="#i-info"/></svg><div><span class="h">Open a task to do more</span>Clicking a task opens the <b>task inspector</b> — where you set notes, link a project, change status, and add <b>collaborators</b> (including an <a href="#task-inspector">AI collaborator</a>). See <a href="#task-inspector">Task inspector &amp; collaborators</a> for the full walkthrough.</div></div>
       <details class="more"><summary><svg class="ic chev"><use href="#i-chev"/></svg>Editing, archiving, and finding old tasks</summary><div class="body"><ul>
         <li>Click any task in the list to edit the title, date, or notes — changes save automatically.</li>
         <li><b>Check off</b> a task to mark it done; finished tasks fall out of the planner but stay searchable.</li>
         <li>The <b>filter</b> at the top of the Tasks list narrows by status, project, or due window.</li>
+      </ul></div></details>
+    </section>
+
+    <!-- TASK INSPECTOR + COLLABORATORS (#661 Part A / #666) -->
+    <section class="screen" id="task-inspector" data-title="Task inspector &amp; collaborators" data-nav="Task inspector &amp; collaborators" data-mark="inspector">
+      <div class="s-head">
+        <div class="s-tile"><svg class="ic"><use href="#i-task"/></svg></div>
+        <div>
+          <div class="eyebrow">Working a task</div>
+          <h2>Task inspector &amp; collaborators <span class="who">Everyone</span></h2>
+        </div>
+      </div>
+      <p class="lead">A task is more than a checkbox. Click any task — in the <a href="#tasks">Tasks</a> list or the <a href="#weekly-planner">Weekly Planner</a> — and the <b>inspector</b> opens in a pane on the right, with the list still in view. This is where you add the detail that makes a task useful: notes, a project link, a status, and <b>collaborators</b> — including Rhythm's standout feature, the <b>AI collaborator</b>.</p>
+      <figure class="shot placeholder">
+        <div class="ph"><svg class="ic"><use href="#i-task"/></svg><div class="pt"><b>Screenshot coming</b>The task inspector pane open beside the list — title, due date, project link, notes, status, and the collaborators row. Held until the screenshot recapture (see <a href="#recapture-screenshots">the note in "Your first 30 minutes"</a>) lands; the walkthrough below stands on its own.</div></div>
+        <figcaption>The inspector opens on the right when you click a task — the list stays put so you keep your place.</figcaption>
+      </figure>
+
+      <h3 style="font-size:15px;font-weight:600;letter-spacing:var(--ls-caps);text-transform:uppercase;color:var(--fg-3);margin:34px 0 12px">Opening the inspector &amp; the fields inside</h3>
+      <ol class="steps">
+        <li><b>Click a task</b> anywhere it appears — the Tasks list, the Weekly Planner, a project's step list. The inspector slides in on the right; the list behind it stays scrolled where you left it.</li>
+        <li>Edit the <b>title</b> — changes save as you type, no Save button to hunt for.</li>
+        <li>Set the <b>due date</b> (or week bucket). This is what positions the task in the Weekly Planner.</li>
+        <li>Add a <b>project link</b> to file the task under a project — it then shows up tagged to that project in the planner.</li>
+        <li>Write <b>notes</b> — context, links, a checklist, whatever the future-you will need. Notes are searchable.</li>
+        <li>Set the <b>status</b> (e.g. open / in progress / done). Marking it done drops it out of the planner but keeps it searchable.</li>
+        <li>Press <kbd>Esc</kbd> or click outside the pane to close the inspector and return to the list.</li>
+      </ol>
+
+      <h3 style="font-size:15px;font-weight:600;letter-spacing:var(--ls-caps);text-transform:uppercase;color:var(--fg-3);margin:34px 0 12px">Collaborators — including the AI collaborator</h3>
+      <p style="font-size:15px;color:var(--fg-2);margin:0 0 14px;max-width:64ch">A task can have <b>collaborators</b> — other people who can see and work the task with you. Rhythm adds a twist most task apps don't: one of those collaborators can be an <b>AI agent</b>. This is how you hand a task off to Claude to research, draft, or move forward while you're elsewhere.</p>
+      <ol class="steps">
+        <li>In the inspector, find the <b>Collaborators</b> row and click <b>+ Add</b>.</li>
+        <li>Pick a <b>person</b> (a fellow staff member) to share the task, <i>or</i> pick the <b>AI collaborator</b> — listed as <b>"Visalia CRC"</b> — to bring an agent onto the task.</li>
+        <li><b>What happens when you add the AI collaborator:</b> the task gets an attached conversation thread, and the agent can act on the task — reading its notes, asking you clarifying questions, and posting progress back into the thread. You stay in control: it works <i>with</i> you on that specific task rather than running off on its own.</li>
+        <li><b>Removing a collaborator:</b> open the same Collaborators row, click the collaborator, and choose <b>Remove</b>. Removing the AI collaborator stops the agent's involvement; the task and its history stay intact.</li>
+      </ol>
+      <div class="callout"><svg class="ic"><use href="#i-sparkle"/></svg><div><span class="h">Why "Visalia CRC" is the AI collaborator</span>Adding the church's <b>AI collaborator</b> ("Visalia CRC") to a task is the lightweight, per-task way to get Claude's help — distinct from the full <a href="#onboarding">MCP onboarding</a> (which sets up your whole account) and from the in-app <a href="#agents">Agents</a> tab (a deeper, still-in-development integration). Use it when you want a hand on <i>one</i> task.</div></div>
+      <figure class="shot placeholder">
+        <div class="ph"><svg class="ic"><use href="#i-agent"/></svg><div class="pt"><b>Screenshot coming</b>The Collaborators row with a person and the "Visalia CRC" AI collaborator added, plus the attached conversation thread. Held until the screenshot recapture (see <a href="#recapture-screenshots">the note in "Your first 30 minutes"</a>) lands.</div></div>
+        <figcaption>Collaborators on a task — including the <b>"Visalia CRC"</b> AI collaborator and its thread.</figcaption>
+      </figure>
+
+      <details class="more"><summary><svg class="ic chev"><use href="#i-chev"/></svg>Long-press &amp; right-click shortcuts</summary><div class="body"><ul>
+        <li><b>Right-click</b> (or <kbd>Control</kbd>-click) a task in any list to open a context menu — quick actions like complete, reschedule, link to a project, or delete without opening the full inspector.</li>
+        <li><b>Long-press</b> a task to pick it up for <b>drag-and-drop</b> — drop it on another day in the Weekly Planner to reschedule, and the planner re-flows around it.</li>
+        <li>These shortcuts do the same things the inspector does — they're just faster when you already know the change you want to make.</li>
       </ul></div></details>
     </section>
 
@@ -832,7 +954,8 @@ Start with question 1. Just one question at a time.</pre>
     download:'i-download', dashboard:'i-dashboard', 'weekly-planner':'i-calendar', task:'i-task',
     repeat:'i-repeat', folder:'i-folder', zap:'i-zap', building:'i-building', mail:'i-mail',
     link:'i-link', gear:'i-gear', grid:'i-grid', help:'i-help',
-    glossary:'i-info', onboarding:'i-sparkle', agents:'i-agent', packs:'i-pack'
+    glossary:'i-info', onboarding:'i-sparkle', agents:'i-agent', packs:'i-pack',
+    first30:'i-check', inspector:'i-task'
   };
   const tocEl = document.getElementById('toclinks');
   const sections = [...document.querySelectorAll('section.screen')];
