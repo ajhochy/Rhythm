@@ -71,6 +71,31 @@ PASSED) — this work keeps the picker names aligned with what #775 enforces.
   mirror-sync, #737 email fencing. (#765 MCP scoping + #775 skill scoping already
   smoked — skip.)
 
+## Recent coding-agent runs
+
+### 2026-06-28 — #782 fix agent_trigger_watcher F2/smoke-gate test failures
+- Files modified: `apps/desktop_flutter/lib/app/core/agents/agent_trigger_watcher.dart`
+  — added optional `isFlutterTest` param (default `false`) to
+  `computeIsLocalSmokeRun`; when true the env-var smoke path is ignored. The
+  `isLocalSmokeRun` getter now passes `Platform.environment['FLUTTER_TEST']=='true'`.
+- Root cause: NOT the F2 auth-change tests (those pass). `RHYTHM_LOCAL_SMOKE=1`
+  was leaked into the test session's environment; under `flutter test`
+  (`kDebugMode==true`) `isLocalSmokeRun` honored it and `start()` no-op'd,
+  failing 6 polling/isPolling/smoke-gate tests. Same #651 launchd-leak class,
+  but for debug/test runs. Test was correct (line 558 asserts hermeticity); SUT
+  was env-sensitive.
+- Checks run: target file `flutter test` WITH `RHYTHM_LOCAL_SMOKE=1` set → 11/11
+  pass; `issue_651_contract_test.dart` → 7/7 pass (signature change is additive);
+  full `test/features/agents/` → 459 pass/0 fail; `dart format` 0 changed;
+  `flutter analyze` 0 issues; gitnexus detect_changes risk LOW.
+- Decisions made: additive optional param preserves the #651 c8a–c8c contract
+  exactly (they don't pass `isFlutterTest`); dart-define precedence unchanged.
+- Deviations from spec: issue framed failures as the "F2 auth-change" group;
+  actual failures were the polling/smoke-gate tests in the same file. Fix lands
+  in the same file either way.
+- Concerns: none. Production `flutter run` smoke + release #651 hardening
+  behavior unchanged (FLUTTER_TEST is only set by the test harness).
+
 ## Next step
 
 Open the PR for `feature/unify-skills-source-of-truth` (draft, no merge) with
