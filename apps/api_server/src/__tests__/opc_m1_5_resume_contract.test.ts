@@ -15,10 +15,10 @@ import Database from 'better-sqlite3';
 import { createApp } from '../app';
 import { runMigrations } from '../database/migrations';
 import { setDb } from '../database/db';
-import type { AddressInfo } from 'node:net';
 import { UsersRepository } from '../repositories/users_repository';
 import { SessionsRepository } from '../repositories/sessions_repository';
 import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
+import { startTestServer } from './helpers/real_server';
 
 // ---------------------------------------------------------------------------
 // Shared mock state — hoisted so vi.mock factories can reference them
@@ -81,11 +81,7 @@ async function setupServer() {
     Authorization: `Bearer ${session.token}`,
     'Content-Type': 'application/json',
   };
-  const server = createApp().listen(0);
-  await new Promise<void>((r) => server.once('listening', () => r()));
-  const baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
-  const closeServer = () =>
-    new Promise<void>((res, rej) => server.close((e) => (e ? rej(e) : res())));
+  const { baseUrl, close: closeServer } = await startTestServer(createApp());
   return { baseUrl, authHeaders, closeServer };
 }
 

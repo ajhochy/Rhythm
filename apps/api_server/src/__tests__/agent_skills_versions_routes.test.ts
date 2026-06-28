@@ -17,7 +17,7 @@ import { setDb } from '../database/db';
 import { AgentSkillsRepository } from '../repositories/agent_skills_repository';
 import { UsersRepository } from '../repositories/users_repository';
 import { SessionsRepository } from '../repositories/sessions_repository';
-import type { AddressInfo } from 'node:net';
+import { startTestServer } from './helpers/real_server';
 
 function makeDb() {
   const db = new Database(':memory:');
@@ -39,15 +39,7 @@ async function setup() {
     'Content-Type': 'application/json',
   };
 
-  const server = createApp().listen(0);
-  server.maxRequestsPerSocket = 1;
-  await new Promise<void>((r) => server.once('listening', () => r()));
-  const baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
-  const closeServer = () =>
-    new Promise<void>((res, rej) => {
-      server.closeAllConnections();
-      server.close((e) => (e ? rej(e) : res()));
-    });
+  const { baseUrl, close: closeServer } = await startTestServer(createApp());
 
   return { baseUrl, closeServer, authHeaders, repo: new AgentSkillsRepository() };
 }

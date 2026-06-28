@@ -14,7 +14,6 @@
  */
 
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
-import type { AddressInfo } from 'node:net';
 import Database from 'better-sqlite3';
 import { runMigrations } from '../database/migrations';
 import { setDb } from '../database/db';
@@ -65,6 +64,7 @@ vi.mock('../config/env', () => ({
 }));
 
 import { createApp } from '../app';
+import { startTestServer } from './helpers/real_server';
 
 // ---------------------------------------------------------------------------
 // Real-shape MCP status fixture
@@ -92,12 +92,9 @@ describe('issue-702-c1: MCP route contracts', () => {
       runMigrations(db);
       return db;
     })());
-    const server = createApp().listen(0);
-    await new Promise<void>((r) => server.once('listening', () => r()));
-    baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
-    close = () => new Promise<void>((res, rej) =>
-      server.close((e) => (e ? rej(e) : res())),
-    );
+    const { baseUrl: b, close: c } = await startTestServer(createApp());
+    baseUrl = b;
+    close = c;
   });
 
   afterEach(async () => {
@@ -309,12 +306,9 @@ describe('issue-mcp-1: env-map plumbing + entry surfacing', () => {
       runMigrations(db);
       return db;
     })());
-    const server = createApp().listen(0);
-    await new Promise<void>((r) => server.once('listening', () => r()));
-    baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
-    close = () => new Promise<void>((res, rej) =>
-      server.close((e) => (e ? rej(e) : res())),
-    );
+    const { baseUrl: b, close: c } = await startTestServer(createApp());
+    baseUrl = b;
+    close = c;
     // Default: no persisted configs
     getPersistedMcpConfigsSpy.mockResolvedValue({});
   });

@@ -3,7 +3,7 @@ import Database from 'better-sqlite3';
 import { createApp } from '../app';
 import { runMigrations } from '../database/migrations';
 import { setDb } from '../database/db';
-import type { AddressInfo } from 'node:net';
+import { startTestServer } from './helpers/real_server';
 
 vi.mock('../services/opencode_engine', () => ({
   opencodeClient: {
@@ -48,12 +48,9 @@ describe('GET /opencode/auth/', () => {
   let close: () => Promise<void>;
   beforeEach(async () => {
     setDb(makeDb());
-    const server = createApp().listen(0);
-    await new Promise<void>((r) => server.once('listening', () => r()));
-    baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
-    close = () => new Promise<void>((res, rej) =>
-      server.close((e) => (e ? rej(e) : res())),
-    );
+    const { baseUrl: b, close: c } = await startTestServer(createApp());
+    baseUrl = b;
+    close = c;
   });
   afterEach(async () => {
     await close();
@@ -74,12 +71,9 @@ describe('POST /opencode/auth/anthropic/bridge', () => {
   let close: () => Promise<void>;
   beforeEach(async () => {
     setDb(makeDb());
-    const server = createApp().listen(0);
-    await new Promise<void>((r) => server.once('listening', () => r()));
-    baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
-    close = () => new Promise<void>((res, rej) =>
-      server.close((e) => (e ? rej(e) : res())),
-    );
+    const { baseUrl: b, close: c } = await startTestServer(createApp());
+    baseUrl = b;
+    close = c;
   });
   afterEach(async () => {
     await close();
@@ -133,12 +127,9 @@ describe('GET /opencode/auth/sources', () => {
   let close: () => Promise<void>;
   beforeEach(async () => {
     setDb(makeDb());
-    const server = createApp().listen(0);
-    await new Promise<void>((r) => server.once('listening', () => r()));
-    baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
-    close = () => new Promise<void>((res, rej) =>
-      server.close((e) => (e ? rej(e) : res())),
-    );
+    const { baseUrl: b, close: c } = await startTestServer(createApp());
+    baseUrl = b;
+    close = c;
   });
   afterEach(async () => {
     await close();

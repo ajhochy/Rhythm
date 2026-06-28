@@ -1,11 +1,11 @@
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
-import type { AddressInfo } from 'node:net';
 import Database from 'better-sqlite3';
 import { createApp } from '../app';
 import { runMigrations } from '../database/migrations';
 import { setDb } from '../database/db';
 import { UsersRepository } from '../repositories/users_repository';
 import { SessionsRepository } from '../repositories/sessions_repository';
+import { startTestServer } from './helpers/real_server';
 
 // Prevent real WS broadcast in tests
 vi.mock('../services/ws_gateway', () => ({
@@ -37,13 +37,7 @@ describe('POST /notifications/agent', () => {
       'Content-Type': 'application/json',
     };
 
-    const server = createApp().listen(0);
-    await new Promise<void>((r) => server.once('listening', () => r()));
-    baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
-    closeServer = () =>
-      new Promise<void>((res, rej) =>
-        server.close((e) => (e ? rej(e) : res())),
-      );
+    ({ baseUrl, close: closeServer } = await startTestServer(createApp()));
   });
 
   afterEach(async () => {

@@ -17,7 +17,7 @@
  */
 import { vi, describe, it, expect, afterEach } from 'vitest';
 import Database from 'better-sqlite3';
-import type { AddressInfo } from 'node:net';
+import { startTestServer } from './helpers/real_server';
 
 // Routes that hit the LOCAL agent server from Flutter with no bearer token.
 const AGENT_LOCAL_ROUTES = [
@@ -46,18 +46,8 @@ async function makeApp(agentLocal: boolean): Promise<{
   setDb(db);
 
   const { createApp } = await import('../app');
-  const server = createApp().listen(0);
-  // Avoid undici keep-alive socket reuse flake across multiple fetches.
-  server.maxRequestsPerSocket = 1;
-  await new Promise<void>((r) => server.once('listening', () => r()));
-  const { port } = server.address() as AddressInfo;
-  return {
-    baseUrl: `http://127.0.0.1:${port}`,
-    close: () =>
-      new Promise<void>((res, rej) =>
-        server.close((e) => (e ? rej(e) : res())),
-      ),
-  };
+  const { baseUrl, close } = await startTestServer(createApp());
+  return { baseUrl, close };
 }
 
 describe('AGENT_LOCAL auth bypass on agent-local routers', () => {
