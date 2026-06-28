@@ -7,45 +7,10 @@ import '../../../app/core/ui/tokens/rhythm_theme.dart';
 import '../../agent_configs/controllers/agent_configs_controller.dart';
 import '../../agent_configs/models/agent_config.dart';
 import '../data/agent_models_data_source.dart';
+import '../data/opencode_mcp_data_source.dart';
+import '../data/opencode_skills_data_source.dart';
 import '../models/catalog_model_entry.dart';
-
-// ---------------------------------------------------------------------------
-// Available MCPs & Skills
-// ---------------------------------------------------------------------------
-
-const _kAvailableMcps = [
-  'pco-services',
-  'rhythm',
-  'obsidian',
-  'gmail-personal',
-  'gmail-work',
-  'canva',
-  'spotify',
-  'ableton',
-  'nfl-mcp',
-  'calendar',
-  'pdf-tools',
-  'minutes',
-  'control-chrome',
-  'claude-in-chrome',
-];
-
-const _kAvailableSkills = [
-  'docx',
-  'pptx',
-  'xlsx',
-  'pdf',
-  'daily-morning-briefing',
-  'ffb-roster',
-  'ffb-trades',
-  'ffb-dynasty',
-  'fantasy-manager',
-  'dev-planner',
-  'issue-pipeline',
-  'skill-creator',
-  'patristic-bible-study',
-  'engineering:code-review',
-];
+import '_managed_skill_editor_sheet.dart';
 
 // ---------------------------------------------------------------------------
 // Public entry point
@@ -59,6 +24,8 @@ Future<AgentConfig?> showAgentProfileSheet(
   BuildContext context, {
   AgentConfig? config,
   AgentModelsDataSource? modelsDataSource,
+  OpencodeSkillsDataSource? skillsDataSource,
+  OpencodeMcpDataSource? mcpDataSource,
 }) {
   return showModalBottomSheet<AgentConfig>(
     context: context,
@@ -75,6 +42,8 @@ Future<AgentConfig?> showAgentProfileSheet(
       child: AgentProfileSheet(
         config: config,
         modelsDataSource: modelsDataSource,
+        skillsDataSource: skillsDataSource,
+        mcpDataSource: mcpDataSource,
       ),
     ),
   );
@@ -303,7 +272,11 @@ class AgentProfileSheet extends StatefulWidget {
     super.key,
     this.config,
     AgentModelsDataSource? modelsDataSource,
-  }) : _modelsDataSource = modelsDataSource;
+    OpencodeSkillsDataSource? skillsDataSource,
+    OpencodeMcpDataSource? mcpDataSource,
+  })  : _modelsDataSource = modelsDataSource,
+        _skillsDataSource = skillsDataSource,
+        _mcpDataSource = mcpDataSource;
 
   /// Non-null = edit mode; null = create mode.
   final AgentConfig? config;
@@ -311,6 +284,14 @@ class AgentProfileSheet extends StatefulWidget {
   /// Optional override — inject a fake data source in tests so the catalog
   /// load does not require a running agent server.
   final AgentModelsDataSource? _modelsDataSource;
+
+  /// Optional override — inject a fake skills data source in tests so the live
+  /// skills load does not require a running agent server.
+  final OpencodeSkillsDataSource? _skillsDataSource;
+
+  /// Optional override — inject a fake MCP data source in tests so the live MCP
+  /// load does not require a running agent server.
+  final OpencodeMcpDataSource? _mcpDataSource;
 
   @override
   State<AgentProfileSheet> createState() => _AgentProfileSheetState();
@@ -333,6 +314,15 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
   List<CatalogModelEntry> _catalogModels = [];
   CatalogModelEntry? _selectedModel;
 
+  // Live skills/MCPs sourced from the engine (the single source of truth —
+  // never a hardcoded array; #775). Loaded asynchronously on open.
+  late final OpencodeSkillsDataSource _skillsDataSource;
+  late final OpencodeMcpDataSource _mcpDataSource;
+  List<OpencodeSkillEntry> _availableSkills = [];
+  List<String> _availableMcps = [];
+  bool _skillsLoaded = false;
+  bool _mcpsLoaded = false;
+
   bool _loading = false;
   String? _error;
 
@@ -354,8 +344,12 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
     _selectedSkills = cfg?.allowedSkills != null
         ? List<String>.from(cfg!.allowedSkills!)
         : null;
-    // Load model catalog asynchronously — do not block render.
+    _skillsDataSource = widget._skillsDataSource ?? OpencodeSkillsDataSource();
+    _mcpDataSource = widget._mcpDataSource ?? OpencodeMcpDataSource();
+    // Load catalog + live skills/MCPs asynchronously — do not block render.
     _loadCatalog();
+    _loadSkills();
+    _loadMcps();
   }
 
   Future<void> _loadCatalog() async {
@@ -378,6 +372,27 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
       _selectedModel = preSelected;
     });
   }
+
+  Future<void> _loadSkills() async {
+    final skills = await _skillsDataSource.list();
+    if (!mounted) return;
+    setState(() {
+      _availableSkills = skills;
+      _skillsLoaded = true;
+    });
+  }
+
+  Future<void> _loadMcps() async {
+    final mcps = await _mcpDataSource.listNames();
+    if (!mounted) return;
+    setState(() {
+      _availableMcps = mcps;
+      _mcpsLoaded = true;
+    });
+  }
+
+  List<String> get _availableSkillNames =>
+      _availableSkills.map((s) => s.name).toList();
 
   @override
   void dispose() {
@@ -809,7 +824,7 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
                       const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                 ),
                 onPressed: () =>
-                    setState(() => _selectedMcps = List.from(_kAvailableMcps)),
+                    setState(() => _selectedMcps = List.from(_availableMcps)),
                 child: const Text('Restrict', style: TextStyle(fontSize: 13)),
               )
             else
@@ -827,9 +842,15 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
         const SizedBox(height: 8),
         if (_selectedMcps == null)
           _allAllowedBanner('All MCPs allowed')
+        else if (_availableMcps.isEmpty)
+          _emptyBanner(_mcpsLoaded ? 'No MCP servers' : 'Loading MCP servers…')
         else
           _filterChipWrap(
-            items: _kAvailableMcps,
+            // The restricted set may include names no longer live (e.g. a
+            // server removed since the profile was saved); union them so the
+            // user still sees and can unselect a stale selection. Persisted
+            // names are passed through verbatim (#775).
+            items: {..._availableMcps, ..._selectedMcps!}.toList(),
             selected: _selectedMcps!,
             onToggle: (mcp) => setState(() {
               if (_selectedMcps!.contains(mcp)) {
@@ -850,6 +871,15 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
         Row(
           children: [
             Expanded(child: _sectionLabel('Allowed Skills')),
+            TextButton.icon(
+              style: TextButton.styleFrom(
+                foregroundColor: context.rhythm.accent,
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              ),
+              icon: const Icon(Icons.add, size: 16),
+              label: const Text('New skill', style: TextStyle(fontSize: 13)),
+              onPressed: _onCreateSkill,
+            ),
             if (_selectedSkills == null)
               TextButton(
                 style: TextButton.styleFrom(
@@ -858,7 +888,7 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
                       const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                 ),
                 onPressed: () => setState(
-                  () => _selectedSkills = List.from(_kAvailableSkills),
+                  () => _selectedSkills = List.from(_availableSkillNames),
                 ),
                 child: const Text('Restrict', style: TextStyle(fontSize: 13)),
               )
@@ -877,20 +907,185 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
         const SizedBox(height: 8),
         if (_selectedSkills == null)
           _allAllowedBanner('All Skills allowed')
+        else if (_availableSkills.isEmpty)
+          _emptyBanner(_skillsLoaded ? 'No skills' : 'Loading skills…')
         else
-          _filterChipWrap(
-            items: _kAvailableSkills,
-            selected: _selectedSkills!,
-            onToggle: (skill) => setState(() {
-              if (_selectedSkills!.contains(skill)) {
-                _selectedSkills!.remove(skill);
-              } else {
-                _selectedSkills!.add(skill);
-              }
-            }),
-          ),
+          _buildSkillChipWrap(),
       ],
     );
+  }
+
+  /// Skill chips with per-skill edit/delete affordances for **managed** skills
+  /// only. External skills are scope-only (selectable, but not editable —
+  /// they show neither an edit nor a delete button). A persisted selection
+  /// whose skill is no longer live is shown as a plain selected chip so the
+  /// user can unselect it (names pass through verbatim, #775).
+  Widget _buildSkillChipWrap() {
+    final byName = {for (final s in _availableSkills) s.name: s};
+    final names = <String>{
+      ..._availableSkillNames,
+      ..._selectedSkills!,
+    }.toList();
+
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: names.map((name) {
+        final entry = byName[name];
+        final isSelected = _selectedSkills!.contains(name);
+        final managed = entry?.managed ?? false;
+
+        final chip = FilterChip(
+          label: Text(name),
+          selected: isSelected,
+          onSelected: (_) => setState(() {
+            if (_selectedSkills!.contains(name)) {
+              _selectedSkills!.remove(name);
+            } else {
+              _selectedSkills!.add(name);
+            }
+          }),
+          selectedColor: context.rhythm.accentMuted,
+          checkmarkColor: context.rhythm.accent,
+          labelStyle: TextStyle(
+            color: isSelected
+                ? context.rhythm.accent
+                : context.rhythm.textSecondary,
+            fontSize: 12,
+            fontWeight: isSelected ? FontWeight.w600 : FontWeight.w400,
+          ),
+          backgroundColor: context.rhythm.surfaceMuted,
+          side: BorderSide(
+            color: isSelected
+                ? context.rhythm.accent.withValues(alpha: 0.4)
+                : context.rhythm.border,
+          ),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(RhythmRadius.pill),
+          ),
+          padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+        );
+
+        // External skills: scope-only — no edit/delete affordances.
+        if (!managed) return chip;
+
+        // Managed skills: chip + compact edit/delete buttons.
+        return Container(
+          decoration: BoxDecoration(
+            border: Border.all(
+              color: context.rhythm.accent.withValues(alpha: 0.25),
+            ),
+            borderRadius: BorderRadius.circular(RhythmRadius.pill),
+          ),
+          padding: const EdgeInsets.only(right: 2),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              chip,
+              _miniIconButton(
+                icon: Icons.edit_outlined,
+                tooltip: 'Edit skill',
+                semanticKey: 'edit-skill-$name',
+                onPressed: () => _onEditSkill(entry!),
+              ),
+              _miniIconButton(
+                icon: Icons.delete_outline,
+                tooltip: 'Delete skill',
+                semanticKey: 'delete-skill-$name',
+                onPressed: () => _onDeleteSkill(entry!),
+              ),
+            ],
+          ),
+        );
+      }).toList(),
+    );
+  }
+
+  Widget _miniIconButton({
+    required IconData icon,
+    required String tooltip,
+    required String semanticKey,
+    required VoidCallback onPressed,
+  }) {
+    return IconButton(
+      key: ValueKey(semanticKey),
+      icon: Icon(icon, size: 16),
+      color: context.rhythm.textMuted,
+      tooltip: tooltip,
+      visualDensity: VisualDensity.compact,
+      constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+      padding: EdgeInsets.zero,
+      onPressed: onPressed,
+    );
+  }
+
+  // --------------------------------------------------------------------------
+  // Managed-skill authoring
+  // --------------------------------------------------------------------------
+
+  Future<void> _onCreateSkill() async {
+    final created = await showManagedSkillEditorSheet(
+      context,
+      dataSource: _skillsDataSource,
+      existingNames: _availableSkillNames.toSet(),
+    );
+    if (created == null || !mounted) return;
+    // Reload the live list so the new skill appears (round-trip), and select it.
+    await _loadSkills();
+    if (!mounted) return;
+    setState(() {
+      _selectedSkills?.add(created.name);
+    });
+  }
+
+  Future<void> _onEditSkill(OpencodeSkillEntry skill) async {
+    final updated = await showManagedSkillEditorSheet(
+      context,
+      dataSource: _skillsDataSource,
+      existingNames: _availableSkillNames.toSet(),
+      skill: skill,
+    );
+    if (updated == null || !mounted) return;
+    await _loadSkills();
+  }
+
+  Future<void> _onDeleteSkill(OpencodeSkillEntry skill) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogCtx) => AlertDialog(
+        backgroundColor: dialogCtx.rhythm.surface,
+        title: Text('Delete "${skill.name}"?',
+            style: TextStyle(color: dialogCtx.rhythm.textPrimary)),
+        content: Text(
+          'This removes the Rhythm-managed skill from the engine.',
+          style: TextStyle(color: dialogCtx.rhythm.textSecondary),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogCtx).pop(false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            style: TextButton.styleFrom(
+              foregroundColor: dialogCtx.rhythm.danger,
+            ),
+            onPressed: () => Navigator.of(dialogCtx).pop(true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    try {
+      await _skillsDataSource.delete(skill.name);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+      return;
+    }
+    if (!mounted) return;
+    setState(() => _selectedSkills?.remove(skill.name));
+    await _loadSkills();
   }
 
   Widget _buildSaveButton() {
@@ -954,6 +1149,30 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
               color: context.rhythm.textSecondary,
               fontSize: 13,
             ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Banner shown when a restricted picker has no live items to choose from
+  /// (e.g. the engine reports no MCP servers / no skills). Avoids crashing or
+  /// falling back to a stale hardcoded list.
+  Widget _emptyBanner(String label) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: context.rhythm.surfaceMuted,
+        borderRadius: BorderRadius.circular(RhythmRadius.sm),
+        border: Border.all(color: context.rhythm.borderSubtle),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.inbox_outlined, size: 16, color: context.rhythm.textMuted),
+          const SizedBox(width: 8),
+          Text(
+            label,
+            style: TextStyle(color: context.rhythm.textSecondary, fontSize: 13),
           ),
         ],
       ),
