@@ -114,6 +114,13 @@ async function main() {
         './services/opencode_plugin_config'
       );
       ensureRequiredPlugins();
+      // Unify-2 — register the Rhythm-managed skills dir in opencode.json
+      // (additive) so the fork scans it. Done before spawn so it is live
+      // without a runtime reload; runtime writes use reloadSkills().
+      const { ensureManagedSkillsDirRegistered } = await import(
+        './services/rhythm_managed_skills'
+      );
+      ensureManagedSkillsDirRegistered();
     } catch (err) {
       console.warn(
         '[Opencode] Plugin config update failed (non-fatal):',
