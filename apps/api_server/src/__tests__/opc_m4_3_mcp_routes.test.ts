@@ -426,3 +426,68 @@ describe('issue-mcp-1: env-map plumbing + entry surfacing', () => {
     expect(noEnvEntry!.needsCredentials).toBe(false);
   });
 });
+
+// ── #786 — provenance flag derived from live list × curated catalog ──────────
+describe('issue-786: GET /opencode/mcp provenance (source) flag', () => {
+  let baseUrl: string;
+  let close: () => Promise<void>;
+
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    setDb((() => {
+      const db = new Database(':memory:');
+      db.pragma('foreign_keys = ON');
+      runMigrations(db);
+      return db;
+    })());
+    const { baseUrl: b, close: c } = await startTestServer(createApp());
+    baseUrl = b;
+    close = c;
+    getPersistedMcpConfigsSpy.mockResolvedValue({});
+  });
+
+  afterEach(async () => {
+    await close();
+  });
+
+  it('786-c1: tags curated (by id), rhythm, and adhoc servers; foo is adhoc; set unchanged', async () => {
+    // Live engine list: a curated catalog id (stripe), the rhythm MCP,
+    // an unknown adhoc server, and the `foo` test server.
+    listMcpSpy.mockResolvedValueOnce({
+      stripe: { status: 'connected' },
+      rhythm: { status: 'connected' },
+      'my-adhoc-mcp': { status: 'disconnected' },
+      foo: { status: 'connected' },
+    });
+
+    const res = await fetch(`${baseUrl}/opencode/mcp`);
+    expect(res.status).toBe(200);
+
+    const body = (await res.json()) as Array<{ name: string; source: string }>;
+
+    // AC2 — no-server-lost: same names, same count as the live list.
+    expect(body).toHaveLength(4);
+    expect(new Set(body.map((e) => e.name))).toEqual(
+      new Set(['stripe', 'rhythm', 'my-adhoc-mcp', 'foo']),
+    );
+
+    // AC1 — curated catalog match (by id) → 'curated'.
+    expect(body.find((e) => e.name === 'stripe')!.source).toBe('curated');
+    // Three-way split — the brokered rhythm MCP → 'rhythm'.
+    expect(body.find((e) => e.name === 'rhythm')!.source).toBe('rhythm');
+    // AC3 — present in live list but absent from catalog → 'adhoc'.
+    expect(body.find((e) => e.name === 'my-adhoc-mcp')!.source).toBe('adhoc');
+    // AC4 — the `foo` test server is never 'curated'.
+    expect(body.find((e) => e.name === 'foo')!.source).toBe('adhoc');
+  });
+
+  it('786-c2: curated match by human-readable name also tags curated', async () => {
+    listMcpSpy.mockResolvedValueOnce({
+      Stripe: { status: 'connected' }, // CURATED_MCP_SERVERS[].name
+    });
+
+    const res = await fetch(`${baseUrl}/opencode/mcp`);
+    const body = (await res.json()) as Array<{ name: string; source: string }>;
+    expect(body.find((e) => e.name === 'Stripe')!.source).toBe('curated');
+  });
+});

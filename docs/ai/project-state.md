@@ -71,6 +71,30 @@ PASSED) — this work keeps the picker names aligned with what #775 enforces.
   mirror-sync, #737 email fencing. (#765 MCP scoping + #775 skill scoping already
   smoked — skip.)
 
+## Recent coding-agent runs
+
+### 2026-06-28 — #786 GET /opencode/mcp provenance flag (worktree off feature/mcp-unify)
+- Files modified:
+  - `apps/api_server/src/routes/opencode_mcp_routes.ts` — added a derived
+    `source: 'curated' | 'rhythm' | 'adhoc'` field to each GET /opencode/mcp
+    entry (computed from the live status-map key × CURATED_MCP_SERVERS via the
+    existing `findCuratedServer`; `'rhythm'` for the brokered rhythm key).
+  - `apps/api_server/src/__tests__/opc_m4_3_mcp_routes.test.ts` — new
+    `issue-786` describe block (2 tests): curated-by-id / rhythm / adhoc + `foo`
+    classification with a no-server-lost set assertion; curated-by-name match.
+- Checks run:
+  - `vitest run opc_m4_3_mcp_routes.test.ts` → 19/19 pass (was 17, +2 new).
+  - Falsification: removing the `source` field → 2 fail; restored.
+  - `npm run build` (tsc) → exit 0.
+- Decisions made: chose the three-way split over `curated: boolean` because the
+  rhythm MCP is unambiguously identifiable by its stable `'rhythm'` key, so the
+  extra precision is free. Flag is derived from the live list, never a second
+  display source.
+- Deviations from spec: none.
+- Concerns: none. Flutter parse of the new field is the out-of-scope #788/#789
+  follow-up. node_modules in this worktree is a symlink to the main checkout
+  (not committed).
+
 ## Next step
 
 Open the PR for `feature/unify-skills-source-of-truth` (draft, no merge) with

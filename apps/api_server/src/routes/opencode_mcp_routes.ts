@@ -90,6 +90,22 @@ opencodeMcpRouter.get(
         const curated = findCuratedServer(name);
         const requiredEnv = curated?.requiredEnv ?? [];
 
+        // #786 — provenance, DERIVED from the live status-map key cross-
+        // referenced with the curated catalog. This is NOT a second display
+        // list: the live engine list remains the sole source of which servers
+        // exist (and their count), and the catalog only classifies/enriches.
+        //   - 'rhythm'  → the brokered rhythm MCP (persisted under the key
+        //                 'rhythm' by ensureRhythmMcp). Checked first so it is
+        //                 never mistaken for an adhoc server.
+        //   - 'curated' → matches a CURATED_MCP_SERVERS entry by id OR name.
+        //   - 'adhoc'   → present in the live list but in neither of the above
+        //                 (user-added/discovered; e.g. the `foo` test server).
+        // Three-way split chosen (vs. a plain `curated: boolean`) because the
+        // rhythm MCP is unambiguously identifiable by its stable key, so the
+        // extra precision is free and useful to the UI.
+        const source: 'curated' | 'rhythm' | 'adhoc' =
+          name === 'rhythm' ? 'rhythm' : curated ? 'curated' : 'adhoc';
+
         // Redact env values
         const environment = envMap
           ? Object.fromEntries(Object.keys(envMap).map((k) => [k, '***']))
@@ -119,6 +135,7 @@ opencodeMcpRouter.get(
           ...(environment !== undefined ? { environment } : {}),
           requiredEnv,
           needsCredentials,
+          source,
         };
       });
       res.json(entries);
