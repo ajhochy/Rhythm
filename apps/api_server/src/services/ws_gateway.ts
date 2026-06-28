@@ -548,6 +548,25 @@ export async function handleInputFrame(
     }
   }
 
+  // #765 — push the resolved MCP allowlist onto the existing fork session so
+  // filterMcpToolsByAllowlist in prompt.ts reads it at prompt time. This is
+  // necessary when `opencodeId` was already in the map (set by
+  // POST /agent-sessions before the user picked a profile); those sessions
+  // were created without an allowlist, so we PATCH it here per-turn.
+  // For freshly-created sessions (the if-block above) this is a no-op
+  // update to the same value, which is harmless.
+  // Known limitation: if the user switches back to an unrestricted profile
+  // (no mcpRoleConfig), the fork session retains the last-set allowlist for
+  // that session — see docs/ai/project-state.md risk note.
+  if (wsMcpRoleConfig?.allowedToolsJson) {
+    try {
+      const servers = JSON.parse(wsMcpRoleConfig.allowedToolsJson) as string[];
+      await opencodeClient.updateSessionAllowlist(opencodeId, servers);
+    } catch (allowlistErr) {
+      console.error(`[ws_gateway] updateSessionAllowlist failed (non-fatal):`, allowlistErr);
+    }
+  }
+
   try {
     const { resolveModelForSessionTurn } = await import(
       './agent_model_resolver'

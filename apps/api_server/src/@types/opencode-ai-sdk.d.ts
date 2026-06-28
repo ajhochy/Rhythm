@@ -608,6 +608,19 @@ declare module '@opencode-ai/sdk' {
         };
         query?: { directory?: string };
       }): Promise<SdkEnvelope<AssistantMessage>>;
+      /**
+       * PATCH /session/{sessionID} — update session metadata.
+       * Rhythm carried patch (mcp-scope): also accepts mcpAllowlist to set the
+       * per-session MCP tool allowlist in the fork's DB so prompt.ts filters it.
+       */
+      update(options: {
+        path: { sessionID: string };
+        body: {
+          title?: string;
+          mcpAllowlist?: { servers: string[]; tools: string[] };
+        };
+        query?: { directory?: string };
+      }): Promise<SdkEnvelope<Session>>;
     };
     /**
      * MCP server management — client.mcp in sdk.gen.ts v1.14.49.

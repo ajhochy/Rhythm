@@ -636,6 +636,32 @@ export class OpencodeClientService {
   }
 
   /**
+   * PATCH /session/:id with { mcpAllowlist: { servers, tools } }.
+   * Updates the fork session's MCP allowlist so the next prompt uses it.
+   * Called by ws_gateway when the per-turn agent drives scope on an existing session.
+   */
+  async updateSessionAllowlist(
+    sessionId: string,
+    servers: string[],
+  ): Promise<boolean> {
+    if (!this.client) return false;
+    try {
+      const raw = await this.client.session.update({
+        path: { sessionID: sessionId },
+        body: { mcpAllowlist: { servers, tools: [] } },
+      });
+      if (raw.error) {
+        logger.warn('[OpencodeClientService] updateSessionAllowlist returned error:', raw.error);
+        return false;
+      }
+      return true;
+    } catch (err) {
+      logger.error('[OpencodeClientService] updateSessionAllowlist failed:', err);
+      return false;
+    }
+  }
+
+  /**
    * Send a prompt to a session and wait for the full response.
    * Used for synchronous user input via the WS gateway.
    */
