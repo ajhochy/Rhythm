@@ -13,8 +13,8 @@ import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 import Database from 'better-sqlite3';
 import { runMigrations } from '../database/migrations';
 import { setDb } from '../database/db';
-import type { AddressInfo } from 'node:net';
 import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
+import { startTestServer } from './helpers/real_server';
 
 // Mock opencode engine — we never need a real engine in these tests.
 vi.mock('../services/opencode_engine', () => {
@@ -157,14 +157,7 @@ describe('#743 — getDiff soft-404 (HTTP)', () => {
     freshSetDb(db);
 
     const { createApp } = await import('../app');
-    const server = createApp().listen(0);
-    server.maxRequestsPerSocket = 1;
-    await new Promise<void>((r) => server.once('listening', () => r()));
-    baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
-    closeServer = () =>
-      new Promise<void>((res, rej) =>
-        server.close((e) => (e ? rej(e) : res())),
-      );
+    ({ baseUrl, close: closeServer } = await startTestServer(createApp()));
   });
 
   afterEach(async () => {

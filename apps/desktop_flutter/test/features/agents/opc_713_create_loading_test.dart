@@ -222,10 +222,6 @@ class _SlowStubAgentsRepository implements AgentsRepository {
   Future<List<AgentInfo>> fetchAvailableAgents({String? cwd}) async => const [];
 
   @override
-  Future<String> runShellCommand(String sessionId, String command) async =>
-      'msg-shell-stub';
-
-  @override
   Future<String> createPty(String sessionId) async => 'pty-stub';
 
   @override
@@ -538,10 +534,6 @@ class _ThrowingStubRepo implements AgentsRepository {
   @override
   Future<List<AgentInfo>> fetchAvailableAgents({String? cwd}) =>
       inner.fetchAvailableAgents(cwd: cwd);
-
-  @override
-  Future<String> runShellCommand(String sessionId, String command) =>
-      inner.runShellCommand(sessionId, command);
 
   @override
   Future<String> createPty(String sessionId) => inner.createPty(sessionId);

@@ -166,11 +166,6 @@ class AgentsRepository {
   Future<List<AgentInfo>> fetchAvailableAgents({String? cwd}) =>
       _dataSource.fetchAvailableAgents(cwd: cwd);
 
-  /// OPC-M1-6 / issue #709 — POST /agent-sessions/:id/shell — run a one-shot
-  /// shell command. Returns the id of the created AssistantMessage.
-  Future<String> runShellCommand(String sessionId, String command) =>
-      _dataSource.runShellCommand(sessionId, command);
-
   // --------------------------------------------------------------------------
   // PTY
   // --------------------------------------------------------------------------

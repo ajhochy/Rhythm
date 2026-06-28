@@ -1,11 +1,10 @@
-import type { AddressInfo } from 'node:net';
-
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import Database from 'better-sqlite3';
 
 import { createApp } from '../app';
 import { runMigrations } from '../database/migrations';
 import { setDb } from '../database/db';
+import { startTestServer } from './helpers/real_server';
 import { SessionsRepository } from '../repositories/sessions_repository';
 import { TasksRepository } from '../repositories/tasks_repository';
 import { UsersRepository } from '../repositories/users_repository';
@@ -36,14 +35,9 @@ describe('Tasks permissions', () => {
     sessionsRepo = new SessionsRepository();
     tasksRepo = new TasksRepository();
 
-    const server = createApp().listen(0);
-    await new Promise<void>((resolve) => server.once('listening', () => resolve()));
-    const address = server.address() as AddressInfo;
-    baseUrl = `http://127.0.0.1:${address.port}`;
-    closeServer = () =>
-      new Promise<void>((resolve, reject) => {
-        server.close((error) => (error ? reject(error) : resolve()));
-      });
+    const { baseUrl: b, close } = await startTestServer(createApp());
+    baseUrl = b;
+    closeServer = close;
   });
 
   afterEach(async () => {

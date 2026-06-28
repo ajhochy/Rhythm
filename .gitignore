@@ -76,3 +76,6 @@ apps/opencode_fork/**/ts-dist/
 apps/opencode_fork/**/*.bun-build
 apps/opencode_fork/.sst/
 apps/opencode_fork/**/*.tsbuildinfo
+
+# dev-only: locally-built opencode fork for smoke (issue #764)
+apps/api_server/opencode_bin/

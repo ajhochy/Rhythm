@@ -12,9 +12,9 @@
 
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 import Database from 'better-sqlite3';
-import type { AddressInfo } from 'node:net';
 import { runMigrations } from '../database/migrations';
 import { setDb } from '../database/db';
+import { startTestServer } from './helpers/real_server';
 
 vi.mock('../services/opencode_engine', () => {
   const mockClient = {
@@ -67,12 +67,7 @@ describe('health route — issue #677: build commit in /health', () => {
 
   beforeEach(async () => {
     setDb(makeDb());
-    const server = createApp().listen(0);
-    await new Promise<void>((r) => server.once('listening', () => r()));
-    const { port } = server.address() as AddressInfo;
-    baseUrl = `http://127.0.0.1:${port}`;
-    closeServer = () =>
-      new Promise<void>((res, rej) => server.close((e) => (e ? rej(e) : res())));
+    ({ baseUrl, close: closeServer } = await startTestServer(createApp()));
   });
 
   afterEach(async () => {

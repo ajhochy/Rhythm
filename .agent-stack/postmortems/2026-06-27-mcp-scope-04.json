@@ -1,0 +1,52 @@
+{
+  "run_id": "2026-06-27-mcp-scope-04-live-secretary",
+  "issue": "mcp-scope-04",
+  "date": "2026-06-27",
+  "smoke_result": "fail",
+  "verification_claimed": "PASS",
+  "divergence": true,
+  "criteria_results": [
+    {
+      "criterion_id": "mcp-scope-04-AC-03",
+      "text": "ws_gateway interactive path (wsMcpRoleConfig present) results in mcpAllowlist on the body",
+      "contract_status": "pass",
+      "smoke_status": "fail",
+      "category": "C2",
+      "notes": "A new Secretary session persisted mcp_allowlist=NULL and exposed disallowed servers. The contract treated createSession unit coverage as proof of the interactive path but did not exercise POST /agent-sessions creating the engine session before ws_gateway resolves profile scope."
+    },
+    {
+      "criterion_id": "mcp-scope-04-AC-01",
+      "text": "createSession WITH mcpRoleConfig sends body.mcpAllowlist deep-equal to expandMcpAllowlist(mcpRoleConfig)",
+      "contract_status": "pass",
+      "smoke_status": "not_checked",
+      "category": "none",
+      "notes": "The live failure occurs because the REST create path never supplies the profile-derived mcpRoleConfig; the createSession helper itself was not contradicted."
+    }
+  ],
+  "process_issues": [],
+  "workflow_adherence": {
+    "overall_score": "strict",
+    "expected_chain": [
+      "systematic-debugging",
+      "project-state-updater",
+      "failure-postmortem"
+    ],
+    "observed_chain": [
+      "systematic-debugging",
+      "project-state-updater",
+      "failure-postmortem"
+    ],
+    "skipped_skills": [],
+    "issues": []
+  },
+  "implementation_files": [
+    "apps/api_server/src/controllers/agent_sessions_controller.ts",
+    "apps/api_server/src/services/ws_gateway.ts",
+    "apps/api_server/src/services/opencode_client_service.ts",
+    "apps/api_server/src/services/opencode_client_service.test.ts",
+    "apps/api_server/src/__tests__/opc_sdk_surface_guard.test.ts"
+  ],
+  "failure_output": "Secretary engine session ses_0f4bf8f48ffet1PBor19wrWIkE: agent=secretary, mcp_allowlist=NULL. Linked Rhythm row: mcp_role=NULL and mcp_allowed_tools_json=NULL. Assistant reported access to disallowed Ableton, Canva, NFL, and ProPresenter MCPs.",
+  "overall_category": "C2",
+  "suggested_follow_up": "Add a real POST /agent-sessions integration contract for a scoped profile, then resolve profile scope in AgentSessionsController before its initial opencodeClient.createSession call."
+}

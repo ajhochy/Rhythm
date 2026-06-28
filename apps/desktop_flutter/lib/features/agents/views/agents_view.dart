@@ -656,14 +656,7 @@ class _TranscriptPanelState extends State<_TranscriptPanel> {
     // plain-text live-output buffer and transcript render branch have been
     // deleted. All messages arrive via chatMessagesFor() / chatPartsFor()
     // (rehydrated from REST on selectSession, then updated by WS events).
-    //
-    // OPC-M1-6 / issue #709 c4: filter out terminal-tab messages so shell
-    // command outputs don't appear in the chat transcript.
-    final terminalIds = controller.terminalMessageIdsFor(session.id);
-    final allChatMessages = controller.chatMessagesFor(session.id);
-    final chatMessages = terminalIds.isEmpty
-        ? allChatMessages
-        : allChatMessages.where((m) => !terminalIds.contains(m.id)).toList();
+    final chatMessages = controller.chatMessagesFor(session.id);
 
     if (chatMessages.isEmpty) {
       return Center(

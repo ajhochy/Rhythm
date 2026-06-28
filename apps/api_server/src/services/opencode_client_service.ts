@@ -259,6 +259,47 @@ export class OpencodeClientService {
   /** Set to true by the shutdown handler before dispose() is called. */
   private _shuttingDown = false;
 
+  /**
+   * Test-only seam (#765). The real SDK client is normally created inside
+   * {@link initialize} via a runtime `import('@opencode-ai/sdk')` that vitest
+   * cannot intercept (the import is built through `new Function` to dodge the
+   * CJS transformer). To exercise the REAL {@link createSession} body — and
+   * therefore the real `expandMcpAllowlist` allowlist that goes on the wire —
+   * against a faithful fake SDK transport, tests inject a stand-in client and
+   * mark the engine ready. Only the network boundary (`session.create`) is
+   * faked; the scope-derivation logic under test runs unchanged.
+   *
+   * Never called in production. Keep this the ONLY way tests reach `this.client`.
+   */
+  __setTestClient(client: OpencodeClient): void {
+    this.client = client;
+    this.status = 'ready';
+    this.error = null;
+  }
+
+  /**
+   * #723 — Names of MCP servers removed in this engine process but still
+   * reported by the running engine's `mcp.status()` from its in-memory state
+   * (the engine only drops them on restart). `listMcp()` filters these out so
+   * a removed server's row disappears immediately — config (opencode.json) is
+   * the source of truth for presence. Re-adding a server (addMcp /
+   * ensure*Mcp* persistence) clears its name from this set so it reappears.
+   */
+  private _removedPendingRestart = new Set<string>();
+
+  /** #723 — record a server removed-but-still-reported-by-engine. */
+  private markMcpRemoved(name: string): void {
+    this._removedPendingRestart.add(name);
+  }
+
+  /**
+   * #723 — clear a server from the removed-pending-restart set (it has been
+   * (re-)persisted, so it should surface again). No-op when not present.
+   */
+  private markMcpPresent(name: string): void {
+    this._removedPendingRestart.delete(name);
+  }
+
   get isReady(): boolean {
     return this.status === 'ready';
   }
@@ -614,6 +655,37 @@ export class OpencodeClientService {
     } catch (err) {
       logger.error('[OpencodeClientService] createSession failed:', err);
       return null;
+    }
+  }
+
+  /**
+   * PATCH /session/:id with { mcpAllowlist: { servers, tools } }.
+   * Updates the fork session's MCP allowlist so the next prompt uses it.
+   * Called by ws_gateway when the per-turn agent drives scope on an existing session.
+   *
+   * Uses direct fetch rather than the SDK client because the SDK's generated body
+   * type only includes `title` (generated before mcp-scope support was added), and
+   * the fork's URL is known at this.baseUrl.
+   */
+  async updateSessionAllowlist(
+    sessionId: string,
+    servers: string[],
+  ): Promise<boolean> {
+    try {
+      const base = this.serverUrl;
+      const res = await fetch(`${base}/session/${sessionId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mcpAllowlist: { servers, tools: [] } }),
+      });
+      if (!res.ok) {
+        logger.warn('[OpencodeClientService] updateSessionAllowlist HTTP %s for session %s', res.status, sessionId);
+        return false;
+      }
+      return true;
+    } catch (err) {
+      logger.error('[OpencodeClientService] updateSessionAllowlist failed:', err);
+      return false;
     }
   }
 
@@ -1296,7 +1368,21 @@ export class OpencodeClientService {
         `listMcp failed: ${JSON.stringify(raw.error)}`,
       );
     }
-    return raw.data ?? {};
+    const statusMap = raw.data ?? {};
+    // #723 — drop servers removed in this process that the engine still
+    // reports from stale in-memory state. Without this the removed row
+    // persists in the UI until the engine restarts. Build a NEW object so we
+    // never mutate the SDK's returned data in place.
+    if (this._removedPendingRestart.size === 0) {
+      return statusMap;
+    }
+    const reconciled: Record<string, import('@opencode-ai/sdk').McpStatusEntry> = {};
+    for (const [name, entry] of Object.entries(statusMap)) {
+      if (!this._removedPendingRestart.has(name)) {
+        reconciled[name] = entry;
+      }
+    }
+    return reconciled;
   }
 
   /**
@@ -1348,6 +1434,9 @@ export class OpencodeClientService {
       mkdirSync(dirname(configPath), { recursive: true });
       writeFileSync(configPath, JSON.stringify(parsed, null, 2) + '\n', 'utf8');
       logger.info(`[OpencodeClientService] addMcp: persisted ${name} to opencode.json`);
+      // #723 — a re-added server must reappear in listMcp(): clear any stale
+      // removed-pending-restart marker for this name.
+      this.markMcpPresent(name);
     } catch (err) {
       throw new AppError(
         502,
@@ -1446,6 +1535,8 @@ export class OpencodeClientService {
     mkdirSync(dirname(configPath), { recursive: true });
     writeFileSync(configPath, JSON.stringify(parsed, null, 2) + '\n', 'utf8');
     logger.info('[OpencodeClientService] ensureRhythmMcp: persisted rhythm config');
+    // #723 — rhythm was just (re-)persisted; clear any stale removal marker.
+    this.markMcpPresent('rhythm');
 
     let registered = false;
     if (opts?.register !== false) {
@@ -1613,6 +1704,11 @@ export class OpencodeClientService {
           .map((s) => s.id)
           .join(', ')}`,
       );
+      // #723 — each curated server just (re-)persisted should reappear in
+      // listMcp(): clear any stale removed-pending-restart markers.
+      for (const server of changedServers) {
+        this.markMcpPresent(server.id);
+      }
     }
 
     // ── Best-effort live registration (NON-FATAL) ──
@@ -1749,6 +1845,12 @@ export class OpencodeClientService {
    * OPC-M4-3 typed wrapper.
    */
   async removeMcp(name: string): Promise<void> {
+    // #723 — record the removal up front so listMcp() filters it out even
+    // though the running engine keeps reporting it from in-memory state until
+    // restart. Recorded before any fs/SDK work so it holds regardless of
+    // whether the config write below short-circuits.
+    this.markMcpRemoved(name);
+
     // 1. Disconnect first (best-effort — ignore "not connected" errors).
     try {
       await this.disconnectMcp(name);
@@ -1869,44 +1971,6 @@ export class OpencodeClientService {
   }
 
   // ─────────────────────────────────────────────────────────────────────────
-
-  /**
-   * POST /session/{id}/shell — run a one-shot shell command in the session.
-   *
-   * OPC-M1-6 / issue #709.
-   * Requires an agent name and a resolved model (the SDK refuses shell calls
-   * without both). The default agent is 'build' (opencode built-in that runs
-   * bash without requiring an LLM turn). `model` is passed through from the
-   * caller; pass the session's resolved model so the SDK can attribute tokens.
-   *
-   * Returns the id of the created AssistantMessage so the Flutter tab can
-   * track which chat messages originated from the Terminal tab (criterion c4).
-   *
-   * Throws AppError(502) on SDK error or empty data — never swallows.
-   */
-  async runShell(
-    sdkId: string,
-    command: string,
-    model?: { providerID: string; modelID: string },
-  ): Promise<{ messageId: string }> {
-    const client = this.requireClient();
-    const raw = await client.session.shell({
-      path: { id: sdkId },
-      body: {
-        agent: 'build',
-        model,
-        command,
-      },
-    });
-    if (raw.error || !raw.data) {
-      throw new AppError(
-        502,
-        'SDK_ERROR',
-        `runShell failed for session ${sdkId}: ${JSON.stringify(raw.error ?? 'no data')}`,
-      );
-    }
-    return { messageId: raw.data.id };
-  }
 
   /**
    * OPC-M4-4 — GET /agent — list all agents (built-in + custom) for an

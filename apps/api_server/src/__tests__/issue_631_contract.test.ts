@@ -21,8 +21,8 @@
 
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
 import Database from 'better-sqlite3';
-import type { AddressInfo } from 'node:net';
 import { runMigrations } from '../database/migrations';
+import { startTestServer } from './helpers/real_server';
 import { setDb } from '../database/db';
 
 // ---------------------------------------------------------------------------
@@ -203,12 +203,7 @@ describe('GET /opencode/commands — issue #631', () => {
     commandListSpy.mockClear();
     setDb(makeDb());
 
-    const server = createApp().listen(0);
-    await new Promise<void>((r) => server.once('listening', () => r()));
-    const { port } = server.address() as AddressInfo;
-    baseUrl = `http://127.0.0.1:${port}`;
-    closeServer = () =>
-      new Promise<void>((res, rej) => server.close((e) => (e ? rej(e) : res())));
+    ({ baseUrl, close: closeServer } = await startTestServer(createApp()));
   });
 
   afterEach(async () => {

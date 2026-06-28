@@ -1,0 +1,46 @@
+{
+  "run_id": "2026-06-27-issue-752",
+  "issue": 752,
+  "date": "2026-06-27",
+  "smoke_result": "fail",
+  "verification_claimed": "PASS",
+  "divergence": true,
+  "criteria_results": [
+    {
+      "criterion_id": "issue-752-c1",
+      "text": "Agents Terminal tab opens a working shell in the notarized release build (PTY create succeeds).",
+      "contract_status": "absent",
+      "smoke_status": "fail",
+      "category": "C1",
+      "notes": "v18.52 fixed the PTY dlopen rejection but REGRESSED the engine launch. New in-app error: 'Could not resume session: Opencode engine not ready (Server exited with code null)'. The opencode bun binary SIGTRAP-crashed in dyld at launch (exit 133). No contract/local check asserted that the signed binary still LAUNCHES — only that the entitlement was present and the plist valid. The launch crash only manifests in a signed hardened-runtime build, so it was invisible to the v18.52 checks."
+    }
+  ],
+  "process_issues": [
+    {
+      "process_category": "release-deploy",
+      "description": "A codesign/entitlements change to the bundled opencode binary was shipped to a notarized release (v18.52) without any local hardened-runtime launch test. Root cause: adding com.apple.security.cs.disable-library-validation ALONE turned on Hardened Runtime JIT enforcement for the bun binary, which then needed com.apple.security.cs.allow-jit + allow-unsigned-executable-memory or it is killed at launch. Signing with no entitlements (v18.51) was lenient and launched; the partial entitlement set crashed.",
+      "detected_by": "User manual smoke of installed v18.52; reproduced locally by launching /Applications/Rhythm.app/.../opencode_bin/opencode (exit 133) and by reading the crash report (.ips: Trace/BPT trap SIGTRAP in /usr/lib/dyld)."
+    }
+  ],
+  "workflow_adherence": {
+    "overall_score": "partial",
+    "expected_chain": ["workflow-orchestrator", "verification-gate", "project-state-updater", "failure-postmortem"],
+    "observed_chain": ["workflow-orchestrator", "verification-gate", "project-state-updater", "failure-postmortem"],
+    "skipped_skills": [],
+    "issues": [
+      {
+        "workflow_category": "W5",
+        "affected_skill": "verification-gate",
+        "description": "verification-gate emitted PASS and the run proceeded to merge + release on a verification that asserted entitlement PRESENCE and plist validity, not the signed binary's LAUNCH behavior. The gate did honestly document the end-to-end gap as release-build-only (so this is a soft W5, not a no-evidence claim), but the behavior gap turned out to be locally testable after all: re-signing the binary under hardened runtime (codesign --options runtime --entitlements ... -s -) reproduces both the crash and the fix. The class of change (codesign entitlements on a bun standalone) had a cheap local behavioral test that was not run.",
+        "detected_by": "Transcript review of the #752 verification-gate PASS block vs. the post-release crash; confirmed the local re-sign test exists and is decisive (used to verify #756)."
+      }
+    ]
+  },
+  "implementation_files": [
+    "apps/desktop_flutter/macos/Runner/Release.entitlements",
+    "tools/release/sign_and_notarize_macos.sh"
+  ],
+  "failure_output": "Could not resume session: AppError: Opencode engine not ready (Opencode SDK error: Server exited with code null). Direct launch: opencode serve -> exit 133 (SIGTRAP). Crash report: termination SIGNAL code 5 'Trace/BPT trap: 5' in /usr/lib/dyld; codeSigningID opencode, codeSigningTeamID 56Q69NYP9H.",
+  "overall_category": "C1",
+  "suggested_follow_up": "For any codesign/entitlements change to a bundled bun (or other JIT/standalone) binary, verification-gate MUST run a local hardened-runtime launch+behavior test (cp binary; codesign --force --options runtime --entitlements <file> -s -; run it; exercise the affected feature) instead of treating launch as release-build-only. Entitlement PRESENCE is not entitlement CORRECTNESS."
+}

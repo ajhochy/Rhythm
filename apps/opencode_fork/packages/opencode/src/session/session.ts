@@ -206,7 +206,7 @@ const Model = Schema.Struct({
 })
 
 // Rhythm carried patch (mcp-scope): per-session MCP allowlist schema.
-const McpAllowlist = Schema.Struct({
+export const McpAllowlist = Schema.Struct({
   servers: Schema.mutable(Schema.Array(Schema.String)),
   tools: Schema.mutable(Schema.Array(Schema.String)),
 })
@@ -333,6 +333,7 @@ const UpdatedInfo = Schema.Struct({
   time: Schema.optional(UpdatedTime),
   permission: Schema.optional(Schema.NullOr(Permission.Ruleset)),
   revert: Schema.optional(Schema.NullOr(Revert)),
+  mcpAllowlist: Schema.optional(Schema.NullOr(McpAllowlist)),
 })
 
 const UpdatedEventSchema = Schema.Struct({
@@ -487,6 +488,8 @@ export interface Interface {
   }) => Effect.Effect<void>
   readonly clearRevert: (sessionID: SessionID) => Effect.Effect<void>
   readonly setSummary: (input: { sessionID: SessionID; summary: Info["summary"] }) => Effect.Effect<void>
+  /** Rhythm carried patch (mcp-scope): update the per-session MCP tool allowlist. */
+  readonly setMcpAllowlist: (input: { sessionID: SessionID; mcpAllowlist: Info["mcpAllowlist"] }) => Effect.Effect<void>
   readonly diff: (sessionID: SessionID) => Effect.Effect<Snapshot.FileDiff[]>
   readonly messages: (input: { sessionID: SessionID; limit?: number }) => Effect.Effect<MessageV2.WithParts[], NotFound>
   readonly children: (parentID: SessionID) => Effect.Effect<Info[]>
@@ -778,6 +781,13 @@ export const layer: Layer.Layer<
       yield* patch(input.sessionID, { time: { updated: Date.now() }, summary: input.summary })
     })
 
+    const setMcpAllowlist = Effect.fn("Session.setMcpAllowlist")(function* (input: {
+      sessionID: SessionID
+      mcpAllowlist: Info["mcpAllowlist"]
+    }) {
+      yield* patch(input.sessionID, { time: { updated: Date.now() }, mcpAllowlist: input.mcpAllowlist })
+    })
+
     const diff = Effect.fn("Session.diff")(function* (sessionID: SessionID) {
       return yield* storage
         .read<Snapshot.FileDiff[]>(["session_diff", sessionID])
@@ -868,6 +878,7 @@ export const layer: Layer.Layer<
       setRevert,
       clearRevert,
       setSummary,
+      setMcpAllowlist,
       diff,
       messages,
       children,

@@ -13,7 +13,7 @@ import Database from 'better-sqlite3';
 import { createApp } from '../app';
 import { runMigrations } from '../database/migrations';
 import { setDb, getDb } from '../database/db';
-import type { AddressInfo } from 'node:net';
+import { startTestServer } from './helpers/real_server';
 import { UsersRepository } from '../repositories/users_repository';
 import { SessionsRepository } from '../repositories/sessions_repository';
 import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
@@ -105,11 +105,7 @@ describe('#747 — Background activity indicator', () => {
 
     agentSessionsRepo = new AgentSessionsRepository();
 
-    const server = createApp().listen(0);
-    await new Promise<void>((r) => server.once('listening', () => r()));
-    baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
-    closeServer = () =>
-      new Promise<void>((res, rej) => server.close((e) => (e ? rej(e) : res())));
+    ({ baseUrl, close: closeServer } = await startTestServer(createApp()));
   });
 
   afterEach(async () => {

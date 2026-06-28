@@ -1,6 +1,62 @@
+import os from 'os';
 import path from 'path';
 
 export type DbClient = 'sqlite' | 'postgres';
+
+/**
+ * Deployment role (#755). Gates the agent-EXECUTION surfaces (agent routes,
+ * AgentScheduler, opencode/managed-Chrome init, WS gateway, agent
+ * session/config table DDL) so a hosted production API can run without the
+ * agent runtime it never uses.
+ *
+ * - `all`   (DEFAULT) — every agent surface registered + initialized.
+ *           No-regression default: the embedded local server and the current
+ *           single prod image both keep working with no env change.
+ * - `local` — local agent server (localhost:4001, SQLite). Behaves like `all`.
+ * - `cloud` — hosted production API. Agent-execution surfaces are NOT
+ *           registered/initialized; prod-owned surfaces (trigger queue,
+ *           scheduled-task records) stay.
+ *
+ * Orthogonal to AGENT_LOCAL (the auth-bypass flag): RHYTHM_ROLE decides whether
+ * the surfaces exist; AGENT_LOCAL decides whether auth is bypassed on them.
+ */
+export type DeploymentRole = 'all' | 'cloud' | 'local';
+
+function parseRole(value: string): DeploymentRole {
+  if (value === 'all' || value === 'cloud' || value === 'local') {
+    return value;
+  }
+
+  throw new Error(
+    `Unsupported RHYTHM_ROLE "${value}". Expected "all", "cloud", or "local".`,
+  );
+}
+
+const roleRaw = (process.env.RHYTHM_ROLE ?? '').trim().toLowerCase();
+// Unset OR empty both mean the default 'all' (an empty env var is "not set").
+const deploymentRole = parseRole(roleRaw === '' ? 'all' : roleRaw);
+
+/**
+ * Expand a leading `~` (or `~/`) to the current user's home directory.
+ * Only a leading tilde is expanded — `~user` syntax is intentionally not
+ * supported. Returns the path unchanged when there is no leading tilde.
+ */
+export function expandHome(p: string): string {
+  if (p === '~') return os.homedir();
+  if (p.startsWith('~/')) return path.join(os.homedir(), p.slice(2));
+  return p;
+}
+
+/**
+ * Issue #770 WI6: resolve the Memory-Vault path FRESH from process.env at call
+ * time (with `~` expansion). `env.memoryVaultPath` snapshots this at module
+ * load for documentation/most callers, but the mirror-sync resolves lazily so
+ * the path can be overridden after import (e.g. by tests, or a late-loaded
+ * .env). Default: ~/Documents/Memory-Vault.
+ */
+export function resolveMemoryVaultPath(): string {
+  return expandHome(process.env.MEMORY_VAULT_PATH ?? '~/Documents/Memory-Vault');
+}
 
 /**
  * Google Cloud project ID used to enable the native Google Gemini provider in
@@ -31,6 +87,15 @@ function parseDbClient(value: string): DbClient {
 export const env = {
   nodeEnv: process.env.NODE_ENV ?? 'development',
   port: Number(process.env.PORT ?? 4000),
+  /** #755 — deployment role; see DeploymentRole above. Default 'all'. */
+  role: deploymentRole,
+  /**
+   * #755 — single switch every agent-execution gate reads. True for the 'all'
+   * and 'local' roles, false for 'cloud'. Keeping the policy in one derived
+   * boolean means route registration, startup init, and Postgres DDL all gate
+   * on the same condition.
+   */
+  agentExecutionEnabled: deploymentRole !== 'cloud',
   dbClient: parseDbClient(dbClientValue),
   dbPath: process.env.DB_PATH ?? path.join(process.cwd(), 'rhythm.db'),
   dbHost: process.env.DB_HOST ?? 'localhost',
@@ -155,4 +220,21 @@ export const env = {
   prodApiUrl: process.env.PROD_API_URL ?? null,
   /** Bearer token to authenticate against the production API for task mirroring. */
   prodAuthToken: process.env.PROD_AUTH_TOKEN ?? null,
+  /**
+   * Issue #770 WI6: filesystem path to the dedicated Obsidian "Memory-Vault"
+   * that is the canonical store for agent memory. The mirror-sync job reads all
+   * `.md` notes here (direct file read — no Obsidian instance required) and
+   * upserts them into the agent_memory table so the Rhythm Brain panel can
+   * display them. A leading `~` is expanded to the user's home dir. If the path
+   * does not exist the sync is a no-op (never an error). Overridable via
+   * MEMORY_VAULT_PATH (the test suite points this at a temp fixture dir).
+   */
+  memoryVaultPath: expandHome(
+    process.env.MEMORY_VAULT_PATH ?? '~/Documents/Memory-Vault',
+  ),
+  /**
+   * Issue #770 WI6: cron expression for the Memory-Vault mirror-sync job.
+   * Defaults to every 10 minutes. Overridable via MEMORY_VAULT_SYNC_CRON.
+   */
+  memoryVaultSyncCron: process.env.MEMORY_VAULT_SYNC_CRON ?? '*/10 * * * *',
 };

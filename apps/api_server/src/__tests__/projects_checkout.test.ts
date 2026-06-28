@@ -10,10 +10,10 @@ import os from 'os';
 import path from 'path';
 import { execFileSync } from 'child_process';
 import Database from 'better-sqlite3';
-import type { AddressInfo } from 'node:net';
 
 import { runMigrations } from '../database/migrations';
 import { setDb } from '../database/db';
+import { startTestServer } from './helpers/real_server';
 import { UsersRepository } from '../repositories/users_repository';
 import { SessionsRepository } from '../repositories/sessions_repository';
 
@@ -75,11 +75,9 @@ describe('GET /projects/:id/branches', () => {
     };
 
     const { createApp } = await import('../app');
-    const server = createApp().listen(0);
-    await new Promise<void>((r) => server.once('listening', () => r()));
-    baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
-    closeServer = () =>
-      new Promise<void>((res, rej) => server.close((e) => (e ? rej(e) : res())));
+    const { baseUrl: b, close } = await startTestServer(createApp());
+    baseUrl = b;
+    closeServer = close;
   });
 
   afterEach(async () => {
@@ -169,11 +167,9 @@ describe('POST /projects/:id/checkout', () => {
     };
 
     const { createApp } = await import('../app');
-    const server = createApp().listen(0);
-    await new Promise<void>((r) => server.once('listening', () => r()));
-    baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
-    closeServer = () =>
-      new Promise<void>((res, rej) => server.close((e) => (e ? rej(e) : res())));
+    const { baseUrl: b, close } = await startTestServer(createApp());
+    baseUrl = b;
+    closeServer = close;
   });
 
   afterEach(async () => {

@@ -177,6 +177,170 @@ export class AgentMemoryRepository {
     return (rows as Record<string, unknown>[]).map(rowToModel);
   }
 
+  /**
+   * Issue #770 WI6 — mirror-sync upsert keyed on (source, source_id).
+   *
+   * Idempotent: if a row with the same (source, source_id) already exists it is
+   * UPDATED in place (preserving its id and created_at); otherwise a new row is
+   * inserted. Returns `true` when a new row was inserted, `false` when an
+   * existing row was updated (lets callers count net upserts vs. touches if
+   * needed — both count as "upserted" for the sync summary).
+   *
+   * Keeps the SQLite FTS5 index in sync on both paths.
+   */
+  async upsertBySourceAsync(input: {
+    kind: string;
+    content: string;
+    source: string;
+    sourceId: string;
+    tagsJson: string;
+    ownerUserId?: number | null;
+  }): Promise<boolean> {
+    const now = new Date().toISOString();
+
+    if (env.dbClient === 'postgres') {
+      const existing = await getPostgresPool().query(
+        `SELECT id FROM agent_memory WHERE source = $1 AND source_id = $2 LIMIT 1`,
+        [input.source, input.sourceId],
+      );
+      if (existing.rows.length > 0) {
+        await getPostgresPool().query(
+          `UPDATE agent_memory
+             SET kind = $1, content = $2, tags_json = $3, updated_at = $4
+           WHERE id = $5`,
+          [input.kind, input.content, input.tagsJson, now, existing.rows[0].id],
+        );
+        return false;
+      }
+      const id = randomUUID();
+      await getPostgresPool().query(
+        `INSERT INTO agent_memory
+           (id, kind, content, source, source_id, tags_json, owner_user_id, created_at, updated_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+        [
+          id, input.kind, input.content, input.source, input.sourceId,
+          input.tagsJson, input.ownerUserId ?? null, now, now,
+        ],
+      );
+      return true;
+    }
+
+    const existing = getDb()
+      .prepare(`SELECT rowid, id, content, kind, tags_json FROM agent_memory WHERE source = ? AND source_id = ? LIMIT 1`)
+      .get(input.source, input.sourceId) as
+        | { rowid: number; id: string; content: string; kind: string; tags_json: string }
+        | undefined;
+
+    if (existing) {
+      // External-content FTS5 requires the OLD column values to delete the
+      // index entry; read them BEFORE updating the base row.
+      this._ftsDelete(existing.rowid, existing.content, existing.kind, existing.tags_json);
+      getDb().prepare(`
+        UPDATE agent_memory
+           SET kind = ?, content = ?, tags_json = ?, updated_at = ?
+         WHERE id = ?
+      `).run(input.kind, input.content, input.tagsJson, now, existing.id);
+      this._ftsInsert(existing.rowid, input.content, input.kind, input.tagsJson);
+      return false;
+    }
+
+    const id = randomUUID();
+    getDb().prepare(`
+      INSERT INTO agent_memory
+        (id, kind, content, source, source_id, tags_json, owner_user_id, created_at, updated_at)
+      VALUES (?,?,?,?,?,?,?,?,?)
+    `).run(
+      id, input.kind, input.content, input.source, input.sourceId,
+      input.tagsJson, input.ownerUserId ?? null, now, now,
+    );
+    const inserted = getDb()
+      .prepare(`SELECT rowid FROM agent_memory WHERE id = ?`)
+      .get(id) as { rowid: number } | undefined;
+    if (inserted) {
+      this._ftsInsert(inserted.rowid, input.content, input.kind, input.tagsJson);
+    }
+    return true;
+  }
+
+  /** List the distinct source_id values currently stored for a given source. */
+  async listSourceIdsBySourceAsync(source: string): Promise<string[]> {
+    if (env.dbClient === 'postgres') {
+      const r = await getPostgresPool().query(
+        `SELECT source_id FROM agent_memory WHERE source = $1 AND source_id IS NOT NULL`,
+        [source],
+      );
+      return r.rows.map((row) => row.source_id as string);
+    }
+    const rows = getDb()
+      .prepare(`SELECT source_id FROM agent_memory WHERE source = ? AND source_id IS NOT NULL`)
+      .all(source) as { source_id: string }[];
+    return rows.map((row) => row.source_id);
+  }
+
+  /**
+   * Tombstone cleanup: delete rows for a given source whose source_id is in the
+   * supplied list. Returns the number of rows deleted. Keeps FTS in sync.
+   */
+  async deleteBySourceAndSourceIdsAsync(source: string, sourceIds: string[]): Promise<number> {
+    if (sourceIds.length === 0) return 0;
+
+    if (env.dbClient === 'postgres') {
+      const r = await getPostgresPool().query(
+        `DELETE FROM agent_memory WHERE source = $1 AND source_id = ANY($2::text[])`,
+        [source, sourceIds],
+      );
+      return r.rowCount ?? 0;
+    }
+
+    let deleted = 0;
+    const selectStmt = getDb().prepare(
+      `SELECT id, rowid, content, kind, tags_json FROM agent_memory WHERE source = ? AND source_id = ?`,
+    );
+    const deleteStmt = getDb().prepare(`DELETE FROM agent_memory WHERE id = ?`);
+    for (const sourceId of sourceIds) {
+      const row = selectStmt.get(source, sourceId) as
+        | { id: string; rowid: number; content: string; kind: string; tags_json: string }
+        | undefined;
+      if (!row) continue;
+      this._ftsDelete(row.rowid, row.content, row.kind, row.tags_json);
+      const r = deleteStmt.run(row.id);
+      deleted += r.changes;
+    }
+    return deleted;
+  }
+
+  /**
+   * SQLite-only helper: insert an FTS5 index row. External-content FTS5
+   * (content='agent_memory') tolerates a plain INSERT with explicit columns.
+   */
+  private _ftsInsert(rowid: number, content: string, kind: string, tagsJson: string): void {
+    try {
+      getDb()
+        .prepare(`INSERT INTO agent_memory_fts(rowid, content, kind, tags_json) VALUES (?,?,?,?)`)
+        .run(rowid, content, kind, tagsJson);
+    } catch {
+      // FTS table may not exist on older DBs — non-fatal
+    }
+  }
+
+  /**
+   * SQLite-only helper: remove an FTS5 index row. External-content FTS5 does
+   * NOT support a plain `DELETE FROM ... WHERE rowid = ?` (it corrupts the
+   * index — SQLITE_CORRUPT_VTAB). The supported form is the special 'delete'
+   * command, which requires the OLD column values that were indexed.
+   */
+  private _ftsDelete(rowid: number, content: string, kind: string, tagsJson: string): void {
+    try {
+      getDb()
+        .prepare(
+          `INSERT INTO agent_memory_fts(agent_memory_fts, rowid, content, kind, tags_json) VALUES ('delete', ?, ?, ?, ?)`,
+        )
+        .run(rowid, content, kind, tagsJson);
+    } catch {
+      // FTS table may not exist on older DBs — non-fatal
+    }
+  }
+
   async deleteAsync(id: string): Promise<boolean> {
     if (env.dbClient === 'postgres') {
       const r = await getPostgresPool().query(`DELETE FROM agent_memory WHERE id = $1`, [id]);

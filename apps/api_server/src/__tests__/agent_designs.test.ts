@@ -14,8 +14,8 @@ import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import Database from 'better-sqlite3';
 import fs from 'node:fs';
 import path from 'node:path';
-import type { AddressInfo } from 'node:net';
 import { createApp } from '../app';
+import { startTestServer } from './helpers/real_server';
 import { runMigrations } from '../database/migrations';
 import { setDb } from '../database/db';
 import { UsersRepository } from '../repositories/users_repository';
@@ -90,15 +90,7 @@ describe('D1 — /agent-designs CRUD', () => {
     const session = await sessionsRepo.createAsync(user.id);
     authHeader = { Authorization: `Bearer ${session.token}` };
 
-    const server = createApp().listen(0);
-    server.maxRequestsPerSocket = 1;
-    await new Promise<void>((r) => server.once('listening', () => r()));
-    baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
-    closeServer = () =>
-      new Promise<void>((res, rej) => {
-        server.closeAllConnections?.();
-        server.close((e) => (e ? rej(e) : res()));
-      });
+    ({ baseUrl, close: closeServer } = await startTestServer(createApp()));
   });
 
   afterEach(async () => {

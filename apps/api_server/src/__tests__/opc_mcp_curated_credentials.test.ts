@@ -18,7 +18,6 @@
  */
 
 import { vi, describe, it, expect, beforeEach, afterEach } from 'vitest';
-import type { AddressInfo } from 'node:net';
 import Database from 'better-sqlite3';
 import { runMigrations } from '../database/migrations';
 import { setDb } from '../database/db';
@@ -63,12 +62,15 @@ vi.mock('../services/opencode_engine', () => ({
 vi.mock('../config/env', () => ({
   env: {
     agentLocal: true,
+    agentExecutionEnabled: true,
+    role: 'local',
     corsAllowedOrigins: [],
     jwtSecret: 'test-secret',
   },
 }));
 
 import { createApp } from '../app';
+import { startTestServer } from './helpers/real_server';
 
 // Curated command lookups (sourced from the catalog so the test never drifts).
 const STRIPE = CURATED_MCP_SERVERS.find((s) => s.id === 'stripe')!;
@@ -87,13 +89,9 @@ describe('mcp-7: curated key-based servers — needs-credentials + credentials e
       runMigrations(db);
       return db;
     })());
-    const server = createApp().listen(0);
-    await new Promise<void>((r) => server.once('listening', () => r()));
-    baseUrl = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
-    close = () =>
-      new Promise<void>((res, rej) =>
-        server.close((e) => (e ? rej(e) : res())),
-      );
+    const { baseUrl: b, close: c } = await startTestServer(createApp());
+    baseUrl = b;
+    close = c;
   });
 
   afterEach(async () => {

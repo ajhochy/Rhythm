@@ -206,6 +206,24 @@ export class AgentSessionsRepository {
       .run(sdkSessionId, now, id);
   }
 
+  /**
+   * #765 — Persist the resolved MCP scope (role slug + per-server allowed-tools
+   * map JSON) onto the session row. Used by the interactive (ws_gateway) path,
+   * where the session is created agent-less and the actual profile (e.g.
+   * "secretary") is chosen per-turn in the composer; the scope must be recorded
+   * on the row so it is auditable and survives a later resume.
+   *
+   * Both args may be null to clear the scope (unrestricted profile / no profile).
+   */
+  setMcpScope(id: string, mcpRole: string | null, mcpAllowedToolsJson: string | null): void {
+    const now = new Date().toISOString();
+    getDb()
+      .prepare(
+        `UPDATE agent_sessions SET mcp_role = ?, mcp_allowed_tools_json = ?, updated_at = ? WHERE id = ?`,
+      )
+      .run(mcpRole, mcpAllowedToolsJson, now, id);
+  }
+
   updatePreview(id: string, preview: string, lastActivityAt: string): void {
     const now = new Date().toISOString();
     getDb()

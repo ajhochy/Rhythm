@@ -1,0 +1,32 @@
+{
+  "issue": 736,
+  "generated": "2026-06-27",
+  "criteria": [
+    {
+      "criterion_id": "issue-736-c1",
+      "text": "For a role-scoped session, a tool-call to a tool outside the allowlist is blocked/rejected at the gateway (not executed), with a clear denied result surfaced.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/issue_736_contract.test.ts",
+      "test_id": "issue-736-c1: blocks an out-of-allowlist tool-call on a role-scoped session and surfaces a denied result",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-736-c2",
+      "text": "Sessions with no mcp_role are unaffected.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/issue_736_contract.test.ts",
+      "test_id": "issue-736-c2: a session with no mcp_role passes tool-calls through untouched",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-736-c3",
+      "text": "Test simulating an out-of-allowlist tool-call event and asserting it is blocked.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/issue_736_contract.test.ts",
+      "test_id": "issue-736-c3: blocks an out-of-allowlist tool-call delivered as a message.part.updated tool part",
+      "status": "pending"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}
