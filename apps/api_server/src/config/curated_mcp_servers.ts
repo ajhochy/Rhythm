@@ -1,9 +1,43 @@
 /**
  * MCP-2 — Curated MCP server registry.
  *
- * `CURATED_MCP_SERVERS` is the source-of-truth list of MCP servers Rhythm
- * offers to auto-install into the user's opencode.json. `ensureCuratedMcps()`
- * in opencode_client_service.ts idempotently merges this list into the
+ * ════════════════════════════════════════════════════════════════════════════
+ * CONTRACT (#787): this catalog is an INSTALL-TEMPLATE + ENRICHMENT layer ONLY.
+ * ════════════════════════════════════════════════════════════════════════════
+ *
+ * The single source of truth for "what MCP servers exist" is the LIVE ENGINE
+ * list — `GET /opencode/mcp` (backed by `opencodeClient.listMcp()`, the
+ * opencode engine's own MCP status map). Display/listing of MCP servers MUST
+ * always come from that live list, NEVER from this catalog.
+ *
+ * `CURATED_MCP_SERVERS` is the curated set of servers Rhythm offers to install,
+ * and it MATERIALIZES INTO the engine — it does not stand alongside it as a
+ * second display source. Curated entries become real engine servers via
+ * `ensureCuratedMcps()` in opencode_client_service.ts, which idempotently
+ * merges this list into opencode.json's `mcp` block (add missing, refresh
+ * changed, no-op identical) and live-registers them. This is
+ * materialize-on-install, mirroring how published DB skills materialize into
+ * the engine's file store on publish (materialize-on-publish — see
+ * docs/ai/decisions/2026-06-28-unify-skills-source-of-truth.md and
+ * 2026-06-28-unify-mcp-source-of-truth.md).
+ *
+ * The ONLY sanctioned consumers of this catalog are template + enrichment:
+ *   - `ensureCuratedMcps()` — materialize-on-install (write into the engine).
+ *   - GET /opencode/mcp — enriches each LIVE engine entry with `requiredEnv`
+ *     (via `findCuratedServer`); the entry LIST itself comes from the engine.
+ *   - POST /:name/credentials — validates typed secrets against `requiredEnv`
+ *     and builds the install config from the curated definition.
+ *   - `resolveRemoteServerUrl` (OAuth start) — resolves a remote server's URL.
+ *
+ * DO NOT return `CURATED_MCP_SERVERS` (or any map/filter/derivative of it) as a
+ * standalone display/listing payload from any route. Doing so re-introduces the
+ * parallel "what servers exist" list that drifts from the engine — exactly the
+ * drift this contract (and the guard in
+ * src/__tests__/curated_mcp_no_display.test.ts) exists to prevent. Add server
+ * definitions here when offering a new install; never wire a new read path that
+ * surfaces this list to clients.
+ *
+ * `ensureCuratedMcps()` idempotently merges this list into the
  * `mcp` block (add missing, refresh changed, no-op identical).
  *
  * Verified catalog (2026-06-17) — pinned to packages whose existence + env
