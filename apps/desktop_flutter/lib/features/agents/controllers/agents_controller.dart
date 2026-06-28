@@ -212,20 +212,6 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   // Persists for the app run (not persisted to the DB — see spec).
   final Map<String, String?> _selectedAgentBySession = {};
 
-  // OPC-M1-6: Terminal command-runner state (issue #709).
-  //
-  // Per-session set of message ids created by the Terminal tab (via POST
-  // /agent-sessions/:id/shell). These ids are EXCLUDED from the main chat
-  // transcript (criterion c4) and shown ONLY in the Terminal tab.
-  //
-  // _terminalMessageIds: sessionId → Set<messageId>
-  // _terminalCommandByMessage: messageId → typed command string (for echo header)
-  // _terminalErrorBySession: sessionId → error string (last shell error, cleared
-  //   when a new successful command is dispatched)
-  final Map<String, Set<String>> _terminalMessageIds = {};
-  final Map<String, String> _terminalCommandByMessage = {};
-  final Map<String, String> _terminalErrorBySession = {};
-
   // OPC-M3-6: Child-session navigation state.
   // Non-null when the user has tapped a task chip and navigated into a child
   // session transcript. The UI swaps the main transcript area to the child view.
@@ -964,59 +950,6 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     notifyListeners();
   }
 
-  // ── OPC-M1-6: Terminal command-runner (issue #709) ────────────────────────
-
-  /// Returns the set of message ids that were created by the Terminal tab for
-  /// [sessionId]. These ids are EXCLUDED from the main chat transcript and
-  /// rendered only in the Terminal tab.
-  Set<String> terminalMessageIdsFor(String sessionId) =>
-      Set.unmodifiable(_terminalMessageIds[sessionId] ?? const <String>{});
-
-  /// Returns the ordered list of terminal entries for [sessionId].
-  ///
-  /// Each entry is a record of { command, messageId } in insertion order.
-  /// The Terminal tab renders one block per entry: a command echo header
-  /// followed by the message's parts via TerminalOutputView.
-  List<({String command, String messageId})> terminalEntriesFor(
-      String sessionId) {
-    final ids = _terminalMessageIds[sessionId];
-    if (ids == null || ids.isEmpty) return const [];
-    return ids
-        .map((id) => (
-              command: _terminalCommandByMessage[id] ?? '',
-              messageId: id,
-            ))
-        .toList();
-  }
-
-  /// Returns the last shell error for [sessionId], or null when no error.
-  String? terminalErrorFor(String sessionId) =>
-      _terminalErrorBySession[sessionId];
-
-  /// POST /agent-sessions/:id/shell — run a one-shot shell command in the
-  /// session and record the returned message id in the terminal set.
-  ///
-  /// On success: records the messageId → command mapping, clears any prior
-  /// error for the session, notifies listeners.
-  /// On error: records the error string for the tab to render inline,
-  /// notifies listeners. Never silent.
-  Future<void> runShellCommand(String sessionId, String command) async {
-    if (command.trim().isEmpty) return;
-    try {
-      final messageId = await _repository.runShellCommand(sessionId, command);
-      if (_disposed) return;
-      final ids = _terminalMessageIds.putIfAbsent(sessionId, () => {});
-      ids.add(messageId);
-      _terminalCommandByMessage[messageId] = command;
-      _terminalErrorBySession.remove(sessionId);
-      notifyListeners();
-    } catch (e) {
-      if (_disposed) return;
-      _terminalErrorBySession[sessionId] = e.toString();
-      notifyListeners();
-    }
-  }
-
   // --------------------------------------------------------------------------
   // PTY
   // --------------------------------------------------------------------------
@@ -1084,21 +1017,6 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   /// has no terminal.
   void _disposeTerminal(String sessionId) {
     _terminals.remove(sessionId)?.dispose();
-  }
-
-  /// Test-only: seed a terminal message entry without a network round-trip.
-  /// Registers [messageId] in the terminal set for [sessionId] and records
-  /// the [command] echo header. Does NOT add a ChatMessage to the chat store.
-  @visibleForTesting
-  void setTerminalMessageForTest(
-    String sessionId,
-    String messageId, {
-    required String command,
-  }) {
-    final ids = _terminalMessageIds.putIfAbsent(sessionId, () => {});
-    ids.add(messageId);
-    _terminalCommandByMessage[messageId] = command;
-    notifyListeners();
   }
 
   /// Test-only: set the active session id without triggering HTTP round-trips.

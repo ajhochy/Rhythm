@@ -1871,44 +1871,6 @@ export class OpencodeClientService {
   // ─────────────────────────────────────────────────────────────────────────
 
   /**
-   * POST /session/{id}/shell — run a one-shot shell command in the session.
-   *
-   * OPC-M1-6 / issue #709.
-   * Requires an agent name and a resolved model (the SDK refuses shell calls
-   * without both). The default agent is 'build' (opencode built-in that runs
-   * bash without requiring an LLM turn). `model` is passed through from the
-   * caller; pass the session's resolved model so the SDK can attribute tokens.
-   *
-   * Returns the id of the created AssistantMessage so the Flutter tab can
-   * track which chat messages originated from the Terminal tab (criterion c4).
-   *
-   * Throws AppError(502) on SDK error or empty data — never swallows.
-   */
-  async runShell(
-    sdkId: string,
-    command: string,
-    model?: { providerID: string; modelID: string },
-  ): Promise<{ messageId: string }> {
-    const client = this.requireClient();
-    const raw = await client.session.shell({
-      path: { id: sdkId },
-      body: {
-        agent: 'build',
-        model,
-        command,
-      },
-    });
-    if (raw.error || !raw.data) {
-      throw new AppError(
-        502,
-        'SDK_ERROR',
-        `runShell failed for session ${sdkId}: ${JSON.stringify(raw.error ?? 'no data')}`,
-      );
-    }
-    return { messageId: raw.data.id };
-  }
-
-  /**
    * OPC-M4-4 — GET /agent — list all agents (built-in + custom) for an
    * optional cwd. Returns an empty array when the client is not ready.
    *

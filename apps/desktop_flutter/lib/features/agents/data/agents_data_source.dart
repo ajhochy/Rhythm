@@ -558,26 +558,6 @@ class AgentsDataSource {
     // This stub exists for interface completeness and test double compliance.
   }
 
-  /// OPC-M1-6 / issue #709 — POST /agent-sessions/:id/shell { command }
-  ///
-  /// Runs a one-shot shell command in the session and returns the id of the
-  /// AssistantMessage created by the SDK for this command run. The returned
-  /// messageId is recorded by the controller in the terminal message set so
-  /// the tab can track which messages originated from the terminal (c4).
-  ///
-  /// Throws on HTTP error — the controller surfaces the error as an inline
-  /// error line in the Terminal tab (criterion c5, never silent).
-  Future<String> runShellCommand(String id, String command) async {
-    final response = await _client.post(
-      Uri.parse('$_baseUrl/agent-sessions/$id/shell'),
-      headers: AuthSessionStore.headers(json: true),
-      body: jsonEncode({'command': command}),
-    );
-    assertOk(response);
-    final body = jsonDecode(response.body) as Map<String, dynamic>;
-    return body['messageId'] as String;
-  }
-
   // --------------------------------------------------------------------------
   // PTY
   // --------------------------------------------------------------------------
