@@ -6,7 +6,7 @@
  *   fetch -> express(agentSessionsRouter) -> AgentSessionsController (REAL)
  *         -> OpencodeClientService (REAL) -> fakeSdkClient (REAL SDK shapes)
  *
- * No mocking of service methods (no `runShell`/`listAgents`/`createSession`
+ * No mocking of service methods (no `listAgents`/`createSession`
  * spies). The service calls the real-shaped fake client exactly as it would the
  * real SDK, so a wrong call site (`client.agents` vs `client.app.agents`) or a
  * wrong body shape surfaces here as an HTTP error, not a green false positive.
@@ -90,8 +90,6 @@ function makeFakeClient() {
     session: {
       // POST /session -> { data: Session }.
       create: vi.fn().mockResolvedValue({ data: { id: 'sdk-session-1' } }),
-      // POST /session/{id}/shell -> { data: AssistantMessage }.
-      shell: vi.fn().mockResolvedValue({ data: { id: 'msg-shell-1' } }),
     },
     // Top-level permission responder -> { data: boolean }.
     postSessionIdPermissionsPermissionId: vi.fn().mockResolvedValue({ data: true }),
@@ -248,75 +246,6 @@ describe('POST /agent-sessions -> agentId validation (#653) + client.session.cre
     expect(createFn.mock.calls[0][0]).toMatchObject({ body: { title: 'RealCreate' } });
     // The SDK session id was mapped for the new local session.
     expect(sessionMap.get(body.id)).toBe('sdk-session-1');
-  });
-});
-
-// ===========================================================================
-// PATH 3 — POST /agent-sessions/:id/shell  (OPC-M1-6 / #709)
-// ===========================================================================
-describe('POST /agent-sessions/:id/shell -> model resolution -> client.session.shell', () => {
-  it('runs the command and returns { messageId }, calling shell with the REAL body shape', async () => {
-    const s = insertSession('ShellHappy');
-    sessionMap.set(s.id, 'sdk-shell-1');
-
-    const { status, body } = await req('POST', `/agent-sessions/${s.id}/shell`, {
-      command: 'ls -la',
-    });
-    expect(status).toBe(200);
-    expect(body.messageId).toBe('msg-shell-1');
-
-    const shellFn = (fake.ref as any).session.shell;
-    expect(shellFn).toHaveBeenCalledTimes(1);
-    // Real SessionShellData body: { agent, model:{providerID,modelID}, command }.
-    expect(shellFn.mock.calls[0][0]).toMatchObject({
-      path: { id: 'sdk-shell-1' },
-      body: {
-        agent: 'build',
-        model: { providerID: 'anthropic', modelID: 'claude-opus-4-7' },
-        command: 'ls -la',
-      },
-    });
-  });
-
-  it('empty command -> 400 and the SDK is never called', async () => {
-    const s = insertSession('ShellEmpty');
-    sessionMap.set(s.id, 'sdk-shell-2');
-    const { status, body } = await req('POST', `/agent-sessions/${s.id}/shell`, { command: '   ' });
-    expect(status).toBe(400);
-    expect(body.error.code).toBe('BAD_REQUEST');
-    expect((fake.ref as any).session.shell).not.toHaveBeenCalled();
-  });
-
-  it('unknown session id -> 404', async () => {
-    const { status, body } = await req('POST', '/agent-sessions/does-not-exist/shell', {
-      command: 'ls',
-    });
-    expect(status).toBe(404);
-    expect(body.error.code).toBe('NOT_FOUND');
-    expect((fake.ref as any).session.shell).not.toHaveBeenCalled();
-  });
-
-  it('session with no SDK mapping -> 400', async () => {
-    const s = insertSession('ShellNoMap');
-    // Intentionally no sessionMap entry.
-    const { status, body } = await req('POST', `/agent-sessions/${s.id}/shell`, { command: 'ls' });
-    expect(status).toBe(400);
-    expect(body.error.message).toContain('no active SDK mapping');
-    expect((fake.ref as any).session.shell).not.toHaveBeenCalled();
-  });
-
-  it('SDK error envelope -> 502 (never swallowed), no success JSON', async () => {
-    const s = insertSession('ShellSdkErr');
-    sessionMap.set(s.id, 'sdk-shell-3');
-    // Real SDK error shape: the envelope carries `error`, no `data`.
-    (fake.ref as any).session.shell.mockResolvedValueOnce({ error: { code: 500, message: 'boom' } });
-
-    const { status, body } = await req('POST', `/agent-sessions/${s.id}/shell`, {
-      command: 'echo hi',
-    });
-    expect(status).toBe(502);
-    expect(body.error.code).toBe('SDK_ERROR');
-    expect(body.messageId).toBeUndefined();
   });
 });
 

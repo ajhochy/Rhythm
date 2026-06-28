@@ -177,10 +177,6 @@ class _StubAgentsRepository implements AgentsRepository {
   @override
   Future<List<AgentInfo>> fetchAvailableAgents({String? cwd}) async => const [];
 
-  @override
-  Future<String> runShellCommand(String sessionId, String command) async =>
-      'msg-shell-default';
-
   // closeSession / deleteSession / archiveSession are exercised by teardown
   // tests; the _ReadyAgentServerController reports ready, so these await the
   // repository. Record nothing here — just resolve.
