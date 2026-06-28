@@ -18,6 +18,7 @@ async function main() {
     { attachWsGateway },
     { startAgentSchedulerJob },
     { agentMemoryService },
+    { startMemoryVaultSyncJob },
   ] = await Promise.all([
     import('./app'),
     import('./database/db'),
@@ -27,6 +28,7 @@ async function main() {
     import('./services/ws_gateway'),
     import('./services/agentSchedulerService'),
     import('./services/agentMemoryService'),
+    import('./jobs/memory_vault_sync_job'),
   ]);
 
   const port = Number(process.env.PORT ?? 4000);
@@ -36,6 +38,10 @@ async function main() {
 
   const recurrenceJob = startRecurrenceGenerationJob();
   const syncJob = startSyncOrchestratorJob();
+
+  // Issue #770 WI6: mirror the dedicated Memory-Vault into agent_memory so the
+  // Rhythm Brain panel displays vault contents. No-op when the vault is absent.
+  const memoryVaultSyncJob = startMemoryVaultSyncJob();
 
   // Agent subsystem: scheduler + memory consolidation seed
   const agentSchedulerJob = startAgentSchedulerJob();
@@ -174,6 +180,7 @@ async function main() {
     // 1. Stop cron jobs so no new work is kicked off.
     try { recurrenceJob?.stop(); } catch (_) { /* ignore */ }
     try { syncJob?.stop(); } catch (_) { /* ignore */ }
+    try { memoryVaultSyncJob?.stop(); } catch (_) { /* ignore */ }
     try { agentSchedulerJob?.stop(); } catch (_) { /* ignore */ }
 
     // 2. Dispose the Opencode SDK subprocess.
