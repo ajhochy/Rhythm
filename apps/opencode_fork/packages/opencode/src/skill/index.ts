@@ -89,6 +89,11 @@ export interface Interface {
   readonly all: () => Effect.Effect<Info[]>
   readonly dirs: () => Effect.Effect<string[]>
   readonly available: (agent?: Agent.Info) => Effect.Effect<Info[]>
+  // Discovery is memoized per-instance in InstanceState (see `discovered`/`state`
+  // below), so SKILL.md files written after init are invisible until the caches
+  // are invalidated. `reload` forces a fresh disk scan and returns the new list.
+  // Rhythm's api_server calls this after writing into its managed skills dir.
+  readonly reload: () => Effect.Effect<Info[]>
 }
 
 const add = Effect.fnUntraced(function* (state: State, match: string, bus: Bus.Interface) {
@@ -281,7 +286,16 @@ export const layer = Layer.effect(
       return list.filter((skill) => Permission.evaluate("skill", skill.name, agent.permission).action !== "deny")
     })
 
-    return Service.of({ get, all, dirs, available })
+    const reload = Effect.fn("Skill.reload")(function* () {
+      // Invalidate the disk-scan cache first, then the parsed-skill cache, so the
+      // subsequent `all()` re-runs discovery (re-reading config.skills.paths and
+      // every scan dir) instead of returning the stale memoized set.
+      yield* InstanceState.invalidate(discovered)
+      yield* InstanceState.invalidate(state)
+      return yield* all()
+    })
+
+    return Service.of({ get, all, dirs, available, reload })
   }),
 )
 

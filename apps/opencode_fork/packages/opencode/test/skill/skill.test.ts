@@ -419,4 +419,55 @@ description: A skill in the .opencode/skills directory.
       { git: true },
     ),
   )
+
+  it.live("reload re-scans skills written after the cache was memoized", () =>
+    provideTmpdirInstance(
+      (dir) =>
+        Effect.gen(function* () {
+          yield* Effect.promise(() =>
+            Bun.write(
+              path.join(dir, ".opencode", "skill", "first-skill", "SKILL.md"),
+              `---
+name: first-skill
+description: First skill, present before init.
+---
+
+# First Skill
+`,
+            ),
+          )
+
+          const skill = yield* Skill.Service
+          const before = (yield* skill.all()).filter((s) => s.location !== "<built-in>")
+          expect(before.map((s) => s.name).sort()).toEqual(["first-skill"])
+
+          // Write a second skill AFTER the first all() memoized discovery.
+          yield* Effect.promise(() =>
+            Bun.write(
+              path.join(dir, ".opencode", "skill", "second-skill", "SKILL.md"),
+              `---
+name: second-skill
+description: Second skill, written after init.
+---
+
+# Second Skill
+`,
+            ),
+          )
+
+          // Without reload the memoized list is stale — only the first skill.
+          const stillMemoized = (yield* skill.all()).filter((s) => s.location !== "<built-in>")
+          expect(stillMemoized.map((s) => s.name).sort()).toEqual(["first-skill"])
+
+          // reload() invalidates both caches and re-scans the disk.
+          const reloaded = (yield* skill.reload()).filter((s) => s.location !== "<built-in>")
+          expect(reloaded.map((s) => s.name).sort()).toEqual(["first-skill", "second-skill"])
+
+          // Subsequent all() now reflects the reloaded set.
+          const after = (yield* skill.all()).filter((s) => s.location !== "<built-in>")
+          expect(after.map((s) => s.name).sort()).toEqual(["first-skill", "second-skill"])
+        }),
+      { git: true },
+    ),
+  )
 })

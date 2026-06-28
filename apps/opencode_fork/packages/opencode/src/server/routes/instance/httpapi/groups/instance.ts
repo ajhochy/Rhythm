@@ -50,6 +50,7 @@ export const InstancePaths = {
   command: "/command",
   agent: "/agent",
   skill: "/skill",
+  skillReload: "/skill/reload",
   lsp: "/lsp",
   formatter: "/formatter",
 } as const
@@ -163,6 +164,17 @@ export const InstanceApi = HttpApi.make("instance")
             identifier: "app.skills",
             summary: "List skills",
             description: "Get a list of all available skills in the OpenCode system.",
+          }),
+        ),
+        HttpApiEndpoint.post("skillReload", InstancePaths.skillReload, {
+          query: WorkspaceRoutingQuery,
+          success: described(Schema.Array(Skill.Info), "Reloaded list of skills"),
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "app.skills.reload",
+            summary: "Reload skills",
+            description:
+              "Invalidate the memoized skill discovery cache and re-scan the disk, returning the freshly-discovered skills. Used after writing SKILL.md files into a configured skill path.",
           }),
         ),
         HttpApiEndpoint.get("lsp", InstancePaths.lsp, {
