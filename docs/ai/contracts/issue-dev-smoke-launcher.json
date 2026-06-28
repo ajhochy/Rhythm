@@ -1,0 +1,72 @@
+{
+  "issue": "dev-smoke-launcher",
+  "generated": "2026-06-27",
+  "criteria": [
+    {
+      "criterion_id": "issue-dev-smoke-launcher-c1",
+      "text": "The launcher must not start/reuse a competing :4000 server for this workflow, and must ensure :4000/:4001/:4096 state is safe before launch.",
+      "mode": "integration",
+      "test_file": "tests/contract/issue-dev-smoke-launcher.sh",
+      "test_id": "issue-dev-smoke-launcher-c1: does not run a competing :4000 server and preflights fixed ports",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-dev-smoke-launcher-c2",
+      "text": "The launcher must build or accept/stage the fork at apps/api_server/opencode_bin/opencode, make it executable, and verify its version is not the stale system 1.14.40.",
+      "mode": "integration",
+      "test_file": "tests/contract/issue-dev-smoke-launcher.sh",
+      "test_id": "issue-dev-smoke-launcher-c2: stages the supplied fork first, executable, with verified identity",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-dev-smoke-launcher-c3",
+      "text": "A staged or resolved engine reporting the stale system version 1.14.40 must abort the smoke before Rhythm launches.",
+      "mode": "integration",
+      "test_file": "tests/contract/issue-dev-smoke-launcher.sh",
+      "test_id": "issue-dev-smoke-launcher-c3: rejects the stale system engine version",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-dev-smoke-launcher-c4",
+      "text": "The launcher must launch the Debug app from a path that preserves repo discovery (not /private/tmp).",
+      "mode": "integration",
+      "test_file": "tests/contract/issue-dev-smoke-launcher.sh",
+      "test_id": "issue-dev-smoke-launcher-c4: launches the repo Debug bundle without a temporary copy",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-dev-smoke-launcher-c5",
+      "text": "After launch, http://localhost:4001/opencode/health must report ready before the launcher reports a valid engine smoke.",
+      "mode": "integration",
+      "test_file": "tests/contract/issue-dev-smoke-launcher.sh",
+      "test_id": "issue-dev-smoke-launcher-c5: requires app-owned :4001 opencode health readiness",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-dev-smoke-launcher-c6",
+      "text": "After launch, the process listening on :4096 must resolve to apps/api_server/opencode_bin/opencode.",
+      "mode": "integration",
+      "test_file": "tests/contract/issue-dev-smoke-launcher.sh",
+      "test_id": "issue-dev-smoke-launcher-c6: requires :4096 to be owned by the staged fork executable",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-dev-smoke-launcher-c7",
+      "text": "After launch, the running :4096 engine version identity must match the freshly staged fork build.",
+      "mode": "integration",
+      "test_file": "tests/contract/issue-dev-smoke-launcher.sh",
+      "test_id": "issue-dev-smoke-launcher-c7: requires the running engine build identity to match",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-dev-smoke-launcher-c8",
+      "text": "After launch, http://localhost:4001/agents/capabilities must report \"opencode\": true.",
+      "mode": "integration",
+      "test_file": "tests/contract/issue-dev-smoke-launcher.sh",
+      "test_id": "issue-dev-smoke-launcher-c8: requires opencode capability before reporting success",
+      "status": "pending"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}

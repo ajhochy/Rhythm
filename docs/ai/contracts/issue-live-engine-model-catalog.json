@@ -1,0 +1,56 @@
+{
+  "issue": "live-engine-model-catalog",
+  "generated": "2026-06-27",
+  "criteria": [
+    {
+      "criterion_id": "issue-live-engine-model-catalog-c1",
+      "text": "Given the mocked live engine catalog contains direct models absent from ROUTE_FALLBACKS_BY_AGENT—anthropic/claude-opus-4-8, openai/gpt-5.5, google/gemini-3.5-flash—GET /agents/models/catalog includes them with agent mappings claude-code/codex/gemini-cli and direct routes.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/agents_models_catalog.test.ts",
+      "test_id": "issue-live-engine-model-catalog-c1: includes live-only direct models with the correct agent mappings",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-live-engine-model-catalog-c2",
+      "text": "Existing hardcoded fallback rows remain when the live catalog is unavailable/empty.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/agents_models_catalog.test.ts",
+      "test_id": "issue-live-engine-model-catalog-c2: keeps hardcoded fallback rows when live catalogs are empty",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-live-engine-model-catalog-c3",
+      "text": "Dedupe existing rows and preserve current direct-auth/OpenRouter suppression behavior.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/agents_models_catalog.test.ts",
+      "test_id": "issue-live-engine-model-catalog-c3: dedupes direct rows and preserves direct-auth OpenRouter suppression",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-live-engine-model-catalog-c4",
+      "text": "Keep the picker focused on coding/chat families: do not admit obvious embedding/TTS/image models or generated -fast variants. Avoid introducing new metadata plumbing unless the existing API cannot satisfy this narrowly.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/agents_models_catalog.test.ts",
+      "test_id": "issue-live-engine-model-catalog-c4: excludes specialized and generated fast models from live discovery",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-live-engine-model-catalog-c5",
+      "text": "Test the real route composition; mock only the external opencode listModels/auth boundary, not the route logic under test.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/agents_models_catalog.test.ts",
+      "test_id": "issue-live-engine-model-catalog-c5: composes the real HTTP route over the opencode inventory boundary",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-live-engine-model-catalog-c6",
+      "text": "Tests must fail on current code because live-only models are dropped, not due setup errors.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/agents_models_catalog.test.ts",
+      "test_id": "issue-live-engine-model-catalog-c6: fails on a missing live-only row after a successful route response",
+      "status": "pending"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}

@@ -279,6 +279,245 @@ describe('GET /agents/models/catalog', () => {
     }
   });
 
+  it('issue-live-engine-model-catalog-c1: includes live-only direct models with the correct agent mappings', async () => {
+    // CONTRACT TEST — catches the regression where the route starts from
+    // ROUTE_FALLBACKS_BY_AGENT and uses the live inventory only as a filter.
+    mockAuthedProviders.push('anthropic', 'openai', 'google');
+    const { opencodeClient } = await import('../services/opencode_engine');
+    const mockListModels = vi.mocked(opencodeClient.listModels);
+    const original = mockListModels.getMockImplementation()!;
+    try {
+      mockListModels.mockImplementation(async (providerId: string) => {
+        const models = (await original(providerId)) as Array<{ id: string; contextLimit?: number }>;
+        if (providerId === 'anthropic') {
+          return [...models, { id: 'claude-opus-4-8', contextLimit: 1_000_000 }];
+        }
+        if (providerId === 'openai') {
+          return [...models, { id: 'gpt-5.5', contextLimit: 1_000_000 }];
+        }
+        if (providerId === 'google') {
+          return [...models, { id: 'gemini-3.5-flash', contextLimit: 1_048_576 }];
+        }
+        return models;
+      });
+
+      const res = await fetch(`${baseUrl}/agents/models/catalog`, {
+        headers: authHeaders,
+      });
+      expect(res.status).toBe(200);
+      const rows = await res.json() as Array<Record<string, unknown>>;
+
+      expect(rows).toContainEqual(expect.objectContaining({
+        agent: 'claude-code',
+        provider: 'anthropic',
+        modelId: 'claude-opus-4-8',
+        route: 'direct',
+        authorized: true,
+      }));
+      expect(rows).toContainEqual(expect.objectContaining({
+        agent: 'codex',
+        provider: 'openai',
+        modelId: 'gpt-5.5',
+        route: 'direct',
+        authorized: true,
+      }));
+      expect(rows).toContainEqual(expect.objectContaining({
+        agent: 'gemini-cli',
+        provider: 'google',
+        modelId: 'gemini-3.5-flash',
+        route: 'direct',
+        authorized: true,
+      }));
+    } finally {
+      mockListModels.mockImplementation(original);
+    }
+  });
+
+  it('issue-live-engine-model-catalog-c2: keeps hardcoded fallback rows when live catalogs are empty', async () => {
+    // CONTRACT TEST — catches a startup/network regression where dynamic
+    // discovery replaces the fallback list and an empty SDK response empties
+    // the picker.
+    const { opencodeClient } = await import('../services/opencode_engine');
+    const mockListModels = vi.mocked(opencodeClient.listModels);
+    const original = mockListModels.getMockImplementation()!;
+    try {
+      mockListModels.mockResolvedValue([]);
+
+      const res = await fetch(`${baseUrl}/agents/models/catalog`, {
+        headers: authHeaders,
+      });
+      expect(res.status).toBe(200);
+      const rows = await res.json() as Array<Record<string, unknown>>;
+
+      expect(rows).toContainEqual(expect.objectContaining({
+        agent: 'claude-code',
+        provider: 'anthropic',
+        modelId: 'claude-sonnet-4-6',
+        route: 'direct',
+      }));
+      expect(rows).toContainEqual(expect.objectContaining({
+        agent: 'codex',
+        provider: 'openai',
+        modelId: 'gpt-5.4',
+        route: 'direct',
+      }));
+      expect(rows).toContainEqual(expect.objectContaining({
+        agent: 'gemini-cli',
+        provider: 'google',
+        modelId: 'gemini-2.5-pro',
+        route: 'direct',
+      }));
+    } finally {
+      mockListModels.mockImplementation(original);
+    }
+  });
+
+  it('issue-live-engine-model-catalog-c3: dedupes direct rows and preserves direct-auth OpenRouter suppression', async () => {
+    // CONTRACT TEST — catches a naive live-catalog union that duplicates an
+    // existing fallback row or reintroduces the equivalent OpenRouter route.
+    mockAuthedProviders.push('anthropic', 'openrouter');
+
+    const res = await fetch(`${baseUrl}/agents/models/catalog`, {
+      headers: authHeaders,
+    });
+    expect(res.status).toBe(200);
+    const rows = await res.json() as Array<Record<string, unknown>>;
+
+    const direct = rows.filter(
+      (row) =>
+        row.provider === 'anthropic' &&
+        row.modelId === 'claude-opus-4-7' &&
+        row.route === 'direct',
+    );
+    const duplicateAggregator = rows.filter(
+      (row) =>
+        row.provider === 'openrouter' &&
+        row.modelId === 'anthropic/claude-opus-4.7',
+    );
+    expect(direct).toHaveLength(1);
+    expect(duplicateAggregator).toHaveLength(0);
+  });
+
+  it('issue-live-engine-model-catalog-c4: excludes specialized and generated fast models from live discovery', async () => {
+    // CONTRACT TEST — catches an unfiltered live-catalog union that exposes
+    // embedding, TTS, image, or generated -fast rows in the coding picker.
+    mockAuthedProviders.push('anthropic', 'openai', 'google');
+    const { opencodeClient } = await import('../services/opencode_engine');
+    const mockListModels = vi.mocked(opencodeClient.listModels);
+    const original = mockListModels.getMockImplementation()!;
+    try {
+      mockListModels.mockImplementation(async (providerId: string) => {
+        const models = (await original(providerId)) as Array<{ id: string }>;
+        if (providerId === 'anthropic') {
+          return [
+            ...models,
+            { id: 'claude-opus-4-8' },
+            { id: 'claude-opus-4-8-fast' },
+          ];
+        }
+        if (providerId === 'openai') {
+          return [
+            ...models,
+            { id: 'gpt-5.5' },
+            { id: 'gpt-5.5-fast' },
+            { id: 'text-embedding-3-small' },
+          ];
+        }
+        if (providerId === 'google') {
+          return [
+            ...models,
+            { id: 'gemini-3.5-flash' },
+            { id: 'gemini-2.5-flash-preview-tts' },
+            { id: 'gemini-3-pro-image-preview' },
+          ];
+        }
+        return models;
+      });
+
+      const res = await fetch(`${baseUrl}/agents/models/catalog`, {
+        headers: authHeaders,
+      });
+      expect(res.status).toBe(200);
+      const rows = await res.json() as Array<Record<string, unknown>>;
+      const directIds = rows
+        .filter((row) => row.route === 'direct')
+        .map((row) => `${row.provider}/${row.modelId}`);
+
+      // Prove the live inventory was admitted before checking its filter.
+      expect(directIds).toContain('openai/gpt-5.5');
+      expect(directIds).not.toContain('anthropic/claude-opus-4-8-fast');
+      expect(directIds).not.toContain('openai/gpt-5.5-fast');
+      expect(directIds).not.toContain('openai/text-embedding-3-small');
+      expect(directIds).not.toContain('google/gemini-2.5-flash-preview-tts');
+      expect(directIds).not.toContain('google/gemini-3-pro-image-preview');
+    } finally {
+      mockListModels.mockImplementation(original);
+    }
+  });
+
+  it('issue-live-engine-model-catalog-c5: composes the real HTTP route over the opencode inventory boundary', async () => {
+    // CONTRACT TEST — the Express route is real; only the external opencode
+    // inventory/auth boundary is mocked. This catches route composition that
+    // never promotes a live-only provider model.
+    mockAuthedProviders.push('anthropic');
+    const { opencodeClient } = await import('../services/opencode_engine');
+    const mockListModels = vi.mocked(opencodeClient.listModels);
+    const original = mockListModels.getMockImplementation()!;
+    try {
+      mockListModels.mockImplementation(async (providerId: string) => {
+        const models = (await original(providerId)) as Array<{ id: string }>;
+        return providerId === 'anthropic'
+          ? [...models, { id: 'claude-opus-4-8' }]
+          : models;
+      });
+
+      const res = await fetch(`${baseUrl}/agents/models/catalog`, {
+        headers: authHeaders,
+      });
+      expect(res.status).toBe(200);
+      const rows = await res.json() as Array<Record<string, unknown>>;
+      expect(rows).toContainEqual(expect.objectContaining({
+        provider: 'anthropic',
+        modelId: 'claude-opus-4-8',
+        agent: 'claude-code',
+        route: 'direct',
+      }));
+    } finally {
+      mockListModels.mockImplementation(original);
+    }
+  });
+
+  it('issue-live-engine-model-catalog-c6: fails on a missing live-only row after a successful route response', async () => {
+    // CONTRACT TEST — status 200 proves setup and route execution succeeded;
+    // the missing gpt-5.5-pro assertion isolates the current hardcoded-list bug.
+    mockAuthedProviders.push('openai');
+    const { opencodeClient } = await import('../services/opencode_engine');
+    const mockListModels = vi.mocked(opencodeClient.listModels);
+    const original = mockListModels.getMockImplementation()!;
+    try {
+      mockListModels.mockImplementation(async (providerId: string) => {
+        const models = (await original(providerId)) as Array<{ id: string }>;
+        return providerId === 'openai'
+          ? [...models, { id: 'gpt-5.5-pro' }]
+          : models;
+      });
+
+      const res = await fetch(`${baseUrl}/agents/models/catalog`, {
+        headers: authHeaders,
+      });
+      expect(res.status).toBe(200);
+      const rows = await res.json() as Array<Record<string, unknown>>;
+      expect(rows).toContainEqual(expect.objectContaining({
+        provider: 'openai',
+        modelId: 'gpt-5.5-pro',
+        agent: 'codex',
+        route: 'direct',
+      }));
+    } finally {
+      mockListModels.mockImplementation(original);
+    }
+  });
+
   afterEach(async () => {
     await closeServer();
     vi.clearAllMocks();

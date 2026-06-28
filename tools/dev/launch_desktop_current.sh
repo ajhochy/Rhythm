@@ -3,71 +3,87 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 APP_DIR="$ROOT/apps/desktop_flutter"
-SERVER_DIR="$ROOT/apps/api_server"
 APP_BUNDLE="$APP_DIR/build/macos/Build/Products/Debug/Rhythm.app"
-FRESH_BUNDLE="/private/tmp/Rhythm Current.app"
-SERVER_LOG="/tmp/rhythm-current-server.log"
-SERVER_PID_FILE="/tmp/rhythm-current-server.pid"
-DB_PATH="${RHYTHM_RUNTIME_DB_PATH:-$HOME/Library/Application Support/Rhythm/rhythm.db}"
+OPENCODE_PACKAGE="$ROOT/apps/opencode_fork/packages/opencode"
+BUILT_ENGINE="$OPENCODE_PACKAGE/dist/opencode-darwin-arm64/bin/opencode"
+STAGED_ENGINE="$ROOT/apps/api_server/opencode_bin/opencode"
+HEALTH_URL="http://localhost:4001/opencode/health"
+CAPABILITIES_URL="http://localhost:4001/agents/capabilities"
+STALE_SYSTEM_VERSION="1.14.40"
 
-find_node() {
-  local candidates=(
-    "/usr/local/bin/node"
-    "/opt/homebrew/bin/node"
-    "/usr/bin/node"
-  )
-
-  for candidate in "${candidates[@]}"; do
-    if [[ -x "$candidate" ]]; then
-      printf '%s\n' "$candidate"
-      return 0
-    fi
-  done
-
-  if command -v node >/dev/null 2>&1; then
-    command -v node
-    return 0
-  fi
-
-  return 1
+fail() {
+  printf 'Engine smoke launcher failed: %s\n' "$*" >&2
+  exit 1
 }
 
-ensure_server() {
-  if curl -sf "http://localhost:4000/health" >/dev/null 2>&1; then
-    printf 'Reusing existing Rhythm API on :4000.\n'
-    return 0
+canonical_path() {
+  local path="$1"
+  local directory
+  directory="$(cd "$(dirname "$path")" && pwd -P)"
+  printf '%s/%s\n' "$directory" "$(basename "$path")"
+}
+
+stage_engine() {
+  local source_engine="${RHYTHM_OPENCODE_SOURCE:-}"
+
+  if [[ -z "$source_engine" ]]; then
+    printf 'Building forked opencode engine...\n'
+    (cd "$OPENCODE_PACKAGE" && bun run build --single)
+    source_engine="$BUILT_ENGINE"
   fi
 
-  local node_bin
-  node_bin="$(find_node)" || {
-    printf 'Could not find node. Install Node.js and try again.\n' >&2
-    exit 1
-  }
+  [[ -f "$source_engine" ]] ||
+    fail "forked opencode binary not found at $source_engine"
+  [[ -x "$source_engine" ]] ||
+    fail "forked opencode binary is not executable: $source_engine"
 
-  mkdir -p "$(dirname "$DB_PATH")"
+  mkdir -p "$(dirname "$STAGED_ENGINE")"
+  cp "$source_engine" "$STAGED_ENGINE"
+  chmod +x "$STAGED_ENGINE"
+  xattr -dr com.apple.provenance "$STAGED_ENGINE" >/dev/null 2>&1 || true
 
-  if [[ ! -f "$SERVER_DIR/dist/server.js" ]]; then
-    printf 'Building API server...\n'
-    (cd "$SERVER_DIR" && npm run build)
+  local staged_version
+  staged_version="$("$STAGED_ENGINE" --version)" ||
+    fail "could not read staged opencode version"
+  [[ -n "$staged_version" ]] || fail "staged opencode version is empty"
+  [[ "$staged_version" != "$STALE_SYSTEM_VERSION" ]] ||
+    fail "staged opencode is stale system version $STALE_SYSTEM_VERSION"
+
+  if [[ -n "${RHYTHM_EXPECTED_OPENCODE_VERSION:-}" ]]; then
+    [[ "$staged_version" == "$RHYTHM_EXPECTED_OPENCODE_VERSION" ]] ||
+      fail "staged opencode version '$staged_version' does not match expected '$RHYTHM_EXPECTED_OPENCODE_VERSION'"
   fi
 
-  printf 'Starting Rhythm API with DB %s\n' "$DB_PATH"
-  (
-    cd "$SERVER_DIR"
-    DB_PATH="$DB_PATH" "$node_bin" dist/server.js >"$SERVER_LOG" 2>&1 &
-    echo $! >"$SERVER_PID_FILE"
-  )
+  STAGED_VERSION="$staged_version"
+  printf 'Staged opencode fork: %s (%s)\n' "$STAGED_ENGINE" "$STAGED_VERSION"
+}
 
-  for _ in {1..40}; do
-    if curl -sf "http://localhost:4000/health" >/dev/null 2>&1; then
-      printf 'Rhythm API ready on :4000.\n'
-      return 0
-    fi
-    sleep 0.2
+clear_port() {
+  local port="$1"
+  local pids
+  pids="$(lsof -tiTCP:"$port" -sTCP:LISTEN 2>/dev/null || true)"
+  [[ -z "$pids" ]] && return 0
+
+  printf 'Stopping existing listener(s) on :%s: %s\n' "$port" "$pids"
+  while IFS= read -r pid; do
+    [[ -n "$pid" ]] && kill "$pid" >/dev/null 2>&1 || true
+  done <<<"$pids"
+  sleep 0.5
+
+  pids="$(lsof -tiTCP:"$port" -sTCP:LISTEN 2>/dev/null || true)"
+  while IFS= read -r pid; do
+    [[ -n "$pid" ]] && kill -9 "$pid" >/dev/null 2>&1 || true
+  done <<<"$pids"
+
+  pids="$(lsof -tiTCP:"$port" -sTCP:LISTEN 2>/dev/null || true)"
+  [[ -z "$pids" ]] || fail "port :$port is still occupied by $pids"
+}
+
+prepare_runtime() {
+  pkill -f "$APP_BUNDLE/Contents/MacOS/Rhythm" >/dev/null 2>&1 || true
+  for port in 4000 4001 4096; do
+    clear_port "$port"
   done
-
-  printf 'Rhythm API did not become ready. See %s\n' "$SERVER_LOG" >&2
-  exit 1
 }
 
 build_app() {
@@ -76,19 +92,70 @@ build_app() {
 }
 
 launch_app() {
-  pkill -f '/private/tmp/Rhythm Current.app/Contents/MacOS/Rhythm' >/dev/null 2>&1 || true
-  pkill -f '/Users/ajhochhalter/Documents/Rhythm/apps/desktop_flutter/build/macos/Build/Products/Debug/Rhythm.app/Contents/MacOS/Rhythm' >/dev/null 2>&1 || true
+  open -na "$APP_BUNDLE"
+  printf 'Launched %s\n' "$APP_BUNDLE"
+}
 
-  rm -rf "$FRESH_BUNDLE"
-  cp -R "$APP_BUNDLE" "$FRESH_BUNDLE"
-  open -na "$FRESH_BUNDLE"
-  printf 'Launched %s\n' "$FRESH_BUNDLE"
+wait_for_engine_health() {
+  local response=""
+  for _ in {1..60}; do
+    if response="$(curl -fsS "$HEALTH_URL" 2>/dev/null)" &&
+      printf '%s' "$response" |
+        grep -Eq '"status"[[:space:]]*:[[:space:]]*"ready"'; then
+      printf 'Agent server ready on :4001.\n'
+      return 0
+    fi
+    sleep 0.5
+  done
+  fail "$HEALTH_URL did not report ready"
+}
+
+verify_running_engine() {
+  local engine_pid
+  local engine_path
+  local expected_path
+  local running_version
+
+  engine_pid="$(lsof -tiTCP:4096 -sTCP:LISTEN 2>/dev/null | head -1)"
+  [[ -n "$engine_pid" ]] || fail "no opencode engine is listening on :4096"
+
+  engine_path="$(lsof -p "$engine_pid" 2>/dev/null |
+    awk '$4 == "txt" { print $9; exit }')"
+  [[ -n "$engine_path" ]] ||
+    fail "could not resolve executable for :4096 PID $engine_pid"
+
+  expected_path="$(canonical_path "$STAGED_ENGINE")"
+  engine_path="$(canonical_path "$engine_path")"
+  [[ "$engine_path" == "$expected_path" ]] ||
+    fail ":4096 is running $engine_path, expected $expected_path"
+
+  running_version="$("$engine_path" --version)" ||
+    fail "could not read running opencode version"
+  [[ "$running_version" == "$STAGED_VERSION" ]] ||
+    fail "running opencode version '$running_version' does not match staged '$STAGED_VERSION'"
+
+  printf 'Verified :4096 engine: %s (%s)\n' "$engine_path" "$running_version"
+}
+
+verify_capabilities() {
+  local response
+  response="$(curl -fsS "$CAPABILITIES_URL" 2>/dev/null)" ||
+    fail "could not read $CAPABILITIES_URL"
+  printf '%s' "$response" |
+    grep -Eq '"opencode"[[:space:]]*:[[:space:]]*true' ||
+    fail "$CAPABILITIES_URL did not report opencode=true"
+  printf 'Verified agent capability: opencode=true.\n'
 }
 
 main() {
-  ensure_server
+  stage_engine
+  prepare_runtime
   build_app
   launch_app
+  wait_for_engine_health
+  verify_running_engine
+  verify_capabilities
+  printf 'Rhythm is ready for an engine-change smoke test.\n'
 }
 
 main "$@"

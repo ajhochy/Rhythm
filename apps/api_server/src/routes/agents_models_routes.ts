@@ -2,7 +2,12 @@ import { Router, Request, Response } from 'express';
 import { requireAuth } from '../middleware/auth_middleware';
 import { env } from '../config/env';
 import { opencodeClient } from '../services/opencode_engine';
-import { ROUTE_FALLBACKS_BY_AGENT, listAllRoutes, type CatalogEntry } from '../services/agent_model_resolver';
+import {
+  PROVIDER_TO_AGENT_KIND,
+  ROUTE_FALLBACKS_BY_AGENT,
+  listAllRoutes,
+  type CatalogEntry,
+} from '../services/agent_model_resolver';
 import { getDb } from '../database/db';
 
 export const agentsModelsRouter = Router();
@@ -14,6 +19,19 @@ if (!env.agentLocal) agentsModelsRouter.use(requireAuth);
  * than direct accounts. Kept in sync with agents_capabilities_routes.ts.
  */
 const AGGREGATOR_PROVIDERS = new Set(['openrouter', 'together', 'groq']);
+
+const CHAT_MODEL_PREFIX_BY_PROVIDER: Record<string, string> = {
+  anthropic: 'claude-',
+  openai: 'gpt-',
+  google: 'gemini-',
+};
+
+function isEligibleDirectModel(providerId: string, modelId: string): boolean {
+  const prefix = CHAT_MODEL_PREFIX_BY_PROVIDER[providerId];
+  if (!prefix || !modelId.startsWith(prefix)) return false;
+  if (modelId.endsWith('-fast')) return false;
+  return !/(?:^|-)(?:embedding|image|tts)(?:-|$)/i.test(modelId);
+}
 
 /**
  * Human-readable label for an aggregator provider ID.
@@ -156,6 +174,39 @@ agentsModelsRouter.get('/catalog', async (_req: Request, res: Response) => {
       return true;
     });
 
+    const liveDirectEntries: CatalogEntry[] = [];
+    const existingDirectKeys = new Set(
+      filtered
+        .filter((entry) => entry.route === 'direct')
+        .map((entry) => `${entry.authProvider}\0${entry.modelID}`),
+    );
+    const directTemplates = new Map(
+      allEntries
+        .filter((entry) => entry.route === 'direct')
+        .map((entry) => [entry.authProvider, entry] as const),
+    );
+    for (const [providerId, agent] of Object.entries(PROVIDER_TO_AGENT_KIND)) {
+      const template = directTemplates.get(providerId);
+      const liveModelIds = modelIdsByProvider.get(providerId);
+      if (!template || !liveModelIds || liveModelIds.size === 0) continue;
+
+      for (const modelId of liveModelIds) {
+        const key = `${providerId}\0${modelId}`;
+        if (existingDirectKeys.has(key)) continue;
+        if (!isEligibleDirectModel(providerId, modelId)) continue;
+        existingDirectKeys.add(key);
+        liveDirectEntries.push({
+          agent,
+          providerID: providerId,
+          modelID: modelId,
+          route: 'direct',
+          authorized: authedSet.has(providerId),
+          authProvider: providerId,
+          connectUrl: template.connectUrl,
+        });
+      }
+    }
+
     // Issue #609 — include curated OpenRouter models that are NOT in the
     // hardcoded ROUTE_FALLBACKS_BY_AGENT list. The curation UI lets users
     // browse the full OpenRouter catalog and mark models visible; those
@@ -193,7 +244,7 @@ agentsModelsRouter.get('/catalog', async (_req: Request, res: Response) => {
       }
     }
 
-    const allModels = [...filtered, ...curatedEntries];
+    const allModels = [...filtered, ...liveDirectEntries, ...curatedEntries];
     const response = allModels.map((entry) => {
       const contextLimit = contextLimitByKey.get(`${entry.authProvider}/${entry.modelID}`);
       return {
