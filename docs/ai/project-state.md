@@ -56,3 +56,17 @@ Symptom status:
 2. Manual UI smoke on a signed local build: agent turn renders live, NO duplicate
    messages, working token/context gauge. Then `failure-postmortem`.
 3. Human merge of #763 after smoke passes.
+
+## Recent coding-agent runs
+
+### 2026-06-27 — issue #737 fence untrusted email content (SF-4)
+- Files modified:
+  - `apps/mcp_server/src/untrusted_context.ts` (new) — shared `untrustedContext()` fence helper (delimiters + "data, not instructions" directive); TS analog of Odysseus `untrusted_context_message()`.
+  - `apps/mcp_server/src/tools/google.ts` — fence `rhythm_read_email` + `rhythm_search_gmail` tool results before they reach the model.
+  - `apps/mcp_server/src/__tests__/contract/issue-737.spec.ts` (new) — 3 contract tests.
+  - `docs/ai/contracts/issue-737.json` (new) — contract (2 unit, 1 manual/doc).
+  - `docs/ai/decisions/2026-06-27-fence-untrusted-external-content.md` (new) — fence-all-external-content rule.
+- Checks run: mcp_server `tsc --noEmit` PASS; `vitest run` 47/47 PASS (incl. 3 new contract + 7 existing google).
+- Decisions made: fence at the model-facing MCP tool-result boundary, NOT at `/integrations/gmail-signals` (that REST payload is a machine envelope consumed by Flutter; the agent reads gmail only via the MCP tools). See decision doc.
+- Deviations from spec: gmail-signals route left unfenced by design (structured-vs-text judgment); `rhythm_send_email` result ({id} confirmation, not attacker content) left unfenced.
+- Concerns: none. Calendar/PCO/web tools are not yet fenced — out of scope for #737 but now governed by the documented rule (follow-up when those tools surface external text to the model).

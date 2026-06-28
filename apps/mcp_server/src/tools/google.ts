@@ -2,6 +2,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { apiGet, apiPost, apiPatch, toolResult, toolError, RhythmApiError } from '../api_client.js';
 import { registerTool } from './_tool.js';
+import { untrustedContext } from '../untrusted_context.js';
 
 function handleErr(err: unknown) {
   if (err instanceof RhythmApiError && err.status === 409) {
@@ -89,7 +90,9 @@ export function registerGoogleTools(server: McpServer, apiUrl: string, apiToken:
     async ({ query }: { query: string }) => {
       try {
         const res = await apiGet<unknown>(apiUrl, apiToken, `/integrations/google/gmail/search?q=${encodeURIComponent(query)}`);
-        return toolResult(JSON.stringify(res, null, 2));
+        // Gmail subjects/snippets are attacker-controllable (#737, SF-4): fence
+        // before the result reaches the model. The text is the whole result here.
+        return toolResult(untrustedContext(JSON.stringify(res, null, 2), 'gmail search results'));
       } catch (err) { return handleErr(err); }
     },
   );
@@ -100,7 +103,9 @@ export function registerGoogleTools(server: McpServer, apiUrl: string, apiToken:
     async ({ id }: { id: string }) => {
       try {
         const res = await apiGet<unknown>(apiUrl, apiToken, `/integrations/google/gmail/messages/${encodeURIComponent(id)}`);
-        return toolResult(JSON.stringify(res, null, 2));
+        // Full email body is attacker-controllable (#737, SF-4): fence before the
+        // result reaches the model.
+        return toolResult(untrustedContext(JSON.stringify(res, null, 2), 'gmail message'));
       } catch (err) { return handleErr(err); }
     },
   );

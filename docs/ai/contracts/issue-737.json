@@ -1,0 +1,31 @@
+{
+  "issue": 737,
+  "generated": "2026-06-27",
+  "criteria": [
+    {
+      "criterion_id": "issue-737-c1",
+      "text": "Gmail content returned to the agent is wrapped in an explicit untrusted fence (structural delimiter + instruction that it is data, not instructions).",
+      "mode": "unit",
+      "test_file": "apps/mcp_server/src/__tests__/contract/issue-737.spec.ts",
+      "test_id": "issue-737-c2: rhythm_read_email returns the email body inside an untrusted fence",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-737-c2",
+      "text": "Test asserting fenced output for a sample signal/email body.",
+      "mode": "unit",
+      "test_file": "apps/mcp_server/src/__tests__/contract/issue-737.spec.ts",
+      "test_id": "issue-737-c1: untrustedContext() helper wraps content in a structural fence",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-737-c3",
+      "text": "Documented as the rule for all external content (PCO API responses, web fetches) going into prompts.",
+      "mode": "manual",
+      "status": "UNVERIFIED",
+      "reason": "Documentation deliverable — a decision record under docs/ai/decisions/ states the fence-all-external-content rule. Verified by reviewing the doc file, not by an automated assertion."
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": ["issue-737-c3"]
+}
