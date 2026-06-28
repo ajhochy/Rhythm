@@ -3,6 +3,39 @@ import path from 'path';
 export type DbClient = 'sqlite' | 'postgres';
 
 /**
+ * Deployment role (#755). Gates the agent-EXECUTION surfaces (agent routes,
+ * AgentScheduler, opencode/managed-Chrome init, WS gateway, agent
+ * session/config table DDL) so a hosted production API can run without the
+ * agent runtime it never uses.
+ *
+ * - `all`   (DEFAULT) — every agent surface registered + initialized.
+ *           No-regression default: the embedded local server and the current
+ *           single prod image both keep working with no env change.
+ * - `local` — local agent server (localhost:4001, SQLite). Behaves like `all`.
+ * - `cloud` — hosted production API. Agent-execution surfaces are NOT
+ *           registered/initialized; prod-owned surfaces (trigger queue,
+ *           scheduled-task records) stay.
+ *
+ * Orthogonal to AGENT_LOCAL (the auth-bypass flag): RHYTHM_ROLE decides whether
+ * the surfaces exist; AGENT_LOCAL decides whether auth is bypassed on them.
+ */
+export type DeploymentRole = 'all' | 'cloud' | 'local';
+
+function parseRole(value: string): DeploymentRole {
+  if (value === 'all' || value === 'cloud' || value === 'local') {
+    return value;
+  }
+
+  throw new Error(
+    `Unsupported RHYTHM_ROLE "${value}". Expected "all", "cloud", or "local".`,
+  );
+}
+
+const roleRaw = (process.env.RHYTHM_ROLE ?? '').trim().toLowerCase();
+// Unset OR empty both mean the default 'all' (an empty env var is "not set").
+const deploymentRole = parseRole(roleRaw === '' ? 'all' : roleRaw);
+
+/**
  * Google Cloud project ID used to enable the native Google Gemini provider in
  * the embedded opencode engine. The `opencode-gemini-auth` plugin only
  * registers the `google` provider for Google **Workspace** accounts when
@@ -31,6 +64,15 @@ function parseDbClient(value: string): DbClient {
 export const env = {
   nodeEnv: process.env.NODE_ENV ?? 'development',
   port: Number(process.env.PORT ?? 4000),
+  /** #755 — deployment role; see DeploymentRole above. Default 'all'. */
+  role: deploymentRole,
+  /**
+   * #755 — single switch every agent-execution gate reads. True for the 'all'
+   * and 'local' roles, false for 'cloud'. Keeping the policy in one derived
+   * boolean means route registration, startup init, and Postgres DDL all gate
+   * on the same condition.
+   */
+  agentExecutionEnabled: deploymentRole !== 'cloud',
   dbClient: parseDbClient(dbClientValue),
   dbPath: process.env.DB_PATH ?? path.join(process.cwd(), 'rhythm.db'),
   dbHost: process.env.DB_HOST ?? 'localhost',

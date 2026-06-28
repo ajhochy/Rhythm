@@ -37,83 +37,105 @@ async function main() {
   const recurrenceJob = startRecurrenceGenerationJob();
   const syncJob = startSyncOrchestratorJob();
 
-  // Agent subsystem: scheduler + memory consolidation seed
-  const agentSchedulerJob = startAgentSchedulerJob();
-  agentMemoryService.seedConsolidationTask().catch((err) => {
-    logger.warn(`[server] Memory consolidation seed failed (non-fatal): ${String(err)}`);
-  });
+  // #755 — gate all agent-EXECUTION startup (scheduler, opencode SDK, managed
+  // Chrome, WS gateway, skill/memory seeds, plugin config) behind the
+  // deployment role. The 'cloud' role omits this entire block so a hosted
+  // production API never attempts `spawn opencode`, never ticks the scheduler,
+  // and never attaches the WS gateway. The DEFAULT ('all') preserves today's
+  // behavior. `agentSchedulerJob`/`wss` stay declared (nullable / no-op WSS)
+  // so the single shutdown handler below remains valid in every role.
+  const { env } = await import('./config/env');
+  let agentSchedulerJob: { stop: () => void } | null = null;
 
-  // One-time seed of vetted agent-stack skills into agent_skills (local SQLite
-  // only). Guarded by a zero-count check on source='agent-stack-seed' so it
-  // never re-imports. Non-fatal — a seed failure must never block startup.
-  try {
-    const { AgentSkillsRepository } = await import(
-      './repositories/agent_skills_repository'
-    );
-    const { seedAgentStackSkills, SEED_SOURCE } = await import(
-      './services/skill_seed_importer'
-    );
-    const skillsRepo = new AgentSkillsRepository();
-    const alreadySeeded = skillsRepo
-      .list()
-      .some((s) => s.source === SEED_SOURCE);
-    if (!alreadySeeded) {
-      const result = seedAgentStackSkills(skillsRepo);
-      logger.info(
-        `[server] agent-stack skill seed: discovered=${result.discovered} imported=${result.imported} skipped=${result.skipped}`,
+  if (env.agentExecutionEnabled) {
+    // Agent subsystem: scheduler + memory consolidation seed
+    agentSchedulerJob = startAgentSchedulerJob();
+    agentMemoryService.seedConsolidationTask().catch((err) => {
+      logger.warn(`[server] Memory consolidation seed failed (non-fatal): ${String(err)}`);
+    });
+
+    // One-time seed of vetted agent-stack skills into agent_skills (local SQLite
+    // only). Guarded by a zero-count check on source='agent-stack-seed' so it
+    // never re-imports. Non-fatal — a seed failure must never block startup.
+    try {
+      const { AgentSkillsRepository } = await import(
+        './repositories/agent_skills_repository'
       );
+      const { seedAgentStackSkills, SEED_SOURCE } = await import(
+        './services/skill_seed_importer'
+      );
+      const skillsRepo = new AgentSkillsRepository();
+      const alreadySeeded = skillsRepo
+        .list()
+        .some((s) => s.source === SEED_SOURCE);
+      if (!alreadySeeded) {
+        const result = seedAgentStackSkills(skillsRepo);
+        logger.info(
+          `[server] agent-stack skill seed: discovered=${result.discovered} imported=${result.imported} skipped=${result.skipped}`,
+        );
+      }
+    } catch (err) {
+      logger.warn(`[server] agent-stack skill seed failed (non-fatal): ${String(err)}`);
     }
-  } catch (err) {
-    logger.warn(`[server] agent-stack skill seed failed (non-fatal): ${String(err)}`);
+  } else {
+    logger.info(
+      `[server] RHYTHM_ROLE=${env.role} — agent execution disabled (no scheduler, opencode, WS gateway, or managed Chrome)`,
+    );
   }
 
   const app = createApp();
 
   const httpServer = http.createServer(app);
-  const wss = attachWsGateway(httpServer);
+  // WS gateway is an agent-execution surface (#755). In the 'cloud' role we
+  // create a no-op WSS so `wss.close()` in the shutdown handler is still valid,
+  // but never attach the upgrade/connection handlers.
+  const wss = env.agentExecutionEnabled
+    ? attachWsGateway(httpServer)
+    : new (await import('ws')).WebSocketServer({ noServer: true });
 
-  // Make sure the community auth plugins are listed in opencode.json before
-  // we spawn the SDK subprocess. The plugins extend the provider catalog
-  // so direct routing to anthropic / google works once the user has
-  // authed via the corresponding flow.
-  try {
-    const { ensureRequiredPlugins } = await import(
-      './services/opencode_plugin_config'
-    );
-    ensureRequiredPlugins();
-  } catch (err) {
-    console.warn(
-      '[Opencode] Plugin config update failed (non-fatal):',
-      err,
-    );
-  }
+  if (env.agentExecutionEnabled) {
+    // Make sure the community auth plugins are listed in opencode.json before
+    // we spawn the SDK subprocess. The plugins extend the provider catalog
+    // so direct routing to anthropic / google works once the user has
+    // authed via the corresponding flow.
+    try {
+      const { ensureRequiredPlugins } = await import(
+        './services/opencode_plugin_config'
+      );
+      ensureRequiredPlugins();
+    } catch (err) {
+      console.warn(
+        '[Opencode] Plugin config update failed (non-fatal):',
+        err,
+      );
+    }
 
-  // #748 — Start managed headless Chrome on :9222 (non-blocking, failure-tolerant).
-  // Controlled by RHYTHM_MANAGED_CHROME env var: set to "0" or "false" to disable.
-  const chromeManagementEnabled =
-    process.env.RHYTHM_MANAGED_CHROME !== '0' &&
-    process.env.RHYTHM_MANAGED_CHROME !== 'false';
-  if (chromeManagementEnabled) {
-    managedChromeService.ensureReady()
-      .then(() => {
-        if (managedChromeService.isReady) {
-          // Set env vars on the process so any subsequently spawned subprocesses
-          // (including the opencode engine and its bash tool) inherit them.
-          managedChromeService.setProcessEnvVars();
-          logger.info('[server] Managed Chrome ready — CDP env vars set on process.env');
-        }
-      })
-      .catch((err) => {
-        logger.warn(`[server] Managed Chrome startup failed (non-fatal): ${String(err)}`);
-      });
-  } else {
-    logger.info('[server] RHYTHM_MANAGED_CHROME=0 — skipping managed Chrome');
-  }
+    // #748 — Start managed headless Chrome on :9222 (non-blocking, failure-tolerant).
+    // Controlled by RHYTHM_MANAGED_CHROME env var: set to "0" or "false" to disable.
+    const chromeManagementEnabled =
+      process.env.RHYTHM_MANAGED_CHROME !== '0' &&
+      process.env.RHYTHM_MANAGED_CHROME !== 'false';
+    if (chromeManagementEnabled) {
+      managedChromeService.ensureReady()
+        .then(() => {
+          if (managedChromeService.isReady) {
+            // Set env vars on the process so any subsequently spawned subprocesses
+            // (including the opencode engine and its bash tool) inherit them.
+            managedChromeService.setProcessEnvVars();
+            logger.info('[server] Managed Chrome ready — CDP env vars set on process.env');
+          }
+        })
+        .catch((err) => {
+          logger.warn(`[server] Managed Chrome startup failed (non-fatal): ${String(err)}`);
+        });
+    } else {
+      logger.info('[server] RHYTHM_MANAGED_CHROME=0 — skipping managed Chrome');
+    }
 
-  // Initialize Opencode SDK (non-blocking — logs on failure, never prevents startup)
-  opencodeClient
-    .initialize()
-    .then(async () => {
+    // Initialize Opencode SDK (non-blocking — logs on failure, never prevents startup)
+    opencodeClient
+      .initialize()
+      .then(async () => {
       // #746 — Notify the skill curator that the engine is ready so it can
       // begin deferring extraction work until the cold-start window passes.
       // Non-fatal: if notifyEngineReady throws for any reason, swallow and log.
@@ -152,6 +174,7 @@ async function main() {
     .catch((err) => {
       console.warn('[Opencode] SDK init failed (non-fatal):', err);
     });
+  }
 
   httpServer.listen(port, () => {
     logger.info(`Rhythm API listening on port ${port}`);

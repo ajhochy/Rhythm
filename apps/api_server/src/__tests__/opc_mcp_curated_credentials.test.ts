@@ -63,6 +63,8 @@ vi.mock('../services/opencode_engine', () => ({
 vi.mock('../config/env', () => ({
   env: {
     agentLocal: true,
+    agentExecutionEnabled: true,
+    role: 'local',
     corsAllowedOrigins: [],
     jwtSecret: 'test-secret',
   },
