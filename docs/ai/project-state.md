@@ -76,3 +76,28 @@ PASSED) — this work keeps the picker names aligned with what #775 enforces.
 Open the PR for `feature/unify-skills-source-of-truth` (draft, no merge) with
 `Closes #777`. Then human-merge #776 and this PR, cut a signed release, and work
 the post-merge manual-smoke list against that build.
+
+## Recent coding-agent runs
+
+### 2026-06-28 — #787 curated MCP catalog as install-template layer (branch off `feature/mcp-unify`)
+- Files modified:
+  - `apps/api_server/src/config/curated_mcp_servers.ts` — header contract only
+    (engine = source of truth; catalog = template+enrichment that
+    materializes-on-install via `ensureCuratedMcps`; replaced the misleading
+    "source-of-truth list" wording). No server definitions changed.
+  - `apps/api_server/src/__tests__/curated_mcp_no_display.test.ts` — new guard
+    (g1 GET /opencode/mcp lists the live engine not the catalog; g2
+    ensureCuratedMcps idempotent + skips token-bridged w/o account; g3 static —
+    route never ships the bare catalog).
+  - `docs/ai/decisions/2026-06-28-unify-mcp-source-of-truth.md` — new decision
+    (mirrors the skills decision; refs #783/#781/#765).
+- Checks run: `tsc -p tsconfig.json` exit 0; `vitest run` new file 7/7 pass;
+  new + 3 existing curated-MCP suites 35/35 pass. Falsification: injecting
+  `res.json(CURATED_MCP_SERVERS)` into GET / failed 4/7 assertions (restored).
+- Decisions made: documentation + enforcement of the already-correct
+  architecture; no behavioral change. See decision doc.
+- Deviations from spec: none.
+- Concerns: none. The catalog had no display consumer to begin with; this run
+  only documents + guards that boundary. (Issue references #783 in the doc —
+  the issue prompt cited #783/#781/#765; #783 used as the catalog/display
+  tracking ref.)
