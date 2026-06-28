@@ -33,6 +33,19 @@ Also open:
 - PR #771 ready to merge. Manual live smoke via the Flutter app is the
   remaining optional step.
 
+## Recent coding-agent runs
+
+### 2026-06-27 — issue-736 (Layer 2 WS-gateway dispatch backstop)
+- Branch: `fix/issue-736-ws-gating` (worktree). Part of agent-security epic #769; defense-in-depth behind Layer 1 (#765).
+- Files modified:
+  - `apps/api_server/src/services/mcp_dispatch_guard.ts` (NEW) — pure `isToolAllowed(toolName, allowedToolsJson)` predicate; null allowlist → pass-through; explicit/inherit-all matching; fail-closed on malformed JSON.
+  - `apps/api_server/src/services/opencode_stream_bridge.ts` — added `isToolAllowedForSession` + `broadcastToolDenied`; gated the `message.part.updated` tool-part branch (bypassPermissions path) and the `permission.asked`/`permission.updated` handler (pre-execution gate → auto-`deny`). Only fires for sessions with a non-null `mcp_role`.
+  - Tests: `src/__tests__/issue_736_contract.test.ts`, `src/services/mcp_dispatch_guard.test.ts`; contract at `docs/ai/contracts/issue-736.json`.
+- Checks run: contract test 4/4 PASS (red→green confirmed); guard unit 6/6 PASS; `tsc --noEmit` exit 0; full vitest `npm test` 1294/1294 PASS (150 files). `agents_ws_e2e.test.ts` (non-role tool-part forwarding) still green — no pass-through regression.
+- Decisions: enforce at the stream-bridge relay hub at TWO points — permission gate (true pre-execution block) and tool-part forward (bypassPermissions backstop). Read `mcp_allowed_tools_json` only; no changes to the Layer-1 session-create / advertise path (owned by #765).
+- Deviations from spec: none.
+- Concerns: `_relayEvent` is HIGH blast radius (GitNexus) but the change is additive/early-return; could not exercise a real bypassPermissions turn locally (needs a signed build) — covered by unit simulation per AC #3.
+
 ## Risks / known issues
 
 - **Known limitation**: if the user switches from a restricted profile back to

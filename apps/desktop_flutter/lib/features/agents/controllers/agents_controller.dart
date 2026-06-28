@@ -545,6 +545,42 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
     unawaited(fetchSessionDiff(sessionId));
   }
 
+  /// #720 — Called when a `session.compacted` WS event arrives.
+  ///
+  /// opencode signals compaction completion with `session.compacted` (NOT a
+  /// live `compaction` message-part), so without this the "Conversation
+  /// compacted" divider only appeared on a fresh reload. On the event we:
+  ///   1. clear the compacting spinner (idempotent with summarizeSession's
+  ///      POST-success clear), and
+  ///   2. rehydrate the session by re-fetching its messages — the persisted
+  ///      CompactionPart then renders as the divider, and the context gauge
+  ///      reflects the post-compaction tokens.
+  ///
+  /// Scoped to [sessionId] only; other sessions are unaffected.
+  void handleSessionCompactedEvent(String sessionId) {
+    if (sessionId.isEmpty) return;
+    _sessionCompacting.remove(sessionId);
+    notifyListeners();
+    unawaited(rehydrateSessionMessages(sessionId));
+  }
+
+  /// #720 — Re-fetch the structured messages for [sessionId] from REST and
+  /// merge them into the chat store via [_rehydrateChatMessages]. Same path as
+  /// [selectSession]'s rehydrate, but usable for any session (not only the
+  /// selected one) so a background compaction loads the CompactionPart. Failure
+  /// is non-fatal — the divider falls back to rendering on the next reselect.
+  Future<void> rehydrateSessionMessages(String sessionId) async {
+    try {
+      final result = await _repository.getSession(sessionId);
+      if (_disposed) return;
+      _rehydrateChatMessages(sessionId, result.messages);
+      notifyListeners();
+    } catch (_) {
+      // Non-fatal: the compaction divider still renders on a fresh reselect
+      // (the CompactionPart is persisted in the session).
+    }
+  }
+
   // ── OPC-M3-2: revert / unrevert ────────────────────────────────────────────
 
   /// True when [sessionId] currently has an active revert (messages after the
@@ -2591,6 +2627,11 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
       // OPC-M3-1: session.diff event — refetch diff for the affected session only.
       handleSessionDiffEvent(msg.id);
       return; // handleSessionDiffEvent calls notifyListeners() asynchronously.
+    } else if (msg is SessionCompactedMessage) {
+      // #720: session.compacted — clear the compacting spinner and rehydrate the
+      // session so the persisted CompactionPart renders as the divider live.
+      handleSessionCompactedEvent(msg.id);
+      return; // handleSessionCompactedEvent calls notifyListeners() itself.
     } else if (msg is SessionTodoUpdatedMessage) {
       // OPC-M3-5: todo.updated event — replace the session's todo state in-place.
       // State is keyed per session; an update for session B must not affect A.

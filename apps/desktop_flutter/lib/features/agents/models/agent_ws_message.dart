@@ -47,6 +47,8 @@ abstract class AgentWsMessage {
         return QuestionResolvedMessage.fromJson(json);
       case 'session.diff':
         return SessionDiffMessage.fromJson(json);
+      case 'session.compacted':
+        return SessionCompactedMessage.fromJson(json);
       case 'todo.updated':
         return SessionTodoUpdatedMessage.fromJson(json);
       case 'error':
@@ -487,6 +489,25 @@ class SessionDiffMessage extends AgentWsMessage {
 
   factory SessionDiffMessage.fromJson(Map<String, dynamic> json) {
     return SessionDiffMessage(
+      id: asString(json['id']) ?? '',
+    );
+  }
+}
+
+/// #720 — `session.compacted` event relayed by the bridge when opencode
+/// signals compaction completion. opencode emits this event (NOT a live
+/// `compaction` message-part), so the client clears the compacting spinner and
+/// rehydrates the session (re-fetch messages) — the persisted CompactionPart
+/// then renders as the "Conversation compacted" divider, and the context gauge
+/// reflects the post-compaction tokens. Carries only the local session id.
+class SessionCompactedMessage extends AgentWsMessage {
+  const SessionCompactedMessage({required this.id});
+
+  /// Local (Rhythm) session id.
+  final String id;
+
+  factory SessionCompactedMessage.fromJson(Map<String, dynamic> json) {
+    return SessionCompactedMessage(
       id: asString(json['id']) ?? '',
     );
   }
