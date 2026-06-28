@@ -192,6 +192,10 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       if (ctx.payload.time?.archived !== undefined) {
         yield* session.setArchived({ sessionID: ctx.params.sessionID, time: ctx.payload.time.archived })
       }
+      // Rhythm carried patch (mcp-scope): update the per-session MCP tool allowlist.
+      if (ctx.payload.mcpAllowlist !== undefined) {
+        yield* session.setMcpAllowlist({ sessionID: ctx.params.sessionID, mcpAllowlist: ctx.payload.mcpAllowlist })
+      }
       return yield* requireSession(ctx.params.sessionID)
     })
 
