@@ -609,15 +609,15 @@ declare module '@opencode-ai/sdk' {
         query?: { directory?: string };
       }): Promise<SdkEnvelope<AssistantMessage>>;
       /**
-       * PATCH /session/{sessionID} — update session metadata.
-       * Rhythm carried patch (mcp-scope): also accepts mcpAllowlist to set the
-       * per-session MCP tool allowlist in the fork's DB so prompt.ts filters it.
+       * PATCH /session/{id} — update session metadata.
+       * Note: the fork's UpdatePayload also accepts `mcpAllowlist` (mcp-scope
+       * patch), but that field is sent via direct fetch (updateSessionAllowlist)
+       * rather than this SDK method to avoid SDK body-type constraints.
        */
       update(options: {
-        path: { sessionID: string };
-        body: {
+        path: { id: string };
+        body?: {
           title?: string;
-          mcpAllowlist?: { servers: string[]; tools: string[] };
         };
         query?: { directory?: string };
       }): Promise<SdkEnvelope<Session>>;

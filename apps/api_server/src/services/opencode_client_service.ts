@@ -639,19 +639,24 @@ export class OpencodeClientService {
    * PATCH /session/:id with { mcpAllowlist: { servers, tools } }.
    * Updates the fork session's MCP allowlist so the next prompt uses it.
    * Called by ws_gateway when the per-turn agent drives scope on an existing session.
+   *
+   * Uses direct fetch rather than the SDK client because the SDK's generated body
+   * type only includes `title` (generated before mcp-scope support was added), and
+   * the fork's URL is known at this.baseUrl.
    */
   async updateSessionAllowlist(
     sessionId: string,
     servers: string[],
   ): Promise<boolean> {
-    if (!this.client) return false;
     try {
-      const raw = await this.client.session.update({
-        path: { sessionID: sessionId },
-        body: { mcpAllowlist: { servers, tools: [] } },
+      const base = this.serverUrl;
+      const res = await fetch(`${base}/session/${sessionId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mcpAllowlist: { servers, tools: [] } }),
       });
-      if (raw.error) {
-        logger.warn('[OpencodeClientService] updateSessionAllowlist returned error:', raw.error);
+      if (!res.ok) {
+        logger.warn('[OpencodeClientService] updateSessionAllowlist HTTP %s for session %s', res.status, sessionId);
         return false;
       }
       return true;
