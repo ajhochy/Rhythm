@@ -51,6 +51,36 @@ manually merge PR #812.
 
 ## Recent coding-agent runs
 
+### 2026-06-28 — fix(security/#736): isToolAllowed accepts array allowlist form (#812 high-sev)
+- Files modified:
+  - `apps/api_server/src/services/mcp_dispatch_guard.ts` — `isToolAllowed` now
+    accepts BOTH the array-of-server-names form (`["rhythm"]` = each server
+    inherit-all) and the existing object map. Factored a shared
+    `toolBelongsToServer(toolName, serverName, mcpServerRaw)` helper used by both
+    inherit-all paths. Empty array/object → deny all; malformed/unparseable →
+    fail closed; null → unrestricted (unchanged).
+  - `apps/api_server/src/services/mcp_dispatch_guard.test.ts` — added a 6-case
+    `array-of-server-names form (#812)` describe; fixed the misleading `'[]'`
+    comment (now "empty server-name array → deny all").
+  - `apps/api_server/src/__tests__/opencode_stream_bridge.test.ts` — added 2
+    tests: a `["rhythm"]`-scoped secretary session forwards `rhythm_*` tool
+    parts and denies `nfl_mcp_*` (end-to-end isToolAllowedForSession path).
+- Root cause: writers (`agent_profile_scope.ts:221`, `agent_runner.ts:582/606`)
+  persist `mcp_allowed_tools_json` as a JSON array of server names, but the #736
+  guard failed closed on `Array.isArray(raw)` → every tool denied for every
+  role-scoped session. Fix makes the guard tolerant of the array shape the
+  writers already produce; writers untouched (the #765 expander reads the role
+  config object, not this string, so advertise-time scoping is unaffected).
+- Checks run: `npx vitest run mcp_dispatch_guard mcp_allowlist_expander opencode_stream_bridge` → 32 passed; falsification (revert array branch) → 4 #812 cases fail; `npm run build` (tsc) → exit 0; full `npx vitest run` → 176 files / 1506 tests passed.
+- Decisions made: kept the fix in the dispatch guard only (not the writers), per
+  spec — the writers' array form is also consumed elsewhere.
+- Deviations from spec: spec listed `agent_profile_scope` in the vitest filter,
+  but no such test file exists; that path's array/object parsing is covered by
+  `mcp_allowlist_expander.test.ts`. No `agent_profile_scope` source change.
+- Concerns: writer-side shape is still inconsistent (array vs object map across
+  call sites). Recommend a follow-up to normalize writers to one canonical
+  shape; out of scope for this minimal high-sev fix.
+
 ### 2026-06-28 — skills: load managed SKILL.md body on edit (#812 smoke FAIL)
 - Files modified:
   - `apps/api_server/src/services/rhythm_managed_skills.ts` — added
