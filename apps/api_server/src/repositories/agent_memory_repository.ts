@@ -310,6 +310,38 @@ export class AgentMemoryRepository {
   }
 
   /**
+   * Issue #802 — wipe the entire local SQLite index in one shot.
+   *
+   * The SQLite `agent_memory` + `agent_memory_fts` store is a DERIVED,
+   * DISPOSABLE cache that MemoryIndexService rebuilds from a full vault scan,
+   * so a total clear is a legitimate operation. Returns the number of rows
+   * removed. Keeps the FTS index consistent by rebuilding it from the (now
+   * empty) base table.
+   *
+   * SQLite-only: the index lives only in SQLite. On Postgres this is a no-op
+   * (returns 0) — the Postgres `agent_memory` is NOT the disposable index and
+   * must never be cleared by this path.
+   */
+  async clearAllAsync(): Promise<number> {
+    if (env.dbClient === 'postgres') return 0;
+
+    const countRow = getDb().prepare(`SELECT COUNT(*) AS n FROM agent_memory`).get() as
+      | { n: number }
+      | undefined;
+    const before = countRow?.n ?? 0;
+
+    getDb().prepare(`DELETE FROM agent_memory`).run();
+    // External-content FTS5: the special 'delete-all' command empties the index
+    // without needing each row's old column values.
+    try {
+      getDb().prepare(`INSERT INTO agent_memory_fts(agent_memory_fts) VALUES ('delete-all')`).run();
+    } catch {
+      // FTS table may not exist on older DBs — non-fatal.
+    }
+    return before;
+  }
+
+  /**
    * SQLite-only helper: insert an FTS5 index row. External-content FTS5
    * (content='agent_memory') tolerates a plain INSERT with explicit columns.
    */

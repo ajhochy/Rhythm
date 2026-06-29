@@ -76,3 +76,36 @@ PASSED) — this work keeps the picker names aligned with what #775 enforces.
 Open the PR for `feature/unify-skills-source-of-truth` (draft, no merge) with
 `Closes #777`. Then human-merge #776 and this PR, cut a signed release, and work
 the post-merge manual-smoke list against that build.
+
+## Recent coding-agent runs
+
+### 2026-06-28 — #802 MemoryIndexService (memory epic #801, issue 1/7)
+- Files modified:
+  - `apps/api_server/src/services/memory_index_service.ts` (new) — `MemoryIndexService`
+    owning the derived index: `rebuildIndexFromVault(vaultPath?)` (clear + repopulate
+    from full vault scan), `upsertNote()` / `removeNote()` incremental ops for #803.
+  - `apps/api_server/src/services/memoryVaultSyncService.ts` — extracted the recursive
+    vault walk + parse into an exported `scanVaultNotes()` helper (+`ScannedNote`);
+    `syncMemoryVault` now reuses it (no duplicated scan/parse). `parseNote` was already
+    exported, reused directly.
+  - `apps/api_server/src/repositories/agent_memory_repository.ts` — added
+    `clearAllAsync()` (SQLite-only wipe + FTS 'delete-all'; Postgres no-op returns 0).
+  - `apps/api_server/src/database/migrations.ts` — comment-only: marks SQLite
+    agent_memory/agent_memory_fts as DERIVED/DISPOSABLE. No DDL change.
+  - `apps/api_server/src/__tests__/memory_index_rebuild.test.ts` (new) — 8 tests
+    covering AC1 count/fields, AC2 idempotence, AC3 clear+rebuild reproduces
+    searchAsync top-N, AC4 missing+empty vault no-op, stale-row drop, upsert/remove.
+- Checks run:
+  - `npx vitest run memory_index_rebuild memory_vault_sync` → PASS (21/21; new file 8/8).
+  - Falsification: stubbing the clear step in rebuild → "rebuild drops stale rows"
+    test FAILS (1 failed / 7 passed); restored → green.
+  - `npm run build` (tsc) → exit 0.
+- Decisions made: extracted `scanVaultNotes` rather than duplicating the walk so the
+  rebuild and mirror-sync share one parse path (issue mandated reusing `parseNote`).
+  `clearAllAsync` is SQLite-scoped — the disposable index is SQLite-only; Postgres
+  agent_memory is never cleared by this path (postgres_bootstrap.ts untouched).
+- Deviations from spec: none.
+- Concerns: decision doc `2026-06-28-memory-vault-as-source-of-truth.md` lives on
+  branch `docs/memory-vault-plan`/PR #809, not on this main base — code references it
+  by name; will resolve once that PR merges. #803 builds the vault-first write path
+  on `upsertNote`/`removeNote`.
