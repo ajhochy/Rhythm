@@ -55,8 +55,24 @@ async function main() {
   let memoryVaultSyncJob: { stop: () => void } | null = null;
 
   if (env.agentExecutionEnabled) {
+    // Issue #805: rebuild the DERIVED memory index from the vault ONCE on
+    // startup so a fresh boot has a correct, search-ready index without waiting
+    // for the first cron tick. The vault (not this SQLite store) is the source
+    // of truth; the index is disposable and fully reproducible from a scan.
+    // No-op when the vault is absent. Non-fatal — a rebuild failure must never
+    // block startup. (SQLite-only; rebuildIndexFromVault is a no-op on Postgres.)
+    try {
+      const { MemoryIndexService } = await import('./services/memory_index_service');
+      const summary = await new MemoryIndexService().rebuildIndexFromVault();
+      logger.info(`[server] memory index rebuilt on startup: indexed=${summary.indexed}`);
+    } catch (err) {
+      logger.warn(`[server] memory index startup rebuild failed (non-fatal): ${String(err)}`);
+    }
+
     // Issue #770 WI6: mirror the dedicated Memory-Vault into agent_memory so the
     // Rhythm Brain panel displays vault contents. No-op when the vault is absent.
+    // The */10min cron also keeps the derived index fresh as users edit notes in
+    // Obsidian (vault→index re-index pass — #805 AC3/AC4).
     memoryVaultSyncJob = startMemoryVaultSyncJob();
 
     // Agent subsystem: scheduler + memory consolidation seed

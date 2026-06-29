@@ -79,6 +79,38 @@ the post-merge manual-smoke list against that build.
 
 ## Recent coding-agent runs
 
+### 2026-06-28 — #805 memory injection reads derived index + startup rebuild (memory epic #801, issue 4/7)
+- Branch: `worktree-agent-ade04b460b975c257` (based on `origin/feature/mem-vault`).
+- Files modified:
+  - `apps/api_server/src/services/memory_retrieval.ts` — added `notePaths: (string|null)[]`
+    to `MemoryPreface` (AC6: each match's vault note path = its index-row `sourceId`,
+    positionally aligned with `memoryIds`); documented that retrieval reads through the
+    DERIVED SQLite index (never a per-prompt vault scan), so injection works Obsidian-closed.
+    No change to tokenization/top-N(5)/`AGENT_MEMORY_INJECTION_ENABLED`.
+  - `apps/api_server/src/server.ts` — agent-execution startup now calls
+    `new MemoryIndexService().rebuildIndexFromVault()` ONCE (non-fatal, before the cron job)
+    so a fresh boot has a correct index without waiting for the first */10min tick.
+  - `apps/api_server/src/__tests__/memory_injection_index.test.ts` (new) — 9 tests:
+    write→recall (AC1), index-only recall with vault deleted off disk (AC1/AC2 Obsidian-closed),
+    note path present (AC6), on-disk edit reflected after re-index (AC3), deletion after
+    re-index (AC4), toggle-off (AC5), + 2 falsification guards.
+- Checks run:
+  - `cd apps/api_server && npx vitest run memory_injection_index memory_injection
+    memory_index_rebuild memory_write_vault_first` → 45/45 PASS (new file 9/9; existing
+    `memory_injection*` unchanged-green).
+    Falsification: gutting `notePaths` population → AC6 test FAILS; skipping the
+    `syncMemoryVault` re-index in the edit test → AC3 test FAILS; both restored → green.
+  - `npm run build` (tsc) → exit 0.
+- Decisions made: injection already read the index (`searchAsync` over SQLite `agent_memory`),
+  so the substantive #805 deltas were note-path exposure + the startup rebuild. The cron's
+  `syncMemoryVault` (upsert+tombstone) is the re-index pass that carries user edits/deletions
+  into injection — no new watch added (cron suffices for the AC; optional watch deferred to
+  keep the change minimal and avoid rebuild-storm risk). agent_runner/ws_gateway untouched
+  (they only read `.text`/`.memoryIds.length`; a parallel skills branch also edits agent_runner).
+- Deviations from spec: filesystem watch omitted (issue marks it optional; cron covers AC3/AC4).
+- Concerns: worktree `node_modules` is a symlink to the main checkout and shows as untracked
+  (gitignore patterns are dir-only) — staged only the 3 intended files, symlink NOT committed.
+
 ### 2026-06-28 — #802 MemoryIndexService (memory epic #801, issue 1/7)
 - Files modified:
   - `apps/api_server/src/services/memory_index_service.ts` (new) — `MemoryIndexService`
