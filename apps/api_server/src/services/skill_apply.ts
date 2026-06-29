@@ -257,5 +257,65 @@ export async function applyToEngineSkill(
   }
 }
 
+/**
+ * #794 + #795 wiring — apply a revision AND immediately measure it in the SAME
+ * fire-and-forget pass. `applyToEngineSkill` leaves the sidecar row at
+ * `status='measuring'`; without this chain the row would stay `measuring`
+ * forever (never measured, never auto-reverted). Here we hand the just-applied
+ * `measuring` row to #795's `measureAppliedSkill`, which scores baseline vs.
+ * post and either KEEPS it (→ active) or AUTO-REVERTS it (→ reverted).
+ *
+ * Operational envelope is preserved end-to-end:
+ *   • NEVER throws — the loop callers are fire-and-forget.
+ *   • Under isTestEnv / VITEST with no injected `writeSkill`, `applyToEngineSkill`
+ *     short-circuits to 'skipped' BEFORE any apply, so measure is never reached
+ *     (zero LLM calls / zero writes).
+ *   • Postgres is a no-op via the same short-circuit in `applyToEngineSkill`.
+ *   • The measure step is itself never-throws and fail-closed.
+ *
+ * Only an outcome that actually moved a row to `measuring`
+ * (`applied-managed` / `applied-external-fork`) triggers a measure; every other
+ * outcome (gate/duplicate/no-target/skipped) is returned untouched.
+ *
+ * `skill_measurement` is imported lazily to avoid an eval-time circular import
+ * (skill_apply → skill_measurement → skill_refiner → skill_apply), mirroring the
+ * lazy-import pattern used elsewhere in the loop.
+ */
+export async function applyAndMeasure(
+  candidate: ApplyCandidate,
+  deps: ApplyDeps & { measure?: MeasureFn } = {},
+): Promise<ApplyOutcome> {
+  const outcome = await applyToEngineSkill(candidate, deps);
+  if (outcome !== 'applied-managed' && outcome !== 'applied-external-fork') {
+    return outcome;
+  }
+  try {
+    const repo = deps.repo ?? new AgentSkillsRepository();
+    // The just-applied measuring row, resolved by the same name key.
+    const row = repo.findByName(candidate.name);
+    if (!row || row.status !== 'measuring') {
+      // Defensive: nothing to measure (e.g. status raced) — leave as-is.
+      return outcome;
+    }
+    const measure =
+      deps.measure ??
+      (async (skill) => {
+        const { measureAppliedSkill } = await import('./skill_measurement');
+        // Thread the same repo so apply + measure operate on one DB; measure's
+        // own deps default to the real scorer / managed-skill IO / reloadSkills.
+        return measureAppliedSkill(skill, { repo });
+      });
+    await measure(row);
+  } catch (err) {
+    // NEVER throw — apply already succeeded; a measure failure is non-fatal and
+    // the startup crash-recovery (#795) will revert any row left stuck measuring.
+    logger.warn(`[skill-apply] measure-after-apply FAILED (non-fatal): ${String(err)}`);
+  }
+  return outcome;
+}
+
+/** Injectable measure hook (defaults to #795's measureAppliedSkill). */
+export type MeasureFn = (skill: AgentSkill) => Promise<unknown>;
+
 /** Re-exported for the refiner so a single AgentSkill maps to an apply target. */
 export type { AgentSkill };

@@ -99,6 +99,23 @@ the post-merge manual-smoke list against that build.
 
 ## Recent coding-agent runs
 
+### 2026-06-28 — #794+#795 wiring: auto-apply → measure/auto-revert end-to-end + startup stuck-measuring recovery
+- Branch: `worktree-agent-aebf7480150a4127b` (based on `009eda81a`, has both #794 `skill_apply.ts` and #795 `skill_measurement.ts`). Not pushed.
+- The gap: `applyToEngineSkill` (#794) left the sidecar row at `status='measuring'` but never called `measureAppliedSkill` (#795), and `server.ts` never called `recoverStuckMeasurements()` at startup — so applied revisions got stuck `measuring` forever.
+- Files modified:
+  - `apps/api_server/src/services/skill_apply.ts` — NEW `applyAndMeasure(candidate, deps)`: calls `applyToEngineSkill`, and on an `applied-managed`/`applied-external-fork` outcome re-fetches the just-applied `measuring` row via `repo.findByName(candidate.name)` and hands it to #795's `measureAppliedSkill(row, { repo })`. Threads the SAME repo (apply+measure share one DB); measure's own deps default to the real scorer / managed-skill write+delete / reloadSkills. Lazy `await import('./skill_measurement')` breaks the eval-time cycle (apply→measurement→refiner→apply). Never-throws (a measure failure is non-fatal — startup recovery catches stragglers). Added injectable `measure?` hook (`MeasureFn`) + `MeasureFn` type. `applyToEngineSkill` itself is UNCHANGED (its 13 tests stay on `measuring` as terminal).
+  - `apps/api_server/src/services/skill_refiner.ts` — default `applyToEngine` now `applyAndMeasure` (was `applyToEngineSkill`); import + `RefineDeps.applyToEngine` JSDoc updated. The injectable hook keeps the refiner tests' doubles intact.
+  - `apps/api_server/src/server.ts` — at agent-execution startup (inside `if (env.agentExecutionEnabled)`, after the skill seed) a non-blocking `void (async () => { recoverStuckMeasurements() })()` — defensive crash recovery; non-fatal if it throws; no-op under Postgres/VITEST (guards in #795).
+  - `apps/api_server/src/__tests__/skill_apply_measure_e2e.test.ts` (NEW, 4 tests) — REAL `applyAndMeasure` chain (only LLM scorer + managed-dir IO faked): improving (post>baseline) → `active`; non-improving (post≤baseline) → `reverted` + body rolled back byte-identical; no-target → returned without measuring; `recoverStuckMeasurements` reverts a crash-stuck `measuring` row.
+- Checks run:
+  - `npx vitest run skill_apply skill_measurement skill_refiner agent_skills` → 112/112 PASS.
+  - `npm run build` (tsc -p tsconfig.json) → exit 0.
+  - Full `npx vitest run` → 1387 pass / 164 files (was 1368/162 at #794; +my 4 e2e tests +2 files net from the stacked deltas).
+  - Falsification: forcing `applyAndMeasure` to skip the measure step → both e2e tests FAIL with the row stuck `'measuring'` (`expected 'measuring' to be 'active'` / `'reverted'`); reverted.
+- Decisions made: wired the chain via a NEW `applyAndMeasure` rather than firing measure inside `applyToEngineSkill`, so #794's 13 apply tests (which assert `measuring` as terminal + exact reload counts) stay untouched. Lazy import of `skill_measurement` to avoid the eval-time circular dependency. Re-fetch the measuring row by name (`applyToEngineSkill` returns only an outcome string; `recordAutoApply` already wrote the row).
+- Deviations from spec: none. (Task said "same fire-and-forget pass" — `applyAndMeasure` is that single pass; the refiner calls it as one step.)
+- Concerns: none material. The e2e tests run the real measure with injected IO; production wires the same chain with default (real) deps behind the existing isTestEnv/Postgres short-circuits.
+
 ### 2026-06-28 — #794 auto-apply pipeline: re-target loop at live engine skills (skill-unify2 epic #791, 3/7)
 - Branch: `worktree-agent-a87f99ac094f4a555` (based on `feature/skill-unify2`, has #792+#793). Not pushed.
 - Replaces the old "proposal queue / human gate" spec: the loop AUTO-APPLIES a passing revision

@@ -28,7 +28,7 @@ import { logger } from '../utils/logger';
 import { env } from '../config/env';
 import { AgentSkillsRepository } from '../repositories/agent_skills_repository';
 import { getRelevantSkills } from './skill_retrieval';
-import { applyToEngineSkill, type ApplyCandidate, type ApplyOutcome } from './skill_apply';
+import { applyAndMeasure, type ApplyCandidate, type ApplyOutcome } from './skill_apply';
 import type { AgentSkill } from '../models/agent_skill';
 
 /** Mirrors opencode_agent_writer.ts isTestEnv() VERBATIM. */
@@ -286,11 +286,12 @@ export interface RefineDeps {
   /** Source label written on a successful revision. Defaults to 'auto-refined'. */
   source?: string;
   /**
-   * #794 — Injectable apply step over the LIVE engine skill set (defaults to
-   * {@link applyToEngineSkill}). On a 'better' verdict the refiner hands the
-   * candidate here to write a SKILL.md (managed in-place / external fork-to-shadow)
-   * and move the sidecar row to `status='measuring'`. Tests inject a double so
-   * no real file write / engine call happens.
+   * #794 + #795 — Injectable apply step over the LIVE engine skill set (defaults
+   * to {@link applyAndMeasure}). On a 'better' verdict the refiner hands the
+   * candidate here to write a SKILL.md (managed in-place / external fork-to-shadow),
+   * move the sidecar row to `status='measuring'`, and then MEASURE it so the row
+   * ends `active` (kept) or `reverted` (auto-rolled-back) — never stuck measuring.
+   * Tests inject a double so no real file write / engine / scorer call happens.
    */
   applyToEngine?: (candidate: ApplyCandidate) => Promise<ApplyOutcome>;
 }
@@ -434,7 +435,10 @@ export async function refineExistingSkill(
     // pre-apply gate + duplicate guard, then writes a SKILL.md (managed in-place
     // OR external fork-to-shadow) and moves the sidecar row to 'measuring'.
     const source = deps.source ?? 'auto-refined';
-    const applyToEngine = deps.applyToEngine ?? ((c: ApplyCandidate) => applyToEngineSkill(c));
+    // #794 + #795 — default to applyAndMeasure so a 'better' verdict runs the
+    // full apply → measure → (keep | auto-revert) pass in one fire-and-forget
+    // step (the row never stays stuck 'measuring'). Tests inject a double.
+    const applyToEngine = deps.applyToEngine ?? ((c: ApplyCandidate) => applyAndMeasure(c));
     const outcome = await applyToEngine({
       name: existing.title,
       body: renderCandidateBody(candidate),
