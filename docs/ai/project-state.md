@@ -99,6 +99,22 @@ the post-merge manual-smoke list against that build.
 
 ## Recent coding-agent runs
 
+### 2026-06-28 — #797 one-time idempotent backfill of legacy agent_skills rows into the unified model (skill-unify2 #791, 6/7)
+- Worktree branch `worktree-agent-a1d9365090a18bebf` (based on `cb18c083e`, has #792/#793/#794/#795). NOT pushed.
+- Files added/modified:
+  - `apps/api_server/src/services/skill_metadata_backfill.ts` (NEW) — `backfillSkillMetadata(deps)`: reconciles HISTORICAL rows. PUBLISHED → if a live engine skill (managed SKILL.md) already exists for the name (NOCASE) JOIN ONLY (status→active, no re-materialize, no dup row); else materialize ONCE via `materializeSkill` + normalize to active. DRAFT (never-materialized) → carry over to status='active', file absent. Lifecycle-only rows (active/measuring/reverted) left untouched. Run-once guarded by a `schema_meta` marker `agent_skills_unify_backfill_v1` (mirrors `backfill_scheduled_date_v1` + the seed gate); marker written only AFTER a clean pass so a failed run retries next boot. Postgres no-op (`env.dbClient`). Never throws. Injectable deps (repo/listSkills/materialize/alreadyDone/markDone).
+  - `apps/api_server/src/server.ts` — fire-and-forget `void (async()=>{ backfillSkillMetadata() })()` inside `if (env.agentExecutionEnabled)`, right after the agent-stack seed block and before the #794/#795 crash-recovery block. Non-blocking, non-fatal, run-once-guarded internally.
+  - `apps/api_server/src/services/__tests__/skill_metadata_backfill.test.ts` (NEW, 7 tests) — REAL backfill against an in-memory DB (real schema_meta marker + repo + materializer file write; only engine reload faked, live-set injected): published+existing-file → joined/no-dup-file/no-dup-row/active; published+no-file → materialized once; legacy draft → active + file absent; collision (NOCASE title==engine name) → joined; re-run no-op (identical state, marker present, no reload); no row deleted + agent_skill_versions history preserved; lifecycle-only rows untouched.
+- Checks run:
+  - `npx vitest run skill_metadata_backfill skill_materializer agent_skills` → 76/76 PASS.
+  - `npm run build` (tsc -p tsconfig.json) → exit 0 (dist/services/skill_metadata_backfill.js emitted).
+  - Full `npx vitest run` → 1394 pass / 165 files (was 1387/164; +7 tests, +1 file).
+  - Falsification (each reverted): disabling the run-once gate → re-run no-op test FAILS (reconciles twice); forcing `fileExists=false` (ignore the existing-file join) → join-no-dup + collision tests FAIL (re-materialize a duplicate file).
+- Decisions made: the join/dup-avoidance key is the LIVE engine name set from `listSkills()` (NOCASE), matching the repo's `findByName` collation and #793's unified-read join — a name already present means a file exists, so JOIN not materialize. Marker uses the established `schema_meta` KV pattern (SQLite-local; Postgres path bootstraps separately and the backfill is a Postgres no-op anyway). Testability follows skill_materializer (redirect managed dir + fake reload) rather than a blanket isTestEnv no-op, so the real reconciliation logic runs under vitest.
+- Deviations from spec: none.
+- #798 (guards) should assert: (a) re-running the backfill leaves agent_skills row count + statuses + versions byte-identical (marker short-circuit); (b) NO row is ever deleted and `agent_skill_versions` history rows are preserved across the migration; (c) a published row whose name already has a managed/live SKILL.md does NOT produce a second file under the managed dir (no dup slug dir); (d) legacy draft rows end at status='active' with no SKILL.md (file-absent in the unified read); (e) no managed-dir write ever escapes `~/.config/opencode/rhythm-managed-skills`; (f) Postgres run is a no-op (no DDL/rows touched).
+- Concerns: none material. The backfill only touches `status` on legacy rows and (when needed) writes a managed SKILL.md via the same materializer #778 uses; multi-file managed skills are not re-materialized when a file already exists (join-only), so no resource files are clobbered.
+
 ### 2026-06-28 — #794+#795 wiring: auto-apply → measure/auto-revert end-to-end + startup stuck-measuring recovery
 - Branch: `worktree-agent-aebf7480150a4127b` (based on `009eda81a`, has both #794 `skill_apply.ts` and #795 `skill_measurement.ts`). Not pushed.
 - The gap: `applyToEngineSkill` (#794) left the sidecar row at `status='measuring'` but never called `measureAppliedSkill` (#795), and `server.ts` never called `recoverStuckMeasurements()` at startup — so applied revisions got stuck `measuring` forever.
