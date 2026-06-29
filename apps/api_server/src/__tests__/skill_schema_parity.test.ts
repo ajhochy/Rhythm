@@ -114,4 +114,12 @@ describe('#792 agent_skills dual-DB schema parity', () => {
       expect(sqlite).toContain(col);
     }
   });
+
+  it('issue-798-c7: release CI runs the schema parity guard explicitly', () => {
+    const workflow = readFileSync(
+      join(__dirname, '..', '..', '..', '..', '.github', 'workflows', 'desktop_release.yml'),
+      'utf8',
+    );
+    expect(workflow).toContain('skill_schema_parity.test.ts');
+  });
 });

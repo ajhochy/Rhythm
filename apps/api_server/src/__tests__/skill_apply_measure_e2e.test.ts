@@ -19,6 +19,16 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import Database from 'better-sqlite3';
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+  mkdirSync,
+} from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 import { runMigrations } from '../database/migrations';
 import { setDb } from '../database/db';
@@ -211,5 +221,113 @@ describe('startup crash recovery reverts a stuck measuring row (recoverStuckMeas
     const after = repo.getById(created.id)!;
     expect(after.status).toBe('reverted');
     expect(after.body).toBe('BASE body'); // rolled back to base_version
+  });
+});
+
+describe('#798 filesystem safety guards', () => {
+  const REAL_VITEST = process.env.VITEST;
+  const REAL_NODE = process.env.NODE_ENV;
+  let root: string;
+  let managedRoot: string;
+  let repo: AgentSkillsRepository;
+
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), 'rhythm-skill-798-'));
+    managedRoot = join(root, 'managed');
+    mkdirSync(managedRoot, { recursive: true });
+    process.env.RHYTHM_MANAGED_SKILLS_DIR = managedRoot;
+    delete process.env.VITEST;
+    process.env.NODE_ENV = 'development';
+    setDb(makeDb());
+    repo = new AgentSkillsRepository();
+  });
+
+  afterEach(() => {
+    if (REAL_VITEST === undefined) delete process.env.VITEST;
+    else process.env.VITEST = REAL_VITEST;
+    if (REAL_NODE === undefined) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = REAL_NODE;
+    delete process.env.RHYTHM_MANAGED_SKILLS_DIR;
+    rmSync(root, { recursive: true, force: true });
+    vi.restoreAllMocks();
+  });
+
+  it('issue-798-c2: managed auto-revert restores the prior SKILL.md byte-identically', async () => {
+    const name = 'managed-byte-identity';
+    const location = join(managedRoot, name, 'SKILL.md');
+    mkdirSync(join(managedRoot, name), { recursive: true });
+    const before = Buffer.from(
+      '---\nname: managed-byte-identity\ndescription: "Original: exact formatting"\n---\n\n# Original\n\nKeep trailing spaces.  \n',
+      'utf8',
+    );
+    writeFileSync(location, before);
+
+    const outcome = await applyAndMeasure(
+      {
+        name,
+        body: '# Revised\n\nThis should lose.\n',
+        description: 'Revised',
+        confidence: 0.9,
+        source: 'auto-refined',
+      },
+      {
+        repo,
+        listSkills: async () => [{ name, location }],
+        reloadSkills: vi.fn().mockResolvedValue([]),
+        measure: (skill) =>
+          measureAppliedSkill(skill, {
+            repo,
+            scorer: scorerFor({
+              [before.toString('utf8')]: 90,
+              '# Revised\n\nThis should lose.\n': 10,
+            }),
+            reload: vi.fn().mockResolvedValue([]),
+          }),
+      },
+    );
+
+    expect(outcome).toBe('applied-managed');
+    expect(repo.findByName(name)?.status).toBe('reverted');
+    expect(readFileSync(location)).toEqual(before);
+  });
+
+  it('issue-798-c3: an external skill is unchanged and restored live after shadow revert', async () => {
+    const name = 'external-byte-identity';
+    const externalLocation = join(root, 'external', 'SKILL.md');
+    mkdirSync(join(root, 'external'), { recursive: true });
+    const before = Buffer.from(
+      '---\nname: external-byte-identity\ndescription: External original\n---\n\n# External original\n',
+      'utf8',
+    );
+    writeFileSync(externalLocation, before);
+
+    const outcome = await applyAndMeasure(
+      {
+        name,
+        body: '# Revised shadow\n',
+        description: 'Shadow',
+        confidence: 0.9,
+        source: 'auto-refined',
+      },
+      {
+        repo,
+        listSkills: async () => [{ name, location: externalLocation }],
+        reloadSkills: vi.fn().mockResolvedValue([]),
+        measure: (skill) =>
+          measureAppliedSkill(skill, {
+            repo,
+            scorer: scorerFor({
+              [before.toString('utf8')]: 90,
+              '# Revised shadow\n': 10,
+            }),
+            reload: vi.fn().mockResolvedValue([]),
+          }),
+      },
+    );
+
+    expect(outcome).toBe('applied-external-fork');
+    expect(repo.findByName(name)?.status).toBe('reverted');
+    expect(readFileSync(externalLocation)).toEqual(before);
+    expect(existsSync(join(managedRoot, name))).toBe(false);
   });
 });

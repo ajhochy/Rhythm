@@ -180,6 +180,25 @@ export function writeManagedSkill(skill: ManagedSkillInput): string {
 }
 
 /**
+ * Restore a managed SKILL.md from an exact byte snapshot.
+ *
+ * Auto-revert stores the complete pre-apply file, including its original
+ * frontmatter formatting and trailing whitespace. Passing that snapshot back
+ * through renderSkillMarkdown would wrap it in new frontmatter and normalize
+ * whitespace, so rollback must use this confined raw-byte path instead.
+ */
+export function restoreManagedSkillBytes(
+  name: string,
+  contents: string | NodeJS.ArrayBufferView,
+): string {
+  const dir = managedSkillDir(name);
+  mkdirSync(dir, { recursive: true });
+  const location = join(dir, 'SKILL.md');
+  writeFileSync(location, contents);
+  return location;
+}
+
+/**
  * Delete a managed skill by name. Returns true if it existed and was removed,
  * false if no such managed skill exists. Only ever removes within the managed
  * dir — attempting to delete an external (non-managed) skill name simply finds

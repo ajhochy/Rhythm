@@ -15,6 +15,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import Database from 'better-sqlite3';
 import { runMigrations } from '../database/migrations';
 import { setDb } from '../database/db';
+import { AgentSkillsRepository } from '../repositories/agent_skills_repository';
 import { startTestServer } from './helpers/real_server';
 
 const listSkills = vi.fn();
@@ -77,5 +78,65 @@ describe('skill names alignment (Unify-7 / #775)', () => {
     const dead = allowlistAlignsWithLive(['docx', 'docx-typo'], live);
     expect(dead.ok).toBe(false);
     expect(dead.dead).toEqual(['docx-typo']);
+  });
+
+  it('issue-798-c4: unified metadata names mirror the fork set and a shadow adds no name', async () => {
+    listSkills.mockResolvedValue([
+      { name: 'external-shadowed', location: '/managed/external-shadowed/SKILL.md' },
+      { name: 'docx', location: '/external/docx/SKILL.md' },
+    ]);
+    const repo = new AgentSkillsRepository();
+    repo.create({
+      title: 'external-shadowed',
+      status: 'measuring',
+      isExternal: 1,
+    });
+
+    const res = await fetch(`${baseUrl}/opencode/skills?withMetadata=true`);
+    const body = (await res.json()) as Array<{
+      name: string;
+      metadata: { status: string | null };
+    }>;
+    const names = body.map((skill) => skill.name);
+
+    expect(names).toEqual(['external-shadowed', 'docx']);
+    expect(new Set(names)).toEqual(new Set(['external-shadowed', 'docx']));
+    expect(body[0].metadata.status).toBe('measuring');
+  });
+
+  it('issue-798-c5: sidecar-only measuring/reverted rows do not leak into live names', async () => {
+    listSkills.mockResolvedValue([
+      { name: 'live-only', location: '/external/live/SKILL.md' },
+      { name: 'measuring-live', location: '/managed/measuring/SKILL.md' },
+      { name: 'reverted-live', location: '/external/reverted/SKILL.md' },
+      { name: 'legacy-live', location: '/external/legacy/SKILL.md' },
+    ]);
+    const repo = new AgentSkillsRepository();
+    repo.create({ title: 'measuring-only', status: 'measuring' });
+    repo.create({ title: 'reverted-only', status: 'reverted' });
+    repo.create({ title: 'measuring-live', status: 'measuring' });
+    repo.create({ title: 'reverted-live', status: 'reverted' });
+    repo.create({ title: 'legacy-live', status: 'proposed' });
+
+    const res = await fetch(`${baseUrl}/opencode/skills?withMetadata=true`);
+    const body = (await res.json()) as Array<{
+      name: string;
+      metadata: { status: string | null };
+    }>;
+
+    expect(body.map((skill) => skill.name)).toEqual([
+      'live-only',
+      'measuring-live',
+      'reverted-live',
+      'legacy-live',
+    ]);
+    expect(body[0].metadata.status).toBe('active');
+    expect(body[1].metadata.status).toBe('measuring');
+    expect(body[2].metadata.status).toBe('reverted');
+    // Defensive compatibility: a pre-backfill legacy status is never exposed.
+    expect(body[3].metadata.status).toBeNull();
+    expect(body.map((skill) => skill.metadata.status)).not.toContain('proposed');
+    expect(body.map((skill) => skill.metadata.status)).not.toContain('approved');
+    expect(body.map((skill) => skill.metadata.status)).not.toContain('rejected');
   });
 });

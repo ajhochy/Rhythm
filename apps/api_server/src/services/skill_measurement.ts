@@ -51,7 +51,11 @@ import { logger } from '../utils/logger';
 import { env } from '../config/env';
 import { AgentSkillsRepository } from '../repositories/agent_skills_repository';
 import { opencodeClient } from './opencode_engine';
-import { writeManagedSkill, deleteManagedSkill } from './rhythm_managed_skills';
+import {
+  writeManagedSkill,
+  restoreManagedSkillBytes,
+  deleteManagedSkill,
+} from './rhythm_managed_skills';
 import {
   scoreSkillBody,
   type ScoreCall,
@@ -83,11 +87,24 @@ export interface MeasureDeps {
   reload?: () => Promise<unknown>;
   /** Injectable managed-dir write (defaults to writeManagedSkill). */
   write?: (skill: { name: string; description?: string; body: string }) => string;
+  /** Injectable byte-exact managed restore (defaults to restoreManagedSkillBytes). */
+  restore?: (name: string, contents: string | NodeJS.ArrayBufferView) => string;
   /** Injectable managed-dir delete (defaults to deleteManagedSkill). */
   remove?: (name: string) => boolean;
 }
 
 export type MeasureOutcome = 'kept' | 'reverted' | 'skipped';
+
+function restoreContentsToUtf8(
+  contents: string | NodeJS.ArrayBufferView,
+): string {
+  if (typeof contents === 'string') return contents;
+  return Buffer.from(
+    contents.buffer,
+    contents.byteOffset,
+    contents.byteLength,
+  ).toString('utf8');
+}
 
 /** The PRIOR (base_version) body of a measuring row, read from version history. */
 function priorBodyOf(repo: AgentSkillsRepository, skill: AgentSkill): {
@@ -125,6 +142,15 @@ export async function measureAppliedSkill(
   const repo = deps.repo ?? new AgentSkillsRepository();
   const reload = deps.reload ?? (() => opencodeClient.reloadSkills());
   const write = deps.write ?? writeManagedSkill;
+  const restore =
+    deps.restore ??
+    (deps.write
+      ? (name: string, contents: string | NodeJS.ArrayBufferView) =>
+          deps.write!({
+            name,
+            body: restoreContentsToUtf8(contents),
+          })
+      : restoreManagedSkillBytes);
   const remove = deps.remove ?? deleteManagedSkill;
 
   try {
@@ -171,7 +197,12 @@ export async function measureAppliedSkill(
       postScore: post.score,
       measureReason: reason,
     });
-    return await revertAppliedSkill(skill, prior, post, repo, { reload, write, remove });
+    return await revertAppliedSkill(skill, prior, post, repo, {
+      reload,
+      write,
+      restore,
+      remove,
+    });
   } catch (err) {
     logger.warn(`[skill-measure] measure FAILED (non-fatal): ${String(err)}`);
     return 'skipped';
@@ -191,6 +222,7 @@ async function revertAppliedSkill(
   io: {
     reload: () => Promise<unknown>;
     write: (skill: { name: string; description?: string; body: string }) => string;
+    restore: (name: string, contents: string | NodeJS.ArrayBufferView) => string;
     remove: (name: string) => boolean;
   },
 ): Promise<MeasureOutcome> {
@@ -240,10 +272,9 @@ async function revertAppliedSkill(
     }
 
     const priorBody = prior?.body ?? restored.body ?? '';
-    const priorDesc = prior?.description ?? restored.description ?? undefined;
     let wroteFile = false;
     try {
-      io.write({ name, description: priorDesc ?? undefined, body: priorBody });
+      io.restore(name, Buffer.from(priorBody, 'utf8'));
       wroteFile = true;
     } catch (err) {
       logger.warn(`[skill-measure] writeManagedSkill(priorBody) failed for '${name}' (non-fatal): ${String(err)}`);
@@ -288,6 +319,15 @@ export async function recoverStuckMeasurements(deps: MeasureDeps = {}): Promise<
     const repo = deps.repo ?? new AgentSkillsRepository();
     const reload = deps.reload ?? (() => opencodeClient.reloadSkills());
     const write = deps.write ?? writeManagedSkill;
+    const restore =
+      deps.restore ??
+      (deps.write
+        ? (name: string, contents: string | NodeJS.ArrayBufferView) =>
+            deps.write!({
+              name,
+              body: restoreContentsToUtf8(contents),
+            })
+        : restoreManagedSkillBytes);
     const remove = deps.remove ?? deleteManagedSkill;
 
     const stuck = repo.list().filter((s) => s.status === 'measuring');
@@ -299,7 +339,7 @@ export async function recoverStuckMeasurements(deps: MeasureDeps = {}): Promise<
         prior,
         { score: 0, reason: 'crash-recovery: measuring at startup → reverted defensively' },
         repo,
-        { reload, write, remove },
+        { reload, write, restore, remove },
       );
       if (outcome === 'reverted') reverted++;
     }
