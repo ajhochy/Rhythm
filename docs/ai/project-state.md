@@ -99,6 +99,67 @@ the post-merge manual-smoke list against that build.
 
 ## Recent coding-agent runs
 
+### 2026-06-28 — #794 auto-apply pipeline: re-target loop at live engine skills (skill-unify2 epic #791, 3/7)
+- Branch: `worktree-agent-a87f99ac094f4a555` (based on `feature/skill-unify2`, has #792+#793). Not pushed.
+- Replaces the old "proposal queue / human gate" spec: the loop AUTO-APPLIES a passing revision
+  (writes a SKILL.md), moves the sidecar row to `status='measuring'`, and hands off to #795
+  (measure + auto-revert). Generalizes the prior DB-row-only `reviseInPlace` to the LIVE engine
+  skill set.
+- Files modified:
+  - `apps/api_server/src/services/skill_apply.ts` (new) — `applyToEngineSkill(candidate, deps)`:
+    target resolution over the live set (`resolveLiveTarget`, exact case-insensitive name),
+    pre-apply gate (confidence ≥ 0.6 AND ≥ existing sidecar confidence), duplicate-apply guard
+    (`hasAutoAppliedRow` by name+base_version+body-hash, status measuring/reverted),
+    MANAGED path (revise in place) vs EXTERNAL path (fork-to-shadow, original NEVER written),
+    `hashBody` sha256, all writes via injectable `writeSkill`→`writeManagedSkill`. isTestEnv +
+    Postgres no-op + never-throws guards mirror skill_extractor/refiner.
+  - `apps/api_server/src/repositories/agent_skills_repository.ts` — `recordAutoApply(...)`
+    (lazy-create-or-reuse sidecar row by name, snapshot PRIOR body into agent_skill_versions as
+    the rollback base, write revised body + measuring + version bump + ledger cols) and
+    `hasAutoAppliedRow(name, baseVersion, hash)` (candidate hash stored in `measure_reason` as
+    `hash:<sha256>` — no new column).
+  - `apps/api_server/src/services/skill_refiner.ts` — re-targeted apply branch: on a 'better'
+    verdict the refiner now calls injectable `applyToEngine` (default `applyToEngineSkill`) with
+    the matched engine skill `name` (= title) + a rendered body, mapping
+    applied-managed/applied-external-fork → 'revised', else → 'kept'. Added `renderCandidateBody`.
+    No longer calls `reviseInPlace` directly (that now lives inside `recordAutoApply`).
+  - `apps/api_server/src/__tests__/skill_apply.test.ts` (new) — 13 tests: managed in-place
+    (version bump + prior-body snapshot + reload + is_external=0), external fork-to-shadow
+    (is_external=1, origin recorded, external file never handed to writeSkill, original bytes
+    snapshotted as base), duplicate guard (measuring + reverted), pre-apply gate (floor + <existing),
+    no-target, VITEST→skipped/zero writes, resolveLiveTarget units.
+  - `apps/api_server/src/__tests__/skill_refiner.test.ts` — updated to the new seam: a 'better'
+    verdict now delegates to an injected `applyToEngine` double (asserts call + name/confidence/
+    source + body), worse/equal/throw/low-conf/no-match never call apply, no-target→kept.
+- Checks run:
+  - `npx vitest run skill_apply skill_refiner skill_extractor agent_skills opencode_skills_routes skill_schema_parity` → 120/120 PASS.
+  - Full suite `npx vitest run` → 1368 pass / 162 files (baseline 1344/160; +24 tests, +2 files).
+  - `npm run build` (tsc -p tsconfig.json --noEmit) → exit 0.
+  - Falsification (each reverted): disabling `hasAutoAppliedRow` → both duplicate tests FAIL;
+    snapshotting revisedBody instead of priorBody → managed-snapshot + external-base tests FAIL;
+    removing the isTestEnv guard → VITEST-guard test FAILS.
+- Decisions made: external-fork uses the SAME `name` (decision-doc OQ#1 recommendation, shadows
+  the external in the picker). base_version for the duplicate guard uses the row's RECORDED
+  base_version when status is measuring/reverted (so a re-distill of the same body while in-flight
+  still matches), else the current version. Candidate hash piggybacks `measure_reason` (`hash:<sha>`)
+  to avoid a new column / migration / Postgres-parity change. The refiner now OWNS only the gate
+  decision + delegation; the SKILL.md write + version bump moved into skill_apply/recordAutoApply.
+- Deviations from spec: none. (Issue body authoritatively overrides the decision doc's
+  propose→review→apply with auto-apply; implemented auto-apply.)
+- #795 SEAM (measure + auto-revert): apply leaves a sidecar row at `status='measuring'` with
+  `applied_for_name`, `base_version` (the rollback target version_no in agent_skill_versions),
+  `origin_location`, `is_external`, and `measure_reason='hash:<sha256-of-revised-body>'`. To roll
+  back: for `is_external=0` restore the snapshotted base body to the managed SKILL.md and
+  `repo.rollback(id, base_version)`; for `is_external=1` `deleteManagedSkill(name)` (removing the
+  shadow restores the untouched external original byte-for-byte) + `reloadSkills()`; then set
+  status `active` (kept) or `reverted` (lost). The prior body for both paths is in
+  `agent_skill_versions` at `version_no = base_version`. #798 guard should assert the external
+  original at `origin_location` is byte-identical before/after a full apply→revert cycle.
+- Concerns: `defaultReadOriginal` reads the live `location` (a SKILL.md path) off disk to capture
+  the rollback base; if a skill's content is multi-file (resources beside SKILL.md) only SKILL.md
+  is snapshotted — acceptable for revert-by-shadow-delete (external) and SKILL.md-body revise
+  (managed), but a multi-file managed revise would only roll back SKILL.md. No such skills today.
+
 ### 2026-06-28 — #793 unified read: join sidecar metadata onto live engine skills (skill-unify2 epic #791, 2/7)
 - Branch: `worktree-agent-ac659d2d43b6f8e25` (based on `feature/skill-unify2`, has #792). Not pushed.
 - Files modified:

@@ -28,7 +28,8 @@ import { logger } from '../utils/logger';
 import { env } from '../config/env';
 import { AgentSkillsRepository } from '../repositories/agent_skills_repository';
 import { getRelevantSkills } from './skill_retrieval';
-import type { AgentSkill, AgentSkillInput } from '../models/agent_skill';
+import { applyToEngineSkill, type ApplyCandidate, type ApplyOutcome } from './skill_apply';
+import type { AgentSkill } from '../models/agent_skill';
 
 /** Mirrors opencode_agent_writer.ts isTestEnv() VERBATIM. */
 function isTestEnv(): boolean {
@@ -164,6 +165,37 @@ export interface RefineDeps {
   getRelevant?: (query: string, topN?: number) => AgentSkill[];
   /** Source label written on a successful revision. Defaults to 'auto-refined'. */
   source?: string;
+  /**
+   * #794 — Injectable apply step over the LIVE engine skill set (defaults to
+   * {@link applyToEngineSkill}). On a 'better' verdict the refiner hands the
+   * candidate here to write a SKILL.md (managed in-place / external fork-to-shadow)
+   * and move the sidecar row to `status='measuring'`. Tests inject a double so
+   * no real file write / engine call happens.
+   */
+  applyToEngine?: (candidate: ApplyCandidate) => Promise<ApplyOutcome>;
+}
+
+/**
+ * #794 — Render a refine candidate to a SKILL.md body. Prefers an explicit
+ * `body`; otherwise composes one from whenToUse + steps (mirrors
+ * skill_materializer.renderSkillBody so a refined skill reads the same as a
+ * materialized one).
+ */
+export function renderCandidateBody(candidate: RefineCandidate): string {
+  if (candidate.body && candidate.body.trim() !== '') return candidate.body;
+
+  const parts: string[] = [`# ${candidate.title}`, ''];
+  const whenToUse = candidate.whenToUse ?? candidate.description ?? null;
+  if (whenToUse && whenToUse.trim() !== '') {
+    parts.push('## When to use', '', whenToUse.trim(), '');
+  }
+  const steps = candidate.steps ?? null;
+  if (Array.isArray(steps) && steps.length > 0) {
+    parts.push('## Steps', '');
+    steps.forEach((s, i) => parts.push(`${i + 1}. ${s}`));
+    parts.push('');
+  }
+  return parts.join('\n');
 }
 
 /**
@@ -276,25 +308,32 @@ export async function refineExistingSkill(
       return 'kept';
     }
 
-    const newContent: Partial<AgentSkillInput> = {
-      title: candidate.title,
-      description: candidate.description ?? null,
-      whenToUse: candidate.whenToUse ?? null,
-      steps: candidate.steps ?? null,
-      tags: candidate.tags ?? null,
-      body: candidate.body ?? null,
-      confidence: candidate.confidence,
-    };
+    // #794 — AUTO-APPLY to the LIVE engine skill set (not just the DB row). The
+    // matched skill's `name` is its title (the sidecar join key #775/#778 align
+    // on). applyToEngineSkill resolves it against the live set, re-checks the
+    // pre-apply gate + duplicate guard, then writes a SKILL.md (managed in-place
+    // OR external fork-to-shadow) and moves the sidecar row to 'measuring'.
     const source = deps.source ?? 'auto-refined';
-    const revised = repo.reviseInPlace(existing.id, newContent, source);
-    if (!revised) {
-      logger.warn(`[skill-refine] reviseInPlace returned null for ${existing.id} — keeping existing`);
-      return 'kept';
+    const applyToEngine = deps.applyToEngine ?? ((c: ApplyCandidate) => applyToEngineSkill(c));
+    const outcome = await applyToEngine({
+      name: existing.title,
+      body: renderCandidateBody(candidate),
+      description: candidate.description ?? candidate.whenToUse ?? null,
+      confidence: candidate.confidence,
+      source,
+    });
+
+    if (outcome === 'applied-managed' || outcome === 'applied-external-fork') {
+      logger.info(
+        `[skill-refine] applied '${existing.title}' to live engine skill (${outcome}, source=${source}): ${verdict.reason}`,
+      );
+      return 'revised';
     }
+    // no-target / skipped-gate / skipped-duplicate / skipped → existing untouched.
     logger.info(
-      `[skill-refine] revised '${existing.title}' → v${revised.version} (source=${source}): ${verdict.reason}`,
+      `[skill-refine] apply outcome '${outcome}' for '${existing.title}' — keeping existing`,
     );
-    return 'revised';
+    return 'kept';
   } catch (err) {
     // NEVER throw — the loop callers are fire-and-forget.
     logger.warn(`[skill-refine] FAILED (non-fatal): ${String(err)}`);

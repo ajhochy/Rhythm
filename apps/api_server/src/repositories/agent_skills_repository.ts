@@ -296,6 +296,128 @@ export class AgentSkillsRepository {
       .run(new Date().toISOString(), id);
   }
 
+  // ── #794: auto-apply ledger over the LIVE engine skill set ─────────────────
+
+  /**
+   * #794 — Duplicate-apply guard. Returns true when a sidecar row already exists
+   * for the same engine skill `name` + `base_version` + candidate body hash with
+   * a status that means "do not re-apply": `reverted` (this exact revision already
+   * lost) or `measuring` (this exact revision is in flight). Other statuses
+   * (`active`/`draft`/`published`) do NOT block — they are not this candidate.
+   *
+   * The candidate body hash is stored in `measure_reason` prefixed with `hash:`
+   * at apply time (the column is otherwise null until #795 measures), so the
+   * guard needs no new column.
+   */
+  hasAutoAppliedRow(
+    appliedForName: string,
+    baseVersion: number,
+    candidateHash: string,
+  ): boolean {
+    const row = this.db
+      .prepare(
+        `SELECT 1 FROM agent_skills
+          WHERE applied_for_name = ? COLLATE NOCASE
+            AND base_version = ?
+            AND measure_reason = ?
+            AND status IN ('measuring', 'reverted')
+          LIMIT 1`,
+      )
+      .get(appliedForName, baseVersion, `hash:${candidateHash}`);
+    return row !== undefined;
+  }
+
+  /**
+   * #794 — Record an auto-applied revision to a LIVE engine skill as a sidecar
+   * `status='measuring'` row, snapshotting the PRIOR (pre-apply) body into
+   * agent_skill_versions so the #795 revert can deterministically roll back.
+   *
+   * The engine skill's filesystem `name` is stored in `title` (the join key the
+   * unified read / findByName collates on). If a sidecar row already exists for
+   * `name` it is reused (its content is snapshotted as the base version first,
+   * then it is updated in place + version bumped); otherwise a fresh row is
+   * created at the supplied `baseVersion` and immediately bumped to
+   * `baseVersion + 1`.
+   *
+   * `priorBody` is the byte content the revert must restore: for a MANAGED target
+   * it is the current managed SKILL.md body; for an EXTERNAL target it is the
+   * external original's content (captured so revert removes the managed shadow).
+   *
+   * Returns the live sidecar row after the apply.
+   */
+  recordAutoApply(input: {
+    name: string;
+    baseVersion: number;
+    revisedBody: string;
+    priorBody: string | null;
+    candidateHash: string;
+    isExternal: boolean;
+    originLocation: string | null;
+    confidence: number;
+    source: string;
+    description?: string | null;
+  }): AgentSkill {
+    const now = new Date().toISOString();
+    const measureRef = `hash:${input.candidateHash}`;
+
+    const tx = this.db.transaction(() => {
+      let existing = this.findByName(input.name);
+
+      if (!existing) {
+        // Lazily create the sidecar row at the engine skill's base version,
+        // carrying the PRIOR body so the snapshot + revert have the bytes.
+        existing = this.create({
+          title: input.name,
+          description: input.description ?? null,
+          body: input.priorBody,
+          confidence: input.confidence,
+          status: 'active',
+          source: input.source,
+          appliedForName: input.name,
+          baseVersion: input.baseVersion,
+          originLocation: input.originLocation,
+          isExternal: input.isExternal ? 1 : 0,
+        });
+        // create() always starts version at 1; align it to the engine base.
+        this.db
+          .prepare(`UPDATE agent_skills SET version = ? WHERE id = ?`)
+          .run(input.baseVersion, existing.id);
+        existing = this.getById(existing.id)!;
+      }
+
+      // Snapshot the PRIOR body under the current version_no (the rollback target).
+      this.snapshotCurrent({ ...existing, body: input.priorBody });
+
+      // Update the live sidecar row to the revised body + measuring lifecycle,
+      // bumping version and recording the auto-apply ledger columns.
+      this.db
+        .prepare(
+          `UPDATE agent_skills
+              SET body = ?, confidence = ?, status = 'measuring', source = ?,
+                  version = ?, applied_for_name = ?, base_version = ?,
+                  origin_location = ?, is_external = ?, measure_reason = ?,
+                  updated_at = ?
+            WHERE id = ?`,
+        )
+        .run(
+          input.revisedBody,
+          input.confidence,
+          input.source,
+          input.baseVersion + 1,
+          input.name,
+          input.baseVersion,
+          input.originLocation,
+          input.isExternal ? 1 : 0,
+          measureRef,
+          now,
+          existing.id,
+        );
+    });
+    tx();
+
+    return this.findByName(input.name)!;
+  }
+
   // ── P5-1: version history + non-destructive in-place revision ──────────────
 
   /**
