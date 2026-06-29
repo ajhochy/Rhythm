@@ -28,6 +28,11 @@ export interface AgentSkill {
    */
   body: string | null;
   confidence: number;
+  /**
+   * Lifecycle. Legacy values 'draft'/'published' still appear on existing rows
+   * (reconciled in #797). The #792 sidecar model adds the data-only lifecycle
+   * 'active' / 'measuring' / 'reverted' (no human-gate proposed/approved/rejected).
+   */
   status: string;
   source: string | null;
   uses: number;
@@ -36,6 +41,21 @@ export interface AgentSkill {
    * {@link AgentSkillsRepository.reviseInPlace} and `rollback`.
    */
   version: number;
+  // ── #792 sidecar metadata + measurement ledger (over engine skills) ──────────
+  /** Engine skill `name` an auto-applied revision targets; null otherwise. */
+  appliedForName: string | null;
+  /** Engine skill version the revision was based on = rollback target; null. */
+  baseVersion: number | null;
+  /** Live skill filesystem `location` at apply time; null. */
+  originLocation: string | null;
+  /** 1 when the target lived outside the managed dir (fork-to-shadow); else 0. */
+  isExternal: number;
+  /** LLM-judge score of the PRIOR body; null until measured. */
+  baselineScore: number | null;
+  /** LLM-judge score of the REVISED body; null until measured. */
+  postScore: number | null;
+  /** Judge's one-sentence rationale; null until measured. */
+  measureReason: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -76,4 +96,12 @@ export interface AgentSkillInput {
   status?: string;
   source?: string | null;
   uses?: number;
+  // ── #792 sidecar metadata + measurement ledger ──────────────────────────────
+  appliedForName?: string | null;
+  baseVersion?: number | null;
+  originLocation?: string | null;
+  isExternal?: number;
+  baselineScore?: number | null;
+  postScore?: number | null;
+  measureReason?: string | null;
 }

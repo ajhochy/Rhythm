@@ -87,8 +87,7 @@ import 'features/agent_cookbook/controllers/agent_cookbook_controller.dart';
 import 'features/agent_cookbook/data/agent_cookbook_data_source.dart';
 import 'features/agent_cookbook/repositories/agent_cookbook_repository.dart';
 import 'features/agent_skills/controllers/agent_skills_controller.dart';
-import 'features/agent_skills/data/agent_skills_data_source.dart';
-import 'features/agent_skills/repositories/agent_skills_repository.dart';
+import 'features/agents/data/opencode_skills_data_source.dart';
 import 'features/agent_email/controllers/agent_email_controller.dart';
 import 'features/agent_email/data/agent_email_data_source.dart';
 import 'features/agent_email/repositories/agent_email_repository.dart';
@@ -332,8 +331,9 @@ class _RhythmAppContent extends StatelessWidget {
           create: (_) => SettingsController(
             SettingsRepository(
               SettingsDataSource(baseUrl: baseUrl),
-              userPreferencesDataSource:
-                  UserPreferencesDataSource(baseUrl: baseUrl),
+              userPreferencesDataSource: UserPreferencesDataSource(
+                baseUrl: baseUrl,
+              ),
             ),
           ),
         ),
@@ -405,9 +405,7 @@ class _RhythmAppContent extends StatelessWidget {
           ),
         ),
         // OPC-M4-3: MCP server management (#702)
-        ChangeNotifierProvider(
-          create: (_) => McpController(McpDataSource()),
-        ),
+        ChangeNotifierProvider(create: (_) => McpController(McpDataSource())),
         // ── Odysseus: Agent Scheduler, Memory, Research, Webhooks ─────────
         ChangeNotifierProvider(
           create: (_) => AgentSchedulesController(
@@ -436,9 +434,7 @@ class _RhythmAppContent extends StatelessWidget {
           ),
         ),
         ChangeNotifierProvider(
-          create: (_) => AgentSkillsController(
-            AgentSkillsRepository(AgentSkillsDataSource()),
-          ),
+          create: (_) => AgentSkillsController(OpencodeSkillsDataSource()),
         ),
         ChangeNotifierProvider(
           create: (_) => AgentEmailController(

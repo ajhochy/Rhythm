@@ -2,23 +2,23 @@
 
 ## Current focus
 
-Consolidating every open pull request into `codex/mega-open-prs-2026-06-28`
-for one full-stack local smoke build.
+All nine open pull requests are consolidated on
+`codex/mega-open-prs-2026-06-28` for one full-stack local smoke build.
 
 ## Active branch / PR
 
 - Integration branch: `codex/mega-open-prs-2026-06-28`, based on current
   `origin/main`.
-- Source PRs being composed: #754, #757, #758, #790, #799, #800, #809, #810,
-  and #811.
+- Included source PRs: #754, #757, #758, #790, #799, #800, #809, #810, and
+  #811.
 - Mega PR: not opened yet.
 
 ## In progress
 
-- Merged through source PR #810; #811 remains.
-- Resolve integration-only conflicts.
-- Rebuild api_server, opencode fork binary, and the macOS Flutter app from the
-  resulting branch.
+- Run GitNexus change analysis and the full repository verification gate.
+- Rebuild api_server, opencode fork binary, and the macOS Flutter app from this
+  branch.
+- Launch the rebuilt app for local manual smoke.
 
 ## Risks / known issues
 
@@ -30,8 +30,8 @@ for one full-stack local smoke build.
 
 ## Test status
 
-- Not yet run on the integration branch.
+- Not yet run on the fully consolidated branch.
 
 ## Next step
 
-Merge #811, then run full build and smoke verification.
+Run change analysis, build all three runtime layers, and execute smoke probes.

@@ -28,7 +28,8 @@ import { logger } from '../utils/logger';
 import { env } from '../config/env';
 import { AgentSkillsRepository } from '../repositories/agent_skills_repository';
 import { getRelevantSkills } from './skill_retrieval';
-import type { AgentSkill, AgentSkillInput } from '../models/agent_skill';
+import { applyAndMeasure, type ApplyCandidate, type ApplyOutcome } from './skill_apply';
+import type { AgentSkill } from '../models/agent_skill';
 
 /** Mirrors opencode_agent_writer.ts isTestEnv() VERBATIM. */
 function isTestEnv(): boolean {
@@ -155,6 +156,126 @@ export function parseJudgeResponse(raw: string): JudgeResult {
   return { verdict: 'equal', reason: text || 'unrecognized judge verdict — treated as equal' };
 }
 
+// ── #795: purpose-anchored numeric scoring (measurement, not the categorical
+//         in-place-refinement judge above) ──────────────────────────────────
+//
+// The categorical better|equal|worse judge above (used by refineExistingSkill)
+// is EPHEMERAL and IGNORES the skill `body`. #795 needs a PERSISTED, bounded,
+// purpose-anchored score that COMPARES the body so the measure step can decide
+// `post_score > baseline_score`. That is this scorer. It is deliberately a
+// separate exported function so the in-place refinement path is untouched.
+
+/** The skill's stated purpose — the fixed anchor every body is scored against. */
+export interface SkillPurpose {
+  name: string;
+  description?: string | null;
+  whenToUse?: string | null;
+}
+
+export interface ScoreResult {
+  /** Integer 0–100. */
+  score: number;
+  /** Judge's one-sentence rationale (or the failure reason). */
+  reason: string;
+}
+
+/**
+ * Injectable purpose-anchored body scorer: given a skill's stated PURPOSE and a
+ * candidate BODY, return an integer 0–100 quality score + a one-line reason.
+ * Defaults to the real opencode-backed impl. Tests inject a deterministic one.
+ */
+export type ScoreCall = (purpose: SkillPurpose, body: string) => Promise<ScoreResult>;
+
+function purposeText(p: SkillPurpose): string {
+  return [
+    `name: ${p.name}`,
+    p.description ? `description: ${p.description}` : '',
+    p.whenToUse ? `whenToUse: ${p.whenToUse}` : '',
+  ]
+    .filter((l) => l.length > 0)
+    .join('\n');
+}
+
+/**
+ * The fixed scoring rubric. Stable across baseline + post calls so the two
+ * scores are comparable. Anchors the body to the skill's STATED PURPOSE.
+ */
+function buildScoreSystemPrompt(): string {
+  return (
+    'You are grading how well a skill BODY fulfills the skill\'s STATED PURPOSE. ' +
+    'Output ONLY an integer from 0 to 100 followed by a space and a one-sentence ' +
+    'reason. Use this rubric:\n' +
+    '- 0-20: body is missing, off-topic, or contradicts the purpose.\n' +
+    '- 21-40: loosely related but vague, incomplete, or misleading.\n' +
+    '- 41-60: covers the purpose at a basic level with notable gaps.\n' +
+    '- 61-80: accurate, reasonably complete, and actionable.\n' +
+    '- 81-100: precise, complete, reusable, and free of errors.\n' +
+    'Judge ONLY the body against the purpose; do not reward verbosity.'
+  );
+}
+
+/** Default (real) scorer — guarded; never reached under isTestEnv. */
+const defaultScorer: ScoreCall = async (purpose, body) => {
+  const { opencodeClient } = await import('./opencode_engine');
+  const { resolveRunModel } = await import('./agent_runner');
+  const model = resolveRunModel();
+  const system = buildScoreSystemPrompt();
+  const user =
+    `PURPOSE:\n${purposeText(purpose)}\n\n` +
+    `BODY:\n${(body ?? '').trim() || '(empty)'}\n\n` +
+    'Score (0-100) + one-sentence reason:';
+  const session = await opencodeClient.createSession('skill-measure-score');
+  if (!session?.id) {
+    return { score: 0, reason: 'no scorer session' };
+  }
+  const resp = await opencodeClient.prompt(session.id, `${system}\n\n${user}`, model, undefined, {
+    permissionMode: 'bypassPermissions',
+  });
+  const text = (resp?.parts ?? [])
+    .filter((p): p is import('@opencode-ai/sdk').TextPart => p.type === 'text')
+    .map((p) => p.text)
+    .join('\n')
+    .trim();
+  return parseScoreResponse(text);
+};
+
+/**
+ * Parse a free-text score response into a {@link ScoreResult}. FAIL-CLOSED: a
+ * response with no parseable leading integer in [0,100] yields score 0 (so the
+ * measure step treats it as no improvement → revert). Exported for tests.
+ */
+export function parseScoreResponse(raw: string): ScoreResult {
+  const text = (raw ?? '').trim();
+  const m = text.match(/-?\d+/);
+  if (!m) {
+    return { score: 0, reason: text || 'unparseable score — treated as 0' };
+  }
+  let n = parseInt(m[0], 10);
+  if (!Number.isFinite(n)) return { score: 0, reason: 'non-finite score — treated as 0' };
+  if (n < 0) n = 0;
+  if (n > 100) n = 100;
+  const reason = text.slice(text.indexOf(m[0]) + m[0].length).trim() || text;
+  return { score: n, reason };
+}
+
+/**
+ * Score a body against a stated purpose using the (injectable) scorer. NEVER
+ * throws — a thrown scorer is mapped to a fail-closed score of 0. Used by the
+ * #795 measurement step for both baseline and post bodies.
+ */
+export async function scoreSkillBody(
+  purpose: SkillPurpose,
+  body: string | null,
+  scorer: ScoreCall = defaultScorer,
+): Promise<ScoreResult> {
+  try {
+    return await scorer(purpose, body ?? '');
+  } catch (err) {
+    logger.warn(`[skill-measure] scorer threw (fail-closed → 0): ${String(err)}`);
+    return { score: 0, reason: `scorer error: ${String(err)}` };
+  }
+}
+
 export interface RefineDeps {
   /** Injectable judge (defaults to the real opencode-backed impl). */
   judge?: JudgeCall;
@@ -164,6 +285,38 @@ export interface RefineDeps {
   getRelevant?: (query: string, topN?: number) => AgentSkill[];
   /** Source label written on a successful revision. Defaults to 'auto-refined'. */
   source?: string;
+  /**
+   * #794 + #795 — Injectable apply step over the LIVE engine skill set (defaults
+   * to {@link applyAndMeasure}). On a 'better' verdict the refiner hands the
+   * candidate here to write a SKILL.md (managed in-place / external fork-to-shadow),
+   * move the sidecar row to `status='measuring'`, and then MEASURE it so the row
+   * ends `active` (kept) or `reverted` (auto-rolled-back) — never stuck measuring.
+   * Tests inject a double so no real file write / engine / scorer call happens.
+   */
+  applyToEngine?: (candidate: ApplyCandidate) => Promise<ApplyOutcome>;
+}
+
+/**
+ * #794 — Render a refine candidate to a SKILL.md body. Prefers an explicit
+ * `body`; otherwise composes one from whenToUse + steps (mirrors
+ * skill_materializer.renderSkillBody so a refined skill reads the same as a
+ * materialized one).
+ */
+export function renderCandidateBody(candidate: RefineCandidate): string {
+  if (candidate.body && candidate.body.trim() !== '') return candidate.body;
+
+  const parts: string[] = [`# ${candidate.title}`, ''];
+  const whenToUse = candidate.whenToUse ?? candidate.description ?? null;
+  if (whenToUse && whenToUse.trim() !== '') {
+    parts.push('## When to use', '', whenToUse.trim(), '');
+  }
+  const steps = candidate.steps ?? null;
+  if (Array.isArray(steps) && steps.length > 0) {
+    parts.push('## Steps', '');
+    steps.forEach((s, i) => parts.push(`${i + 1}. ${s}`));
+    parts.push('');
+  }
+  return parts.join('\n');
 }
 
 /**
@@ -276,25 +429,35 @@ export async function refineExistingSkill(
       return 'kept';
     }
 
-    const newContent: Partial<AgentSkillInput> = {
-      title: candidate.title,
-      description: candidate.description ?? null,
-      whenToUse: candidate.whenToUse ?? null,
-      steps: candidate.steps ?? null,
-      tags: candidate.tags ?? null,
-      body: candidate.body ?? null,
-      confidence: candidate.confidence,
-    };
+    // #794 — AUTO-APPLY to the LIVE engine skill set (not just the DB row). The
+    // matched skill's `name` is its title (the sidecar join key #775/#778 align
+    // on). applyToEngineSkill resolves it against the live set, re-checks the
+    // pre-apply gate + duplicate guard, then writes a SKILL.md (managed in-place
+    // OR external fork-to-shadow) and moves the sidecar row to 'measuring'.
     const source = deps.source ?? 'auto-refined';
-    const revised = repo.reviseInPlace(existing.id, newContent, source);
-    if (!revised) {
-      logger.warn(`[skill-refine] reviseInPlace returned null for ${existing.id} — keeping existing`);
-      return 'kept';
+    // #794 + #795 — default to applyAndMeasure so a 'better' verdict runs the
+    // full apply → measure → (keep | auto-revert) pass in one fire-and-forget
+    // step (the row never stays stuck 'measuring'). Tests inject a double.
+    const applyToEngine = deps.applyToEngine ?? ((c: ApplyCandidate) => applyAndMeasure(c));
+    const outcome = await applyToEngine({
+      name: existing.title,
+      body: renderCandidateBody(candidate),
+      description: candidate.description ?? candidate.whenToUse ?? null,
+      confidence: candidate.confidence,
+      source,
+    });
+
+    if (outcome === 'applied-managed' || outcome === 'applied-external-fork') {
+      logger.info(
+        `[skill-refine] applied '${existing.title}' to live engine skill (${outcome}, source=${source}): ${verdict.reason}`,
+      );
+      return 'revised';
     }
+    // no-target / skipped-gate / skipped-duplicate / skipped → existing untouched.
     logger.info(
-      `[skill-refine] revised '${existing.title}' → v${revised.version} (source=${source}): ${verdict.reason}`,
+      `[skill-refine] apply outcome '${outcome}' for '${existing.title}' — keeping existing`,
     );
-    return 'revised';
+    return 'kept';
   } catch (err) {
     // NEVER throw — the loop callers are fire-and-forget.
     logger.warn(`[skill-refine] FAILED (non-fatal): ${String(err)}`);

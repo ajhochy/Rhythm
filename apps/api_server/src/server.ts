@@ -104,6 +104,57 @@ async function main() {
     } catch (err) {
       logger.warn(`[server] agent-stack skill seed failed (non-fatal): ${String(err)}`);
     }
+
+    // #797 — One-time reconciliation of HISTORICAL agent_skills rows onto the
+    // unified model: legacy `published` rows materialize once (only if no file
+    // exists yet) and normalize to `active`; legacy `draft` rows carry over to
+    // `active` (file absent until materialized). Run-once guarded by a
+    // schema_meta marker (mirrors the seed gate above); re-runs are a no-op.
+    // Non-blocking (touches the engine via listSkills/reload) + non-fatal — a
+    // failure must never block startup and leaves the marker unwritten so a later
+    // boot retries. No-op under Postgres (agent skills are local-SQLite-only).
+    void (async () => {
+      try {
+        const { backfillSkillMetadata } = await import(
+          './services/skill_metadata_backfill'
+        );
+        const r = await backfillSkillMetadata();
+        if (!r.alreadyDone) {
+          logger.info(
+            `[server] agent_skills unify backfill: publishedReconciled=${r.publishedReconciled} ` +
+              `publishedMaterialized=${r.publishedMaterialized} draftCarriedOver=${r.draftCarriedOver} skipped=${r.skipped}`,
+          );
+        }
+      } catch (err) {
+        logger.warn(
+          `[server] agent_skills unify backfill failed (non-fatal): ${String(err)}`,
+        );
+      }
+    })();
+
+    // #794 + #795 — Crash recovery for the auto-apply self-improvement loop. A
+    // revision applied before a crash leaves its sidecar row at
+    // `status='measuring'`; if the process died before the measure step ran,
+    // the row would stay measuring forever. Defensively revert any such rows at
+    // startup (fail-closed). Non-blocking + non-fatal — a failure must never
+    // prevent the server from starting. No-op under Postgres / VITEST.
+    void (async () => {
+      try {
+        const { recoverStuckMeasurements } = await import(
+          './services/skill_measurement'
+        );
+        const reverted = await recoverStuckMeasurements();
+        if (reverted > 0) {
+          logger.info(
+            `[server] skill measurement crash recovery: reverted ${reverted} stuck measuring row(s)`,
+          );
+        }
+      } catch (err) {
+        logger.warn(
+          `[server] skill measurement crash recovery failed (non-fatal): ${String(err)}`,
+        );
+      }
+    })();
   } else {
     logger.info(
       `[server] RHYTHM_ROLE=${env.role} — agent execution disabled (no scheduler, opencode, WS gateway, or managed Chrome)`,

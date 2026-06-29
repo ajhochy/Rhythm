@@ -22,6 +22,7 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { AppError } from '../errors/app_error';
 import { opencodeClient } from '../services/opencode_engine';
+import { AgentSkillsRepository } from '../repositories/agent_skills_repository';
 import {
   writeManagedSkill,
   deleteManagedSkill,
@@ -40,6 +41,44 @@ interface SkillListEntry {
   managed: boolean;
 }
 
+/**
+ * #793 — the #792 sidecar metadata joined onto a live engine skill by `name`.
+ * Auto-apply lifecycle (`active`/`measuring`/`reverted`) + baseline/post scores;
+ * NOT a review queue. Present only when the caller passes `?withMetadata=true`.
+ */
+interface SkillMetadata {
+  confidence: number | null;
+  version: number;
+  status: 'active' | 'measuring' | 'reverted' | null;
+  source: string | null;
+  uses: number | null;
+  baselineScore: number | null;
+  postScore: number | null;
+  isExternalFork: boolean;
+}
+
+interface SkillListEntryWithMetadata extends SkillListEntry {
+  metadata: SkillMetadata;
+}
+
+/**
+ * Default metadata returned when a live engine skill has no #792 sidecar row.
+ * `version: 1` and `status: 'active'` mirror a freshly-discovered skill that has
+ * never been auto-revised; all measurement fields are null.
+ */
+const DEFAULT_METADATA: SkillMetadata = {
+  confidence: null,
+  version: 1,
+  status: 'active',
+  source: null,
+  uses: null,
+  baselineScore: null,
+  postScore: null,
+  isExternalFork: false,
+};
+
+const VALID_STATUSES = new Set(['active', 'measuring', 'reverted']);
+
 // ── GET / — list the fork's live discovered skills ───────────────────────────
 
 opencodeSkillsRouter.get(
@@ -55,7 +94,42 @@ opencodeSkillsRouter.get(
         location: s.location,
         managed: isManagedLocation(s.location),
       }));
-      res.json(entries);
+
+      if (req.query.withMetadata !== 'true') {
+        res.json(entries);
+        return;
+      }
+
+      // Join the #792 sidecar metadata onto each live engine skill by `name`.
+      // O(n) over the live set: one query per name via findByName (the repo
+      // collates name → the `title` column). The live set is the source of
+      // truth for which names exist — the join never adds or drops a name, so
+      // a sidecar row that targets no live skill simply does not appear, and a
+      // sidecar row with status measuring/reverted surfaces only as metadata.
+      const repo = new AgentSkillsRepository();
+      const withMetadata: SkillListEntryWithMetadata[] = entries.map((entry) => {
+        const row = repo.findByName(entry.name);
+        if (!row) {
+          return { ...entry, metadata: { ...DEFAULT_METADATA } };
+        }
+        const status = VALID_STATUSES.has(row.status)
+          ? (row.status as 'active' | 'measuring' | 'reverted')
+          : null;
+        return {
+          ...entry,
+          metadata: {
+            confidence: row.confidence ?? null,
+            version: row.version ?? 1,
+            status,
+            source: row.source ?? null,
+            uses: row.uses ?? null,
+            baselineScore: row.baselineScore ?? null,
+            postScore: row.postScore ?? null,
+            isExternalFork: (row.isExternal ?? 0) === 1,
+          },
+        };
+      });
+      res.json(withMetadata);
     } catch (err) {
       next(err);
     }

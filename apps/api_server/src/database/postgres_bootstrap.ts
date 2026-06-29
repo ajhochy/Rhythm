@@ -644,6 +644,26 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
     `ALTER TABLE agent_skills ADD COLUMN IF NOT EXISTS version INTEGER DEFAULT 1`,
   );
 
+  // #792 (skill-unify2) — repurpose agent_skills as a name-keyed metadata
+  // SIDECAR + measurement LEDGER over the engine's filesystem skills, for the
+  // auto-apply → measure → auto-revert self-improvement model. NO human gate:
+  // `status` carries the data-only lifecycle 'active' / 'measuring' / 'reverted'
+  // (no proposed/approved/rejected). All columns additive + nullable. These MUST
+  // stay column-for-column identical to the SQLite migration (skill_schema_parity
+  // test enforces). See migrations.ts for per-column semantics.
+  await pool.query(`
+    ALTER TABLE agent_skills ADD COLUMN IF NOT EXISTS applied_for_name TEXT;
+    ALTER TABLE agent_skills ADD COLUMN IF NOT EXISTS base_version INTEGER;
+    ALTER TABLE agent_skills ADD COLUMN IF NOT EXISTS origin_location TEXT;
+    ALTER TABLE agent_skills ADD COLUMN IF NOT EXISTS is_external INTEGER DEFAULT 0;
+    ALTER TABLE agent_skills ADD COLUMN IF NOT EXISTS baseline_score INTEGER;
+    ALTER TABLE agent_skills ADD COLUMN IF NOT EXISTS post_score INTEGER;
+    ALTER TABLE agent_skills ADD COLUMN IF NOT EXISTS measure_reason TEXT;
+  `);
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_agent_skills_applied_for_name ON agent_skills(applied_for_name)`,
+  );
+
   // P5-1 — agent_skill_versions: append-only version history for self-refinement.
   // Each row snapshots a prior (or restored) state of an agent_skills row so the
   // auto-apply refinement loop is non-destructive with one-click rollback.

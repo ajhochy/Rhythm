@@ -62,6 +62,7 @@ jobs:
         working-directory: apps/api_server
         run: |
           npm install
+          npx vitest run src/__tests__/skill_schema_parity.test.ts
           npm run build
           npm prune --omit=dev
 

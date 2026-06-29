@@ -1,0 +1,64 @@
+{
+  "issue": 798,
+  "generated": "2026-06-28",
+  "criteria": [
+    {
+      "criterion_id": "issue-798-c1",
+      "text": "an auto-apply → keep round-trip: drive the loop to auto-apply a revision to a managed skill (improvement passes), confirm the managed SKILL.md changed, the reloaded GET /skill reflects it, and the sidecar row is status='active' with post_score > baseline_score persisted.",
+      "mode": "integration",
+      "test_file": "tools/release/smoke_skill_alignment.sh",
+      "test_id": "issue-798-c1: managed auto-apply keep round-trip against built fork",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-798-c2",
+      "text": "an auto-apply → auto-revert restores byte-identical prior version assertion (managed): apply a revision that does NOT improve (force a non-improving judge score / injected measurement), confirm the loop reverts, and assert the live managed SKILL.md is byte-identical to the pre-apply content (capture bytes before, compare after revert) and the sidecar row is status='reverted'.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/skill_apply_measure_e2e.test.ts",
+      "test_id": "issue-798-c2: managed auto-revert restores the prior SKILL.md byte-identically",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-798-c3",
+      "text": "an external-skill never-mutated-in-place assertion: stage an external skill outside the managed dir, run the auto-apply path for it (→ a same-name managed shadow appears), and assert the original external file's bytes are UNCHANGED; then force a revert and assert (a) the managed shadow is removed, (b) the external original is live again, and (c) the external file's bytes are STILL unchanged across the entire apply→revert cycle.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/skill_apply_measure_e2e.test.ts",
+      "test_id": "issue-798-c3: an external skill is unchanged and restored live after shadow revert",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-798-c4",
+      "text": "the existing names-alignment invariant still holds: every derived allowed_skills_json name ⊆ live GET /skill names; the same-name managed shadow adds NO new name, so the subset relation is trivially preserved.",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/skill_names_alignment.test.ts",
+      "test_id": "issue-798-c4: unified metadata names mirror the fork set and a shadow adds no name",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-798-c5",
+      "text": "apps/api_server/src/__tests__/skill_names_alignment.test.ts is extended (or a sibling test added) to cover: the unified read (?withMetadata=true) name set mirrors the fork name set; a same-name shadow does not duplicate or add a name; a status='measuring' or 'reverted' row does not leak into the live skill name set; and status only ever takes active/measuring/reverted (no proposed/approved/rejected).",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/skill_names_alignment.test.ts",
+      "test_id": "issue-798-c5: sidecar-only measuring/reverted rows do not leak into live names",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-798-c6",
+      "text": "The schema-parity test from #792 is wired so CI fails on a one-DB-only column add.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/skill_schema_parity.test.ts",
+      "test_id": "agent_skills has identical column sets in SQLite and Postgres",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-798-c7",
+      "text": "Guards run in CI without a signed release (real-binary fork smoke uses the built binary, consistent with #775/#778).",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/__tests__/skill_schema_parity.test.ts",
+      "test_id": "issue-798-c7: release CI runs the schema parity guard explicitly",
+      "status": "pass"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}
