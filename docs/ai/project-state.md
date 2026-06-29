@@ -10,9 +10,8 @@ Issue #798, the final guard issue for skill-unify2 epic #791, is implemented on
 - Branch: `feature/skill-unify2` (local ref displays as `Feature/skill-unify2`
   because this case-insensitive checkout contains historical case-colliding refs).
 - Remote tip before this run: `origin/feature/skill-unify2` at `b9b9838a9`.
-- No implementation PR is open for this branch. PR #799 is plan-only and is not
-  the landing PR; the combined #792–#798 implementation branch should target
-  `main`.
+- Draft implementation PR: #811, `feature/skill-unify2` → `main`.
+- PR #799 remains the plan-only record and is not the implementation PR.
 
 ## In progress
 
@@ -42,5 +41,5 @@ Issue #798, the final guard issue for skill-unify2 epic #791, is implemented on
 
 ## Next step
 
-Commit/push #798 onto `feature/skill-unify2`, then open the combined #792–#798
-implementation PR against `main` if requested.
+Human review PR #811, then run the normal signed-build UI/live smoke before
+manual merge.

@@ -2,7 +2,7 @@
 date: 2026-06-28
 repo: Rhythm
 branch: feature/skill-unify2
-pr: null
+pr: 811
 issues: [798]
 status: complete
 tags: [run, Rhythm]
@@ -45,7 +45,8 @@ index: "[[Rhythm]]"
 - GitNexus blast radius for the rollback path is LOW: two direct callers,
   `measureAppliedSkill` and `recoverStuckMeasurements`, with no affected process.
 - PR #799 is documentation-only. The implementation belongs on the combined
-  `feature/skill-unify2` branch and should eventually target `main`.
+  `feature/skill-unify2` branch; draft implementation PR #811 targets `main`
+  and closes epic #791 plus issues #792–#798.
 - The first TypeScript build after adding the restore adapter failed because
   `Buffer.isBuffer` did not narrow the full `string | ArrayBufferView` union.
   A small explicit string/ArrayBufferView conversion helper corrected the type
