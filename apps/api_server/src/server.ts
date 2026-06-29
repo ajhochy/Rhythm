@@ -132,6 +132,33 @@ async function main() {
       }
     })();
 
+    // One-time grant of obsidian READ/SEARCH advertise-scope to EXISTING
+    // selectable agent profiles. The importer default now ships obsidian for
+    // future-synced profiles, but profiles synced on an earlier boot keep their
+    // old scope (e.g. ["rhythm"]) and would never advertise the knowledge vault.
+    // This adds "obsidian" to array scopes (server-level) and an obsidian
+    // read/search tool key to object-map scopes, preserving existing entries and
+    // leaving null (unrestricted) scopes alone. Run-once guarded by a schema_meta
+    // marker; re-runs are a no-op. Non-fatal — a failure must never block
+    // startup and leaves the marker unwritten so a later boot retries. No-op
+    // under Postgres (agent_configs MCP scopes are local-SQLite-only).
+    try {
+      const { backfillObsidianReadScope } = await import(
+        './services/obsidian_scope_backfill'
+      );
+      const r = backfillObsidianReadScope();
+      if (!r.alreadyDone) {
+        logger.info(
+          `[server] obsidian read-scope backfill: examined=${r.examined} ` +
+            `arrayGranted=${r.arrayGranted} objectGranted=${r.objectGranted} skipped=${r.skipped}`,
+        );
+      }
+    } catch (err) {
+      logger.warn(
+        `[server] obsidian read-scope backfill failed (non-fatal): ${String(err)}`,
+      );
+    }
+
     // #794 + #795 — Crash recovery for the auto-apply self-improvement loop. A
     // revision applied before a crash leaves its sidecar row at
     // `status='measuring'`; if the process died before the measure step ran,

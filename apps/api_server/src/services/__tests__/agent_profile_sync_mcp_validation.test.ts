@@ -57,7 +57,7 @@ describe('agent_profile_sync — live MCP-name validation (#788)', () => {
     listSkills.mockResolvedValue([]);
   });
 
-  it('persists the importer default ["rhythm"] when it aligns with the live id set', async () => {
+  it('persists only the live-aligned names of the importer default (rhythm live, obsidian absent → drops obsidian)', async () => {
     listMcp.mockResolvedValue({
       rhythm: { status: 'connected' },
       'ableton-mcp': { status: 'connected' },
@@ -66,12 +66,25 @@ describe('agent_profile_sync — live MCP-name validation (#788)', () => {
     await syncOpencodeAgentProfiles([ocAgent('newcomer', 'primary')]);
 
     const row = repo.getById('newcomer')!;
+    // obsidian is not a live id in this mock → dropped; rhythm survives.
     expect(JSON.parse(row.allowedMcpsJson!)).toEqual(['rhythm']);
+  });
+
+  it('persists both default names when both are live ids', async () => {
+    listMcp.mockResolvedValue({
+      rhythm: { status: 'connected' },
+      obsidian: { status: 'connected' },
+    });
+
+    await syncOpencodeAgentProfiles([ocAgent('newcomer', 'primary')]);
+
+    const row = repo.getById('newcomer')!;
+    expect(JSON.parse(row.allowedMcpsJson!)).toEqual(['rhythm', 'obsidian']);
   });
 
   it('does NOT silently persist a default MCP name absent from the live set — drops it and logs loudly', async () => {
     const warn = vi.spyOn(logger, 'warn');
-    // Live engine has NO `rhythm` server (the default's only name is dead here).
+    // Live engine has NEITHER `rhythm` NOR `obsidian` (both default names dead here).
     listMcp.mockResolvedValue({
       'ableton-mcp': { status: 'connected' },
       nfl_mcp: { status: 'connected' },
@@ -102,7 +115,7 @@ describe('agent_profile_sync — live MCP-name validation (#788)', () => {
     ).resolves.toEqual({ synced: 1 });
 
     const row = repo.getById('newcomer')!;
-    expect(JSON.parse(row.allowedMcpsJson!)).toEqual(['rhythm']);
+    expect(JSON.parse(row.allowedMcpsJson!)).toEqual(['rhythm', 'obsidian']);
   });
 
   it('BOUNDARY — empty live set (engine returns no servers) also preserves the default', async () => {
@@ -111,6 +124,6 @@ describe('agent_profile_sync — live MCP-name validation (#788)', () => {
     await syncOpencodeAgentProfiles([ocAgent('newcomer', 'primary')]);
 
     const row = repo.getById('newcomer')!;
-    expect(JSON.parse(row.allowedMcpsJson!)).toEqual(['rhythm']);
+    expect(JSON.parse(row.allowedMcpsJson!)).toEqual(['rhythm', 'obsidian']);
   });
 });

@@ -60,6 +60,54 @@ PR #812.
 
 ## Recent coding-agent runs
 
+### 2026-06-28 — feat(agents): grant obsidian read/search to all selectable agents
+- Selectable+roled set (mode:primary opencode agent + a `.mcp-roles/<slug>.mcp.json`):
+  email-assistant, fantasy-gm, graphic-designer, secretary, worship-planning,
+  worship-production. librarian/theologian/research are also selectable+roled but
+  LEFT AS-IS (already obsidian-scoped, incl. their write tools). church-admin /
+  daily-briefing / dev / ffb have role files but NO opencode agent → non-selectable
+  → out of scope.
+- Files modified:
+  - `.mcp-roles/email-assistant.mcp.json`, `.mcp-roles/graphic-designer.mcp.json` —
+    added an `obsidian` `mcpServers` entry (`inherit:true`) granting the READ/SEARCH
+    tool subset only (get_file/get_active/get_periodic/open_file/simple_search/
+    search_dataview/search_json_logic/list_vault_directory/list_vault_root/status —
+    NO put/patch/post/delete/execute). These were the only selectable+roled agents
+    lacking obsidian; the other four already had it.
+  - `apps/api_server/src/services/agent_profile_sync.ts` — `IMPORTER_DEFAULT_ALLOWED_MCPS_JSON`
+    `["rhythm"]` → `["rhythm","obsidian"]` so future-synced profiles advertise obsidian
+    by default (still routed through #789 normalize → #788 validate against live ids).
+  - `apps/api_server/src/services/obsidian_scope_backfill.ts` (NEW) — one-time,
+    idempotent boot backfill mirroring `skill_metadata_backfill`: for existing
+    SELECTABLE `agent_configs`, array scope w/o obsidian → append `"obsidian"`;
+    object-map w/o obsidian → add `"obsidian":[read/search tools]`; null → leave null;
+    already-has-obsidian → untouched (preserves write grants). schema_meta marker
+    `agent_configs_obsidian_read_scope_v1`; Postgres no-op; never throws.
+  - `apps/api_server/src/server.ts` — wired the backfill into the agent-execution boot
+    block (after the skill unify backfill), non-fatal + non-blocking.
+  - Tests: NEW `obsidian_scope_backfill.test.ts` (pure grant fn + real-DB array/object/
+    null/already-has/non-selectable/idempotent/Postgres-no-op); updated
+    `agent_profile_sync.test.ts`, `agent_profile_sync_mcp_alignment.test.ts`,
+    `agent_profile_sync_mcp_validation.test.ts` for the two-name default.
+- Checks run: `npx vitest run agent_profile_sync mcp_dispatch_guard mcp_allowlist_expander
+  mcp_names_alignment obsidian_scope_backfill` → 9 files/74 passed; falsification
+  (break array-append, then object-key add) → 2 backfill tests fail each, restored;
+  local `tsc -p tsconfig.json` → exit 0; full `npx vitest run` → 177 files/1516 tests
+  passed (one unrelated `projects_routes` parallel-isolation flake on the first run,
+  green on re-run). All 13 `.mcp-roles/*.mcp.json` JSON-valid.
+- Decisions made: array members are inherit-all at the ADVERTISE layer (#765); the
+  role file's read/search tool list is what restricts a roled agent's actual obsidian
+  surface (#736 dispatch backstop). Non-roled selectable agents (claude-code,
+  workflow-orchestrator) get full obsidian read+search at advertise-scope — acceptable
+  for knowledge access. Migration presets (claude-code/codex/gemini-cli/opencode) carry
+  NULL scope so the backfill leaves them unrestricted (no change needed).
+- Deviations from spec: spec named 6 selectable+roled agents to grant; verification
+  found 4 of them (fantasy-gm/secretary/worship-planning/worship-production) ALREADY
+  had obsidian, so only email-assistant + graphic-designer role files were edited.
+- Concerns: takes effect on the next app rebuild + session start (config-via-code, no
+  live-DB surgery). node_modules was symlinked from the main checkout for tests; NOT
+  committed.
+
 ### 2026-06-28 — fix(security/#736): isToolAllowed accepts array allowlist form (#812 high-sev)
 - Files modified:
   - `apps/api_server/src/services/mcp_dispatch_guard.ts` — `isToolAllowed` now

@@ -136,9 +136,16 @@ const IMPORTER_DEFAULT_MODEL_ID = IMPORTER_TIER2_MODEL_ID;
  * Default allowed_mcps_json for imported (sortOrder=100) profiles.
  *
  * "rhythm" is the local Rhythm MCP server — a reasonable starting scope for
- * any imported AI-Workflow agent. Users can widen/narrow this in the designer.
+ * any imported AI-Workflow agent. "obsidian" is the user's knowledge-vault MCP;
+ * it is granted at advertise-scope (server-name level) so every imported agent
+ * can read/search the vault by default. The actual obsidian TOOL surface a
+ * ROLED agent gets is still narrowed to read/search by its
+ * `.mcp-roles/<slug>.mcp.json` (the #736 dispatch backstop); array members here
+ * are inherit-all only at the advertise layer. Users can widen/narrow this in
+ * the designer. Both names are validated against the live engine id set
+ * (#789 normalize → #788 validate) before persistence.
  */
-const IMPORTER_DEFAULT_ALLOWED_MCPS_JSON = '["rhythm"]';
+const IMPORTER_DEFAULT_ALLOWED_MCPS_JSON = '["rhythm","obsidian"]';
 
 /**
  * #788 — validate an MCP allowlist JSON against the engine's LIVE server ids

@@ -56,20 +56,36 @@ describe('agent_profile_sync — live MCP-name alignment (#789)', () => {
   });
 
   it('AC#1: normalizes the derived "rhythm" default to the live id `rhythm-mcp`', async () => {
-    // Live engine registered the brokered server under a drifted id.
-    listMcp.mockResolvedValue({ 'rhythm-mcp': { status: 'connected' } });
+    // Live engine registered the brokered server under a drifted id. obsidian is
+    // also live so the second default name survives unchanged.
+    listMcp.mockResolvedValue({
+      'rhythm-mcp': { status: 'connected' },
+      obsidian: { status: 'connected' },
+    });
 
     await syncOpencodeAgentProfiles([ocAgent('newcomer')]);
 
     const row = repo.getById('newcomer')!;
-    expect(JSON.parse(row.allowedMcpsJson!) as string[]).toEqual(['rhythm-mcp']);
+    expect(JSON.parse(row.allowedMcpsJson!) as string[]).toEqual(['rhythm-mcp', 'obsidian']);
   });
 
-  it('keeps the derived default verbatim when "rhythm" is already a live id', async () => {
+  it('keeps the derived default verbatim when "rhythm"/"obsidian" are already live ids', async () => {
     listMcp.mockResolvedValue({
       rhythm: { status: 'connected' },
+      obsidian: { status: 'connected' },
       'ableton-mcp': { status: 'connected' },
     });
+
+    await syncOpencodeAgentProfiles([ocAgent('newcomer')]);
+
+    const row = repo.getById('newcomer')!;
+    expect(JSON.parse(row.allowedMcpsJson!) as string[]).toEqual(['rhythm', 'obsidian']);
+  });
+
+  it('drops "obsidian" from the default when it is absent from the live set, keeping "rhythm"', async () => {
+    // Only rhythm is live → the importer default drops the dead obsidian name
+    // (loudly warned) rather than persisting a name that scopes to nothing.
+    listMcp.mockResolvedValue({ rhythm: { status: 'connected' } });
 
     await syncOpencodeAgentProfiles([ocAgent('newcomer')]);
 
@@ -84,7 +100,7 @@ describe('agent_profile_sync — live MCP-name alignment (#789)', () => {
 
     const row = repo.getById('newcomer')!;
     // Empty live set ⇒ skip normalization ⇒ raw default preserved (never emptied).
-    expect(JSON.parse(row.allowedMcpsJson!) as string[]).toEqual(['rhythm']);
+    expect(JSON.parse(row.allowedMcpsJson!) as string[]).toEqual(['rhythm', 'obsidian']);
   });
 
   it('falls back to the raw default when listMcp throws (engine not ready)', async () => {
@@ -93,7 +109,7 @@ describe('agent_profile_sync — live MCP-name alignment (#789)', () => {
     await syncOpencodeAgentProfiles([ocAgent('newcomer')]);
 
     const row = repo.getById('newcomer')!;
-    expect(JSON.parse(row.allowedMcpsJson!) as string[]).toEqual(['rhythm']);
+    expect(JSON.parse(row.allowedMcpsJson!) as string[]).toEqual(['rhythm', 'obsidian']);
   });
 
   it('AC#2 back-compat: a user-set allowed_mcps_json is NEVER rewritten on re-sync', async () => {
