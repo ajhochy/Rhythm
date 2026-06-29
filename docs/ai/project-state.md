@@ -60,6 +60,28 @@ PR #812.
 
 ## Recent coding-agent runs
 
+### 2026-06-29 — local Ollama/Qwen provider
+- Files modified: `opencode_client_service.ts` recognizes configured
+  keyless-local `ollama`; `agent_model_resolver.ts` maps and exposes
+  `ollama/qwen3.6-work`; focused service/route contract tests; local
+  `~/.config/opencode/opencode.json` and Ollama alias configuration.
+- Checks run: RED tests failed on missing keyless discovery/routing; targeted
+  Vitest 73/73 pass; `tsc --noEmit` pass; production TypeScript build pass;
+  live `/provider` and Rhythm `/agents/models/catalog` expose authorized direct
+  Qwen at 196,608 context; scoped live OpenCode prompt pass; GitNexus compare
+  against `main` MEDIUM (mega branch: 143 files / 679 symbols, 2 flows).
+- Decisions made: use q8 KV cache + 196,608 context because the full tool
+  surface is roughly 150K tokens; keep OpenRouter ahead of Ollama for automatic
+  unscoped generic-agent resolution, while allowing explicit local selection
+  and local fallback when it is the only route.
+- Deviations from spec: original 65,536 context and local-first fallback were
+  revised after live measurements; the design record was updated.
+- Concerns: 196K loads at 26 GB and 94% GPU / 6% CPU on the 32 GB M2 Max;
+  zero-MCP first prompt took about one minute, while the unscoped full-tool
+  prompt produced no first token within five minutes and was aborted. The
+  repository issue-level check also exposes unrelated pre-existing Dart format
+  drift in two agent-profile files.
+
 ### 2026-06-28 — feat(agents): grant obsidian read/search to all selectable agents
 - Selectable+roled set (mode:primary opencode agent + a `.mcp-roles/<slug>.mcp.json`):
   email-assistant, fantasy-gm, graphic-designer, secretary, worship-planning,
