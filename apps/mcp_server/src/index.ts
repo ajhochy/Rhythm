@@ -51,7 +51,11 @@ registerGoogleTools(server, RHYTHM_API_URL, RHYTHM_API_TOKEN);
 registerPcoTools(server, RHYTHM_API_URL, RHYTHM_API_TOKEN);
 registerAgentScheduleTools(server, RHYTHM_API_URL, RHYTHM_API_TOKEN);
 registerAgentDelegationTools(server, RHYTHM_AGENT_URL, RHYTHM_API_TOKEN);
-registerAgentMemoryTools(server, RHYTHM_API_URL, RHYTHM_API_TOKEN);
+// #804 — memory lives on the LOCAL agent server (vault-first write + derived
+// index on :4001), NOT prod. Route the memory tools at RHYTHM_AGENT_URL so the
+// agent and the Flutter memory UI read/write the same local store. Decoupled
+// from serverConfig.url per the dual-endpoint rule.
+registerAgentMemoryTools(server, RHYTHM_AGENT_URL, RHYTHM_API_TOKEN);
 registerAgentResearchTools(server, RHYTHM_API_URL, RHYTHM_API_TOKEN);
 
 // Connect over stdio (Claude Desktop / Claude Code MCP transport)

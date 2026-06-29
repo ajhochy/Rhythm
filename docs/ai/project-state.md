@@ -151,3 +151,61 @@ the post-merge manual-smoke list against that build.
 - Concerns: the dedup-by-content slug truncates to 60 chars, so two DIFFERENT long
   contents sharing a 60-char prefix would collide onto one note — acceptable for the
   current memory sizes but worth a content-hash suffix if collisions appear.
+
+### 2026-06-28 — #804 re-route memory MCP tools to local agent server :4001 (memory epic #801, issue 3/7)
+- Branch: `worktree-agent-a8292be007c419d9b` (off `feature/mem-vault`).
+- Topology bug fixed: memory MCP tools were registered with `RHYTHM_API_URL`
+  (= prod Settings URL), so agent memories wrote to prod Postgres while the
+  Flutter memory UI reads `AppConstants.agentLocalBaseUrl` (:4001) — they
+  disagreed. Now the tools point at the LOCAL agent server, like
+  `notifications`/`agentDelegation` already do.
+- Files modified:
+  - `apps/mcp_server/src/index.ts` — `registerAgentMemoryTools` now passed
+    `RHYTHM_AGENT_URL` (default http://localhost:4001) instead of `RHYTHM_API_URL`.
+  - `apps/mcp_server/src/tools/agentMemory.ts` — docstring/comment only; all 4
+    tools already use the injected `apiUrl` base, now the local agent base.
+  - `apps/desktop_flutter/lib/features/settings/views/settings_view.dart` — the
+    manual MCP config snippet now also sets `"RHYTHM_AGENT_URL":
+    "http://localhost:4001"` (hard-coded, NOT `serverConfig.url`). Single-line
+    string-literal edit; no structural/format change.
+  - `apps/api_server/src/services/opencode_client_service.ts` — `ensureRhythmMcp`
+    writes `RHYTHM_AGENT_URL` (env-overridable, default localhost:4001) into the
+    opencode.json env alongside `RHYTHM_API_URL`/`RHYTHM_API_TOKEN`.
+  - `apps/mcp_server/src/tools/__tests__/agentMemory_local_base.test.ts` (new) —
+    5 tests: all 4 tools resolve to :4001 (stubbed global fetch captures URL);
+    prod-URL-env change is inert.
+  - `apps/api_server/src/__tests__/opc_rhythm_mcp_ensure.test.ts` — `DESIRED`
+    env now includes `RHYTHM_AGENT_URL`; added an assertion + a new test that the
+    agent base stays :4001 even when the prod `apiUrl` differs.
+- Checks run:
+  - `cd apps/mcp_server && npx vitest run` → 52/52 PASS (new file 5/5).
+    Falsification: building the tools with a prod base → all 5 new tests FAIL
+    (e.g. `expected 'https://api.vcrcapps.com/agent-memory' to be
+    'http://localhost:4001/agent-memory'`); restored → green.
+  - `cd apps/mcp_server && npm run typecheck` → exit 0.
+  - `cd apps/api_server && npx vitest run opc_rhythm_mcp_ensure` → 6/6 PASS;
+    `npm run build` (tsc) → exit 0; adjacent memory suites
+    (`agent_memory memory_injection memory_write_vault_first memory_index_rebuild`)
+    → 36/36, no regression.
+  - Flutter: `dart format` left settings_view structurally unchanged (single
+    string-literal line); `flutter analyze --no-fatal-infos lib/features/settings/`
+    → 11 pre-existing info-level only, 0 errors/warnings, none on the changed line.
+- Decisions made: kept `RHYTHM_API_URL` for non-memory tools that legitimately hit
+  prod — only the memory tools' base moved. The agent base is env-overridable
+  (`RHYTHM_AGENT_URL`) but defaults to localhost:4001, matching the Flutter
+  `AppConstants.agentLocalBaseUrl` and the existing `notifications`/`agentDelegation`
+  convention. The Flutter snippet hard-codes :4001 (not `serverConfig.url`) so a prod
+  URL change can never move it.
+- Deviations from spec: none.
+- #807 note (remove-prod-store + repo-scan): the prod Postgres `agent_memory` table
+  is still created in `apps/api_server/src/database/postgres_bootstrap.ts` (L544-559,
+  table + 2 indexes), and the prod server still mounts the `/agent-memory` router via
+  `apps/api_server/src/app.ts` (L123). No live writer targets prod anymore (the MCP
+  tools and the Flutter UI both use :4001), so those are the remaining prod-store
+  references for #807 to remove. Migrations/repository (`migrations.ts`,
+  `agent_memory_repository.ts`) already treat the SQLite table as a disposable
+  vault-derived index (#802); the Postgres bootstrap is the unmigrated prod remnant.
+- Concerns: the memory tools rely on the global `fetch` (no injected fetch param), so
+  the new tests stub `globalThis.fetch` rather than passing a mock — consistent with
+  `api_client.ts` using the global. If a fetch-injection is added later (as
+  `agentDelegation` has), the tests should switch to it.

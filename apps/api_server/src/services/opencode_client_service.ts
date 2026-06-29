@@ -1621,10 +1621,21 @@ export class OpencodeClientService {
       opts?.configPath ??
       join(homedir(), '.config', 'opencode', 'opencode.json');
 
+    // #804 — memory MCP tools talk to the LOCAL agent server (RHYTHM_AGENT_URL),
+    // not the prod Settings URL (RHYTHM_API_URL). Pin the agent base to the
+    // local server so memory writes/reads hit the same store the Flutter memory
+    // UI reads; decoupled from apiUrl per the dual-endpoint rule.
+    const agentUrl =
+      (process.env.RHYTHM_AGENT_URL && process.env.RHYTHM_AGENT_URL.trim()) ||
+      'http://localhost:4001';
     const desired = {
       type: 'local' as const,
       command: ['npx', '-y', '@ajhochy/rhythm-mcp-server'],
-      environment: { RHYTHM_API_URL: apiUrl, RHYTHM_API_TOKEN: apiToken },
+      environment: {
+        RHYTHM_API_URL: apiUrl,
+        RHYTHM_AGENT_URL: agentUrl,
+        RHYTHM_API_TOKEN: apiToken,
+      },
     };
 
     let parsed: Record<string, unknown> = {};
