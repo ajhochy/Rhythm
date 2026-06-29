@@ -18,6 +18,10 @@ Nine open pull requests are consolidated on
 - Human smoke is in progress against the rebuilt debug app.
 - The app is running with `RHYTHM_LOCAL_SMOKE=1`; local API is on `:4001` and
   the staged mega-branch engine is on `:4096`.
+- A smoke-found #813 fix (Skills table Status column now populated for `active`
+  skills + sortable) is committed on a worktree branch off the mega tip
+  (`ca29709d7`), awaiting fold into `codex/mega-open-prs-2026-06-28` and
+  re-smoke. See `docs/ai/runs/2026-06-28-issue-813-status-column.md`.
 
 ## Risks / known issues
 
@@ -43,11 +47,16 @@ Nine open pull requests are consolidated on
   smokes: pass.
 - GitNexus compare against `main`: MEDIUM risk, 121 files / 531 symbols, one
   affected execution flow.
+- #813 Status-column fix (worktree `ca29709d7`): `dart format
+  --set-exit-if-changed` pass, `flutter analyze` 0/0, `flutter test
+  test/features/agent_skills/` 18 passed (both new tests falsified); real-surface
+  render probe confirmed the column paints a pill per lifecycle (not blank).
 
 ## Next step
 
-Complete the manual smoke checklist on the running app, then review and
-manually merge PR #812.
+Fold the #813 Status-column fix into `codex/mega-open-prs-2026-06-28`, then
+complete the manual smoke checklist on the running app and review/manually merge
+PR #812.
 
 ## Recent coding-agent runs
 
