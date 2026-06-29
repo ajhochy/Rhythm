@@ -32,7 +32,11 @@ import { randomBytes } from 'node:crypto';
 import path from 'node:path';
 
 import { resolveMemoryDirPath } from '../config/env';
-import { MEMORY_VAULT_SOURCE } from './memoryVaultSyncService';
+import {
+  MEMORY_VAULT_SOURCE,
+  toVaultRelativeKey,
+  vaultKeyToMemoryDirRelative,
+} from './memoryVaultSyncService';
 import { MemoryIndexService } from './memory_index_service';
 import { logger } from '../utils/logger';
 
@@ -61,7 +65,11 @@ export interface RememberInput {
 export interface RememberResult {
   /** The note's stable ULID (assigned if the caller did not supply one). */
   id: string;
-  /** Vault-relative note path (the index source_id), e.g. `fact/abc.md`. */
+  /**
+   * Canonical VAULT-ROOT-relative note path — the index `source_id`, identical
+   * to the key the scan/rebuild path stamps for the same note,
+   * e.g. `memory/fact/abc.md`.
+   */
   path: string;
   kind: MemoryKind;
 }
@@ -294,13 +302,17 @@ export async function rememberToVault(
   await fs.writeFile(abs, renderMemoryNote(fm, content), 'utf8');
 
   // --- DERIVED INDEX (only after the write succeeded) ------------------------
+  // Canonical index key = path relative to the VAULT ROOT (e.g.
+  // `memory/fact/abc.md`), the SAME form the scan/rebuild path stamps. Keying
+  // on this one form means a write-then-rebuild yields exactly one row, not two.
+  const vaultRelKey = toVaultRelativeKey(path.dirname(path.resolve(memoryDir)), abs);
   await index.upsertNote({
-    sourceId: relPath,
+    sourceId: vaultRelKey,
     parsed: { kind, tags, content: content.trim() },
   });
 
-  logger.info(`[MemoryWrite] remembered note (kind=${kind} path=${relPath})`);
-  return { id, path: relPath, kind };
+  logger.info(`[MemoryWrite] remembered note (kind=${kind} path=${vaultRelKey})`);
+  return { id, path: vaultRelKey, kind };
 }
 
 /**
@@ -332,16 +344,24 @@ async function findNoteByIdInKind(
 /**
  * Vault-first `forget`: remove the note FILE (confined to the memory dir) and
  * then remove the derived index row. The index row's `sourceId` is the
- * vault-relative note path. Returns true when the index row existed.
+ * canonical VAULT-ROOT-relative note path (e.g. `memory/fact/abc.md`); it is
+ * mapped back to a memory-dir-relative path before the boundary guard. Returns
+ * true when the index row existed.
  *
- * Path safety: the relative path is asserted inside the memory dir before any
- * unlink; a path that escapes is rejected and nothing is deleted.
+ * Path safety: the resulting relative path is asserted inside the memory dir
+ * before any unlink; a path that escapes is rejected and nothing is deleted.
  */
 export async function forgetFromVault(
-  relPath: string,
+  vaultRelKey: string,
   options: MemoryVaultWriteOptions = {},
 ): Promise<void> {
   const memoryDir = options.memoryDir ?? resolveMemoryDirPath();
+  // Map the canonical vault-root-relative key back to a memory-dir-relative
+  // path for the existing boundary guard. Absolute / traversal inputs survive
+  // as still-escaping relatives, so resolveWithinMemoryDir rejects them.
+  const relPath = path.isAbsolute(vaultRelKey)
+    ? vaultRelKey
+    : vaultKeyToMemoryDirRelative(memoryDir, vaultRelKey);
   const abs = resolveWithinMemoryDir(memoryDir, relPath);
   try {
     await fs.unlink(abs);

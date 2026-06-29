@@ -38,6 +38,39 @@ import { logger } from '../utils/logger';
 /** The canonical storage source stamped on every mirrored row. */
 export const MEMORY_VAULT_SOURCE = 'obsidian-memory';
 
+/**
+ * Canonical index identity for a memory note: its path RELATIVE TO THE VAULT
+ * ROOT (e.g. `memory/fact/abc.md`).
+ *
+ * Both index writers MUST key on this one form or the same note gets indexed
+ * twice (epic #801 / #808 follow-up): the scan/rebuild path
+ * ({@link scanVaultNotes} → {@link MemoryIndexService.rebuildIndexFromVault})
+ * already keys on `path.relative(vaultRoot, full)`, while the vault-first write
+ * path ({@link rememberToVault}) writes under `<vaultRoot>/memory`. Routing both
+ * through these helpers guarantees a write-then-rebuild produces the SAME
+ * `source_id` (exactly one row), and that `forget`/`removeNote` keyed on one
+ * form can't miss a row keyed on the other.
+ *
+ * `absNotePath` must be inside `vaultRoot`. The result uses the host path
+ * separator (matching `scanVaultNotes`, which also uses `path.relative`).
+ */
+export function toVaultRelativeKey(vaultRoot: string, absNotePath: string): string {
+  return path.relative(path.resolve(vaultRoot), path.resolve(absNotePath));
+}
+
+/**
+ * Inverse of {@link toVaultRelativeKey} for the memory-dir-confined write/delete
+ * path: given the vault-root-relative canonical key and the memory dir
+ * (= `<vaultRoot>/memory`), return the key's path RELATIVE TO THE MEMORY DIR
+ * (e.g. `memory/fact/abc.md` → `fact/abc.md`) so the existing memory-dir
+ * path-traversal guard can resolve it. The vault root is `path.dirname(memoryDir)`.
+ */
+export function vaultKeyToMemoryDirRelative(memoryDir: string, vaultRelKey: string): string {
+  const vaultRoot = path.dirname(path.resolve(memoryDir));
+  const abs = path.resolve(vaultRoot, vaultRelKey);
+  return path.relative(path.resolve(memoryDir), abs);
+}
+
 const VALID_KINDS = new Set(['fact', 'person', 'project', 'preference', 'context']);
 
 export interface MemoryVaultSyncSummary {

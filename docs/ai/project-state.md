@@ -38,11 +38,12 @@ review/merge — see `docs/ai/runs/2026-06-28-unify-skills-source-of-truth.md`.
 
 ## Risks / known issues
 
-- **Memory index dual-writer source_id divergence (follow-up task_c33c6926):**
-  the vault-first write path keys the index `source_id` relative to
-  `<vault>/memory` (`fact/x.md`) while the rebuild scan keys it relative to the
-  vault root (`memory/fact/x.md`). Both recall the note, but a note touched by
-  both writers can be double-indexed (two rows). Out of scope for #808; flagged.
+- **Memory index dual-writer source_id divergence (follow-up task_c33c6926) —
+  RESOLVED** on worktree branch `worktree-agent-a14e04ea39cb3021b` (based on
+  `Feature/mem-vault` @ 755070279, not yet pushed/merged). Both index writers now
+  stamp the ONE canonical VAULT-ROOT-relative key (`memory/fact/x.md`) via shared
+  helpers in `memoryVaultSyncService.ts`; the write path's returned
+  `RememberResult.path` is now that canonical key too. See the run entry below.
 - **#808 base / push ordering:** the prod-removal guard asserts the #807 state.
   If `origin/feature/mem-vault` (the older #802–#804 ref) is pushed/merged
   *without* #805–#807, the guard will correctly FAIL until those land — intended
@@ -76,3 +77,16 @@ Push `Feature/mem-vault` (#802–#808) and open the epic PR against `main` with
 then human review + manual smoke against a signed build. The
 `feature/unify-skills-source-of-truth` PR (`Closes #777`) and PR #776 remain open
 for human merge on their own track.
+
+## Recent coding-agent runs
+
+### 2026-06-28 — fix: canonicalize memory source_id to vault-root-relative (#802+#803, follow-up task_c33c6926)
+- Files modified:
+  - `apps/api_server/src/services/memoryVaultSyncService.ts` — added shared helpers `toVaultRelativeKey(vaultRoot, abs)` and `vaultKeyToMemoryDirRelative(memoryDir, key)` so both index writers compute the ONE canonical vault-root-relative key (e.g. `memory/fact/x.md`).
+  - `apps/api_server/src/services/memoryVaultWriteService.ts` — write path now stamps the index `sourceId` and returns `RememberResult.path` as the canonical vault-root-relative key (FS ops + path-traversal guard still memory-dir-confined, unchanged); `forgetFromVault` maps the incoming canonical key back to a memory-dir-relative path before the boundary guard (absolute/traversal inputs still rejected).
+  - Tests: `memory_write_vault_first.test.ts` (vault-root-aware `fileFor`/`allNoteFiles`; new "source_id canonicalization — write & rebuild agree" describe with 2 tests), `memory_injection_index.test.ts` + `memory_vault_authority.test.ts` (file-access now joins `vaultRoot`, since `result.path` is canonical).
+- Checks run: targeted memory set (`memory_write_vault_first memory_index_rebuild memory_vault_authority memory_injection_index memory_consolidation_seed`) **50 pass**; `npm run build` (tsc) **exit 0**; full `npx vitest run` **1396 pass / 165 files**.
+- Falsification: reverting the write key to `relPath` (memory-dir-relative) makes the new "write then rebuild = one row, identical source_id" test FAIL (write key `fact/x.md` ≠ canonical `memory/...`, and post-rebuild row ≠ `result.path`), plus the forget/file-access guards fail — proving the assertions are load-bearing.
+- Decisions made: canonical key = vault-root-relative (matches the scan/rebuild path + MemoryIndexService's documented contract); the memory dir stays the FS path-traversal boundary. See `docs/ai/decisions/2026-06-28-memory-source-id-canonical-key.md`.
+- Deviations from spec: none. (Spec suggested updating the write path's `sourceId`; the cleanest single-form fix also required making `RememberResult.path` canonical so the index `source_id` and the client-facing path can't diverge — covered by the existing `hit.sourceId === result.path` contract in `memory_injection_index`.)
+- Concerns: pre-existing unused import `MEMORY_VAULT_SOURCE` in `memoryVaultWriteService.ts` left as-is (out of scope; tsc tolerates it). Branch is NOT pushed.

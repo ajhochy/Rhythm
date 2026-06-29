@@ -92,7 +92,7 @@ describe('vault note is the sole authority (#808 AC2)', () => {
     expect(hits.map((m) => m.content).join(' ')).toContain('80');
 
     // Edit the note body directly on disk (Obsidian/Finder), same frontmatter id.
-    const abs = path.join(memoryDir, result.path);
+    const abs = path.join(vaultRoot, result.path);
     writeFileSync(
       abs,
       [
@@ -127,7 +127,7 @@ describe('vault note is the sole authority (#808 AC2)', () => {
     expect((await getRelevantMemories('choir practice wednesday', null)).length).toBeGreaterThanOrEqual(1);
 
     // Delete the note from disk (as a user would).
-    rmSync(path.join(memoryDir, result.path));
+    rmSync(path.join(vaultRoot, result.path));
 
     // Re-index pass → the row is tombstoned. NOT recalled, AND not in the table.
     await syncMemoryVault({ vaultPath: vaultRoot });
@@ -145,7 +145,7 @@ describe('vault note is the sole authority (#808 AC2)', () => {
       { kind: 'fact', content: 'Stale authority marker qzzx.' },
       { memoryDir, index },
     );
-    rmSync(path.join(memoryDir, result.path));
+    rmSync(path.join(vaultRoot, result.path));
 
     // No re-index yet → the index still has the row (this is exactly the stale
     // state the re-index removes; asserting it keeps the guard above honest).

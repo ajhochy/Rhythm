@@ -147,7 +147,7 @@ describe('vault edits flow into injection after a re-index pass (#805)', () => {
 
     // Edit the note body directly on disk (as a user would in Obsidian/Finder),
     // keeping the same frontmatter id so it is the same logical note.
-    const abs = path.join(memoryDir, result.path);
+    const abs = path.join(vaultRoot, result.path);
     const edited = [
       '---',
       `id: ${result.id}`,
@@ -184,7 +184,7 @@ describe('vault edits flow into injection after a re-index pass (#805)', () => {
     // Present before deletion.
     expect((await getRelevantMemories('choir practice wednesday', null)).length).toBeGreaterThanOrEqual(1);
 
-    rmSync(path.join(memoryDir, result.path));
+    rmSync(path.join(vaultRoot, result.path));
     expect(noteFiles()).toHaveLength(0);
 
     await syncMemoryVault({ vaultPath: vaultRoot });
@@ -227,7 +227,7 @@ describe('falsification guards (#805)', () => {
       { kind: 'fact', content: 'Stale deletion marker zzqqxx.' },
       { memoryDir, index },
     );
-    rmSync(path.join(memoryDir, result.path));
+    rmSync(path.join(vaultRoot, result.path));
 
     // No syncMemoryVault yet → index still has the row (this is the bug the
     // re-index pass fixes; asserting it here keeps AC4's mechanism honest).

@@ -31,6 +31,7 @@ import { runMigrations } from '../database/migrations';
 import { setDb } from '../database/db';
 import { AgentMemoryRepository } from '../repositories/agent_memory_repository';
 import { MemoryIndexService } from '../services/memory_index_service';
+import { scanVaultNotes } from '../services/memoryVaultSyncService';
 import {
   rememberToVault,
   forgetFromVault,
@@ -47,11 +48,16 @@ function makeDb() {
   return db;
 }
 
+let vaultRoot: string;
 let memoryDir: string;
 let repo: AgentMemoryRepository;
 let index: MemoryIndexService;
 
-/** All `.md` files under the memory dir (recursive), vault-relative. */
+/**
+ * All `.md` files under the memory dir (recursive), keyed VAULT-ROOT-relative
+ * (e.g. `memory/fact/abc.md`) so they compare directly to `result.path` — the
+ * canonical index `source_id`.
+ */
 function allNoteFiles(): string[] {
   const out: string[] = [];
   function walk(dir: string) {
@@ -59,29 +65,31 @@ function allNoteFiles(): string[] {
     for (const name of readdirSync(dir, { withFileTypes: true })) {
       const full = path.join(dir, name.name);
       if (name.isDirectory()) walk(full);
-      else if (name.name.endsWith('.md')) out.push(path.relative(memoryDir, full));
+      else if (name.name.endsWith('.md')) out.push(path.relative(vaultRoot, full));
     }
   }
   walk(memoryDir);
   return out;
 }
 
+/** Resolve a canonical (vault-root-relative) note path to an absolute path. */
 function fileFor(rel: string): string {
-  return path.join(memoryDir, rel);
+  return path.join(vaultRoot, rel);
 }
 
 beforeEach(() => {
   setDb(makeDb());
   repo = new AgentMemoryRepository();
   index = new MemoryIndexService(repo);
-  // The memory dir is the `memory/` subtree the write path owns.
-  const root = mkdtempSync(path.join(tmpdir(), 'memwrite-test-'));
-  memoryDir = path.join(root, 'memory');
+  // The memory dir is the `memory/` subtree the write path owns; the vault root
+  // is its parent (the form the scan/rebuild path keys on).
+  vaultRoot = mkdtempSync(path.join(tmpdir(), 'memwrite-test-'));
+  memoryDir = path.join(vaultRoot, 'memory');
 });
 
 afterEach(() => {
   try {
-    rmSync(path.dirname(memoryDir), { recursive: true, force: true });
+    rmSync(vaultRoot, { recursive: true, force: true });
   } catch {
     /* ignore */
   }
@@ -96,8 +104,8 @@ describe('vault-first remember (#803)', () => {
 
     expect(result.id).toMatch(/^[0-9A-HJKMNP-TV-Z]{26}$/);
     expect(result.kind).toBe('fact');
-    // Folders-by-type layout.
-    expect(result.path.startsWith('fact' + path.sep)).toBe(true);
+    // Canonical vault-root-relative key, folders-by-type under `memory/`.
+    expect(result.path.startsWith('memory' + path.sep + 'fact' + path.sep)).toBe(true);
 
     const abs = fileFor(result.path);
     expect(existsSync(abs)).toBe(true);
@@ -257,5 +265,60 @@ describe('falsification guard (#803)', () => {
     expect(await repo.listAsync(undefined, undefined, 100)).toHaveLength(0);
 
     rmSync(root, { recursive: true, force: true });
+  });
+});
+
+describe('source_id canonicalization — write & rebuild agree (#802+#803 follow-up)', () => {
+  // REGRESSION GUARD for the dual-writer double-index defect: the vault-first
+  // write path keyed its index row relative to `<vault>/memory` (`fact/x.md`)
+  // while the scan/rebuild path keys relative to the VAULT ROOT
+  // (`memory/fact/x.md`). The same note then got TWO rows under two source_ids.
+  // Both paths must now stamp the ONE canonical vault-root-relative key.
+
+  it('write then rebuild = exactly ONE row, identical source_id', async () => {
+    const result = await rememberToVault(
+      { kind: 'fact', content: 'The fellowship hall seats 240 people.' },
+      { memoryDir, index },
+    );
+
+    // The write path's index row + its returned path are the canonical key.
+    const afterWrite = await repo.listAsync(undefined, undefined, 100);
+    expect(afterWrite).toHaveLength(1);
+    expect(afterWrite[0].sourceId).toBe(result.path);
+    // Canonical form is vault-root-relative (under `memory/`), NOT bare `fact/`.
+    expect(result.path.startsWith('memory' + path.sep)).toBe(true);
+
+    // A full rebuild scans the VAULT ROOT and re-keys every note. If the write
+    // path used a different key, this would CLEAR the write row and insert a
+    // second one under `memory/...` — leaving the note double-tracked across two
+    // source_ids. With the canonical key it upserts the SAME row → still one.
+    const summary = await index.rebuildIndexFromVault(vaultRoot);
+    expect(summary).toEqual({ indexed: 1 });
+
+    const afterRebuild = await repo.listAsync(undefined, undefined, 100);
+    expect(afterRebuild).toHaveLength(1);
+    expect(afterRebuild[0].sourceId).toBe(result.path);
+
+    // The scan/rebuild path stamps the byte-identical source_id for this note.
+    const scanned = await scanVaultNotes(vaultRoot);
+    expect(scanned.map((n) => n.sourceId)).toEqual([result.path]);
+  });
+
+  it('forget after a rebuild removes the row (delete key matches the rebuild key)', async () => {
+    const result = await rememberToVault(
+      { kind: 'fact', content: 'Delete-after-rebuild marker wkkz.' },
+      { memoryDir, index },
+    );
+    // Rebuild so the surviving row is the scan-keyed one (the form forget must match).
+    await index.rebuildIndexFromVault(vaultRoot);
+    const rows = await repo.listAsync(undefined, undefined, 100);
+    expect(rows).toHaveLength(1);
+
+    const { agentMemoryService } = await import('../services/agentMemoryService');
+    const deleted = await agentMemoryService.forget(rows[0].id, { memoryDir, index });
+    expect(deleted).toBe(true);
+    // Both the vault file and the index row are gone.
+    expect(existsSync(fileFor(result.path))).toBe(false);
+    expect(await repo.listAsync(undefined, undefined, 100)).toHaveLength(0);
   });
 });
