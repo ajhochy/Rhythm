@@ -1243,8 +1243,10 @@ export function runMigrations(db: Database.Database): void {
   // DERIVED, DISPOSABLE index — the Obsidian Memory-Vault is the source of truth
   // and MemoryIndexService.rebuildIndexFromVault() can wipe + rebuild it from a
   // full vault scan at any time. No durable data lives here that isn't in the
-  // vault. (The Postgres agent_memory is NOT disposable and is never cleared by
-  // that path.) Schema is unchanged — this note documents intent only.
+  // vault. #807: this SQLite index is now the ONLY agent_memory store — the
+  // Postgres/prod agent_memory table was removed from postgres_bootstrap.ts;
+  // memory is local-only (served by the local agent server on :4001). Schema is
+  // unchanged — this note documents intent only.
   db.exec(`
     CREATE TABLE IF NOT EXISTS agent_memory (
       id TEXT PRIMARY KEY,

@@ -319,8 +319,9 @@ export class AgentMemoryRepository {
    * empty) base table.
    *
    * SQLite-only: the index lives only in SQLite. On Postgres this is a no-op
-   * (returns 0) — the Postgres `agent_memory` is NOT the disposable index and
-   * must never be cleared by this path.
+   * (returns 0). #807 removed the prod/Postgres `agent_memory` store entirely —
+   * agent memory is local-vault/SQLite-only now — so the Postgres branches in
+   * this repository are inert dead paths the local agent server never reaches.
    */
   async clearAllAsync(): Promise<number> {
     if (env.dbClient === 'postgres') return 0;
