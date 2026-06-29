@@ -194,6 +194,18 @@ jobs:
             });
           '
 
+      - name: Smoke memory vault authority (#808 guard)
+        shell: bash
+        run: |
+          # Boots the bundled LOCAL agent server (dist/server.js) against a TEMP
+          # vault + TEMP SQLite and proves the Obsidian Memory-Vault is the sole
+          # authority: a write lands a vault note + index row, and after dropping
+          # the SQLite index file entirely it is rebuilt from the surviving vault
+          # with identical recall. Local-only (AGENT_LOCAL on a private port); it
+          # never touches prod and never logs note bodies.
+          SCRIPT="apps/desktop_flutter/build/macos/Build/Products/Release/Rhythm.app/Contents/Resources/api_server/dist/server.js"
+          apps/api_server/scripts/smoke_memory_authority.sh "$SCRIPT" 4071
+
       - name: Set up Bun
         uses: oven-sh/setup-bun@v2
         with:

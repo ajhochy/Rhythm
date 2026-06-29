@@ -27,6 +27,16 @@
  *     and gets owner-scoping for free. Injection is purely ADDITIVE — the
  *     on-demand recall tool stays.
  *
+ * SOURCE = THE DERIVED INDEX (Issue #805, memory epic #801). Retrieval reads
+ * through `AgentMemoryRepository.searchAsync`, which queries the local SQLite
+ * `agent_memory` / `agent_memory_fts` store — the DERIVED, DISPOSABLE index that
+ * `MemoryIndexService` rebuilds from the Obsidian Memory-Vault (see #802). It
+ * NEVER scans the vault on the prompt path, so injection works with Obsidian
+ * closed (the REST plugin offline) and stays fast. Vault edits/deletions reach
+ * injection via the index-refresh passes (the periodic cron + startup rebuild),
+ * not via a per-prompt rescan. Every returned `AgentMemory` carries its
+ * `sourceId` — the vault-relative note path — so a result traces back to a file.
+ *
  * The built preface is TRANSIENT: it is prepended to the in-memory prompt for a
  * single send only. It must NEVER be persisted to a profile `systemPrompt`,
  * session memory, or an opencode agent `.md` file.
@@ -155,6 +165,13 @@ export interface MemoryPreface {
   text: string;
   /** Ids of the matched memories (for logging/diagnostics; memory has no `uses`). */
   memoryIds: string[];
+  /**
+   * Originating vault note path for each matched memory (#805 AC6) — the
+   * derived index row's `sourceId`. Positionally aligned with `memoryIds`; an
+   * entry is `null` for a row that has no vault path (e.g. a legacy
+   * non-vault-sourced row). Diagnostics only — never injected into the prompt.
+   */
+  notePaths: (string | null)[];
 }
 
 export interface BuildMemoryPrefaceOptions {
@@ -193,7 +210,7 @@ export async function buildMemoryPreface(
   opts: BuildMemoryPrefaceOptions = {},
 ): Promise<MemoryPreface> {
   const enabled = opts.enabled ?? isMemoryInjectionEnabled();
-  if (!enabled) return { text: '', memoryIds: [] };
+  if (!enabled) return { text: '', memoryIds: [], notePaths: [] };
 
   const retrieve = opts.getRelevant ?? getRelevantMemories;
   let matches: AgentMemory[];
@@ -202,9 +219,9 @@ export async function buildMemoryPreface(
   } catch {
     // A retrieval failure must never produce a partial/garbled preface — and the
     // call sites also wrap this in try/catch as a second backstop.
-    return { text: '', memoryIds: [] };
+    return { text: '', memoryIds: [], notePaths: [] };
   }
-  if (!matches || matches.length === 0) return { text: '', memoryIds: [] };
+  if (!matches || matches.length === 0) return { text: '', memoryIds: [], notePaths: [] };
 
   const lines = ['## Known context (facts & preferences)'];
   for (const m of matches) {
@@ -214,5 +231,9 @@ export async function buildMemoryPreface(
   return {
     text: lines.join('\n'),
     memoryIds: matches.map((m) => m.id),
+    // #805 AC6: surface the originating vault note path for each match so a
+    // result traces back to a file. `sourceId` is the vault-relative path for
+    // index rows derived from the Memory-Vault.
+    notePaths: matches.map((m) => m.sourceId),
   };
 }

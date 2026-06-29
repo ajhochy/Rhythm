@@ -15,7 +15,7 @@ for one full-stack local smoke build.
 
 ## In progress
 
-- Merge all source PR heads while preserving their individual commits.
+- Merged through source PR #810; #811 remains.
 - Resolve integration-only conflicts.
 - Rebuild api_server, opencode fork binary, and the macOS Flutter app from the
   resulting branch.
@@ -34,4 +34,4 @@ for one full-stack local smoke build.
 
 ## Next step
 
-Finish merging all nine source PRs, then run full build and smoke verification.
+Merge #811, then run full build and smoke verification.

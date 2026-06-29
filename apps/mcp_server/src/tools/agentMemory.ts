@@ -5,12 +5,19 @@
  * rhythm_search_memory    — Full-text search over stored memories
  * rhythm_forget_memory    — Delete a memory entry by ID
  * rhythm_list_memories    — List recent memories (optional kind filter)
+ *
+ * #804 — these tools target the LOCAL agent server (RHYTHM_AGENT_URL, default
+ * http://localhost:4001), NOT the prod Settings URL. Memory is vault-first with a
+ * local SQLite-derived index on :4001 — the same store the Flutter memory UI
+ * reads. They are registered with RHYTHM_AGENT_URL in index.ts; never couple
+ * this base to serverConfig.url (dual-endpoint rule).
  */
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { apiGet, apiPost, apiDelete, toolResult, toolError } from '../api_client.js';
 import { registerTool } from './_tool.js';
 
+/** `apiUrl` is the local agent base (RHYTHM_AGENT_URL); see file header (#804). */
 export function registerAgentMemoryTools(server: McpServer, apiUrl: string, apiToken: string) {
   registerTool(server, 'rhythm_remember_memory',
     `Store a piece of information in persistent agent memory. Use this to preserve facts, user preferences, decisions, or any information that should survive across agent sessions.

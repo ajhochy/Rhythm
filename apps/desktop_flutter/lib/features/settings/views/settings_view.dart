@@ -860,6 +860,7 @@ class _ClaudeIntegrationSectionState extends State<_ClaudeIntegrationSection> {
                           '      "args": ["-y", "@ajhochy/rhythm-mcp-server"],\n'
                           '      "env": {\n'
                           '        "RHYTHM_API_URL": "${serverConfig.url}",\n'
+                          '        "RHYTHM_AGENT_URL": "http://localhost:4001",\n'
                           '        "RHYTHM_API_TOKEN": "${_tokenVisible ? token : "••••••••"}"\n'
                           '      }\n'
                           '    }\n'

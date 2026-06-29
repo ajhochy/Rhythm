@@ -9,6 +9,8 @@ const DESIRED = {
   command: ['npx', '-y', '@ajhochy/rhythm-mcp-server'],
   environment: {
     RHYTHM_API_URL: 'https://api.vcrcapps.com',
+    // #804 — memory MCP tools target the local agent server, not prod.
+    RHYTHM_AGENT_URL: 'http://localhost:4001',
     RHYTHM_API_TOKEN: 'tok-1',
   },
 };
@@ -34,6 +36,28 @@ describe('ensureRhythmMcp diff logic', () => {
     const parsed = JSON.parse(readFileSync(configPath, 'utf8'));
     expect(parsed.mcp.rhythm.environment.RHYTHM_API_TOKEN).toBe('tok-1');
     expect(parsed.mcp.rhythm.command).toEqual(DESIRED.command);
+    // #804 — memory base is pinned to the local agent server regardless of the
+    // prod apiUrl above. Changing the prod URL must NOT move this.
+    expect(parsed.mcp.rhythm.environment.RHYTHM_AGENT_URL).toBe(
+      'http://localhost:4001',
+    );
+  });
+
+  it('#804: pins RHYTHM_AGENT_URL to the local server even when the prod URL differs', async () => {
+    const result = await svc.ensureRhythmMcp('tok-1', 'https://example.test', {
+      configPath,
+      register: false,
+    });
+    expect(result.changed).toBe(true);
+    const parsed = JSON.parse(readFileSync(configPath, 'utf8'));
+    // prod URL is whatever Settings says…
+    expect(parsed.mcp.rhythm.environment.RHYTHM_API_URL).toBe(
+      'https://example.test',
+    );
+    // …but the memory base stays local, decoupled from it.
+    expect(parsed.mcp.rhythm.environment.RHYTHM_AGENT_URL).toBe(
+      'http://localhost:4001',
+    );
   });
 
   it('no-ops when config already matches', async () => {
