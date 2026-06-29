@@ -55,11 +55,7 @@ class _FakeSkillsDataSource extends OpencodeSkillsDataSource {
     String? description,
     required String content,
   }) async {
-    lastCreate = {
-      'name': name,
-      'description': description,
-      'content': content,
-    };
+    lastCreate = {'name': name, 'description': description, 'content': content};
     final entry = OpencodeSkillEntry(
       name: name,
       description: description,
@@ -122,20 +118,21 @@ class _RecordingAgentConfigsDataSource extends AgentConfigsDataSource {
 const _kConfigId = 'cfg-test-001';
 
 AgentConfig _makeConfig() => AgentConfig(
-      id: _kConfigId,
-      label: 'Test Profile',
-      icon: 'terminal',
-      enabled: true,
-      isAgent: true,
-      sortOrder: 0,
-    );
+  id: _kConfigId,
+  label: 'Test Profile',
+  icon: 'terminal',
+  enabled: true,
+  isAgent: true,
+  sortOrder: 0,
+);
 
 OpencodeSkillEntry _skill(String name, {bool managed = false}) =>
     OpencodeSkillEntry(
       name: name,
       description: 'desc of $name',
-      location:
-          managed ? '/managed/$name/SKILL.md' : '/external/$name/SKILL.md',
+      location: managed
+          ? '/managed/$name/SKILL.md'
+          : '/external/$name/SKILL.md',
       managed: managed,
     );
 
@@ -145,9 +142,7 @@ Widget _buildSheet({
   required OpencodeSkillsDataSource skillsDs,
   required OpencodeMcpDataSource mcpDs,
 }) {
-  final controller = AgentConfigsController(
-    AgentConfigsRepository(configsDs),
-  );
+  final controller = AgentConfigsController(AgentConfigsRepository(configsDs));
   return ChangeNotifierProvider<AgentConfigsController>.value(
     value: controller,
     child: MaterialApp(
@@ -208,12 +203,14 @@ void main() {
         _skill('engineering:code-review'),
       ]);
 
-      await tester.pumpWidget(_buildSheet(
-        config: config,
-        configsDs: configsDs,
-        skillsDs: skillsDs,
-        mcpDs: _FakeMcpDataSource(const []),
-      ));
+      await tester.pumpWidget(
+        _buildSheet(
+          config: config,
+          configsDs: configsDs,
+          skillsDs: skillsDs,
+          mcpDs: _FakeMcpDataSource(const []),
+        ),
+      );
       await tester.pumpAndSettle();
 
       await _tapRestrictSkills(tester);
@@ -222,8 +219,9 @@ void main() {
       expect(find.text('engineering:code-review'), findsOneWidget);
     });
 
-    testWidgets('managed skill has edit+delete; external has neither',
-        (tester) async {
+    testWidgets('managed skill has edit+delete; external has neither', (
+      tester,
+    ) async {
       final config = _makeConfig();
       final configsDs = _RecordingAgentConfigsDataSource(config);
       final skillsDs = _FakeSkillsDataSource([
@@ -231,29 +229,36 @@ void main() {
         _skill('docx'),
       ]);
 
-      await tester.pumpWidget(_buildSheet(
-        config: config,
-        configsDs: configsDs,
-        skillsDs: skillsDs,
-        mcpDs: _FakeMcpDataSource(const []),
-      ));
+      await tester.pumpWidget(
+        _buildSheet(
+          config: config,
+          configsDs: configsDs,
+          skillsDs: skillsDs,
+          mcpDs: _FakeMcpDataSource(const []),
+        ),
+      );
       await tester.pumpAndSettle();
 
       await _tapRestrictSkills(tester);
 
       // Managed skill exposes edit + delete affordances.
-      expect(find.byKey(const ValueKey('edit-skill-release-notes')),
-          findsOneWidget);
-      expect(find.byKey(const ValueKey('delete-skill-release-notes')),
-          findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('edit-skill-release-notes')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('delete-skill-release-notes')),
+        findsOneWidget,
+      );
 
       // External skill exposes neither.
       expect(find.byKey(const ValueKey('edit-skill-docx')), findsNothing);
       expect(find.byKey(const ValueKey('delete-skill-docx')), findsNothing);
     });
 
-    testWidgets('selecting persists allowed_skills_json verbatim',
-        (tester) async {
+    testWidgets('selecting persists allowed_skills_json verbatim', (
+      tester,
+    ) async {
       final config = _makeConfig();
       final configsDs = _RecordingAgentConfigsDataSource(config);
       final skillsDs = _FakeSkillsDataSource([
@@ -261,12 +266,14 @@ void main() {
         _skill('engineering:code-review'),
       ]);
 
-      await tester.pumpWidget(_buildSheet(
-        config: config,
-        configsDs: configsDs,
-        skillsDs: skillsDs,
-        mcpDs: _FakeMcpDataSource(const []),
-      ));
+      await tester.pumpWidget(
+        _buildSheet(
+          config: config,
+          configsDs: configsDs,
+          skillsDs: skillsDs,
+          mcpDs: _FakeMcpDataSource(const []),
+        ),
+      );
       await tester.pumpAndSettle();
 
       // Restrict pre-selects ALL live names.
@@ -296,12 +303,14 @@ void main() {
       final config = _makeConfig();
       final configsDs = _RecordingAgentConfigsDataSource(config);
 
-      await tester.pumpWidget(_buildSheet(
-        config: config,
-        configsDs: configsDs,
-        skillsDs: _FakeSkillsDataSource(const []),
-        mcpDs: _FakeMcpDataSource(['rhythm', 'obsidian']),
-      ));
+      await tester.pumpWidget(
+        _buildSheet(
+          config: config,
+          configsDs: configsDs,
+          skillsDs: _FakeSkillsDataSource(const []),
+          mcpDs: _FakeMcpDataSource(['rhythm', 'obsidian']),
+        ),
+      );
       await tester.pumpAndSettle();
 
       await _tapRestrictMcp(tester);
@@ -310,22 +319,106 @@ void main() {
       expect(find.text('obsidian'), findsOneWidget);
     });
 
-    testWidgets('empty live MCP list shows empty-state, no crash',
-        (tester) async {
+    testWidgets('empty live MCP list shows empty-state, no crash', (
+      tester,
+    ) async {
       final config = _makeConfig();
       final configsDs = _RecordingAgentConfigsDataSource(config);
 
-      await tester.pumpWidget(_buildSheet(
-        config: config,
-        configsDs: configsDs,
-        skillsDs: _FakeSkillsDataSource(const []),
-        mcpDs: _FakeMcpDataSource(const []),
-      ));
+      await tester.pumpWidget(
+        _buildSheet(
+          config: config,
+          configsDs: configsDs,
+          skillsDs: _FakeSkillsDataSource(const []),
+          mcpDs: _FakeMcpDataSource(const []),
+        ),
+      );
       await tester.pumpAndSettle();
 
       await _tapRestrictMcp(tester);
 
       expect(find.text('No MCP servers'), findsOneWidget);
+    });
+
+    testWidgets(
+      'stale persisted MCP gets warning/stale affordance; live one does not',
+      (tester) async {
+        // Profile persisted a selection that no longer matches the live engine
+        // id (`nfl-mcp` vs the live `nfl_mcp`) plus one valid live name.
+        final config = _makeConfig().copyWith(
+          allowedMcps: const ['nfl-mcp', 'rhythm'],
+        );
+        final configsDs = _RecordingAgentConfigsDataSource(config);
+
+        await tester.pumpWidget(
+          _buildSheet(
+            config: config,
+            configsDs: configsDs,
+            skillsDs: _FakeSkillsDataSource(const []),
+            mcpDs: _FakeMcpDataSource(['rhythm', 'nfl_mcp']),
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        // Section is already in Restrict mode (allowedMcps is non-null), so just
+        // bring it into view.
+        await _scrollIntoView(tester, find.text('ALLOWED MCPS'));
+
+        // The stale persisted name renders with the dedicated stale-chip key +
+        // a warning icon; the live name does not.
+        expect(
+          find.byKey(const ValueKey('stale-chip-nfl-mcp')),
+          findsOneWidget,
+        );
+        expect(find.byKey(const ValueKey('stale-chip-rhythm')), findsNothing);
+        expect(find.byIcon(Icons.warning_amber_rounded), findsOneWidget);
+
+        // Both chips are present and labelled.
+        expect(find.text('nfl-mcp'), findsOneWidget);
+        expect(find.text('rhythm'), findsOneWidget);
+      },
+    );
+
+    testWidgets('stale MCP chip is still toggleable (unselect removes it)', (
+      tester,
+    ) async {
+      final config = _makeConfig().copyWith(
+        allowedMcps: const ['nfl-mcp', 'rhythm'],
+      );
+      final configsDs = _RecordingAgentConfigsDataSource(config);
+
+      await tester.pumpWidget(
+        _buildSheet(
+          config: config,
+          configsDs: configsDs,
+          skillsDs: _FakeSkillsDataSource(const []),
+          mcpDs: _FakeMcpDataSource(['rhythm', 'nfl_mcp']),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await _scrollIntoView(tester, find.text('ALLOWED MCPS'));
+
+      // Unselect the stale chip — it must remain interactive.
+      await tester.tap(find.byKey(const ValueKey('stale-chip-nfl-mcp')));
+      await tester.pumpAndSettle();
+
+      // Once unselected it is no longer in the persisted set, so the stale
+      // affordance disappears (the union no longer surfaces it).
+      expect(find.byKey(const ValueKey('stale-chip-nfl-mcp')), findsNothing);
+
+      await tester.dragUntilVisible(
+        find.widgetWithText(FilledButton, 'Save changes'),
+        find.byType(ListView).first,
+        const Offset(0, -120),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, 'Save changes'));
+      await tester.pumpAndSettle();
+
+      final json = configsDs.lastUpdatePatch?['allowedMcpsJson'] as String?;
+      expect(json, isNotNull);
+      expect(jsonDecode(json!), equals(['rhythm']));
     });
   });
 
@@ -369,9 +462,7 @@ void main() {
 
     testWidgets('blocks colliding name', (tester) async {
       final ds = _FakeSkillsDataSource(const []);
-      await tester.pumpWidget(
-        editorHost(ds: ds, existing: {'release-notes'}),
-      );
+      await tester.pumpWidget(editorHost(ds: ds, existing: {'release-notes'}));
       await tester.tap(find.text('open'));
       await tester.pumpAndSettle();
 
@@ -380,10 +471,7 @@ void main() {
       await tester.tap(find.widgetWithText(FilledButton, 'Create skill'));
       await tester.pumpAndSettle();
 
-      expect(
-        find.textContaining('already exists'),
-        findsOneWidget,
-      );
+      expect(find.textContaining('already exists'), findsOneWidget);
       expect(ds.lastCreate, isNull);
     });
 
