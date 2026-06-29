@@ -24,6 +24,10 @@
 ///  10. (#813) Expanding a row calls `getContent(name)` exactly once (cached on
 ///      re-expand) and renders the returned SKILL.md body; a fetch failure
 ///      renders a soft error.
+///  11. (#813) An `active` skill (the default lifecycle) shows a visible Status
+///      pill so the column is never empty.
+///  12. (#813) Clicking the Status header sorts rows by lifecycle (measuring →
+///      reverted → active) and toggles ascending↔descending.
 library;
 
 import 'dart:async';
@@ -329,11 +333,10 @@ void main() {
     testWidgets(
       'editing a managed skill loads its body and round-trips an update (#812)',
       (tester) async {
-        final ds = _FakeSkillsDataSource([
-          _skill('release-notes', managed: true),
-        ])
-          ..contentByName['release-notes'] =
-              '---\nname: release-notes\n---\n\nThe saved body.';
+        final ds =
+            _FakeSkillsDataSource([_skill('release-notes', managed: true)])
+              ..contentByName['release-notes'] =
+                  '---\nname: release-notes\n---\n\nThe saved body.';
         final controller = AgentSkillsController(ds);
         addTearDown(controller.dispose);
 
@@ -526,8 +529,11 @@ void main() {
       tester,
     ) async {
       final ds = _FakeSkillsDataSource([
-        _skill('release-notes',
-            managed: true, description: 'draft a changelog'),
+        _skill(
+          'release-notes',
+          managed: true,
+          description: 'draft a changelog',
+        ),
         _skill('docx', description: 'edit Word documents'),
         _skill('pptx', description: 'build slide decks'),
       ]);
@@ -594,22 +600,16 @@ void main() {
         expect(find.textContaining('The SKILL.md body text.'), findsNothing);
 
         // Expand → getContent fires and the body renders.
-        await tester.tap(
-          find.byKey(const ValueKey('skill-row-release-notes')),
-        );
+        await tester.tap(find.byKey(const ValueKey('skill-row-release-notes')));
         await tester.pumpAndSettle();
         expect(ds.lastGetContentName, equals('release-notes'));
         expect(ds.getContentCalls['release-notes'], equals(1));
         expect(find.textContaining('The SKILL.md body text.'), findsOneWidget);
 
         // Collapse and re-expand → served from cache, no second fetch.
-        await tester.tap(
-          find.byKey(const ValueKey('skill-row-release-notes')),
-        );
+        await tester.tap(find.byKey(const ValueKey('skill-row-release-notes')));
         await tester.pumpAndSettle();
-        await tester.tap(
-          find.byKey(const ValueKey('skill-row-release-notes')),
-        );
+        await tester.tap(find.byKey(const ValueKey('skill-row-release-notes')));
         await tester.pumpAndSettle();
         expect(ds.getContentCalls['release-notes'], equals(1));
         expect(find.textContaining('The SKILL.md body text.'), findsOneWidget);
@@ -619,9 +619,7 @@ void main() {
     testWidgets('a failed body fetch renders a soft error, not a crash', (
       tester,
     ) async {
-      final ds = _FakeSkillsDataSource([
-        _skill('release-notes', managed: true),
-      ])
+      final ds = _FakeSkillsDataSource([_skill('release-notes', managed: true)])
         ..throwOnContentFor.add('release-notes');
       final controller = AgentSkillsController(ds);
       addTearDown(controller.dispose);
@@ -637,6 +635,90 @@ void main() {
         findsOneWidget,
       );
       expect(find.textContaining('content boom'), findsOneWidget);
+    });
+
+    testWidgets(
+      'an active skill renders a visible Status pill (column not empty)',
+      (tester) async {
+        // Default metadata → status null → treated as `active`. Pre-#813 the
+        // trailing cell rendered nothing for active skills, so the Status
+        // column looked empty on a normal system.
+        final ds = _FakeSkillsDataSource([
+          _skill('release-notes', managed: true),
+        ]);
+        final controller = AgentSkillsController(ds);
+        addTearDown(controller.dispose);
+
+        await tester.pumpWidget(_buildApp(controller));
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const ValueKey('status-badge-active')),
+          findsOneWidget,
+        );
+        expect(find.text('ACTIVE'), findsOneWidget);
+      },
+    );
+
+    testWidgets('clicking the Status header sorts rows by lifecycle asc/desc', (
+      tester,
+    ) async {
+      // Lifecycle order is measuring → reverted → active; names are inverse so
+      // a status sort produces a different order than the default Name sort.
+      final ds = _FakeSkillsDataSource([
+        _skill(
+          'alpha',
+          managed: true,
+          metadata: const OpencodeSkillMetadata(status: 'active'),
+        ),
+        _skill(
+          'bravo',
+          managed: true,
+          metadata: const OpencodeSkillMetadata(status: 'measuring'),
+        ),
+        _skill(
+          'charlie',
+          managed: true,
+          metadata: const OpencodeSkillMetadata(status: 'reverted'),
+        ),
+      ]);
+      final controller = AgentSkillsController(ds);
+      addTearDown(controller.dispose);
+
+      await tester.pumpWidget(_buildApp(controller));
+      await tester.pumpAndSettle();
+
+      // Sanity: default Name-asc order.
+      expect(
+        orderedNames(tester, ['alpha', 'bravo', 'charlie']),
+        equals(['alpha', 'bravo', 'charlie']),
+      );
+
+      // Sort by Status ascending: measuring(bravo) → reverted(charlie) →
+      // active(alpha).
+      await tester.tap(find.byKey(const ValueKey('skills-sort-status')));
+      await tester.pumpAndSettle();
+      expect(
+        orderedNames(tester, ['alpha', 'bravo', 'charlie']),
+        equals(['bravo', 'charlie', 'alpha']),
+      );
+      expect(
+        find.byKey(const ValueKey('skills-sort-status-asc')),
+        findsOneWidget,
+      );
+
+      // Toggle to descending → reversed: active(alpha) → reverted(charlie) →
+      // measuring(bravo).
+      await tester.tap(find.byKey(const ValueKey('skills-sort-status')));
+      await tester.pumpAndSettle();
+      expect(
+        orderedNames(tester, ['alpha', 'bravo', 'charlie']),
+        equals(['alpha', 'charlie', 'bravo']),
+      );
+      expect(
+        find.byKey(const ValueKey('skills-sort-status-desc')),
+        findsOneWidget,
+      );
     });
   });
 

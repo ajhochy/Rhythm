@@ -156,3 +156,41 @@ manually merge PR #812.
 - Concerns: trailing status/actions cell is a fixed 132px (`_kTrailingCellWidth`)
   to fit a lifecycle pill + edit + delete without overflow at the 800px test
   width; the badge is `Flexible` as a belt-and-suspenders against long statuses.
+
+### 2026-06-28 — fix(flutter/#813): populate Status column for active skills + make it sortable
+- Files modified:
+  - `apps/desktop_flutter/lib/features/agent_skills/views/agent_skills_view.dart`
+    — the trailing cell now renders a lifecycle pill for EVERY skill (was only
+    `measuring`/`reverted`), so the Status column is never empty on a normal
+    system where all skills are `active`. Added `_statusOf(skill)` (defaults to
+    `active` when `metadata`/`status` is absent, per the server default) and
+    `_statusRank` (measuring → reverted → active, unknown last). `_StatusBadge`
+    now colors `reverted` red, `measuring` amber, and `active`/unknown a muted
+    neutral pill. Added `_SortColumn.status` + a Status comparator (rank with a
+    Name tiebreak) and made the previously static `Status` header a sortable
+    `_HeaderCell` keyed `skills-sort-status` (asc/desc arrow like Name/Desc).
+    Name stays the default sort.
+  - `apps/desktop_flutter/test/features/agent_skills/agent_skills_view_test.dart`
+    — +2 tests in the #813 group: (a) an `active` skill renders a visible
+    `status-badge-active` pill (column not empty); (b) clicking `skills-sort-status`
+    sorts rows by lifecycle (measuring → reverted → active) and toggles asc↔desc.
+- Controller/data source: NO change needed — `AgentSkillsController.loadSkills`
+  already calls `listWithMetadata()` (`agent_skills_controller.dart:49`), so each
+  entry already carries `metadata.status`. The gap was purely the view gating the
+  pill on `status != 'active'`.
+- Checks run:
+  - `dart format lib/features/agent_skills/ test/features/agent_skills/` → clean.
+  - `flutter analyze --no-fatal-infos lib/features/agent_skills/ test/features/agent_skills/`
+    → No issues found (0 errors / 0 warnings).
+  - `flutter test test/features/agent_skills/` → 18 passed (16 prior + 2 new).
+  - Falsification: gating the pill on `status != 'active'` fails the active-pill
+    test; forcing the status comparator to `byRank = 0` fails the status-sort
+    test. Both reverted; full suite green after restore.
+- Decisions made: status sort order groups attention-needing states first
+  (measuring → reverted → active) with a Name tiebreak; `active` pill uses the
+  muted neutral token so it is visible but not loud.
+- Deviations from spec: none.
+- Concerns: with every row now rendering a pill, a default-metadata list shows
+  multiple `status-badge-active` widgets — tests assert `findsOneWidget` only on
+  single-skill lists, so this is fine, but key-uniqueness assertions on
+  multi-active lists would need a name-scoped key.

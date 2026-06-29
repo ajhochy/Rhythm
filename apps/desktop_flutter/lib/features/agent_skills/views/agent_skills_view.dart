@@ -11,10 +11,15 @@ import '../controllers/agent_skills_controller.dart';
 /// #813 (skills-table): redesigns the unified list from #796 into a SORTABLE,
 /// SEARCHABLE table.
 ///   - Columns: Name (+ MANAGED/EXTERNAL badge, lock icon for external),
-///     Description, and a compact trailing status/metadata cell, plus per-row
-///     actions.
-///   - Sort: clicking the Name or Description header toggles asc/desc (default
-///     Name asc). A visual sort arrow marks the active column.
+///     Description, and a compact trailing Status cell holding a lifecycle pill
+///     plus per-row actions.
+///   - Status: every row shows a lifecycle pill — `active` (the default when a
+///     skill has no sidecar row) as a muted neutral pill so the column is never
+///     empty, `measuring` amber, `reverted` red.
+///   - Sort: clicking the Name, Description, or Status header toggles asc/desc
+///     (default Name asc). A visual sort arrow marks the active column. Status
+///     sorts by lifecycle group (measuring → reverted → active) with a Name
+///     tiebreak.
 ///   - Search: a live filter field matches Name + Description
 ///     (case-insensitive substring). Body is NOT searched — it is lazy.
 ///   - Body (lazy): each row expands; on first expand it fetches the SKILL.md
@@ -34,7 +39,30 @@ class AgentSkillsView extends StatefulWidget {
 }
 
 /// Which column the table is sorted by.
-enum _SortColumn { name, description }
+enum _SortColumn { name, description, status }
+
+/// The lifecycle status of a skill, defaulting to `active` when no sidecar row
+/// is present (the server's documented default). Lower-cased for stable
+/// comparison and badge keying.
+String _statusOf(OpencodeSkillEntry skill) =>
+    (skill.metadata?.status ?? 'active').toLowerCase();
+
+/// Sort rank for lifecycle status when sorting the Status column. Groups the
+/// states that need attention first — measuring → reverted → active — so the
+/// default ascending Status sort surfaces in-flight skills at the top. Unknown
+/// statuses sort last; within a rank rows fall back to a Name tiebreak.
+int _statusRank(String status) {
+  switch (status) {
+    case 'measuring':
+      return 0;
+    case 'reverted':
+      return 1;
+    case 'active':
+      return 2;
+    default:
+      return 3;
+  }
+}
 
 /// Fixed width of the trailing status/actions cell. Sized to hold a lifecycle
 /// pill plus the edit + delete icon buttons without overflowing the row.
@@ -95,9 +123,17 @@ class _AgentSkillsViewState extends State<AgentSkillsView> {
         case _SortColumn.name:
           result = a.name.toLowerCase().compareTo(b.name.toLowerCase());
         case _SortColumn.description:
-          result = (a.description ?? '')
-              .toLowerCase()
-              .compareTo((b.description ?? '').toLowerCase());
+          result = (a.description ?? '').toLowerCase().compareTo(
+                (b.description ?? '').toLowerCase(),
+              );
+        case _SortColumn.status:
+          final byRank = _statusRank(
+            _statusOf(a),
+          ).compareTo(_statusRank(_statusOf(b)));
+          // Tiebreak by name so same-status rows have a stable order.
+          result = byRank != 0
+              ? byRank
+              : a.name.toLowerCase().compareTo(b.name.toLowerCase());
       }
       return _ascending ? result : -result;
     }
@@ -437,9 +473,7 @@ class _TableHeader extends StatelessWidget {
         RhythmSpacing.xs,
       ),
       decoration: BoxDecoration(
-        border: Border(
-          bottom: BorderSide(color: rhythm.borderSubtle),
-        ),
+        border: Border(bottom: BorderSide(color: rhythm.borderSubtle)),
       ),
       child: Row(
         children: [
@@ -465,17 +499,15 @@ class _TableHeader extends StatelessWidget {
             ),
           ),
           const SizedBox(width: RhythmSpacing.sm),
-          // Trailing status/metadata + actions area (not sortable).
+          // Trailing status (sortable) + per-row actions area.
           SizedBox(
             width: _kTrailingCellWidth,
-            child: Text(
-              'Status',
-              style: TextStyle(
-                color: rhythm.textMuted,
-                fontSize: 11,
-                fontWeight: FontWeight.w700,
-                letterSpacing: 0.5,
-              ),
+            child: _HeaderCell(
+              keyValue: 'skills-sort-status',
+              label: 'Status',
+              active: sortColumn == _SortColumn.status,
+              ascending: ascending,
+              onTap: () => onSort(_SortColumn.status),
             ),
           ),
         ],
@@ -846,13 +878,14 @@ class _TrailingCell extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final meta = skill.metadata;
     return Row(
       mainAxisAlignment: MainAxisAlignment.end,
       mainAxisSize: MainAxisSize.min,
       children: [
-        if (meta?.status != null && meta!.status != 'active')
-          Flexible(child: _StatusBadge(status: meta.status!)),
+        // Lifecycle status pill for EVERY skill — `active` (the default when no
+        // sidecar row exists) renders as a muted pill so the column is never
+        // empty; `measuring`/`reverted` keep their distinct amber/red styling.
+        Flexible(child: _StatusBadge(status: _statusOf(skill))),
         if (onEdit != null)
           IconButton(
             key: ValueKey('edit-skill-${skill.name}'),
@@ -920,8 +953,9 @@ class _ProvenanceBadge extends StatelessWidget {
   }
 }
 
-/// Lifecycle status pill — only rendered for non-`active` statuses
-/// (`measuring` amber, `reverted` red).
+/// Lifecycle status pill rendered for EVERY skill so the Status column is never
+/// empty: `measuring` amber, `reverted` red, `active` (and anything unknown) a
+/// muted neutral pill that is visible but not loud.
 class _StatusBadge extends StatelessWidget {
   const _StatusBadge({required this.status});
 
@@ -930,7 +964,11 @@ class _StatusBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final rhythm = context.rhythm;
-    final color = status == 'reverted' ? rhythm.danger : rhythm.warning;
+    final color = switch (status) {
+      'reverted' => rhythm.danger,
+      'measuring' => rhythm.warning,
+      _ => rhythm.textMuted,
+    };
     return Container(
       key: ValueKey('status-badge-$status'),
       margin: const EdgeInsets.only(right: 4),
