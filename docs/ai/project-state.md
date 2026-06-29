@@ -6,12 +6,15 @@
 `feature/skill-unify2`.** Repurposes `agent_skills` as a sidecar
 metadata + measurement ledger over the engine's live skill set and exposes a
 unified read. Done so far: **#792** (sidecar columns + `findByName`, dual-DB
-parity guard) and **#793** (`GET /opencode/skills?withMetadata=true` joins the
-sidecar metadata onto live engine skills by name; plain endpoint unchanged so
-the picker is unaffected). Auto-apply lifecycle is `active`/`measuring`/
-`reverted` (no review queue). Remaining: #794 (auto-apply pipeline), #796
-(unified menu), #797 (status reconciliation), + others.
-See `docs/ai/runs/2026-06-28-issue-793-skills-withmetadata.md`.
+parity guard), **#793** (`GET /opencode/skills?withMetadata=true` joins sidecar
+metadata onto live engine skills by name; plain endpoint unchanged), **#794+#795**
+(auto-apply → measure → auto-revert pipeline + startup stuck-measuring recovery),
+and **#796** (the standalone Skills menu now reads the unified endpoint — one
+list of every engine skill with managed/external badge + lifecycle/score; the
+retired `/agent-skills` DB-only read path is removed; subsumes #779). Auto-apply
+lifecycle is `active`/`measuring`/`reverted` (no review queue / no proposals).
+Remaining: #797 (status reconciliation of legacy draft/published rows) + others.
+See `docs/ai/runs/2026-06-28-issue-796-unified-skills-menu.md`.
 
 ---
 
@@ -31,10 +34,11 @@ PASSED) — this work keeps the picker names aligned with what #775 enforces.
 
 ## Active branch / PR
 
-- **skill-unify2 epic (#791):** `feature/skill-unify2` carries #792 (merged to it)
-  and #793. #793 is committed on worktree branch
-  `worktree-agent-ac659d2d43b6f8e25` (commit `6ddbcaadf`, **not pushed**) — verified,
-  awaiting merge into `feature/skill-unify2`.
+- **skill-unify2 epic (#791):** `feature/skill-unify2` carries #792–#795 + wiring
+  (tip `cb18c083e`). **#796** is committed on worktree branch
+  `worktree-agent-a4c90fff5c16c60ec` (commit `cd638377f`, **not pushed**) —
+  verified PASS, awaiting integration into `feature/skill-unify2`. #793 worktree
+  (`6ddbcaadf`) and the #794+#795 worktrees similarly await integration.
 - **Branch:** `feature/unify-skills-source-of-truth` (stacked off
   `fix/issue-775-skill-allowlist-guard`). PR about to open against `main`; **do
   not merge** — human review + manual smoke first.
@@ -45,8 +49,8 @@ PASSED) — this work keeps the picker names aligned with what #775 enforces.
 
 ## In progress
 
-- **skill-unify2:** #792 + #793 done + verified. Next: #794 (auto-apply pipeline),
-  #796 (unified menu) — both consume `GET /opencode/skills?withMetadata=true`;
+- **skill-unify2:** #792, #793, #794+#795, #796 done + verified (each on its own
+  unpushed worktree, awaiting integration into `feature/skill-unify2`). Next:
   #797 (status reconciliation of legacy draft/published rows).
 - Skill-unification (unify-1..7) branch: awaiting (1) human review/merge of PR
   #776 then that PR; (2) post-merge manual smoke against a signed build.
@@ -72,13 +76,21 @@ PASSED) — this work keeps the picker names aligned with what #775 enforces.
   `npm run build` exit 0, `vitest run` **1355 pass / 161 files** (+4 from #793).
 - Fork: `bun test` skill+tool **20 pass/0 fail**; httpapi-exercise (coverage/auth/
   effect) **149 pass/0 missing** each.
-- Flutter: `analyze --no-fatal-infos` 0 errors/0 warnings; agents widget tests
-  **14 pass** (6 unrelated pre-existing trigger-watcher failures noted above).
+- Flutter (with #796): `analyze --no-fatal-infos` 0 errors/0 warnings;
+  `test/features/agent_skills/` **10 pass** (the rewritten unified-menu suite);
+  `test/features/agents/` 453 pass / **6 unrelated pre-existing trigger-watcher
+  failures** (noted above — import none of the changed files).
 - New real-binary guard `smoke_skill_alignment.sh` wired into `desktop_release.yml`.
 
 ## Pending manual smoke (post-merge, against a signed build)
 
-- **Skills unification (this run):** Agent Profiles → a profile → Agent Profile
+- **#796 standalone Skills menu (this run):** Agents → Tools → Skills. Confirm
+  the menu lists every engine skill from `GET /opencode/skills?withMetadata=true`
+  with a MANAGED/EXTERNAL badge; a managed row shows edit + delete and "New
+  skill" round-trips; external/handwritten rows are read-only; lifecycle
+  (measuring/reverted) + baseline→post score render when present; Settings →
+  Server URL change does not affect the menu (stays on :4001).
+- **Skills unification (prior run):** Agent Profiles → a profile → Agent Profile
   sheet. Confirm (a) Skills picker after "Restrict" lists the engine's **live**
   skill names (not 14 hardcoded); (b) a managed skill shows edit/delete + "New
   skill" round-trips (create → appears → editable); (c) external skills show no
@@ -93,30 +105,18 @@ PASSED) — this work keeps the picker names aligned with what #775 enforces.
 
 ## Next step
 
-Open the PR for `feature/unify-skills-source-of-truth` (draft, no merge) with
-`Closes #777`. Then human-merge #776 and this PR, cut a signed release, and work
-the post-merge manual-smoke list against that build.
+Integrate the unpushed skill-unify2 worktrees (#793, #794+#795, **#796**) into
+`feature/skill-unify2`, then implement #797 (status reconciliation of legacy
+draft/published rows). Open the epic PR (no merge) once the stack is assembled;
+cut a signed release and work the post-merge manual-smoke list against it.
 
 ## Recent coding-agent runs
 
 ### 2026-06-28 — #796 standalone Skills menu → one unified engine-skill list (skill-unify2 5/7; subsumes #779)
-- Branch: `worktree-agent-a4c90fff5c16c60ec` (based on `cb18c083e`, the feature/skill-unify2 tip with #792–#795). Not pushed.
-- Converted the standalone Skills menu (Agents → Tools → Skills) from the `/agent-skills` DB store to the unified read `GET /opencode/skills?withMetadata=true` (#793). Auto-apply model only — IGNORED the issue body's stale proposal-queue / Approve-Reject / hasProposals / publish language (epic moved to auto-apply + measure + auto-revert).
-- Files modified:
-  - `apps/desktop_flutter/lib/features/agents/data/opencode_skills_data_source.dart` — added `OpencodeSkillMetadata` model (mirrors api_server `SkillMetadata`: confidence/version/status/source/uses/baselineScore/postScore/isExternalFork), extended `OpencodeSkillEntry` with an optional `metadata` field parsed from the `metadata` key, and added `listWithMetadata()` hitting `?withMetadata=true` (degrades to `[]` on error — no hardcoded fallback). Targets `AppConstants.agentLocalBaseUrl` (:4001).
-  - `apps/desktop_flutter/lib/features/agent_skills/controllers/agent_skills_controller.dart` — rewritten to be backed by `OpencodeSkillsDataSource` (was `AgentSkillsRepository`). `loadSkills()` reads the unified list; `deleteSkill(name)` (managed only) + re-fetch; exposes `dataSource` + `skillNames` for the editor sheet. Removed publish/version/rollback (DB-only concepts gone from the unified read).
-  - `apps/desktop_flutter/lib/features/agent_skills/views/agent_skills_view.dart` — rewritten: unified list, MANAGED/EXTERNAL provenance badge per row, non-`active` status badge (measuring amber / reverted red), source·confidence·version·uses meta line, baseline→post score line when measured, "auto-improved (forked)" note when `isExternalFork`. Managed rows show edit (reuse `showManagedSkillEditorSheet`) + delete; external/handwritten rows are read-only (lock icon, no edit/delete). Top-level "New skill" create button. Loading/error/empty states keyed.
-  - `apps/desktop_flutter/lib/main.dart` — provider now `AgentSkillsController(OpencodeSkillsDataSource())`; dropped the 3 retired imports.
-  - DELETED (retired DB-only path): `agent_skills/data/agent_skills_data_source.dart`, `repositories/agent_skills_repository.dart`, `models/agent_skill.dart`, `models/agent_skill_version.dart`. No dead reference remains (only a doc-comment mention of the old `/agent-skills` store).
-  - `apps/desktop_flutter/test/features/agent_skills/agent_skills_view_test.dart` — rewritten for the new surface (fake extends `OpencodeSkillsDataSource`): lists managed+external with badges; lifecycle status + baseline→post score; managed edit+delete vs external read-only; "New skill" opens editor + round-trips create; delete (confirmed) calls `delete`; loading/error(+no fallback)/empty; a unit asserting `agentLocalBaseUrl` is localhost:4001.
-- Checks run:
-  - `dart format` on the changed files — applied (4 changed).
-  - `flutter analyze --no-fatal-infos lib/features/agent_skills/ lib/features/agents/ test/features/agent_skills/` → 0 errors / 0 warnings (39 pre-existing `info` lints, none in changed files).
-  - `flutter test test/features/agent_skills/` → 10/10 pass. Full `test/features/agents/` run → 6 failures, all in `agent_trigger_watcher_test.dart` (the documented pre-existing F2 failures — unrelated).
-  - Falsification (both reverted): unconditioning the managed edit gate → "managed vs external read-only" test FAILS (external shows edit); suppressing the score line → "lifecycle + baseline→post score" test FAILS.
-- Decisions made: kept the `AgentSkill`-named DB model deleted rather than adapting it — the unified read returns `OpencodeSkillEntry` (+ metadata), so the menu and the Agent Profile picker now share ONE model. The api_server `/agent-skills` route is left intact (other consumers); only the Flutter menu's read path moved. The external-fork shows as a single MANAGED row with the auto-improved note (shadowing model, per #794 decision OQ#1).
-- Deviations from spec: per the dispatch SPEC CORRECTION, omitted the issue body's proposal queue / Approve-Reject / hasProposals / publish / "Improve (fork to managed)" actions — those do not exist in the auto-apply model. Surfaced lifecycle + scores from the unified read instead.
-- Concerns: none material. Visual/live smoke still deferred (needs a signed fork rebuild to exercise the real `:4001` endpoint).
+- Branch `worktree-agent-a4c90fff5c16c60ec`, commit `cd638377f` (based on `cb18c083e`). Not pushed. Verified PASS.
+- Standalone Skills menu now reads `GET /opencode/skills?withMetadata=true`; managed/external badge + lifecycle/score; managed rows edit/delete + "New skill", external read-only; retired DB-only `/agent-skills` Flutter read path removed (data source/repo/2 models deleted). Auto-apply model only — no proposal queue.
+- Checks: `dart format` clean, `analyze` 0 err/0 warn, `agent_skills` tests 10/10, 6 pre-existing `agent_trigger_watcher` failures unrelated; falsification shown for the gate + score line. Visual smoke deferred (signed fork rebuild on :4001).
+- Full detail: `docs/ai/runs/2026-06-28-issue-796-unified-skills-menu.md`.
 
 ### 2026-06-28 — #794+#795 wiring: auto-apply → measure/auto-revert end-to-end + startup stuck-measuring recovery
 - Branch: `worktree-agent-aebf7480150a4127b` (based on `009eda81a`, has both #794 `skill_apply.ts` and #795 `skill_measurement.ts`). Not pushed.
