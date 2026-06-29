@@ -2,263 +2,82 @@
 
 ## Current focus
 
-**2026-06-28 — Skills unified onto the opencode engine (7 issues), verified on a
-branch stacked over #775.** The engine's filesystem skill store is now the single
-source of truth: api_server proxies the fork's live `GET /skill` and writes
-Rhythm-owned `SKILL.md` into an additively-registered managed dir; the fork gained
-a `POST /skill/reload` re-scan trigger; both Flutter pickers (skills + MCP) read
-live data and the skills picker authors managed skills; `agent_profile_sync` now
-validates derived allowlists against the live skill set; published DB skills
-materialize to `SKILL.md`. All three hardcoded skill-name lists are gone.
-Supersedes #777. See `docs/ai/runs/2026-06-28-unify-skills-source-of-truth.md`
-and `docs/ai/decisions/2026-06-28-unify-skills-source-of-truth.md`.
+**2026-06-28 — Memory epic #801: memory moves to the Obsidian Memory-Vault as the
+single source of truth, served by the LOCAL agent server (:4001) over a disposable
+SQLite index.** Progress on `feature/mem-vault`: #802 (MemoryIndexService — vault →
+disposable SQLite index), #803 (vault-first `remember` write path), #804 (memory
+MCP tools re-routed off the prod Settings URL to :4001), and **#807 (just done) —
+removed the prod Postgres `agent_memory` store; memory is now local-vault/SQLite
+only**. Remaining: **#808 (guards)**. See
+`docs/ai/runs/2026-06-28-issue-807-remove-prod-agent-memory-store.md` and
+`docs/ai/decisions/2026-06-28-remove-prod-agent-memory-store.md`.
 
-Builds on **#775** (per-session `skillAllowlist` enforcement, PR #776, smoke
-PASSED) — this work keeps the picker names aligned with what #775 enforces.
+A separate, earlier batch — **skills unified onto the opencode engine** (issues
+unify-1…7, supersedes #777) — is verified and awaiting PR/merge on branch
+`feature/unify-skills-source-of-truth`. See
+`docs/ai/runs/2026-06-28-unify-skills-source-of-truth.md`.
 
 ## Active branch / PR
 
-- **Branch:** `feature/unify-skills-source-of-truth` (stacked off
-  `fix/issue-775-skill-allowlist-guard`). PR about to open against `main`; **do
-  not merge** — human review + manual smoke first.
-- **#775 / PR #776** remains open (smoke PASSED, ready for human merge). Merge
-  #776 first or merge this PR after it, since this branch contains #775's commits.
-- Ships only after a **fork rebuild + signed release** (the fork binary is
-  bundled; release CI rebuilds it).
+- **Memory epic (current):** `feature/mem-vault`. #807 implemented + verified on
+  worktree branch `worktree-agent-a91a2b4a1a8a49ea9` (commit `665a44203`, **not
+  pushed** — worktree subagent). Stacks #802–#807. PR should `Closes #807` (and the
+  other epic issues it completes) when opened; **do not merge** before human review.
+- **Skills unification (separate, pending):** `feature/unify-skills-source-of-truth`
+  (stacked off `fix/issue-775-skill-allowlist-guard`); PR not yet opened, do not
+  merge. #775 / PR #776 remains open (smoke PASSED).
 
 ## In progress
 
-- Nothing actively coding. Awaiting: (1) human review/merge of PR #776 then this
-  PR; (2) post-merge manual smoke against a signed build.
+- Memory epic: **#808 (guards)** is the only remaining issue. Nothing else actively
+  coding on the memory branch.
+- Awaiting: PR for `feature/mem-vault` (after #808), plus the separate skills-
+  unification PR and human merge of #776.
 
 ## Risks / known issues
 
-- **Visual/live smoke deferred (needs signed fork rebuild):** the new pickers
-  only exercise `GET/POST /skill` + `POST /skill/reload` against a rebuilt+signed
-  fork binary. Behavior is covered by widget tests against the real
-  `AgentProfileSheet`; pixel/interaction confirmation is a post-merge manual item.
+- **Prod role is `all`, not `cloud`:** before #807 the prod image still created the
+  Postgres `agent_memory` table. With the CREATE removed, a hypothetical agent-role-
+  on-Postgres deploy would 500 on `/agent-memory` — intended (memory is local-only).
+- **Inert Postgres branches:** `agent_memory_repository.ts` still has Postgres
+  query branches (clearAll no-op, delete). Dead paths (prod never mounts the route;
+  local server is SQLite); documented, left for a later cleanup.
 - **6 pre-existing failures** in `agent_trigger_watcher_test.dart` (auth-change/F2)
-  — unrelated to this work (fail in isolation, no import of changed files); a
-  follow-up was spawned. Do not attribute to skill unification.
-- Managed skills dir is `~/.config/opencode/rhythm-managed-skills` (env-overridable
-  via `RHYTHM_MANAGED_SKILLS_DIR`); registered additively in `skills.paths` — must
-  never collide with the `sync-globals` paths (`~/.claude/skills` etc.).
-- Fork binary is gitignored + per-branch; release CI rebuilds + signs it.
-- **#737 fencing scope:** only gmail MCP tool results are fenced (follow-up).
+  — unrelated; fail in isolation, no import of changed files.
+- Skills batch: visual/live smoke deferred until a signed fork rebuild; managed
+  skills dir `~/.config/opencode/rhythm-managed-skills` must not collide with
+  `sync-globals` paths; fork binary is gitignored + per-branch (release CI rebuilds).
 
 ## Test status
 
-- api_server: `tsc --noEmit` 0 errors, `npm run build` exit 0, `vitest run`
-  **1344 pass / 160 files**.
-- Fork: `bun test` skill+tool **20 pass/0 fail**; httpapi-exercise (coverage/auth/
-  effect) **149 pass/0 missing** each.
-- Flutter: `analyze --no-fatal-infos` 0 errors/0 warnings; agents widget tests
-  **14 pass** (6 unrelated pre-existing trigger-watcher failures noted above).
-- New real-binary guard `smoke_skill_alignment.sh` wired into `desktop_release.yml`.
-
-## Pending manual smoke (post-merge, against a signed build)
-
-- **Skills unification (this run):** Agent Profiles → a profile → Agent Profile
-  sheet. Confirm (a) Skills picker after "Restrict" lists the engine's **live**
-  skill names (not 14 hardcoded); (b) a managed skill shows edit/delete + "New
-  skill" round-trips (create → appears → editable); (c) external skills show no
-  edit/delete; (d) MCP picker after "Restrict" lists live server names, empty
-  state when none; (e) Settings → Server URL change does not affect either picker;
-  (f) a published DB skill appears in the picker and a scoped session still omits
-  out-of-scope skills (#775 intact).
-- Carry-over (still owed from prior batch): #720 compaction divider, #723 MCP
-  remove/sync, #731 shell-runner removal, #736 WS tool-gating, #770 Brain
-  mirror-sync, #737 email fencing. (#765 MCP scoping + #775 skill scoping already
-  smoked — skip.)
+- api_server (#807, on `worktree-agent-a91a2b4a1a8a49ea9`): `tsc --noEmit` exit 0,
+  `npm run build` exit 0, full `npx vitest run` **1367 pass / 162 files**. New #807
+  source-contract assertion in `issue_755_role_separation.test.ts` falsification-
+  verified.
+- Skills batch (on `feature/unify-skills-source-of-truth`): api_server vitest
+  1344 pass; fork `bun test` skill+tool 20 pass; Flutter `analyze` 0 errors,
+  agents widget tests 14 pass.
 
 ## Next step
 
-Open the PR for `feature/unify-skills-source-of-truth` (draft, no merge) with
-`Closes #777`. Then human-merge #776 and this PR, cut a signed release, and work
-the post-merge manual-smoke list against that build.
+Implement **#808 (guards)** on `feature/mem-vault` to lock in the local-only memory
+invariant (assert: no prod `agent_memory` table/index created; no prod-base memory
+reads/writes; local SQLite store + `/agent-memory` route intact). Then open the
+`feature/mem-vault` PR (draft, no merge) linking the completed epic issues. Separately,
+open the skills-unification PR and human-merge #776 + that PR.
 
-## Recent coding-agent runs
+## Pending manual smoke (post-merge, against a signed build)
 
-### 2026-06-28 — #802 MemoryIndexService (memory epic #801, issue 1/7)
-- Files modified:
-  - `apps/api_server/src/services/memory_index_service.ts` (new) — `MemoryIndexService`
-    owning the derived index: `rebuildIndexFromVault(vaultPath?)` (clear + repopulate
-    from full vault scan), `upsertNote()` / `removeNote()` incremental ops for #803.
-  - `apps/api_server/src/services/memoryVaultSyncService.ts` — extracted the recursive
-    vault walk + parse into an exported `scanVaultNotes()` helper (+`ScannedNote`);
-    `syncMemoryVault` now reuses it (no duplicated scan/parse). `parseNote` was already
-    exported, reused directly.
-  - `apps/api_server/src/repositories/agent_memory_repository.ts` — added
-    `clearAllAsync()` (SQLite-only wipe + FTS 'delete-all'; Postgres no-op returns 0).
-  - `apps/api_server/src/database/migrations.ts` — comment-only: marks SQLite
-    agent_memory/agent_memory_fts as DERIVED/DISPOSABLE. No DDL change.
-  - `apps/api_server/src/__tests__/memory_index_rebuild.test.ts` (new) — 8 tests
-    covering AC1 count/fields, AC2 idempotence, AC3 clear+rebuild reproduces
-    searchAsync top-N, AC4 missing+empty vault no-op, stale-row drop, upsert/remove.
-- Checks run:
-  - `npx vitest run memory_index_rebuild memory_vault_sync` → PASS (21/21; new file 8/8).
-  - Falsification: stubbing the clear step in rebuild → "rebuild drops stale rows"
-    test FAILS (1 failed / 7 passed); restored → green.
-  - `npm run build` (tsc) → exit 0.
-- Decisions made: extracted `scanVaultNotes` rather than duplicating the walk so the
-  rebuild and mirror-sync share one parse path (issue mandated reusing `parseNote`).
-  `clearAllAsync` is SQLite-scoped — the disposable index is SQLite-only; Postgres
-  agent_memory is never cleared by this path (postgres_bootstrap.ts untouched).
-- Deviations from spec: none.
-- Concerns: decision doc `2026-06-28-memory-vault-as-source-of-truth.md` lives on
-  branch `docs/memory-vault-plan`/PR #809, not on this main base — code references it
-  by name; will resolve once that PR merges. #803 builds the vault-first write path
-  on `upsertNote`/`removeNote`.
-
-### 2026-06-28 — #803 vault-first write path for `remember` (memory epic #801, issue 2/7)
-- Branch: `feat/issue-803-vault-first-remember` (off `feature/mem-vault`).
-- Files modified:
-  - `apps/api_server/src/services/memoryVaultWriteService.ts` (new) — owns the
-    vault-first write path: `rememberToVault()` (dedup → write note FIRST →
-    `MemoryIndexService.upsertNote`), `forgetFromVault()` (confined unlink),
-    plus `generateUlid` / `normalizeContentKey` / `slugForNote` / `renderMemoryNote`
-    helpers + `MemoryWriteError`. Path-traversal guard `resolveWithinMemoryDir`.
-  - `apps/api_server/src/services/agentMemoryService.ts` — `remember` now delegates
-    to `rememberToVault` (signature `RememberInput` → `RememberResult`); `forget`
-    looks up the row by id, deletes the vault file for `obsidian-memory` rows, then
-    drops the index row.
-  - `apps/api_server/src/controllers/agentMemoryController.ts` — `create` passes
-    `{kind, content, id, source, tags}`, returns `{id, path, kind}`, maps
-    `MemoryWriteError` → 400. (No `sourceId` passthrough — the index source_id is the
-    vault path now.)
-  - `apps/api_server/src/config/env.ts` — added `resolveMemoryDirPath()` =
-    `<MEMORY_VAULT_PATH>/memory` (the write-path boundary).
-  - `apps/api_server/src/__tests__/memory_write_vault_first.test.ts` (new) — 13 tests:
-    AC1 frontmatter+body, AC2 sync search, AC3 dedup-by-id + dedup-by-content,
-    AC4 invalid kind + empty content, AC5 path-escape, AC6 delete file+row + safe
-    404, helper unit tests, and a vault-first falsification guard.
-- Checks run:
-  - `npx vitest run memory_write_vault_first memory_index_rebuild memory_vault_sync`
-    → PASS (34/34; new file 13/13).
-  - Falsification: flipping to index-first ordering → the falsification guard FAILS
-    (index row survives a failed FS write: 1 failed / 12 passed); restored → green.
-  - `npm run build` (tsc) → exit 0.
-  - `npx vitest run agent_memory memory_injection memory_vault_sync_route` → 17/17
-    (no regression in adjacent memory suites).
-- Decisions made: layout is folders-by-type `memory/<kind>/<slug>.md`; dedup keys on
-  frontmatter `id` first, normalized-content slug as fallback (preserves id+created,
-  bumps updated). ULID is a dependency-free Crockford-base32 generator (no `ulid`
-  package in deps; adding one for one id source is unwarranted). The memory dir is the
-  `<MEMORY_VAULT_PATH>/memory` subtree — distinct from the whole vault — and is the
-  single path-traversal boundary.
-- Deviations from spec: none. (Note: `id` accepted as-is even if non-ULID and used as
-  the dedup key; a fresh ULID is assigned only when absent.)
-- Concerns: the dedup-by-content slug truncates to 60 chars, so two DIFFERENT long
-  contents sharing a 60-char prefix would collide onto one note — acceptable for the
-  current memory sizes but worth a content-hash suffix if collisions appear.
-
-### 2026-06-28 — #807 remove prod agent_memory store; memory is local-vault-only (memory epic #801, issue 6/7)
-- Base: `feature/mem-vault` (worktree branch `worktree-agent-a91a2b4a1a8a49ea9`).
-- Scope (maintainer-simplified): START FRESH, no data migration. Remove the prod
-  Postgres `agent_memory` store + redirect/document any remaining prod-store refs;
-  the LOCAL vault-backed store (:4001, SQLite index) must keep working.
-- Files modified:
-  - `apps/api_server/src/database/postgres_bootstrap.ts` — removed the prod
-    `CREATE TABLE agent_memory` + `idx_agent_memory_fts` / `idx_agent_memory_owner`
-    indexes (was L544-559), replaced with a removal note. No FK/view referenced the
-    table, so prod bootstrap stays clean.
-  - `apps/api_server/src/app.ts` — `/agent-memory` mount was ALREADY inside the
-    `if (env.agentExecutionEnabled)` gate (cloud role omits it); added a comment
-    documenting it is local-only and backed by the SQLite index, not prod.
-  - `apps/api_server/src/database/migrations.ts` — updated the stale comment that
-    claimed a non-disposable Postgres `agent_memory` exists; the SQLite index is now
-    the only store. (SQLite CREATE unchanged — that's the local store.)
-  - `apps/api_server/src/repositories/agent_memory_repository.ts` +
-    `services/memory_index_service.ts` — comment-only: note the Postgres store is
-    removed and the remaining Postgres branches are inert dead paths.
-  - `apps/api_server/src/__tests__/issue_755_role_separation.test.ts` — the #755
-    role-gating contract used `agent_memory` as its representative gated table;
-    re-pointed those two assertions at `agent_webhook_endpoints` (now the first
-    gated table) and ADDED a #807 assertion that the bootstrap creates no
-    `agent_memory` table/FTS/owner index.
-  - `docs/ai/decisions/2026-06-28-remove-prod-agent-memory-store.md` (new).
-- Checks run:
-  - `npx vitest run agent_memory memory_injection memory_write_vault_first
-    memory_index_rebuild memory_consolidation_seed opc_rhythm_mcp_ensure` → 42/42 PASS.
-  - `npx vitest run issue_755_role_separation` (+memory suites) → 63/63 PASS.
-  - `npm run build` (tsc) → exit 0.
-  - Full `npx vitest run` → 1367 pass / 162 files (0 fail).
-  - Repo scan `grep -rniE "agent_memory|/agent-memory" apps --include=*.ts
-    --include=*.dart`: all remaining live refs resolve to the LOCAL store — Flutter
-    `agent_memory_data_source.dart` uses `AppConstants.agentLocalBaseUrl` (:4001);
-    MCP `agentMemory.ts` uses the :4001 base (#804); SQLite migrations.ts + repo are
-    the local index. Two Postgres branches remain in `agent_memory_repository.ts`
-    (clearAll no-op, delete) but are inert dead paths (prod never mounts the route;
-    local server is SQLite) — left as smallest-correct-change, documented.
-- Decisions made: see decision doc. Removed the prod table CREATE rather than only
-  gating it (it was already gated, but prod default role is `all` so the table was
-  still created); left the repository's Postgres branches as inert dead code to keep
-  the change minimal.
-- Deviations from spec: none.
-- #808 (guards) note: assert (a) `postgres_bootstrap.ts` creates no `agent_memory`
-  table or `idx_agent_memory_*` index (a source-contract assertion already added in
-  `issue_755_role_separation.test.ts`); (b) no code path reads/writes agent memory
-  against the prod base (Flutter + MCP both :4001); (c) the local SQLite store +
-  `/agent-memory` route under the agent-execution gate remain intact.
-- Concerns: prod currently runs as role `all` (not `cloud`), so before #807 it DID
-  create the table; with the CREATE gone a hypothetical agent-role-on-Postgres deploy
-  would 500 on `/agent-memory` — intended (memory is local-only). The inert Postgres
-  repo branches could be deleted in a later cleanup if a Postgres agent role is retired.
-
-### 2026-06-28 — #804 re-route memory MCP tools to local agent server :4001 (memory epic #801, issue 3/7)
-- Branch: `worktree-agent-a8292be007c419d9b` (off `feature/mem-vault`).
-- Topology bug fixed: memory MCP tools were registered with `RHYTHM_API_URL`
-  (= prod Settings URL), so agent memories wrote to prod Postgres while the
-  Flutter memory UI reads `AppConstants.agentLocalBaseUrl` (:4001) — they
-  disagreed. Now the tools point at the LOCAL agent server, like
-  `notifications`/`agentDelegation` already do.
-- Files modified:
-  - `apps/mcp_server/src/index.ts` — `registerAgentMemoryTools` now passed
-    `RHYTHM_AGENT_URL` (default http://localhost:4001) instead of `RHYTHM_API_URL`.
-  - `apps/mcp_server/src/tools/agentMemory.ts` — docstring/comment only; all 4
-    tools already use the injected `apiUrl` base, now the local agent base.
-  - `apps/desktop_flutter/lib/features/settings/views/settings_view.dart` — the
-    manual MCP config snippet now also sets `"RHYTHM_AGENT_URL":
-    "http://localhost:4001"` (hard-coded, NOT `serverConfig.url`). Single-line
-    string-literal edit; no structural/format change.
-  - `apps/api_server/src/services/opencode_client_service.ts` — `ensureRhythmMcp`
-    writes `RHYTHM_AGENT_URL` (env-overridable, default localhost:4001) into the
-    opencode.json env alongside `RHYTHM_API_URL`/`RHYTHM_API_TOKEN`.
-  - `apps/mcp_server/src/tools/__tests__/agentMemory_local_base.test.ts` (new) —
-    5 tests: all 4 tools resolve to :4001 (stubbed global fetch captures URL);
-    prod-URL-env change is inert.
-  - `apps/api_server/src/__tests__/opc_rhythm_mcp_ensure.test.ts` — `DESIRED`
-    env now includes `RHYTHM_AGENT_URL`; added an assertion + a new test that the
-    agent base stays :4001 even when the prod `apiUrl` differs.
-- Checks run:
-  - `cd apps/mcp_server && npx vitest run` → 52/52 PASS (new file 5/5).
-    Falsification: building the tools with a prod base → all 5 new tests FAIL
-    (e.g. `expected 'https://api.vcrcapps.com/agent-memory' to be
-    'http://localhost:4001/agent-memory'`); restored → green.
-  - `cd apps/mcp_server && npm run typecheck` → exit 0.
-  - `cd apps/api_server && npx vitest run opc_rhythm_mcp_ensure` → 6/6 PASS;
-    `npm run build` (tsc) → exit 0; adjacent memory suites
-    (`agent_memory memory_injection memory_write_vault_first memory_index_rebuild`)
-    → 36/36, no regression.
-  - Flutter: `dart format` left settings_view structurally unchanged (single
-    string-literal line); `flutter analyze --no-fatal-infos lib/features/settings/`
-    → 11 pre-existing info-level only, 0 errors/warnings, none on the changed line.
-- Decisions made: kept `RHYTHM_API_URL` for non-memory tools that legitimately hit
-  prod — only the memory tools' base moved. The agent base is env-overridable
-  (`RHYTHM_AGENT_URL`) but defaults to localhost:4001, matching the Flutter
-  `AppConstants.agentLocalBaseUrl` and the existing `notifications`/`agentDelegation`
-  convention. The Flutter snippet hard-codes :4001 (not `serverConfig.url`) so a prod
-  URL change can never move it.
-- Deviations from spec: none.
-- #807 note (remove-prod-store + repo-scan): the prod Postgres `agent_memory` table
-  is still created in `apps/api_server/src/database/postgres_bootstrap.ts` (L544-559,
-  table + 2 indexes), and the prod server still mounts the `/agent-memory` router via
-  `apps/api_server/src/app.ts` (L123). No live writer targets prod anymore (the MCP
-  tools and the Flutter UI both use :4001), so those are the remaining prod-store
-  references for #807 to remove. Migrations/repository (`migrations.ts`,
-  `agent_memory_repository.ts`) already treat the SQLite table as a disposable
-  vault-derived index (#802); the Postgres bootstrap is the unmigrated prod remnant.
-- Concerns: the memory tools rely on the global `fetch` (no injected fetch param), so
-  the new tests stub `globalThis.fetch` rather than passing a mock — consistent with
-  `api_client.ts` using the global. If a fetch-injection is added later (as
-  `agentDelegation` has), the tests should switch to it.
+- **Memory epic (#807):** after a build with the local agent server running on
+  :4001, confirm the Rhythm Brain / Agent Memory panel still lists, searches,
+  creates, and deletes memories against :4001 (no prod calls); confirm a fresh
+  install starts with an empty local store (start-fresh, no migration).
+- **Skills unification:** Agent Profiles → a profile → Agent Profile sheet:
+  (a) Skills picker lists the engine's live skill names; (b) a managed skill shows
+  edit/delete + "New skill" round-trips; (c) external skills show no edit/delete;
+  (d) MCP picker lists live server names; (e) Settings → Server URL change does not
+  affect either picker; (f) a published DB skill appears and a scoped session omits
+  out-of-scope skills (#775 intact).
+- Carry-over (prior batch): #720 compaction divider, #723 MCP remove/sync, #731
+  shell-runner removal, #736 WS tool-gating, #770 Brain mirror-sync, #737 email
+  fencing.

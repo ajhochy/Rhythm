@@ -1,7 +1,9 @@
 ---
-tags: [decision, rhythm]
 date: 2026-06-28
+repo: Rhythm
 issues: [807, 801]
+tags: [decision, Rhythm]
+index: "[[Rhythm]]"
 ---
 
 # Remove the prod (Postgres) agent_memory store — memory is local-vault-only
