@@ -2,9 +2,9 @@
 date: 2026-06-28
 repo: Rhythm
 branch: codex/mega-open-prs-2026-06-28
-pr: null
+pr: 812
 issues: [780, 782, 785, 786, 787, 788, 789, 791, 792, 793, 794, 795, 796, 797, 798, 802, 803, 804, 805, 806, 807, 808]
-status: in-progress
+status: complete
 tags: [run, Rhythm]
 index: "[[Rhythm]]"
 ---
@@ -43,3 +43,9 @@ index: "[[Rhythm]]"
 - No follow-up issue was filed; the failure was an in-scope stale guard contract.
 - Source PRs will remain as provenance until the mega PR exists, then can be
   closed as superseded without merging them individually.
+- Draft mega PR #812 was opened against `main`; the nine source PRs were closed
+  as superseded with comments pointing to #812.
+- Final relaunch used `RHYTHM_LOCAL_SMOKE=1`. `/health`,
+  `/opencode/health`, and `/agents/capabilities` were healthy; the running
+  `:4096` executable resolved to `apps/api_server/opencode_bin/opencode` with
+  the expected mega-branch version.

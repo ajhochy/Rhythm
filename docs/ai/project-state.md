@@ -11,20 +11,20 @@ Nine open pull requests are consolidated on
   `origin/main`.
 - Included source PRs: #754, #757, #758, #790, #799, #800, #809, #810, and
   #811.
-- Mega PR: pending.
+- Draft mega PR: #812.
 
 ## In progress
 
-- Commit the integration-only #808 smoke correction.
-- Push and open one draft mega PR against `main`.
-- Relaunch the rebuilt debug app with the rebuilt API source and staged fork
-  engine for human smoke.
+- Human smoke is in progress against the rebuilt debug app.
+- The app is running with `RHYTHM_LOCAL_SMOKE=1`; local API is on `:4001` and
+  the staged mega-branch engine is on `:4096`.
 
 ## Risks / known issues
 
 - #758 is defense-in-depth; the bundled-fork event-stream regression remains a
   separate concern tracked by #759.
-- Source PRs remain open until the mega PR is created and can supersede them.
+- Source PRs #754, #757, #758, #790, #799, #800, #809, #810, and #811 are
+  closed as superseded by #812; their branches and commit history remain intact.
 - `npm install` reports 12 dependency audit findings (1 low, 8 moderate, 3
   high); no dependency versions were changed in this integration run.
 
@@ -46,5 +46,5 @@ Nine open pull requests are consolidated on
 
 ## Next step
 
-Open the mega draft PR, close the superseded source PRs, relaunch the rebuilt
-app, and hand off the manual smoke checklist.
+Complete the manual smoke checklist on the running app, then review and
+manually merge PR #812.
