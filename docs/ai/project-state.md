@@ -2,6 +2,19 @@
 
 ## Current focus
 
+**2026-06-28 — skill-unify2 epic (#791, 7 issues) in progress on
+`feature/skill-unify2`.** Repurposes `agent_skills` as a sidecar
+metadata + measurement ledger over the engine's live skill set and exposes a
+unified read. Done so far: **#792** (sidecar columns + `findByName`, dual-DB
+parity guard) and **#793** (`GET /opencode/skills?withMetadata=true` joins the
+sidecar metadata onto live engine skills by name; plain endpoint unchanged so
+the picker is unaffected). Auto-apply lifecycle is `active`/`measuring`/
+`reverted` (no review queue). Remaining: #794 (auto-apply pipeline), #796
+(unified menu), #797 (status reconciliation), + others.
+See `docs/ai/runs/2026-06-28-issue-793-skills-withmetadata.md`.
+
+---
+
 **2026-06-28 — Skills unified onto the opencode engine (7 issues), verified on a
 branch stacked over #775.** The engine's filesystem skill store is now the single
 source of truth: api_server proxies the fork's live `GET /skill` and writes
@@ -18,6 +31,10 @@ PASSED) — this work keeps the picker names aligned with what #775 enforces.
 
 ## Active branch / PR
 
+- **skill-unify2 epic (#791):** `feature/skill-unify2` carries #792 (merged to it)
+  and #793. #793 is committed on worktree branch
+  `worktree-agent-ac659d2d43b6f8e25` (commit `6ddbcaadf`, **not pushed**) — verified,
+  awaiting merge into `feature/skill-unify2`.
 - **Branch:** `feature/unify-skills-source-of-truth` (stacked off
   `fix/issue-775-skill-allowlist-guard`). PR about to open against `main`; **do
   not merge** — human review + manual smoke first.
@@ -28,8 +45,11 @@ PASSED) — this work keeps the picker names aligned with what #775 enforces.
 
 ## In progress
 
-- Nothing actively coding. Awaiting: (1) human review/merge of PR #776 then this
-  PR; (2) post-merge manual smoke against a signed build.
+- **skill-unify2:** #792 + #793 done + verified. Next: #794 (auto-apply pipeline),
+  #796 (unified menu) — both consume `GET /opencode/skills?withMetadata=true`;
+  #797 (status reconciliation of legacy draft/published rows).
+- Skill-unification (unify-1..7) branch: awaiting (1) human review/merge of PR
+  #776 then that PR; (2) post-merge manual smoke against a signed build.
 
 ## Risks / known issues
 
@@ -48,8 +68,8 @@ PASSED) — this work keeps the picker names aligned with what #775 enforces.
 
 ## Test status
 
-- api_server: `tsc --noEmit` 0 errors, `npm run build` exit 0, `vitest run`
-  **1344 pass / 160 files**.
+- api_server (on `feature/skill-unify2` + #793): `tsc --noEmit` 0 errors,
+  `npm run build` exit 0, `vitest run` **1355 pass / 161 files** (+4 from #793).
 - Fork: `bun test` skill+tool **20 pass/0 fail**; httpapi-exercise (coverage/auth/
   effect) **149 pass/0 missing** each.
 - Flutter: `analyze --no-fatal-infos` 0 errors/0 warnings; agents widget tests
@@ -78,6 +98,16 @@ Open the PR for `feature/unify-skills-source-of-truth` (draft, no merge) with
 the post-merge manual-smoke list against that build.
 
 ## Recent coding-agent runs
+
+### 2026-06-28 — #793 unified read: join sidecar metadata onto live engine skills (skill-unify2 epic #791, 2/7)
+- Branch: `worktree-agent-ac659d2d43b6f8e25` (based on `feature/skill-unify2`, has #792). Not pushed.
+- Files modified:
+  - `apps/api_server/src/routes/opencode_skills_routes.ts` — `GET /` now accepts optional `?withMetadata=true`. Without it: unchanged `{name, description?, location, managed}` (Agent Profile picker unaffected). With it: each entry gains `metadata` joined by `name` via `AgentSkillsRepository.findByName` (O(n) over the live fork set, not N+1). Shape: `{confidence:number|null, version:number, status:'active'|'measuring'|'reverted'|null, source:string|null, uses:number|null, baselineScore:number|null, postScore:number|null, isExternalFork:boolean}`. Default when no sidecar row: `{confidence:null, version:1, status:'active', source:null, uses:null, baselineScore:null, postScore:null, isExternalFork:false}`. `managed` stays location-derived (`isManagedLocation`), NOT from the sidecar. The live set defines the name set — sidecar rows (incl. measuring/reverted) never become their own entry.
+  - `apps/api_server/src/__tests__/opencode_skills_routes.test.ts` — 4 new cases under `?withMetadata=true`: (a) managed+sidecar, (b) external+sidecar (isExternalFork true, managed false), (c) no-sidecar default, names-alignment (with/without flag == fork list; a ghost measuring row is absent), falsification (zero live skills → [] despite a measuring sidecar row), and no-metadata-key without the flag.
+- Checks run: `npx vitest run opencode_skills` 9 pass (5 orig + 4 new); `npm run build` (tsc) exit 0. Falsification verified by injecting a sidecar-row leak — names-alignment + the empty-set test both failed, then reverted.
+- Decisions made: join is per-name via `findByName` against the global DB (no-arg repo ctor → `getDb()`, matches the test's `setDb`). Status narrowed to the data-only lifecycle set; legacy `draft`/`published` (reconciled in #797) map to `null`.
+- Deviations from spec: none.
+- Concerns: none. For #794 (auto-apply pipeline) and #796 (unified menu): consume `GET /opencode/skills?withMetadata=true` for provenance; the plain (no-flag) call is the picker's read and stays untouched.
 
 ### 2026-06-28 — #792 agent_skills sidecar metadata + measurement ledger (skill-unify2 epic #791)
 - Files modified:
