@@ -120,14 +120,17 @@ MEM_PATH="${IDPATH#*$'\t'}"
   || fail "empty/garbled id/path from create"
 echo "wrote memory id=${MEM_ID} path=${MEM_PATH}"
 
-# Safety: the recorded note path must resolve INSIDE the temp vault, never prod.
-NOTE_ABS="${VAULT_DIR}/memory/${MEM_PATH}"
+# Safety: the API returns a vault-root-relative canonical key
+# (`memory/<kind>/<note>.md`), so resolve it directly under the temp vault.
+# Prefixing another `memory/` would probe a nonexistent double-nested path and
+# falsely report a sandbox escape.
+NOTE_ABS="${VAULT_DIR}/${MEM_PATH}"
 case "$(cd "$(dirname "${NOTE_ABS}")" 2>/dev/null && pwd -P || echo /nope)" in
   "$(cd "${VAULT_DIR}" && pwd -P)"/*) : ;;
   *) fail "note path escaped the temp vault sandbox: ${MEM_PATH}" ;;
 esac
 [[ -f "${NOTE_ABS}" ]] || fail "vault note not written to the temp vault: ${MEM_PATH}"
-echo "vault note present in temp vault: memory/${MEM_PATH}"
+echo "vault note present in temp vault: ${MEM_PATH}"
 
 # Index row present + baseline recall. We assert recall identity by the unique
 # MARKER carried in the note CONTENT, which is the actual user-facing recall

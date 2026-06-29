@@ -2,8 +2,8 @@
 
 ## Current focus
 
-All nine open pull requests are consolidated on
-`codex/mega-open-prs-2026-06-28` for one full-stack local smoke build.
+Nine open pull requests are consolidated on
+`codex/mega-open-prs-2026-06-28` for one full-stack local smoke.
 
 ## Active branch / PR
 
@@ -11,27 +11,40 @@ All nine open pull requests are consolidated on
   `origin/main`.
 - Included source PRs: #754, #757, #758, #790, #799, #800, #809, #810, and
   #811.
-- Mega PR: not opened yet.
+- Mega PR: pending.
 
 ## In progress
 
-- Run GitNexus change analysis and the full repository verification gate.
-- Rebuild api_server, opencode fork binary, and the macOS Flutter app from this
-  branch.
-- Launch the rebuilt app for local manual smoke.
+- Commit the integration-only #808 smoke correction.
+- Push and open one draft mega PR against `main`.
+- Relaunch the rebuilt debug app with the rebuilt API source and staged fork
+  engine for human smoke.
 
 ## Risks / known issues
 
 - #758 is defense-in-depth; the bundled-fork event-stream regression remains a
   separate concern tracked by #759.
-- The combined branch touches shared API startup, schema, memory, MCP, skill,
-  and Flutter surfaces, so full PR checks and live health probes are required.
-- Source PRs remain open as provenance until the mega branch is reviewed.
+- Source PRs remain open until the mega PR is created and can supersede them.
+- `npm install` reports 12 dependency audit findings (1 low, 8 moderate, 3
+  high); no dependency versions were changed in this integration run.
 
 ## Test status
 
-- Not yet run on the fully consolidated branch.
+- All nine source PR heads are ancestors of the integration branch.
+- `ai-workflow checks --level issue`: pass.
+- `ai-workflow checks --level pr`: pass.
+- api_server TypeScript production build: pass.
+- Flutter debug macOS build: pass.
+- Fork engine build: pass; version
+  `0.0.0-codex/mega-open-prs-2026-06-28-202606290201`.
+- Memory vault authority drop/rebuild smoke: pass after correcting its stale
+  vault-relative path assertion.
+- MCP allowlist, skill allowlist, MCP alignment, and skill alignment built-fork
+  smokes: pass.
+- GitNexus compare against `main`: MEDIUM risk, 121 files / 531 symbols, one
+  affected execution flow.
 
 ## Next step
 
-Run change analysis, build all three runtime layers, and execute smoke probes.
+Open the mega draft PR, close the superseded source PRs, relaunch the rebuilt
+app, and hand off the manual smoke checklist.
