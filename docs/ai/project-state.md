@@ -251,3 +251,64 @@ the post-merge manual-smoke list against that build.
   the new tests stub `globalThis.fetch` rather than passing a mock — consistent with
   `api_client.ts` using the global. If a fetch-injection is added later (as
   `agentDelegation` has), the tests should switch to it.
+
+### 2026-06-28 — #808 memory guards + smoke (memory epic #801, issue 7/7, FINAL)
+- Base: local `Feature/mem-vault` (has #802–#807; the dispatch said
+  `origin/feature/mem-vault` but that remote ref only has #802–#804 — the #805/#806/#807
+  merges are not yet pushed. Used the local integration branch because the spec
+  correction's facts — prod store removed, route local-only, #807 seed assertion —
+  only hold there). Worktree branch `worktree-agent-a5d6958c7697ba0fd`; not pushed.
+- Files modified/added (TEST/INFRA ONLY — no production code touched):
+  - `apps/api_server/src/__tests__/memory_index_rebuild.test.ts` (extended) — added a
+    "rebuildable guard (#808)" describe: capture `searchAsync` top-N → `clearAllAsync`
+    (drop ALL rows) → `rebuildIndexFromVault` → assert identical top-N (path+content
+    projection; row id excluded since it's a fresh UUID per index), plus a FALSIFY test
+    (removing a vault note before rebuild changes the top-N).
+  - `apps/api_server/src/__tests__/memory_vault_authority.test.ts` (new) — three guard
+    groups: (a) sole-authority — edit-on-disk + re-index changes recall; delete-on-disk
+    + re-index removes it AND leaves no `obsidian-memory` row; a FALSIFY proving the
+    re-index is what enforces it. (b) prod-removal (corrected per #807) — bootstrap
+    creates no `agent_memory` table / no `idx_agent_memory_*` / no index ON agent_memory;
+    `/agent-memory` mounted only inside the `env.agentExecutionEnabled` gate; local
+    SQLite store intact (migrations create table+FTS, behavioural backstop), migrations
+    additive (no DROP/destructive ALTER on agent_memory[_fts]). (c) no-divergence —
+    mcp `index.ts` wires memory tools at `RHYTHM_AGENT_URL` default :4001 (not
+    `RHYTHM_API_URL`); Flutter `agent_memory_data_source.dart` bases on
+    `AppConstants.agentLocalBaseUrl` (= localhost:4001), never `serverConfig`.
+  - `apps/api_server/scripts/smoke_memory_authority.sh` (new) — boots the bundled LOCAL
+    server (`dist/server.js`, `AGENT_LOCAL=true`) on a private port against TEMP vault +
+    TEMP SQLite (`RHYTHM_API_URL` forced bogus); writes via `POST /agent-memory`, asserts
+    a vault note + index recall, DELETES the SQLite DB file, restarts, rebuilds via
+    `POST /agent-memory/sync`, asserts identical recall (by authored MARKER in content).
+    Never touches prod; asserts by id/path, no body dump.
+  - `.github/workflows/desktop_release.yml` — new "Smoke memory vault authority (#808
+    guard)" step after "Smoke-test bundled CLI server", before the Bun/fork build.
+- Checks run:
+  - `npx vitest run memory_vault_authority memory_index_rebuild issue_755_role_separation
+    memory_injection_index` → 51/51 PASS (new file 11/11; rebuild +2 = now 16/16).
+  - Falsifications (all confirmed): (1) re-add prod `agent_memory` table+index → 2
+    prod-removal tests FAIL; (2) couple Flutter DS to `serverConfig.url` → no-divergence
+    test FAILS; (3) destroy the vault alongside the index in the smoke → smoke FAILS
+    ("vault is not authority"); rebuildable FALSIFY active (removing a vault note changes
+    top-N). All restored → green.
+  - `bash -n smoke_memory_authority.sh` OK; ran end-to-end vs `dist/server.js` → exit 0.
+  - `npm run build` (tsc) → exit 0. mcp `agentMemory_local_base` → 5/5.
+  - Full `npx vitest run`: a first run flaked on `real_server.test.ts` (keep-alive
+    anti-flake, port contention) + an agent-profile test; both pass in isolation and a
+    second full run was 1394/1394 green. No production code changed, so these are
+    pre-existing parallel-socket flakes, not regressions.
+- Decisions made: (1) based on local `Feature/mem-vault` not the stale
+  `origin/feature/mem-vault` — see `docs/ai/decisions/2026-06-28-issue-808-base-and-guards.md`.
+  (2) recall identity across a rebuild is asserted by note CONTENT (smoke) / path+content
+  (unit), NOT the SQLite row id (fresh UUID per index) — see same decision doc.
+- Deviations from spec: AC3 implemented per the maintainer correction (assert prod store
+  REMOVED + route local-only), not the stale issue-body "dormant, not removed" wording.
+  The #807 prod-removal seed assertion already exists in `issue_755_role_separation.test.ts`;
+  `memory_vault_authority.test.ts` restates it from the memory suite (does not duplicate
+  the role-gating tests).
+- Concerns: the two index writers record DIFFERENT `source_id` for the same note — the
+  write path (`rememberToVault`) keys it relative to `<vault>/memory` (e.g. `fact/x.md`)
+  while the rebuild scan (`syncMemoryVault`) keys it relative to the vault root (e.g.
+  `memory/fact/x.md`). Both recall the note, so it's invisible to users, but a note
+  touched by both writers could end up double-indexed (two rows, two source_ids). Out of
+  scope for #808 (guards only); flagged as a follow-up.

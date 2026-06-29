@@ -163,6 +163,66 @@ describe('MemoryIndexService.rebuildIndexFromVault (#802)', () => {
   });
 });
 
+describe('rebuildable guard — drop ALL index rows → rebuild → identical top-N (#808)', () => {
+  // AC1 (issue #808): the index is rebuildable and DISPOSABLE. Capture a
+  // searchAsync top-N, wipe every index row, rebuild from the same vault, and
+  // assert the top-N is byte-identical (same order, same ids-by-path, same
+  // content). This is the machine-checked promise that the index can be thrown
+  // away and reproduced from the vault at any time.
+  const TOP_N = 5;
+
+  async function seedVault(): Promise<void> {
+    note('budget.md', ['---', 'kind: fact', '---', 'The annual budget review is led by the elder board each spring.'].join('\n'));
+    note('budget-followup.md', ['---', 'kind: fact', '---', 'Budget approvals over five thousand need two signatures.'].join('\n'));
+    note('worship.md', ['---', 'kind: fact', '---', 'The worship team rehearses on Thursday evenings.'].join('\n'));
+    note('facilities.md', ['---', 'kind: fact', '---', 'Facilities reservations are stored in Postgres.'].join('\n'));
+    note('coffee.md', ['---', 'kind: fact', '---', 'Coffee is brewed before the early service.'].join('\n'));
+  }
+
+  // Stable projection of a search result: vault path (cross-rebuild identity) +
+  // content. The SQLite row id is a fresh UUID per (re)index, so it is NOT part
+  // of the identity — path+content is.
+  const projectTopN = (rows: { sourceId: string | null; content: string }[]) =>
+    rows.map((r) => `${r.sourceId}::${r.content}`);
+
+  it('AC1: clearAllAsync + rebuild reproduces the exact searchAsync top-N', async () => {
+    await seedVault();
+    await index.rebuildIndexFromVault(vaultDir);
+
+    const before = await repo.searchAsync('budget', undefined, TOP_N);
+    expect(before.length).toBeGreaterThanOrEqual(2); // both budget notes hit
+    const beforeTopN = projectTopN(before);
+
+    // Disposable: drop EVERY index row, then rebuild from the same vault.
+    const cleared = await repo.clearAllAsync();
+    expect(cleared).toBe(5);
+    expect(await repo.listAsync(undefined, undefined, 100)).toHaveLength(0);
+
+    const summary = await index.rebuildIndexFromVault(vaultDir);
+    expect(summary).toEqual({ indexed: 5 });
+
+    const after = await repo.searchAsync('budget', undefined, TOP_N);
+    expect(projectTopN(after)).toEqual(beforeTopN);
+  });
+
+  it('FALSIFY: a partial rebuild (vault note removed) does NOT reproduce the top-N', async () => {
+    // Guards the guard: if the rebuild silently dropped a note (or read a
+    // different vault), the top-N would differ — so removing a top-ranked note
+    // before the rebuild must change the captured projection. This proves the
+    // "identical top-N" assertion above is load-bearing, not vacuous.
+    await seedVault();
+    await index.rebuildIndexFromVault(vaultDir);
+    const beforeTopN = projectTopN(await repo.searchAsync('budget', undefined, TOP_N));
+
+    await repo.clearAllAsync();
+    rmSync(path.join(vaultDir, 'budget-followup.md')); // remove one of the two hits
+    await index.rebuildIndexFromVault(vaultDir);
+
+    const afterTopN = projectTopN(await repo.searchAsync('budget', undefined, TOP_N));
+    expect(afterTopN).not.toEqual(beforeTopN);
+  });
+});
+
 describe('MemoryIndexService incremental ops (#802, foundation for #803)', () => {
   it('upsertNote inserts then updates in place (no dupe)', async () => {
     await index.upsertNote({ sourceId: 'x.md', parsed: { kind: 'fact', tags: ['t'], content: 'v1' } });
