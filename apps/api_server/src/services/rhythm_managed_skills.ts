@@ -18,7 +18,7 @@
  * dir under the opencode config root.
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync, rmSync, statSync } from 'fs';
 import { dirname, join, resolve, sep } from 'path';
 import { homedir } from 'os';
 import { logger } from '../utils/logger';
@@ -209,4 +209,33 @@ export function deleteManagedSkill(name: string): boolean {
   if (!existsSync(dir)) return false;
   rmSync(dir, { recursive: true, force: true });
   return true;
+}
+
+/**
+ * Read the full SKILL.md body at a fork-reported skill `location`.
+ *
+ * The fork's live skill list reports a `location` per skill that may be either
+ * the SKILL.md file itself or the directory containing it; this resolves both
+ * (file → read directly; dir → read `<dir>/SKILL.md`). Works for BOTH managed
+ * and external skills — viewing content is read-only and unrestricted, while
+ * WRITES remain confined to the managed dir via {@link writeManagedSkill}.
+ *
+ * Returns the file contents, or null when the location is empty/missing or the
+ * file does not exist.
+ */
+export function readSkillContentAtLocation(
+  location: string | undefined | null,
+): string | null {
+  if (!location || location.trim() === '') return null;
+  try {
+    let filePath = location;
+    if (existsSync(location) && statSync(location).isDirectory()) {
+      filePath = join(location, 'SKILL.md');
+    }
+    if (!existsSync(filePath)) return null;
+    return readFileSync(filePath, 'utf8');
+  } catch (err) {
+    logger.warn('[managed-skills] could not read skill content at %s:', location, err);
+    return null;
+  }
 }

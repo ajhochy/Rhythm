@@ -7,7 +7,7 @@
  * skills, and a write/delete triggers a fork reload.
  */
 import { describe, it, expect, beforeEach, afterEach, afterAll, vi } from 'vitest';
-import { mkdtempSync, rmSync, existsSync, readFileSync } from 'fs';
+import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 import Database from 'better-sqlite3';
@@ -131,6 +131,61 @@ describe('/opencode/skills', () => {
     expect(res.status).toBe(204);
     expect(existsSync(join(MANAGED_DIR, 'to-delete'))).toBe(false);
     expect(reloadSkills).toHaveBeenCalledTimes(1);
+  });
+
+  // ── GET /:name/content — full SKILL.md body for one skill ───────────────────
+
+  describe('GET /:name/content', () => {
+    it('returns the SKILL.md body for a managed skill (create → reopen round-trip)', async () => {
+      // Create a managed skill — this writes a real SKILL.md into MANAGED_DIR.
+      const createRes = await fetch(`${baseUrl}/opencode/skills`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: 'with-body',
+          description: 'Has a body',
+          content: '# With Body\n\nThis is the editable body.',
+        }),
+      });
+      const created = (await createRes.json()) as { location: string };
+
+      // The fork now "discovers" it at its written location.
+      listSkills.mockResolvedValue([
+        { name: 'with-body', description: 'Has a body', location: created.location },
+      ]);
+
+      const res = await fetch(`${baseUrl}/opencode/skills/with-body/content`);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { name: string; content: string };
+      expect(body.name).toBe('with-body');
+      // The body the user typed must round-trip back (not an empty box).
+      expect(body.content).toContain('This is the editable body.');
+      expect(body.content).toContain('name: with-body');
+    });
+
+    it('returns content for an external skill too (viewable, read-only)', async () => {
+      // Write an external SKILL.md outside the managed dir.
+      const externalDir = mkdtempSync(join(tmpdir(), 'external-skill-'));
+      const externalLoc = join(externalDir, 'SKILL.md');
+      writeFileSync(externalLoc, '---\nname: ext\n---\n\nExternal body.\n', 'utf8');
+      listSkills.mockResolvedValue([
+        { name: 'ext', description: 'External', location: externalLoc },
+      ]);
+
+      const res = await fetch(`${baseUrl}/opencode/skills/ext/content`);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { name: string; content: string };
+      expect(body.content).toContain('External body.');
+      rmSync(externalDir, { recursive: true, force: true });
+    });
+
+    it('returns 404 for a skill name not in the live set', async () => {
+      listSkills.mockResolvedValue([
+        { name: 'present', description: 'x', location: join(MANAGED_DIR, 'present', 'SKILL.md') },
+      ]);
+      const res = await fetch(`${baseUrl}/opencode/skills/missing/content`);
+      expect(res.status).toBe(404);
+    });
   });
 
   // ── #793 — ?withMetadata=true joins the #792 sidecar metadata by name ───────

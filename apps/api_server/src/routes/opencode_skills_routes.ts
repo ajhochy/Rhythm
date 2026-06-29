@@ -9,14 +9,16 @@
  * managed dir that the fork scans (registered via config.skills.paths).
  *
  * Routes:
- *   GET    /opencode/skills        → live fork skills (content stripped) + `managed` flag
- *   POST   /opencode/skills        → create/overwrite a Rhythm-managed skill, then reload
- *   PUT    /opencode/skills/:name  → overwrite a Rhythm-managed skill, then reload
- *   DELETE /opencode/skills/:name  → delete a Rhythm-managed skill, then reload
+ *   GET    /opencode/skills              → live fork skills (content stripped) + `managed` flag
+ *   GET    /opencode/skills/:name/content → full SKILL.md body for one skill (managed OR external)
+ *   POST   /opencode/skills              → create/overwrite a Rhythm-managed skill, then reload
+ *   PUT    /opencode/skills/:name        → overwrite a Rhythm-managed skill, then reload
+ *   DELETE /opencode/skills/:name        → delete a Rhythm-managed skill, then reload
  *
  * Write/delete are confined to the Rhythm-managed dir. External skills (plugins,
  * ~/.claude/skills, superpowers, anthropic-skills) are read-only here — they are
- * shown and can be scoped, but never written or deleted.
+ * shown (and VIEWABLE via the content route) and can be scoped, but never
+ * written or deleted.
  */
 
 import { Router, Request, Response, NextFunction } from 'express';
@@ -27,6 +29,7 @@ import {
   writeManagedSkill,
   deleteManagedSkill,
   isManagedLocation,
+  readSkillContentAtLocation,
   InvalidSkillNameError,
 } from '../services/rhythm_managed_skills';
 
@@ -130,6 +133,46 @@ opencodeSkillsRouter.get(
         };
       });
       res.json(withMetadata);
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// ── GET /:name/content — full SKILL.md body for one skill (view/edit) ────────
+//
+// Resolves the skill's `location` from the live fork list (the single source of
+// truth for which skill names exist) and reads the SKILL.md off disk. Works for
+// BOTH managed and external skills so the editor can populate its content box on
+// edit and external skills are viewable for reference. Viewing is read-only and
+// does NOT change the write-boundary: POST/PUT/DELETE remain confined to the
+// managed dir. 404 when the name is not in the live set or the file is missing.
+
+opencodeSkillsRouter.get(
+  '/:name/content',
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const { name } = req.params;
+      const directory =
+        typeof req.query.directory === 'string' ? req.query.directory : undefined;
+      const skills = await opencodeClient.listSkills(directory);
+      const match = skills.find((s) => s.name === name);
+      if (!match) {
+        return next(
+          new AppError(404, 'NOT_FOUND', `No skill named '${name}' is currently discovered`),
+        );
+      }
+      const content = readSkillContentAtLocation(match.location);
+      if (content === null) {
+        return next(
+          new AppError(
+            404,
+            'NOT_FOUND',
+            `Skill '${name}' has no readable SKILL.md at its location`,
+          ),
+        );
+      }
+      res.json({ name: match.name, content });
     } catch (err) {
       next(err);
     }

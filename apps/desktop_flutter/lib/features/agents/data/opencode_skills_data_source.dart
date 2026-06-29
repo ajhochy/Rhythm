@@ -180,6 +180,28 @@ class OpencodeSkillsDataSource {
     }
   }
 
+  /// Fetches the full SKILL.md body for a single skill via
+  /// `GET /opencode/skills/:name/content`.
+  ///
+  /// Works for managed AND external skills (external content is viewable for
+  /// reference; only managed skills are writable). Used by the editor sheet to
+  /// populate the content box when reopening a skill to edit.
+  ///
+  /// Throws [Exception] with the server's error message on a non-200 response
+  /// (e.g. 404 when the skill name is not in the live set).
+  Future<String> getContent(String name) async {
+    final response = await _client.get(
+      Uri.parse(
+        '$_baseUrl/opencode/skills/${Uri.encodeComponent(name)}/content',
+      ),
+    );
+    if (response.statusCode != 200) {
+      throw Exception(_errorMessage(response));
+    }
+    final body = jsonDecode(response.body) as Map<String, dynamic>;
+    return body['content'] as String? ?? '';
+  }
+
   /// Creates (or overwrites) a Rhythm-managed skill via `POST /opencode/skills`.
   ///
   /// Throws [Exception] with the server's error message on a non-2xx response

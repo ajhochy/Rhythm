@@ -39,10 +39,16 @@ class _FakeSkillsDataSource extends OpencodeSkillsDataSource {
   List<OpencodeSkillEntry> _entries;
 
   Map<String, dynamic>? lastCreate;
+  Map<String, dynamic>? lastUpdate;
   String? lastDeleted;
+  String? lastGetContentName;
 
   bool throwOnList = false;
   bool hangOnList = false;
+
+  /// Body returned by [getContent] keyed by skill name. Edit mode fetches this
+  /// to populate the content box.
+  final Map<String, String> contentByName = {};
 
   @override
   Future<List<OpencodeSkillEntry>> listWithMetadata() async {
@@ -70,6 +76,30 @@ class _FakeSkillsDataSource extends OpencodeSkillsDataSource {
       metadata: const OpencodeSkillMetadata(),
     );
     _entries = [..._entries, entry];
+    return entry;
+  }
+
+  @override
+  Future<String> getContent(String name) async {
+    lastGetContentName = name;
+    return contentByName[name] ?? '';
+  }
+
+  @override
+  Future<OpencodeSkillEntry> update(
+    String name, {
+    String? description,
+    required String content,
+  }) async {
+    lastUpdate = {'name': name, 'description': description, 'content': content};
+    final entry = OpencodeSkillEntry(
+      name: name,
+      description: description,
+      location: '/managed/$name/SKILL.md',
+      managed: true,
+      metadata: const OpencodeSkillMetadata(),
+    );
+    _entries = _entries.map((s) => s.name == name ? entry : s).toList();
     return entry;
   }
 
@@ -255,6 +285,44 @@ void main() {
         expect(ds.lastCreate?['content'], equals('the body'));
         // The newly created skill appears after the round-trip reload.
         expect(find.text('my-new-skill'), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'editing a managed skill loads its body and round-trips an update (#812)',
+      (tester) async {
+        final ds = _FakeSkillsDataSource([
+          _skill('release-notes', managed: true),
+        ])
+          ..contentByName['release-notes'] =
+              '---\nname: release-notes\n---\n\nThe saved body.';
+        final controller = AgentSkillsController(ds);
+        addTearDown(controller.dispose);
+
+        await tester.pumpWidget(_buildApp(controller));
+        await tester.pumpAndSettle();
+
+        await tester.tap(
+          find.byKey(const ValueKey('edit-skill-release-notes')),
+        );
+        await tester.pumpAndSettle();
+
+        // Edit mode fetched the body via getContent and populated the box —
+        // it is NOT empty (the #812 bug).
+        expect(ds.lastGetContentName, equals('release-notes'));
+        expect(find.text('Edit skill'), findsWidgets);
+        expect(find.textContaining('The saved body.'), findsOneWidget);
+
+        // Edit the body and save → update round-trips with the new content.
+        await tester.enterText(
+          find.byType(TextField).last,
+          'The edited body.',
+        );
+        await tester.tap(find.widgetWithText(FilledButton, 'Save skill'));
+        await tester.pumpAndSettle();
+
+        expect(ds.lastUpdate?['name'], equals('release-notes'));
+        expect(ds.lastUpdate?['content'], equals('The edited body.'));
       },
     );
 

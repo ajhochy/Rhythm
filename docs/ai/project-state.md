@@ -48,3 +48,39 @@ Nine open pull requests are consolidated on
 
 Complete the manual smoke checklist on the running app, then review and
 manually merge PR #812.
+
+## Recent coding-agent runs
+
+### 2026-06-28 — skills: load managed SKILL.md body on edit (#812 smoke FAIL)
+- Files modified:
+  - `apps/api_server/src/services/rhythm_managed_skills.ts` — added
+    `readSkillContentAtLocation(location)` helper (reads SKILL.md at a
+    fork-reported location; handles file-or-dir; null on missing).
+  - `apps/api_server/src/routes/opencode_skills_routes.ts` — added
+    `GET /opencode/skills/:name/content` returning `{ name, content }`; resolves
+    location from the live fork list, 404 when the name is not discovered.
+    Viewable for managed AND external skills; write boundary unchanged.
+  - `apps/desktop_flutter/lib/features/agents/data/opencode_skills_data_source.dart`
+    — added `Future<String> getContent(String name)` (local :4001 base).
+  - `apps/desktop_flutter/lib/features/agents/views/_managed_skill_editor_sheet.dart`
+    — edit mode now fetches the body on init, populates `_contentController`,
+    shows a "Loading skill content…" disabled state while fetching, fails soft
+    (name/description still editable). Create mode unchanged; `content.trim()`
+    save guard preserved.
+  - Tests: `opencode_skills_routes.test.ts` (+3: managed round-trip, external
+    viewable, 404 unknown); `agent_skills_view_test.dart` (+1 edit round-trip;
+    fake gained `getContent`/`update` overrides).
+- Checks run:
+  - `npx vitest run opencode_skills` → 12 passed.
+  - api_server `npm run build` → exit 0.
+  - full `npx vitest run` → 176 files / 1498 tests passed.
+  - `flutter analyze --no-fatal-infos lib/features/agents/ test/features/agent_skills/`
+    → 0 errors/0 warnings (39 pre-existing infos in unrelated files; none in
+    changed files).
+  - `flutter test test/features/agents/ test/features/agent_skills/` → all passed.
+- Decisions made: read content off the fork-reported `location` rather than
+  re-deriving the managed path, so the same endpoint serves external skills too;
+  location may be a file or a dir so the helper resolves both.
+- Deviations from spec: none.
+- Concerns: none. Worktree-only node_modules were symlinked from the main
+  checkout / `flutter pub get`; not committed.
