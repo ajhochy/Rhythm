@@ -17,6 +17,7 @@ import { registerPcoTools } from './tools/pco.js';
 import { registerAgentScheduleTools } from './tools/agentSchedule.js';
 import { registerAgentDelegationTools } from './tools/agentDelegation.js';
 import { registerAgentMemoryTools } from './tools/agentMemory.js';
+import { registerAgentSessionTools } from './tools/agentSessions.js';
 import { registerAgentResearchTools } from './tools/agentResearch.js';
 
 const RHYTHM_API_URL = process.env.RHYTHM_API_URL ?? 'https://api.vcrcapps.com';
@@ -56,6 +57,12 @@ registerAgentDelegationTools(server, RHYTHM_AGENT_URL, RHYTHM_API_TOKEN);
 // agent and the Flutter memory UI read/write the same local store. Decoupled
 // from serverConfig.url per the dual-endpoint rule.
 registerAgentMemoryTools(server, RHYTHM_AGENT_URL, RHYTHM_API_TOKEN);
+// #806 — rhythm_list_sessions reads agent sessions/messages from the LOCAL
+// agent server (:4001), the store that owns sessions. The seeded Memory
+// Consolidation task calls it to review the past day's sessions before
+// distilling facts via rhythm_remember_memory. Routed at RHYTHM_AGENT_URL —
+// never serverConfig.url (dual-endpoint rule).
+registerAgentSessionTools(server, RHYTHM_AGENT_URL, RHYTHM_API_TOKEN);
 registerAgentResearchTools(server, RHYTHM_API_URL, RHYTHM_API_TOKEN);
 
 // Connect over stdio (Claude Desktop / Claude Code MCP transport)

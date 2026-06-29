@@ -79,6 +79,48 @@ the post-merge manual-smoke list against that build.
 
 ## Recent coding-agent runs
 
+### 2026-06-28 — #806 rhythm_list_sessions MCP tool + consolidation→vault (memory epic #801, 5/7)
+- Files modified:
+  - `apps/mcp_server/src/tools/agentSessions.ts` (new) — `registerAgentSessionTools`
+    adds `rhythm_list_sessions`. No args → projects the local agent server's
+    `GET /agent-sessions` `{sessions}` to `{id,name,agentKind,lastActivityAt}`;
+    with `sessionId` → projects `GET /agent-sessions/:id/messages` `{messages}` to
+    `{id,role,body,createdAt}` (body = strippedText, falls back to rawText).
+    Targets `RHYTHM_AGENT_URL` (:4001), never prod. Never logs message bodies.
+  - `apps/mcp_server/src/index.ts` — import + register the new tool with
+    `RHYTHM_AGENT_URL` (local base), alongside the #804 memory tools.
+  - `apps/mcp_server/src/__tests__/agentSessions_tool.test.ts` (new) — lists
+    sessions + messages from the local base; asserts call target is :4001 (not
+    prod) with a control proving the base tracks the injected arg.
+  - `apps/api_server/src/__tests__/memory_consolidation_seed.test.ts` (new) —
+    `seedConsolidationTask` is idempotent + its prompt names ONLY existing
+    `rhythm_*` tools; a simulated consolidation run via `rememberToVault`
+    produces vault `.md` notes + derived index rows (source='obsidian-memory').
+  - `apps/api_server/src/services/agentMemoryService.ts` — UNCHANGED. The seed
+    prompt already referenced only existing tools (`rhythm_list_sessions`,
+    `rhythm_remember_memory`, `rhythm_search_memory`); the new tool makes that
+    reference valid. The new test now guards against re-introducing a dangling tool.
+- Checks run:
+  - `cd apps/mcp_server && npx vitest run` → 55/55 PASS (incl. 3 new).
+    Falsification: rerouting the messages call to the list route → the
+    messages-route assertion FAILS; restored → green.
+  - `cd apps/mcp_server && npx tsc --noEmit` → exit 0; `npm run build` → exit 0.
+  - `cd apps/api_server && npx vitest run memory` → 54/54 PASS (7 files, incl. new
+    seed test). Falsification: injecting `rhythm_nonexistent_tool` into the seed
+    prompt → the "names only existing tools" guard FAILS; restored → green.
+  - `cd apps/api_server && npm run build` (tsc) → exit 0.
+- Decisions made: backed `rhythm_list_sessions` by the local agent server
+  (`RHYTHM_AGENT_URL`/:4001) following the `notifications`/`agentDelegation`/#804-memory
+  convention — sessions live on :4001, and coupling to `serverConfig.url` would
+  reintroduce the dual-endpoint bug. Single tool with an optional `sessionId` arg
+  (list vs. read-messages) rather than two tools, matching the seed prompt's
+  "Use rhythm_list_sessions … to read recent session messages".
+- Deviations from spec: none. (No edit to agentMemoryService was needed — the
+  prompt was already correct once the tool exists.)
+- Concerns: tool relies on global `fetch` (no injected fetch param), so tests stub
+  `globalThis.fetch` — consistent with `api_client.ts`. Stayed out of #805's lane
+  (memory_retrieval/server.ts untouched).
+
 ### 2026-06-28 — #802 MemoryIndexService (memory epic #801, issue 1/7)
 - Files modified:
   - `apps/api_server/src/services/memory_index_service.ts` (new) — `MemoryIndexService`
