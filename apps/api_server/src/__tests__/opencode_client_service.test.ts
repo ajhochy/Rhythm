@@ -277,4 +277,36 @@ describe('OpencodeClientService.listAuthedProviders', () => {
     (svc as unknown as { authStore: typeof fakeStore }).authStore = fakeStore;
     expect(await svc.listAuthedProviders()).toEqual(['openrouter', 'anthropic']);
   });
+
+  it('includes configured ollama without an auth-store entry', async () => {
+    const fakeStore: Pick<OpencodeAuthStore, 'listAuthedProviders'> = {
+      listAuthedProviders: vi.fn().mockReturnValue(['anthropic']),
+    };
+    const svc = makeService({
+      config: {
+        providers: vi.fn().mockResolvedValue({
+          data: { providers: [{ id: 'anthropic' }, { id: 'ollama' }] },
+        }),
+      },
+    });
+    (svc as unknown as { authStore: typeof fakeStore }).authStore = fakeStore;
+
+    expect(await svc.listAuthedProviders()).toEqual(['anthropic', 'ollama']);
+  });
+
+  it('does not include ollama when it is absent from the live provider catalog', async () => {
+    const fakeStore: Pick<OpencodeAuthStore, 'listAuthedProviders'> = {
+      listAuthedProviders: vi.fn().mockReturnValue(['anthropic']),
+    };
+    const svc = makeService({
+      config: {
+        providers: vi.fn().mockResolvedValue({
+          data: { providers: [{ id: 'anthropic' }] },
+        }),
+      },
+    });
+    (svc as unknown as { authStore: typeof fakeStore }).authStore = fakeStore;
+
+    expect(await svc.listAuthedProviders()).toEqual(['anthropic']);
+  });
 });

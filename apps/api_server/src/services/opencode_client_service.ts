@@ -40,6 +40,9 @@ async function runCommand(file: string, args: string[]): Promise<string> {
 
 type EngineStatus = 'uninitialized' | 'ready' | 'error';
 
+/** Providers that are usable over loopback without an auth-store credential. */
+const KEYLESS_LOCAL_PROVIDER_IDS = new Set(['ollama']);
+
 /**
  * The fixed TCP port the bundled opencode engine listens on. The SDK's
  * `createOpencode()` spawns `opencode serve` on this port by default, and the
@@ -525,7 +528,23 @@ export class OpencodeClientService {
 
   /** Returns provider IDs that are actually authed (per auth.json). */
   async listAuthedProviders(): Promise<string[]> {
-    return this.authStore.listAuthedProviders();
+    const connected = new Set(this.authStore.listAuthedProviders());
+    if (!this.client) return [...connected];
+
+    try {
+      const raw = await this.client.config.providers();
+      for (const provider of raw.data?.providers ?? []) {
+        if (KEYLESS_LOCAL_PROVIDER_IDS.has(provider.id)) {
+          connected.add(provider.id);
+        }
+      }
+    } catch (err) {
+      logger.warn(
+        '[OpencodeClientService] keyless local provider discovery failed:',
+        err,
+      );
+    }
+    return [...connected];
   }
 
   /** Get available models for a provider */
