@@ -48,3 +48,33 @@ Nine open pull requests are consolidated on
 
 Complete the manual smoke checklist on the running app, then review and
 manually merge PR #812.
+
+## Recent coding-agent runs
+
+### 2026-06-28 — fix/#781 flag stale (persisted-not-live) MCP picker chips
+- Files modified:
+  - `apps/desktop_flutter/lib/features/agents/views/_agent_profile_sheet.dart`
+    — `_buildMcpsSection` now passes `liveItems: _availableMcps.toSet()` +
+    `flagStale: _mcpsLoaded` into `_filterChipWrap`; `_filterChipWrap` gained
+    optional `liveItems`/`flagStale` params and renders a stale chip
+    (`isStale = flagStale && selected && !liveItems.contains(item)`) with a
+    muted/greyed fill, `Icons.warning_amber_rounded` avatar, italic muted
+    label, warning-coloured border, `ValueKey('stale-chip-$item')`, and an
+    unenforceable-selection tooltip. Chip stays toggleable.
+  - `apps/desktop_flutter/test/features/agents/agent_profile_skills_mcp_picker_test.dart`
+    — added 2 tests: stale persisted MCP shows warning/stale affordance while a
+    live one does not; stale chip is still toggleable and unselect persists the
+    pruned `allowedMcpsJson`.
+- Checks run:
+  - `dart format` (2 files): pass.
+  - `flutter analyze --no-fatal-infos lib/features/agents/`: no
+    errors/warnings on changed files (only pre-existing `info` lints elsewhere).
+  - `flutter test test/features/agents/`: 461 pass, no F2 failures present.
+- Decisions made: surface staleness only; never rewrite the persisted name
+  (#789). Stale gating tied to `_mcpsLoaded` so nothing is flagged mid-load.
+- Deviations from spec: skills picker NOT mirrored — it uses a separate
+  `_buildSkillChipWrap` with managed/external edit-delete rows, so adding a
+  third visual branch was not trivially clean; left out per the optional clause.
+  The leftover `foo` test MCP server is separate live-data cleanup, out of scope.
+- Concerns: none; visual treatment is theme-token based and toggle path
+  exercised by tests.
