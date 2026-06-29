@@ -22,8 +22,11 @@ describe('local Ollama provider contract', () => {
     expect(PROVIDER_TO_AGENT_KIND.ollama).toBe('opencode');
   });
 
-  it('puts qwen3.6-work before the cloud fallback', () => {
-    expect(ROUTE_FALLBACKS_BY_AGENT.opencode[0]).toEqual({
+  it('keeps the cloud fallback first and still exposes qwen3.6-work', () => {
+    expect(ROUTE_FALLBACKS_BY_AGENT.opencode[0]).toMatchObject({
+      providerID: 'openrouter',
+    });
+    expect(ROUTE_FALLBACKS_BY_AGENT.opencode).toContainEqual({
       providerID: 'ollama',
       modelID: 'qwen3.6-work',
       variantLabel: 'Local',
@@ -35,8 +38,15 @@ describe('local Ollama provider contract', () => {
     ).toBe(true);
   });
 
-  it('selects local Qwen when ollama is connected', async () => {
+  it('keeps the cloud fallback when both providers are connected', async () => {
     listAuthedProviders.mockResolvedValue(['ollama', 'openrouter']);
+    await expect(resolveModelForAgent('opencode')).resolves.toMatchObject({
+      providerID: 'openrouter',
+    });
+  });
+
+  it('selects local Qwen when it is the only connected route', async () => {
+    listAuthedProviders.mockResolvedValue(['ollama']);
     await expect(resolveModelForAgent('opencode')).resolves.toMatchObject({
       providerID: 'ollama',
       modelID: 'qwen3.6-work',

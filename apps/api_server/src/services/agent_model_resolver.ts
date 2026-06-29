@@ -89,15 +89,16 @@ export const ROUTE_FALLBACKS_BY_AGENT: Record<string, ModelRoute[]> = {
     },
     { providerID: 'openrouter', modelID: 'google/gemini-3-flash-preview' },
   ],
-  // The bare "opencode" agent kind prefers the configured local Ollama model,
-  // then falls back to OpenRouter when Ollama is absent.
+  // Keep the cloud route first for unscoped generic sessions: the complete
+  // Rhythm tool surface is too large for practical local-model prefill. Ollama
+  // remains directly selectable and is the fallback when no cloud route exists.
   opencode: [
+    { providerID: 'openrouter', modelID: 'anthropic/claude-sonnet-4.6' },
     {
       providerID: 'ollama',
       modelID: 'qwen3.6-work',
       variantLabel: 'Local',
     },
-    { providerID: 'openrouter', modelID: 'anthropic/claude-sonnet-4.6' },
   ],
 };
 

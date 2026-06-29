@@ -28,7 +28,8 @@ because it is present in OpenCode configuration.
 Create an Ollama model alias named `qwen3.6-work` derived from
 `qwen3.6:latest`, with:
 
-- 65,536-token context
+- 196,608-token context, leaving room for Rhythm's roughly 150K-token
+  unscoped tool surface plus working conversation history
 - temperature `0.2`
 - top-p `0.9`
 - presence penalty `0`
@@ -36,7 +37,7 @@ Create an Ollama model alias named `qwen3.6-work` derived from
 
 Register an `ollama` OpenCode provider using the OpenAI-compatible endpoint at
 `http://127.0.0.1:11434/v1`. Declare only `qwen3.6-work` in this provider's
-model catalog, with a 65,536-token context limit. Do not add credentials or
+model catalog, with a 196,608-token context limit. Do not add credentials or
 expose Ollama beyond loopback.
 
 ### Keyless local-provider discovery
@@ -52,13 +53,17 @@ providers as trusted or connected.
 ### Rhythm model routing
 
 Add `ollama` to Rhythm's provider-to-agent mapping as an `opencode` provider.
-Add `ollama/qwen3.6-work` as the first route for the generic `opencode` agent,
-ahead of the existing OpenRouter fallback.
+Add `ollama/qwen3.6-work` as a direct route for the generic `opencode` agent,
+after the existing OpenRouter fallback.
 
-The existing route resolver will select Ollama only when the local provider is
-configured. Otherwise it will continue to select the first available cloud
-route. The unified model catalog will show `qwen3.6-work` as an authorized
-direct model with no connect URL.
+The existing route resolver will keep the cloud route for unscoped generic
+sessions when both providers are connected. It will select Ollama when it is the
+only connected route, and an explicit session/profile model selection bypasses
+the fallback order. This avoids automatically sending Rhythm's roughly
+150K-token full tool schema through the local model, which exceeded five
+minutes without producing a first token in live validation. The unified model
+catalog will show `qwen3.6-work` as an authorized direct model with no connect
+URL.
 
 ### Live activation
 
@@ -83,9 +88,10 @@ Add failing tests first for:
 1. `listAuthedProviders()` includes `ollama` when the live provider catalog
    contains the configured provider and no auth-store entry exists.
 2. It excludes `ollama` when the provider is absent.
-3. The resolver prefers `ollama/qwen3.6-work` for the generic `opencode` agent
-   when Ollama is connected.
-4. The catalog emits the model as authorized, direct, and context-limited.
+3. The resolver keeps the cloud fallback when both providers are connected and
+   selects `ollama/qwen3.6-work` when Ollama is the only connected route.
+4. The catalog emits the model as authorized, direct, and context-limited to
+   196,608 tokens.
 
 Then run the targeted Vitest suites, TypeScript checks, the repository issue and
 PR verification levels, and a live smoke:
