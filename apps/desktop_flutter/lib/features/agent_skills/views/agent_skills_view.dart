@@ -8,18 +8,24 @@ import '../controllers/agent_skills_controller.dart';
 
 /// Standalone Skills menu (Agents → Tools → Skills).
 ///
-/// #796 (skill-unify2, subsumes #779): one unified list of EVERY engine skill —
-/// handwritten, imported, external, and Rhythm-managed — read from the unified
-/// endpoint `GET /opencode/skills?withMetadata=true` (#793) via
-/// [AgentSkillsController]. Each row shows a managed/external badge plus the
-/// auto-apply lifecycle + score metadata when present.
+/// #813 (skills-table): redesigns the unified list from #796 into a SORTABLE,
+/// SEARCHABLE table.
+///   - Columns: Name (+ MANAGED/EXTERNAL badge, lock icon for external),
+///     Description, and a compact trailing status/metadata cell, plus per-row
+///     actions.
+///   - Sort: clicking the Name or Description header toggles asc/desc (default
+///     Name asc). A visual sort arrow marks the active column.
+///   - Search: a live filter field matches Name + Description
+///     (case-insensitive substring). Body is NOT searched — it is lazy.
+///   - Body (lazy): each row expands; on first expand it fetches the SKILL.md
+///     body via [OpencodeSkillsDataSource.getContent] and caches it per-row, so
+///     re-expanding does not refetch. A spinner shows while fetching and a soft
+///     error renders on failure.
 ///
-/// Actions are gated by provenance:
-///   - Managed skills: edit (reuse the managed-skill editor sheet) + delete,
-///     plus a top-level "New skill" create button.
-///   - External / handwritten skills: read-only — no edit/delete. The
-///     self-improvement loop improves them automatically (forking an external
-///     skill to a managed shadow); there is no manual proposal/approve action.
+/// Everything from #796 is preserved: the "New skill" create button, managed
+/// edit/delete, external read-only rows, and the lifecycle/provenance metadata.
+/// All traffic stays on the local agent server (`:4001`) via the data source —
+/// never the production Server URL.
 class AgentSkillsView extends StatefulWidget {
   const AgentSkillsView({super.key});
 
@@ -27,13 +33,77 @@ class AgentSkillsView extends StatefulWidget {
   State<AgentSkillsView> createState() => _AgentSkillsViewState();
 }
 
+/// Which column the table is sorted by.
+enum _SortColumn { name, description }
+
+/// Fixed width of the trailing status/actions cell. Sized to hold a lifecycle
+/// pill plus the edit + delete icon buttons without overflowing the row.
+const double _kTrailingCellWidth = 132;
+
 class _AgentSkillsViewState extends State<AgentSkillsView> {
+  final TextEditingController _searchController = TextEditingController();
+
+  String _query = '';
+  _SortColumn _sortColumn = _SortColumn.name;
+  bool _ascending = true;
+
+  /// Names of the rows currently expanded (showing their lazy body).
+  final Set<String> _expanded = {};
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       context.read<AgentSkillsController>().loadSkills();
     });
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  void _onSearchChanged(String value) {
+    setState(() => _query = value.trim().toLowerCase());
+  }
+
+  void _onSort(_SortColumn column) {
+    setState(() {
+      if (_sortColumn == column) {
+        _ascending = !_ascending;
+      } else {
+        _sortColumn = column;
+        _ascending = true;
+      }
+    });
+  }
+
+  /// Applies the live search filter (Name + Description) then the active sort.
+  List<OpencodeSkillEntry> _visibleSkills(List<OpencodeSkillEntry> skills) {
+    final filtered = _query.isEmpty
+        ? List<OpencodeSkillEntry>.of(skills)
+        : skills.where((s) {
+            final name = s.name.toLowerCase();
+            final desc = (s.description ?? '').toLowerCase();
+            return name.contains(_query) || desc.contains(_query);
+          }).toList();
+
+    int cmp(OpencodeSkillEntry a, OpencodeSkillEntry b) {
+      final int result;
+      switch (_sortColumn) {
+        case _SortColumn.name:
+          result = a.name.toLowerCase().compareTo(b.name.toLowerCase());
+        case _SortColumn.description:
+          result = (a.description ?? '')
+              .toLowerCase()
+              .compareTo((b.description ?? '').toLowerCase());
+      }
+      return _ascending ? result : -result;
+    }
+
+    filtered.sort(cmp);
+    return filtered;
   }
 
   Future<void> _onCreateSkill(
@@ -61,6 +131,8 @@ class _AgentSkillsViewState extends State<AgentSkillsView> {
       skill: skill,
     );
     if (updated == null || !context.mounted) return;
+    // The body may have changed — drop any cached copy so re-expanding refetches.
+    setState(() {});
     await controller.loadSkills();
   }
 
@@ -221,42 +293,325 @@ class _AgentSkillsViewState extends State<AgentSkillsView> {
       );
     }
 
-    return ListView.separated(
-      padding: const EdgeInsets.all(RhythmSpacing.md),
-      itemCount: controller.skills.length,
-      separatorBuilder: (_, __) => const SizedBox(height: RhythmSpacing.xs),
-      itemBuilder: (context, index) {
-        final skill = controller.skills[index];
-        return _SkillTile(
-          skill: skill,
-          onEdit: skill.managed
-              ? () => _onEditSkill(context, controller, skill)
-              : null,
-          onDelete: skill.managed
-              ? () => _confirmDelete(context, controller, skill)
-              : null,
-        );
-      },
+    final visible = _visibleSkills(controller.skills);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _SearchField(
+          controller: _searchController,
+          onChanged: _onSearchChanged,
+        ),
+        _TableHeader(
+          sortColumn: _sortColumn,
+          ascending: _ascending,
+          onSort: _onSort,
+        ),
+        Expanded(
+          child: visible.isEmpty
+              ? Center(
+                  key: const ValueKey('skills-no-matches'),
+                  child: Text(
+                    'No skills match "${_searchController.text.trim()}"',
+                    style: TextStyle(
+                      color: context.rhythm.textMuted,
+                      fontSize: 13,
+                    ),
+                  ),
+                )
+              : ListView.separated(
+                  padding: const EdgeInsets.fromLTRB(
+                    RhythmSpacing.md,
+                    RhythmSpacing.xs,
+                    RhythmSpacing.md,
+                    RhythmSpacing.md,
+                  ),
+                  itemCount: visible.length,
+                  separatorBuilder: (_, __) =>
+                      const SizedBox(height: RhythmSpacing.xs),
+                  itemBuilder: (context, index) {
+                    final skill = visible[index];
+                    return _SkillRow(
+                      skill: skill,
+                      dataSource: controller.dataSource,
+                      expanded: _expanded.contains(skill.name),
+                      onToggleExpanded: () {
+                        setState(() {
+                          if (!_expanded.remove(skill.name)) {
+                            _expanded.add(skill.name);
+                          }
+                        });
+                      },
+                      onEdit: skill.managed
+                          ? () => _onEditSkill(context, controller, skill)
+                          : null,
+                      onDelete: skill.managed
+                          ? () => _confirmDelete(context, controller, skill)
+                          : null,
+                    );
+                  },
+                ),
+        ),
+      ],
     );
   }
 }
 
 // ---------------------------------------------------------------------------
-// Skill tile
+// Search field
 // ---------------------------------------------------------------------------
 
-class _SkillTile extends StatelessWidget {
-  const _SkillTile({required this.skill, this.onEdit, this.onDelete});
+class _SearchField extends StatelessWidget {
+  const _SearchField({required this.controller, required this.onChanged});
+
+  final TextEditingController controller;
+  final ValueChanged<String> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final rhythm = context.rhythm;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        RhythmSpacing.md,
+        RhythmSpacing.md,
+        RhythmSpacing.md,
+        RhythmSpacing.xs,
+      ),
+      child: TextField(
+        key: const ValueKey('skills-search-field'),
+        controller: controller,
+        onChanged: onChanged,
+        style: TextStyle(color: rhythm.textPrimary, fontSize: 14),
+        decoration: InputDecoration(
+          isDense: true,
+          hintText: 'Search skills by name or description…',
+          hintStyle: TextStyle(color: rhythm.textMuted, fontSize: 13),
+          prefixIcon: Icon(
+            Icons.search_rounded,
+            color: rhythm.textMuted,
+            size: 20,
+          ),
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 12,
+            vertical: 10,
+          ),
+          enabledBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(RhythmRadius.sm),
+            borderSide: BorderSide(color: rhythm.border),
+          ),
+          focusedBorder: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(RhythmRadius.sm),
+            borderSide: BorderSide(color: rhythm.accent, width: 1.5),
+          ),
+          filled: true,
+          fillColor: rhythm.surfaceMuted,
+        ),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Sortable header row
+// ---------------------------------------------------------------------------
+
+class _TableHeader extends StatelessWidget {
+  const _TableHeader({
+    required this.sortColumn,
+    required this.ascending,
+    required this.onSort,
+  });
+
+  final _SortColumn sortColumn;
+  final bool ascending;
+  final ValueChanged<_SortColumn> onSort;
+
+  @override
+  Widget build(BuildContext context) {
+    final rhythm = context.rhythm;
+    return Container(
+      padding: const EdgeInsets.fromLTRB(
+        RhythmSpacing.md + RhythmSpacing.lg, // align past the chevron
+        RhythmSpacing.xs,
+        RhythmSpacing.md,
+        RhythmSpacing.xs,
+      ),
+      decoration: BoxDecoration(
+        border: Border(
+          bottom: BorderSide(color: rhythm.borderSubtle),
+        ),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            flex: 4,
+            child: _HeaderCell(
+              keyValue: 'skills-sort-name',
+              label: 'Name',
+              active: sortColumn == _SortColumn.name,
+              ascending: ascending,
+              onTap: () => onSort(_SortColumn.name),
+            ),
+          ),
+          const SizedBox(width: RhythmSpacing.sm),
+          Expanded(
+            flex: 6,
+            child: _HeaderCell(
+              keyValue: 'skills-sort-description',
+              label: 'Description',
+              active: sortColumn == _SortColumn.description,
+              ascending: ascending,
+              onTap: () => onSort(_SortColumn.description),
+            ),
+          ),
+          const SizedBox(width: RhythmSpacing.sm),
+          // Trailing status/metadata + actions area (not sortable).
+          SizedBox(
+            width: _kTrailingCellWidth,
+            child: Text(
+              'Status',
+              style: TextStyle(
+                color: rhythm.textMuted,
+                fontSize: 11,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 0.5,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _HeaderCell extends StatelessWidget {
+  const _HeaderCell({
+    required this.keyValue,
+    required this.label,
+    required this.active,
+    required this.ascending,
+    required this.onTap,
+  });
+
+  final String keyValue;
+  final String label;
+  final bool active;
+  final bool ascending;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final rhythm = context.rhythm;
+    return InkWell(
+      key: ValueKey(keyValue),
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(RhythmRadius.xs),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 2),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Flexible(
+              child: Text(
+                label,
+                style: TextStyle(
+                  color: active ? rhythm.textPrimary : rhythm.textMuted,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 0.5,
+                ),
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+            const SizedBox(width: 4),
+            Icon(
+              active
+                  ? (ascending
+                      ? Icons.arrow_upward_rounded
+                      : Icons.arrow_downward_rounded)
+                  : Icons.unfold_more_rounded,
+              key: active
+                  ? ValueKey('$keyValue-${ascending ? 'asc' : 'desc'}')
+                  : null,
+              size: 14,
+              color: active ? rhythm.accent : rhythm.textMuted,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Skill row (expandable, lazy body)
+// ---------------------------------------------------------------------------
+
+class _SkillRow extends StatefulWidget {
+  const _SkillRow({
+    required this.skill,
+    required this.dataSource,
+    required this.expanded,
+    required this.onToggleExpanded,
+    this.onEdit,
+    this.onDelete,
+  });
 
   final OpencodeSkillEntry skill;
+  final OpencodeSkillsDataSource dataSource;
+  final bool expanded;
+  final VoidCallback onToggleExpanded;
 
   /// Non-null only for managed skills (external/handwritten are read-only).
   final VoidCallback? onEdit;
   final VoidCallback? onDelete;
 
   @override
+  State<_SkillRow> createState() => _SkillRowState();
+}
+
+class _SkillRowState extends State<_SkillRow> {
+  /// Cached SKILL.md body, set on the first successful expand so re-expanding
+  /// the row does not refetch.
+  String? _body;
+  bool _loadingBody = false;
+  String? _bodyError;
+
+  @override
+  void didUpdateWidget(covariant _SkillRow oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Fetch lazily the first time the row is expanded and not yet cached.
+    if (widget.expanded && !oldWidget.expanded) {
+      _maybeFetchBody();
+    }
+  }
+
+  Future<void> _maybeFetchBody() async {
+    if (_body != null || _loadingBody) return;
+    setState(() {
+      _loadingBody = true;
+      _bodyError = null;
+    });
+    try {
+      final content = await widget.dataSource.getContent(widget.skill.name);
+      if (!mounted) return;
+      setState(() {
+        _body = content;
+        _loadingBody = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _loadingBody = false;
+        _bodyError = e.toString().replaceFirst('Exception: ', '');
+      });
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     final rhythm = context.rhythm;
+    final skill = widget.skill;
     final meta = skill.metadata;
     final snippet = skill.description;
 
@@ -268,108 +623,263 @@ class _SkillTile extends StatelessWidget {
         border: Border.all(color: rhythm.borderSubtle),
         boxShadow: RhythmElevation.panel,
       ),
-      padding: const EdgeInsets.all(RhythmSpacing.md),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Icon(Icons.auto_awesome_outlined, color: rhythm.accent, size: 20),
-          const SizedBox(width: RhythmSpacing.sm),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Name + managed/external badge + status badge.
-                Row(
-                  children: [
-                    Flexible(
-                      child: Text(
-                        skill.name,
-                        style: TextStyle(
-                          color: rhythm.textPrimary,
-                          fontWeight: FontWeight.w600,
-                          fontSize: 14,
+          // ---- Row body (tap to expand) ----
+          InkWell(
+            key: ValueKey('skill-row-${skill.name}'),
+            onTap: widget.onToggleExpanded,
+            borderRadius: BorderRadius.circular(RhythmRadius.md),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(
+                horizontal: RhythmSpacing.sm,
+                vertical: RhythmSpacing.sm,
+              ),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  // Chevron.
+                  Icon(
+                    widget.expanded
+                        ? Icons.keyboard_arrow_down_rounded
+                        : Icons.keyboard_arrow_right_rounded,
+                    color: rhythm.textMuted,
+                    size: 22,
+                  ),
+                  const SizedBox(width: RhythmSpacing.xs),
+                  // Name column (+ badges).
+                  Expanded(
+                    flex: 4,
+                    child: Row(
+                      children: [
+                        Flexible(
+                          child: Text(
+                            skill.name,
+                            style: TextStyle(
+                              color: rhythm.textPrimary,
+                              fontWeight: FontWeight.w600,
+                              fontSize: 14,
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                          ),
                         ),
-                        overflow: TextOverflow.ellipsis,
-                      ),
+                        const SizedBox(width: 6),
+                        _ProvenanceBadge(skill: skill),
+                        if (!skill.managed) ...[
+                          const SizedBox(width: 6),
+                          Icon(
+                            Icons.lock_outline_rounded,
+                            key: ValueKey('readonly-skill-${skill.name}'),
+                            color: rhythm.textMuted,
+                            size: 14,
+                          ),
+                        ],
+                      ],
                     ),
-                    const SizedBox(width: 6),
-                    _ProvenanceBadge(skill: skill),
-                    if (meta?.status != null && meta!.status != 'active') ...[
-                      const SizedBox(width: 6),
-                      _StatusBadge(status: meta.status!),
-                    ],
-                  ],
-                ),
-                if (snippet != null && snippet.isNotEmpty) ...[
-                  const SizedBox(height: RhythmSpacing.xxs),
-                  Text(
-                    snippet,
-                    style: TextStyle(color: rhythm.textSecondary, fontSize: 12),
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
+                  ),
+                  const SizedBox(width: RhythmSpacing.sm),
+                  // Description column.
+                  Expanded(
+                    flex: 6,
+                    child: Text(
+                      (snippet != null && snippet.isNotEmpty) ? snippet : '—',
+                      style: TextStyle(
+                        color: (snippet != null && snippet.isNotEmpty)
+                            ? rhythm.textSecondary
+                            : rhythm.textMuted,
+                        fontSize: 12,
+                      ),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  const SizedBox(width: RhythmSpacing.sm),
+                  // Trailing status/metadata cell + actions.
+                  SizedBox(
+                    width: _kTrailingCellWidth,
+                    child: _TrailingCell(
+                      skill: skill,
+                      onEdit: widget.onEdit,
+                      onDelete: widget.onDelete,
+                    ),
                   ),
                 ],
-                if (meta != null) ...[
-                  const SizedBox(height: RhythmSpacing.xxs),
-                  _MetaLine(meta: meta),
-                  if (meta.hasScores) ...[
-                    const SizedBox(height: RhythmSpacing.xxs),
-                    _ScoreLine(meta: meta),
-                  ],
-                  if (meta.isExternalFork) ...[
-                    const SizedBox(height: RhythmSpacing.xxs),
-                    Text(
-                      '⭐ auto-improved (forked from an external skill)',
-                      style: TextStyle(
-                        color: rhythm.warning,
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ],
-                ],
-              ],
+              ),
             ),
           ),
-          // Managed skills: edit + delete. External/handwritten: read-only.
-          if (onEdit != null)
-            IconButton(
-              key: ValueKey('edit-skill-${skill.name}'),
-              icon: Icon(
-                Icons.edit_outlined,
-                color: rhythm.textSecondary,
-                size: 19,
-              ),
-              tooltip: 'Edit',
-              onPressed: onEdit,
-              padding: EdgeInsets.zero,
-              constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-            ),
-          if (onDelete != null)
-            IconButton(
-              key: ValueKey('delete-skill-${skill.name}'),
-              icon: Icon(
-                Icons.delete_outline_rounded,
-                color: rhythm.textMuted,
-                size: 18,
-              ),
-              tooltip: 'Delete',
-              onPressed: onDelete,
-              padding: EdgeInsets.zero,
-              constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-            ),
-          if (onEdit == null && onDelete == null)
+          // ---- Expanded metadata + lazy body ----
+          if (widget.expanded) ...[
+            Divider(height: 1, color: rhythm.borderSubtle),
             Padding(
-              key: ValueKey('readonly-skill-${skill.name}'),
-              padding: const EdgeInsets.only(left: RhythmSpacing.xs),
-              child: Icon(
-                Icons.lock_outline_rounded,
-                color: rhythm.textMuted,
-                size: 16,
+              padding: const EdgeInsets.fromLTRB(
+                RhythmSpacing.md,
+                RhythmSpacing.sm,
+                RhythmSpacing.md,
+                RhythmSpacing.md,
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (meta != null) ...[
+                    _MetaLine(meta: meta),
+                    if (meta.hasScores) ...[
+                      const SizedBox(height: RhythmSpacing.xxs),
+                      _ScoreLine(meta: meta),
+                    ],
+                    if (meta.isExternalFork) ...[
+                      const SizedBox(height: RhythmSpacing.xxs),
+                      Text(
+                        '⭐ auto-improved (forked from an external skill)',
+                        style: TextStyle(
+                          color: rhythm.warning,
+                          fontSize: 11,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: RhythmSpacing.sm),
+                  ],
+                  _BodyView(
+                    skillName: skill.name,
+                    loading: _loadingBody,
+                    body: _body,
+                    error: _bodyError,
+                  ),
+                ],
               ),
             ),
+          ],
         ],
       ),
+    );
+  }
+}
+
+/// Lazy SKILL.md body area: spinner while fetching, soft error on failure,
+/// scrollable monospace text once loaded.
+class _BodyView extends StatelessWidget {
+  const _BodyView({
+    required this.skillName,
+    required this.loading,
+    required this.body,
+    required this.error,
+  });
+
+  final String skillName;
+  final bool loading;
+  final String? body;
+  final String? error;
+
+  @override
+  Widget build(BuildContext context) {
+    final rhythm = context.rhythm;
+
+    if (loading) {
+      return Padding(
+        key: ValueKey('skill-body-loading-$skillName'),
+        padding: const EdgeInsets.symmetric(vertical: RhythmSpacing.sm),
+        child: Row(
+          children: [
+            SizedBox(
+              height: 16,
+              width: 16,
+              child: CircularProgressIndicator(
+                strokeWidth: 2,
+                color: rhythm.accent,
+              ),
+            ),
+            const SizedBox(width: RhythmSpacing.sm),
+            Text(
+              'Loading skill content…',
+              style: TextStyle(color: rhythm.textMuted, fontSize: 12),
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (error != null) {
+      return Text(
+        'Could not load skill content: $error',
+        key: ValueKey('skill-body-error-$skillName'),
+        style: TextStyle(color: rhythm.danger, fontSize: 12),
+      );
+    }
+
+    final content = body ?? '';
+    return Container(
+      key: ValueKey('skill-body-$skillName'),
+      constraints: const BoxConstraints(maxHeight: 280),
+      width: double.infinity,
+      padding: const EdgeInsets.all(RhythmSpacing.sm),
+      decoration: BoxDecoration(
+        color: rhythm.surfaceMuted,
+        borderRadius: BorderRadius.circular(RhythmRadius.sm),
+        border: Border.all(color: rhythm.borderSubtle),
+      ),
+      child: SingleChildScrollView(
+        child: SelectableText(
+          content.isEmpty ? '(empty)' : content,
+          style: TextStyle(
+            color: rhythm.textSecondary,
+            fontSize: 12,
+            height: 1.4,
+            fontFamily: 'monospace',
+            fontFamilyFallback: const ['Menlo', 'Courier New', 'monospace'],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Compact trailing cell: lifecycle status pill (when not active) + per-row
+/// actions (edit/delete for managed; nothing for external — its read-only lock
+/// lives next to the name).
+class _TrailingCell extends StatelessWidget {
+  const _TrailingCell({required this.skill, this.onEdit, this.onDelete});
+
+  final OpencodeSkillEntry skill;
+  final VoidCallback? onEdit;
+  final VoidCallback? onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    final meta = skill.metadata;
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.end,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (meta?.status != null && meta!.status != 'active')
+          Flexible(child: _StatusBadge(status: meta.status!)),
+        if (onEdit != null)
+          IconButton(
+            key: ValueKey('edit-skill-${skill.name}'),
+            icon: Icon(
+              Icons.edit_outlined,
+              color: context.rhythm.textSecondary,
+              size: 18,
+            ),
+            tooltip: 'Edit',
+            onPressed: onEdit,
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+          ),
+        if (onDelete != null)
+          IconButton(
+            key: ValueKey('delete-skill-${skill.name}'),
+            icon: Icon(
+              Icons.delete_outline_rounded,
+              color: context.rhythm.textMuted,
+              size: 18,
+            ),
+            tooltip: 'Delete',
+            onPressed: onDelete,
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+          ),
+      ],
     );
   }
 }
@@ -423,6 +933,7 @@ class _StatusBadge extends StatelessWidget {
     final color = status == 'reverted' ? rhythm.danger : rhythm.warning;
     return Container(
       key: ValueKey('status-badge-$status'),
+      margin: const EdgeInsets.only(right: 4),
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
       decoration: BoxDecoration(
         color: color.withValues(alpha: 0.16),
@@ -432,9 +943,9 @@ class _StatusBadge extends StatelessWidget {
       child: Text(
         status.toUpperCase(),
         style: TextStyle(
-          fontSize: 10,
+          fontSize: 9,
           fontWeight: FontWeight.w700,
-          letterSpacing: 0.6,
+          letterSpacing: 0.4,
           color: color,
         ),
       ),

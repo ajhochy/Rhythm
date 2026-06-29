@@ -114,3 +114,45 @@ manually merge PR #812.
 - Deviations from spec: none.
 - Concerns: none. Worktree-only node_modules were symlinked from the main
   checkout / `flutter pub get`; not committed.
+
+### 2026-06-28 — feat(flutter/#813): skills menu → sortable + searchable table with lazy-expand body
+- Files modified:
+  - `apps/desktop_flutter/lib/features/agent_skills/views/agent_skills_view.dart`
+    — full redesign of the standalone Skills menu from a ListView of tiles into
+    a sortable/searchable table. Added a live search field
+    (`skills-search-field`, filters Name+Description, case-insensitive
+    substring); a sortable header (`skills-sort-name` / `skills-sort-description`
+    toggling asc↔desc, default Name asc, arrow indicator keyed
+    `*-asc`/`*-desc`); expandable rows (`skill-row-<name>`) that lazily fetch the
+    SKILL.md body via `OpencodeSkillsDataSource.getContent` on first expand and
+    cache it per-row (`_SkillRow` is now stateful), with spinner / soft-error /
+    scrollable monospace `SelectableText` states. Preserved verbatim: New skill
+    button, managed edit/delete, external read-only lock
+    (`readonly-skill-<name>`), MANAGED/EXTERNAL + lifecycle badges, meta/score
+    lines (moved into the expansion area; lifecycle pill stays in the trailing
+    cell), loading/empty/error states, and `:4001`-only data source. Controller
+    + data source unchanged.
+  - `apps/desktop_flutter/test/features/agent_skills/agent_skills_view_test.dart`
+    — added a `#813` group: sort toggles row order by Name and by Description;
+    search filters by name + description + no-match placeholder + clear;
+    expanding calls getContent exactly once (cached on re-expand) and renders the
+    body; failed fetch shows a soft error. Updated the two metadata tests to
+    expand the row (score/provenance moved into the expansion) and scoped the
+    create/edit field finds to `ManagedSkillEditorSheet` (the page now has a
+    search TextField too).
+- Checks run:
+  - `dart format lib/features/agent_skills/ test/features/agent_skills/` → clean.
+  - `flutter analyze --no-fatal-infos lib/features/agent_skills/ test/features/agent_skills/`
+    → 0 errors / 0 warnings.
+  - `flutter test test/features/agent_skills/` → 16 passed.
+  - Falsification: forcing the sort comparator to ignore `_ascending` fails both
+    sort tests; early-returning from `_maybeFetchBody` (never fetching) fails the
+    lazy-body cache test. Both reverted.
+- Decisions made: kept body view-on-expand only (maintainer chose lazy-load), so
+  Body is neither sortable nor searchable. Per-row body cache lives in
+  `_SkillRowState` (keyed by ValueKey on skill name); editing a managed skill
+  clears caches via a parent `setState` so a re-expand refetches the new body.
+- Deviations from spec: none.
+- Concerns: trailing status/actions cell is a fixed 132px (`_kTrailingCellWidth`)
+  to fit a lifecycle pill + edit + delete without overflow at the 800px test
+  width; the badge is `Flexible` as a belt-and-suspenders against long statuses.

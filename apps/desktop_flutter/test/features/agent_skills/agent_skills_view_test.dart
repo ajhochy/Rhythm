@@ -1,5 +1,5 @@
 /// REAL-SURFACE widget tests for the standalone Skills menu [AgentSkillsView]
-/// (#796 — skill-unify2, subsumes #779).
+/// (#796 — skill-unify2, subsumes #779; #813 — sortable/searchable table).
 ///
 /// These pump the MOUNTED view inside a MaterialApp with a real
 /// [AgentSkillsController] backed by a FAKE [OpencodeSkillsDataSource]. No
@@ -8,13 +8,22 @@
 /// Asserts:
 ///   1. The menu lists EVERY engine skill from the unified endpoint
 ///      (`listWithMetadata`), each with a managed/external badge.
-///   2. Lifecycle (measuring/reverted) + baseline→post score render when present.
+///   2. Lifecycle (measuring/reverted) + baseline→post score render when present
+///      (the score + provenance metadata moved into the lazy expansion area in
+///      #813; the lifecycle pill stays in the always-visible trailing cell).
 ///   3. Managed rows expose edit + delete; external/handwritten rows are
-///      read-only (no edit/delete affordance).
+///      read-only (no edit/delete affordance, lock icon shown).
 ///   4. "New skill" opens the managed editor and round-trips a create.
 ///   5. Tapping Delete (confirmed) calls the data source's delete.
 ///   6. Loading / error / empty states render (no crash, no hardcoded fallback).
 ///   7. The data source targets localhost:4001.
+///   8. (#813) Clicking the Name / Description header toggles the row order
+///      ascending↔descending; the default sort is Name ascending.
+///   9. (#813) The search field live-filters rows by name + description
+///      (case-insensitive substring); body is not searched.
+///  10. (#813) Expanding a row calls `getContent(name)` exactly once (cached on
+///      re-expand) and renders the returned SKILL.md body; a fetch failure
+///      renders a soft error.
 library;
 
 import 'dart:async';
@@ -26,6 +35,7 @@ import 'package:rhythm_desktop/app/core/constants/app_constants.dart';
 import 'package:rhythm_desktop/features/agent_skills/controllers/agent_skills_controller.dart';
 import 'package:rhythm_desktop/features/agent_skills/views/agent_skills_view.dart';
 import 'package:rhythm_desktop/features/agents/data/opencode_skills_data_source.dart';
+import 'package:rhythm_desktop/features/agents/views/_managed_skill_editor_sheet.dart';
 
 // ---------------------------------------------------------------------------
 // Fakes
@@ -45,6 +55,12 @@ class _FakeSkillsDataSource extends OpencodeSkillsDataSource {
 
   bool throwOnList = false;
   bool hangOnList = false;
+
+  /// Names that should make [getContent] throw (lazy-body soft-error path).
+  final Set<String> throwOnContentFor = {};
+
+  /// How many times [getContent] was called per skill name (asserts caching).
+  final Map<String, int> getContentCalls = {};
 
   /// Body returned by [getContent] keyed by skill name. Edit mode fetches this
   /// to populate the content box.
@@ -82,6 +98,10 @@ class _FakeSkillsDataSource extends OpencodeSkillsDataSource {
   @override
   Future<String> getContent(String name) async {
     lastGetContentName = name;
+    getContentCalls[name] = (getContentCalls[name] ?? 0) + 1;
+    if (throwOnContentFor.contains(name)) {
+      throw Exception('content boom');
+    }
     return contentByName[name] ?? '';
   }
 
@@ -224,10 +244,16 @@ void main() {
       await tester.pumpWidget(_buildApp(controller));
       await tester.pumpAndSettle();
 
+      // The lifecycle pill stays in the always-visible trailing cell.
       expect(
         find.byKey(const ValueKey('status-badge-reverted')),
         findsOneWidget,
       );
+
+      // Provenance + score moved into the lazy expansion area (#813) — expand.
+      await tester.tap(find.byKey(const ValueKey('skill-row-reverted-skill')));
+      await tester.pumpAndSettle();
+
       expect(find.textContaining('teacher-escalation'), findsOneWidget);
       expect(find.textContaining('confidence 0.81'), findsOneWidget);
       expect(find.textContaining('v3'), findsOneWidget);
@@ -251,10 +277,15 @@ void main() {
       await tester.pumpWidget(_buildApp(controller));
       await tester.pumpAndSettle();
 
+      // Lifecycle pill is always visible.
       expect(
         find.byKey(const ValueKey('status-badge-measuring')),
         findsOneWidget,
       );
+
+      // The auto-improved note is part of the lazy expansion (#813) — expand.
+      await tester.tap(find.byKey(const ValueKey('skill-row-forked-skill')));
+      await tester.pumpAndSettle();
       expect(find.textContaining('auto-improved'), findsOneWidget);
     });
 
@@ -276,8 +307,15 @@ void main() {
         // The managed editor sheet is open.
         expect(find.text('New skill'), findsWidgets);
 
-        await tester.enterText(find.byType(TextField).first, 'my-new-skill');
-        await tester.enterText(find.byType(TextField).last, 'the body');
+        // Scope field finds to the editor sheet — the page now also has a
+        // search TextField (#813), so `.first`/`.last` across the whole tree
+        // would target the wrong fields.
+        final sheetFields = find.descendant(
+          of: find.byType(ManagedSkillEditorSheet),
+          matching: find.byType(TextField),
+        );
+        await tester.enterText(sheetFields.first, 'my-new-skill');
+        await tester.enterText(sheetFields.last, 'the body');
         await tester.tap(find.widgetWithText(FilledButton, 'Create skill'));
         await tester.pumpAndSettle();
 
@@ -314,10 +352,11 @@ void main() {
         expect(find.textContaining('The saved body.'), findsOneWidget);
 
         // Edit the body and save → update round-trips with the new content.
-        await tester.enterText(
-          find.byType(TextField).last,
-          'The edited body.',
+        final sheetFields = find.descendant(
+          of: find.byType(ManagedSkillEditorSheet),
+          matching: find.byType(TextField),
         );
+        await tester.enterText(sheetFields.last, 'The edited body.');
         await tester.tap(find.widgetWithText(FilledButton, 'Save skill'));
         await tester.pumpAndSettle();
 
@@ -385,6 +424,219 @@ void main() {
 
       expect(find.byKey(const ValueKey('skills-empty-state')), findsOneWidget);
       expect(find.text('No skills yet'), findsOneWidget);
+    });
+  });
+
+  group('AgentSkillsView — #813 sortable + searchable table', () {
+    /// Returns the on-screen top-to-bottom order of the given skill names by
+    /// their vertical position, so we can assert sort order deterministically.
+    List<String> orderedNames(WidgetTester tester, List<String> names) {
+      final pairs = names
+          .where((n) => find.text(n).evaluate().isNotEmpty)
+          .map((n) => MapEntry(n, tester.getTopLeft(find.text(n)).dy))
+          .toList()
+        ..sort((a, b) => a.value.compareTo(b.value));
+      return pairs.map((e) => e.key).toList();
+    }
+
+    testWidgets('default sort is Name ascending; clicking Name toggles desc', (
+      tester,
+    ) async {
+      final ds = _FakeSkillsDataSource([
+        _skill('charlie', managed: true),
+        _skill('alpha'),
+        _skill('bravo', managed: true),
+      ]);
+      final controller = AgentSkillsController(ds);
+      addTearDown(controller.dispose);
+
+      await tester.pumpWidget(_buildApp(controller));
+      await tester.pumpAndSettle();
+
+      // Default: Name ascending.
+      expect(
+        orderedNames(tester, ['alpha', 'bravo', 'charlie']),
+        equals(['alpha', 'bravo', 'charlie']),
+      );
+      // Active indicator points up.
+      expect(
+        find.byKey(const ValueKey('skills-sort-name-asc')),
+        findsOneWidget,
+      );
+
+      // Click Name header → descending.
+      await tester.tap(find.byKey(const ValueKey('skills-sort-name')));
+      await tester.pumpAndSettle();
+
+      expect(
+        orderedNames(tester, ['alpha', 'bravo', 'charlie']),
+        equals(['charlie', 'bravo', 'alpha']),
+      );
+      expect(
+        find.byKey(const ValueKey('skills-sort-name-desc')),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('clicking Description header sorts rows by description', (
+      tester,
+    ) async {
+      // Names and descriptions are deliberately inverse-ordered so a
+      // description sort produces a different row order than the name sort.
+      final ds = _FakeSkillsDataSource([
+        _skill('alpha', managed: true, description: 'zebra task'),
+        _skill('bravo', description: 'apple task'),
+        _skill('charlie', managed: true, description: 'mango task'),
+      ]);
+      final controller = AgentSkillsController(ds);
+      addTearDown(controller.dispose);
+
+      await tester.pumpWidget(_buildApp(controller));
+      await tester.pumpAndSettle();
+
+      // Sanity: default Name-asc order.
+      expect(
+        orderedNames(tester, ['alpha', 'bravo', 'charlie']),
+        equals(['alpha', 'bravo', 'charlie']),
+      );
+
+      // Sort by Description ascending: apple(bravo) < mango(charlie) < zebra(alpha).
+      await tester.tap(find.byKey(const ValueKey('skills-sort-description')));
+      await tester.pumpAndSettle();
+
+      expect(
+        orderedNames(tester, ['alpha', 'bravo', 'charlie']),
+        equals(['bravo', 'charlie', 'alpha']),
+      );
+      expect(
+        find.byKey(const ValueKey('skills-sort-description-asc')),
+        findsOneWidget,
+      );
+
+      // Toggle to descending: zebra(alpha) < mango(charlie) < apple(bravo).
+      await tester.tap(find.byKey(const ValueKey('skills-sort-description')));
+      await tester.pumpAndSettle();
+      expect(
+        orderedNames(tester, ['alpha', 'bravo', 'charlie']),
+        equals(['alpha', 'charlie', 'bravo']),
+      );
+    });
+
+    testWidgets('search filters rows by name and by description', (
+      tester,
+    ) async {
+      final ds = _FakeSkillsDataSource([
+        _skill('release-notes',
+            managed: true, description: 'draft a changelog'),
+        _skill('docx', description: 'edit Word documents'),
+        _skill('pptx', description: 'build slide decks'),
+      ]);
+      final controller = AgentSkillsController(ds);
+      addTearDown(controller.dispose);
+
+      await tester.pumpWidget(_buildApp(controller));
+      await tester.pumpAndSettle();
+
+      // Filter by NAME substring (case-insensitive).
+      await tester.enterText(
+        find.byKey(const ValueKey('skills-search-field')),
+        'DOC',
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('docx'), findsOneWidget);
+      expect(find.text('release-notes'), findsNothing);
+      expect(find.text('pptx'), findsNothing);
+
+      // Filter by DESCRIPTION substring.
+      await tester.enterText(
+        find.byKey(const ValueKey('skills-search-field')),
+        'changelog',
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('release-notes'), findsOneWidget);
+      expect(find.text('docx'), findsNothing);
+
+      // No match → no-results placeholder, not a crash / hardcoded list.
+      await tester.enterText(
+        find.byKey(const ValueKey('skills-search-field')),
+        'zzz-nomatch',
+      );
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('skills-no-matches')), findsOneWidget);
+
+      // Clearing restores the full list.
+      await tester.enterText(
+        find.byKey(const ValueKey('skills-search-field')),
+        '',
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('release-notes'), findsOneWidget);
+      expect(find.text('docx'), findsOneWidget);
+      expect(find.text('pptx'), findsOneWidget);
+    });
+
+    testWidgets(
+      'expanding a row fetches the body via getContent and renders it; '
+      're-expanding does not refetch (cached)',
+      (tester) async {
+        final ds = _FakeSkillsDataSource([
+          _skill('release-notes', managed: true),
+        ])
+          ..contentByName['release-notes'] = 'The SKILL.md body text.';
+        final controller = AgentSkillsController(ds);
+        addTearDown(controller.dispose);
+
+        await tester.pumpWidget(_buildApp(controller));
+        await tester.pumpAndSettle();
+
+        // Not fetched until expanded.
+        expect(ds.getContentCalls['release-notes'], isNull);
+        expect(find.textContaining('The SKILL.md body text.'), findsNothing);
+
+        // Expand → getContent fires and the body renders.
+        await tester.tap(
+          find.byKey(const ValueKey('skill-row-release-notes')),
+        );
+        await tester.pumpAndSettle();
+        expect(ds.lastGetContentName, equals('release-notes'));
+        expect(ds.getContentCalls['release-notes'], equals(1));
+        expect(find.textContaining('The SKILL.md body text.'), findsOneWidget);
+
+        // Collapse and re-expand → served from cache, no second fetch.
+        await tester.tap(
+          find.byKey(const ValueKey('skill-row-release-notes')),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(
+          find.byKey(const ValueKey('skill-row-release-notes')),
+        );
+        await tester.pumpAndSettle();
+        expect(ds.getContentCalls['release-notes'], equals(1));
+        expect(find.textContaining('The SKILL.md body text.'), findsOneWidget);
+      },
+    );
+
+    testWidgets('a failed body fetch renders a soft error, not a crash', (
+      tester,
+    ) async {
+      final ds = _FakeSkillsDataSource([
+        _skill('release-notes', managed: true),
+      ])
+        ..throwOnContentFor.add('release-notes');
+      final controller = AgentSkillsController(ds);
+      addTearDown(controller.dispose);
+
+      await tester.pumpWidget(_buildApp(controller));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const ValueKey('skill-row-release-notes')));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const ValueKey('skill-body-error-release-notes')),
+        findsOneWidget,
+      );
+      expect(find.textContaining('content boom'), findsOneWidget);
     });
   });
 
