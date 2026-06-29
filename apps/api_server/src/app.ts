@@ -120,6 +120,13 @@ export function createApp() {
     app.use('/agent-delegation', agentDelegationRouter);
     app.use('/agent-skills', agentSkillsRouter);
     app.use('/agent-schedules', agentSchedulesRouter);
+    // #807 (memory epic #801): /agent-memory is LOCAL-ONLY. It is registered
+    // only inside this agent-execution gate, and its backing store is the
+    // disposable SQLite index over the Obsidian Memory-Vault (served by the
+    // local agent server on :4001). The cloud/prod agent_memory Postgres table
+    // was removed (postgres_bootstrap.ts) — prod no longer creates or exposes a
+    // memory store. Do NOT mount this router outside the gate or back it with
+    // the production base.
     app.use('/agent-memory', agentMemoryRouter);
     app.use('/agent-webhooks', agentWebhookRouter);
     app.use('/agent-research', agentResearchRouter);

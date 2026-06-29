@@ -24,8 +24,9 @@
  * PRIVACY: never log note bodies. Logs here carry counts and paths only.
  *
  * SCOPE (#802): no write/injection change yet; this lays the rebuild foundation.
- * The SQLite path is the disposable index — the Postgres `agent_memory` is NOT
- * treated as disposable and is never cleared by this service.
+ * The SQLite path is the disposable index. #807 removed the prod/Postgres
+ * `agent_memory` store — agent memory is local-vault/SQLite-only now, so this
+ * service operates purely over the local SQLite index.
  */
 
 import { AgentMemoryRepository } from '../repositories/agent_memory_repository';

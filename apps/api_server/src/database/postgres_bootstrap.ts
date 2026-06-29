@@ -540,24 +540,15 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
     return;
   }
 
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS agent_memory (
-      id TEXT PRIMARY KEY,
-      kind TEXT NOT NULL DEFAULT 'fact',
-      content TEXT NOT NULL,
-      source TEXT,
-      source_id TEXT,
-      tags_json TEXT NOT NULL DEFAULT '[]',
-      search_vector TSVECTOR GENERATED ALWAYS AS (to_tsvector('english', content)) STORED,
-      owner_user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )
-  `);
-  await pool.query(`
-    CREATE INDEX IF NOT EXISTS idx_agent_memory_fts ON agent_memory USING gin(search_vector);
-    CREATE INDEX IF NOT EXISTS idx_agent_memory_owner ON agent_memory(owner_user_id);
-  `);
+  // ── agent_memory — REMOVED (#807, memory epic #801) ───────────────────────
+  // Agent memory is now LOCAL-ONLY: the source of truth is the Obsidian
+  // Memory-Vault and the searchable store is the disposable SQLite index
+  // (migrations.ts + agent_memory_repository.ts), served by the local agent
+  // server on :4001. There is no cloud/prod agent_memory store anymore — the
+  // Postgres table + its FTS/owner indexes that used to be created here have
+  // been removed. Start-fresh: no data migration (prod held nothing durable).
+  // Do NOT re-add a Postgres agent_memory table; memory must not be re-coupled
+  // to the production base. See docs/ai/decisions/2026-06-28-remove-prod-agent-memory-store.md.
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS agent_webhook_endpoints (

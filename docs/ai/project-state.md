@@ -152,6 +152,59 @@ the post-merge manual-smoke list against that build.
   contents sharing a 60-char prefix would collide onto one note — acceptable for the
   current memory sizes but worth a content-hash suffix if collisions appear.
 
+### 2026-06-28 — #807 remove prod agent_memory store; memory is local-vault-only (memory epic #801, issue 6/7)
+- Base: `feature/mem-vault` (worktree branch `worktree-agent-a91a2b4a1a8a49ea9`).
+- Scope (maintainer-simplified): START FRESH, no data migration. Remove the prod
+  Postgres `agent_memory` store + redirect/document any remaining prod-store refs;
+  the LOCAL vault-backed store (:4001, SQLite index) must keep working.
+- Files modified:
+  - `apps/api_server/src/database/postgres_bootstrap.ts` — removed the prod
+    `CREATE TABLE agent_memory` + `idx_agent_memory_fts` / `idx_agent_memory_owner`
+    indexes (was L544-559), replaced with a removal note. No FK/view referenced the
+    table, so prod bootstrap stays clean.
+  - `apps/api_server/src/app.ts` — `/agent-memory` mount was ALREADY inside the
+    `if (env.agentExecutionEnabled)` gate (cloud role omits it); added a comment
+    documenting it is local-only and backed by the SQLite index, not prod.
+  - `apps/api_server/src/database/migrations.ts` — updated the stale comment that
+    claimed a non-disposable Postgres `agent_memory` exists; the SQLite index is now
+    the only store. (SQLite CREATE unchanged — that's the local store.)
+  - `apps/api_server/src/repositories/agent_memory_repository.ts` +
+    `services/memory_index_service.ts` — comment-only: note the Postgres store is
+    removed and the remaining Postgres branches are inert dead paths.
+  - `apps/api_server/src/__tests__/issue_755_role_separation.test.ts` — the #755
+    role-gating contract used `agent_memory` as its representative gated table;
+    re-pointed those two assertions at `agent_webhook_endpoints` (now the first
+    gated table) and ADDED a #807 assertion that the bootstrap creates no
+    `agent_memory` table/FTS/owner index.
+  - `docs/ai/decisions/2026-06-28-remove-prod-agent-memory-store.md` (new).
+- Checks run:
+  - `npx vitest run agent_memory memory_injection memory_write_vault_first
+    memory_index_rebuild memory_consolidation_seed opc_rhythm_mcp_ensure` → 42/42 PASS.
+  - `npx vitest run issue_755_role_separation` (+memory suites) → 63/63 PASS.
+  - `npm run build` (tsc) → exit 0.
+  - Full `npx vitest run` → 1367 pass / 162 files (0 fail).
+  - Repo scan `grep -rniE "agent_memory|/agent-memory" apps --include=*.ts
+    --include=*.dart`: all remaining live refs resolve to the LOCAL store — Flutter
+    `agent_memory_data_source.dart` uses `AppConstants.agentLocalBaseUrl` (:4001);
+    MCP `agentMemory.ts` uses the :4001 base (#804); SQLite migrations.ts + repo are
+    the local index. Two Postgres branches remain in `agent_memory_repository.ts`
+    (clearAll no-op, delete) but are inert dead paths (prod never mounts the route;
+    local server is SQLite) — left as smallest-correct-change, documented.
+- Decisions made: see decision doc. Removed the prod table CREATE rather than only
+  gating it (it was already gated, but prod default role is `all` so the table was
+  still created); left the repository's Postgres branches as inert dead code to keep
+  the change minimal.
+- Deviations from spec: none.
+- #808 (guards) note: assert (a) `postgres_bootstrap.ts` creates no `agent_memory`
+  table or `idx_agent_memory_*` index (a source-contract assertion already added in
+  `issue_755_role_separation.test.ts`); (b) no code path reads/writes agent memory
+  against the prod base (Flutter + MCP both :4001); (c) the local SQLite store +
+  `/agent-memory` route under the agent-execution gate remain intact.
+- Concerns: prod currently runs as role `all` (not `cloud`), so before #807 it DID
+  create the table; with the CREATE gone a hypothetical agent-role-on-Postgres deploy
+  would 500 on `/agent-memory` — intended (memory is local-only). The inert Postgres
+  repo branches could be deleted in a later cleanup if a Postgres agent role is retired.
+
 ### 2026-06-28 — #804 re-route memory MCP tools to local agent server :4001 (memory epic #801, issue 3/7)
 - Branch: `worktree-agent-a8292be007c419d9b` (off `feature/mem-vault`).
 - Topology bug fixed: memory MCP tools were registered with `RHYTHM_API_URL`

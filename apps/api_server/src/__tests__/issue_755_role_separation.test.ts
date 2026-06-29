@@ -303,16 +303,37 @@ describe('#755 postgres_bootstrap.ts — agent-execution DDL is role-gated', () 
   const BOOTSTRAP_TS = path.join(__dirname, '..', 'database', 'postgres_bootstrap.ts');
   const source = readFileSync(BOOTSTRAP_TS, 'utf8');
 
-  it('returns early when agent execution is disabled, before agent_memory et al.', () => {
+  it('returns early when agent execution is disabled, before the gated agent-execution DDL', () => {
     const guardIdx = source.indexOf('if (!env.agentExecutionEnabled)');
     expect(guardIdx, 'early-return guard must exist').toBeGreaterThan(-1);
-    // The guard must come before the agent-execution table creates.
-    const memoryIdx = source.indexOf('CREATE TABLE IF NOT EXISTS agent_memory');
-    expect(memoryIdx, 'agent_memory create must exist').toBeGreaterThan(-1);
+    // The guard must come before the agent-execution table creates. (#807 removed
+    // the Postgres agent_memory table — agent_webhook_endpoints is now the first
+    // gated table; memory is local-vault/SQLite-only.)
+    const webhookIdx = source.indexOf(
+      'CREATE TABLE IF NOT EXISTS agent_webhook_endpoints',
+    );
+    expect(webhookIdx, 'agent_webhook_endpoints create must exist').toBeGreaterThan(-1);
     expect(
       guardIdx,
-      'the role guard must precede agent_memory (so cloud skips it)',
-    ).toBeLessThan(memoryIdx);
+      'the role guard must precede the gated DDL (so cloud skips it)',
+    ).toBeLessThan(webhookIdx);
+  });
+
+  it('#807: prod bootstrap no longer creates an agent_memory table or its indexes', () => {
+    // Memory is local-only (Obsidian Memory-Vault + disposable SQLite index on
+    // :4001). The Postgres store was removed; prod must not re-create it.
+    expect(
+      source.includes('CREATE TABLE IF NOT EXISTS agent_memory'),
+      'postgres_bootstrap must NOT create a Postgres agent_memory table (#807)',
+    ).toBe(false);
+    expect(
+      source.includes('idx_agent_memory_fts'),
+      'postgres_bootstrap must NOT create the agent_memory FTS index (#807)',
+    ).toBe(false);
+    expect(
+      source.includes('idx_agent_memory_owner'),
+      'postgres_bootstrap must NOT create the agent_memory owner index (#807)',
+    ).toBe(false);
   });
 
   it('prod-owned trigger/scheduler DDL stays BEFORE the guard (created in every role)', () => {
@@ -334,7 +355,9 @@ describe('#755 postgres_bootstrap.ts — agent-execution DDL is role-gated', () 
     const guardIdx = source.indexOf('if (!env.agentExecutionEnabled)');
     const afterGuard = source.slice(guardIdx);
     for (const needle of [
-      'CREATE TABLE IF NOT EXISTS agent_memory',
+      // NOTE: agent_memory was removed by #807 (memory is local-only); the
+      // remaining agent-execution tables still prove the guard gates them.
+      'CREATE TABLE IF NOT EXISTS agent_webhook_endpoints',
       'CREATE TABLE IF NOT EXISTS agent_skills',
       'ALTER TABLE agent_configs ADD COLUMN',
       'ALTER TABLE agent_sessions ADD COLUMN',
