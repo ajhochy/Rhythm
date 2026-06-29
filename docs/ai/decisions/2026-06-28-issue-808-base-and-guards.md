@@ -1,8 +1,9 @@
 ---
 date: 2026-06-28
-repo: rhythm
-tags: [decision, rhythm]
+repo: Rhythm
+tags: [decision, Rhythm]
 issues: [808, 801, 807]
+index: "[[Rhythm]]"
 ---
 
 # #808 memory guards — base branch + recall-identity choices
