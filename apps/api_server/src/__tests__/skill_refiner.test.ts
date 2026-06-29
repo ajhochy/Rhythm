@@ -19,10 +19,13 @@ import { setDb } from '../database/db';
 import { AgentSkillsRepository } from '../repositories/agent_skills_repository';
 import {
   parseJudgeResponse,
+  parseScoreResponse,
+  scoreSkillBody,
   refineExistingSkill,
   isSameSkill,
   type JudgeResult,
   type RefineCandidate,
+  type ScoreCall,
 } from '../services/skill_refiner';
 
 function makeDb() {
@@ -49,6 +52,38 @@ describe('skill_refiner.parseJudgeResponse (fail-closed)', () => {
     expect(parseJudgeResponse('equal').verdict).toBe('equal');
     expect(parseJudgeResponse('').verdict).toBe('equal');
     expect(parseJudgeResponse('the candidate is roughly the same').verdict).toBe('equal');
+  });
+});
+
+describe('skill_refiner.parseScoreResponse (#795 purpose-anchored, fail-closed)', () => {
+  it('parses a leading integer and clamps to 0..100', () => {
+    expect(parseScoreResponse('72 solid coverage').score).toBe(72);
+    expect(parseScoreResponse('120').score).toBe(100);
+    expect(parseScoreResponse('-3').score).toBe(0);
+  });
+  it('unparseable → 0', () => {
+    expect(parseScoreResponse('great skill!').score).toBe(0);
+    expect(parseScoreResponse('').score).toBe(0);
+  });
+});
+
+describe('skill_refiner.scoreSkillBody (#795 — compares body, never throws)', () => {
+  it('passes the body to the scorer and returns its score', async () => {
+    const scorer: ScoreCall = vi.fn(async (_purpose, body) => ({
+      score: body === 'good body' ? 88 : 10,
+      reason: 'ok',
+    }));
+    const purpose = { name: 'send-email', description: 'd', whenToUse: 'w' };
+    expect((await scoreSkillBody(purpose, 'good body', scorer)).score).toBe(88);
+    expect((await scoreSkillBody(purpose, 'bad body', scorer)).score).toBe(10);
+    expect(scorer).toHaveBeenCalledTimes(2);
+  });
+  it('a thrown scorer is mapped to a fail-closed score of 0', async () => {
+    const scorer: ScoreCall = async () => {
+      throw new Error('boom');
+    };
+    const result = await scoreSkillBody({ name: 'x' }, 'body', scorer);
+    expect(result.score).toBe(0);
   });
 });
 
