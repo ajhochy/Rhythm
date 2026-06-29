@@ -1,0 +1,117 @@
+/**
+ * #792 — Dual-DB schema parity guard for the agent_skills sidecar + the
+ * agent_skill_versions ledger.
+ *
+ * The skills sidecar/measurement-ledger model must keep the SQLite migration
+ * (migrations.ts, the engine of the embedded local server) and the Postgres
+ * bootstrap DDL (postgres_bootstrap.ts, production) column-for-column identical.
+ * A column that lands in only one DB silently 500s production (per the
+ * project_postgres_sqlite_schema_drift hazard), so this test FAILS the moment
+ * the two diverge.
+ *
+ * Strategy:
+ *  - SQLite truth: run runMigrations() against an in-memory DB and read the
+ *    real resulting column set via PRAGMA table_info — this exercises every
+ *    guarded ALTER exactly as production would.
+ *  - Postgres truth: the bootstrap runs against a live Pool, so we cannot
+ *    execute it here. Instead we statically parse postgres_bootstrap.ts source
+ *    for the agent_skills / agent_skill_versions CREATE TABLE column lists plus
+ *    every `ALTER TABLE <t> ADD COLUMN [IF NOT EXISTS] <col>` against them.
+ *  - Compare the two as sorted column-name sets.
+ */
+
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
+import Database from 'better-sqlite3';
+import { describe, expect, it } from 'vitest';
+
+import { runMigrations } from '../database/migrations';
+
+const TABLES = ['agent_skills', 'agent_skill_versions'] as const;
+
+/** Real SQLite column set after all migrations (incl. guarded ALTERs). */
+function sqliteColumns(table: string): string[] {
+  const db = new Database(':memory:');
+  db.pragma('foreign_keys = ON');
+  runMigrations(db);
+  const cols = (db.pragma(`table_info(${table})`) as { name: string }[]).map(
+    (c) => c.name,
+  );
+  db.close();
+  return cols.sort();
+}
+
+/**
+ * Statically parse the Postgres bootstrap DDL for a table's column set:
+ * the `CREATE TABLE IF NOT EXISTS <table> ( ... )` body plus every
+ * `ALTER TABLE <table> ADD COLUMN [IF NOT EXISTS] <col>` elsewhere in the file.
+ */
+function postgresColumns(source: string, table: string): string[] {
+  const cols = new Set<string>();
+
+  // 1) CREATE TABLE body.
+  const createRe = new RegExp(
+    `CREATE TABLE IF NOT EXISTS ${table}\\s*\\(([\\s\\S]*?)\\)\\s*\``,
+    'i',
+  );
+  const createMatch = source.match(createRe);
+  if (createMatch) {
+    const body = createMatch[1];
+    for (const rawLine of body.split('\n')) {
+      const line = rawLine.trim().replace(/,$/, '');
+      if (!line || line.startsWith('--')) continue;
+      // Skip table-level constraint clauses (none today, but be defensive).
+      if (/^(PRIMARY|FOREIGN|UNIQUE|CHECK|CONSTRAINT)\b/i.test(line)) continue;
+      const name = line.split(/\s+/)[0];
+      if (/^[a-z_][a-z0-9_]*$/i.test(name)) cols.add(name);
+    }
+  }
+
+  // 2) ALTER TABLE <table> ADD COLUMN [IF NOT EXISTS] <col>.
+  const alterRe = new RegExp(
+    `ALTER TABLE ${table} ADD COLUMN (?:IF NOT EXISTS )?([a-z_][a-z0-9_]*)`,
+    'gi',
+  );
+  let m: RegExpExecArray | null;
+  while ((m = alterRe.exec(source)) !== null) {
+    cols.add(m[1]);
+  }
+
+  return [...cols].sort();
+}
+
+describe('#792 agent_skills dual-DB schema parity', () => {
+  const pgSource = readFileSync(
+    join(__dirname, '..', 'database', 'postgres_bootstrap.ts'),
+    'utf8',
+  );
+
+  for (const table of TABLES) {
+    it(`${table} has identical column sets in SQLite and Postgres`, () => {
+      const sqlite = sqliteColumns(table);
+      const pg = postgresColumns(pgSource, table);
+
+      // Sanity: the parser actually found a non-trivial column set.
+      expect(sqlite.length).toBeGreaterThan(5);
+      expect(pg.length).toBeGreaterThan(5);
+
+      expect(pg).toEqual(sqlite);
+    });
+  }
+
+  it('agent_skills carries the #792 sidecar + ledger columns', () => {
+    const sqlite = sqliteColumns('agent_skills');
+    for (const col of [
+      'applied_for_name',
+      'base_version',
+      'origin_location',
+      'is_external',
+      'baseline_score',
+      'post_score',
+      'measure_reason',
+    ]) {
+      expect(sqlite).toContain(col);
+    }
+  });
+});

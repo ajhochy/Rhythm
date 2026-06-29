@@ -76,3 +76,19 @@ PASSED) — this work keeps the picker names aligned with what #775 enforces.
 Open the PR for `feature/unify-skills-source-of-truth` (draft, no merge) with
 `Closes #777`. Then human-merge #776 and this PR, cut a signed release, and work
 the post-merge manual-smoke list against that build.
+
+## Recent coding-agent runs
+
+### 2026-06-28 — #792 agent_skills sidecar metadata + measurement ledger (skill-unify2 epic #791)
+- Files modified:
+  - `apps/api_server/src/database/migrations.ts` — 7 additive guarded ALTER columns on `agent_skills` (applied_for_name, base_version, origin_location, is_external DEFAULT 0, baseline_score, post_score, measure_reason) + `idx_agent_skills_applied_for_name`; documented data-only status lifecycle active/measuring/reverted (no human gate).
+  - `apps/api_server/src/database/postgres_bootstrap.ts` — matching `ADD COLUMN IF NOT EXISTS` for all 7 + the same index (dual-DB parity).
+  - `apps/api_server/src/models/agent_skill.ts` — camelCase fields on `AgentSkill` + `AgentSkillInput` (appliedForName, baseVersion, originLocation, isExternal, baselineScore, postScore, measureReason).
+  - `apps/api_server/src/repositories/agent_skills_repository.ts` — row type + rowToModel + create/update round-trip the 7 columns; added `findByName(name)` (join key = SKILL.md frontmatter name, stored in `title`); `findByTitle` now delegates to it.
+  - `apps/api_server/src/__tests__/skill_schema_parity.test.ts` — NEW dynamic dual-DB parity guard (real SQLite PRAGMA vs. statically parsed Postgres DDL) for `agent_skills` + `agent_skill_versions`.
+  - `apps/api_server/src/__tests__/agent_skills_repository.test.ts` — round-trip + findByName + status-lifecycle (measuring/reverted/active) tests.
+  - `issue_p1_1_agent_skills.test.ts`, `skill_retrieval.test.ts`, `skill_injection.test.ts`, `services/__tests__/skill_materializer.test.ts` — updated stale `AgentSkill` literals/column list for the 7 new required fields.
+- Checks run: `npm run build` (tsc) exit 0; `vitest run skill_schema_parity agent_skills issue_p1_1_agent_skills` green; full `vitest run` 1351 pass / 161 files (was 1344). Falsification verified: a SQLite-only column makes the parity test fail.
+- Decisions made: join key is the existing `title` column (SKILL.md `name` was already stored there as the dedup key) — `findByName` is canonical, `findByTitle` delegates. Postgres DDL is parsed statically (bootstrap needs a live Pool, can't execute in-test).
+- Deviations from spec: none. Table kept named `agent_skills`; `agent_skill_versions` untouched; all changes additive + idempotent.
+- Concerns: legacy `draft`/`published` status values still on existing rows (reconciled in #797 per spec). #793 (unified read) will join this sidecar onto live engine skills via `findByName`.

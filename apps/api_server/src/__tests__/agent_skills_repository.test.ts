@@ -138,4 +138,72 @@ describe('AgentSkillsRepository', () => {
     expect(repo.findByTitle('SEND WEEKLY REPORT')?.title).toBe('Send Weekly Report');
     expect(repo.findByTitle('something else')).toBeNull();
   });
+
+  // ── #792 sidecar metadata + measurement ledger ─────────────────────────────
+
+  it('findByName matches on the SKILL.md frontmatter name (case-insensitive)', () => {
+    repo.create({ title: 'commit-helper' });
+    expect(repo.findByName('commit-helper')?.title).toBe('commit-helper');
+    expect(repo.findByName('COMMIT-HELPER')?.title).toBe('commit-helper');
+    expect(repo.findByName('unknown')).toBeNull();
+  });
+
+  it('defaults the #792 sidecar fields when omitted', () => {
+    const created = repo.create({ title: 'Bare sidecar' });
+    expect(created.appliedForName).toBeNull();
+    expect(created.baseVersion).toBeNull();
+    expect(created.originLocation).toBeNull();
+    expect(created.isExternal).toBe(0);
+    expect(created.baselineScore).toBeNull();
+    expect(created.postScore).toBeNull();
+    expect(created.measureReason).toBeNull();
+  });
+
+  it('round-trips the #792 sidecar metadata through create → getById', () => {
+    const created = repo.create({
+      title: 'auto-refined commit-helper',
+      status: 'measuring',
+      appliedForName: 'commit-helper',
+      baseVersion: 3,
+      originLocation: '/Users/x/.config/opencode/skills/commit-helper',
+      isExternal: 1,
+    });
+
+    const fetched = repo.getById(created.id)!;
+    expect(fetched.status).toBe('measuring');
+    expect(fetched.appliedForName).toBe('commit-helper');
+    expect(fetched.baseVersion).toBe(3);
+    expect(fetched.originLocation).toBe(
+      '/Users/x/.config/opencode/skills/commit-helper',
+    );
+    expect(fetched.isExternal).toBe(1);
+  });
+
+  it('records measurement scores via update and supports the reverted lifecycle', () => {
+    const created = repo.create({
+      title: 'measured skill',
+      status: 'measuring',
+      appliedForName: 'measured-skill',
+      baseVersion: 1,
+    });
+
+    const measured = repo.update(created.id, {
+      baselineScore: 62,
+      postScore: 81,
+      measureReason: 'Revised body adds explicit verification steps.',
+    })!;
+    expect(measured.baselineScore).toBe(62);
+    expect(measured.postScore).toBe(81);
+    expect(measured.measureReason).toBe(
+      'Revised body adds explicit verification steps.',
+    );
+    expect(measured.status).toBe('measuring');
+
+    // A regression → auto-revert flips status to 'reverted'.
+    const reverted = repo.update(created.id, { status: 'reverted' })!;
+    expect(reverted.status).toBe('reverted');
+    // ...and the win-path flips to 'active'.
+    const promoted = repo.update(created.id, { status: 'active' })!;
+    expect(promoted.status).toBe('active');
+  });
 });

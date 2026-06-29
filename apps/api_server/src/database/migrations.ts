@@ -1306,6 +1306,50 @@ export function runMigrations(db: Database.Database): void {
     db.exec(`ALTER TABLE agent_skills ADD COLUMN version INTEGER DEFAULT 1`);
   }
 
+  // #792 (skill-unify2) — repurpose agent_skills as a name-keyed metadata
+  // SIDECAR + measurement LEDGER over the engine's filesystem skills, for the
+  // auto-apply → measure → auto-revert self-improvement model. There is NO
+  // human gate: `status` carries the data-only lifecycle 'active' / 'measuring'
+  // / 'reverted' (no proposed/approved/rejected). agent_skill_versions remains
+  // the untouched rollback fuel. All columns are additive + nullable, guarded
+  // ALTERs so re-running migrate() is a no-op and no existing row is rewritten.
+  //
+  //  - applied_for_name : engine skill `name` (SKILL.md frontmatter) an
+  //                       auto-applied revision targets; null otherwise.
+  //  - base_version     : engine skill version the revision was based on =
+  //                       the rollback target; null.
+  //  - origin_location  : live skill filesystem `location` at apply time; null.
+  //  - is_external      : 1 when the target lived OUTSIDE the managed dir
+  //                       (fork-to-shadow); 0 otherwise.
+  //  - baseline_score   : LLM-judge score of the PRIOR body; null until measured.
+  //  - post_score       : LLM-judge score of the REVISED body; null until measured.
+  //  - measure_reason   : judge's one-sentence rationale; null until measured.
+  if (!agentSkillsCols.includes('applied_for_name')) {
+    db.exec(`ALTER TABLE agent_skills ADD COLUMN applied_for_name TEXT`);
+  }
+  if (!agentSkillsCols.includes('base_version')) {
+    db.exec(`ALTER TABLE agent_skills ADD COLUMN base_version INTEGER`);
+  }
+  if (!agentSkillsCols.includes('origin_location')) {
+    db.exec(`ALTER TABLE agent_skills ADD COLUMN origin_location TEXT`);
+  }
+  if (!agentSkillsCols.includes('is_external')) {
+    db.exec(`ALTER TABLE agent_skills ADD COLUMN is_external INTEGER DEFAULT 0`);
+  }
+  if (!agentSkillsCols.includes('baseline_score')) {
+    db.exec(`ALTER TABLE agent_skills ADD COLUMN baseline_score INTEGER`);
+  }
+  if (!agentSkillsCols.includes('post_score')) {
+    db.exec(`ALTER TABLE agent_skills ADD COLUMN post_score INTEGER`);
+  }
+  if (!agentSkillsCols.includes('measure_reason')) {
+    db.exec(`ALTER TABLE agent_skills ADD COLUMN measure_reason TEXT`);
+  }
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_agent_skills_applied_for_name
+      ON agent_skills(applied_for_name);
+  `);
+
   // P5-1 — agent_skill_versions: append-only version history for self-refinement.
   // Each row snapshots a prior (or restored) state of an agent_skills row so the
   // auto-apply refinement loop is non-destructive with one-click rollback.
