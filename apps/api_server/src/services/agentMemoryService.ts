@@ -15,17 +15,29 @@
  * so it benefits from the same blast-radius isolation.
  */
 
-import { AgentMemoryRepository, type CreateAgentMemoryInput } from '../repositories/agent_memory_repository';
+import { AgentMemoryRepository } from '../repositories/agent_memory_repository';
 import { AgentScheduledTasksRepository } from '../repositories/agent_scheduled_tasks_repository';
 import { logger } from '../utils/logger';
+import {
+  rememberToVault,
+  forgetFromVault,
+  type RememberInput,
+  type RememberResult,
+  type MemoryVaultWriteOptions,
+} from './memoryVaultWriteService';
 
 const memRepo = new AgentMemoryRepository();
 const schedRepo = new AgentScheduledTasksRepository();
 
 export const agentMemoryService = {
-  /** Store a new memory entry. */
-  async remember(input: CreateAgentMemoryInput) {
-    return memRepo.createAsync(input);
+  /**
+   * Issue #803 — vault-first `remember`: write the markdown note to the
+   * Memory-Vault FIRST, then upsert the derived SQLite index. The vault is the
+   * source of truth; the index is a derivation. Returns the note id + path.
+   * Throws {@link MemoryWriteError} on a bad kind / path escape (nothing written).
+   */
+  async remember(input: RememberInput, options?: MemoryVaultWriteOptions): Promise<RememberResult> {
+    return rememberToVault(input, options);
   },
 
   /** Search memories by text query. */
@@ -38,8 +50,22 @@ export const agentMemoryService = {
     return memRepo.listAsync(ownerUserId, kind, limit);
   },
 
-  /** Delete a memory entry by ID. */
-  async forget(id: string) {
+  /**
+   * Issue #803 — vault-first `forget`: look up the index row by id to find its
+   * vault-relative note path, delete the note FILE (confined to the memory
+   * dir), then remove the derived index row. Returns false when no row exists
+   * for `id` (caller maps that to 404). The vault file is the source of truth,
+   * so it is removed before the derived row.
+   */
+  async forget(id: string, options?: MemoryVaultWriteOptions) {
+    const row = await memRepo.findByIdAsync(id);
+    if (!row) return false;
+    // Vault-sourced rows carry source='obsidian-memory' and source_id=<vault
+    // path>. Delete the note file first (confined to the memory dir), then the
+    // derived row. Legacy rows from other sources (no vault file) just drop.
+    if (row.source === 'obsidian-memory' && row.sourceId) {
+      await forgetFromVault(row.sourceId, options);
+    }
     return memRepo.deleteAsync(id);
   },
 

@@ -109,3 +109,45 @@ the post-merge manual-smoke list against that build.
   branch `docs/memory-vault-plan`/PR #809, not on this main base — code references it
   by name; will resolve once that PR merges. #803 builds the vault-first write path
   on `upsertNote`/`removeNote`.
+
+### 2026-06-28 — #803 vault-first write path for `remember` (memory epic #801, issue 2/7)
+- Branch: `feat/issue-803-vault-first-remember` (off `feature/mem-vault`).
+- Files modified:
+  - `apps/api_server/src/services/memoryVaultWriteService.ts` (new) — owns the
+    vault-first write path: `rememberToVault()` (dedup → write note FIRST →
+    `MemoryIndexService.upsertNote`), `forgetFromVault()` (confined unlink),
+    plus `generateUlid` / `normalizeContentKey` / `slugForNote` / `renderMemoryNote`
+    helpers + `MemoryWriteError`. Path-traversal guard `resolveWithinMemoryDir`.
+  - `apps/api_server/src/services/agentMemoryService.ts` — `remember` now delegates
+    to `rememberToVault` (signature `RememberInput` → `RememberResult`); `forget`
+    looks up the row by id, deletes the vault file for `obsidian-memory` rows, then
+    drops the index row.
+  - `apps/api_server/src/controllers/agentMemoryController.ts` — `create` passes
+    `{kind, content, id, source, tags}`, returns `{id, path, kind}`, maps
+    `MemoryWriteError` → 400. (No `sourceId` passthrough — the index source_id is the
+    vault path now.)
+  - `apps/api_server/src/config/env.ts` — added `resolveMemoryDirPath()` =
+    `<MEMORY_VAULT_PATH>/memory` (the write-path boundary).
+  - `apps/api_server/src/__tests__/memory_write_vault_first.test.ts` (new) — 13 tests:
+    AC1 frontmatter+body, AC2 sync search, AC3 dedup-by-id + dedup-by-content,
+    AC4 invalid kind + empty content, AC5 path-escape, AC6 delete file+row + safe
+    404, helper unit tests, and a vault-first falsification guard.
+- Checks run:
+  - `npx vitest run memory_write_vault_first memory_index_rebuild memory_vault_sync`
+    → PASS (34/34; new file 13/13).
+  - Falsification: flipping to index-first ordering → the falsification guard FAILS
+    (index row survives a failed FS write: 1 failed / 12 passed); restored → green.
+  - `npm run build` (tsc) → exit 0.
+  - `npx vitest run agent_memory memory_injection memory_vault_sync_route` → 17/17
+    (no regression in adjacent memory suites).
+- Decisions made: layout is folders-by-type `memory/<kind>/<slug>.md`; dedup keys on
+  frontmatter `id` first, normalized-content slug as fallback (preserves id+created,
+  bumps updated). ULID is a dependency-free Crockford-base32 generator (no `ulid`
+  package in deps; adding one for one id source is unwarranted). The memory dir is the
+  `<MEMORY_VAULT_PATH>/memory` subtree — distinct from the whole vault — and is the
+  single path-traversal boundary.
+- Deviations from spec: none. (Note: `id` accepted as-is even if non-ULID and used as
+  the dedup key; a fresh ULID is assigned only when absent.)
+- Concerns: the dedup-by-content slug truncates to 60 chars, so two DIFFERENT long
+  contents sharing a 60-char prefix would collide onto one note — acceptable for the
+  current memory sizes but worth a content-hash suffix if collisions appear.

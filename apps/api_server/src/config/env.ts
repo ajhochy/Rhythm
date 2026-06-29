@@ -59,6 +59,21 @@ export function resolveMemoryVaultPath(): string {
 }
 
 /**
+ * Issue #803: resolve the MEMORY DIR — the single subtree of the Memory-Vault
+ * that the vault-first `remember` write path owns. All notes the local
+ * `POST /agent-memory` writes (and `DELETE /agent-memory/:id` removes) live
+ * under here, laid out folders-by-type as `<memoryDir>/<kind>/<slug>.md`.
+ *
+ * Resolved FRESH from process.env at call time (so tests / a late .env can
+ * override the vault path). It is always `<MEMORY_VAULT_PATH>/memory`; the
+ * write path treats this dir as the path-traversal boundary — nothing is ever
+ * written or deleted outside it.
+ */
+export function resolveMemoryDirPath(): string {
+  return path.join(resolveMemoryVaultPath(), 'memory');
+}
+
+/**
  * Google Cloud project ID used to enable the native Google Gemini provider in
  * the embedded opencode engine. The `opencode-gemini-auth` plugin only
  * registers the `google` provider for Google **Workspace** accounts when
