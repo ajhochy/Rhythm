@@ -99,6 +99,25 @@ the post-merge manual-smoke list against that build.
 
 ## Recent coding-agent runs
 
+### 2026-06-28 — #796 standalone Skills menu → one unified engine-skill list (skill-unify2 5/7; subsumes #779)
+- Branch: `worktree-agent-a4c90fff5c16c60ec` (based on `cb18c083e`, the feature/skill-unify2 tip with #792–#795). Not pushed.
+- Converted the standalone Skills menu (Agents → Tools → Skills) from the `/agent-skills` DB store to the unified read `GET /opencode/skills?withMetadata=true` (#793). Auto-apply model only — IGNORED the issue body's stale proposal-queue / Approve-Reject / hasProposals / publish language (epic moved to auto-apply + measure + auto-revert).
+- Files modified:
+  - `apps/desktop_flutter/lib/features/agents/data/opencode_skills_data_source.dart` — added `OpencodeSkillMetadata` model (mirrors api_server `SkillMetadata`: confidence/version/status/source/uses/baselineScore/postScore/isExternalFork), extended `OpencodeSkillEntry` with an optional `metadata` field parsed from the `metadata` key, and added `listWithMetadata()` hitting `?withMetadata=true` (degrades to `[]` on error — no hardcoded fallback). Targets `AppConstants.agentLocalBaseUrl` (:4001).
+  - `apps/desktop_flutter/lib/features/agent_skills/controllers/agent_skills_controller.dart` — rewritten to be backed by `OpencodeSkillsDataSource` (was `AgentSkillsRepository`). `loadSkills()` reads the unified list; `deleteSkill(name)` (managed only) + re-fetch; exposes `dataSource` + `skillNames` for the editor sheet. Removed publish/version/rollback (DB-only concepts gone from the unified read).
+  - `apps/desktop_flutter/lib/features/agent_skills/views/agent_skills_view.dart` — rewritten: unified list, MANAGED/EXTERNAL provenance badge per row, non-`active` status badge (measuring amber / reverted red), source·confidence·version·uses meta line, baseline→post score line when measured, "auto-improved (forked)" note when `isExternalFork`. Managed rows show edit (reuse `showManagedSkillEditorSheet`) + delete; external/handwritten rows are read-only (lock icon, no edit/delete). Top-level "New skill" create button. Loading/error/empty states keyed.
+  - `apps/desktop_flutter/lib/main.dart` — provider now `AgentSkillsController(OpencodeSkillsDataSource())`; dropped the 3 retired imports.
+  - DELETED (retired DB-only path): `agent_skills/data/agent_skills_data_source.dart`, `repositories/agent_skills_repository.dart`, `models/agent_skill.dart`, `models/agent_skill_version.dart`. No dead reference remains (only a doc-comment mention of the old `/agent-skills` store).
+  - `apps/desktop_flutter/test/features/agent_skills/agent_skills_view_test.dart` — rewritten for the new surface (fake extends `OpencodeSkillsDataSource`): lists managed+external with badges; lifecycle status + baseline→post score; managed edit+delete vs external read-only; "New skill" opens editor + round-trips create; delete (confirmed) calls `delete`; loading/error(+no fallback)/empty; a unit asserting `agentLocalBaseUrl` is localhost:4001.
+- Checks run:
+  - `dart format` on the changed files — applied (4 changed).
+  - `flutter analyze --no-fatal-infos lib/features/agent_skills/ lib/features/agents/ test/features/agent_skills/` → 0 errors / 0 warnings (39 pre-existing `info` lints, none in changed files).
+  - `flutter test test/features/agent_skills/` → 10/10 pass. Full `test/features/agents/` run → 6 failures, all in `agent_trigger_watcher_test.dart` (the documented pre-existing F2 failures — unrelated).
+  - Falsification (both reverted): unconditioning the managed edit gate → "managed vs external read-only" test FAILS (external shows edit); suppressing the score line → "lifecycle + baseline→post score" test FAILS.
+- Decisions made: kept the `AgentSkill`-named DB model deleted rather than adapting it — the unified read returns `OpencodeSkillEntry` (+ metadata), so the menu and the Agent Profile picker now share ONE model. The api_server `/agent-skills` route is left intact (other consumers); only the Flutter menu's read path moved. The external-fork shows as a single MANAGED row with the auto-improved note (shadowing model, per #794 decision OQ#1).
+- Deviations from spec: per the dispatch SPEC CORRECTION, omitted the issue body's proposal queue / Approve-Reject / hasProposals / publish / "Improve (fork to managed)" actions — those do not exist in the auto-apply model. Surfaced lifecycle + scores from the unified read instead.
+- Concerns: none material. Visual/live smoke still deferred (needs a signed fork rebuild to exercise the real `:4001` endpoint).
+
 ### 2026-06-28 — #794+#795 wiring: auto-apply → measure/auto-revert end-to-end + startup stuck-measuring recovery
 - Branch: `worktree-agent-aebf7480150a4127b` (based on `009eda81a`, has both #794 `skill_apply.ts` and #795 `skill_measurement.ts`). Not pushed.
 - The gap: `applyToEngineSkill` (#794) left the sidecar row at `status='measuring'` but never called `measureAppliedSkill` (#795), and `server.ts` never called `recoverStuckMeasurements()` at startup — so applied revisions got stuck `measuring` forever.
