@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -157,6 +158,9 @@ void main() async {
   );
   final localNotificationService = LocalNotificationService();
   await localNotificationService.initialize();
+  // #815: request macOS notification authorization on first launch. Fail-soft —
+  // a denial is logged inside the service and never blocks startup or sessions.
+  unawaited(localNotificationService.requestPermissions());
 
   runApp(
     RhythmApp(
@@ -343,9 +347,24 @@ class _RhythmAppContent extends StatelessWidget {
           ),
         ),
         ChangeNotifierProvider(
-          create: (_) => NotificationsController(
-            NotificationsRepository(NotificationsDataSource(baseUrl: baseUrl)),
-          ),
+          create: (_) {
+            final controller = NotificationsController(
+              NotificationsRepository(
+                  NotificationsDataSource(baseUrl: baseUrl)),
+            );
+            // #815: route a native ask-notification tap into pending navigation
+            // so AppShell focuses the window and opens the asking session.
+            localNotificationService.onTap = (payload) {
+              const prefix = 'agentSession:';
+              if (payload.startsWith(prefix)) {
+                final sessionId = payload.substring(prefix.length);
+                if (sessionId.isNotEmpty) {
+                  controller.navigateTo('agentSession', sessionId);
+                }
+              }
+            };
+            return controller;
+          },
         ),
         ChangeNotifierProvider(
           create: (_) => AgentProjectsController(

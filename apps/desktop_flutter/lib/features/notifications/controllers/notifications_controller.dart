@@ -8,7 +8,7 @@ import '../repositories/notifications_repository.dart';
 class PendingNavigation {
   PendingNavigation({required this.entityType, required this.entityId});
 
-  /// 'task', 'rhythm', or 'project'
+  /// 'task', 'rhythm', 'project', or 'agentSession' (#815).
   final String entityType;
   final String entityId;
 }

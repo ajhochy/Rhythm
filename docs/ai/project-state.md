@@ -156,3 +156,49 @@ manually merge PR #812.
 - Concerns: trailing status/actions cell is a fixed 132px (`_kTrailingCellWidth`)
   to fit a lifecycle pill + edit + delete without overflow at the 800px test
   width; the badge is `Flexible` as a belt-and-suspenders against long statuses.
+
+### 2026-06-28 — feat(flutter/#815): native macOS notification on agent question/permission asks
+- Files modified:
+  - `apps/desktop_flutter/lib/app/core/notifications/local_notification_service.dart`
+    — added tap routing (`onTap` handler + `onDidReceiveNotificationResponse`),
+    fail-soft `requestPermissions()` (macOS UNUserNotificationCenter via the
+    Darwin resolver), `showAgentAskNotification({id,title,body,payload})`, and
+    `cancel(id)`.
+  - `apps/desktop_flutter/lib/features/agents/controllers/agents_controller.dart`
+    — `_notifiedAsks` dedupe set + `shouldNotifyAsk` (@visibleForTesting),
+    `_maybeNotifyAsk` / `_withdrawAskNotification` helpers; hooked into the
+    existing `PermissionAskedMessage`/`QuestionAskedMessage` (fire) and
+    `PermissionResolvedMessage`/`QuestionResolvedMessage` (withdraw) branches of
+    `_onWsMessage`. In-app permission/question card handling left untouched.
+  - `apps/desktop_flutter/lib/app/core/layout/app_shell.dart` — extended the
+    existing `pendingNavigation` switch with `'agentSession'` → navAgents +
+    `windowManager.show()/focus()` + `AgentsController.selectSession`.
+  - `apps/desktop_flutter/lib/main.dart` — set `localNotificationService.onTap`
+    inside the NotificationsController provider (payload `agentSession:<id>` →
+    `navigateTo`); fail-soft `requestPermissions()` after init; added
+    `dart:async` import for `unawaited`.
+  - `apps/desktop_flutter/lib/features/notifications/controllers/notifications_controller.dart`
+    — doc-comment only (entityType now includes `'agentSession'`).
+- New test: `apps/desktop_flutter/test/features/agents/issue_815_ask_notification_test.dart`
+  (10 cases: should-notify predicate for backgrounded / different-session /
+  viewing-session, permission+question fire-with-payload, dedupe, withdraw-on-resolve).
+- Reused existing infra: `flutter_local_notifications ^17.2.1+2` (already a dep —
+  NO pubspec change) and the existing notification-tap `pendingNavigation`
+  bridge. No `macos/Runner` Swift change needed.
+- Checks run: `flutter test test/features/agents/issue_815_ask_notification_test.dart`
+  → 10/10 pass; `flutter test test/features/agents/` → 471 pass (no F2 failures);
+  `flutter analyze --no-fatal-infos lib/` → 0 errors / 0 warnings (198 pre-existing
+  infos, none in changed files); `flutter analyze macos/` → no issues; `dart format`
+  → clean.
+- Decisions made: reused the existing `NotificationsController.navigateTo` /
+  `_AppShellState.pendingNavigation` notification-tap bridge (added an
+  `'agentSession'` entity type) rather than a new mechanism; suppress predicate
+  reuses the same `_lifecycleState != resumed` signal the completion-notify path
+  already uses, AND-ed with selected-session check.
+- Deviations from spec: none (no plugin/pubspec or macos/Runner change required —
+  the plugin and AppDelegate already handle UNUserNotificationCenter).
+- Concerns: manual-smoke only — actual OS banner delivery, tap focusing the
+  window + opening the session, and the first-launch auth prompt. macOS lifecycle
+  `resumed` vs `inactive`/`hidden` is the focus proxy (same as the existing
+  completion-notify path); if a future macOS embedder changes that mapping the
+  suppress predicate would need revisiting.
