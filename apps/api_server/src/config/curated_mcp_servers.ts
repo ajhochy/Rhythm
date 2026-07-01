@@ -1,3 +1,9 @@
+import {
+  existsSync as nodeExistsSync,
+  readFileSync as nodeReadFileSync,
+} from 'node:fs';
+import { join } from 'node:path';
+
 /**
  * MCP-2 — Curated MCP server registry.
  *
@@ -115,6 +121,108 @@ export interface CuratedMcpServer {
   tokenEnvKey?: string;
 }
 
+export interface CuratedMcpLoaderDeps {
+  existsSync: (path: string) => boolean;
+  readFileSync: (path: string, encoding: 'utf8') => string;
+  warn: (message: string) => void;
+}
+
+function isStringRecord(value: unknown): value is Record<string, string> {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    !Array.isArray(value) &&
+    Object.values(value).every((entry) => typeof entry === 'string')
+  );
+}
+
+function isCuratedMcpServer(value: unknown): value is CuratedMcpServer {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return false;
+  }
+
+  const server = value as Record<string, unknown>;
+  const hasCommonFields =
+    typeof server.id === 'string' &&
+    server.id.length > 0 &&
+    typeof server.name === 'string' &&
+    server.name.length > 0 &&
+    Array.isArray(server.requiredEnv) &&
+    server.requiredEnv.every((entry) => typeof entry === 'string') &&
+    (server.environment === undefined || isStringRecord(server.environment)) &&
+    (server.tokenProvider === undefined ||
+      server.tokenProvider === 'google' ||
+      server.tokenProvider === 'pco') &&
+    (server.tokenEnvKey === undefined ||
+      typeof server.tokenEnvKey === 'string');
+
+  if (!hasCommonFields) return false;
+
+  if (server.type === 'local') {
+    return (
+      Array.isArray(server.command) &&
+      server.command.length > 0 &&
+      server.command.every(
+        (entry) => typeof entry === 'string' && entry.length > 0,
+      )
+    );
+  }
+
+  return (
+    server.type === 'remote' &&
+    typeof server.url === 'string' &&
+    server.url.length > 0
+  );
+}
+
+const DEFAULT_LOCAL_LOADER_DEPS: CuratedMcpLoaderDeps = {
+  existsSync: nodeExistsSync,
+  readFileSync: nodeReadFileSync,
+  warn: (message) => console.warn(message),
+};
+
+export function resolveLocalCuratedMcpServersPath(
+  options: {
+    cwd: string;
+    env: NodeJS.ProcessEnv;
+  } = {
+    cwd: process.cwd(),
+    env: process.env,
+  },
+): string {
+  const override = options.env.RHYTHM_LOCAL_MCP_SERVERS_PATH?.trim();
+  return (
+    override ||
+    join(
+      options.cwd,
+      'src',
+      'config',
+      'curated_mcp_servers.local.json',
+    )
+  );
+}
+
+export function loadLocalCuratedMcpServers(
+  path = resolveLocalCuratedMcpServersPath(),
+  deps: CuratedMcpLoaderDeps = DEFAULT_LOCAL_LOADER_DEPS,
+): CuratedMcpServer[] {
+  if (!deps.existsSync(path)) return [];
+
+  try {
+    const parsed: unknown = JSON.parse(deps.readFileSync(path, 'utf8'));
+    if (!Array.isArray(parsed) || !parsed.every(isCuratedMcpServer)) {
+      throw new Error('expected an array of valid MCP server definitions');
+    }
+    return parsed;
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    deps.warn(
+      `[curated_mcp_servers] Ignoring invalid local sidecar ${path}: ${detail}`,
+    );
+    return [];
+  }
+}
+
 export const CURATED_MCP_SERVERS: CuratedMcpServer[] = [
   {
     id: 'pdf-tools',
@@ -172,4 +280,5 @@ export const CURATED_MCP_SERVERS: CuratedMcpServer[] = [
     command: ['npx', '-y', '@agentx-ai/mailchimp-mcp-server'],
     requiredEnv: ['MAILCHIMP_API_KEY'],
   },
+  ...loadLocalCuratedMcpServers(),
 ];

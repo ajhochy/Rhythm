@@ -25,6 +25,9 @@ apps/api_server/.node-runtime.json
 apps/api_server/scripts/auth-strategy-probe.ts
 apps/api_server/scripts/probe-output.log
 
+# Machine-local MCP server extensions (personal API keys — never commit)
+apps/api_server/src/config/curated_mcp_servers.local.json
+
 # IDEs
 .vscode/
 .idea/
