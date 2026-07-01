@@ -62,7 +62,7 @@ import { AgentSessionsRepository } from '../repositories/agent_sessions_reposito
 
 // Allowlist mirrors what POST /agent-sessions persists for a role: a JSON
 // Record<serverName, string[]>. `read` is a builtin grant; rhythm_list_tasks is
-// an allowed MCP tool. `bash` and `rhythm_delete_task` are NOT in the allowlist.
+// an allowed MCP tool. `rhythm_delete_task` is NOT in the allowlist.
 const ALLOWLIST_JSON = JSON.stringify({
   rhythm: ['rhythm_list_tasks', 'rhythm_create_task'],
   read: [],
@@ -157,16 +157,17 @@ describe('#736 — WS-gateway dispatch backstop', () => {
   }
 
   // ── issue-736-c1 / c3 ──────────────────────────────────────────────────────
-  // Regression caught: an agent emits a tool-call (e.g. `bash`) the session's
-  // role never granted. Without the backstop the bridge forwards/permits it and
-  // the tool runs. The backstop must surface a denied result and NOT let the
-  // disallowed tool proceed. Asserts on a tool OUTSIDE the allowlist.
+  // Regression caught: an agent emits an MCP tool-call the session's role never
+  // granted. Without the backstop the bridge forwards/permits it and the tool
+  // runs. The backstop must surface a denied result and NOT let the disallowed
+  // tool proceed. OpenCode-native tools use the engine's permission policy and
+  // are covered separately in opencode_stream_bridge.test.ts.
   it('issue-736-c1: blocks an out-of-allowlist tool-call on a role-scoped session and surfaces a denied result', () => {
     const localId = seedSession('secretary', ALLOWLIST_JSON);
 
-    // Simulate the agent attempting `bash` — not in the allowlist.
+    // Simulate the agent attempting an MCP tool outside the allowlist.
     (bridge as unknown as { _relayEvent: (e: unknown) => void })._relayEvent(
-      permissionEvent('bash'),
+      permissionEvent('rhythm_delete_task'),
     );
 
     // A denied result must be surfaced to the client.

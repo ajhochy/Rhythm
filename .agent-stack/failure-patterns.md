@@ -159,3 +159,11 @@
 - **Root cause**: skills are served by the opencode FORK (skill tool + system-prompt listing), not api_server's buildSkillsPreface; per-profile allowed_skills_json never reached the engine — the #765 shape. First verification attempt tested the inert api_server path (C2 false green).
 - **Suggested fix**: when a capability is served by the bundled fork, the acceptance contract must exercise the fork (built binary / fork unit test), not the api_server preface; a green api_server unit test for such a criterion is presumptively a false green.
 - **Process notes**: missing-migration bug surfaced ONLY by building+running the binary (build-verification); hardcoded picker drift — 4/14 picker names match the 79 real discovered skills (→ #777 + unification plan).
+
+## 2026-06-29 — Local Ollama skill guard — native tool blocked by MCP scope
+
+- **Result**: smoke FAIL (verification claimed FAIL; no divergence)
+- **Category**: C1 — missing contract
+- **Criteria affected**: role-scoped sessions must allow OpenCode-native tools while limiting MCP tools to the selected servers
+- **Root cause**: `OpencodeStreamBridge` applied `mcpAllowedToolsJson` to every tool name, so Secretary's `["rhythm","obsidian"]` MCP scope falsely rejected the native `skill` tool even though the fork's skill allowlist permitted `daily-morning-briefing`.
+- **Suggested fix**: contract-test native OpenCode permissions and MCP-server dispatch as separate capability boundaries.

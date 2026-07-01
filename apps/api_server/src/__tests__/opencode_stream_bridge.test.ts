@@ -345,6 +345,19 @@ describe('OpencodeStreamBridge — #812 role-scoped dispatch guard (array allowl
     expect(types).not.toContain('tool.denied');
   });
 
+  it.each(['skill', 'task', 'read', 'bash'])(
+    'forwards the native %s tool for the same scoped session',
+    (toolName) => {
+      relayToolPart(toolName);
+
+      const types = broadcastSpy.mock.calls.map(
+        (c) => (c[0] as Record<string, unknown>).type,
+      );
+      expect(types).toContain('message.part.updated');
+      expect(types).not.toContain('tool.denied');
+    },
+  );
+
   it('denies a non-rhythm tool for the same scoped session', () => {
     relayToolPart('nfl_mcp_get_roster');
 

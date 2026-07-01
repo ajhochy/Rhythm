@@ -1,0 +1,66 @@
+{
+  "run_id": "2026-06-29-local-ollama-skill-guard",
+  "issue": "local-ollama-skill-guard",
+  "date": "2026-06-29",
+  "smoke_result": "fail",
+  "verification_claimed": "FAIL",
+  "divergence": false,
+  "criteria_results": [
+    {
+      "criterion_id": "local-ollama-skill-guard-c1",
+      "text": "A role-scoped local Ollama session can invoke OpenCode-native tools, including skill, while MCP tools remain limited to the profile's allowed MCP servers.",
+      "contract_status": "absent",
+      "smoke_status": "fail",
+      "category": "C1",
+      "notes": "Manual screenshot showed two `Tool \"skill\" is not permitted for this agent's role and was blocked.` errors in a Secretary session scoped to rhythm and obsidian. The embedded OpenCode session had actually completed the daily-morning-briefing skill call, proving the API stream bridge was falsely applying the MCP server allowlist to OpenCode's native skill tool. A bridge regression test now covers skill, task, read, and bash while retaining denial of a non-Rhythm MCP tool."
+    }
+  ],
+  "process_issues": [],
+  "workflow_adherence": {
+    "overall_score": "partial",
+    "expected_chain": [
+      "workflow-orchestrator",
+      "acceptance-contract",
+      "coding-agent",
+      "verification-gate",
+      "project-state-updater",
+      "failure-postmortem"
+    ],
+    "observed_chain": [
+      "workflow-orchestrator",
+      "superpowers:writing-plans",
+      "superpowers:executing-plans",
+      "verification-gate",
+      "failure-triage",
+      "superpowers:systematic-debugging",
+      "superpowers:test-driven-development",
+      "failure-postmortem"
+    ],
+    "skipped_skills": [
+      "acceptance-contract",
+      "coding-agent",
+      "project-state-updater"
+    ],
+    "issues": [
+      {
+        "workflow_category": "W1",
+        "affected_skill": "workflow-orchestrator",
+        "description": "The local-provider integration proceeded without an acceptance contract covering role-scoped native-tool dispatch, so the MCP/native-tool boundary was absent from automated verification.",
+        "detected_by": "Conversation tool-call review and absence of a local-Ollama contract under docs/ai/contracts."
+      },
+      {
+        "workflow_category": "W3",
+        "affected_skill": "failure-postmortem",
+        "description": "The failure-postmortem completion checklist was not expanded into explicit TodoWrite items at skill entry.",
+        "detected_by": "Conversation tool-call review."
+      }
+    ]
+  },
+  "implementation_files": [
+    "apps/api_server/src/services/opencode_stream_bridge.ts",
+    "apps/api_server/src/__tests__/opencode_stream_bridge.test.ts"
+  ],
+  "failure_output": "Error: Tool \"skill\" is not permitted for this agent's role and was blocked.",
+  "overall_category": "C1",
+  "suggested_follow_up": "Every role-scoping contract should separately assert OpenCode-native permission behavior and MCP-server dispatch behavior so the two capability boundaries cannot be conflated."
+}
