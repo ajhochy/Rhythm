@@ -2,7 +2,7 @@
 date: 2026-07-01
 repo: Rhythm
 branch: codex/local-mcp-sidecar
-pr: pending
+pr: 835
 issues: []
 status: verified
 tags: [run, Rhythm]

@@ -8,7 +8,7 @@ extensions from the separate local Ollama integration.
 ## Active branch / PR
 
 - `main` includes PR #812 at merge commit `368002168`.
-- MCP sidecar branch: `codex/local-mcp-sidecar`; draft PR pending.
+- MCP sidecar branch: `codex/local-mcp-sidecar`; draft PR #835.
 - Ollama work is preserved locally on `codex/local-ollama-wip-2026-07-01`.
 
 ## In progress
@@ -35,5 +35,5 @@ extensions from the separate local Ollama integration.
 
 ## Next step
 
-Commit and push `codex/local-mcp-sidecar`, open a draft PR against `main`, then
-confirm Desktop, Server, and MCP CI.
+Confirm Desktop, Server, and MCP CI on draft PR #835, then review the local
+sidecar contract before marking it ready.
