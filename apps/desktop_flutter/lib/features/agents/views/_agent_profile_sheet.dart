@@ -278,9 +278,9 @@ class AgentProfileSheet extends StatefulWidget {
     AgentModelsDataSource? modelsDataSource,
     OpencodeSkillsDataSource? skillsDataSource,
     OpencodeMcpDataSource? mcpDataSource,
-  }) : _modelsDataSource = modelsDataSource,
-       _skillsDataSource = skillsDataSource,
-       _mcpDataSource = mcpDataSource;
+  })  : _modelsDataSource = modelsDataSource,
+        _skillsDataSource = skillsDataSource,
+        _mcpDataSource = mcpDataSource;
 
   /// Non-null = edit mode; null = create mode.
   final AgentConfig? config;
@@ -345,9 +345,8 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
       text: (cfg?.allowedDelegates ?? []).join('\n'),
     );
     _isManager = cfg?.isManager ?? false;
-    _selectedMcps = cfg?.allowedMcps != null
-        ? List<String>.from(cfg!.allowedMcps!)
-        : null;
+    _selectedMcps =
+        cfg?.allowedMcps != null ? List<String>.from(cfg!.allowedMcps!) : null;
     _selectedSkills = cfg?.allowedSkills != null
         ? List<String>.from(cfg!.allowedSkills!)
         : null;
@@ -450,12 +449,10 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
         'systemPrompt': _systemPromptController.text.trim().isEmpty
             ? null
             : _systemPromptController.text.trim(),
-        'allowedMcpsJson': _selectedMcps != null
-            ? jsonEncode(_selectedMcps)
-            : null,
-        'allowedSkillsJson': _selectedSkills != null
-            ? jsonEncode(_selectedSkills)
-            : null,
+        'allowedMcpsJson':
+            _selectedMcps != null ? jsonEncode(_selectedMcps) : null,
+        'allowedSkillsJson':
+            _selectedSkills != null ? jsonEncode(_selectedSkills) : null,
         'allowedDelegatesJson': _isManager
             ? jsonEncode(_parseDelimitedList(_allowedDelegatesController.text))
             : null,
@@ -478,12 +475,10 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
         'systemPrompt': _systemPromptController.text.trim().isEmpty
             ? null
             : _systemPromptController.text.trim(),
-        'allowedMcpsJson': _selectedMcps != null
-            ? jsonEncode(_selectedMcps)
-            : null,
-        'allowedSkillsJson': _selectedSkills != null
-            ? jsonEncode(_selectedSkills)
-            : null,
+        'allowedMcpsJson':
+            _selectedMcps != null ? jsonEncode(_selectedMcps) : null,
+        'allowedSkillsJson':
+            _selectedSkills != null ? jsonEncode(_selectedSkills) : null,
         'allowedDelegatesJson': _isManager
             ? jsonEncode(_parseDelimitedList(_allowedDelegatesController.text))
             : null,
@@ -1238,8 +1233,7 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
 
         if (isStale) {
           return Tooltip(
-            message:
-                'Not a live MCP server — this saved selection won\'t be '
+            message: 'Not a live MCP server — this saved selection won\'t be '
                 'enforced. Unselect it, or pick the live server.',
             child: FilterChip(
               key: ValueKey('stale-chip-$item'),

@@ -118,21 +118,20 @@ class _RecordingAgentConfigsDataSource extends AgentConfigsDataSource {
 const _kConfigId = 'cfg-test-001';
 
 AgentConfig _makeConfig() => AgentConfig(
-  id: _kConfigId,
-  label: 'Test Profile',
-  icon: 'terminal',
-  enabled: true,
-  isAgent: true,
-  sortOrder: 0,
-);
+      id: _kConfigId,
+      label: 'Test Profile',
+      icon: 'terminal',
+      enabled: true,
+      isAgent: true,
+      sortOrder: 0,
+    );
 
 OpencodeSkillEntry _skill(String name, {bool managed = false}) =>
     OpencodeSkillEntry(
       name: name,
       description: 'desc of $name',
-      location: managed
-          ? '/managed/$name/SKILL.md'
-          : '/external/$name/SKILL.md',
+      location:
+          managed ? '/managed/$name/SKILL.md' : '/external/$name/SKILL.md',
       managed: managed,
     );
 
