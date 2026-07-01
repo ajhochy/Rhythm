@@ -19,11 +19,15 @@ import { setDb } from '../database/db';
 import { AgentSkillsRepository } from '../repositories/agent_skills_repository';
 import {
   parseJudgeResponse,
+  parseScoreResponse,
+  scoreSkillBody,
   refineExistingSkill,
   isSameSkill,
   type JudgeResult,
   type RefineCandidate,
+  type ScoreCall,
 } from '../services/skill_refiner';
+import type { ApplyCandidate, ApplyOutcome } from '../services/skill_apply';
 
 function makeDb() {
   const db = new Database(':memory:');
@@ -49,6 +53,38 @@ describe('skill_refiner.parseJudgeResponse (fail-closed)', () => {
     expect(parseJudgeResponse('equal').verdict).toBe('equal');
     expect(parseJudgeResponse('').verdict).toBe('equal');
     expect(parseJudgeResponse('the candidate is roughly the same').verdict).toBe('equal');
+  });
+});
+
+describe('skill_refiner.parseScoreResponse (#795 purpose-anchored, fail-closed)', () => {
+  it('parses a leading integer and clamps to 0..100', () => {
+    expect(parseScoreResponse('72 solid coverage').score).toBe(72);
+    expect(parseScoreResponse('120').score).toBe(100);
+    expect(parseScoreResponse('-3').score).toBe(0);
+  });
+  it('unparseable → 0', () => {
+    expect(parseScoreResponse('great skill!').score).toBe(0);
+    expect(parseScoreResponse('').score).toBe(0);
+  });
+});
+
+describe('skill_refiner.scoreSkillBody (#795 — compares body, never throws)', () => {
+  it('passes the body to the scorer and returns its score', async () => {
+    const scorer: ScoreCall = vi.fn(async (_purpose, body) => ({
+      score: body === 'good body' ? 88 : 10,
+      reason: 'ok',
+    }));
+    const purpose = { name: 'send-email', description: 'd', whenToUse: 'w' };
+    expect((await scoreSkillBody(purpose, 'good body', scorer)).score).toBe(88);
+    expect((await scoreSkillBody(purpose, 'bad body', scorer)).score).toBe(10);
+    expect(scorer).toHaveBeenCalledTimes(2);
+  });
+  it('a thrown scorer is mapped to a fail-closed score of 0', async () => {
+    const scorer: ScoreCall = async () => {
+      throw new Error('boom');
+    };
+    const result = await scoreSkillBody({ name: 'x' }, 'body', scorer);
+    expect(result.score).toBe(0);
   });
 });
 
@@ -94,87 +130,144 @@ describe('skill_refiner.refineExistingSkill', () => {
     ...over,
   });
 
-  it('judge "better" + confidence >= existing → reviseInPlace, version bumped', async () => {
-    const existing = repo.create({
+  // #794 — the apply step is now over the LIVE engine skill set, not the DB row.
+  // Inject a double so the refiner's decision logic is tested without a real
+  // SKILL.md write or engine call. The default outcome reports a managed apply.
+  const applied = (outcome: ApplyOutcome = 'applied-managed') =>
+    vi.fn(async (_candidate: ApplyCandidate): Promise<ApplyOutcome> => outcome);
+
+  it('judge "better" + confidence >= existing → delegates apply, returns revised', async () => {
+    repo.create({
       title: 'Send the weekly staff email',
       description: 'old',
       confidence: 0.7,
       status: 'published',
     });
 
-    const result = await refineExistingSkill(candidate(), { repo, judge: async () => better() });
+    const applyToEngine = applied();
+    const result = await refineExistingSkill(candidate(), {
+      repo,
+      judge: async () => better(),
+      applyToEngine,
+    });
     expect(result).toBe('revised');
-
-    const after = repo.getById(existing.id)!;
-    expect(after.version).toBe(2);
-    expect(after.description).toBe('A clearer, more complete description');
-    expect(after.confidence).toBe(0.8);
-    expect(after.source).toBe('auto-refined');
-    expect(repo.listVersions(existing.id)).toHaveLength(1);
+    // The apply step is handed the matched engine skill `name` (the title) +
+    // candidate confidence/source — NOT a DB-row id.
+    expect(applyToEngine).toHaveBeenCalledTimes(1);
+    expect(applyToEngine.mock.calls[0][0]).toMatchObject({
+      name: 'Send the weekly staff email',
+      confidence: 0.8,
+      source: 'auto-refined',
+    });
+    expect(applyToEngine.mock.calls[0][0].body).toContain('Send the weekly staff email');
   });
 
-  it('teacher-refined source override is honored', async () => {
-    const existing = repo.create({ title: 'Send the weekly staff email', description: 'old', confidence: 0.7 });
-    await refineExistingSkill(candidate(), { repo, judge: async () => better(), source: 'teacher-refined' });
-    expect(repo.getById(existing.id)!.source).toBe('teacher-refined');
+  it('external fork-to-shadow apply outcome also maps to revised', async () => {
+    repo.create({ title: 'Send the weekly staff email', description: 'old', confidence: 0.7 });
+    const result = await refineExistingSkill(candidate(), {
+      repo,
+      judge: async () => better(),
+      applyToEngine: applied('applied-external-fork'),
+    });
+    expect(result).toBe('revised');
   });
 
-  it('judge "worse" → existing unchanged', async () => {
-    const existing = repo.create({ title: 'Send the weekly staff email', description: 'old', confidence: 0.7 });
-    const result = await refineExistingSkill(candidate(), { repo, judge: async () => worse() });
+  it('teacher-refined source override is forwarded to the apply step', async () => {
+    repo.create({ title: 'Send the weekly staff email', description: 'old', confidence: 0.7 });
+    const applyToEngine = applied();
+    await refineExistingSkill(candidate(), {
+      repo,
+      judge: async () => better(),
+      source: 'teacher-refined',
+      applyToEngine,
+    });
+    expect(applyToEngine.mock.calls[0][0].source).toBe('teacher-refined');
+  });
+
+  it('apply outcome "no-target" → kept (live set lacks the name)', async () => {
+    repo.create({ title: 'Send the weekly staff email', description: 'old', confidence: 0.7 });
+    const result = await refineExistingSkill(candidate(), {
+      repo,
+      judge: async () => better(),
+      applyToEngine: applied('no-target'),
+    });
     expect(result).toBe('kept');
-    const after = repo.getById(existing.id)!;
-    expect(after.version).toBe(1);
-    expect(after.description).toBe('old');
-    expect(repo.listVersions(existing.id)).toHaveLength(0);
   });
 
-  it('judge "equal" → existing unchanged', async () => {
-    const existing = repo.create({ title: 'Send the weekly staff email', description: 'old', confidence: 0.7 });
-    const result = await refineExistingSkill(candidate(), { repo, judge: async () => equal() });
+  it('judge "worse" → existing unchanged, apply never called', async () => {
+    repo.create({ title: 'Send the weekly staff email', description: 'old', confidence: 0.7 });
+    const applyToEngine = applied();
+    const result = await refineExistingSkill(candidate(), {
+      repo,
+      judge: async () => worse(),
+      applyToEngine,
+    });
     expect(result).toBe('kept');
-    expect(repo.getById(existing.id)!.version).toBe(1);
+    expect(applyToEngine).not.toHaveBeenCalled();
   });
 
-  it('judge throws → existing unchanged, no throw', async () => {
-    const existing = repo.create({ title: 'Send the weekly staff email', description: 'old', confidence: 0.7 });
+  it('judge "equal" → existing unchanged, apply never called', async () => {
+    repo.create({ title: 'Send the weekly staff email', description: 'old', confidence: 0.7 });
+    const applyToEngine = applied();
+    const result = await refineExistingSkill(candidate(), {
+      repo,
+      judge: async () => equal(),
+      applyToEngine,
+    });
+    expect(result).toBe('kept');
+    expect(applyToEngine).not.toHaveBeenCalled();
+  });
+
+  it('judge throws → existing unchanged, no throw, apply never called', async () => {
+    repo.create({ title: 'Send the weekly staff email', description: 'old', confidence: 0.7 });
+    const applyToEngine = applied();
     const result = await refineExistingSkill(candidate(), {
       repo,
       judge: async () => {
         throw new Error('boom');
       },
+      applyToEngine,
     });
     expect(result).toBe('kept');
-    expect(repo.getById(existing.id)!.version).toBe(1);
+    expect(applyToEngine).not.toHaveBeenCalled();
   });
 
-  it('candidate confidence < existing → kept WITHOUT consulting judge', async () => {
-    const existing = repo.create({ title: 'Send the weekly staff email', description: 'old', confidence: 0.9 });
+  it('candidate confidence < existing → kept WITHOUT consulting judge or apply', async () => {
+    repo.create({ title: 'Send the weekly staff email', description: 'old', confidence: 0.9 });
     const judge = vi.fn(async () => better());
-    const result = await refineExistingSkill(candidate({ confidence: 0.5 }), { repo, judge });
+    const applyToEngine = applied();
+    const result = await refineExistingSkill(candidate({ confidence: 0.5 }), {
+      repo,
+      judge,
+      applyToEngine,
+    });
     expect(result).toBe('kept');
     expect(judge).not.toHaveBeenCalled();
-    expect(repo.getById(existing.id)!.version).toBe(1);
+    expect(applyToEngine).not.toHaveBeenCalled();
   });
 
-  it('no matching skill → no-match (caller drafts new)', async () => {
+  it('no matching skill → no-match (caller drafts new), apply never called', async () => {
     repo.create({ title: 'Completely different thing about facilities', confidence: 0.7 });
+    const applyToEngine = applied();
     const result = await refineExistingSkill(
       candidate({ title: 'Send the weekly staff email' }),
-      { repo, judge: async () => better(), getRelevant: () => [] },
+      { repo, judge: async () => better(), getRelevant: () => [], applyToEngine },
     );
     expect(result).toBe('no-match');
+    expect(applyToEngine).not.toHaveBeenCalled();
   });
 
-  it('matches by title even when getRelevant returns nothing', async () => {
-    const existing = repo.create({ title: 'Send the weekly staff email', description: 'old', confidence: 0.7 });
+  it('matches by title even when getRelevant returns nothing → delegates apply', async () => {
+    repo.create({ title: 'Send the weekly staff email', description: 'old', confidence: 0.7 });
+    const applyToEngine = applied();
     const result = await refineExistingSkill(candidate(), {
       repo,
       judge: async () => better(),
       getRelevant: () => [], // title match should still win
+      applyToEngine,
     });
     expect(result).toBe('revised');
-    expect(repo.getById(existing.id)!.version).toBe(2);
+    expect(applyToEngine).toHaveBeenCalledTimes(1);
   });
 });
 

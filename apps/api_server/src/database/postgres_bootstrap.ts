@@ -540,24 +540,15 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
     return;
   }
 
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS agent_memory (
-      id TEXT PRIMARY KEY,
-      kind TEXT NOT NULL DEFAULT 'fact',
-      content TEXT NOT NULL,
-      source TEXT,
-      source_id TEXT,
-      tags_json TEXT NOT NULL DEFAULT '[]',
-      search_vector TSVECTOR GENERATED ALWAYS AS (to_tsvector('english', content)) STORED,
-      owner_user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-    )
-  `);
-  await pool.query(`
-    CREATE INDEX IF NOT EXISTS idx_agent_memory_fts ON agent_memory USING gin(search_vector);
-    CREATE INDEX IF NOT EXISTS idx_agent_memory_owner ON agent_memory(owner_user_id);
-  `);
+  // ── agent_memory — REMOVED (#807, memory epic #801) ───────────────────────
+  // Agent memory is now LOCAL-ONLY: the source of truth is the Obsidian
+  // Memory-Vault and the searchable store is the disposable SQLite index
+  // (migrations.ts + agent_memory_repository.ts), served by the local agent
+  // server on :4001. There is no cloud/prod agent_memory store anymore — the
+  // Postgres table + its FTS/owner indexes that used to be created here have
+  // been removed. Start-fresh: no data migration (prod held nothing durable).
+  // Do NOT re-add a Postgres agent_memory table; memory must not be re-coupled
+  // to the production base. See docs/ai/decisions/2026-06-28-remove-prod-agent-memory-store.md.
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS agent_webhook_endpoints (
@@ -653,6 +644,26 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
     `ALTER TABLE agent_skills ADD COLUMN IF NOT EXISTS version INTEGER DEFAULT 1`,
   );
 
+  // #792 (skill-unify2) — repurpose agent_skills as a name-keyed metadata
+  // SIDECAR + measurement LEDGER over the engine's filesystem skills, for the
+  // auto-apply → measure → auto-revert self-improvement model. NO human gate:
+  // `status` carries the data-only lifecycle 'active' / 'measuring' / 'reverted'
+  // (no proposed/approved/rejected). All columns additive + nullable. These MUST
+  // stay column-for-column identical to the SQLite migration (skill_schema_parity
+  // test enforces). See migrations.ts for per-column semantics.
+  await pool.query(`
+    ALTER TABLE agent_skills ADD COLUMN IF NOT EXISTS applied_for_name TEXT;
+    ALTER TABLE agent_skills ADD COLUMN IF NOT EXISTS base_version INTEGER;
+    ALTER TABLE agent_skills ADD COLUMN IF NOT EXISTS origin_location TEXT;
+    ALTER TABLE agent_skills ADD COLUMN IF NOT EXISTS is_external INTEGER DEFAULT 0;
+    ALTER TABLE agent_skills ADD COLUMN IF NOT EXISTS baseline_score INTEGER;
+    ALTER TABLE agent_skills ADD COLUMN IF NOT EXISTS post_score INTEGER;
+    ALTER TABLE agent_skills ADD COLUMN IF NOT EXISTS measure_reason TEXT;
+  `);
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_agent_skills_applied_for_name ON agent_skills(applied_for_name)`,
+  );
+
   // P5-1 — agent_skill_versions: append-only version history for self-refinement.
   // Each row snapshots a prior (or restored) state of an agent_skills row so the
   // auto-apply refinement loop is non-destructive with one-click rollback.
@@ -675,6 +686,63 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
   await pool.query(
     `CREATE INDEX IF NOT EXISTS idx_agent_skill_versions_skill_id ON agent_skill_versions(skill_id)`,
   );
+
+  // agent_configs — user-configurable list of CLI agents (issue #481 / #466).
+  // NOTE: this CREATE was previously missing from the Postgres path; only the SQLite
+  // migrations.ts created it, while the ALTERs below assumed it existed. On a Postgres
+  // deploy that never had the table, `ALTER TABLE agent_configs ...` threw 42P01 and
+  // crash-looped boot (ADD COLUMN IF NOT EXISTS does not guard a missing *table*).
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS agent_configs (
+      id TEXT PRIMARY KEY,
+      label TEXT NOT NULL,
+      icon TEXT NOT NULL,
+      command TEXT NOT NULL,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      is_agent INTEGER NOT NULL DEFAULT 1,
+      can_resume INTEGER NOT NULL DEFAULT 0,
+      resume_command TEXT,
+      session_id_pattern TEXT,
+      output_marker TEXT,
+      preset_id TEXT,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+  await pool.query(
+    `CREATE INDEX IF NOT EXISTS idx_agent_configs_enabled ON agent_configs(enabled)`,
+  );
+
+  // Seed built-in preset rows (ON CONFLICT keeps bootstrap idempotent).
+  await pool.query(`
+    INSERT INTO agent_configs
+      (id, label, icon, command, is_agent, can_resume, resume_command, session_id_pattern, output_marker, preset_id, sort_order)
+    VALUES
+      ('claude-code', 'Claude Code', 'assets/agents/claude-code.png', 'claude', 1, 1, 'claude --resume {{sessionId}}', 'Session ID:\\s+([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})', '⏺', 'claude-code', 0),
+      ('codex', 'Codex', 'assets/agents/codex.png', 'codex', 1, 0, NULL, NULL, '•', 'codex', 1),
+      ('gemini-cli', 'Gemini CLI', 'assets/agents/gemini-cli.png', 'gemini', 1, 0, NULL, NULL, '✦', 'gemini-cli', 2),
+      ('opencode', 'OpenCode', 'assets/agents/opencode.png', 'opencode', 1, 0, NULL, NULL, '│', 'opencode', 3)
+    ON CONFLICT (id) DO NOTHING;
+  `);
+
+  // agent_sessions — agent run records. Same missing-CREATE bug as agent_configs above:
+  // only migrations.ts (SQLite) created it, while the ALTERs further down assumed it existed.
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS agent_sessions (
+      id TEXT PRIMARY KEY,
+      task_id TEXT REFERENCES tasks(id) ON DELETE SET NULL,
+      agent_kind TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'starting',
+      session_token TEXT,
+      cwd TEXT NOT NULL,
+      name TEXT NOT NULL,
+      last_preview TEXT,
+      last_activity_at TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
 
   // Agent-runner model selection: store preferred provider/model on agent_configs.
   await pool.query(`

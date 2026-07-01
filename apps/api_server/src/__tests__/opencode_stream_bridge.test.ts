@@ -288,3 +288,83 @@ describe('OpencodeStreamBridge — permission mode auto-resolution', () => {
     expect(resolved?.decision).toBe('accept');
   });
 });
+
+describe('OpencodeStreamBridge — #812 role-scoped dispatch guard (array allowlist)', () => {
+  let bridge: OpencodeStreamBridge;
+  const SDK_ID = 'sdk-scope-1';
+  let localId: string;
+
+  // Relay a tool-call part (message.part.updated) — the bypassPermissions path
+  // that hits isToolAllowedForSession → isToolAllowed.
+  function relayToolPart(toolName: string): void {
+    (bridge as unknown as { _relayEvent: (e: unknown) => void })._relayEvent({
+      type: 'message.part.updated',
+      properties: {
+        part: {
+          id: `part-${toolName}`,
+          type: 'tool',
+          tool: toolName,
+          sessionID: SDK_ID,
+          messageID: 'msg-scope',
+        },
+      },
+    });
+  }
+
+  beforeEach(() => {
+    const db = new Database(':memory:');
+    db.pragma('foreign_keys = ON');
+    runMigrations(db);
+    setDb(db);
+    sessionMap.clear();
+    broadcastSpy.mockClear();
+    bridge = new OpencodeStreamBridge();
+
+    const repo = new AgentSessionsRepository();
+    repo.insert({
+      agentKind: 'claude-code',
+      taskId: null,
+      taskTitle: null,
+      cwd: '/tmp',
+      name: 'scope-test',
+    });
+    localId = repo.listActive()[0].id;
+    sessionMap.set(localId, SDK_ID);
+    // Secretary role scoped to the rhythm server, persisted in the ARRAY form
+    // the writers actually produce (#812 repro).
+    repo.setMcpScope(localId, 'secretary', '["rhythm"]');
+  });
+
+  it('forwards a rhythm tool for a ["rhythm"]-scoped session (not denied)', () => {
+    relayToolPart('rhythm_rhythm_get_dashboard');
+
+    const types = broadcastSpy.mock.calls.map(
+      (c) => (c[0] as Record<string, unknown>).type,
+    );
+    expect(types).toContain('message.part.updated');
+    expect(types).not.toContain('tool.denied');
+  });
+
+  it.each(['skill', 'task', 'read', 'bash'])(
+    'forwards the native %s tool for the same scoped session',
+    (toolName) => {
+      relayToolPart(toolName);
+
+      const types = broadcastSpy.mock.calls.map(
+        (c) => (c[0] as Record<string, unknown>).type,
+      );
+      expect(types).toContain('message.part.updated');
+      expect(types).not.toContain('tool.denied');
+    },
+  );
+
+  it('denies a non-rhythm tool for the same scoped session', () => {
+    relayToolPart('nfl_mcp_get_roster');
+
+    const types = broadcastSpy.mock.calls.map(
+      (c) => (c[0] as Record<string, unknown>).type,
+    );
+    expect(types).toContain('tool.denied');
+    expect(types).not.toContain('message.part.updated');
+  });
+});

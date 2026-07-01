@@ -1,20 +1,33 @@
-/// REAL-SURFACE widget tests for AgentSkillsView.
+/// REAL-SURFACE widget tests for the standalone Skills menu [AgentSkillsView]
+/// (#796 — skill-unify2, subsumes #779; #813 — sortable/searchable table).
 ///
 /// These pump the MOUNTED view inside a MaterialApp with a real
-/// AgentSkillsController backed by a FAKE data source (injected via the
-/// repository). This mirrors the agent_schedules_edit_test harness — no
+/// [AgentSkillsController] backed by a FAKE [OpencodeSkillsDataSource]. No
 /// isolated widget stubs.
 ///
 /// Asserts:
-///   1. A draft skill renders a DRAFT badge.
-///   2. A teacher-escalation skill renders the "learned from failure"
-///      annotation.
-///   3. Tapping Publish calls the data source's updateSkill with
-///      status='published'.
-///   4. Tapping Delete (and confirming) calls the data source's deleteSkill.
-///   5. Loading shows a CircularProgressIndicator.
-///   6. Error shows the error message.
-///   7. An empty list shows "No skills yet".
+///   1. The menu lists EVERY engine skill from the unified endpoint
+///      (`listWithMetadata`), each with a managed/external badge.
+///   2. Lifecycle (measuring/reverted) + baseline→post score render when present
+///      (the score + provenance metadata moved into the lazy expansion area in
+///      #813; the lifecycle pill stays in the always-visible trailing cell).
+///   3. Managed rows expose edit + delete; external/handwritten rows are
+///      read-only (no edit/delete affordance, lock icon shown).
+///   4. "New skill" opens the managed editor and round-trips a create.
+///   5. Tapping Delete (confirmed) calls the data source's delete.
+///   6. Loading / error / empty states render (no crash, no hardcoded fallback).
+///   7. The data source targets localhost:4001.
+///   8. (#813) Clicking the Name / Description header toggles the row order
+///      ascending↔descending; the default sort is Name ascending.
+///   9. (#813) The search field live-filters rows by name + description
+///      (case-insensitive substring); body is not searched.
+///  10. (#813) Expanding a row calls `getContent(name)` exactly once (cached on
+///      re-expand) and renders the returned SKILL.md body; a fetch failure
+///      renders a soft error.
+///  11. (#813) An `active` skill (the default lifecycle) shows a visible Status
+///      pill so the column is never empty.
+///  12. (#813) Clicking the Status header sorts rows by lifecycle (measuring →
+///      reverted → active) and toggles ascending↔descending.
 library;
 
 import 'dart:async';
@@ -22,157 +35,123 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
+import 'package:rhythm_desktop/app/core/constants/app_constants.dart';
 import 'package:rhythm_desktop/features/agent_skills/controllers/agent_skills_controller.dart';
-import 'package:rhythm_desktop/features/agent_skills/data/agent_skills_data_source.dart';
-import 'package:rhythm_desktop/features/agent_skills/models/agent_skill.dart';
-import 'package:rhythm_desktop/features/agent_skills/models/agent_skill_version.dart';
-import 'package:rhythm_desktop/features/agent_skills/repositories/agent_skills_repository.dart';
 import 'package:rhythm_desktop/features/agent_skills/views/agent_skills_view.dart';
+import 'package:rhythm_desktop/features/agents/data/opencode_skills_data_source.dart';
+import 'package:rhythm_desktop/features/agents/views/_managed_skill_editor_sheet.dart';
 
 // ---------------------------------------------------------------------------
 // Fakes
 // ---------------------------------------------------------------------------
 
-/// A skills data source that records publish/delete calls and can be driven
-/// into loading/error/empty states for the view tests.
-class _FakeSkillsDataSource extends AgentSkillsDataSource {
-  _FakeSkillsDataSource(this._skills);
+/// A skills data source that returns a fixed unified list and records
+/// create/delete calls. Can be driven into loading/error states.
+class _FakeSkillsDataSource extends OpencodeSkillsDataSource {
+  _FakeSkillsDataSource(this._entries);
 
-  final List<AgentSkill> _skills;
+  List<OpencodeSkillEntry> _entries;
 
-  // Recorded calls.
-  String? lastUpdatedId;
-  String? lastUpdatedStatus;
-  String? lastDeletedId;
-  String? lastVersionsId;
-  String? lastRollbackId;
-  int? lastRollbackVersionNo;
+  Map<String, dynamic>? lastCreate;
+  Map<String, dynamic>? lastUpdate;
+  String? lastDeleted;
+  String? lastGetContentName;
 
-  // Behaviour switches.
-  bool throwOnGet = false;
-  bool hangOnGet = false;
+  bool throwOnList = false;
+  bool hangOnList = false;
 
-  // History the fake returns from getVersions().
-  List<AgentSkillVersion> versions = const [];
+  /// Names that should make [getContent] throw (lazy-body soft-error path).
+  final Set<String> throwOnContentFor = {};
+
+  /// How many times [getContent] was called per skill name (asserts caching).
+  final Map<String, int> getContentCalls = {};
+
+  /// Body returned by [getContent] keyed by skill name. Edit mode fetches this
+  /// to populate the content box.
+  final Map<String, String> contentByName = {};
 
   @override
-  Future<List<AgentSkill>> getSkills() async {
-    if (hangOnGet) {
-      // Never completes — keeps the controller in the loading state.
-      return Completer<List<AgentSkill>>().future;
+  Future<List<OpencodeSkillEntry>> listWithMetadata() async {
+    if (hangOnList) {
+      return Completer<List<OpencodeSkillEntry>>().future;
     }
-    if (throwOnGet) {
+    if (throwOnList) {
       throw Exception('boom');
     }
-    return List.of(_skills);
+    return List.of(_entries);
   }
 
   @override
-  Future<AgentSkill> updateSkill(String id, {required String status}) async {
-    lastUpdatedId = id;
-    lastUpdatedStatus = status;
-    final existing = _skills.firstWhere((s) => s.id == id);
-    return AgentSkill(
-      id: existing.id,
-      title: existing.title,
-      whenToUse: existing.whenToUse,
-      description: existing.description,
-      steps: existing.steps,
-      tags: existing.tags,
-      confidence: existing.confidence,
-      status: status,
-      source: existing.source,
-      uses: existing.uses,
-      createdAt: existing.createdAt,
-      updatedAt: existing.updatedAt,
+  Future<OpencodeSkillEntry> create({
+    required String name,
+    String? description,
+    required String content,
+  }) async {
+    lastCreate = {'name': name, 'description': description, 'content': content};
+    final entry = OpencodeSkillEntry(
+      name: name,
+      description: description,
+      location: '/managed/$name/SKILL.md',
+      managed: true,
+      metadata: const OpencodeSkillMetadata(),
     );
+    _entries = [..._entries, entry];
+    return entry;
   }
 
   @override
-  Future<void> deleteSkill(String id) async {
-    lastDeletedId = id;
+  Future<String> getContent(String name) async {
+    lastGetContentName = name;
+    getContentCalls[name] = (getContentCalls[name] ?? 0) + 1;
+    if (throwOnContentFor.contains(name)) {
+      throw Exception('content boom');
+    }
+    return contentByName[name] ?? '';
   }
 
   @override
-  Future<List<AgentSkillVersion>> getVersions(String id) async {
-    lastVersionsId = id;
-    return List.of(versions);
-  }
-
-  @override
-  Future<AgentSkill> rollback(String id, int versionNo) async {
-    lastRollbackId = id;
-    lastRollbackVersionNo = versionNo;
-    final existing = _skills.firstWhere((s) => s.id == id);
-    return AgentSkill(
-      id: existing.id,
-      title: existing.title,
-      whenToUse: existing.whenToUse,
-      description: existing.description,
-      steps: existing.steps,
-      tags: existing.tags,
-      confidence: existing.confidence,
-      status: existing.status,
-      source: existing.source,
-      uses: existing.uses,
-      version: existing.version + 1,
-      createdAt: existing.createdAt,
-      updatedAt: existing.updatedAt,
+  Future<OpencodeSkillEntry> update(
+    String name, {
+    String? description,
+    required String content,
+  }) async {
+    lastUpdate = {'name': name, 'description': description, 'content': content};
+    final entry = OpencodeSkillEntry(
+      name: name,
+      description: description,
+      location: '/managed/$name/SKILL.md',
+      managed: true,
+      metadata: const OpencodeSkillMetadata(),
     );
+    _entries = _entries.map((s) => s.name == name ? entry : s).toList();
+    return entry;
+  }
+
+  @override
+  Future<void> delete(String name) async {
+    lastDeleted = name;
+    _entries = _entries.where((s) => s.name != name).toList();
   }
 }
-
-AgentSkillVersion _version({
-  int versionNo = 1,
-  String source = 'auto-refined',
-  String description = 'a prior version',
-}) =>
-    AgentSkillVersion(
-      id: 'ver-$versionNo',
-      skillId: 'skill-draft-1',
-      versionNo: versionNo,
-      title: 'Draft Skill',
-      whenToUse: 'When testing',
-      description: description,
-      steps: const ['old step'],
-      tags: const ['test'],
-      body: null,
-      confidence: 0.6,
-      source: source,
-      createdAt: '2026-06-24T00:00:00.000Z',
-    );
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-const _kEpoch = '1970-01-01T00:00:00.000Z';
-
-AgentSkill _draftSkill({
-  String id = 'skill-draft-1',
-  String title = 'Draft Skill',
-  String source = 'auto-extract',
+OpencodeSkillEntry _skill(
+  String name, {
+  bool managed = false,
+  String? description = 'desc',
+  OpencodeSkillMetadata? metadata,
 }) =>
-    AgentSkill(
-      id: id,
-      title: title,
-      whenToUse: 'When testing',
-      description: 'A drafted skill awaiting curation',
-      steps: const ['step one', 'step two'],
-      tags: const ['test'],
-      confidence: 0.72,
-      status: 'draft',
-      source: source,
-      uses: 0,
-      createdAt: _kEpoch,
-      updatedAt: _kEpoch,
+    OpencodeSkillEntry(
+      name: name,
+      description: description,
+      location:
+          managed ? '/managed/$name/SKILL.md' : '/external/$name/SKILL.md',
+      managed: managed,
+      metadata: metadata ?? const OpencodeSkillMetadata(),
     );
-
-AgentSkillsController _controller(List<AgentSkill> skills,
-    {_FakeSkillsDataSource? dataSource}) {
-  final ds = dataSource ?? _FakeSkillsDataSource(skills);
-  return AgentSkillsController(AgentSkillsRepository(ds));
-}
 
 Widget _buildApp(AgentSkillsController controller) {
   return MultiProvider(
@@ -190,159 +169,565 @@ Widget _buildApp(AgentSkillsController controller) {
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  group('AgentSkillsView — real surface', () {
-    testWidgets('draft skill renders a DRAFT badge', (tester) async {
-      final controller = _controller([_draftSkill()]);
+  group('AgentSkillsView — unified engine-skill list', () {
+    testWidgets('lists managed + external skills with provenance badges', (
+      tester,
+    ) async {
+      final ds = _FakeSkillsDataSource([
+        _skill('release-notes', managed: true),
+        _skill('engineering:code-review'),
+      ]);
+      final controller = AgentSkillsController(ds);
       addTearDown(controller.dispose);
 
       await tester.pumpWidget(_buildApp(controller));
       await tester.pumpAndSettle();
 
-      expect(find.text('DRAFT'), findsOneWidget);
-      expect(find.text('Draft Skill'), findsOneWidget);
+      expect(find.text('release-notes'), findsOneWidget);
+      expect(find.text('engineering:code-review'), findsOneWidget);
+      expect(
+        find.byKey(const ValueKey('badge-managed-release-notes')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('badge-external-engineering:code-review')),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('managed row shows edit + delete; external is read-only', (
+      tester,
+    ) async {
+      final ds = _FakeSkillsDataSource([
+        _skill('release-notes', managed: true),
+        _skill('docx'),
+      ]);
+      final controller = AgentSkillsController(ds);
+      addTearDown(controller.dispose);
+
+      await tester.pumpWidget(_buildApp(controller));
+      await tester.pumpAndSettle();
+
+      // Managed: edit + delete present.
+      expect(
+        find.byKey(const ValueKey('edit-skill-release-notes')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('delete-skill-release-notes')),
+        findsOneWidget,
+      );
+
+      // External: no edit/delete, shows a read-only lock affordance.
+      expect(find.byKey(const ValueKey('edit-skill-docx')), findsNothing);
+      expect(find.byKey(const ValueKey('delete-skill-docx')), findsNothing);
+      expect(find.byKey(const ValueKey('readonly-skill-docx')), findsOneWidget);
+    });
+
+    testWidgets('renders lifecycle status + baseline→post score', (
+      tester,
+    ) async {
+      final ds = _FakeSkillsDataSource([
+        _skill(
+          'reverted-skill',
+          managed: true,
+          metadata: const OpencodeSkillMetadata(
+            confidence: 0.81,
+            version: 3,
+            status: 'reverted',
+            source: 'teacher-escalation',
+            uses: 7,
+            baselineScore: 0.70,
+            postScore: 0.55,
+          ),
+        ),
+      ]);
+      final controller = AgentSkillsController(ds);
+      addTearDown(controller.dispose);
+
+      await tester.pumpWidget(_buildApp(controller));
+      await tester.pumpAndSettle();
+
+      // The lifecycle pill stays in the always-visible trailing cell.
+      expect(
+        find.byKey(const ValueKey('status-badge-reverted')),
+        findsOneWidget,
+      );
+
+      // Provenance + score moved into the lazy expansion area (#813) — expand.
+      await tester.tap(find.byKey(const ValueKey('skill-row-reverted-skill')));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('teacher-escalation'), findsOneWidget);
+      expect(find.textContaining('confidence 0.81'), findsOneWidget);
+      expect(find.textContaining('v3'), findsOneWidget);
+      expect(find.textContaining('score 0.70 → 0.55'), findsOneWidget);
+    });
+
+    testWidgets('external fork shows the auto-improved note', (tester) async {
+      final ds = _FakeSkillsDataSource([
+        _skill(
+          'forked-skill',
+          managed: true,
+          metadata: const OpencodeSkillMetadata(
+            status: 'measuring',
+            isExternalFork: true,
+          ),
+        ),
+      ]);
+      final controller = AgentSkillsController(ds);
+      addTearDown(controller.dispose);
+
+      await tester.pumpWidget(_buildApp(controller));
+      await tester.pumpAndSettle();
+
+      // Lifecycle pill is always visible.
+      expect(
+        find.byKey(const ValueKey('status-badge-measuring')),
+        findsOneWidget,
+      );
+
+      // The auto-improved note is part of the lazy expansion (#813) — expand.
+      await tester.tap(find.byKey(const ValueKey('skill-row-forked-skill')));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('auto-improved'), findsOneWidget);
     });
 
     testWidgets(
-        'teacher-escalation skill renders the learned-from-failure '
-        'annotation', (tester) async {
-      final controller = _controller([
-        _draftSkill(
-          id: 'skill-teacher-1',
-          title: 'Escalated Skill',
-          source: 'teacher-escalation',
-        ),
+      '"New skill" opens the managed editor and round-trips a create',
+      (tester) async {
+        final ds = _FakeSkillsDataSource([
+          _skill('release-notes', managed: true),
+        ]);
+        final controller = AgentSkillsController(ds);
+        addTearDown(controller.dispose);
+
+        await tester.pumpWidget(_buildApp(controller));
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.byKey(const ValueKey('new-skill-button')));
+        await tester.pumpAndSettle();
+
+        // The managed editor sheet is open.
+        expect(find.text('New skill'), findsWidgets);
+
+        // Scope field finds to the editor sheet — the page now also has a
+        // search TextField (#813), so `.first`/`.last` across the whole tree
+        // would target the wrong fields.
+        final sheetFields = find.descendant(
+          of: find.byType(ManagedSkillEditorSheet),
+          matching: find.byType(TextField),
+        );
+        await tester.enterText(sheetFields.first, 'my-new-skill');
+        await tester.enterText(sheetFields.last, 'the body');
+        await tester.tap(find.widgetWithText(FilledButton, 'Create skill'));
+        await tester.pumpAndSettle();
+
+        expect(ds.lastCreate?['name'], equals('my-new-skill'));
+        expect(ds.lastCreate?['content'], equals('the body'));
+        // The newly created skill appears after the round-trip reload.
+        expect(find.text('my-new-skill'), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'editing a managed skill loads its body and round-trips an update (#812)',
+      (tester) async {
+        final ds =
+            _FakeSkillsDataSource([_skill('release-notes', managed: true)])
+              ..contentByName['release-notes'] =
+                  '---\nname: release-notes\n---\n\nThe saved body.';
+        final controller = AgentSkillsController(ds);
+        addTearDown(controller.dispose);
+
+        await tester.pumpWidget(_buildApp(controller));
+        await tester.pumpAndSettle();
+
+        await tester.tap(
+          find.byKey(const ValueKey('edit-skill-release-notes')),
+        );
+        await tester.pumpAndSettle();
+
+        // Edit mode fetched the body via getContent and populated the box —
+        // it is NOT empty (the #812 bug).
+        expect(ds.lastGetContentName, equals('release-notes'));
+        expect(find.text('Edit skill'), findsWidgets);
+        expect(find.textContaining('The saved body.'), findsOneWidget);
+
+        // Edit the body and save → update round-trips with the new content.
+        final sheetFields = find.descendant(
+          of: find.byType(ManagedSkillEditorSheet),
+          matching: find.byType(TextField),
+        );
+        await tester.enterText(sheetFields.last, 'The edited body.');
+        await tester.tap(find.widgetWithText(FilledButton, 'Save skill'));
+        await tester.pumpAndSettle();
+
+        expect(ds.lastUpdate?['name'], equals('release-notes'));
+        expect(ds.lastUpdate?['content'], equals('The edited body.'));
+      },
+    );
+
+    testWidgets('deleting a managed skill (confirmed) calls delete', (
+      tester,
+    ) async {
+      final ds = _FakeSkillsDataSource([
+        _skill('release-notes', managed: true),
       ]);
+      final controller = AgentSkillsController(ds);
       addTearDown(controller.dispose);
 
       await tester.pumpWidget(_buildApp(controller));
       await tester.pumpAndSettle();
 
-      expect(find.textContaining('learned from failure'), findsOneWidget);
-    });
-
-    testWidgets('tapping Publish calls updateSkill with status published',
-        (tester) async {
-      final ds = _FakeSkillsDataSource([_draftSkill()]);
-      final controller = _controller([], dataSource: ds);
-      addTearDown(controller.dispose);
-
-      await tester.pumpWidget(_buildApp(controller));
+      await tester.tap(
+        find.byKey(const ValueKey('delete-skill-release-notes')),
+      );
       await tester.pumpAndSettle();
 
-      final publishButton =
-          find.byKey(const ValueKey('publish-skill-skill-draft-1'));
-      expect(publishButton, findsOneWidget);
-
-      await tester.tap(publishButton);
-      await tester.pumpAndSettle();
-
-      expect(ds.lastUpdatedId, equals('skill-draft-1'));
-      expect(ds.lastUpdatedStatus, equals('published'));
-    });
-
-    testWidgets('tapping Delete (confirmed) calls deleteSkill', (tester) async {
-      final ds = _FakeSkillsDataSource([_draftSkill()]);
-      final controller = _controller([], dataSource: ds);
-      addTearDown(controller.dispose);
-
-      await tester.pumpWidget(_buildApp(controller));
-      await tester.pumpAndSettle();
-
-      final deleteButton =
-          find.byKey(const ValueKey('delete-skill-skill-draft-1'));
-      expect(deleteButton, findsOneWidget);
-
-      await tester.tap(deleteButton);
-      await tester.pumpAndSettle();
-
-      // Confirm in the dialog.
       await tester.tap(find.text('Delete').last);
       await tester.pumpAndSettle();
 
-      expect(ds.lastDeletedId, equals('skill-draft-1'));
+      expect(ds.lastDeleted, equals('release-notes'));
     });
 
     testWidgets('loading shows a spinner', (tester) async {
-      final ds = _FakeSkillsDataSource([])..hangOnGet = true;
-      final controller = _controller([], dataSource: ds);
+      final ds = _FakeSkillsDataSource([])..hangOnList = true;
+      final controller = AgentSkillsController(ds);
       addTearDown(controller.dispose);
 
       await tester.pumpWidget(_buildApp(controller));
-      // First frame triggers loadSkills(); pump once so the post-frame
-      // callback fires and the controller flips to loading.
       await tester.pump();
       await tester.pump();
 
       expect(find.byType(CircularProgressIndicator), findsOneWidget);
     });
 
-    testWidgets('error shows the error message', (tester) async {
-      final ds = _FakeSkillsDataSource([])..throwOnGet = true;
-      final controller = _controller([], dataSource: ds);
+    testWidgets('error shows the error message + no hardcoded fallback', (
+      tester,
+    ) async {
+      final ds = _FakeSkillsDataSource([])..throwOnList = true;
+      final controller = AgentSkillsController(ds);
       addTearDown(controller.dispose);
 
       await tester.pumpWidget(_buildApp(controller));
       await tester.pumpAndSettle();
 
+      expect(find.byKey(const ValueKey('skills-error-state')), findsOneWidget);
       expect(find.textContaining('boom'), findsOneWidget);
     });
 
-    testWidgets('empty list shows "No skills yet"', (tester) async {
-      final controller = _controller([]);
+    testWidgets('empty list shows the empty state', (tester) async {
+      final ds = _FakeSkillsDataSource([]);
+      final controller = AgentSkillsController(ds);
       addTearDown(controller.dispose);
 
       await tester.pumpWidget(_buildApp(controller));
       await tester.pumpAndSettle();
 
+      expect(find.byKey(const ValueKey('skills-empty-state')), findsOneWidget);
       expect(find.text('No skills yet'), findsOneWidget);
     });
+  });
 
-    testWidgets('tapping History renders the version list (P5-3)',
-        (tester) async {
-      final ds = _FakeSkillsDataSource([_draftSkill()])
-        ..versions = [
-          _version(versionNo: 2, description: 'second'),
-          _version(versionNo: 1, description: 'first'),
-        ];
-      final controller = _controller([], dataSource: ds);
+  group('AgentSkillsView — #813 sortable + searchable table', () {
+    /// Returns the on-screen top-to-bottom order of the given skill names by
+    /// their vertical position, so we can assert sort order deterministically.
+    List<String> orderedNames(WidgetTester tester, List<String> names) {
+      final pairs = names
+          .where((n) => find.text(n).evaluate().isNotEmpty)
+          .map((n) => MapEntry(n, tester.getTopLeft(find.text(n)).dy))
+          .toList()
+        ..sort((a, b) => a.value.compareTo(b.value));
+      return pairs.map((e) => e.key).toList();
+    }
+
+    testWidgets('default sort is Name ascending; clicking Name toggles desc', (
+      tester,
+    ) async {
+      final ds = _FakeSkillsDataSource([
+        _skill('charlie', managed: true),
+        _skill('alpha'),
+        _skill('bravo', managed: true),
+      ]);
+      final controller = AgentSkillsController(ds);
       addTearDown(controller.dispose);
 
       await tester.pumpWidget(_buildApp(controller));
       await tester.pumpAndSettle();
 
-      await tester
-          .tap(find.byKey(const ValueKey('history-skill-skill-draft-1')));
+      // Default: Name ascending.
+      expect(
+        orderedNames(tester, ['alpha', 'bravo', 'charlie']),
+        equals(['alpha', 'bravo', 'charlie']),
+      );
+      // Active indicator points up.
+      expect(
+        find.byKey(const ValueKey('skills-sort-name-asc')),
+        findsOneWidget,
+      );
+
+      // Click Name header → descending.
+      await tester.tap(find.byKey(const ValueKey('skills-sort-name')));
       await tester.pumpAndSettle();
 
-      expect(ds.lastVersionsId, equals('skill-draft-1'));
-      expect(find.textContaining('Version history'), findsOneWidget);
-      expect(find.textContaining('v2 ·'), findsOneWidget);
-      expect(find.textContaining('v1 ·'), findsOneWidget);
       expect(
-        find.byKey(const ValueKey('rollback-version-1')),
+        orderedNames(tester, ['alpha', 'bravo', 'charlie']),
+        equals(['charlie', 'bravo', 'alpha']),
+      );
+      expect(
+        find.byKey(const ValueKey('skills-sort-name-desc')),
         findsOneWidget,
       );
     });
 
-    testWidgets('tapping Rollback fires the repo/route with the version (P5-3)',
-        (tester) async {
-      final ds = _FakeSkillsDataSource([_draftSkill()])
-        ..versions = [_version(versionNo: 1, description: 'first')];
-      final controller = _controller([], dataSource: ds);
+    testWidgets('clicking Description header sorts rows by description', (
+      tester,
+    ) async {
+      // Names and descriptions are deliberately inverse-ordered so a
+      // description sort produces a different row order than the name sort.
+      final ds = _FakeSkillsDataSource([
+        _skill('alpha', managed: true, description: 'zebra task'),
+        _skill('bravo', description: 'apple task'),
+        _skill('charlie', managed: true, description: 'mango task'),
+      ]);
+      final controller = AgentSkillsController(ds);
       addTearDown(controller.dispose);
 
       await tester.pumpWidget(_buildApp(controller));
       await tester.pumpAndSettle();
 
-      await tester
-          .tap(find.byKey(const ValueKey('history-skill-skill-draft-1')));
+      // Sanity: default Name-asc order.
+      expect(
+        orderedNames(tester, ['alpha', 'bravo', 'charlie']),
+        equals(['alpha', 'bravo', 'charlie']),
+      );
+
+      // Sort by Description ascending: apple(bravo) < mango(charlie) < zebra(alpha).
+      await tester.tap(find.byKey(const ValueKey('skills-sort-description')));
       await tester.pumpAndSettle();
 
-      await tester.tap(find.byKey(const ValueKey('rollback-version-1')));
+      expect(
+        orderedNames(tester, ['alpha', 'bravo', 'charlie']),
+        equals(['bravo', 'charlie', 'alpha']),
+      );
+      expect(
+        find.byKey(const ValueKey('skills-sort-description-asc')),
+        findsOneWidget,
+      );
+
+      // Toggle to descending: zebra(alpha) < mango(charlie) < apple(bravo).
+      await tester.tap(find.byKey(const ValueKey('skills-sort-description')));
+      await tester.pumpAndSettle();
+      expect(
+        orderedNames(tester, ['alpha', 'bravo', 'charlie']),
+        equals(['alpha', 'charlie', 'bravo']),
+      );
+    });
+
+    testWidgets('search filters rows by name and by description', (
+      tester,
+    ) async {
+      final ds = _FakeSkillsDataSource([
+        _skill(
+          'release-notes',
+          managed: true,
+          description: 'draft a changelog',
+        ),
+        _skill('docx', description: 'edit Word documents'),
+        _skill('pptx', description: 'build slide decks'),
+      ]);
+      final controller = AgentSkillsController(ds);
+      addTearDown(controller.dispose);
+
+      await tester.pumpWidget(_buildApp(controller));
       await tester.pumpAndSettle();
 
-      expect(ds.lastRollbackId, equals('skill-draft-1'));
-      expect(ds.lastRollbackVersionNo, equals(1));
+      // Filter by NAME substring (case-insensitive).
+      await tester.enterText(
+        find.byKey(const ValueKey('skills-search-field')),
+        'DOC',
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('docx'), findsOneWidget);
+      expect(find.text('release-notes'), findsNothing);
+      expect(find.text('pptx'), findsNothing);
+
+      // Filter by DESCRIPTION substring.
+      await tester.enterText(
+        find.byKey(const ValueKey('skills-search-field')),
+        'changelog',
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('release-notes'), findsOneWidget);
+      expect(find.text('docx'), findsNothing);
+
+      // No match → no-results placeholder, not a crash / hardcoded list.
+      await tester.enterText(
+        find.byKey(const ValueKey('skills-search-field')),
+        'zzz-nomatch',
+      );
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('skills-no-matches')), findsOneWidget);
+
+      // Clearing restores the full list.
+      await tester.enterText(
+        find.byKey(const ValueKey('skills-search-field')),
+        '',
+      );
+      await tester.pumpAndSettle();
+      expect(find.text('release-notes'), findsOneWidget);
+      expect(find.text('docx'), findsOneWidget);
+      expect(find.text('pptx'), findsOneWidget);
+    });
+
+    testWidgets(
+      'expanding a row fetches the body via getContent and renders it; '
+      're-expanding does not refetch (cached)',
+      (tester) async {
+        final ds = _FakeSkillsDataSource([
+          _skill('release-notes', managed: true),
+        ])
+          ..contentByName['release-notes'] = 'The SKILL.md body text.';
+        final controller = AgentSkillsController(ds);
+        addTearDown(controller.dispose);
+
+        await tester.pumpWidget(_buildApp(controller));
+        await tester.pumpAndSettle();
+
+        // Not fetched until expanded.
+        expect(ds.getContentCalls['release-notes'], isNull);
+        expect(find.textContaining('The SKILL.md body text.'), findsNothing);
+
+        // Expand → getContent fires and the body renders.
+        await tester.tap(find.byKey(const ValueKey('skill-row-release-notes')));
+        await tester.pumpAndSettle();
+        expect(ds.lastGetContentName, equals('release-notes'));
+        expect(ds.getContentCalls['release-notes'], equals(1));
+        expect(find.textContaining('The SKILL.md body text.'), findsOneWidget);
+
+        // Collapse and re-expand → served from cache, no second fetch.
+        await tester.tap(find.byKey(const ValueKey('skill-row-release-notes')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const ValueKey('skill-row-release-notes')));
+        await tester.pumpAndSettle();
+        expect(ds.getContentCalls['release-notes'], equals(1));
+        expect(find.textContaining('The SKILL.md body text.'), findsOneWidget);
+      },
+    );
+
+    testWidgets('a failed body fetch renders a soft error, not a crash', (
+      tester,
+    ) async {
+      final ds = _FakeSkillsDataSource([_skill('release-notes', managed: true)])
+        ..throwOnContentFor.add('release-notes');
+      final controller = AgentSkillsController(ds);
+      addTearDown(controller.dispose);
+
+      await tester.pumpWidget(_buildApp(controller));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const ValueKey('skill-row-release-notes')));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byKey(const ValueKey('skill-body-error-release-notes')),
+        findsOneWidget,
+      );
+      expect(find.textContaining('content boom'), findsOneWidget);
+    });
+
+    testWidgets(
+      'an active skill renders a visible Status pill (column not empty)',
+      (tester) async {
+        // Default metadata → status null → treated as `active`. Pre-#813 the
+        // trailing cell rendered nothing for active skills, so the Status
+        // column looked empty on a normal system.
+        final ds = _FakeSkillsDataSource([
+          _skill('release-notes', managed: true),
+        ]);
+        final controller = AgentSkillsController(ds);
+        addTearDown(controller.dispose);
+
+        await tester.pumpWidget(_buildApp(controller));
+        await tester.pumpAndSettle();
+
+        expect(
+          find.byKey(const ValueKey('status-badge-active')),
+          findsOneWidget,
+        );
+        expect(find.text('ACTIVE'), findsOneWidget);
+      },
+    );
+
+    testWidgets('clicking the Status header sorts rows by lifecycle asc/desc', (
+      tester,
+    ) async {
+      // Lifecycle order is measuring → reverted → active; names are inverse so
+      // a status sort produces a different order than the default Name sort.
+      final ds = _FakeSkillsDataSource([
+        _skill(
+          'alpha',
+          managed: true,
+          metadata: const OpencodeSkillMetadata(status: 'active'),
+        ),
+        _skill(
+          'bravo',
+          managed: true,
+          metadata: const OpencodeSkillMetadata(status: 'measuring'),
+        ),
+        _skill(
+          'charlie',
+          managed: true,
+          metadata: const OpencodeSkillMetadata(status: 'reverted'),
+        ),
+      ]);
+      final controller = AgentSkillsController(ds);
+      addTearDown(controller.dispose);
+
+      await tester.pumpWidget(_buildApp(controller));
+      await tester.pumpAndSettle();
+
+      // Sanity: default Name-asc order.
+      expect(
+        orderedNames(tester, ['alpha', 'bravo', 'charlie']),
+        equals(['alpha', 'bravo', 'charlie']),
+      );
+
+      // Sort by Status ascending: measuring(bravo) → reverted(charlie) →
+      // active(alpha).
+      await tester.tap(find.byKey(const ValueKey('skills-sort-status')));
+      await tester.pumpAndSettle();
+      expect(
+        orderedNames(tester, ['alpha', 'bravo', 'charlie']),
+        equals(['bravo', 'charlie', 'alpha']),
+      );
+      expect(
+        find.byKey(const ValueKey('skills-sort-status-asc')),
+        findsOneWidget,
+      );
+
+      // Toggle to descending → reversed: active(alpha) → reverted(charlie) →
+      // measuring(bravo).
+      await tester.tap(find.byKey(const ValueKey('skills-sort-status')));
+      await tester.pumpAndSettle();
+      expect(
+        orderedNames(tester, ['alpha', 'bravo', 'charlie']),
+        equals(['alpha', 'charlie', 'bravo']),
+      );
+      expect(
+        find.byKey(const ValueKey('skills-sort-status-desc')),
+        findsOneWidget,
+      );
+    });
+  });
+
+  group('OpencodeSkillsDataSource — dual-endpoint targeting', () {
+    test('targets the local agent server (:4001), never the prod URL', () {
+      // The agent skills traffic must stay on localhost:4001 regardless of the
+      // configurable production server URL (CLAUDE.md dual-endpoint rule).
+      expect(AppConstants.agentLocalBaseUrl, contains('4001'));
+      expect(AppConstants.agentLocalBaseUrl, contains('localhost'));
     });
   });
 }

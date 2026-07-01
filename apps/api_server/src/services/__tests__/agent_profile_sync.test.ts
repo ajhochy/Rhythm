@@ -138,8 +138,10 @@ describe('syncOpencodeAgentProfiles — overlay-field preservation', () => {
     expect(created.ocAgent).toBe('newcomer');
     // primary + non-internal + not a secondary front-door → selectable.
     expect(created.sessionSelectable).toBe(true);
-    // First-insert importer defaults apply.
-    expect(created.allowedMcpsJson).toBe('["rhythm"]');
+    // First-insert importer defaults apply. The engine is not mocked here so
+    // listMcp() yields an empty live set → normalize/validate skip → the raw
+    // default is persisted verbatim (rhythm + obsidian read/search default).
+    expect(created.allowedMcpsJson).toBe('["rhythm","obsidian"]');
   });
 
   it('keeps dev front-door secondaries out of the picker on sync', async () => {

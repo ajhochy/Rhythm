@@ -80,9 +80,10 @@ Future<void> showAgentProfilesManagerSheet(
 /// one. Refreshes the controller on open so the list reflects the latest state
 /// (including profiles seeded from opencode agents).
 class AgentProfilesManagerSheet extends StatefulWidget {
-  const AgentProfilesManagerSheet(
-      {super.key, AgentModelsDataSource? modelsDataSource})
-      : _modelsDataSource = modelsDataSource;
+  const AgentProfilesManagerSheet({
+    super.key,
+    AgentModelsDataSource? modelsDataSource,
+  }) : _modelsDataSource = modelsDataSource;
 
   final AgentModelsDataSource? _modelsDataSource;
 
@@ -222,8 +223,11 @@ class _AgentProfilesManagerSheetState extends State<AgentProfilesManagerSheet> {
                                   ],
                                 ),
                               ),
-                              Icon(Icons.chevron_right,
-                                  size: 18, color: rhythm.textMuted),
+                              Icon(
+                                Icons.chevron_right,
+                                size: 18,
+                                color: rhythm.textMuted,
+                              ),
                             ],
                           ),
                         ),
@@ -334,10 +338,12 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
     final cfg = widget.config;
     _labelController = TextEditingController(text: cfg?.label ?? '');
     _iconController = TextEditingController(text: cfg?.icon ?? 'terminal');
-    _systemPromptController =
-        TextEditingController(text: cfg?.systemPrompt ?? '');
-    _allowedDelegatesController =
-        TextEditingController(text: (cfg?.allowedDelegates ?? []).join('\n'));
+    _systemPromptController = TextEditingController(
+      text: cfg?.systemPrompt ?? '',
+    );
+    _allowedDelegatesController = TextEditingController(
+      text: (cfg?.allowedDelegates ?? []).join('\n'),
+    );
     _isManager = cfg?.isManager ?? false;
     _selectedMcps =
         cfg?.allowedMcps != null ? List<String>.from(cfg!.allowedMcps!) : null;
@@ -486,9 +492,7 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
     setState(() => _loading = false);
 
     if (result == null) {
-      setState(
-        () => _error = controller.error ?? 'Failed to save profile.',
-      );
+      setState(() => _error = controller.error ?? 'Failed to save profile.');
       return;
     }
 
@@ -540,8 +544,10 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
                   const SizedBox(height: 16),
                   Text(
                     _error!,
-                    style:
-                        TextStyle(color: context.rhythm.danger, fontSize: 13),
+                    style: TextStyle(
+                      color: context.rhythm.danger,
+                      fontSize: 13,
+                    ),
                   ),
                 ],
                 const SizedBox(height: 24),
@@ -732,11 +738,7 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
             ),
             child: Row(
               children: [
-                Icon(
-                  Icons.sync,
-                  size: 16,
-                  color: context.rhythm.textMuted,
-                ),
+                Icon(Icons.sync, size: 16, color: context.rhythm.textMuted),
                 const SizedBox(width: 8),
                 Text(
                   'Loading models…',
@@ -755,18 +757,24 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
             style: TextStyle(color: context.rhythm.textPrimary, fontSize: 13),
             decoration: InputDecoration(
               hintText: 'No preference (use default)',
-              hintStyle:
-                  TextStyle(color: context.rhythm.textMuted, fontSize: 13),
-              contentPadding:
-                  const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+              hintStyle: TextStyle(
+                color: context.rhythm.textMuted,
+                fontSize: 13,
+              ),
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 12,
+                vertical: 12,
+              ),
               enabledBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(RhythmRadius.sm),
                 borderSide: BorderSide(color: context.rhythm.border),
               ),
               focusedBorder: OutlineInputBorder(
                 borderRadius: BorderRadius.circular(RhythmRadius.sm),
-                borderSide:
-                    BorderSide(color: context.rhythm.accent, width: 1.5),
+                borderSide: BorderSide(
+                  color: context.rhythm.accent,
+                  width: 1.5,
+                ),
               ),
               filled: true,
               fillColor: context.rhythm.surfaceMuted,
@@ -820,8 +828,10 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
               TextButton(
                 style: TextButton.styleFrom(
                   foregroundColor: context.rhythm.accent,
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 4,
+                  ),
                 ),
                 onPressed: () =>
                     setState(() => _selectedMcps = List.from(_availableMcps)),
@@ -831,8 +841,10 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
               TextButton(
                 style: TextButton.styleFrom(
                   foregroundColor: context.rhythm.textSecondary,
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 4,
+                  ),
                 ),
                 onPressed: () => setState(() => _selectedMcps = null),
                 child: const Text('Allow all', style: TextStyle(fontSize: 13)),
@@ -847,11 +859,18 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
         else
           _filterChipWrap(
             // The restricted set may include names no longer live (e.g. a
-            // server removed since the profile was saved); union them so the
-            // user still sees and can unselect a stale selection. Persisted
-            // names are passed through verbatim (#775).
+            // server removed since the profile was saved, or a saved id that
+            // never matched the live engine id like `nfl-mcp` vs `nfl_mcp`);
+            // union them so the user still sees and can unselect a stale
+            // selection. Persisted names pass through verbatim — we surface
+            // staleness, we never rewrite the saved scope (#781 / #789).
             items: {..._availableMcps, ..._selectedMcps!}.toList(),
             selected: _selectedMcps!,
+            // A persisted selection with no live match is unenforceable; flag
+            // it visibly so it can't be mistaken for a valid live chip. Only
+            // judge staleness once the live set has actually loaded.
+            liveItems: _availableMcps.toSet(),
+            flagStale: _mcpsLoaded,
             onToggle: (mcp) => setState(() {
               if (_selectedMcps!.contains(mcp)) {
                 _selectedMcps!.remove(mcp);
@@ -884,8 +903,10 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
               TextButton(
                 style: TextButton.styleFrom(
                   foregroundColor: context.rhythm.accent,
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 4,
+                  ),
                 ),
                 onPressed: () => setState(
                   () => _selectedSkills = List.from(_availableSkillNames),
@@ -896,8 +917,10 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
               TextButton(
                 style: TextButton.styleFrom(
                   foregroundColor: context.rhythm.textSecondary,
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 4,
+                  ),
                 ),
                 onPressed: () => setState(() => _selectedSkills = null),
                 child: const Text('Allow all', style: TextStyle(fontSize: 13)),
@@ -936,7 +959,22 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
         final managed = entry?.managed ?? false;
 
         final chip = FilterChip(
-          label: Text(name),
+          // Bound + ellipsize the label so a long skill name (e.g.
+          // `patristic-bible-study:study-passage`) can never make the chip —
+          // or the managed-skill Row it sits in — overflow the Wrap (#780).
+          // Full name stays legible via the tooltip.
+          label: Tooltip(
+            message: name,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 240),
+              child: Text(
+                name,
+                maxLines: 1,
+                softWrap: false,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ),
+          ),
           selected: isSelected,
           onSelected: (_) => setState(() {
             if (_selectedSkills!.contains(name)) {
@@ -1054,8 +1092,10 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
       context: context,
       builder: (dialogCtx) => AlertDialog(
         backgroundColor: dialogCtx.rhythm.surface,
-        title: Text('Delete "${skill.name}"?',
-            style: TextStyle(color: dialogCtx.rhythm.textPrimary)),
+        title: Text(
+          'Delete "${skill.name}"?',
+          style: TextStyle(color: dialogCtx.rhythm.textPrimary),
+        ),
         content: Text(
           'This removes the Rhythm-managed skill from the engine.',
           style: TextStyle(color: dialogCtx.rhythm.textSecondary),
@@ -1137,18 +1177,11 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
       ),
       child: Row(
         children: [
-          Icon(
-            Icons.all_inclusive,
-            size: 16,
-            color: context.rhythm.textMuted,
-          ),
+          Icon(Icons.all_inclusive, size: 16, color: context.rhythm.textMuted),
           const SizedBox(width: 8),
           Text(
             label,
-            style: TextStyle(
-              color: context.rhythm.textSecondary,
-              fontSize: 13,
-            ),
+            style: TextStyle(color: context.rhythm.textSecondary, fontSize: 13),
           ),
         ],
       ),
@@ -1183,12 +1216,57 @@ class _AgentProfileSheetState extends State<AgentProfileSheet> {
     required List<String> items,
     required List<String> selected,
     required ValueChanged<String> onToggle,
+    // When [flagStale] is true, any *selected* item absent from [liveItems] is
+    // treated as a stale persisted selection: it can no longer be enforced
+    // against the live engine, so it is rendered with a distinct, muted +
+    // warning style. The chip stays toggleable so the user can unselect it.
+    // We surface the mismatch; we never rewrite the saved value (#781 / #789).
+    Set<String> liveItems = const {},
+    bool flagStale = false,
   }) {
     return Wrap(
       spacing: 8,
       runSpacing: 8,
       children: items.map((item) {
         final isSelected = selected.contains(item);
+        final isStale = flagStale && isSelected && !liveItems.contains(item);
+
+        if (isStale) {
+          return Tooltip(
+            message: 'Not a live MCP server — this saved selection won\'t be '
+                'enforced. Unselect it, or pick the live server.',
+            child: FilterChip(
+              key: ValueKey('stale-chip-$item'),
+              avatar: Icon(
+                Icons.warning_amber_rounded,
+                size: 16,
+                color: context.rhythm.warning,
+              ),
+              label: Text(item),
+              selected: isSelected,
+              onSelected: (_) => onToggle(item),
+              // Muted/greyed fill so it reads as inert rather than a valid
+              // accent-coloured selection.
+              selectedColor: context.rhythm.surfaceMuted,
+              backgroundColor: context.rhythm.surfaceMuted,
+              showCheckmark: false,
+              labelStyle: TextStyle(
+                color: context.rhythm.textMuted,
+                fontSize: 12,
+                fontWeight: FontWeight.w400,
+                fontStyle: FontStyle.italic,
+              ),
+              side: BorderSide(
+                color: context.rhythm.warning.withValues(alpha: 0.6),
+              ),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(RhythmRadius.pill),
+              ),
+              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+            ),
+          );
+        }
+
         return FilterChip(
           label: Text(item),
           selected: isSelected,

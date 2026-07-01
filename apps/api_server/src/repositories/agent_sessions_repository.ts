@@ -130,6 +130,24 @@ export class AgentSessionsRepository {
     return row ? rowToModel(row) : null;
   }
 
+  /**
+   * #751 — Resolve a local session by its Opencode SDK session id.
+   *
+   * `sdk_session_id` is the durable counterpart to the ephemeral in-memory
+   * `opencodeSessionMap`: it is persisted at session-create / resume time and
+   * survives api_server restarts. The stream bridge uses this as a fallback so
+   * engine events are never orphaned when the in-memory map misses (a wiped or
+   * unpopulated map would otherwise drop status/parts/child events, leaving the
+   * session stuck on the 'starting' badge).
+   */
+  findBySdkSessionId(sdkSessionId: string): AgentSession | null {
+    if (!sdkSessionId) return null;
+    const row = getDb()
+      .prepare(`SELECT * FROM agent_sessions WHERE sdk_session_id = ? LIMIT 1`)
+      .get(sdkSessionId) as AgentSessionRow | undefined;
+    return row ? rowToModel(row) : null;
+  }
+
   listAll(
     limit = 100,
     opts: { includeArchived?: boolean; archivedOnly?: boolean } = {},

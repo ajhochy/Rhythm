@@ -20,6 +20,7 @@ import '../../../features/rhythms/views/rhythms_view.dart';
 import '../../../features/settings/controllers/settings_controller.dart';
 import '../../../features/settings/views/settings_view.dart';
 import '../../../features/agents/views/agents_view.dart';
+import '../../../features/agents/controllers/agents_controller.dart';
 import '../agents/agent_server_controller.dart';
 import '../agents/agent_trigger_watcher.dart';
 import '../../../features/tasks/views/automation_rules_view.dart';
@@ -128,10 +129,20 @@ class _AppShellState extends State<AppShell> with WindowListener {
           'task' => AppConstants.navTasks,
           'rhythm' => AppConstants.navRhythms,
           'project' => AppConstants.navProjects,
+          // #815: agent-ask notification tap → Agents screen + select session.
+          'agentSession' => AppConstants.navAgents,
           _ => -1,
         };
         if (index >= 0) {
           setState(() => _selectedIndex = index);
+          if (pending.entityType == 'agentSession') {
+            // Raise the window and open the asking session (#815, AC2).
+            unawaited(windowManager.show());
+            unawaited(windowManager.focus());
+            unawaited(
+              context.read<AgentsController>().selectSession(pending.entityId),
+            );
+          }
         }
       }
 

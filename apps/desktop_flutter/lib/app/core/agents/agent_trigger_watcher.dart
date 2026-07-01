@@ -34,8 +34,15 @@ bool get isLocalSmokeRun {
   // it was built into, can't leak across launchd sessions).
   const dartDefine = String.fromEnvironment('RHYTHM_LOCAL_SMOKE');
   String? envVar;
+  var isFlutterTest = false;
   try {
     envVar = Platform.environment['RHYTHM_LOCAL_SMOKE'];
+    // `flutter test` sets FLUTTER_TEST=true. A unit-test run must be hermetic:
+    // a developer/CI machine with a stale `RHYTHM_LOCAL_SMOKE=1` exported (the
+    // same #651 launchd-leak scenario) must NOT silence the watcher under test,
+    // or every AgentTriggerWatcher test fails for an unrelated environmental
+    // reason. The dart-define path is still honored (compile-time, can't leak).
+    isFlutterTest = Platform.environment['FLUTTER_TEST'] == 'true';
   } catch (_) {
     // Platform.environment throws on web; envVar stays null.
   }
@@ -43,6 +50,7 @@ bool get isLocalSmokeRun {
     dartDefine: dartDefine,
     envVar: envVar,
     isDebugMode: kDebugMode,
+    isFlutterTest: isFlutterTest,
     onIgnoredInRelease: _warnIgnoredSmokeEnvOnce,
   );
 }
@@ -52,8 +60,15 @@ bool get isLocalSmokeRun {
 /// [kDebugMode] (which is always `true` under `flutter test`).
 ///
 /// Returns `true` iff smoke-mode should silence the watcher. Rules:
-/// - `dartDefine == '1'` → always true (compile-time scoped).
-/// - `envVar == '1'` && [isDebugMode] → true (debug-build override).
+/// - `dartDefine == '1'` → always true (compile-time scoped; never leaks, so
+///   honored even under `flutter test`).
+/// - [isFlutterTest] → false (env-var path ignored). Issue #782: `flutter test`
+///   runs in debug mode, so an ambient `RHYTHM_LOCAL_SMOKE=1` left exported on
+///   the dev/CI machine would otherwise silence the watcher and fail every
+///   `AgentTriggerWatcher` test for an unrelated environmental reason. Unit
+///   tests must be hermetic against the leaked env var.
+/// - `envVar == '1'` && [isDebugMode] → true (debug-build override, e.g.
+///   `flutter run` smoke session).
 /// - `envVar == '1'` && ![isDebugMode] → false, and [onIgnoredInRelease] is
 ///   invoked exactly once (warning hook). Issue #651: a stale
 ///   `launchctl setenv RHYTHM_LOCAL_SMOKE 1` from a debug smoke session
@@ -65,8 +80,10 @@ bool computeIsLocalSmokeRun({
   required String? envVar,
   required bool isDebugMode,
   required void Function() onIgnoredInRelease,
+  bool isFlutterTest = false,
 }) {
   if (dartDefine == '1') return true;
+  if (isFlutterTest) return false;
   if (envVar != '1') return false;
   if (isDebugMode) return true;
   onIgnoredInRelease();

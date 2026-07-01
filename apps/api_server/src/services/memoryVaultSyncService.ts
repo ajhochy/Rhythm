@@ -38,6 +38,39 @@ import { logger } from '../utils/logger';
 /** The canonical storage source stamped on every mirrored row. */
 export const MEMORY_VAULT_SOURCE = 'obsidian-memory';
 
+/**
+ * Canonical index identity for a memory note: its path RELATIVE TO THE VAULT
+ * ROOT (e.g. `memory/fact/abc.md`).
+ *
+ * Both index writers MUST key on this one form or the same note gets indexed
+ * twice (epic #801 / #808 follow-up): the scan/rebuild path
+ * ({@link scanVaultNotes} → {@link MemoryIndexService.rebuildIndexFromVault})
+ * already keys on `path.relative(vaultRoot, full)`, while the vault-first write
+ * path ({@link rememberToVault}) writes under `<vaultRoot>/memory`. Routing both
+ * through these helpers guarantees a write-then-rebuild produces the SAME
+ * `source_id` (exactly one row), and that `forget`/`removeNote` keyed on one
+ * form can't miss a row keyed on the other.
+ *
+ * `absNotePath` must be inside `vaultRoot`. The result uses the host path
+ * separator (matching `scanVaultNotes`, which also uses `path.relative`).
+ */
+export function toVaultRelativeKey(vaultRoot: string, absNotePath: string): string {
+  return path.relative(path.resolve(vaultRoot), path.resolve(absNotePath));
+}
+
+/**
+ * Inverse of {@link toVaultRelativeKey} for the memory-dir-confined write/delete
+ * path: given the vault-root-relative canonical key and the memory dir
+ * (= `<vaultRoot>/memory`), return the key's path RELATIVE TO THE MEMORY DIR
+ * (e.g. `memory/fact/abc.md` → `fact/abc.md`) so the existing memory-dir
+ * path-traversal guard can resolve it. The vault root is `path.dirname(memoryDir)`.
+ */
+export function vaultKeyToMemoryDirRelative(memoryDir: string, vaultRelKey: string): string {
+  const vaultRoot = path.dirname(path.resolve(memoryDir));
+  const abs = path.resolve(vaultRoot, vaultRelKey);
+  return path.relative(path.resolve(memoryDir), abs);
+}
+
 const VALID_KINDS = new Set(['fact', 'person', 'project', 'preference', 'context']);
 
 export interface MemoryVaultSyncSummary {
@@ -158,6 +191,53 @@ function stripQuotes(s: string): string {
   return s;
 }
 
+/** A parsed vault note paired with its stable identity key (vault-relative path). */
+export interface ScannedNote {
+  /** Vault-relative note path — the stable idempotency key (source_id). */
+  sourceId: string;
+  /** Parsed frontmatter + body. */
+  parsed: ParsedNote;
+}
+
+/**
+ * Recursively scan a Memory-Vault directory and return every `.md` note parsed
+ * via {@link parseNote}, keyed by its vault-relative path.
+ *
+ * A missing / non-directory vault path yields an empty array (never throws) so
+ * callers can treat "no vault" as a no-op. Unreadable individual notes are
+ * skipped with a warning (the rest of the scan still proceeds).
+ *
+ * Shared by both the mirror-sync pass ({@link syncMemoryVault}) and the
+ * derived-index rebuild (MemoryIndexService) so the recursive walk + parse
+ * lives in exactly one place.
+ */
+export async function scanVaultNotes(vaultPath: string): Promise<ScannedNote[]> {
+  try {
+    const stat = await fs.stat(vaultPath);
+    if (!stat.isDirectory()) {
+      logger.info(`[MemoryVaultScan] Vault path is not a directory, skipping: ${vaultPath}`);
+      return [];
+    }
+  } catch {
+    logger.info(`[MemoryVaultScan] Vault path not found, skipping (no-op): ${vaultPath}`);
+    return [];
+  }
+
+  const relativePaths = await collectMarkdownFiles(vaultPath, vaultPath);
+  const notes: ScannedNote[] = [];
+  for (const rel of relativePaths) {
+    let raw: string;
+    try {
+      raw = await fs.readFile(path.join(vaultPath, rel), 'utf8');
+    } catch (err) {
+      logger.warn(`[MemoryVaultScan] Could not read note "${rel}": ${String(err)}`);
+      continue;
+    }
+    notes.push({ sourceId: rel, parsed: parseNote(raw) });
+  }
+  return notes;
+}
+
 /** Recursively collect all `.md` files under `dir`, returning vault-relative paths. */
 async function collectMarkdownFiles(root: string, dir: string): Promise<string[]> {
   const out: string[] = [];
@@ -198,37 +278,18 @@ export async function syncMemoryVault(
   const vaultPath = options.vaultPath ?? resolveMemoryVaultPath();
   const ownerUserId = options.ownerUserId ?? null;
 
-  // No-op when the vault path is absent (never an error).
-  try {
-    const stat = await fs.stat(vaultPath);
-    if (!stat.isDirectory()) {
-      logger.info(`[MemoryVaultSync] Vault path is not a directory, skipping: ${vaultPath}`);
-      return { scanned: 0, upserted: 0, deleted: 0 };
-    }
-  } catch {
-    logger.info(`[MemoryVaultSync] Vault path not found, skipping (no-op): ${vaultPath}`);
-    return { scanned: 0, upserted: 0, deleted: 0 };
-  }
-
-  const relativePaths = await collectMarkdownFiles(vaultPath, vaultPath);
+  // A missing / non-directory vault path yields no notes (never an error).
+  const notes = await scanVaultNotes(vaultPath);
   const presentSourceIds = new Set<string>();
   let upserted = 0;
 
-  for (const rel of relativePaths) {
-    presentSourceIds.add(rel);
-    let raw: string;
-    try {
-      raw = await fs.readFile(path.join(vaultPath, rel), 'utf8');
-    } catch (err) {
-      logger.warn(`[MemoryVaultSync] Could not read note "${rel}": ${String(err)}`);
-      continue;
-    }
-    const parsed = parseNote(raw);
+  for (const { sourceId, parsed } of notes) {
+    presentSourceIds.add(sourceId);
     await repo.upsertBySourceAsync({
       kind: parsed.kind,
       content: parsed.content,
       source: MEMORY_VAULT_SOURCE,
-      sourceId: rel,
+      sourceId,
       tagsJson: JSON.stringify(parsed.tags),
       ownerUserId,
     });
@@ -241,8 +302,8 @@ export async function syncMemoryVault(
   const deleted = await repo.deleteBySourceAndSourceIdsAsync(MEMORY_VAULT_SOURCE, stale);
 
   logger.info(
-    `[MemoryVaultSync] scanned=${relativePaths.length} upserted=${upserted} deleted=${deleted} (vault=${vaultPath})`,
+    `[MemoryVaultSync] scanned=${notes.length} upserted=${upserted} deleted=${deleted} (vault=${vaultPath})`,
   );
 
-  return { scanned: relativePaths.length, upserted, deleted };
+  return { scanned: notes.length, upserted, deleted };
 }

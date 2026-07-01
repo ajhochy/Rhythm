@@ -55,8 +55,24 @@ async function main() {
   let memoryVaultSyncJob: { stop: () => void } | null = null;
 
   if (env.agentExecutionEnabled) {
+    // Issue #805: rebuild the DERIVED memory index from the vault ONCE on
+    // startup so a fresh boot has a correct, search-ready index without waiting
+    // for the first cron tick. The vault (not this SQLite store) is the source
+    // of truth; the index is disposable and fully reproducible from a scan.
+    // No-op when the vault is absent. Non-fatal — a rebuild failure must never
+    // block startup. (SQLite-only; rebuildIndexFromVault is a no-op on Postgres.)
+    try {
+      const { MemoryIndexService } = await import('./services/memory_index_service');
+      const summary = await new MemoryIndexService().rebuildIndexFromVault();
+      logger.info(`[server] memory index rebuilt on startup: indexed=${summary.indexed}`);
+    } catch (err) {
+      logger.warn(`[server] memory index startup rebuild failed (non-fatal): ${String(err)}`);
+    }
+
     // Issue #770 WI6: mirror the dedicated Memory-Vault into agent_memory so the
     // Rhythm Brain panel displays vault contents. No-op when the vault is absent.
+    // The */10min cron also keeps the derived index fresh as users edit notes in
+    // Obsidian (vault→index re-index pass — #805 AC3/AC4).
     memoryVaultSyncJob = startMemoryVaultSyncJob();
 
     // Agent subsystem: scheduler + memory consolidation seed
@@ -88,6 +104,84 @@ async function main() {
     } catch (err) {
       logger.warn(`[server] agent-stack skill seed failed (non-fatal): ${String(err)}`);
     }
+
+    // #797 — One-time reconciliation of HISTORICAL agent_skills rows onto the
+    // unified model: legacy `published` rows materialize once (only if no file
+    // exists yet) and normalize to `active`; legacy `draft` rows carry over to
+    // `active` (file absent until materialized). Run-once guarded by a
+    // schema_meta marker (mirrors the seed gate above); re-runs are a no-op.
+    // Non-blocking (touches the engine via listSkills/reload) + non-fatal — a
+    // failure must never block startup and leaves the marker unwritten so a later
+    // boot retries. No-op under Postgres (agent skills are local-SQLite-only).
+    void (async () => {
+      try {
+        const { backfillSkillMetadata } = await import(
+          './services/skill_metadata_backfill'
+        );
+        const r = await backfillSkillMetadata();
+        if (!r.alreadyDone) {
+          logger.info(
+            `[server] agent_skills unify backfill: publishedReconciled=${r.publishedReconciled} ` +
+              `publishedMaterialized=${r.publishedMaterialized} draftCarriedOver=${r.draftCarriedOver} skipped=${r.skipped}`,
+          );
+        }
+      } catch (err) {
+        logger.warn(
+          `[server] agent_skills unify backfill failed (non-fatal): ${String(err)}`,
+        );
+      }
+    })();
+
+    // One-time grant of obsidian READ/SEARCH advertise-scope to EXISTING
+    // selectable agent profiles. The importer default now ships obsidian for
+    // future-synced profiles, but profiles synced on an earlier boot keep their
+    // old scope (e.g. ["rhythm"]) and would never advertise the knowledge vault.
+    // This adds "obsidian" to array scopes (server-level) and an obsidian
+    // read/search tool key to object-map scopes, preserving existing entries and
+    // leaving null (unrestricted) scopes alone. Run-once guarded by a schema_meta
+    // marker; re-runs are a no-op. Non-fatal — a failure must never block
+    // startup and leaves the marker unwritten so a later boot retries. No-op
+    // under Postgres (agent_configs MCP scopes are local-SQLite-only).
+    try {
+      const { backfillObsidianReadScope } = await import(
+        './services/obsidian_scope_backfill'
+      );
+      const r = backfillObsidianReadScope();
+      if (!r.alreadyDone) {
+        logger.info(
+          `[server] obsidian read-scope backfill: examined=${r.examined} ` +
+            `arrayGranted=${r.arrayGranted} objectGranted=${r.objectGranted} skipped=${r.skipped}`,
+        );
+      }
+    } catch (err) {
+      logger.warn(
+        `[server] obsidian read-scope backfill failed (non-fatal): ${String(err)}`,
+      );
+    }
+
+    // #794 + #795 — Crash recovery for the auto-apply self-improvement loop. A
+    // revision applied before a crash leaves its sidecar row at
+    // `status='measuring'`; if the process died before the measure step ran,
+    // the row would stay measuring forever. Defensively revert any such rows at
+    // startup (fail-closed). Non-blocking + non-fatal — a failure must never
+    // prevent the server from starting. No-op under Postgres / VITEST.
+    void (async () => {
+      try {
+        const { recoverStuckMeasurements } = await import(
+          './services/skill_measurement'
+        );
+        const reverted = await recoverStuckMeasurements();
+        if (reverted > 0) {
+          logger.info(
+            `[server] skill measurement crash recovery: reverted ${reverted} stuck measuring row(s)`,
+          );
+        }
+      } catch (err) {
+        logger.warn(
+          `[server] skill measurement crash recovery failed (non-fatal): ${String(err)}`,
+        );
+      }
+    })();
   } else {
     logger.info(
       `[server] RHYTHM_ROLE=${env.role} — agent execution disabled (no scheduler, opencode, WS gateway, or managed Chrome)`,

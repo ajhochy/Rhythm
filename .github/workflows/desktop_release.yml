@@ -62,6 +62,7 @@ jobs:
         working-directory: apps/api_server
         run: |
           npm install
+          npx vitest run src/__tests__/skill_schema_parity.test.ts
           npm run build
           npm prune --omit=dev
 
@@ -194,6 +195,18 @@ jobs:
             });
           '
 
+      - name: Smoke memory vault authority (#808 guard)
+        shell: bash
+        run: |
+          # Boots the bundled LOCAL agent server (dist/server.js) against a TEMP
+          # vault + TEMP SQLite and proves the Obsidian Memory-Vault is the sole
+          # authority: a write lands a vault note + index row, and after dropping
+          # the SQLite index file entirely it is rebuilt from the surviving vault
+          # with identical recall. Local-only (AGENT_LOCAL on a private port); it
+          # never touches prod and never logs note bodies.
+          SCRIPT="apps/desktop_flutter/build/macos/Build/Products/Release/Rhythm.app/Contents/Resources/api_server/dist/server.js"
+          apps/api_server/scripts/smoke_memory_authority.sh "$SCRIPT" 4071
+
       - name: Set up Bun
         uses: oven-sh/setup-bun@v2
         with:
@@ -272,6 +285,12 @@ jobs:
         run: |
           BINARY="$PWD/build/macos/Build/Products/Release/Rhythm.app/Contents/Resources/opencode_bin/opencode"
           ../../tools/release/smoke_skill_alignment.sh "$BINARY"
+
+      - name: Smoke MCP alignment (no-server-lost + names alignment guard, #785)
+        working-directory: apps/desktop_flutter
+        run: |
+          BINARY="$PWD/build/macos/Build/Products/Release/Rhythm.app/Contents/Resources/opencode_bin/opencode"
+          ../../tools/release/smoke_mcp_alignment.sh "$BINARY"
 
       - name: Package macOS artifacts
         working-directory: apps/desktop_flutter

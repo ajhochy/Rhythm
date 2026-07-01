@@ -70,10 +70,14 @@ describe('issue-P1-1-c3: Both SQLite and Postgres have identical agent_skills sc
       .map((c) => c.name)
       .sort();
 
-    // Expected columns (must match postgres_bootstrap.ts exactly)
+    // Expected columns (must match postgres_bootstrap.ts exactly).
+    // #792 added the sidecar metadata + measurement-ledger columns; the live
+    // dynamic dual-DB guard now lives in skill_schema_parity.test.ts.
     const expectedCols = [
       'id', 'title', 'when_to_use', 'description', 'steps_json', 'tags_json',
       'body', 'confidence', 'status', 'source', 'uses', 'version',
+      'applied_for_name', 'base_version', 'origin_location', 'is_external',
+      'baseline_score', 'post_score', 'measure_reason',
       'created_at', 'updated_at'
     ].sort();
 
@@ -98,6 +102,13 @@ describe('issue-P1-1-c4: AgentSkill TypeScript model exists with all required pr
       source: 'agent-stack-seed',
       uses: 0,
       version: 1,
+      appliedForName: null,
+      baseVersion: null,
+      originLocation: null,
+      isExternal: 0,
+      baselineScore: null,
+      postScore: null,
+      measureReason: null,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };

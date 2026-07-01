@@ -48,8 +48,50 @@ describe('isToolAllowed (#736 dispatch guard)', () => {
 
   it('fails closed on malformed or empty allowlists', () => {
     expect(isToolAllowed('read', 'not-json{')).toBe(false);
-    expect(isToolAllowed('read', '[]')).toBe(false); // array, not a record
+    expect(isToolAllowed('read', '[]')).toBe(false); // empty server-name array → deny all
     expect(isToolAllowed('read', '{}')).toBe(false); // no servers granted
     expect(isToolAllowed('read', 'null')).toBe(false);
+  });
+
+  // #812 — writers (agent_profile_scope, agent_runner) persist the allowlist as
+  // a JSON ARRAY of server names (e.g. ["rhythm"]) meaning "inherit all tools of
+  // each named server". The guard must accept this shape, not just the object
+  // map, or every tool on a role-scoped session is blocked.
+  describe('array-of-server-names form (#812)', () => {
+    it('grants inherit-all for each listed server', () => {
+      expect(isToolAllowed('rhythm_rhythm_get_dashboard', '["rhythm"]')).toBe(true);
+      expect(isToolAllowed('rhythm_rhythm_remember_memory', '["rhythm"]')).toBe(true);
+      // The bare server name itself is permitted.
+      expect(isToolAllowed('rhythm', '["rhythm"]')).toBe(true);
+    });
+
+    it('denies tools of servers not in the array', () => {
+      expect(isToolAllowed('nfl_mcp_get_roster', '["rhythm"]')).toBe(false);
+      expect(isToolAllowed('gmail-work_send_email', '["rhythm"]')).toBe(false);
+    });
+
+    it('handles multiple listed servers', () => {
+      const json = JSON.stringify(['rhythm', 'pco-services']);
+      expect(isToolAllowed('rhythm_rhythm_ping', json)).toBe(true);
+      expect(isToolAllowed('pco-services_get_plans', json)).toBe(true);
+      expect(isToolAllowed('nfl_mcp_get_roster', json)).toBe(false);
+    });
+
+    it('accepts the mcp__server__tool form against an array allowlist', () => {
+      expect(
+        isToolAllowed('mcp__rhythm__rhythm_get_dashboard', '["rhythm"]'),
+      ).toBe(true);
+      expect(isToolAllowed('mcp__nfl_mcp__get_roster', '["rhythm"]')).toBe(false);
+    });
+
+    it('empty array denies everything', () => {
+      expect(isToolAllowed('rhythm_rhythm_ping', '[]')).toBe(false);
+    });
+
+    it('ignores non-string members but honors valid ones', () => {
+      const json = JSON.stringify(['rhythm', 123, null]);
+      expect(isToolAllowed('rhythm_rhythm_ping', json)).toBe(true);
+      expect(isToolAllowed('nfl_mcp_get_roster', json)).toBe(false);
+    });
   });
 });

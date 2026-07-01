@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -87,8 +88,7 @@ import 'features/agent_cookbook/controllers/agent_cookbook_controller.dart';
 import 'features/agent_cookbook/data/agent_cookbook_data_source.dart';
 import 'features/agent_cookbook/repositories/agent_cookbook_repository.dart';
 import 'features/agent_skills/controllers/agent_skills_controller.dart';
-import 'features/agent_skills/data/agent_skills_data_source.dart';
-import 'features/agent_skills/repositories/agent_skills_repository.dart';
+import 'features/agents/data/opencode_skills_data_source.dart';
 import 'features/agent_email/controllers/agent_email_controller.dart';
 import 'features/agent_email/data/agent_email_data_source.dart';
 import 'features/agent_email/repositories/agent_email_repository.dart';
@@ -158,6 +158,9 @@ void main() async {
   );
   final localNotificationService = LocalNotificationService();
   await localNotificationService.initialize();
+  // #815: request macOS notification authorization on first launch. Fail-soft —
+  // a denial is logged inside the service and never blocks startup or sessions.
+  unawaited(localNotificationService.requestPermissions());
 
   runApp(
     RhythmApp(
@@ -332,8 +335,9 @@ class _RhythmAppContent extends StatelessWidget {
           create: (_) => SettingsController(
             SettingsRepository(
               SettingsDataSource(baseUrl: baseUrl),
-              userPreferencesDataSource:
-                  UserPreferencesDataSource(baseUrl: baseUrl),
+              userPreferencesDataSource: UserPreferencesDataSource(
+                baseUrl: baseUrl,
+              ),
             ),
           ),
         ),
@@ -343,9 +347,24 @@ class _RhythmAppContent extends StatelessWidget {
           ),
         ),
         ChangeNotifierProvider(
-          create: (_) => NotificationsController(
-            NotificationsRepository(NotificationsDataSource(baseUrl: baseUrl)),
-          ),
+          create: (_) {
+            final controller = NotificationsController(
+              NotificationsRepository(
+                  NotificationsDataSource(baseUrl: baseUrl)),
+            );
+            // #815: route a native ask-notification tap into pending navigation
+            // so AppShell focuses the window and opens the asking session.
+            localNotificationService.onTap = (payload) {
+              const prefix = 'agentSession:';
+              if (payload.startsWith(prefix)) {
+                final sessionId = payload.substring(prefix.length);
+                if (sessionId.isNotEmpty) {
+                  controller.navigateTo('agentSession', sessionId);
+                }
+              }
+            };
+            return controller;
+          },
         ),
         ChangeNotifierProvider(
           create: (_) => AgentProjectsController(
@@ -405,9 +424,7 @@ class _RhythmAppContent extends StatelessWidget {
           ),
         ),
         // OPC-M4-3: MCP server management (#702)
-        ChangeNotifierProvider(
-          create: (_) => McpController(McpDataSource()),
-        ),
+        ChangeNotifierProvider(create: (_) => McpController(McpDataSource())),
         // ── Odysseus: Agent Scheduler, Memory, Research, Webhooks ─────────
         ChangeNotifierProvider(
           create: (_) => AgentSchedulesController(
@@ -436,9 +453,7 @@ class _RhythmAppContent extends StatelessWidget {
           ),
         ),
         ChangeNotifierProvider(
-          create: (_) => AgentSkillsController(
-            AgentSkillsRepository(AgentSkillsDataSource()),
-          ),
+          create: (_) => AgentSkillsController(OpencodeSkillsDataSource()),
         ),
         ChangeNotifierProvider(
           create: (_) => AgentEmailController(

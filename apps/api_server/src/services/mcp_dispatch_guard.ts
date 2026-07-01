@@ -27,6 +27,30 @@
 const sanitize = (s: string): string => s.replace(/[^a-zA-Z0-9_-]/g, '_');
 
 /**
+ * Does `toolName` belong to `serverName`? Shared by both allowlist shapes — the
+ * array-of-server-names inherit-all path (#812) and the object-map inherit-all
+ * path (#736) — so server-membership is decided in exactly one place.
+ *
+ * `mcpServerRaw` is the server segment of an incoming `mcp__server__tool` name
+ * (or undefined when the name isn't in that form).
+ */
+const toolBelongsToServer = (
+  toolName: string,
+  serverName: string,
+  mcpServerRaw: string | undefined,
+): boolean => {
+  const sanitizedServer = sanitize(serverName);
+  return (
+    toolName === sanitizedServer ||
+    toolName === serverName ||
+    toolName.startsWith(`${sanitizedServer}_`) ||
+    toolName.startsWith(`${serverName}_`) ||
+    (mcpServerRaw != null &&
+      (mcpServerRaw === serverName || sanitize(mcpServerRaw) === sanitizedServer))
+  );
+};
+
+/**
  * Decide whether `toolName` is permitted by the session's persisted allowlist.
  *
  * Contract:
@@ -34,14 +58,21 @@ const sanitize = (s: string): string => s.replace(/[^a-zA-Z0-9_-]/g, '_');
  *    allowed (full pass-through, #736 criterion 2). The caller is responsible
  *    for only invoking this guard when the session actually carries an
  *    mcp_role; this null short-circuit is a second belt.
- *  - Otherwise parse the JSON as `Record<serverName, string[]>` (the exact
- *    shape POST /agent-sessions persists):
- *      - `tools` empty `[]`  → inherit-all: any tool belonging to that server
- *        is allowed (matched by server prefix).
- *      - `tools` non-empty   → only the listed tools (matched bare, composed,
- *        or mcp__-prefixed) are allowed.
- *  - A parse failure is treated as "deny everything" — a malformed allowlist
- *    must never silently widen access (fail-closed).
+ *  - Otherwise parse the JSON. TWO shapes are accepted, because the writers
+ *    (agent_profile_scope, agent_runner) persist the array form while
+ *    POST /agent-sessions can persist the object map:
+ *      1. ARRAY of server names, e.g. `["rhythm","pco-services"]` (#812) →
+ *         each named server is granted inherit-all (every tool of that server
+ *         is allowed; a tool of an unlisted server is denied). Non-string
+ *         members are ignored.
+ *      2. OBJECT map `Record<serverName, string[]>` (#736) →
+ *         - `tools` empty `[]`  → inherit-all for that server.
+ *         - `tools` non-empty   → only the listed tools (matched bare, composed,
+ *           or mcp__-prefixed) are allowed.
+ *  - An empty array `[]` or empty object `{}` grants no servers → deny all.
+ *  - A genuinely malformed shape (not array/object, unparseable, null) is
+ *    treated as "deny everything" — a malformed allowlist must never silently
+ *    widen access (fail-closed).
  *
  * Tool-name forms handled (the opencode engine composes MCP tool ids as
  * `<sanitized-server>_<sanitized-tool>`; builtins arrive bare like `bash`,
@@ -58,46 +89,49 @@ export function isToolAllowed(
   // Not role-scoped → unrestricted.
   if (allowedToolsJson == null) return true;
 
-  let parsed: Record<string, unknown>;
+  let raw: unknown;
   try {
-    const raw = JSON.parse(allowedToolsJson) as unknown;
-    if (raw == null || typeof raw !== 'object' || Array.isArray(raw)) {
-      // Malformed / unexpected shape → fail closed.
-      return false;
-    }
-    parsed = raw as Record<string, unknown>;
+    raw = JSON.parse(allowedToolsJson) as unknown;
   } catch {
     // Unparseable allowlist → fail closed; never widen access on bad data.
     return false;
   }
 
-  // An empty allowlist object means "no servers granted" → deny all.
-  const serverNames = Object.keys(parsed);
-  if (serverNames.length === 0) return false;
-
-  // Normalize an incoming mcp__server__tool form to the composed server_tool
-  // shape for comparison, while keeping the original for bare-name checks.
+  // Normalize an incoming mcp__server__tool form to its server/tool segments
+  // for comparison, while keeping the original for bare-name checks.
   const mcpMatch = /^mcp__([^_].*?)__(.+)$/.exec(toolName);
   const mcpServerRaw = mcpMatch?.[1];
   const mcpToolRaw = mcpMatch?.[2];
+
+  // ── Shape 1: array of server names → each granted inherit-all (#812). ──
+  if (Array.isArray(raw)) {
+    for (const entry of raw) {
+      if (typeof entry !== 'string') continue;
+      if (toolBelongsToServer(toolName, entry, mcpServerRaw)) return true;
+    }
+    // Empty array, or no listed server owns this tool → deny.
+    return false;
+  }
+
+  // ── Shape 2: object map { server: tools[] } (#736). ──
+  if (raw == null || typeof raw !== 'object') {
+    // Malformed / unexpected shape → fail closed.
+    return false;
+  }
+  const parsed = raw as Record<string, unknown>;
+
+  // An empty allowlist object means "no servers granted" → deny all.
+  const serverNames = Object.keys(parsed);
+  if (serverNames.length === 0) return false;
 
   for (const serverName of serverNames) {
     const tools = parsed[serverName];
     if (!Array.isArray(tools)) continue;
     const sanitizedServer = sanitize(serverName);
 
-    // Does this incoming tool even belong to this server?
-    const belongsToServer =
-      toolName === sanitizedServer ||
-      toolName === serverName ||
-      toolName.startsWith(`${sanitizedServer}_`) ||
-      toolName.startsWith(`${serverName}_`) ||
-      (mcpServerRaw != null &&
-        (mcpServerRaw === serverName || sanitize(mcpServerRaw) === sanitizedServer));
-
     if (tools.length === 0) {
       // Inherit-all for this server: allowed iff the tool belongs to it.
-      if (belongsToServer) return true;
+      if (toolBelongsToServer(toolName, serverName, mcpServerRaw)) return true;
       continue;
     }
 

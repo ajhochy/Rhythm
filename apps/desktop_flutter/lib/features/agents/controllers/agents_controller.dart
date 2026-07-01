@@ -171,6 +171,11 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
   // can stop offering an answer even when resolved by another client/agent.
   final Set<String> _resolvedQuestionCallIds = {};
 
+  // #815: ask-notification dedupe set. Keyed by the per-ask key
+  // (`perm:$sessionId:$permissionId` / `q:$sessionId:$requestId`). Guarantees at
+  // most one native notification per pending ask; cleared when the ask resolves.
+  final Set<String> _notifiedAsks = {};
+
   // OPC-M3-1: Per-session working-tree diff (FileDiff entries from the server).
   // Populated by fetchSessionDiff() and invalidated by session.diff WS events.
   final Map<String, List<Map<String, dynamic>>> _sessionDiffBySession = {};
@@ -2500,8 +2505,20 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
           summary: msg.summary,
         ));
       }
+      // #815: native notification when the user is not looking at this ask.
+      final detail = msg.summary.trim().isNotEmpty
+          ? msg.summary.trim()
+          : 'Tool: ${msg.toolName}';
+      _maybeNotifyAsk(
+        dedupeKey: 'perm:${msg.sessionId}:${msg.permissionId}',
+        sessionId: msg.sessionId,
+        kindLabel: 'Permission requested',
+        detail: detail,
+      );
     } else if (msg is PermissionResolvedMessage) {
       _removePendingPermission(msg.sessionId, msg.permissionId);
+      // #815: withdraw the ask notification now that it is answered.
+      _withdrawAskNotification('perm:${msg.sessionId}:${msg.permissionId}');
     } else if (msg is QuestionAskedMessage) {
       // Store the authoritative question payload so the card can render even if
       // the tool-part input streamed in slowly (or not at all).
@@ -2509,6 +2526,13 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
         _questionsByCallId['${msg.sessionId}:${msg.callId}'] = msg.questions;
         _resolvedQuestionCallIds.remove('${msg.sessionId}:${msg.callId}');
       }
+      // #815: native notification when the user is not looking at this ask.
+      _maybeNotifyAsk(
+        dedupeKey: 'q:${msg.sessionId}:${msg.requestId}',
+        sessionId: msg.sessionId,
+        kindLabel: 'Question',
+        detail: _questionDetail(msg.questions),
+      );
     } else if (msg is QuestionResolvedMessage) {
       // Resolved by us, another client, or the agent. Mark every tracked
       // callId for this session as resolved (we key local state by callId; the
@@ -2520,6 +2544,8 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
         }
         return false;
       });
+      // #815: withdraw the ask notification now that it is answered.
+      _withdrawAskNotification('q:${msg.sessionId}:${msg.requestId}');
     } else if (msg is TriggerFiredMessage) {
       _pendingTriggers.add(
         PendingTrigger(
@@ -2740,6 +2766,77 @@ class AgentsController extends ChangeNotifier with WidgetsBindingObserver {
       title: 'Agent session finished',
       body: 'The agent finished working in the session you were watching.',
     );
+  }
+
+  // --------------------------------------------------------------------------
+  // #815 — native notifications for agent permission/question asks
+  // --------------------------------------------------------------------------
+
+  /// Whether a native notification should fire for an ask in [sessionId].
+  ///
+  /// Suppressed only when the user is already looking at that ask: the app is
+  /// frontmost (lifecycle resumed) AND the asking session is the one selected.
+  /// Otherwise (app backgrounded, or a different/no session on screen) we
+  /// notify. Mirrors the lifecycle predicate used by the completion-notify
+  /// path so behavior stays consistent.
+  @visibleForTesting
+  bool shouldNotifyAsk(String sessionId) {
+    final viewingThisAsk = _lifecycleState == AppLifecycleState.resumed &&
+        _selectedSessionId == sessionId;
+    return !viewingThisAsk;
+  }
+
+  /// Stable notification id derived from the per-ask dedupe key, so a withdraw
+  /// cancels exactly the banner that was shown.
+  int _askNotificationId(String dedupeKey) => dedupeKey.hashCode & 0x7FFFFFFF;
+
+  String _sessionDisplayName(String sessionId) {
+    final s = _sessions.firstWhereOrNull((x) => x.id == sessionId) ??
+        _resumable.firstWhereOrNull((x) => x.id == sessionId);
+    final name = s?.name.trim() ?? '';
+    return name.isNotEmpty ? name : 'Agent session';
+  }
+
+  String _questionDetail(List<dynamic> questions) {
+    for (final q in questions) {
+      if (q is Map) {
+        for (final key in const ['question', 'text', 'prompt', 'title']) {
+          final v = q[key];
+          if (v is String && v.trim().isNotEmpty) return v.trim();
+        }
+      } else if (q is String && q.trim().isNotEmpty) {
+        return q.trim();
+      }
+    }
+    return 'Waiting for your answer';
+  }
+
+  static String _truncate(String s, [int max = 140]) =>
+      s.length <= max ? s : '${s.substring(0, max - 1)}…';
+
+  /// Fire a native ask notification unless the user is already viewing the ask
+  /// or one was already fired for this exact ask (dedupe). The body is
+  /// truncated. Failures are swallowed by the notification service (fail-soft).
+  void _maybeNotifyAsk({
+    required String dedupeKey,
+    required String sessionId,
+    required String kindLabel,
+    required String detail,
+  }) {
+    if (!shouldNotifyAsk(sessionId)) return;
+    if (!_notifiedAsks.add(dedupeKey)) return; // already notified this ask
+    _notificationService.showAgentAskNotification(
+      id: _askNotificationId(dedupeKey),
+      title: '${_sessionDisplayName(sessionId)} — $kindLabel',
+      body: _truncate(detail),
+      payload: 'agentSession:$sessionId',
+    );
+  }
+
+  /// Withdraw a previously-shown ask notification and clear its dedupe entry.
+  void _withdrawAskNotification(String dedupeKey) {
+    if (!_notifiedAsks.remove(dedupeKey)) return; // nothing was shown
+    _notificationService.cancel(_askNotificationId(dedupeKey));
   }
 
   // --------------------------------------------------------------------------

@@ -20,6 +20,13 @@ interface AgentSkillRow {
   source: string | null;
   uses: number;
   version: number | null;
+  applied_for_name: string | null;
+  base_version: number | null;
+  origin_location: string | null;
+  is_external: number | null;
+  baseline_score: number | null;
+  post_score: number | null;
+  measure_reason: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -65,6 +72,13 @@ function rowToModel(row: AgentSkillRow): AgentSkill {
     source: row.source ?? null,
     uses: row.uses ?? 0,
     version: row.version ?? 1,
+    appliedForName: row.applied_for_name ?? null,
+    baseVersion: row.base_version ?? null,
+    originLocation: row.origin_location ?? null,
+    isExternal: row.is_external ?? 0,
+    baselineScore: row.baseline_score ?? null,
+    postScore: row.post_score ?? null,
+    measureReason: row.measure_reason ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -126,12 +140,23 @@ export class AgentSkillsRepository {
     return row ? rowToModel(row) : null;
   }
 
-  /** Case-insensitive title lookup, used for dedup. */
-  findByTitle(title: string): AgentSkill | null {
+  /**
+   * #792 — join key onto live engine skills: the SKILL.md frontmatter `name`.
+   * That name is stored in the `title` column (the historical dedup key), so
+   * this is a case-insensitive `title` lookup. {@link findByTitle} delegates
+   * here. Used by #793's unified read to attach this sidecar row onto the live
+   * engine skill of the same name.
+   */
+  findByName(name: string): AgentSkill | null {
     const row = this.db
       .prepare(`SELECT * FROM agent_skills WHERE title = ? COLLATE NOCASE`)
-      .get(title) as AgentSkillRow | undefined;
+      .get(name) as AgentSkillRow | undefined;
     return row ? rowToModel(row) : null;
+  }
+
+  /** Case-insensitive title lookup, used for dedup. Delegates to findByName. */
+  findByTitle(title: string): AgentSkill | null {
+    return this.findByName(title);
   }
 
   create(input: AgentSkillInput): AgentSkill {
@@ -141,8 +166,11 @@ export class AgentSkillsRepository {
       .prepare(
         `INSERT INTO agent_skills
           (id, title, when_to_use, description, steps_json, tags_json, body,
-           confidence, status, source, uses, version, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           confidence, status, source, uses, version,
+           applied_for_name, base_version, origin_location, is_external,
+           baseline_score, post_score, measure_reason,
+           created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         id,
@@ -157,6 +185,13 @@ export class AgentSkillsRepository {
         input.source ?? null,
         input.uses ?? 0,
         1,
+        input.appliedForName ?? null,
+        input.baseVersion ?? null,
+        input.originLocation ?? null,
+        input.isExternal ?? 0,
+        input.baselineScore ?? null,
+        input.postScore ?? null,
+        input.measureReason ?? null,
         now,
         now,
       );
@@ -210,6 +245,34 @@ export class AgentSkillsRepository {
       fields.push('uses = ?');
       values.push(patch.uses);
     }
+    if (patch.appliedForName !== undefined) {
+      fields.push('applied_for_name = ?');
+      values.push(patch.appliedForName ?? null);
+    }
+    if (patch.baseVersion !== undefined) {
+      fields.push('base_version = ?');
+      values.push(patch.baseVersion ?? null);
+    }
+    if (patch.originLocation !== undefined) {
+      fields.push('origin_location = ?');
+      values.push(patch.originLocation ?? null);
+    }
+    if (patch.isExternal !== undefined) {
+      fields.push('is_external = ?');
+      values.push(patch.isExternal);
+    }
+    if (patch.baselineScore !== undefined) {
+      fields.push('baseline_score = ?');
+      values.push(patch.baselineScore ?? null);
+    }
+    if (patch.postScore !== undefined) {
+      fields.push('post_score = ?');
+      values.push(patch.postScore ?? null);
+    }
+    if (patch.measureReason !== undefined) {
+      fields.push('measure_reason = ?');
+      values.push(patch.measureReason ?? null);
+    }
 
     fields.push('updated_at = ?');
     values.push(new Date().toISOString());
@@ -231,6 +294,128 @@ export class AgentSkillsRepository {
     this.db
       .prepare(`UPDATE agent_skills SET uses = uses + 1, updated_at = ? WHERE id = ?`)
       .run(new Date().toISOString(), id);
+  }
+
+  // ── #794: auto-apply ledger over the LIVE engine skill set ─────────────────
+
+  /**
+   * #794 — Duplicate-apply guard. Returns true when a sidecar row already exists
+   * for the same engine skill `name` + `base_version` + candidate body hash with
+   * a status that means "do not re-apply": `reverted` (this exact revision already
+   * lost) or `measuring` (this exact revision is in flight). Other statuses
+   * (`active`/`draft`/`published`) do NOT block — they are not this candidate.
+   *
+   * The candidate body hash is stored in `measure_reason` prefixed with `hash:`
+   * at apply time (the column is otherwise null until #795 measures), so the
+   * guard needs no new column.
+   */
+  hasAutoAppliedRow(
+    appliedForName: string,
+    baseVersion: number,
+    candidateHash: string,
+  ): boolean {
+    const row = this.db
+      .prepare(
+        `SELECT 1 FROM agent_skills
+          WHERE applied_for_name = ? COLLATE NOCASE
+            AND base_version = ?
+            AND measure_reason = ?
+            AND status IN ('measuring', 'reverted')
+          LIMIT 1`,
+      )
+      .get(appliedForName, baseVersion, `hash:${candidateHash}`);
+    return row !== undefined;
+  }
+
+  /**
+   * #794 — Record an auto-applied revision to a LIVE engine skill as a sidecar
+   * `status='measuring'` row, snapshotting the PRIOR (pre-apply) body into
+   * agent_skill_versions so the #795 revert can deterministically roll back.
+   *
+   * The engine skill's filesystem `name` is stored in `title` (the join key the
+   * unified read / findByName collates on). If a sidecar row already exists for
+   * `name` it is reused (its content is snapshotted as the base version first,
+   * then it is updated in place + version bumped); otherwise a fresh row is
+   * created at the supplied `baseVersion` and immediately bumped to
+   * `baseVersion + 1`.
+   *
+   * `priorBody` is the byte content the revert must restore: for a MANAGED target
+   * it is the current managed SKILL.md body; for an EXTERNAL target it is the
+   * external original's content (captured so revert removes the managed shadow).
+   *
+   * Returns the live sidecar row after the apply.
+   */
+  recordAutoApply(input: {
+    name: string;
+    baseVersion: number;
+    revisedBody: string;
+    priorBody: string | null;
+    candidateHash: string;
+    isExternal: boolean;
+    originLocation: string | null;
+    confidence: number;
+    source: string;
+    description?: string | null;
+  }): AgentSkill {
+    const now = new Date().toISOString();
+    const measureRef = `hash:${input.candidateHash}`;
+
+    const tx = this.db.transaction(() => {
+      let existing = this.findByName(input.name);
+
+      if (!existing) {
+        // Lazily create the sidecar row at the engine skill's base version,
+        // carrying the PRIOR body so the snapshot + revert have the bytes.
+        existing = this.create({
+          title: input.name,
+          description: input.description ?? null,
+          body: input.priorBody,
+          confidence: input.confidence,
+          status: 'active',
+          source: input.source,
+          appliedForName: input.name,
+          baseVersion: input.baseVersion,
+          originLocation: input.originLocation,
+          isExternal: input.isExternal ? 1 : 0,
+        });
+        // create() always starts version at 1; align it to the engine base.
+        this.db
+          .prepare(`UPDATE agent_skills SET version = ? WHERE id = ?`)
+          .run(input.baseVersion, existing.id);
+        existing = this.getById(existing.id)!;
+      }
+
+      // Snapshot the PRIOR body under the current version_no (the rollback target).
+      this.snapshotCurrent({ ...existing, body: input.priorBody });
+
+      // Update the live sidecar row to the revised body + measuring lifecycle,
+      // bumping version and recording the auto-apply ledger columns.
+      this.db
+        .prepare(
+          `UPDATE agent_skills
+              SET body = ?, confidence = ?, status = 'measuring', source = ?,
+                  version = ?, applied_for_name = ?, base_version = ?,
+                  origin_location = ?, is_external = ?, measure_reason = ?,
+                  updated_at = ?
+            WHERE id = ?`,
+        )
+        .run(
+          input.revisedBody,
+          input.confidence,
+          input.source,
+          input.baseVersion + 1,
+          input.name,
+          input.baseVersion,
+          input.originLocation,
+          input.isExternal ? 1 : 0,
+          measureRef,
+          now,
+          existing.id,
+        );
+    });
+    tx();
+
+    return this.findByName(input.name)!;
   }
 
   // ── P5-1: version history + non-destructive in-place revision ──────────────

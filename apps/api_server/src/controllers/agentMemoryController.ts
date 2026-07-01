@@ -3,6 +3,7 @@ import { AppError } from '../errors/app_error';
 import { agentMemoryService } from '../services/agentMemoryService';
 import { AgentMemoryRepository } from '../repositories/agent_memory_repository';
 import { syncMemoryVault } from '../services/memoryVaultSyncService';
+import { MemoryWriteError } from '../services/memoryVaultWriteService';
 
 const repo = new AgentMemoryRepository();
 
@@ -28,20 +29,29 @@ export class AgentMemoryController {
     } catch (err) { next(err); }
   }
 
+  /**
+   * Issue #803 — vault-first `remember`. Writes a markdown note to the
+   * Memory-Vault FIRST (folders-by-type at `<memoryDir>/<kind>/<slug>.md`),
+   * then upserts the derived index, so `GET /search` reflects it immediately.
+   * Returns `{ id, path, kind }`. A bad `kind` or a path that would escape the
+   * memory dir is rejected 4xx (nothing written) by mapping MemoryWriteError.
+   */
   async create(req: Request, res: Response, next: NextFunction) {
     try {
-      const { kind, content, source, sourceId, tags } = req.body as Record<string, unknown>;
+      const { kind, content, id, source, tags } = req.body as Record<string, unknown>;
       if (!content || typeof content !== 'string') throw AppError.badRequest('content is required');
-      const item = await agentMemoryService.remember({
+      const result = await agentMemoryService.remember({
         kind: typeof kind === 'string' ? kind : 'fact',
         content,
-        source: typeof source === 'string' ? source : 'manual',
-        sourceId: typeof sourceId === 'string' ? sourceId : undefined,
-        tagsJson: Array.isArray(tags) ? JSON.stringify(tags) : '[]',
-        ownerUserId: req.auth?.user.id,
+        id: typeof id === 'string' ? id : undefined,
+        source: typeof source === 'string' ? source : 'agent',
+        tags: Array.isArray(tags) ? tags.map((t) => String(t)) : [],
       });
-      res.status(201).json(item);
-    } catch (err) { next(err); }
+      res.status(201).json(result);
+    } catch (err) {
+      if (err instanceof MemoryWriteError) return next(AppError.badRequest(err.message));
+      next(err);
+    }
   }
 
   async get(req: Request, res: Response, next: NextFunction) {

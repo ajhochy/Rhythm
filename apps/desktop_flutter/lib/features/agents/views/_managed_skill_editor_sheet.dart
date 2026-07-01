@@ -66,6 +66,11 @@ class _ManagedSkillEditorSheetState extends State<ManagedSkillEditorSheet> {
   bool _saving = false;
   String? _error;
 
+  /// True while the existing SKILL.md body is being fetched in edit mode. The
+  /// content field is disabled and shows a loading hint until the body arrives,
+  /// while name/description stay editable.
+  bool _loadingContent = false;
+
   bool get _isEdit => widget.skill != null;
 
   @override
@@ -75,6 +80,28 @@ class _ManagedSkillEditorSheetState extends State<ManagedSkillEditorSheet> {
     _descriptionController =
         TextEditingController(text: widget.skill?.description ?? '');
     _contentController = TextEditingController();
+    // Edit mode: the entry carries no body, so fetch the live SKILL.md so the
+    // user can view/edit it (create mode stays empty).
+    if (_isEdit) {
+      _loadContent();
+    }
+  }
+
+  Future<void> _loadContent() async {
+    setState(() => _loadingContent = true);
+    try {
+      final content = await widget.dataSource.getContent(widget.skill!.name);
+      if (!mounted) return;
+      setState(() {
+        _contentController.text = content;
+        _loadingContent = false;
+      });
+    } catch (_) {
+      // Fetch failure must not block name/description edits — surface a hint in
+      // the content field but leave the rest of the form usable.
+      if (!mounted) return;
+      setState(() => _loadingContent = false);
+    }
   }
 
   @override
@@ -195,12 +222,15 @@ class _ManagedSkillEditorSheetState extends State<ManagedSkillEditorSheet> {
             const SizedBox(height: 12),
             TextField(
               controller: _contentController,
+              enabled: !_loadingContent,
               minLines: 5,
               maxLines: 12,
               style: TextStyle(color: rhythm.textPrimary, fontSize: 13),
               decoration: _decoration(
                 context,
-                'Skill content (SKILL.md body)…',
+                _loadingContent
+                    ? 'Loading skill content…'
+                    : 'Skill content (SKILL.md body)…',
                 alignLabelWithHint: true,
               ),
             ),

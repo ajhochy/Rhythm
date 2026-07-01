@@ -17,6 +17,36 @@ import type { PermissionMode } from '../models/agent_session';
 const QUESTION_RECOVERY_POLL_MS = 1500;
 
 /**
+ * Tools implemented by the embedded OpenCode engine. These are governed by
+ * OpenCode's own agent permission policy; `skill` is additionally constrained
+ * by the session skill allowlist. The MCP dispatch guard must only gate MCP
+ * tools, otherwise a role scoped to (for example) `rhythm` falsely rejects
+ * native calls such as `skill` and `read`.
+ *
+ * Keep this list aligned with apps/opencode_fork/.../tool/registry.ts.
+ */
+const OPENCODE_NATIVE_TOOLS = new Set([
+  'invalid',
+  'bash',
+  'read',
+  'glob',
+  'grep',
+  'edit',
+  'write',
+  'task',
+  'webfetch',
+  'todowrite',
+  'websearch',
+  'repo_clone',
+  'repo_overview',
+  'skill',
+  'apply_patch',
+  'question',
+  'lsp',
+  'plan_exit',
+]);
+
+/**
  * Bridges Opencode SSE events to the existing WebSocket gateway.
  *
  * The bridge subscribes to the Opencode event stream once (on first session)
@@ -371,6 +401,7 @@ export class OpencodeStreamBridge {
     localSessionId: string | undefined,
     toolName: string,
   ): boolean {
+    if (OPENCODE_NATIVE_TOOLS.has(toolName)) return true;
     if (!localSessionId) return true;
     let session;
     try {
@@ -442,6 +473,31 @@ export class OpencodeStreamBridge {
         if (sdkId === opencodeSessionId) {
           localSessionId = localId;
           break;
+        }
+      }
+
+      // #751 — The in-memory opencodeSessionMap is ephemeral: it is wiped on
+      // every api_server restart and is not guaranteed to be populated at the
+      // instant a freshly-created session's first events arrive. When the
+      // reverse-lookup misses, fall back to the DURABLE `sdk_session_id` column
+      // (persisted at create/resume time). Without this fallback EVERY event for
+      // the session is dropped — status never leaves the 'starting' DB default,
+      // message parts never persist, and the parent of a delegated subagent is
+      // unresolvable — leaving the chat frozen on "Starting" while the engine
+      // actually ran the whole turn. Lazily repopulate the map on a hit so
+      // subsequent events for this session take the fast in-memory path.
+      if (!localSessionId) {
+        try {
+          const row = this.sessionsRepo.findBySdkSessionId(opencodeSessionId);
+          if (row) {
+            localSessionId = row.id;
+            opencodeSessionMap.set(row.id, opencodeSessionId);
+          }
+        } catch (err) {
+          logger.error(
+            '[OpencodeStreamBridge] DB fallback session lookup failed:',
+            err,
+          );
         }
       }
     }
