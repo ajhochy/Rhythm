@@ -37,6 +37,8 @@ Nine open pull requests are consolidated on
 - All nine source PR heads are ancestors of the integration branch.
 - `ai-workflow checks --level issue`: pass.
 - `ai-workflow checks --level pr`: pass.
+- PR #812 Desktop CI formatter repair: local format check, Flutter analysis,
+  and all 730 Flutter tests pass; GitHub CI rerun pending.
 - api_server TypeScript production build: pass.
 - Flutter debug macOS build: pass.
 - Fork engine build: pass; version
