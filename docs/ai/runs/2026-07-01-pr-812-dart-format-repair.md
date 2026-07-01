@@ -22,6 +22,7 @@ index: "[[Rhythm]]"
 - `flutter analyze --no-fatal-infos`: pass with pre-existing infos only.
 - `flutter test`: 730 tests passed.
 - `ai-workflow checks --level pr`: pass.
+- GitHub Desktop, Server, and MCP CI: pass.
 - GitNexus staged change detection: LOW risk, two symbols, zero affected flows.
 
 ## Notes
