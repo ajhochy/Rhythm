@@ -1,5 +1,7 @@
 /**
- * org_exercised_tools_resolver.ts — Issue #830 (org-optimizer-14 wiring round).
+ * org_exercised_tools_resolver.ts — Issue #830 (org-optimizer-14 wiring round),
+ * broadened by Issue #853 (org-optimizer-19) to also cover interactive
+ * sessions.
  *
  * Closes the #821 "prune-guard stub": `org_proposal_measure.ts`'s
  * `MeasureDeps.exercisedTools` previously defaulted to
@@ -21,38 +23,48 @@
  * (`opencode_stream_bridge.ts`'s `message.part.updated` handler persists
  * every `{ type: 'tool', tool: <name>, ... }` part it forwards).
  *
- * This resolver:
- *   1. Finds every `agent_scheduled_tasks` row whose `agent_config_id`
- *      matches the profile being measured (a profile can back more than one
- *      scheduled task, and/or run interactively — scheduled-task sessions
- *      are the strongest signal because they carry a durable FK back to the
- *      profile; see the approximation note below for the interactive gap).
- *   2. Finds every `agent_sessions` row whose `scheduled_task_id` points at
- *      one of those tasks, within the trailing window.
- *   3. Scans each such session's `agent_session_messages.parts_json` for
- *      `type === 'tool'` parts and collects the distinct tool names.
+ * This resolver attributes sessions to the profile being measured via TWO
+ * independent joins, unioned together:
  *
- * ── Documented approximation ─────────────────────────────────────────────
+ *   1. Scheduled-task join: every `agent_scheduled_tasks` row whose
+ *      `agent_config_id` matches the profile, then every `agent_sessions`
+ *      row whose `scheduled_task_id` points at one of those tasks. This is
+ *      the strongest signal — a durable FK all the way back to the profile.
+ *   2. mcp_role join (#853): every `agent_sessions` row whose `mcp_role`
+ *      equals the profile's `agent_configs.id` DIRECTLY. This covers ad hoc
+ *      interactive sessions a human ran under the profile without going
+ *      through a scheduled task — see `_resolveDeniedAgentConfigId` in
+ *      `opencode_stream_bridge.ts` for the precedent: on the #765 interactive
+ *      path, `agent_profile_scope` persists the ENFORCING profile's
+ *      `agent_configs.id` into `mcp_role`, but legacy paths (POST
+ *      /agent-sessions C1, agent_runner role-slug) may instead store a
+ *      `.mcp-roles/<slug>` role NAME that is NOT a profile id. `mcp_role` is
+ *      therefore only trusted as an attribution signal when it is validated
+ *      as an EXACT match against the `agentConfigId` argument (the caller
+ *      already knows which profile it is measuring, so this is a simple
+ *      equality check, not a general "is this a real agent_configs row"
+ *      lookup) — a legacy slug value will simply never equal a real
+ *      `agent_configs.id` and is silently excluded, matching the fail-safe
+ *      posture of the rest of this module.
  *
- * `agent_sessions` has no direct `agent_config_id` column — a session only
- * carries `mcp_role` (a role SLUG string, e.g. "secretary") or
- * `scheduled_task_id` (an FK to the task, which DOES carry
- * `agent_config_id`). This resolver only follows the `scheduled_task_id`
- * path, so it sees tool usage from SCHEDULED runs of a profile but NOT from
- * ad hoc interactive sessions a human ran under the same `mcp_role` slug
- * without going through a scheduled task. This is a conservative
- * under-approximation in the SAFE direction for the functional guard: it can
- * only ever make the resolver report FEWER exercised tools than reality,
- * which means the guard is, if anything, slightly MORE willing to keep a
- * prune than a perfect resolver would be — never less safe. A future
- * enhancement (tracked informally, not blocking this issue) would extend
- * `agent_sessions` with a real `agent_config_id` column resolved from
- * `mcp_role` at session-create time so interactive sessions are covered too.
+ * Sessions matched by EITHER join are deduped (a session found via both
+ * joins is scanned once) before their `agent_session_messages.parts_json`
+ * rows are scanned for `type === 'tool'` parts to collect the distinct tool
+ * names.
+ *
+ * ── Why this closes the prior gap ────────────────────────────────────────
+ *
+ * Before #853, a tool used ONLY in an interactive (non-scheduled) session
+ * was invisible to this resolver — `resolveExercisedTools` would report it
+ * as "never exercised", so `scope_hygiene_generator`'s drift signal could
+ * propose pruning it, and `org_proposal_measure`'s functional guard (which
+ * only ever sees what this resolver reports) had nothing to veto the prune
+ * with. The mcp_role join makes that usage visible without touching the
+ * generator or the measure guard themselves — both already consume whatever
+ * this resolver returns.
  *
  * Never throws — DB errors resolve to an empty set (fail toward "nothing
- * exercised", which is the same posture the previous stub had; this module
- * only makes the non-scheduled-task signal REAL where it can, it does not
- * regress the safety direction of the guard on error).
+ * exercised", the same posture the original stub had).
  */
 
 import { getDb } from '../database/db';
@@ -106,24 +118,55 @@ export async function resolveExercisedTools(
   try {
     const db = getDb();
 
+    // #853: validate agentConfigId against a real agent_configs row before
+    // trusting an mcp_role equality match — mcp_role is only a reliable
+    // profile-id signal when the id it is being compared against is itself a
+    // real profile (see module header: legacy `.mcp-roles/<slug>` values
+    // stored in mcp_role must never be conflated with a genuine
+    // agent_configs.id, and this guards the comparison from the other side).
+    const configRow = db
+      .prepare(`SELECT id FROM agent_configs WHERE id = ?`)
+      .get(agentConfigId) as { id: string } | undefined;
+
+    const sessionIdSet = new Set<string>();
+
+    // Join 1 (#830) — scheduled-task attribution: agent_scheduled_tasks.agent_config_id
+    // -> agent_sessions.scheduled_task_id.
     const taskRows = db
       .prepare(`SELECT id FROM agent_scheduled_tasks WHERE agent_config_id = ?`)
       .all(agentConfigId) as { id: string }[];
-    if (taskRows.length === 0) return new Set<string>();
+    if (taskRows.length > 0) {
+      const taskIds = taskRows.map((r) => r.id);
+      const taskPlaceholders = taskIds.map(() => '?').join(',');
+      const scheduledSessionRows = db
+        .prepare(
+          `SELECT id FROM agent_sessions
+            WHERE scheduled_task_id IN (${taskPlaceholders})
+              AND created_at >= ?`,
+        )
+        .all(...taskIds, sinceIso) as { id: string }[];
+      for (const row of scheduledSessionRows) sessionIdSet.add(row.id);
+    }
 
-    const taskIds = taskRows.map((r) => r.id);
-    const placeholders = taskIds.map(() => '?').join(',');
+    // Join 2 (#853) — interactive attribution: agent_sessions.mcp_role
+    // matched DIRECTLY against agent_configs.id, only when agentConfigId is a
+    // real profile row. This is what makes tool usage from ad hoc
+    // interactive sessions (no scheduled_task_id) visible to the functional
+    // guard, closing the prior "interactive-only usage looks unexercised" gap.
+    if (configRow) {
+      const mcpRoleSessionRows = db
+        .prepare(
+          `SELECT id FROM agent_sessions
+            WHERE mcp_role = ?
+              AND created_at >= ?`,
+        )
+        .all(agentConfigId, sinceIso) as { id: string }[];
+      for (const row of mcpRoleSessionRows) sessionIdSet.add(row.id);
+    }
 
-    const sessionRows = db
-      .prepare(
-        `SELECT id FROM agent_sessions
-          WHERE scheduled_task_id IN (${placeholders})
-            AND created_at >= ?`,
-      )
-      .all(...taskIds, sinceIso) as { id: string }[];
-    if (sessionRows.length === 0) return new Set<string>();
+    if (sessionIdSet.size === 0) return new Set<string>();
 
-    const sessionIds = sessionRows.map((r) => r.id);
+    const sessionIds = Array.from(sessionIdSet);
     const sessionPlaceholders = sessionIds.map(() => '?').join(',');
 
     const messageRows = db
