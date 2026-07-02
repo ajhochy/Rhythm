@@ -368,6 +368,71 @@ it with an `agent_configs` row), the driver's `AGENT_CASES` roster in
 
 ---
 
+## Environment findings (grounded config gaps — verify before each run)
+
+All verified 2026-07-02 against the live local DB
+(`~/Library/Application Support/Rhythm/rhythm.db`) and the checked-in
+`.mcp-roles/*.mcp.json` files. These are the "config makes the designed duty
+untestable (or mis-wired)" findings the evaluation exists to surface:
+
+1. **Role-file `agentConfigId` UUIDs are dangling.** The `agentConfigId`
+   values in `.mcp-roles/{secretary,worship-planning,librarian,theologian,
+   worship-production,fantasy-gm}.mcp.json` (`d049ae2b…`, `fd538791…`,
+   `4c4af629…`, `c15ba5ab…`, `704d705e…`, `470823d0…`) have **no matching
+   `agent_configs` row** — the live rows are keyed by SLUG (`secretary`,
+   `librarian`, …). Only `org-optimizer` (`8f1c2d3e…`) and
+   `org-external-discovery` (`9a2d3e4f…`) exist as UUID-keyed rows. The
+   driver therefore passes slugs as `agentId`, not the role-file UUIDs
+   (which would 400 with "agent not configured").
+2. **All 3 seeded ministry-recipe scheduled tasks are bound to those
+   dangling UUIDs.** `agent_scheduled_tasks` rows "Sunday Service Prep"
+   (`fd538791…`), "Volunteer Follow-up" and "Weekly Ministry Review" (both
+   `d049ae2b…`) reference `agent_config_id` values with zero matching
+   `agent_configs` rows (verified via a correlated-count query).
+   `ministry_recipes_seed.ts` reads `agentConfigId` from the role file at
+   seed time, so it inherited the stale UUIDs. Depending on how the
+   scheduler resolves profile scope for a missing profile row, `--seed-burst`
+   runs may fail or run without the intended profile — **fix the role files'
+   `agentConfigId` (or re-key the rows) before treating seed-burst results
+   as representative.** This is a pre-existing wiring bug surfaced by this
+   evaluation, not introduced by it.
+3. **`email-assistant` and `research` rows are DISABLED** (`enabled=0`).
+   Creating a session with their `agentId` would 400 with "agent disabled".
+   The driver creates agent-less sessions (`agentId: null` +
+   `mcpRole: <slug>`), which skips the enabled check — the tool scope is
+   still exercised, but no profile system prompt/model is attached. Enable
+   the rows in the designer for a full-fidelity test.
+4. **Dead memory-tool names in role files.** `librarian`, `fantasy-gm`,
+   `research`, `theologian`, `worship-planning`, and `worship-production`
+   grant `rhythm_remember` / `rhythm_search_context` / `rhythm_forget`,
+   which do not exist on the rhythm MCP server (real names:
+   `rhythm_remember_memory` / `rhythm_search_memory` /
+   `rhythm_forget_memory`). Those grants are inert — the agents cannot use
+   memory tools despite their role files appearing to allow them.
+5. **Dead entries in secretary's `allowed_delegates_json`.** The two
+   space-separated label strings ("AI Trend Researcher", "Theological
+   Researcher") match no `agent_configs.id` and can never authorize a
+   delegation (membership is checked against the target id).
+6. **`workflow-orchestrator` has no canned-task case** in the driver's
+   `AGENT_CASES` roster — its behavior is exercised through the delegation
+   cases instead (it is the delegate target/second-hop caller). Registry
+   subagents (coding-agent, planning-agent, verification-gate, …) are
+   likewise delegation targets, not standalone canned cases, since their
+   duties are only meaningful inside the workflow chain.
+7. **`fantasy-gm` / `worship-production` external servers inert.** Their
+   role files self-document `nfl_mcp`/`supabase`/`Minutes` and
+   `ableton-mcp`/`propresenter` as "inertUntilRegistered" — the canned
+   tasks for these two agents treat a graceful "tools unavailable" report as
+   the realistic expected evidence (see their sections above).
+8. **No `denied_tool_events` HTTP route** (repo-wide caveat, also noted at
+   the top): denial evidence in the scorecard comes from transcripts. A
+   maintainer wanting DB-level confirmation can run
+   `sqlite3 "$HOME/Library/Application Support/Rhythm/rhythm.db" "SELECT
+   agent_config_id, tool_name, COUNT(*) FROM denied_tool_events GROUP BY 1,2"`
+   after a live run.
+
+---
+
 ## Delegation cases
 
 **Correction to the task brief's assumed HTTP surface**: the brief stated
@@ -573,11 +638,11 @@ self-optimizer needs to have real signal to audit. Per
   composes profile scope snapshots, delegation edges (`buildDelegationEdges`),
   skill overlap candidates, webhook-gap clustering, and the denied-tool
   aggregate above into the snapshot that downstream proposal generation
-  reads. The delegation cases in this matrix (especially the confirmed
-  `workflow-orchestrator.is_manager=0` gap) are directly the kind of
-  drift `buildDelegationEdges` would need to reflect accurately — this
-  matrix's live-DB verification doubles as a manual audit of that
-  function's expected output for this environment.
+  reads. The delegation cases in this matrix (especially the observed
+  `workflow-orchestrator.is_manager` volatility documented above) are
+  directly the kind of drift `buildDelegationEdges` would need to reflect
+  accurately — this matrix's live-DB verification doubles as a manual audit
+  of that function's expected output for this environment.
 
 Running the full suite (`--agents all --seed-burst --yes-live`) on a healthy
 server therefore produces, in one pass: a scope/completion/denial scorecard
