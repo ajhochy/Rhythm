@@ -63,4 +63,56 @@ Final verification on `3d2d2de15`:
    (last unchecked criterion of the closed #833). Then manual-merge #848.
 2. #849 (fork) merges only after a signed-release real-binary smoke.
 3. Follow-ups above become the next issues — first the optimizer live run-loop
-   trigger tool, then create-recipe apply + consolidate-skill body-drafting.
+   trigger tool, then create-recipe apply (done, see below) + consolidate-skill
+   body-drafting.
+
+## Recent coding-agent runs
+
+### 2026-07-02 — issue-851 (org-optimizer-17: create-recipe apply step)
+- Files modified:
+  - `apps/api_server/src/services/generators/recipe_generator.ts` — added
+    `buildCreateRecipeApplier` / `registerCreateRecipeApplier` (the `create-recipe`
+    apply step: creates an `agent_cookbook` row from `change_json`
+    title/description/steps_json + optional `boundConfigId`; idempotent via a
+    title match; returns `beforeSnapshotJson: { createdCookbookId }` for revert).
+  - `apps/api_server/src/services/org_proposal_appliers_wiring.ts` — registered
+    `registerCreateRecipeApplier` + a new `validateCreateRecipeShape` structural
+    validator in `registerAllProposalAppliers()` (this module's owner for #851).
+  - `apps/api_server/src/__tests__/issue_851_contract.test.ts` (new) — contract
+    tests for all 4 acceptance criteria.
+  - `docs/ai/contracts/issue-851.json` (new) — acceptance contract, all 4
+    criteria `pass`.
+- Checks run:
+  - `npx vitest run src/__tests__/issue_851_contract.test.ts` — 7/7 pass.
+  - `npx vitest run recipe_generator create_recipe proposal_appliers agent_cookbook org_proposal` — 48/48 pass.
+  - `tsc --noEmit` — clean.
+  - Full `npx vitest run` — 1747 pass / 1 skip / 1 fail; the 1 failure
+    (`agent_profile_sync_hygiene.test.ts` timeout) is the pre-existing
+    documented flake (see Risks above) — reproduced green in isolation
+    (`npx vitest run src/__tests__/agent_profile_sync_hygiene.test.ts` → 20/20).
+  - Falsification: commenting out the idempotency guard broke exactly and
+    only the issue-851-c3 test (2 rows instead of 1); reverted, all green again.
+- Decisions made: `create-recipe` was already in `org_risk_classifier.ts`'s
+  `HIGH_RISK_KINDS`, and `org_proposal_apply.ts` (the auto-apply lane)
+  independently re-derives risk and refuses non-`'low'` kinds before ever
+  touching the registered-applier map — so no code change was needed to
+  guarantee the gate; issue-851-c2 asserts this pre-existing behavior stays
+  true. Idempotency is guarded by case-insensitive/trimmed title match
+  (no dedicated "applied" marker column exists on `agent_cookbook`), mirroring
+  the dedup-by-key precedent in `agent_org_proposals_repository.createAsync`.
+  Revert is NOT wired into `org_proposal_apply.ts`'s generic `revertProposal`
+  (that function only has a bespoke branch for `agent_configs` scope changes,
+  and this issue's ownership excludes editing that file) — `beforeSnapshotJson`
+  instead carries `{ createdCookbookId }` as a self-describing revert record,
+  mirroring `webhook_wiring_generator.ts`'s `{ createdEndpointId }` precedent
+  from #829.
+- Deviations from spec: none — implemented within `recipe_generator.ts` +
+  `org_proposal_appliers_wiring.ts` only, per ownership notes. Did not touch
+  `org_proposal_apply*.ts`, `org_audit_service.ts`, `migrations.ts`, or
+  `mcp_dispatch_guard.ts`.
+- Concerns: a live "revert" action for `create-recipe` (calling
+  `AgentCookbookRepository.deleteAsync` on `beforeSnapshotJson.createdCookbookId`)
+  is not itself wired into any UI/controller path yet — this issue only
+  guarantees the snapshot *supports* that revert, per the AC wording. A future
+  issue should wire an explicit revert action for gated (non-auto-lane) kinds
+  if the review queue needs a "undo an approved create-recipe" button.

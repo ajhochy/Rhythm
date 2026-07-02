@@ -49,9 +49,11 @@ import { logger } from '../../utils/logger';
 import { classifyProposalRisk } from '../org_risk_classifier';
 import { scoreSkillBody, type ScoreCall, type SkillPurpose } from '../skill_refiner';
 import { AgentOrgProposalsRepository } from '../../repositories/agent_org_proposals_repository';
+import { AgentCookbookRepository } from '../../repositories/agent_cookbook_repository';
 import type { AgentOrgProposal } from '../../models/agent_org_proposal';
 import type { AgentCookbook } from '../../repositories/agent_cookbook_repository';
 import type { OrgAuditGap, OrgAuditSnapshot } from '../org_audit_service';
+import type { ProposalApplier, ProposalApplyResult } from '../org_proposal_apply_service';
 
 /** Below this score, an existing recipe's body is considered improvable (refine candidate). */
 const RECIPE_ADEQUACY_THRESHOLD = 70;
@@ -285,4 +287,140 @@ export async function generateRecipeProposals(
   }
 
   return { created };
+}
+
+// ── Apply step for `create-recipe` (#851 / org-optimizer-17) ───────────────
+//
+// `create-recipe` is HIGH risk (org_risk_classifier.ts's HIGH_RISK_KINDS) and
+// therefore is NEVER reachable from the low-risk auto-apply lane
+// (org_proposal_apply.ts's `applyProposal` re-derives risk via
+// `classifyProposalRisk` and refuses anything not 'low' before it would ever
+// look at a registered applier). This applier only ever runs through
+// org_proposal_apply_service.ts's `applyProposal`, and only after a human
+// approves the proposal on the review queue (status: 'approved' ->
+// applyProposal -> 'applied').
+//
+// Idempotency: guarded by title. `AgentCookbookRepository` has no dedicated
+// "applied" marker column, so — mirroring `agent_org_proposals_repository
+// .createAsync`'s own dedup-by-key precedent — this applier checks for an
+// existing cookbook row with the same (case-insensitive, trimmed) title
+// before inserting. A second approval of the same proposal (e.g. a retried
+// request) returns the existing row's id in beforeSnapshotJson rather than
+// creating a duplicate recipe.
+//
+// Revert: `beforeSnapshotJson` carries `{ createdCookbookId }` — the id of
+// the row this apply step created (or, on the idempotent replay path, the
+// pre-existing row it matched). A future revert consumer removes the recipe
+// via `AgentCookbookRepository.deleteAsync(createdCookbookId)`. This mirrors
+// webhook_wiring_generator.ts's `applyWebhookWiring`, which stores
+// `{ createdEndpointId }` for the same reason: org_proposal_apply.ts's
+// generic `revertProposal` only has a bespoke branch for
+// `agent_configs` scope changes, so a gated kind's own before-snapshot shape
+// is the durable, self-describing record of what to undo.
+
+/** Structural subset of `create-recipe`'s change_json this applier reads. */
+interface CreateRecipeChange {
+  title?: string;
+  description?: string | null;
+  steps_json?: string;
+  boundConfigId?: string | null;
+}
+
+function parseCreateRecipeChange(proposal: AgentOrgProposal): CreateRecipeChange | null {
+  if (!proposal.changeJson) return null;
+  try {
+    const parsed: unknown = JSON.parse(proposal.changeJson);
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      return parsed as CreateRecipeChange;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+export interface CreateRecipeApplierDeps {
+  /** Injectable cookbook repo (defaults to a fresh AgentCookbookRepository). */
+  cookbookRepo?: AgentCookbookRepository;
+}
+
+/**
+ * The `create-recipe` apply step. Runs ONLY after a human approves — see the
+ * module doc above. Creates an `agent_cookbook` row from the proposal's
+ * `change_json` (`title`/`description`/`steps_json`, plus `boundConfigId`
+ * when the proposal names one), routed exclusively through
+ * `AgentCookbookRepository.createAsync` — the same path
+ * `agentCookbookController` uses for a manually-created recipe.
+ */
+export function buildCreateRecipeApplier(deps: CreateRecipeApplierDeps = {}): ProposalApplier {
+  const cookbookRepo = deps.cookbookRepo ?? new AgentCookbookRepository();
+
+  return async (proposal: AgentOrgProposal): Promise<ProposalApplyResult> => {
+    const change = parseCreateRecipeChange(proposal);
+    if (!change || typeof change.title !== 'string' || !change.title.trim()) {
+      throw new Error(`create-recipe proposal ${proposal.id} has no valid change_json.title`);
+    }
+
+    const title = change.title.trim();
+
+    // Idempotency guard: a matching recipe (by case-insensitive, trimmed
+    // title) already exists — either from a prior approval of this exact
+    // proposal, or a recipe independently created with the same title.
+    // Either way, do not insert a duplicate; report the existing row so
+    // revert still has a valid target.
+    const existingAll = await cookbookRepo.listAllAsync();
+    const existing = existingAll.find((r) => titleMatches(r.title, title));
+    if (existing) {
+      logger.info(
+        `[recipe-generator] create-recipe apply for '${proposal.id}' is a no-op — cookbook '${existing.id}' already has title="${title}"`,
+      );
+      return {
+        measurable: false,
+        beforeSnapshotJson: JSON.stringify({ createdCookbookId: existing.id }),
+      };
+    }
+
+    const created = await cookbookRepo.createAsync({
+      title,
+      description: change.description ?? undefined,
+      stepsJson: change.steps_json ?? undefined,
+      boundConfigId: change.boundConfigId ?? undefined,
+    });
+
+    logger.info(
+      `[recipe-generator] create-recipe apply for '${proposal.id}' created cookbook '${created.id}' (title="${title}")`,
+    );
+
+    return {
+      // A freshly created recipe has no usage history yet to measure
+      // keep/revert against — mirrors webhook_wiring_generator.ts's
+      // applyWebhookWiring, which is also measurable: false for the same
+      // reason (nothing to compare a brand-new artifact's performance to).
+      measurable: false,
+      beforeSnapshotJson: JSON.stringify({ createdCookbookId: created.id }),
+    };
+  };
+}
+
+/** Minimal shape of the shared apply-service registry this plugs into. */
+export interface CreateRecipeApplierRegistry {
+  registerProposalApplier: (kind: string, applier: ProposalApplier) => void;
+}
+
+/**
+ * Register the `create-recipe` applier on the shared
+ * `org_proposal_apply_service` registry. Callers pass the registry (rather
+ * than this module importing `org_proposal_apply_service` and mutating it
+ * directly at import time) so registration is explicit and test-controlled —
+ * mirrors the seam documented in org_proposal_apply_service.ts's module doc
+ * ("Kinds are registered via {@link registerProposalApplier} so future
+ * generator issues plug in without touching this file's control flow").
+ * `org_proposal_appliers_wiring.ts` (#830, amended by #851) calls this once
+ * at server startup.
+ */
+export function registerCreateRecipeApplier(
+  registry: CreateRecipeApplierRegistry,
+  deps: CreateRecipeApplierDeps = {},
+): void {
+  registry.registerProposalApplier('create-recipe', buildCreateRecipeApplier(deps));
 }

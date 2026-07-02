@@ -22,15 +22,16 @@
  *     wired), NOT the human-gate queue's registered-applier path this
  *     module wires. Listed here only so this file is the single documented
  *     place confirming all six generators were considered.
- *   - recipe_generator (#823): same as scope-hygiene — `generateRecipeProposals`
- *     produces proposal INPUTS only; it exports no `register*Applier` (see
- *     the exports grep — only `generateRecipeProposals`), so there is
- *     nothing to wire for it either. `create-recipe`/`refine-recipe` are
- *     handled by `org_proposal_measure.ts`'s body-refinement path for the
- *     low-risk `refine-recipe` kind; `create-recipe` is high-risk and
- *     currently has no dedicated apply step beyond the default no-op —
- *     flagged as a gap for a future issue, not something this wiring round
- *     can fabricate without a generator-side apply function to call.
+ *   - recipe_generator (#823, applier added by #851): `generateRecipeProposals`
+ *     produces proposal INPUTS for both `create-recipe` and `refine-recipe`.
+ *     `refine-recipe` (LOW risk) is handled by `org_proposal_measure.ts`'s
+ *     body-refinement path, same as before — nothing to wire for it here.
+ *     `create-recipe` (HIGH risk, always human-gated) now has a real apply
+ *     step: `registerCreateRecipeApplier(registry)` creates the
+ *     `agent_cookbook` row from the proposal's `change_json` on approval —
+ *     see recipe_generator.ts's "Apply step for `create-recipe`" section for
+ *     the idempotency (guarded by title) and revert (`before_snapshot_json`
+ *     carries `createdCookbookId`) design.
  *   - new_agent_generator (#824): `registerNewAgentApplier(registry)` — no
  *     deps param; the generator's own applier reads `AgentConfigsRepository`
  *     and the `.mcp-roles` writer internally.
@@ -70,6 +71,7 @@ import {
 import { registerNewAgentApplier } from './generators/new_agent_generator';
 import { registerDelegationApplier } from './generators/delegation_generator';
 import { registerWebhookWiringApplier } from './generators/webhook_wiring_generator';
+import { registerCreateRecipeApplier } from './generators/recipe_generator';
 import {
   registerExternalAdoptionApplier,
   type ExternalAdoptionApplyDeps,
@@ -281,6 +283,38 @@ function validateExternalAdoptionShape(proposal: AgentOrgProposal): ProposalVali
 }
 
 /**
+ * Structural re-validation for `create-recipe`, registered here for the same
+ * self-sufficiency reason as {@link validateWebhookWiringShape} /
+ * {@link validateExternalAdoptionShape}: this wiring module must not depend
+ * on org_proposal_apply_service.ts happening to already have a validator for
+ * every kind it wires an applier for — that module fails closed (refuses any
+ * kind with no registered validator), so a create-recipe proposal would be
+ * permanently stuck at approval without this. Mirrors
+ * recipe_generator.ts's own `parseCreateRecipeChange` shape expectation: a
+ * non-empty `title` string is required so approval never creates an
+ * untitled/blank cookbook entry.
+ */
+function validateCreateRecipeShape(proposal: AgentOrgProposal): ProposalValidationResult {
+  if (!proposal.changeJson) {
+    return { valid: false, reason: 'create-recipe proposal change_json is missing' };
+  }
+  let change: Record<string, unknown> | null = null;
+  try {
+    const parsed: unknown = JSON.parse(proposal.changeJson);
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      change = parsed as Record<string, unknown>;
+    }
+  } catch {
+    return { valid: false, reason: 'create-recipe proposal change_json is not valid JSON' };
+  }
+  const title = change?.title;
+  if (typeof title !== 'string' || !title.trim()) {
+    return { valid: false, reason: 'change_json.title is required to create a recipe' };
+  }
+  return { valid: true };
+}
+
+/**
  * Wire all six generators' apply steps into the given registry (normally
  * `org_proposal_apply_service.ts`'s module-level `registerProposalApplier`
  * / `registerProposalValidator`, but injectable so a test can pass an
@@ -331,10 +365,17 @@ export function registerAllProposalAppliers(registry: AppliersRegistry = {
     logger.warn(`[org-proposal-appliers-wiring] failed to register webhook-wiring applier (non-fatal): ${String(err)}`);
   }
 
-  // scope_hygiene_generator (#822) and recipe_generator (#823) intentionally
-  // register nothing here — see the module doc above for why.
+  try {
+    registerCreateRecipeApplier(registry);
+    registry.registerProposalValidator('create-recipe', validateCreateRecipeShape);
+  } catch (err) {
+    logger.warn(`[org-proposal-appliers-wiring] failed to register create-recipe applier (non-fatal): ${String(err)}`);
+  }
+
+  // scope_hygiene_generator (#822) intentionally registers nothing here —
+  // see the module doc above for why.
 
   logger.info(
-    '[org-proposal-appliers-wiring] registered appliers for: create-agent, grant-delegation, expand-delegation, external-adoption, webhook-wiring',
+    '[org-proposal-appliers-wiring] registered appliers for: create-agent, grant-delegation, expand-delegation, external-adoption, webhook-wiring, create-recipe',
   );
 }
