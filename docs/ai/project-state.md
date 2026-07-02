@@ -62,6 +62,70 @@ PR #812.
 
 ## Recent coding-agent runs
 
+### 2026-07-02 — feat(org-optimizer/#817): agent_org_proposals store + lifecycle state machine
+- Files modified:
+  - `apps/api_server/src/database/migrations.ts` — appended a new
+    `agent_org_proposals` CREATE TABLE block (20 columns per
+    `docs/ai/decisions/2026-06-29-org-self-optimizer-cron.md` §5, fetched from
+    `origin/docs/org-self-optimizer-plan` since that doc is not yet on main) +
+    `idx_org_proposals_status` + UNIQUE `idx_org_proposals_dedup`. Local
+    SQLite (agent DB) only — deliberately NOT added to `postgres_bootstrap.ts`.
+  - NEW `apps/api_server/src/models/agent_org_proposal.ts` — `AgentOrgProposal`
+    / `AgentOrgProposalInput` interfaces (camelCase, one field per column) +
+    `agentOrgProposalFromJson`/`agentOrgProposalToJson` lossless round-trip.
+  - NEW `apps/api_server/src/repositories/agent_org_proposals_repository.ts` —
+    `AgentOrgProposalsRepository` (constructor pattern mirrors
+    `AgentSkillsRepository`): `createAsync`, `findByIdAsync`,
+    `listByStatusAsync`, `listProposedAsync`, `existsByDedupKeyAsync`,
+    `updateStatusAsync`. Status state machine (fail-closed):
+    `proposed -> approved|rejected|applied`; `approved -> applied`;
+    `applied -> measuring`; `measuring -> active|reverted`; `rejected`/
+    `active`/`reverted` terminal. `createAsync` is idempotent on `dedupKey`
+    (proactive existing-row check + a defense-in-depth catch around the
+    UNIQUE-index insert) — a duplicate call is a silent no-op returning the
+    first-inserted row, never a crash or overwrite.
+  - NEW `apps/api_server/src/__tests__/agent_org_proposals.test.ts` (written
+    by the acceptance-contract step) — 19 tests across the 7 issue-817
+    criteria; `docs/ai/contracts/issue-817.json` records the contract.
+- Checks run:
+  - `npx vitest run agent_org_proposals` — RED before impl (18 failed / 1
+    passed, the 1 pass being the postgres-absence check trivially true on an
+    unmodified codebase); GREEN after impl (19/19 passed).
+  - `./node_modules/.bin/tsc --noEmit` (worktree's `npx tsc` resolved to the
+    global "wrong tsc" stub — invoked the local binary directly) — exit 0,
+    no errors.
+  - `npx vitest run` (full suite) — 178 files / 1539 tests passed, no
+    regressions.
+  - Falsification: commented out the `ALLOWED_TRANSITIONS` guard in
+    `updateStatusAsync` — the 3 illegal-transition tests
+    (`proposed->active`, `rejected->applied`, `active->approved`) failed as
+    expected (16 passed / 3 failed); restored the guard, re-ran
+    `agent_org_proposals` (19/19) and the full suite (178/1539) green again.
+- Decisions made: the maintainer's 2026-07-02 full-autonomy-with-rollback
+  policy note is baked into the repository state machine by making
+  `proposed -> applied` unconditionally legal (not gated on `kind`) —
+  per-kind human-gating (new-agent, external-adoption) is left as a
+  caller-side policy decision for the future generator/queue code, not
+  something this store enforces itself. Dedup idempotency is proactive
+  (check-then-insert) rather than relying solely on catching the UNIQUE
+  constraint, so the common case never touches SQLite's error path; the
+  catch block remains as a race-safety backstop only.
+- Deviations from spec: none. The decision doc referenced by the issue
+  (`docs/ai/decisions/2026-06-29-org-self-optimizer-cron.md`) does not exist
+  on `origin/main` yet — it was fetched from `origin/docs/org-self-optimizer-plan`
+  (`git show origin/docs/org-self-optimizer-plan:docs/ai/decisions/2026-06-29-org-self-optimizer-cron.md`)
+  to get the exact §5 DDL; the branch for this issue was still cut from
+  `origin/main` as instructed.
+- Concerns: this is a foundation-only store — no generator, no
+  `classifyProposalRisk` predicate, and no Flutter review-queue surface exist
+  yet (tracked as separate org-optimizer-* issues per the decision doc). Two
+  sibling issues (memory_index_service, denied_tool_events) touch
+  `migrations.ts` in parallel on separate branches; this run's edit is a
+  single new block appended at the end of `runMigrations`, so a rebase
+  conflict is unlikely but possible if a sibling also appends at the same
+  location. `apps/api_server/node_modules` was symlinked from the main
+  checkout for local test/tsc runs; not committed.
+
 ### 2026-06-28 — feat(agents): grant obsidian read/search to all selectable agents
 - Selectable+roled set (mode:primary opencode agent + a `.mcp-roles/<slug>.mcp.json`):
   email-assistant, fantasy-gm, graphic-designer, secretary, worship-planning,
