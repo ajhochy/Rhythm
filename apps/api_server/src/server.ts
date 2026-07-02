@@ -159,6 +159,24 @@ async function main() {
       );
     }
 
+    // #846 — One-time seed of the three ministry recipe exemplars (Sunday
+    // Service Prep / Volunteer Follow-up / Weekly Ministry Review), each a
+    // scheduled task + managed skill pair bound to the correct scoped agent
+    // profile (worship-planning / secretary). Idempotent by task name + skill
+    // title (mirrors the seeds above). Non-fatal — a seed failure must never
+    // block startup.
+    try {
+      const { seedMinistryRecipes } = await import('./services/ministry_recipes_seed');
+      const r = await seedMinistryRecipes();
+      logger.info(
+        `[server] ministry recipes seed: tasksSeeded=${r.tasksSeeded} tasksSkipped=${r.tasksSkipped} ` +
+          `skillsSeeded=${r.skillsSeeded} skillsSkipped=${r.skillsSkipped} ` +
+          `missingRoleFiles=${r.missingRoleFiles.join(',') || 'none'}`,
+      );
+    } catch (err) {
+      logger.warn(`[server] ministry recipes seed failed (non-fatal): ${String(err)}`);
+    }
+
     // #794 + #795 — Crash recovery for the auto-apply self-improvement loop. A
     // revision applied before a crash leaves its sidecar row at
     // `status='measuring'`; if the process died before the measure step ran,
