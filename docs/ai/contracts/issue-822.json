@@ -1,0 +1,64 @@
+{
+  "issue": 822,
+  "generated": "2026-07-02",
+  "criteria": [
+    {
+      "criterion_id": "issue-822-c1",
+      "text": "A dead/unresolved allowlist name (drift gap) produces one prune-scope proposal (target_ref=profile+name, change_json=remove name, signal_ref=the drift gapId).",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/scope_hygiene_generator.test.ts",
+      "test_id": "issue-822-c1: prune-scope gap produces exactly one prune-scope proposal with the correct target_ref/change_json/signal_ref",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-822-c2",
+      "text": "A granted tool/server with zero invocations in the trailing window (tighten-scope gap) produces one tighten-scope proposal removing it.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/scope_hygiene_generator.test.ts",
+      "test_id": "issue-822-c2: tighten-scope gap produces exactly one tighten-scope proposal removing the never-invoked tool",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-822-c3",
+      "text": "2+ skills above the overlap threshold produce one consolidate-skill proposal referencing both ids.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/scope_hygiene_generator.test.ts",
+      "test_id": "issue-822-c3: skillOverlapCandidates above threshold produce one consolidate-skill proposal referencing both skill ids",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-822-c4",
+      "text": "A tool/server that WAS exercised is NEVER proposed for removal.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/scope_hygiene_generator.test.ts",
+      "test_id": "issue-822-c4: a live, matched, exercised MCP name (no tighten-scope gap for it) is never proposed for removal",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-822-c5",
+      "text": "A USER-authored scope entry (overlay, #785) is not auto-pruned \u2014 flag for gate instead, never silently prune.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/scope_hygiene_generator.test.ts",
+      "test_id": "issue-822-c5: a prune-scope gap flagged user-authored via deps is never emitted as an auto-apply low-risk prune",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-822-c6",
+      "text": "All emitted proposals are LOW (assert via classifyProposalRisk).",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/scope_hygiene_generator.test.ts",
+      "test_id": "issue-822-c6: every emitted proposal input classifies as low risk via the real classifyProposalRisk",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-822-c7",
+      "text": "Proposals carry dedup_key, duplicates vs existsByDedupKeyAsync skipped.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/scope_hygiene_generator.test.ts",
+      "test_id": "issue-822-c7: a dedup_key that already exists via existsByDedupKeyAsync is skipped, not re-created",
+      "status": "pass"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}
