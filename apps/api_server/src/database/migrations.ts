@@ -734,11 +734,14 @@ export function runMigrations(db: Database.Database): void {
       ON notifications(recipient_user_id, read_at);
   `);
 
-  // Claude collaborator trigger queue
+  // Claude collaborator trigger queue.
+  // task_id is NULLABLE: human-collaborator triggers carry a task_id, but
+  // scheduler / webhook / research triggers are taskless and insert task_id=NULL.
+  // UNIQUE(task_id) still de-dups human triggers (SQL UNIQUE permits multiple NULLs).
   db.exec(`
     CREATE TABLE IF NOT EXISTS pending_claude_triggers (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+      task_id TEXT REFERENCES tasks(id) ON DELETE CASCADE,
       triggered_by_user_id INTEGER REFERENCES users(id),
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       UNIQUE(task_id)
@@ -1446,6 +1449,55 @@ export function runMigrations(db: Database.Database): void {
   }
   if (!pctColsExt.includes('webhook_endpoint_id')) {
     db.exec(`ALTER TABLE pending_claude_triggers ADD COLUMN webhook_endpoint_id TEXT`);
+  }
+
+  // Make pending_claude_triggers.task_id NULLABLE on EXISTING databases.
+  // Scheduler/webhook/research triggers are taskless (task_id=NULL); the
+  // original schema declared `task_id TEXT NOT NULL`, so every taskless insert
+  // failed at runtime. Fresh installs get the nullable CREATE above; existing
+  // DBs need a rebuild because SQLite cannot drop a NOT NULL constraint via
+  // ALTER. This block runs AFTER the additive ALTERs above so the rebuilt table
+  // carries the full current column set. Guarded by the task_id `notnull` flag,
+  // so it is idempotent — it never runs a second time once the column is nullable.
+  const pctInfo = db.pragma('table_info(pending_claude_triggers)') as {
+    name: string;
+    notnull: number;
+  }[];
+  const taskIdCol = pctInfo.find((c) => c.name === 'task_id');
+  if (taskIdCol && taskIdCol.notnull === 1) {
+    // Enumerate the live column set (do NOT hardcode) so the rebuilt table and
+    // the INSERT ... SELECT copy exactly match whatever this DB currently has.
+    const columnNames = pctInfo.map((c) => c.name);
+    const columnList = columnNames.join(', ');
+    // FK enforcement must be off during a table swap; toggling it is a no-op
+    // outside a transaction, so do it around (not inside) the BEGIN/COMMIT.
+    db.pragma('foreign_keys = OFF');
+    const rebuild = db.transaction(() => {
+      db.exec(`
+        CREATE TABLE pending_claude_triggers_new (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          task_id TEXT REFERENCES tasks(id) ON DELETE CASCADE,
+          triggered_by_user_id INTEGER REFERENCES users(id),
+          created_at TEXT NOT NULL DEFAULT (datetime('now')),
+          scheduled_task_id TEXT REFERENCES agent_scheduled_tasks(id) ON DELETE CASCADE,
+          prompt TEXT,
+          allowed_mcps_json TEXT,
+          allowed_skills_json TEXT,
+          model_provider TEXT,
+          model_id TEXT,
+          webhook_endpoint_id TEXT,
+          UNIQUE(task_id)
+        )
+      `);
+      db.exec(
+        `INSERT INTO pending_claude_triggers_new (${columnList}) SELECT ${columnList} FROM pending_claude_triggers`,
+      );
+      db.exec(`DROP TABLE pending_claude_triggers`);
+      db.exec(`ALTER TABLE pending_claude_triggers_new RENAME TO pending_claude_triggers`);
+      db.exec(`CREATE INDEX IF NOT EXISTS idx_pending_claude_triggers_created_at ON pending_claude_triggers(created_at)`);
+    });
+    rebuild();
+    db.pragma('foreign_keys = ON');
   }
 
   // B1 — agent_cookbook: reusable recipe/skill library for the agent scheduler.

@@ -464,11 +464,14 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
       ON notifications(recipient_user_id, read_at)
   `);
 
-  // Claude collaborator trigger queue
+  // Claude collaborator trigger queue.
+  // task_id is NULLABLE: human-collaborator triggers carry a task_id, but
+  // scheduler / webhook / research triggers are taskless and insert task_id=NULL.
+  // UNIQUE(task_id) still de-dups human triggers (Postgres UNIQUE permits multiple NULLs).
   await pool.query(`
     CREATE TABLE IF NOT EXISTS pending_claude_triggers (
       id SERIAL PRIMARY KEY,
-      task_id TEXT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+      task_id TEXT REFERENCES tasks(id) ON DELETE CASCADE,
       triggered_by_user_id INTEGER REFERENCES users(id),
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       UNIQUE(task_id)
@@ -525,6 +528,10 @@ export async function runPostgresBootstrap(pool: Pool): Promise<void> {
     ALTER TABLE pending_claude_triggers ADD COLUMN IF NOT EXISTS model_provider TEXT;
     ALTER TABLE pending_claude_triggers ADD COLUMN IF NOT EXISTS model_id TEXT;
     ALTER TABLE pending_claude_triggers ADD COLUMN IF NOT EXISTS webhook_endpoint_id TEXT;
+    -- Drop the legacy NOT NULL on task_id for EXISTING deployments so taskless
+    -- (scheduler/webhook/research) triggers can insert task_id=NULL. Idempotent:
+    -- DROP NOT NULL is a no-op when the column is already nullable.
+    ALTER TABLE pending_claude_triggers ALTER COLUMN task_id DROP NOT NULL;
   `);
 
   // ── Agent-EXECUTION tables (#755) ──────────────────────────────────────────
