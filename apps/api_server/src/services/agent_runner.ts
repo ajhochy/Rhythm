@@ -115,6 +115,22 @@ export interface AgentRunOptions {
    * modelOverride > profile model (resolveRunModel) > hardcoded default.
    */
   modelOverride?: { providerID: string; modelID: string };
+  /**
+   * #844 (tokens-04) — optional task-kind hint ('triage' | 'formatting' |
+   * 'extraction' | 'summarization' | 'planning' | 'judgment' | ...) used for
+   * BUDGET-AWARE TIERED ROUTING via agent_model_resolver.resolveTieredModel().
+   *
+   * OPT-IN / additive: when omitted (the default for all existing callers),
+   * model resolution is completely unchanged — `modelOverride > profile model
+   * (resolveRunModel) > hardcoded default`, exactly as before. When provided,
+   * `resolveTieredModel()` is layered ON TOP of that same precedence: it
+   * still honors `modelOverride` first (never downgraded for budget), then
+   * the profile's `model_tier_hint` (if set) or this task kind's default
+   * tier, narrowed to the cheapest ADEQUATE authed route and downgraded
+   * further if the target provider is near its usage budget. Every decision
+   * is logged as one structured `[ModelRouting]` line (see #819 org audit).
+   */
+  taskKind?: string | null;
 }
 
 export interface AgentRunResult {
@@ -474,6 +490,7 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
     scheduledTaskId,
     ownerUserId,
     modelOverride,
+    taskKind,
   } = opts;
 
   // Unique slot key for concurrency tracking
@@ -508,7 +525,34 @@ async function _runOnce(opts: AgentRunOptions): Promise<AgentRunResult> {
     allowedSkillsJsonOverride: allowedSkillsJson !== undefined ? allowedSkillsJson : undefined,
   });
   // P4-1: a forced modelOverride (teacher escalation) bypasses the profile model.
-  const resolvedModel = modelOverride ?? profileScope.model;
+  // #844: when a taskKind is supplied, layer budget-aware tiered routing ON TOP
+  // of the same precedence — resolveTieredModel() itself honors modelOverride
+  // first (never downgraded), then profileScope.modelTierHint / the task-kind
+  // policy, narrowed to an authed route and downgraded further only when the
+  // target provider is near its usage budget. Omitting taskKind (every
+  // pre-#844 caller) leaves this byte-for-byte unchanged: modelOverride ??
+  // profileScope.model, no resolveTieredModel call, no extra logging.
+  let resolvedModel = modelOverride ?? profileScope.model;
+  if (taskKind) {
+    try {
+      const { resolveTieredModel } = await import('./agent_model_resolver');
+      const decision = await resolveTieredModel({
+        agentId: effectiveConfigId ?? 'claude-code',
+        taskKind,
+        explicitTierHint: profileScope.modelTierHint as
+          | 'cheap'
+          | 'standard'
+          | 'frontier'
+          | null,
+        modelOverride: modelOverride ?? null,
+      });
+      resolvedModel = decision.route;
+    } catch (err) {
+      // Non-fatal: tiered routing is a policy layer — a failure here must
+      // never block a run. Fall back to the existing precedence.
+      logger.warn(`[AgentRunner] resolveTieredModel failed (non-fatal): ${String(err)}`);
+    }
+  }
   const effectiveSystemPrompt: string | null = profileScope.systemPrompt;
   const effectiveOcAgent: string | null = profileScope.ocAgent;
   // TODO: pass effectiveSystemPrompt to createSession once the SDK supports a

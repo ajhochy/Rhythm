@@ -1,0 +1,40 @@
+{
+  "issue": 844,
+  "generated": "2026-07-02",
+  "criteria": [
+    {
+      "criterion_id": "issue-844-c1",
+      "text": "Per-profile (or per-task-kind) tier policy — e.g. secretary triage -> haiku-class, planning -> opus-class; explicit override wins.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/issue_844_contract.test.ts",
+      "test_id": "issue-844-c1: resolveModelTier maps known task kinds to the correct tier (triage/formatting/extraction/summarization -> cheap, planning/judgment -> frontier); an explicit modelOverride / profile model_tier_hint always wins over the task-kind default",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-844-c2",
+      "text": "Budget awareness — near budget, the resolver prefers cheaper tiers AND surfaces that it did.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/issue_844_contract.test.ts",
+      "test_id": "issue-844-c2: when usage_budget_service reports a provider's remaining budget below the near-budget threshold, resolveTieredModel downgrades the chosen route to a cheaper tier and sets downgradedForBudget:true with a reason string on the returned decision; when budget is healthy the requested tier is honored and downgradedForBudget is false",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-844-c3",
+      "text": "Decisions logged (model chosen + why) so the org audit (#819) can measure cost per outcome — one structured log line, no payloads.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/issue_844_contract.test.ts",
+      "test_id": "issue-844-c3: resolveTieredModel emits exactly one logger.info call per decision with a JSON-parseable payload containing provider, modelID, tier, taskKind, reason, downgradedForBudget, and overrideApplied fields; the logged payload never contains a 'prompt', 'text', or 'messages' key (no payload leakage)",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-844-c4",
+      "text": "Explicit user override ALWAYS wins over both tier policy and budget-based downgrade.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/issue_844_contract.test.ts",
+      "test_id": "issue-844-c4: when an explicit modelOverride is supplied, resolveTieredModel returns it unchanged even when the profile/task-kind policy would pick a different tier AND even when the budget is critically low (overrideApplied:true, downgradedForBudget:false)",
+      "status": "pending"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}

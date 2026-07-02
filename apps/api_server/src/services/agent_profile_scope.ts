@@ -56,6 +56,19 @@ export interface ProfileScope {
    * null means "use opencode default".
    */
   ocAgent: string | null;
+  /**
+   * #844 — profile's tier preference ('cheap' | 'standard' | 'frontier'), fed
+   * to agent_model_resolver.resolveModelTier()/resolveTieredModel() as the
+   * `explicitTierHint`. null when the profile has no tier preference (the
+   * task-kind default policy applies instead).
+   *
+   * NOTE: this does NOT change `model` above — `model` remains the existing
+   * resolveRunModel() cascade so every current caller (ws_gateway,
+   * agentSchedulerService, agent_runner) is unaffected by this field's
+   * addition. Callers that want budget-aware tiered routing call
+   * resolveTieredModel() themselves with this hint (see agent_runner._runOnce).
+   */
+  modelTierHint: string | null;
 }
 
 export interface ResolveProfileScopeOptions {
@@ -152,6 +165,7 @@ export async function resolveProfileScope(
     allowedSkillsJson: effectiveAllowedSkillsJson,
     systemPrompt: profile?.systemPrompt ?? null,
     ocAgent: profile?.ocAgent ?? null,
+    modelTierHint: profile?.modelTierHint ?? null,
   };
 }
 
