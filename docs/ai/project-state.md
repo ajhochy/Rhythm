@@ -141,3 +141,67 @@ Per-branch verification gates all PASS (2026-07-02):
   protection until a real telemetry source is wired in. This should be
   called out explicitly before org-optimizer-03's audit/signal-collector
   starts generating real prune-scope proposals in production.
+
+### 2026-07-02 — #822 (org-optimizer-06: scope-hygiene generator)
+
+- Files modified:
+  - `apps/api_server/src/services/generators/scope_hygiene_generator.ts`
+    (new) — `generateScopeHygieneProposals(snapshot, deps)`. Consumes ONLY
+    `OrgAuditSnapshot.gaps` (kind='prune-scope'|'tighten-scope', parsed from
+    their documented evidence-string formats) and
+    `OrgAuditSnapshot.skillOverlapCandidates` (already filtered by
+    `org_audit_service.ts`'s own 0.5 Jaccard threshold, not re-filtered
+    here) — never re-derives its own "unused tool" candidates from
+    `profiles`/`drift` directly, so it can never disagree with the audit
+    service's own exercised/live computation. Produces `change_json` shaped
+    exactly as `org_proposal_apply.ts`'s `AgentConfigScopeChange`
+    (`{agentConfigId, field, remove}`) for tighten/prune, and
+    `{skillIdA, skillIdB, titleA, titleB, similarity}` for consolidate-skill
+    (order-independent dedup key over the sorted id pair). Every candidate
+    is risk-classified via the real `classifyProposalRisk`, with one hard
+    override: a prune-scope gap flagged user-authored by the injectable
+    `isUserAuthoredScopeEntry` predicate (default: always false — the
+    snapshot carries no per-name authorship bit) is escalated to
+    `risk='high'` regardless of what the predicate says, so a user-set
+    scope entry (#785 overlay) is never silently auto-pruned through the
+    low-risk auto-apply lane. Dedup-checks `existsByDedupKeyAsync` before
+    every `createAsync`. Never throws — a malformed gap evidence string is
+    logged and skipped, not fatal to the run.
+  - `apps/api_server/src/__tests__/scope_hygiene_generator.test.ts` (new) —
+    7 contract tests for #822.
+  - `docs/ai/contracts/issue-822.json` (new).
+- Checks run:
+  - `npx vitest run scope_hygiene_generator` — 7/7 pass.
+  - `npx vitest run scope_hygiene org_audit agent_org_proposals` — 35/35
+    pass.
+  - `./node_modules/.bin/tsc --noEmit` — clean, 0 errors.
+  - `npx vitest run` (full suite) — 197 files / 1663 tests, all pass (0
+    regressions vs the mega base).
+  - Falsification: temporarily changed
+    `const risk = userAuthored ? 'high' : computedRisk;` to
+    `const risk = computedRisk;` (disabling the user-authored escalation).
+    issue-822-c5 failed as expected (`expected 'low' not to be 'low'`);
+    reverted, 7/7 green again.
+- Decisions made: apply-side wiring for all three kinds this generator
+  emits already exists and needs no new registration —
+  `org_proposal_apply.ts`'s `applyAgentConfigScopeChange` already consumes
+  this generator's exact tighten/prune `change_json` shape, and
+  `org_proposal_measure.ts`'s `measureScopeChange` already measures them.
+  No `registerProposalApplier`/`registerProposalValidator` (#826 seam)
+  registration was added or needed — these three kinds are `risk='low'`
+  (except an escalated user-authored prune) and flow through the direct
+  `proposed -> applied` auto-apply lane, not the human-gate queue's
+  registered-applier path.
+- Deviations from spec: none from the issue's acceptance criteria as
+  written.
+- Concerns / flagged for #830/#831 wiring round: this generator's
+  `consolidate-skill` payload does NOT include `priorBody`/`revisedBody` —
+  drafting an actual merged skill body is a separate, not-yet-built LLM
+  step (this generator only detects and proposes the *pairing*). As a
+  result, `org_proposal_measure.ts`'s `measureBodyRefinement` will see
+  `isBodyRefinementChange() === false` for these rows and resolve to
+  `'skipped'` (parked in `measuring`, never guessed keep/revert) until a
+  future issue wires a body-drafting step ahead of measurement. This is
+  intentional and out of #822's scope (proposal generation only) but should
+  be closed before consolidate-skill proposals are expected to actually
+  reach `active`/`reverted` in practice.
