@@ -1,0 +1,48 @@
+{
+  "date": "2026-07-02",
+  "repo": "Rhythm",
+  "run": "advisor audit + housekeeping + parallel tracks (mem-vault-01, #817, #818, #834); PRs #836-#840",
+  "smoke_result": "unknown",
+  "criteria_results": [],
+  "process_issues": [],
+  "workflow_adherence": {
+    "expected_chain": [
+      "workflow-orchestrator",
+      "acceptance-contract",
+      "coding-agent",
+      "verification-gate",
+      "project-state-updater",
+      "workflow-retrospective"
+    ],
+    "observed_chain": [
+      "workflow-orchestrator",
+      "acceptance-contract (inside coding subagents for #817/#818/#834)",
+      "coding-agent (3 parallel worktree Sonnet subagents + 1 follow-on)",
+      "verification-gate (in-process via Skill tool, per-branch, Guard 5 artifacts produced)",
+      "project-state-updater (in-process via Skill tool, docs branch PR #840)",
+      "workflow-retrospective"
+    ],
+    "skipped_skills": [],
+    "issues": [
+      {
+        "workflow_category": "W4",
+        "affected_skill": "workflow-orchestrator",
+        "description": "Dispatched a full coding subagent (~123K tokens) for mem-vault-01 before checking sub-issue states; epic #801's checklist was stale and the work had already shipped as #802 inside PR #812. Agent correctly detected it and made no changes. Lesson: before dispatching from an epic checklist, verify each sub-issue's GitHub state (open/closed) — checklists go stale.",
+        "detected_by": "subagent report"
+      },
+      {
+        "workflow_category": "W1",
+        "affected_skill": "verification-gate",
+        "description": "Verification gates executed in-process by the orchestrator (Skill invocation + evidence blocks + CI watch) instead of Tier-3 subagent dispatch. Guard 5 conditions met (announce, evidence artifacts, same-response rule); recorded for visibility, deliberate token-efficiency choice per user directive.",
+        "detected_by": "self-audit"
+      },
+      {
+        "workflow_category": "W6",
+        "affected_skill": "workflow-orchestrator",
+        "description": "Permission classifier denied gh issue-body edits mid-run (external-system writes) despite upfront user approval; recovered by surfacing to user and re-running after explicit re-authorization. Consider capturing explicit external-mutation consent in the upfront alignment answers so the intent is visible to the classifier.",
+        "detected_by": "tool denial"
+      }
+    ],
+    "overall_score": "partial"
+  }
+}
