@@ -45,6 +45,7 @@ import agentWebhookRouter from './routes/agentWebhookRoutes';
 import agentResearchRouter from './routes/agentResearchRoutes';
 import agentCookbookRouter from './routes/agentCookbookRoutes';
 import orgProposalsRouter from './routes/org_proposals_routes';
+import orgOptimizerRunRouter from './routes/org_optimizer_run_routes';
 import agentDesignsRouter from './routes/agentDesignsRoutes';
 import gmailSignalsRouter from './routes/gmail_signals_routes';
 
@@ -136,6 +137,9 @@ export function createApp() {
     // new-agent + external-adoption/webhook-wiring proposals, plus an
     // audit-trail/rollback view of auto-applied ones (2026-07-02 policy).
     app.use('/agent-org-proposals', orgProposalsRouter);
+    // org-optimizer-16 (#850): the live run-loop trigger — POST /agent-org-optimizer/run
+    // executes the whole audit->generate->persist->auto-apply pass server-side.
+    app.use('/agent-org-optimizer', orgOptimizerRunRouter);
     app.use('/agent-designs', agentDesignsRouter);
     app.use('/agent-sessions', agentSessionsRouter);
     app.use(ptyRouter);

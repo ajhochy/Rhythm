@@ -19,6 +19,7 @@ import { registerAgentDelegationTools } from './tools/agentDelegation.js';
 import { registerAgentMemoryTools } from './tools/agentMemory.js';
 import { registerAgentSessionTools } from './tools/agentSessions.js';
 import { registerAgentResearchTools } from './tools/agentResearch.js';
+import { registerOrgOptimizerTools } from './tools/orgOptimizer.js';
 
 const RHYTHM_API_URL = process.env.RHYTHM_API_URL ?? 'https://api.vcrcapps.com';
 const RHYTHM_API_TOKEN = process.env.RHYTHM_API_TOKEN ?? '';
@@ -64,6 +65,11 @@ registerAgentMemoryTools(server, RHYTHM_AGENT_URL, RHYTHM_API_TOKEN);
 // never serverConfig.url (dual-endpoint rule).
 registerAgentSessionTools(server, RHYTHM_AGENT_URL, RHYTHM_API_TOKEN);
 registerAgentResearchTools(server, RHYTHM_API_URL, RHYTHM_API_TOKEN);
+// #850 (org-optimizer-16) — the run-loop trigger is an agent-execution
+// surface backed by local SQLite (agent_org_proposals), routed at
+// RHYTHM_AGENT_URL like the scheduler/session/memory tools above, never
+// serverConfig.url (dual-endpoint rule).
+registerOrgOptimizerTools(server, RHYTHM_AGENT_URL, RHYTHM_API_TOKEN);
 
 // Connect over stdio (Claude Desktop / Claude Code MCP transport)
 const transport = new StdioServerTransport();
