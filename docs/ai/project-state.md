@@ -62,6 +62,85 @@ PR #812.
 
 ## Recent coding-agent runs
 
+### 2026-07-02 — feat(org-optimizer/#818): denied_tool_events log — best-effort deny-path telemetry, guard decision unchanged
+- Branch: `issue-818-denied-tool-log` (based on `origin/main`), worktree
+  `.claude/worktrees/agent-ada5fd591141f76e8`.
+- Files modified:
+  - `apps/api_server/src/database/migrations.ts` — appended a NEW
+    `denied_tool_events` table block at the very end of `runMigrations()`
+    (`id`, `session_id` nullable, `agent_config_id` nullable, `tool_name` NOT
+    NULL, `created_at`), plus indexes on `created_at` and `agent_config_id`.
+    SQLite-only by construction (the file only ever receives a
+    `better-sqlite3` `Database.Database`); no other block in the file touched.
+  - `apps/api_server/src/services/opencode_stream_bridge.ts` — added a
+    `private deniedToolEventsRepo = new DeniedToolEventsRepository()` field
+    and wired best-effort logging into the deny branch of the existing
+    `isToolAllowedForSession` private method (the single choke point already
+    called from both dispatch sites: the tool-part path and the
+    permission-ask path). Only the branch that is about to `return false`
+    logs; the write is wrapped in try/catch and the async `.catch()` so it can
+    never throw into or change the boolean returned.
+  - NEW `apps/api_server/src/repositories/denied_tool_events_repository.ts` —
+    SQLite-only repository (mirrors the `env.dbClient === 'postgres'` no-op
+    pattern from `agent_memory_repository.ts`): `recordAsync`, `listAllAsync`,
+    and `countByProfileAndToolAsync(sinceIso)` (a real `GROUP BY` SQL query,
+    excluding rows with a null `agent_config_id` — nothing to attribute them
+    to).
+  - NEW `apps/api_server/src/repositories/denied_tool_events_repository.test.ts`
+    and NEW `apps/api_server/src/__tests__/issue_818_contract.test.ts` —
+    contract tests (see contract below); one test bug found and fixed during
+    implementation (a stray `sessionMap` entry from an earlier `seedSession()`
+    call collided with a second session mapped to the same fake SDK session id
+    in the "throwing logger" test — fixed by clearing `sessionMap` before
+    re-seeding against the poisoned DB handle).
+  - NOT touched (confirmed pure, zero changes needed):
+    `apps/api_server/src/services/mcp_dispatch_guard.ts` — `isToolAllowed` has
+    no I/O and was never a candidate seam; the design note in the issue was
+    correct.
+- Chosen logging seam: `OpencodeStreamBridge.isToolAllowedForSession`, not
+  `isToolAllowed` itself. `isToolAllowed` is a pure predicate (no DB access,
+  used directly by unit tests with literal JSON strings); adding I/O there
+  would break its purity and its own test suite's assumptions. The bridge
+  method already resolves the session row (for `mcpRole`/`mcpAllowedToolsJson`)
+  and is the single call site both dispatch paths route through, so logging
+  once there covers both without duplicating the guard check.
+- `agent_config_id` is always logged as `null` from this seam: `AgentSession`
+  (models/agent_session.ts) has no `agentConfigId` field — only `mcpRole` /
+  `mcpAllowedToolsJson`. This matches the issue's own design note that the
+  column is nullable "precisely because the guard may lack context." Out of
+  scope to thread real profile attribution through; a future writer with that
+  context can populate the column without another migration.
+- Contract: `docs/ai/contracts/issue-818.json` (6 criteria: c1/c2/c3/c4/c6
+  automated + pass; c5 "NOT in postgres_bootstrap.ts" manual/grep-verified).
+- Checks run:
+  - Contract tests confirmed FAILING before implementation (module not found):
+    `npx vitest run denied_tool_events_repository issue_818_contract` → 2
+    suites failed, 0 tests (evidence captured).
+  - Same command after implementation → 2 files / 10 tests passed.
+  - `npx vitest run denied_tool mcp_dispatch_guard mcp_allowlist_expander
+    opencode_stream_bridge issue_736_contract` → 5 files / 43 tests passed.
+  - `node_modules/.bin/tsc --noEmit -p tsconfig.json` → exit 0, no output.
+  - Full `npx vitest run` → 179 files / 1530 tests passed.
+  - `grep -n denied_tool_events src/database/postgres_bootstrap.ts` → no
+    matches (criterion c5 confirmed).
+  - Falsification 1: changed the deny-only `if (!allowed)` guard to `if
+    (true)` (log unconditionally) → `issue-818-c2: an allowed tool-call writes
+    no denied_tool_events row` failed (`expected length 0 but got 2`); reverted,
+    re-confirmed green.
+  - Falsification 2: replaced the try/catch-wrapped `recordAsync` call with an
+    unguarded call to a non-existent `recordAsyncBroken` → `issue-818-c3: a
+    throwing logger/repository does not affect the guard decision or crash
+    dispatch` failed (`TypeError: ... is not a function` propagated, "expected
+    [Function] to not throw" failed); reverted, re-confirmed green.
+- Decisions made: fire-and-forget async logging (not awaited) to avoid
+  changing `isToolAllowedForSession`'s synchronous signature/timing — a
+  deliberate scope limit per the issue's "best-effort" requirement.
+- Deviations from spec: none.
+- Concerns: fire-and-forget logging can in theory race with process exit and
+  lose the very last denial event before shutdown — acceptable per the issue's
+  explicit "best-effort" / never-throws-into-dispatch requirement; the org
+  audit reads aggregate trends over a time window, not exact real-time counts.
+
 ### 2026-06-28 — feat(agents): grant obsidian read/search to all selectable agents
 - Selectable+roled set (mode:primary opencode agent + a `.mcp-roles/<slug>.mcp.json`):
   email-assistant, fantasy-gm, graphic-designer, secretary, worship-planning,

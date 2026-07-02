@@ -4,6 +4,7 @@ import { opencodeSessionMap } from './opencode_engine';
 import { logger } from '../utils/logger';
 import { AgentSessionsRepository } from '../repositories/agent_sessions_repository';
 import { AgentSessionMessagesRepository } from '../repositories/agent_session_messages_repository';
+import { DeniedToolEventsRepository } from '../repositories/denied_tool_events_repository';
 import { queueSkillExtraction } from './skill_extractor';
 import { isToolAllowed } from './mcp_dispatch_guard';
 import type { PermissionMode } from '../models/agent_session';
@@ -159,6 +160,8 @@ export class OpencodeStreamBridge {
   private streamsByDirectory = new Map<string, DirectoryStream>();
   private sessionsRepo = new AgentSessionsRepository();
   private messagesRepo = new AgentSessionMessagesRepository();
+  // #818 — best-effort deny-path telemetry sink; see isToolAllowedForSession.
+  private deniedToolEventsRepo = new DeniedToolEventsRepository();
 
   // Accumulate assistant text deltas keyed by local session id. The SDK
   // streams text via `message.part.delta` events; the message body itself
@@ -396,6 +399,15 @@ export class OpencodeStreamBridge {
    * a tool is allowed must not run it. If the row cannot be found at all we
    * cannot know the role, so we pass through (the part path still forwards as
    * before) — the permission path additionally fails closed where it can.
+   *
+   * #818 (org-optimizer-02) — this is also the single choke point for
+   * best-effort denied-tool telemetry: when (and only when) the guard is
+   * about to return `false`, fire an async, fire-and-forget write to
+   * `denied_tool_events` so the org audit can later read "profile X was
+   * denied tool Y N times". Logging is wrapped so it can NEVER throw into
+   * this method or change the boolean being returned — fail-open for
+   * logging, fail-closed for the guard decision itself. Only the tool NAME is
+   * recorded, never args/payloads.
    */
   private isToolAllowedForSession(
     localSessionId: string | undefined,
@@ -416,7 +428,33 @@ export class OpencodeStreamBridge {
     if (!session) return true;
     // Only sessions that opted into a role are gated. No role → pass-through.
     if (session.mcpRole == null) return true;
-    return isToolAllowed(toolName, session.mcpAllowedToolsJson);
+    const allowed = isToolAllowed(toolName, session.mcpAllowedToolsJson);
+    if (!allowed) {
+      try {
+        this.deniedToolEventsRepo
+          .recordAsync({
+            sessionId: localSessionId,
+            // agent_sessions carries no agent_config_id column today; see the
+            // #818 migration comment for why this is always null from here.
+            agentConfigId: null,
+            toolName,
+          })
+          .catch((err) => {
+            logger.error(
+              '[OpencodeStreamBridge] #818 denied-tool-event logging failed:',
+              err,
+            );
+          });
+      } catch (err) {
+        // Defensive: recordAsync is expected to always return a promise, but
+        // never let a synchronous throw here affect the guard decision below.
+        logger.error(
+          '[OpencodeStreamBridge] #818 denied-tool-event logging failed:',
+          err,
+        );
+      }
+    }
+    return allowed;
   }
 
   /**
