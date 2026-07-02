@@ -25,6 +25,22 @@
  *     or an unparseable score is NO improvement -> revert (fail-closed) —
  *     `scoreSkillBody` itself already fail-closes a throwing scorer to 0.
  *
+ *     #852 — `consolidate-skill` specifically: `scope_hygiene_generator.ts`
+ *     only ever emits the bare pairing signal ({skillIdA, skillIdB, titleA,
+ *     titleB, similarity}), never a body. `org_proposal_apply.applyProposal`
+ *     is where the body gets DRAFTED — see `skill_consolidation_drafter.ts`
+ *     — reshaping `change_json` into this same `BodyRefinementChange` shape
+ *     BEFORE the row ever reaches `measuring`. By the time `measureProposal`
+ *     runs, a consolidate-skill row's `change_json` is indistinguishable
+ *     from a `refine-skill` row's, so no kind-specific branch is needed
+ *     here: `isBodyRefinementChange()` / `measureBodyRefinement()` below
+ *     handle it via the exact same generic path. If a consolidate-skill
+ *     proposal ever reaches this function still carrying the undrafted
+ *     pairing shape (e.g. a caller invoked `measureProposal` directly,
+ *     skipping `applyProposal`), `isBodyRefinementChange()` correctly
+ *     returns false and this resolves to `'skipped'` — left in `measuring`
+ *     rather than guessing, exactly like any other malformed payload.
+ *
  * Every other kind (nothing should reach here outside those five — the
  * caller only invokes this on a row whose proposal is already `risk='low'`)
  * is treated as `skipped`: not enough information to safely decide, so we
