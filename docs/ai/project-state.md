@@ -66,3 +66,59 @@ Per-branch verification gates all PASS (2026-07-02):
    collector, #819) — now unblocked by #817 + #818. #820 (risk predicate) and
    #821 (auto-apply) follow, implementing the locked full-autonomy-with-
    rollback policy (see decisions/2026-07-02-autonomy-and-vault-intent.md).
+
+## Recent coding-agent runs
+
+### 2026-07-02 — #845 skill-effectiveness dashboard (tokens-05)
+- Files modified:
+  - `apps/api_server/src/routes/opencode_skills_routes.ts` — added
+    `measureReason: string | null` to `SkillMetadata`, `DEFAULT_METADATA`, and
+    the `?withMetadata=true` join (the sidecar row already carried it;
+    `postScore`/`uses` were already exposed pre-#845).
+  - `apps/api_server/src/__tests__/opencode_skills_routes.test.ts` — updated 3
+    pre-existing `toEqual` metadata fixtures to include `measureReason: null`
+    (API boundary change, no behavior change for those cases).
+  - `apps/api_server/src/__tests__/issue_845_contract.test.ts` (new) — 3
+    contract tests for the `measureReason` join (kept-measurement narrative,
+    revert marker, and the no-sidecar-row null default).
+  - `apps/desktop_flutter/lib/features/agents/data/opencode_skills_data_source.dart`
+    — added `OpencodeSkillMetadata.measureReason` (+`hasMeasurementHistory`,
+    `isRevertEvent` getters).
+  - `apps/desktop_flutter/lib/features/agent_skills/views/agent_skills_view.dart`
+    — added sortable Score/Usage columns (`skills-sort-score`,
+    `skills-sort-usage`, null-safe comparator treating missing values as
+    lowest), `_NumericCell` row renderer, and a `_MeasurementHistory`
+    expansion-area widget (kept vs. reverted rendering).
+  - `apps/desktop_flutter/test/features/agent_skills/agent_skills_view_test.dart`
+    — 6 new widget tests (issue-845-c1a–e, c2a–c). `docs/ai/contracts/issue-845.json`
+    (new).
+- Checks run:
+  - `npx vitest run src/__tests__/issue_845_contract.test.ts` — 3/3 pass.
+  - `npx vitest run opencode_skills` — 12/12 pass (no regression).
+  - `./node_modules/.bin/tsc --noEmit` — clean.
+  - `npx vitest run` (full server suite) — 1564/1566 pass; the 2 failures are
+    `agent_profile_sync_hygiene.test.ts` timeouts, the pre-existing documented
+    flake (see Risks above), reproduced in isolation and unrelated to this
+    diff (file untouched by this change).
+  - `dart format` — clean (1 file reformatted, then stable).
+  - `flutter analyze --no-fatal-infos lib/features/agent_skills/ test/features/agent_skills/ lib/features/agents/data/opencode_skills_data_source.dart` — 0 issues.
+  - `flutter test test/features/agent_skills/` — 26/26 pass (17 pre-existing
+    #813/#796 + 9 new server/UI contract tests represented as 6 widget tests).
+  - Falsification: hardcoded `measureReason: null` in the route's join map —
+    2/3 contract tests (`issue-845-c1`, `issue-845-c2`) went red as expected;
+    restored, re-confirmed 3/3 green. Proves the join line is load-bearing.
+- Decisions made: measurement "history" is the existing single-entry sidecar
+  ledger (`baselineScore`/`postScore`/`measureReason` on the current
+  `agent_skills` row), not a new per-measurement history table — the
+  `agent_skill_versions` table has no score columns, and adding one would
+  require touching `migrations.ts`, which is out of scope/forbidden for this
+  issue. This satisfies the AC's "baseline vs post score, revert events"
+  requirement with the data the auto-apply loop already persists.
+- Deviations from spec: none functionally; simplified `_NumericCell`'s
+  `isInteger` parameter (originally planned) since both formatting branches
+  were identical — removed the redundant parameter during implementation.
+- Concerns: the measurement ledger is single-entry (current state only), not
+  a true append-only history — if a skill is measured, reverted, then
+  re-measured and kept, only the latest event is visible in the expansion
+  area. A true history view would need `agent_skill_versions` to carry score
+  columns (a separate, larger issue).
