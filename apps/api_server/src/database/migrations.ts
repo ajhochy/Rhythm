@@ -1573,4 +1573,43 @@ export function runMigrations(db: Database.Database): void {
     db.exec(`ALTER TABLE agent_sessions ADD COLUMN is_system INTEGER NOT NULL DEFAULT 0`);
     db.exec(`CREATE INDEX IF NOT EXISTS idx_agent_sessions_is_system ON agent_sessions(is_system)`);
   }
+
+  // #817 (org-optimizer-01) — agent_org_proposals: the foundation proposal
+  // store + lifecycle state machine for the org self-optimizer. Every
+  // generator (create-agent, tighten-scope, prune-scope, refine-skill,
+  // consolidate-skill, external-adoption, webhook-wiring, ...) writes rows
+  // here, and the human review queue reads/decides on them. Lifecycle/revert
+  // mechanics mirror the agent_skills sidecar (see the agent_skills block
+  // above): `before_snapshot_json` plays the role agent_skill_versions plays
+  // for skills — the exact prior state a revert restores.
+  //
+  // Local SQLite (agent DB) ONLY. Do NOT add this table to
+  // postgres_bootstrap.ts — proposals are local-only and never synced to
+  // production (see docs/ai/decisions/2026-06-29-org-self-optimizer-cron.md §5).
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS agent_org_proposals (
+      id            TEXT PRIMARY KEY,
+      audit_run_id  TEXT,
+      kind          TEXT NOT NULL,
+      risk          TEXT NOT NULL,
+      external      INTEGER DEFAULT 0,
+      status        TEXT NOT NULL DEFAULT 'proposed',
+      title         TEXT NOT NULL,
+      rationale     TEXT,
+      signal_ref    TEXT,
+      target_ref    TEXT,
+      change_json   TEXT,
+      before_snapshot_json TEXT,
+      provenance_json TEXT,
+      dedup_key     TEXT,
+      baseline_score INTEGER,
+      post_score     INTEGER,
+      measure_reason TEXT,
+      decided_by_user_id INTEGER,
+      created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at    TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_org_proposals_status ON agent_org_proposals(status);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_org_proposals_dedup ON agent_org_proposals(dedup_key);
+  `);
 }
