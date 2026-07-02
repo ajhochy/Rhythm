@@ -1,0 +1,48 @@
+{
+  "issue": 847,
+  "generated": "2026-07-02",
+  "criteria": [
+    {
+      "criterion_id": "issue-847-c1",
+      "text": "On completion, a note is written with frontmatter (date, topic, tags, job ref) + summary + findings + sources, linked from/to related notes where derivable.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/research_vault_notes.test.ts",
+      "test_id": "issue-847-c1: writes a note with frontmatter (date, topic, tags, job_id) + Summary + Findings + Sources sections, and links related notes sharing a tag",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-847-c2",
+      "text": "Vault-first write path — same discipline as memoryVaultWriteService (direct FS, works with Obsidian closed, NEVER log note bodies).",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/research_vault_notes.test.ts",
+      "test_id": "issue-847-c2: writes via direct filesystem (no network/Obsidian REST dependency) and never logs the note body/summary/findings text",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-847-c3",
+      "text": "The derived index picks it up (search finds the note after the next refresh — reuse the existing #805 refresh, no new indexer).",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/research_vault_notes.test.ts",
+      "test_id": "issue-847-c3: after writing a research note, the existing #805 rebuildIndexFromVault/syncMemoryVault scan (unmodified) indexes it and search finds it",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-847-c4",
+      "text": "Folder + frontmatter defaults: MAINTAINER DEFAULT LOCKED for this run — folder research/, filename YYYY-MM-DD-<topic-slug>.md, frontmatter keys date, topic, tags, source: research-job, job_id. Implement behind a small config/constants module so changing folder/schema later is a one-line change.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/research_vault_notes.test.ts",
+      "test_id": "issue-847-c4: note path is research/<YYYY-MM-DD>-<slug>.md, frontmatter has exactly the locked keys in order, and every literal is sourced from researchVaultConfig.ts (not re-hardcoded in the write service)",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-847-c5",
+      "text": "Research-job completion hook: PATCH /agent-research/:id/status with status=done writes the vault note as a side effect, without changing the existing job-status response contract, and a vault-write failure must not fail the status-update response (falsification target).",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/research_vault_notes.test.ts",
+      "test_id": "issue-847-c5: AgentResearchController.updateStatus writes a vault note on status=done and still returns the job even if the vault write throws",
+      "status": "pass"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}
