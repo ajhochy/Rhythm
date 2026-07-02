@@ -1,0 +1,57 @@
+{
+  "issue": 847,
+  "generated": "2026-07-02",
+  "revised": "2026-07-02 — maintainer correction: land research as Research Database entries in the theological-study vault (per Research Entry Intake.md + Templates/Theology - Research Entry.md), superseding the provisional research/ folder default",
+  "criteria": [
+    {
+      "criterion_id": "issue-847-c1",
+      "text": "On completion, entry note(s) are written with the vault template's frontmatter (type: \"entry\" — critical, drives the Research Entries base — topic, parent, page, source, author, citation, scripture_references, themes, doctrine_tags, status: \"inbox\", tags: [theology, worship, research-entry], plus extra key job_id) and body sections # title, ## Quote / Note, ## Summary, ## Theological Anchors, ## Questions / Uses (empty sections kept; no Intake Checklist).",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/research_vault_notes.test.ts",
+      "test_id": "issue-847-c1: writes an entry with the exact template frontmatter (type: \"entry\" first) and template body sections, no Intake Checklist",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-847-c2",
+      "text": "Vault-first write path — same discipline as memoryVaultWriteService (direct FS, works with Obsidian closed, NEVER log note bodies).",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/research_vault_notes.test.ts",
+      "test_id": "issue-847-c2: writes via direct filesystem and never logs the note body/summary/findings text",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-847-c3",
+      "text": "The derived index picks it up (search finds the entry after the next refresh — reuse the existing #805 refresh, no new indexer).",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/research_vault_notes.test.ts",
+      "test_id": "issue-847-c3: after writing an entry, the existing #805 rebuildIndexFromVault/syncMemoryVault scan (unmodified) indexes it and search finds it",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-847-c4",
+      "text": "Entries land under vault-root-relative Resources/theological-study/Research Database/Entries/<topical-subfolder>/<slugged-title>.md (NOT date-prefixed); subfolders 01-worship-theology-foundations … 14-technology-ai-imago; best-match keyword heuristic with 13-miscellaneous fallback; the taxonomy, root, filename shape and frontmatter schema all live in researchVaultConfig.ts.",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/research_vault_notes.test.ts",
+      "test_id": "issue-847-c4: entry lands at Entries/<best-match subfolder>/<slugged-title>.md (not date-prefixed); unmatched topics fall back to 13-miscellaneous",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-847-c5",
+      "text": "Research-job completion hook: PATCH /agent-research/:id/status with status=done writes the entry as a side effect, without changing the existing job-status response contract, and a vault-write failure must not fail the status-update response (falsification target).",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/research_vault_notes.test.ts",
+      "test_id": "issue-847-c5: AgentResearchController.updateStatus writes a Research Database entry on status=done and still returns the job",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-847-c6",
+      "text": "One entry per distinct source/finding when the caller supplies structured entries; else one entry per job (flat report → single entry titled by the topic).",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/research_vault_notes.test.ts",
+      "test_id": "issue-847-c6: structured findings produce one entry per source/finding; flat report produces one per job",
+      "status": "pass"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}

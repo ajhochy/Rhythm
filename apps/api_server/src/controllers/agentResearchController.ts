@@ -20,6 +20,7 @@ import { AppError } from '../errors/app_error';
 import { getDb, getPostgresPool } from '../database/db';
 import { env } from '../config/env';
 import { logger } from '../utils/logger';
+import { writeResearchNoteToVault } from '../services/researchVaultWriteService';
 
 interface ResearchJob {
   id: string;
@@ -188,7 +189,32 @@ Be thorough. Cite sources. Write in markdown. Keep the report under 2000 words.`
         ).run(newStatus, newSources, newReport, newError, now, id);
       }
 
-      res.json(await findJobById(id));
+      const updated = await findJobById(id);
+
+      // Issue #847: on completion, land the findings as Research Database
+      // entries (maintainer intake format — see researchVaultConfig.ts).
+      // Vault-first write, but BEST-EFFORT relative to this response — a
+      // vault write failure (e.g. no vault configured on this machine) must
+      // not turn a successful job-status update into a 500; the job's
+      // `report` column remains the durable record either way. The flat
+      // report yields one entry per job; structured per-source entries are
+      // supported by the service for callers that have them.
+      if (updated && newStatus === 'done' && typeof newReport === 'string' && newReport.trim() !== '') {
+        try {
+          const sources = JSON.parse(updated.sourcesJson) as unknown;
+          await writeResearchNoteToVault({
+            jobId: updated.id,
+            topic: updated.query,
+            summary: newReport.split('\n').find((l) => l.trim() !== '')?.trim() ?? '',
+            findings: newReport,
+            sources: Array.isArray(sources) ? sources.map(String) : [],
+          });
+        } catch (vaultErr) {
+          logger.warn(`[Research] vault note write failed for job ${id}: ${String(vaultErr)}`);
+        }
+      }
+
+      res.json(updated);
     } catch (err) { next(err); }
   }
 }
