@@ -1,0 +1,34 @@
+{
+  "issue": 842,
+  "generated": "2026-07-02",
+  "criteria": [
+    {
+      "criterion_id": "issue-842-c1",
+      "text": "unscoped sessions flagged (UI badge and/or log warning) with their tool-surface total from #841",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/services/__tests__/scoped_by_default.test.ts",
+      "test_id": "issue-842-c1: creating a session with NO mcpRole logs a warning naming the session and its tool-surface total; issue-842-c1 (falsification guard): a ROLE-SCOPED session does NOT trigger the unscoped warning",
+      "status": "pending",
+      "reason": "AC1 says 'UI badge AND/OR log warning' — implemented as a backend log-warning only (no Flutter UI badge). The Dart AgentSession model does not yet expose mcpRole at all (confirmed via research: no field in apps/desktop_flutter/lib/features/agents/models/agent_session.dart); adding a UI badge would require touching the Dart model + session list tile + side panel, disproportionate to a criterion the 'and/or' explicitly allows satisfying via logging alone. Per this run's validation scope, Flutter changes are conditional ('if UI badge added')."
+    },
+    {
+      "criterion_id": "issue-842-c2",
+      "text": "generic profiles get a curated default scope covering common tasks, full surface by explicit opt-in",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/services/__tests__/scoped_by_default.test.ts",
+      "test_id": "issue-842-c2: a brand-new generic (non-roled) profile is backfilled with a curated MULTI-SERVER default, not just rhythm+obsidian; issue-842-c2: full surface remains available via explicit opt-in (no mcpRole/override on session-create)",
+      "status": "pending"
+    },
+    {
+      "criterion_id": "issue-842-c3",
+      "text": "NO behavior change for existing roled agents; alignment guards green",
+      "mode": "integration",
+      "test_file": "apps/api_server/src/services/__tests__/agent_profile_sync_mcp_validation.test.ts, apps/api_server/src/services/__tests__/agent_profile_sync_mcp_alignment.test.ts, apps/api_server/src/__tests__/mcp_names_alignment.test.ts, apps/api_server/src/__tests__/agent_sessions_mcp_role.test.ts",
+      "test_id": "existing suite — full green run required, with the two hardcoded-default assertions in agent_profile_sync_mcp_validation.test.ts and agent_profile_sync_mcp_alignment.test.ts updated to the new curated default value",
+      "status": "pending",
+      "reason": "No NEW test authored for this criterion — it is verified by keeping the existing regression suite green (widening IMPORTER_DEFAULT_ALLOWED_MCPS_JSON only affects the null-allowedMcpsJson backfill path for generic/non-.mcp-roles profiles; roled agents like secretary/worship-planning either already have a non-null allowed_mcps_json column or are scoped via the separate .mcp-roles + session mcpRole mechanism, untouched by this change)."
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}

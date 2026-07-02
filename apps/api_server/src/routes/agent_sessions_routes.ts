@@ -52,6 +52,7 @@ agentSessionsRouter.post('/:id/revert', controller.revert.bind(controller));
 agentSessionsRouter.post('/:id/unrevert', controller.unrevert.bind(controller));
 agentSessionsRouter.post('/:id/summarize', controller.summarize.bind(controller));
 agentSessionsRouter.get('/:id/todo', controller.getTodo.bind(controller));
+agentSessionsRouter.get('/:id/tool-surface', controller.getToolSurface.bind(controller));
 agentSessionsRouter.get('/:id/children', controller.getChildren.bind(controller));
 agentSessionsRouter.get('/:id/children/:childSdkId/messages', controller.getChildMessages.bind(controller));
 agentSessionsRouter.post('/:id/fork', controller.fork.bind(controller));
