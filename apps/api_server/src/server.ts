@@ -171,10 +171,30 @@ async function main() {
       logger.info(
         `[server] ministry recipes seed: tasksSeeded=${r.tasksSeeded} tasksSkipped=${r.tasksSkipped} ` +
           `skillsSeeded=${r.skillsSeeded} skillsSkipped=${r.skillsSkipped} ` +
-          `missingRoleFiles=${r.missingRoleFiles.join(',') || 'none'}`,
+          `missingRoleFiles=${r.missingRoleFiles.join(',') || 'none'} ` +
+          `unresolvedRoles=${r.unresolvedRoles.join(',') || 'none'}`,
       );
     } catch (err) {
       logger.warn(`[server] ministry recipes seed failed (non-fatal): ${String(err)}`);
+    }
+
+    // #846 follow-up (agent-eval harness finding) — idempotent repair for
+    // ministry-recipe scheduled tasks seeded BEFORE the resolution fix above,
+    // whose agent_config_id points at a dangling role-file UUID (no matching
+    // agent_configs row). Runs every boot; a no-op once every recipe task
+    // resolves (the seed above already keeps new tasks correct). Non-fatal —
+    // a repair failure must never block startup.
+    try {
+      const { repairMinistryRecipeAgentBindings } = await import('./services/ministry_recipes_seed');
+      const r = await repairMinistryRecipeAgentBindings();
+      if (r.repaired > 0 || r.stillUnresolved.length > 0) {
+        logger.info(
+          `[server] ministry recipes agent-binding repair: repaired=${r.repaired} ` +
+            `stillUnresolved=${r.stillUnresolved.join(',') || 'none'}`,
+        );
+      }
+    } catch (err) {
+      logger.warn(`[server] ministry recipes agent-binding repair failed (non-fatal): ${String(err)}`);
     }
 
     // #830 — Wire all six org-optimizer generators' apply steps into the

@@ -39,6 +39,7 @@ import { runMigrations } from '../database/migrations';
 import { setDb } from '../database/db';
 import { AgentScheduledTasksRepository } from '../repositories/agent_scheduled_tasks_repository';
 import { AgentSkillsRepository } from '../repositories/agent_skills_repository';
+import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..', '..', '..');
 const MCP_ROLES_DIR = path.join(REPO_ROOT, '.mcp-roles');
@@ -58,10 +59,34 @@ function makeDb() {
   return db;
 }
 
+/**
+ * Insert slug-keyed agent_configs rows for the roles these recipes bind to —
+ * mirrors what `agent_profile_sync.syncOpencodeAgentProfiles` actually
+ * creates in a real deployment (`id = agent.name`, i.e. the slug, NOT the
+ * `.mcp-roles/<role>.mcp.json` file's own `agentConfigId` UUID — see #846
+ * follow-up / docs/testing/agent-eval-matrix.md "Environment findings").
+ * Without this, every recipe's role is unresolvable and seeding is a no-op —
+ * this fixture reproduces the REAL, working deployment shape rather than the
+ * broken pre-fix assumption that the role file's own UUID always resolves.
+ */
+function seedRealisticAgentConfigs() {
+  const configsRepo = new AgentConfigsRepository();
+  for (const slug of ['secretary', 'worship-planning']) {
+    configsRepo.insert({
+      id: slug,
+      label: slug,
+      icon: 'assets/agents/opencode.png',
+      isAgent: true,
+      sessionSelectable: true,
+    });
+  }
+}
+
 let managedSkillsDir: string;
 
 beforeEach(() => {
   setDb(makeDb());
+  seedRealisticAgentConfigs();
   const root = mkdtempSync(path.join(tmpdir(), 'ministry-recipes-test-'));
   managedSkillsDir = path.join(root, 'rhythm-managed-skills');
   process.env.RHYTHM_MANAGED_SKILLS_DIR = managedSkillsDir;
@@ -93,14 +118,21 @@ describe('ministry recipes seed (#846)', () => {
     expect(weeklyReview).toBeDefined();
     expect(tasks).toHaveLength(3);
 
-    const worshipPlanning = readRoleFile('worship-planning');
-    const secretary = readRoleFile('secretary');
-
     // Sunday prep runs under worship-planning; both secretary recipes run
     // under secretary. This is the "CORRECT scoped agent" requirement.
-    expect(sundayPrep!.agentConfigId).toBe(worshipPlanning.agentConfigId);
-    expect(volunteerFollowUp!.agentConfigId).toBe(secretary.agentConfigId);
-    expect(weeklyReview!.agentConfigId).toBe(secretary.agentConfigId);
+    //
+    // NOTE (#846 follow-up fix): the bound id is the role's SLUG
+    // ('worship-planning' / 'secretary'), NOT the role file's own
+    // `agentConfigId` UUID. In a real deployment that UUID is dangling — no
+    // `agent_configs` row exists with that id; the live rows are slug-keyed
+    // (see docs/testing/agent-eval-matrix.md "Environment findings" and
+    // `seedRealisticAgentConfigs` above, which reproduces that real shape).
+    // Resolution still prefers the role file's UUID FIRST when a matching
+    // row exists — see `fix-recipe-binding-c1b` in
+    // ministry_recipes_agent_binding.test.ts for that ordering guarantee.
+    expect(sundayPrep!.agentConfigId).toBe('worship-planning');
+    expect(volunteerFollowUp!.agentConfigId).toBe('secretary');
+    expect(weeklyReview!.agentConfigId).toBe('secretary');
 
     // Each task references a managed skill of the matching recipe slug in its
     // own allowedSkillsJson (never null — the task must explicitly name the

@@ -25,12 +25,21 @@
  *    `agent_skills` row materialized to a SKILL.md via
  *    rhythm_managed_skills.writeManagedSkill (mirrors skill_materializer's
  *    "published DB skill → filesystem" path).
- *  • The task's `agentConfigId` is read from the LIVE `.mcp-roles/<role>.mcp.json`
- *    file rather than hardcoded, because that UUID is runtime data (the
- *    user's actual worship-planning / secretary Agent Profile, created via
- *    the agent designer) that only exists in the role file — there is no
- *    migration/preset seed for it. This repo's ownership rules for #846
- *    forbid touching `.mcp-roles/*.json`; we only READ it.
+ *  • The task's `agentConfigId` is RESOLVED, not read verbatim, from the LIVE
+ *    `.mcp-roles/<role>.mcp.json` file (see `resolveAgentConfigId` below):
+ *    (a) the role file's own `agentConfigId` UUID, IF a matching
+ *    `agent_configs` row exists; else (b) the role's SLUG (the role file's
+ *    name, e.g. "secretary"), IF a row keyed by that slug exists (this is how
+ *    `agent_profile_sync.syncOpencodeAgentProfiles` actually keys these rows
+ *    — `id = agent.name`); else (c) the recipe is skipped for this pass with
+ *    a one-line warning, never bound to a dangling id. This fixes a bug
+ *    (agent-eval harness finding, #846 follow-up) where six role files'
+ *    `agentConfigId` UUIDs matched NO `agent_configs` row in a real
+ *    deployment (the live rows are slug-keyed), so all 3 ministry-recipe
+ *    tasks were seeded pointing at a dangling agent id — a session created
+ *    from such a task would 400 ("agent not configured") or run unscoped.
+ *    This repo's ownership rules for #846 forbid touching `.mcp-roles/*.json`
+ *    — we only READ it; the fix lives entirely in resolution, not the data.
  *  • The task's own `allowedMcpsJson` is built directly from the role file's
  *    `mcpServers` map (the exact tool grants already declared there — never
  *    re-granted, never invented) so the scheduled run gets the SAME
@@ -52,6 +61,7 @@ import { logger } from '../utils/logger';
 import { env } from '../config/env';
 import { AgentScheduledTasksRepository } from '../repositories/agent_scheduled_tasks_repository';
 import { AgentSkillsRepository } from '../repositories/agent_skills_repository';
+import { AgentConfigsRepository } from '../repositories/agent_configs_repository';
 import type { AgentSkill } from '../models/agent_skill';
 import { writeManagedSkill } from './rhythm_managed_skills';
 import { opencodeClient } from './opencode_engine';
@@ -91,6 +101,47 @@ function readRoleFile(role: string): McpRoleFile | null {
     logger.warn(`[ministry-recipes-seed] could not read role file "${role}" (non-fatal): ${String(err)}`);
     return null;
   }
+}
+
+/**
+ * Resolve the REAL `agent_configs.id` to bind a ministry-recipe task to,
+ * given the role file's own claimed `agentConfigId` and the role's slug
+ * (its file name, e.g. "secretary").
+ *
+ * Resolution order (never bind to a dangling id):
+ *   (a) the role file's `agentConfigId` UUID, IF `agent_configs` has a row
+ *       with that id (a genuinely UUID-keyed profile, e.g. a hand-created
+ *       one from the agent designer, or one a seed like org_optimizer_seed
+ *       created itself);
+ *   (b) else the role's SLUG, IF `agent_configs` has a row keyed by that
+ *       slug (this is how `agent_profile_sync.syncOpencodeAgentProfiles`
+ *       actually keys these rows in a real deployment — `id = agent.name`);
+ *   (c) else `null` — the caller must skip seeding/leave unrepaired rather
+ *       than bind to a dangling id.
+ *
+ * Never throws — a `getById` failure (e.g. DB unavailable) is treated as
+ * "not found" for that candidate and resolution continues to the next one.
+ */
+function resolveAgentConfigId(
+  configsRepo: AgentConfigsRepository,
+  roleFile: Pick<McpRoleFile, 'agentConfigId'>,
+  slug: string,
+): string | null {
+  try {
+    if (configsRepo.getById(roleFile.agentConfigId)) return roleFile.agentConfigId;
+  } catch (err) {
+    logger.warn(
+      `[ministry-recipes-seed] agent_configs lookup failed for id "${roleFile.agentConfigId}" (non-fatal): ${String(err)}`,
+    );
+  }
+  try {
+    if (configsRepo.getById(slug)) return slug;
+  } catch (err) {
+    logger.warn(
+      `[ministry-recipes-seed] agent_configs lookup failed for slug "${slug}" (non-fatal): ${String(err)}`,
+    );
+  }
+  return null;
 }
 
 // ── Recipe definitions ──────────────────────────────────────────────────────
@@ -279,6 +330,13 @@ export interface MinistryRecipesSeedResult {
   skillsSeeded: number;
   skillsSkipped: number;
   missingRoleFiles: string[];
+  /**
+   * Recipes whose role file was present and well-formed but whose
+   * `agentConfigId` could not be resolved to ANY real `agent_configs` row
+   * (neither the role file's own UUID nor its slug) — the recipe was
+   * skipped for this pass rather than bound to a dangling id.
+   */
+  unresolvedRoles: string[];
 }
 
 /**
@@ -301,6 +359,7 @@ export async function seedMinistryRecipes(): Promise<MinistryRecipesSeedResult> 
     skillsSeeded: 0,
     skillsSkipped: 0,
     missingRoleFiles: [],
+    unresolvedRoles: [],
   };
 
   // No-op under Postgres: agent_scheduled_tasks scoping + agent_skills
@@ -313,6 +372,7 @@ export async function seedMinistryRecipes(): Promise<MinistryRecipesSeedResult> 
 
   const schedRepo = new AgentScheduledTasksRepository();
   const skillsRepo = new AgentSkillsRepository();
+  const configsRepo = new AgentConfigsRepository();
 
   let existingTasks: Awaited<ReturnType<typeof schedRepo.listAllAsync>>;
   try {
@@ -375,6 +435,21 @@ export async function seedMinistryRecipes(): Promise<MinistryRecipesSeedResult> 
       continue;
     }
 
+    // Resolve the REAL agent_configs row to bind — (a) role file's own
+    // agentConfigId if it exists, else (b) the role's slug if THAT row
+    // exists, else skip. Never bind a dangling id (see resolveAgentConfigId
+    // doc comment for the full rationale — #846 follow-up fix).
+    const resolvedAgentConfigId = resolveAgentConfigId(configsRepo, roleFile, recipe.role);
+    if (!resolvedAgentConfigId) {
+      result.unresolvedRoles.push(recipe.role);
+      logger.warn(
+        `[ministry-recipes-seed] could not resolve a real agent_configs row for role "${recipe.role}" ` +
+          `(neither its agentConfigId "${roleFile.agentConfigId}" nor its slug "${recipe.role}" match an existing row) ` +
+          `— skipping task "${recipe.taskName}" this pass (retried next boot)`,
+      );
+      continue;
+    }
+
     try {
       await schedRepo.createAsync({
         name: recipe.taskName,
@@ -385,7 +460,7 @@ export async function seedMinistryRecipes(): Promise<MinistryRecipesSeedResult> 
         timezone: 'America/Los_Angeles',
         prompt: `You are running the "${recipe.skillTitle}" ministry recipe skill. Follow its documented Steps exactly. Write your output as a single vault note at ${ministryNoteFilename(recipe.skillTitle.replace(/^ministry-/, ''))} (date = today). Do not send any message and do not write to PCO — this recipe is draft/read-only only.`,
         agentKind: 'opencode',
-        agentConfigId: roleFile.agentConfigId,
+        agentConfigId: resolvedAgentConfigId,
         // Task's own allowedMcpsJson = the role file's own tool grants,
         // passed straight through as the tools-map format
         // resolveProfileScope._buildMcpRoleConfig already understands. This
@@ -413,8 +488,108 @@ export async function seedMinistryRecipes(): Promise<MinistryRecipesSeedResult> 
   logger.info(
     `[ministry-recipes-seed] tasksSeeded=${result.tasksSeeded} tasksSkipped=${result.tasksSkipped} ` +
       `skillsSeeded=${result.skillsSeeded} skillsSkipped=${result.skillsSkipped} ` +
-      `missingRoleFiles=${result.missingRoleFiles.join(',') || 'none'}`,
+      `missingRoleFiles=${result.missingRoleFiles.join(',') || 'none'} ` +
+      `unresolvedRoles=${result.unresolvedRoles.join(',') || 'none'}`,
   );
+
+  return result;
+}
+
+// ── Repair pass (idempotent) ────────────────────────────────────────────────
+
+export interface MinistryRecipeRepairResult {
+  /** Ministry-recipe task rows whose agent_config_id was re-bound this pass. */
+  repaired: number;
+  /** Ministry-recipe task rows found dangling but still unresolvable (role/slug both missing). */
+  stillUnresolved: string[];
+}
+
+/** Task name → recipe role, derived from RECIPES so the repair pass and the
+ * seed share one source of truth for "which role does this recipe belong to". */
+const RECIPE_ROLE_BY_TASK_NAME: ReadonlyMap<string, MinistryRecipe['role']> = new Map(
+  RECIPES.map((r) => [r.taskName, r.role]),
+);
+
+/**
+ * Idempotent boot-time repair for ministry-recipe scheduled task rows seeded
+ * BEFORE this fix, whose `agent_config_id` points at a dangling id (the
+ * role file's UUID, when no `agent_configs` row exists for it).
+ *
+ * Scope: ONLY rows whose `name` is one of the three ministry-recipe task
+ * names (`RECIPE_ROLE_BY_TASK_NAME`'s keys). A non-recipe scheduled task is
+ * never inspected or modified, even if it happens to share a dangling
+ * agent_config_id with a recipe task — this repair pass has no way to know a
+ * non-recipe task's intended role, and must never guess.
+ *
+ * A row is left alone (not a "repair") if its current `agent_config_id`
+ * already resolves to a real `agent_configs` row — this makes repeated calls
+ * idempotent: the second call in a row finds nothing left to repair and
+ * performs zero writes, so it can safely run on every boot.
+ *
+ * Never throws — a DB error is logged and the pass returns having repaired
+ * whatever it could before the error (or nothing, if the initial list call
+ * itself failed). No-op under Postgres (agent_scheduled_tasks / agent_configs
+ * scoping is a local-SQLite agent-execution surface, same rule as every seed
+ * in this file's family).
+ */
+export async function repairMinistryRecipeAgentBindings(): Promise<MinistryRecipeRepairResult> {
+  const result: MinistryRecipeRepairResult = { repaired: 0, stillUnresolved: [] };
+
+  if (env.dbClient === 'postgres') {
+    return result;
+  }
+
+  const schedRepo = new AgentScheduledTasksRepository();
+  const configsRepo = new AgentConfigsRepository();
+
+  let tasks: Awaited<ReturnType<typeof schedRepo.listAllAsync>>;
+  try {
+    tasks = await schedRepo.listAllAsync();
+  } catch (err) {
+    logger.warn(`[ministry-recipes-seed] repair pass could not list scheduled tasks (non-fatal): ${String(err)}`);
+    return result;
+  }
+
+  for (const task of tasks) {
+    const role = RECIPE_ROLE_BY_TASK_NAME.get(task.name);
+    if (!role) continue; // not a ministry-recipe task — never touched by this pass
+
+    // Already resolvable — nothing to repair (this is what makes re-running
+    // this pass on every boot idempotent and a no-op once fixed).
+    if (task.agentConfigId && configsRepo.getById(task.agentConfigId)) continue;
+
+    const roleFile = readRoleFile(role);
+    if (!roleFile) {
+      result.stillUnresolved.push(task.name);
+      logger.warn(
+        `[ministry-recipes-seed] repair: missing/malformed role file for "${role}" — leaving "${task.name}" unrepaired this pass (retried next boot)`,
+      );
+      continue;
+    }
+
+    const resolvedAgentConfigId = resolveAgentConfigId(configsRepo, roleFile, role);
+    if (!resolvedAgentConfigId) {
+      result.stillUnresolved.push(task.name);
+      logger.warn(
+        `[ministry-recipes-seed] repair: could not resolve a real agent_configs row for role "${role}" ` +
+          `— leaving "${task.name}" unrepaired this pass (retried next boot)`,
+      );
+      continue;
+    }
+
+    try {
+      await schedRepo.updateAsync(task.id, { agentConfigId: resolvedAgentConfigId });
+      result.repaired += 1;
+      logger.info(
+        `[ministry-recipes-seed] repair: re-bound "${task.name}" from dangling agent_config_id ` +
+          `"${task.agentConfigId ?? 'null'}" to "${resolvedAgentConfigId}"`,
+      );
+    } catch (err) {
+      logger.warn(
+        `[ministry-recipes-seed] repair: failed to update "${task.name}" (non-fatal): ${String(err)}`,
+      );
+    }
+  }
 
   return result;
 }
