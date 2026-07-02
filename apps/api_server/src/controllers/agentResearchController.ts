@@ -191,11 +191,14 @@ Be thorough. Cite sources. Write in markdown. Keep the report under 2000 words.`
 
       const updated = await findJobById(id);
 
-      // Issue #847: on completion, land the findings as a structured vault
-      // note (research/ folder). Vault-first write, but BEST-EFFORT relative
-      // to this response — a vault write failure (e.g. no vault configured on
-      // this machine) must not turn a successful job-status update into a 500;
-      // the job's `report` column remains the durable record either way.
+      // Issue #847: on completion, land the findings as Research Database
+      // entries (maintainer intake format — see researchVaultConfig.ts).
+      // Vault-first write, but BEST-EFFORT relative to this response — a
+      // vault write failure (e.g. no vault configured on this machine) must
+      // not turn a successful job-status update into a 500; the job's
+      // `report` column remains the durable record either way. The flat
+      // report yields one entry per job; structured per-source entries are
+      // supported by the service for callers that have them.
       if (updated && newStatus === 'done' && typeof newReport === 'string' && newReport.trim() !== '') {
         try {
           const sources = JSON.parse(updated.sourcesJson) as unknown;

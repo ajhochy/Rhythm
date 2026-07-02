@@ -1,30 +1,40 @@
 /**
- * CONTRACT TESTS — Issue #847 (life-02): research results land as structured
- * vault notes.
+ * CONTRACT TESTS — Issue #847 (life-02): research results land as Research
+ * Database entries (maintainer intake format, 2026-07-02 — supersedes the
+ * provisional `research/` folder default).
  *
- * Real filesystem temp fixture vault (never the real ~/Documents/Memory-Vault),
- * real in-memory SQLite via the existing memory-index machinery for the #805
- * reuse proof, and a real Express app for the controller-hook proof. No module
- * mocks of the write path itself.
+ * Real filesystem temp fixture vault recreating the maintainer's
+ * `Resources/theological-study/Research Database/Entries/` structure (never
+ * the real vault), real in-memory SQLite via the existing memory-index
+ * machinery for the #805 reuse proof, and a real Express app for the
+ * controller-hook proof. No module mocks of the write path itself.
  *
- * Acceptance criteria proven here (mapping to the issue):
- *   AC1 (issue-847-c1): a completed research note has frontmatter (date, topic,
- *        tags, job_id) + Summary + Findings + Sources sections, and links
- *        related notes sharing a tag.
- *   AC2 (issue-847-c2): the write is direct-FS (no network calls) and no note
- *        body/summary/findings text is ever passed to the logger.
+ * Acceptance criteria proven here (mapping to the issue + maintainer format):
+ *   AC1 (issue-847-c1): a completed job produces entry note(s) with the
+ *        template frontmatter (type: "entry" first and exact, topic, parent,
+ *        page, source, author, citation, scripture_references, themes,
+ *        doctrine_tags, status: "inbox", tags, job_id) and the template body
+ *        sections (# title, ## Quote / Note, ## Summary, ## Theological
+ *        Anchors, ## Questions / Uses — empty sections kept, no Intake
+ *        Checklist).
+ *   AC2 (issue-847-c2): the write is direct-FS (no network calls) and no
+ *        note body/summary/findings text is ever passed to the logger.
  *   AC3 (issue-847-c3): the EXISTING #805 refresh (index rebuild / mirror
- *        sync) — unmodified — indexes the new note and search finds it.
- *   AC4 (issue-847-c4): the locked folder/filename/frontmatter-key defaults
- *        come from researchVaultConfig.ts, not re-hardcoded in the service.
- *   AC5 (issue-847-c5): the controller writes the note as a side effect of
+ *        sync) — unmodified — indexes the new entry and search finds it.
+ *   AC4 (issue-847-c4): folder = Entries/<topical-subfolder>/, filename =
+ *        <slugged-title>.md (NOT date-prefixed), best-match subfolder
+ *        heuristic with 13-miscellaneous fallback, all sourced from
+ *        researchVaultConfig.ts.
+ *   AC5 (issue-847-c5): the controller writes entries as a side effect of
  *        PATCH /agent-research/:id/status (status=done) without changing the
  *        response contract, and survives a vault-write failure.
+ *   AC6 (issue-847-c6): one entry per distinct source/finding when the
+ *        caller supplies structured entries; one entry per job otherwise.
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import Database from 'better-sqlite3';
-import { mkdtempSync, rmSync, existsSync, readFileSync, mkdirSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, existsSync, readFileSync, readdirSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type { AddressInfo } from 'node:net';
@@ -39,9 +49,11 @@ import {
   ResearchVaultWriteError,
 } from '../services/researchVaultWriteService';
 import {
-  RESEARCH_VAULT_SUBDIR,
-  RESEARCH_NOTE_SOURCE,
-  researchNoteFilename,
+  RESEARCH_ENTRIES_ROOT,
+  RESEARCH_ENTRY_FALLBACK_SUBFOLDER,
+  RESEARCH_ENTRY_FRONTMATTER_KEYS,
+  matchEntrySubfolder,
+  researchEntryFilename,
 } from '../config/researchVaultConfig';
 import { logger } from '../utils/logger';
 
@@ -54,9 +66,39 @@ function makeDb() {
 
 let vaultRoot: string;
 
+/** Recreate the maintainer's Entries/ subfolder structure in the temp vault. */
+function seedEntriesStructure(root: string): void {
+  const entries = path.join(root, RESEARCH_ENTRIES_ROOT);
+  for (const sub of [
+    '01-worship-theology-foundations',
+    '08-music-arts-in-worship',
+    '13-miscellaneous',
+    '14-technology-ai-imago',
+  ]) {
+    mkdirSync(path.join(entries, sub), { recursive: true });
+  }
+}
+
+/** All `.md` files under the Entries root, vault-root-relative. */
+function allEntryFiles(): string[] {
+  const out: string[] = [];
+  const entriesAbs = path.join(vaultRoot, RESEARCH_ENTRIES_ROOT);
+  function walk(dir: string) {
+    if (!existsSync(dir)) return;
+    for (const d of readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, d.name);
+      if (d.isDirectory()) walk(full);
+      else if (d.name.endsWith('.md')) out.push(path.relative(vaultRoot, full));
+    }
+  }
+  walk(entriesAbs);
+  return out;
+}
+
 beforeEach(() => {
   setDb(makeDb());
-  vaultRoot = mkdtempSync(path.join(tmpdir(), 'research-vault-test-'));
+  vaultRoot = mkdtempSync(path.join(tmpdir(), 'research-entries-test-'));
+  seedEntriesStructure(vaultRoot);
 });
 
 afterEach(() => {
@@ -68,52 +110,59 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe('research vault notes (#847)', () => {
-  it('issue-847-c1: writes a note with frontmatter (date, topic, tags, job_id) + Summary + Findings + Sources sections, and links related notes sharing a tag', async () => {
-    // Seed an existing vault note tagged "crm" so the new research note (whose
-    // topic-derived tags include "crm") can link to it.
-    const existingDir = path.join(vaultRoot, 'memory', 'fact');
-    mkdirSync(existingDir, { recursive: true });
-    writeFileSync(
-      path.join(existingDir, 'church-crm-notes.md'),
-      ['---', 'kind: fact', 'tags: ["crm", "giving"]', '---', 'Prior CRM research.'].join('\n'),
-      'utf8',
-    );
-
+describe('research database entries (#847)', () => {
+  it('issue-847-c1: writes an entry with the exact template frontmatter (type: "entry" first) and template body sections, no Intake Checklist', async () => {
     const result = await writeResearchNoteToVault(
       {
         jobId: 'job-abc-123',
-        topic: 'What is the best CRM for churches',
-        summary: 'Planning Center and Church Community Builder are the top contenders.',
+        topic: 'Theology of congregational singing',
+        summary: 'Congregational song is formative, not decorative.',
         findings: 'Long-form findings go here with citations [1].',
-        sources: ['https://example.com/pco', 'https://example.com/ccb'],
+        sources: ['https://example.com/a', 'https://example.com/b'],
       },
       { vaultPath: vaultRoot },
     );
 
-    expect(result.path.startsWith(RESEARCH_VAULT_SUBDIR + path.sep)).toBe(true);
-    const abs = path.join(vaultRoot, result.path);
+    expect(result.paths).toHaveLength(1);
+    const abs = path.join(vaultRoot, result.paths[0]);
     expect(existsSync(abs)).toBe(true);
-
     const raw = readFileSync(abs, 'utf8');
-    expect(raw).toMatch(/^date: \d{4}-\d{2}-\d{2}$/m);
-    expect(raw).toMatch(/^topic: /m);
-    expect(raw).toMatch(/^tags: \[.*\]$/m);
-    expect(raw).toContain(`source: ${RESEARCH_NOTE_SOURCE}`);
+
+    // type: "entry" is CRITICAL (drives the Research Entries base) and FIRST.
+    const fmLines = raw.split('\n');
+    expect(fmLines[0]).toBe('---');
+    expect(fmLines[1]).toBe('type: "entry"');
+
+    // Every locked frontmatter key present, in order.
+    const fmBlock = raw.split(/\n---\n/)[0].replace(/^---\n/, '');
+    const keys = fmBlock
+      .split('\n')
+      .filter((l) => /^[a-z_]+:/.test(l)) // top-level keys only (skip "  - tag" lines)
+      .map((l) => l.split(':')[0]);
+    expect(keys).toEqual([...RESEARCH_ENTRY_FRONTMATTER_KEYS]);
+
+    expect(raw).toContain('topic: "Theology of congregational singing"');
+    expect(raw).toContain('status: "inbox"');
     expect(raw).toContain('job_id: job-abc-123');
+    // Block-style tags matching the vault template.
+    expect(raw).toContain('tags:\n  - theology\n  - worship\n  - research-entry');
+    // Sources preserved on the per-job entry's source field.
+    expect(raw).toContain('source: "https://example.com/a; https://example.com/b"');
 
-    expect(raw).toContain('## Summary');
-    expect(raw).toContain('Planning Center and Church Community Builder are the top contenders.');
-    expect(raw).toContain('## Findings');
+    // Template body sections, in order, no Intake Checklist.
+    expect(raw).toContain('# Theology of congregational singing');
+    const quoteIdx = raw.indexOf('## Quote / Note');
+    const summaryIdx = raw.indexOf('## Summary');
+    const anchorsIdx = raw.indexOf('## Theological Anchors');
+    const questionsIdx = raw.indexOf('## Questions / Uses');
+    expect(quoteIdx).toBeGreaterThan(-1);
+    expect(summaryIdx).toBeGreaterThan(quoteIdx);
+    expect(anchorsIdx).toBeGreaterThan(summaryIdx);
+    expect(questionsIdx).toBeGreaterThan(anchorsIdx);
+    expect(raw).not.toContain('## Intake Checklist');
+
     expect(raw).toContain('Long-form findings go here with citations [1].');
-    expect(raw).toContain('## Sources');
-    expect(raw).toContain('https://example.com/pco');
-    expect(raw).toContain('https://example.com/ccb');
-
-    // Related notes: the seeded "crm"-tagged note must be linked (derivable).
-    expect(result.relatedCount).toBeGreaterThanOrEqual(1);
-    expect(raw).toContain('## Related notes');
-    expect(raw).toContain('[[church-crm-notes]]');
+    expect(raw).toContain('Congregational song is formative, not decorative.');
   });
 
   it('issue-847-c2: writes via direct filesystem and never logs the note body/summary/findings text', async () => {
@@ -134,9 +183,9 @@ describe('research vault notes (#847)', () => {
       { vaultPath: vaultRoot },
     );
 
-    // The note itself DOES contain the body (that's the point) — but nothing
+    // The entry itself DOES contain the body (that's the point) — but nothing
     // logged anywhere may contain the secret body text.
-    const abs = path.join(vaultRoot, result.path);
+    const abs = path.join(vaultRoot, result.paths[0]);
     expect(readFileSync(abs, 'utf8')).toContain(SECRET_FINDINGS);
 
     const allLoggedText = [...infoSpy.mock.calls, ...warnSpy.mock.calls]
@@ -148,7 +197,7 @@ describe('research vault notes (#847)', () => {
     expect(allLoggedText).toContain('job-privacy-1');
   });
 
-  it('issue-847-c3: after writing a research note, the existing #805 rebuildIndexFromVault/syncMemoryVault scan (unmodified) indexes it and search finds it', async () => {
+  it('issue-847-c3: after writing an entry, the existing #805 rebuildIndexFromVault/syncMemoryVault scan (unmodified) indexes it and search finds it', async () => {
     const UNIQUE_TOKEN = 'quokka-fostering-logistics-8842';
     await writeResearchNoteToVault(
       {
@@ -171,7 +220,7 @@ describe('research vault notes (#847)', () => {
     const hits = await repo.searchAsync(UNIQUE_TOKEN, undefined, 20);
     expect(hits.length).toBeGreaterThanOrEqual(1);
     expect(hits[0].sourceId).toBeTruthy();
-    expect((hits[0].sourceId ?? '').startsWith(RESEARCH_VAULT_SUBDIR + path.sep)).toBe(true);
+    expect((hits[0].sourceId ?? '').startsWith(RESEARCH_ENTRIES_ROOT + path.sep)).toBe(true);
 
     // Also prove the OTHER existing refresh path (mirror-sync, the cron body)
     // picks it up with zero code changes to that service.
@@ -182,36 +231,107 @@ describe('research vault notes (#847)', () => {
     expect(hits2.length).toBeGreaterThanOrEqual(1);
   });
 
-  it('issue-847-c4: note path is research/<YYYY-MM-DD>-<slug>.md, frontmatter has exactly the locked keys in order, and every literal is sourced from researchVaultConfig.ts', async () => {
-    const result = await writeResearchNoteToVault(
-      { jobId: 'job-shape-1', topic: 'Shape check topic', summary: 's', findings: 'f', sources: [] },
+  it('issue-847-c4: entry lands at Entries/<best-match subfolder>/<slugged-title>.md (not date-prefixed); unmatched topics fall back to 13-miscellaneous', async () => {
+    // Topic with clear music keywords → 08-music-arts-in-worship.
+    const music = await writeResearchNoteToVault(
+      {
+        jobId: 'job-music-1',
+        topic: 'Hymn singing and music in worship',
+        summary: 's',
+        findings: 'f',
+        sources: [],
+      },
       { vaultPath: vaultRoot },
     );
+    expect(music.subfolders).toEqual(['08-music-arts-in-worship']);
+    expect(music.paths[0]).toBe(
+      path.join(
+        RESEARCH_ENTRIES_ROOT,
+        '08-music-arts-in-worship',
+        researchEntryFilename('hymn-singing-and-music-in-worship'),
+      ),
+    );
+    // Filename is the slugged title with NO date prefix.
+    expect(path.basename(music.paths[0])).not.toMatch(/^\d{4}-\d{2}-\d{2}-/);
 
-    const today = new Date().toISOString().slice(0, 10);
-    expect(result.date).toBe(today);
-    // Filename format matches the config module's builder byte-for-byte.
-    const expectedFilename = researchNoteFilename(today, 'shape-check-topic');
-    expect(result.path).toBe(path.join(RESEARCH_VAULT_SUBDIR, expectedFilename));
+    // Topic matching nothing in the taxonomy → 13-miscellaneous fallback.
+    const misc = await writeResearchNoteToVault(
+      {
+        jobId: 'job-misc-1',
+        topic: 'Quarterly parking lot resurfacing quotes',
+        summary: 's',
+        findings: 'f',
+        sources: [],
+      },
+      { vaultPath: vaultRoot },
+    );
+    expect(misc.subfolders).toEqual([RESEARCH_ENTRY_FALLBACK_SUBFOLDER]);
 
-    const abs = path.join(vaultRoot, result.path);
-    const raw = readFileSync(abs, 'utf8');
-    const fmBlock = raw.split(/\n---\s*\n/)[0].replace(/^---\n/, '');
-    const keys = fmBlock
-      .split('\n')
-      .filter((l) => l.trim() !== '')
-      .map((l) => l.split(':')[0].trim());
-    expect(keys).toEqual(['date', 'topic', 'tags', 'source', 'job_id']);
+    // The heuristic itself is exported from the config module.
+    expect(matchEntrySubfolder('AI technology and the imago dei')).toBe('14-technology-ai-imago');
+    expect(matchEntrySubfolder('zzz nothing relevant zzz')).toBe(RESEARCH_ENTRY_FALLBACK_SUBFOLDER);
   });
 
-  it('issue-847-c4 (config isolation): an empty topic throws ResearchVaultWriteError and writes nothing', async () => {
+  it('issue-847-c4 (input validation): an empty topic throws ResearchVaultWriteError and writes nothing', async () => {
     await expect(
       writeResearchNoteToVault(
         { jobId: 'job-empty', topic: '   ', summary: '', findings: '', sources: [] },
         { vaultPath: vaultRoot },
       ),
     ).rejects.toBeInstanceOf(ResearchVaultWriteError);
-    expect(existsSync(path.join(vaultRoot, RESEARCH_VAULT_SUBDIR))).toBe(false);
+    expect(allEntryFiles()).toHaveLength(0);
+  });
+
+  it('issue-847-c6: structured findings produce one entry per source/finding; flat report produces one per job', async () => {
+    // Structured: two findings → two entries, each with its own source/author.
+    const structured = await writeResearchNoteToVault(
+      {
+        jobId: 'job-multi-1',
+        topic: 'Baptism in the early church',
+        summary: 'ignored in structured mode',
+        findings: 'ignored in structured mode',
+        sources: ['https://example.com/x'],
+        entries: [
+          {
+            title: 'Cyprian on baptismal unity',
+            note: 'Quote from Cyprian.',
+            source: 'On the Unity of the Church',
+            author: 'Cyprian',
+            page: '12',
+          },
+          {
+            title: 'Didache baptismal instructions',
+            note: 'Running water preferred.',
+            source: 'Didache 7',
+            author: '',
+          },
+        ],
+      },
+      { vaultPath: vaultRoot },
+    );
+    expect(structured.paths).toHaveLength(2);
+    const first = readFileSync(path.join(vaultRoot, structured.paths[0]), 'utf8');
+    expect(first).toContain('# Cyprian on baptismal unity');
+    expect(first).toContain('source: "On the Unity of the Church"');
+    expect(first).toContain('author: "Cyprian"');
+    expect(first).toContain('page: "12"');
+    expect(first).toContain('job_id: job-multi-1');
+    // Both entries share the job's topic and land under the baptism subfolder.
+    expect(structured.subfolders[0]).toBe('02-sacraments-baptism-eucharist');
+
+    // Flat: one entry per job (already covered in c1, assert the count here).
+    const before = allEntryFiles().length;
+    await writeResearchNoteToVault(
+      {
+        jobId: 'job-flat-1',
+        topic: 'Unstructured flat report job',
+        summary: 's',
+        findings: 'whole report',
+        sources: [],
+      },
+      { vaultPath: vaultRoot },
+    );
+    expect(allEntryFiles().length).toBe(before + 1);
   });
 });
 
@@ -289,7 +409,23 @@ describe('research-job completion hook (#847)', () => {
     vi.restoreAllMocks();
   });
 
-  it('issue-847-c5: AgentResearchController.updateStatus writes a vault note on status=done and still returns the job even if the vault write throws', async () => {
+  /** All `.md` entries under the hook vault's Entries root. */
+  function hookEntryFiles(): string[] {
+    const out: string[] = [];
+    const entriesAbs = path.join(hookVaultRoot, RESEARCH_ENTRIES_ROOT);
+    function walk(dir: string) {
+      if (!existsSync(dir)) return;
+      for (const d of readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, d.name);
+        if (d.isDirectory()) walk(full);
+        else if (d.name.endsWith('.md')) out.push(full);
+      }
+    }
+    walk(entriesAbs);
+    return out;
+  }
+
+  it('issue-847-c5: AgentResearchController.updateStatus writes a Research Database entry on status=done and still returns the job', async () => {
     seedJob('job-1', 'Best worship planning software');
 
     const doneRes = await fetch(`${baseUrl}/agent-research/job-1/status`, {
@@ -307,28 +443,34 @@ describe('research-job completion hook (#847)', () => {
     expect(updatedJob.status).toBe('done');
     expect(updatedJob.report).toContain('Final report line one.');
 
-    // The side effect: a vault note now exists under research/.
-    const researchDir = path.join(hookVaultRoot, RESEARCH_VAULT_SUBDIR);
-    expect(existsSync(researchDir)).toBe(true);
+    // The side effect: an entry now exists under the Entries root, with the
+    // load-bearing type: "entry" frontmatter.
+    const entries = hookEntryFiles();
+    expect(entries).toHaveLength(1);
+    const raw = readFileSync(entries[0], 'utf8');
+    expect(raw).toContain('type: "entry"');
+    expect(raw).toContain('job_id: job-1');
 
     // FALSIFICATION: if the hook fired on every status (not just 'done'), a
-    // second job left 'pending' would ALSO produce a note. It must not.
+    // second job left 'gathering' would ALSO produce an entry. It must not.
     seedJob('job-2', 'Unrelated pending-only job');
     await fetch(`${baseUrl}/agent-research/job-2/status`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ status: 'gathering', sources: ['https://example.com/b'] }),
     });
-    const { readdirSync } = await import('node:fs');
-    const notesAfterGathering = readdirSync(researchDir).filter((f) => f.endsWith('.md'));
-    expect(notesAfterGathering).toHaveLength(1); // still just the 'done' job's note
+    expect(hookEntryFiles()).toHaveLength(1); // still just the 'done' job's entry
   });
 
   it('issue-847-c5 (falsification): a vault-write failure does not fail the status-update response', async () => {
-    // Force the vault write to fail by making the research dir unwritable:
-    // pre-create a FILE at the path the write service needs as a directory.
-    const blockerPath = path.join(hookVaultRoot, RESEARCH_VAULT_SUBDIR);
-    writeFileSync(blockerPath, 'i am a file, not a dir', 'utf8');
+    // Force the vault write to fail by making the entries path unwritable:
+    // pre-create a FILE where the write service needs a directory.
+    mkdirSync(path.join(hookVaultRoot, 'Resources'), { recursive: true });
+    writeFileSync(
+      path.join(hookVaultRoot, 'Resources', 'theological-study'),
+      'i am a file, not a dir',
+      'utf8',
+    );
 
     seedJob('job-3', 'Job whose vault write will fail');
 
