@@ -1612,4 +1612,31 @@ export function runMigrations(db: Database.Database): void {
     CREATE INDEX IF NOT EXISTS idx_org_proposals_status ON agent_org_proposals(status);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_org_proposals_dedup ON agent_org_proposals(dedup_key);
   `);
+
+  // #818 (org-optimizer-02) — denied_tool_events: best-effort telemetry of
+  // dispatch-time tool denials from the #736/#812 MCP guard, so the org audit
+  // (org-optimizer-03) can read "profile X was denied tool Y N times" — the
+  // strongest signal for broaden-scope and create-agent proposals. Written by
+  // OpencodeStreamBridge.isToolAllowedForSession on the deny branch only
+  // (never by the pure isToolAllowed predicate itself). session_id and
+  // agent_config_id are both nullable: the logging seam always has a session
+  // row when it fires, but profile attribution is best-effort — resolved from
+  // the session row's mcp_role / agent_kind (both logical references to
+  // agent_configs.id), validated against a real agent_configs row, and left
+  // NULL when neither matches (legacy role slugs, placeholder kinds) or the
+  // lookup fails. SQLite-only: this table is
+  // intentionally absent from postgres_bootstrap.ts (local dispatch-guard
+  // telemetry never syncs to production). Aggregation (countByProfileAndTool)
+  // is a live GROUP BY query over this table, not a stored counter.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS denied_tool_events (
+      id TEXT PRIMARY KEY,
+      session_id TEXT,
+      agent_config_id TEXT,
+      tool_name TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_denied_tool_events_created_at ON denied_tool_events(created_at);
+    CREATE INDEX IF NOT EXISTS idx_denied_tool_events_agent_config_id ON denied_tool_events(agent_config_id);
+  `);
 }
