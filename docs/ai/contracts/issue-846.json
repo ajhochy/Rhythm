@@ -1,0 +1,41 @@
+{
+  "issue": 846,
+  "generated": "2026-07-02",
+  "criteria": [
+    {
+      "criterion_id": "issue-846-c1",
+      "text": "each recipe = a scheduled task definition (agentSchedulerService pattern) + a managed skill/prompt with clear inputs/outputs, running under the CORRECT scoped agent (worship-planning / secretary)",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/ministry_recipes_seed.test.ts",
+      "test_id": "issue-846-c1: seeds exactly 3 scheduled tasks, each bound to the correct agentConfigId (worship-planning for Sunday prep, secretary for volunteer follow-up + weekly review) and each references a managed skill of the same recipe slug in allowedSkillsJson",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-846-c2",
+      "text": "outputs land as vault notes in a `ministry/` folder (filename `YYYY-MM-DD-<recipe-slug>.md`) — drafts only, NO unapproved outbound messages or PCO writes",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/ministry_recipes_seed.test.ts",
+      "test_id": "issue-846-c2: every seeded skill body documents the ministry/YYYY-MM-DD-<slug>.md output path and explicitly states drafts-only / no send / no PCO write; volunteer-follow-up skill never references a send-message tool",
+      "status": "pass"
+    },
+    {
+      "criterion_id": "issue-846-c3",
+      "text": "recipes are seeded idempotently (boot backfill pattern like obsidian_scope_backfill / skill seeds — re-running never duplicates)",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/ministry_recipes_seed.test.ts",
+      "test_id": "issue-846-c3: calling seedMinistryRecipes() three times in a row yields exactly 3 scheduled tasks and 3 agent_skills rows total (falsifiable: removing the pre-existence guard reintroduces duplicates)",
+      "status": "pass",
+      "reason": "Falsified live: replacing `existingTasks.some(...)` with `false` reproduced 9 duplicated tasks instead of 3; guard restored and re-verified green."
+    },
+    {
+      "criterion_id": "issue-846-c4",
+      "text": "each recipe's skill body documents its steps so #823 can learn the shape",
+      "mode": "unit",
+      "test_file": "apps/api_server/src/__tests__/ministry_recipes_seed.test.ts",
+      "test_id": "issue-846-c4: each seeded skill body contains a Steps/Inputs/Outputs section and every rhythm_/pco_/obsidian_ tool token it names is a real MCP tool granted to its bound role",
+      "status": "pass"
+    }
+  ],
+  "stack": "typescript",
+  "not_tested": []
+}
