@@ -86,6 +86,97 @@ Per-branch verification gates all PASS (2026-07-02):
 
 ## Recent coding-agent runs
 
+### 2026-07-02 — #831 (org-optimizer-15: guards/smoke — FINAL org-optimizer epic track)
+
+- Files added:
+  - `apps/api_server/src/__tests__/issue_831_contract.test.ts` — code-level
+    (vitest) contract test, 24 tests / 1 skipped, covering: auto-path revert
+    (forced functional-guard regression restores `before_snapshot_json` +
+    `status='reverted'`), gate invariants (create-agent, grant-delegation,
+    expand-delegation, broaden-scope, webhook-wiring, external-adoption all
+    classify `'high'` via `classifyProposalRisk` and are refused by
+    `applyProposal` even when mislabeled `risk='low'`), the change-shape
+    override, a created agent's role-file MCP names ⊆ live (via
+    `validateCreateAgentChange`/`applyCreateAgentChange`), the note-required
+    approve gate (`requiresSecurityNote`/`hasSecurityNote`), and a
+    fail-injection proof (a locally-simulated regressed classifier — never
+    the real module, per the "do not edit org_risk_classifier.ts" ownership
+    boundary — demonstrates the exact assertion used elsewhere in this file
+    would go red).
+  - `tools/release/org_optimizer_guard_check.ts` — the Node/TypeScript
+    harness the shell smoke invokes via `tsx` (an existing api_server
+    devDependency), run directly against apps/api_server's TypeScript source
+    with an in-memory better-sqlite3 DB. Implements the same 4 sub-checks as
+    the vitest contract (auto-path-revert, gate-invariants, note-required-gate,
+    fail-injection) as a standalone process with `[PASS]`/`[FAIL]` output and
+    a real non-zero exit on any violation — this is what the shell smoke
+    actually runs.
+  - `tools/release/smoke_org_optimizer.sh` — CI-facing wrapper (locates
+    `tsx`, invokes the harness, fails loudly with `::error::` on non-zero).
+    **Deliberate deviation** from `smoke_mcp_alignment.sh`/`smoke_skill_alignment.sh`:
+    those two run against the ACTUAL BUILT/SIGNED opencode fork binary
+    because their invariant lives inside that binary's HTTP surface. #831's
+    safety model lives entirely in api_server's TypeScript service layer with
+    zero opencode-engine dependency, so this smoke takes no binary argument
+    and needs no signed build — it runs in any environment with the
+    api_server's `node_modules` present (including plain PR CI, not just the
+    macOS release pipeline).
+  - `docs/ai/contracts/issue-831.json` — 6 criteria: 5 automated (map to the
+    vitest file above), 1 `mode: manual` (issue-831-c5, "runs in CI against
+    the built binary" — reasoned as N/A per the deviation above; the portable
+    code-level equivalent is the enforceable part).
+- Files edited:
+  - `.github/workflows/server_ci.yml` — added `tools/release/smoke_org_optimizer.sh`
+    as a step after the existing `API smoke test` step (with
+    `working-directory: .` overriding the job's `apps/api_server` default,
+    since the smoke script is repo-root-relative), and added
+    `tools/release/smoke_org_optimizer.sh` / `tools/release/org_optimizer_guard_check.ts`
+    to the workflow's `paths:` trigger list so editing the smoke without
+    touching `apps/api_server/**` still runs CI.
+- Checks run:
+  - `npx vitest run issue_831_contract org_proposal org_risk_classifier` —
+    5 files / 70 tests pass, 1 skipped.
+  - `./node_modules/.bin/tsc --noEmit` — clean, 0 errors.
+  - `npm run build` — clean.
+  - `npx vitest run` (full suite) — 204 files / 1741 tests pass, 1 skipped (0
+    regressions vs the mega base's prior 203 files / 1717 tests — this run
+    adds exactly 1 file / 24 tests / 1 additional skip).
+  - `./tools/release/smoke_org_optimizer.sh` run standalone from repo root —
+    exit 0, all 4 sub-checks `[PASS]`.
+  - Falsification (real, not simulated): temporarily edited
+    `org_optimizer_guard_check.ts`'s `checkGateInvariants` to silently
+    `continue` past the `grant-delegation` classification check (simulating
+    a real guard blind spot), re-ran the smoke script — exit code 1,
+    `[FAIL] fail-injection — the broken classifier (grant-delegation
+    misclassified low-risk) was NOT detected — the gate-invariant check has a
+    blind spot`. Restored the file (diff-clean against backup) and re-ran —
+    exit 0 again, all `[PASS]`.
+- Decisions made: wired the smoke into `server_ci.yml` (the lightweight,
+  every-PR workflow) rather than `desktop_release.yml` (the macOS
+  build-and-notarize pipeline `smoke_mcp_alignment.sh`/`smoke_skill_alignment.sh`
+  live in), because this smoke has no dependency on the signed opencode
+  binary and gates PRs far earlier/cheaper than a full release build would.
+  `desktop_release.yml` was left untouched per the issue's "OR extend
+  smoke_mcp_alignment.sh" alternative not applying here — the two invariant
+  sets are orthogonal (opencode engine surface vs. api_server safety
+  service layer) and forcing them into one script/binary dependency would
+  have made the guard less portable, not more.
+- Deviations from spec: the issue's acceptance criterion "runs in CI against
+  the built binary" is interpreted as N/A for this specific safety model
+  (which has no built-binary dependency) rather than force-fit onto the
+  opencode binary smoke pattern; recorded as `mode: manual` in the contract
+  with the code-level test as the enforceable, portable substitute. No other
+  deviations — did not touch any generator, `org_proposal_apply*.ts`,
+  `org_audit_service.ts`, `migrations.ts`, or `mcp_dispatch_guard.ts` per the
+  issue's explicit ownership boundary.
+- Concerns: `org_optimizer_guard_check.ts` imports directly from
+  `apps/api_server/src/...` via relative path and is executed by `tsx`
+  outside that package's own `tsconfig.json`/build — this works today (tsx
+  transpiles per-file, ignoring project references) but means a future
+  `tsconfig.json` path-mapping change in api_server would not automatically
+  propagate to this harness; low risk, no action needed unless api_server's
+  module resolution strategy changes materially.
+
 ### 2026-07-02 — #830 (org-optimizer-14: seeded optimizer cron + wire all six generator appliers, KEYSTONE)
 
 - Files added:
