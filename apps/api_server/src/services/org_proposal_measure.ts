@@ -82,18 +82,26 @@ export interface MeasureDeps extends ApplyDeps {
   /**
    * Resolve the set of tool/server names ACTUALLY exercised by the target
    * profile in the trailing window — the functional guard for
-   * tighten-scope/prune-scope. Defaults to the real denied/used-tool
-   * telemetry (best-effort; a real implementation would join
-   * agent_sessions/tool-use telemetry). Tests inject a deterministic set.
+   * tighten-scope/prune-scope. Defaults to the REAL resolver
+   * (#830 — {@link resolveExercisedTools}), which derives usage from
+   * tool-call parts persisted on sessions run under the profile's scheduled
+   * tasks (see that module's doc for the exact signal and its documented
+   * approximation). Tests inject a deterministic set to keep assertions
+   * independent of the real DB-backed signal.
    */
   exercisedTools?: (agentConfigId: string) => Promise<Set<string>>;
   /** Injectable purpose-anchored scorer (defaults to skill_refiner.scoreSkillBody's real impl). */
   scoreSkillBody?: ScoreCall;
 }
 
-/** Best-effort default: no telemetry wired yet, so nothing is presumed exercised. */
-async function defaultExercisedTools(_agentConfigId: string): Promise<Set<string>> {
-  return new Set<string>();
+/**
+ * #830 — real default: derive exercised tools from the org_exercised_tools_resolver
+ * (session tool-call-part telemetry), closing the #821 prune-guard stub that
+ * previously always returned an empty set here.
+ */
+async function defaultExercisedTools(agentConfigId: string): Promise<Set<string>> {
+  const { resolveExercisedTools } = await import('./org_exercised_tools_resolver');
+  return resolveExercisedTools(agentConfigId);
 }
 
 /**

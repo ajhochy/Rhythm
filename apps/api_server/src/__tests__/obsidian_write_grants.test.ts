@@ -116,13 +116,17 @@ describe('issue-834: obsidian write grant is opt-in to secretary + worship-plann
       .readdirSync(ROLES_DIR)
       .filter((f) => f.endsWith('.mcp.json'));
 
-    // The issue text says "14" role files; the repo currently has 13
+    // The issue text says "14" role files; the repo had 13 at #834 time
     // (church-admin, daily-briefing, dev, email-assistant, fantasy-gm, ffb,
     // graphic-designer, librarian, research, secretary, theologian,
-    // worship-planning, worship-production). This issue only edits two
-    // existing files' obsidian tool lists — it must never add or remove a
-    // role file, so pin the count rather than accept "at least 14".
-    expect(files.length).toBe(13);
+    // worship-planning, worship-production). #834 itself only edited two
+    // existing files' obsidian tool lists — it never added or removed a role
+    // file. #830 (org-optimizer-14) later added exactly two new role files
+    // (org-optimizer.mcp.json, org-external-discovery.mcp.json), bringing the
+    // count to 15 — an intentional, expected addition for that issue, not a
+    // #834 regression. Pin the count so an UNEXPECTED add/remove is still
+    // caught.
+    expect(files.length).toBe(15);
 
     const readSet = new Set(OBSIDIAN_READ_TOOLS);
 

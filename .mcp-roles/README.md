@@ -23,6 +23,8 @@ automatically at runtime — they are documentation + a config template for the
 | `church-admin` | `church-admin.mcp.json` | Full PCO + Rhythm write access |
 | `ffb` | `ffb.mcp.json` | Fantasy football — NFL MCP only |
 | `dev` | `dev.mcp.json` | Development — all Rhythm tools |
+| `org-optimizer` | `org-optimizer.mcp.json` | Org Self-Optimizer (#830) — read-audit + write-proposals only; no config/delegation/webhook write tools |
+| `org-external-discovery` | `org-external-discovery.mcp.json` | Org Self-Optimizer's weekly external-discovery pass (#830) — mcp-registry + deep-research only, queue-only external-adoption proposals |
 
 ## Adding a new role
 

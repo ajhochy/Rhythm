@@ -25,6 +25,11 @@ Pre-existing: #832 (org-optimizer plan docs), #835 (local MCP sidecar, draft).
   branch `mega-844-model-routing` (based on `codex/mega-2026-07-02`). No PR
   opened per dispatch instructions — pushed branch only, awaiting mega-branch
   integration.
+- #830 (org-optimizer-14, KEYSTONE) — seeded optimizer cron + wired all six
+  generator appliers + real exercised-tools resolver, branch
+  `mega-830-optimizer-cron` (based on `codex/mega-2026-07-02`). No PR opened
+  per dispatch instructions — pushed branch only, awaiting mega-branch
+  integration.
 
 ## In progress
 
@@ -80,6 +85,103 @@ Per-branch verification gates all PASS (2026-07-02):
    rollback policy (see decisions/2026-07-02-autonomy-and-vault-intent.md).
 
 ## Recent coding-agent runs
+
+### 2026-07-02 — #830 (org-optimizer-14: seeded optimizer cron + wire all six generator appliers, KEYSTONE)
+
+- Files added:
+  - `apps/api_server/src/services/org_optimizer_seed.ts` — `seedOrgOptimizerTask()`,
+    name-guarded (mirrors `agentMemoryService.seedConsolidationTask()`) for
+    both a daily "Org Self-Optimizer" task and a weekly "Org External
+    Discovery" task. Each task's bound `agent_configs` row is created
+    idempotently (keyed by the role file's own hardcoded `agentConfigId`) the
+    first time the seed runs — unlike `ministry_recipes_seed.ts`'s
+    pre-existing human-created profiles, the org-optimizer profiles do not
+    exist until this seed creates them. Never throws; a missing/malformed
+    role file skips only that task for the pass (retried next boot).
+  - `apps/api_server/src/services/org_proposal_appliers_wiring.ts` —
+    `registerAllProposalAppliers()`, the single place that imports all six
+    generators and calls their `register*Applier` functions with REAL
+    production deps (curated-MCP install via `opencodeClient.ensureCuratedMcps`,
+    skill-create via `AgentSkillsRepository` + `writeManagedSkill`, alignment
+    via `opencodeClient.listMcp()`/`listSkills()` + `alignMcpName`, delegation
+    via a real `AgentConfigsRepository`). Also registers three STRUCTURAL
+    re-validators (`grant-delegation`/`expand-delegation`, `webhook-wiring`,
+    `external-adoption`) that were missing from the shared registry —
+    `org_proposal_apply_service.ts`'s built-in validators for those kinds are
+    module-private (not exported), so a fresh/reset registry (or this
+    module's own self-sufficiency contract) needs its own equivalent shape
+    checks; the FULL eligibility re-check for delegation still lives inside
+    that generator's own applier (defense-in-depth, not a duplicated source
+    of truth).
+  - `apps/api_server/src/services/org_exercised_tools_resolver.ts` — closes
+    the #821 prune-guard stub. `resolveExercisedTools(agentConfigId)` derives
+    "tools actually exercised" from `agent_session_messages.parts_json` tool
+    parts, joined via `agent_sessions.scheduled_task_id -> agent_scheduled_tasks
+    .agent_config_id`. **Documented approximation:** there is no dedicated
+    successful-tool-invocation event log (`denied_tool_events` is DENY-path
+    only); this resolver only sees SCHEDULED-task session activity, not
+    interactive sessions run under the same `mcp_role` slug without a
+    scheduled-task FK — a conservative under-approximation that can only make
+    the functional guard MORE willing to keep a prune, never less safe.
+  - `.mcp-roles/org-optimizer.mcp.json`, `.mcp-roles/org-external-discovery.mcp.json`
+    (new role files — read-audit + write-proposals only; the optimizer role
+    grants zero config/delegation/webhook write tools).
+  - `apps/api_server/src/__tests__/issue_830_contract.test.ts` (9 contract
+    tests), `docs/ai/contracts/issue-830.json` (new).
+- Files edited:
+  - `apps/api_server/src/server.ts` — boot block now calls
+    `registerAllProposalAppliers()` then `seedOrgOptimizerTask()` (wiring
+    before seeding, so an immediately-firing scheduled run never sees an
+    unregistered proposal kind). Both non-fatal.
+  - `apps/api_server/src/services/org_proposal_measure.ts` — `defaultExercisedTools`
+    now calls the real `resolveExercisedTools` instead of always returning an
+    empty set. This is the ONLY change to that file (call-site injection, not
+    generator/control-flow edits).
+  - `apps/api_server/src/__tests__/obsidian_write_grants.test.ts` — updated
+    the #834 role-file-count pin from 13 to 15 (two new role files from #830
+    is an intentional, expected addition for THIS issue, not a #834
+    regression).
+  - `.mcp-roles/README.md` — documented the two new roles in the table.
+- Checks run:
+  - `npx vitest run issue_830_contract` — 9/9 pass.
+  - `npx vitest run org_optimizer_seed proposal_appliers org_proposal org_audit`
+    — 44/44 pass.
+  - `./node_modules/.bin/tsc --noEmit` — clean, 0 errors.
+  - `npm run build` — clean.
+  - `npx vitest run` (full suite) — 203 files / 1717 tests, all pass (0
+    regressions vs the mega base after the #834 count-pin update above).
+  - Both new role files verified as valid JSON via direct `JSON.parse` +
+    the contract test's names-⊆-live-set check.
+  - Falsification: temporarily forced the audit task's name-guard condition
+    (`existingTasks.some(...)`) to `false`; issue-830-c1 failed as expected
+    (`expected 2 to be 1`, a duplicate "Org Self-Optimizer" task was
+    inserted); reverted, 9/9 green again.
+- Decisions made: `scope_hygiene_generator` (#822) and `recipe_generator`
+  (#823) register NOTHING in the wiring module — their low-risk kinds already
+  flow through the direct `proposed -> applied` auto-apply lane (no
+  human-gate registration needed); `create-recipe` (high-risk) has no
+  dedicated apply step yet beyond the default no-op — flagged as a gap for a
+  future issue, not fabricated here without a generator-side apply function
+  to call.
+- Deviations from spec: none from the issue's acceptance criteria as
+  written. One integration gap discovered and closed beyond the literal issue
+  text: `grant-delegation`/`expand-delegation`/`webhook-wiring`/`external-adoption`
+  had no validator reachable from a registry that starts empty (their
+  built-in validators in `org_proposal_apply_service.ts` are module-private),
+  which would have made `applyProposal` fail-closed-refuse every one of them
+  with "No re-validation is registered" — closed with three structural
+  shape-check validators registered alongside each applier.
+- Risks: the exercised-tools resolver's interactive-session gap (documented
+  above) means a profile used ONLY interactively (never via a scheduled task)
+  will show zero exercised tools even if heavily used — safe-direction only,
+  but worth a future enhancement (a real `agent_config_id` column on
+  `agent_sessions` resolved from `mcp_role` at create time). The org
+  optimizer's actual LLM-driven run loop (build snapshot -> run generators ->
+  write proposals) is NOT implemented by this issue — the seeded prompt
+  documents the intended behavior, but there is no MCP-tool-exposed way yet
+  for the seeded agent to actually invoke `buildOrgAuditSnapshot`/the
+  generators; that orchestration is out of #830's ownership scope (seed +
+  wiring only) and is the natural next issue.
 
 ### 2026-07-02 — #820 + #821 (org-optimizer-04/05: risk predicate + auto-apply)
 

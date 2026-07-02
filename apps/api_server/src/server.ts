@@ -177,6 +177,33 @@ async function main() {
       logger.warn(`[server] ministry recipes seed failed (non-fatal): ${String(err)}`);
     }
 
+    // #830 — Wire all six org-optimizer generators' apply steps into the
+    // shared org_proposal_apply_service registry ONCE at startup, then seed
+    // the "Org Self-Optimizer" (daily) + "Org External Discovery" (weekly)
+    // scheduled tasks. Wiring runs BEFORE seeding so a scheduled run that
+    // fires immediately after boot never sees an unregistered proposal kind.
+    // Non-fatal — a failure in either step must never block startup.
+    try {
+      const { registerAllProposalAppliers } = await import(
+        './services/org_proposal_appliers_wiring'
+      );
+      registerAllProposalAppliers();
+    } catch (err) {
+      logger.warn(`[server] org-optimizer applier wiring failed (non-fatal): ${String(err)}`);
+    }
+    try {
+      const { seedOrgOptimizerTask } = await import('./services/org_optimizer_seed');
+      const r = await seedOrgOptimizerTask();
+      logger.info(
+        `[server] org-optimizer seed: auditTaskSeeded=${r.auditTaskSeeded}` +
+          `${r.auditTaskSkippedReason ? ` (${r.auditTaskSkippedReason})` : ''} ` +
+          `externalTaskSeeded=${r.externalTaskSeeded}` +
+          `${r.externalTaskSkippedReason ? ` (${r.externalTaskSkippedReason})` : ''}`,
+      );
+    } catch (err) {
+      logger.warn(`[server] org-optimizer seed failed (non-fatal): ${String(err)}`);
+    }
+
     // #794 + #795 — Crash recovery for the auto-apply self-improvement loop. A
     // revision applied before a crash leaves its sidecar row at
     // `status='measuring'`; if the process died before the measure step ran,
