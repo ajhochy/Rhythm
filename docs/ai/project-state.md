@@ -62,6 +62,14 @@ PR #812.
 
 ## Recent coding-agent runs
 
+### 2026-07-02 — issue #834: obsidian write grant for secretary + worship-planning
+- Opt-in obsidian write tools (mirroring librarian.mcp.json) added to
+  `.mcp-roles/secretary.mcp.json` and `.mcp-roles/worship-planning.mcp.json`
+  only; role file is the sole restrictor, no advertise-layer change needed.
+  Full detail: `docs/ai/runs/2026-07-02-issue-834-obsidian-write-grant.md`.
+  Contract: `docs/ai/contracts/issue-834.json` (3/3 pass). Branch:
+  `issue-834-obsidian-write-designated` (not yet merged / no PR opened).
+
 ### 2026-06-28 — feat(agents): grant obsidian read/search to all selectable agents
 - Selectable+roled set (mode:primary opencode agent + a `.mcp-roles/<slug>.mcp.json`):
   email-assistant, fantasy-gm, graphic-designer, secretary, worship-planning,
